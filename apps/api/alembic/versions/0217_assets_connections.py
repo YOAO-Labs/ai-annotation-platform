@@ -1,7 +1,7 @@
 """Add the Assets storage-connection native boundary and immutable receipts.
 
-Revision ID: 0217
-Revises: 0216
+Revision ID: bo0217
+Revises: bo0216
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0217"
-down_revision = "0216"
+revision = "bo0217"
+down_revision = "bo0216"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

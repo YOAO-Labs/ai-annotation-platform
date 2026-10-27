@@ -15,7 +15,10 @@ from types import SimpleNamespace
 
 from sqlalchemy import (
     delete,
+    func,
     inspect as sa_inspect,
+    or_,
+    select,
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +30,7 @@ from sqlalchemy.orm.bulk_persistence import (
 from sqlalchemy.orm import make_transient_to_detached
 
 from app.config import settings
+from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from aap_notifications.preferences import NotificationPreferenceManager
@@ -62,8 +66,28 @@ from app.services.notification_publication import publish_notification_request
 log = logging.getLogger(__name__)
 
 
+_PRIVATE_MIGRATION_JOB_KINDS = frozenset(
+    {"storage_migration_inventory", "storage_migration_copy"}
+)
+
+
 def _notification_project_id(row: Notification) -> uuid.UUID | None:
     return notification_project_id(row)
+
+
+def _without_migration_inventory():
+    """In-memory mirror of the scoped owner SQL that hides private storage work."""
+    job_kind = (
+        select(AsyncJob.kind)
+        .where(AsyncJob.id == Notification.target_id)
+        .correlate(Notification)
+        .scalar_subquery()
+    )
+    effective_kind = func.coalesce(job_kind, Notification.payload["kind"].astext, "")
+    return or_(
+        Notification.target_type != "async_job",
+        effective_kind.not_in(_PRIVATE_MIGRATION_JOB_KINDS),
+    )
 
 
 class NotificationService:
@@ -261,32 +285,32 @@ class NotificationService:
             await self.publish_committed(out)
         return out
 
+    def _delivery_policy(self) -> NotificationDeliveryReadPolicy:
+        return NotificationDeliveryReadPolicy(
+            NotificationDeliveryReadPostgresData(self.db, Notification)
+        )
+
     async def _resolve_delivery_scopes(
         self, rows: list[Notification]
     ) -> list[tuple[bool, uuid.UUID | None, bool]]:
-        return await NotificationDeliveryReadPolicy(
-            NotificationDeliveryReadPostgresData(self.db, Notification)
-        ).resolve_scopes(rows)
+        return await self._delivery_policy().resolve_scopes(rows)
 
     async def _allowed_delivery_indices(
         self,
         rows: list[Notification],
         scopes: list[tuple[bool, uuid.UUID | None, bool]],
     ) -> set[int]:
-        return await NotificationDeliveryReadPolicy(
-            NotificationDeliveryReadPostgresData(self.db, Notification)
-        ).allowed_indices(rows, scopes)
+        return await self._delivery_policy().allowed_indices(rows, scopes)
 
     async def _publication_authorizations(self, rows, scopes):
-        return await NotificationDeliveryReadPolicy(
-            NotificationDeliveryReadPostgresData(self.db, Notification)
-        ).authorization_facts(rows, scopes)
+        return await self._delivery_policy().authorization_facts(rows, scopes)
 
     def _publication_manager(self) -> NotificationPublicationManager:
+        policy = self._delivery_policy()
         data = SimpleNamespace(
             notification_by_id=self.notification_by_id,
-            resolve_scopes=self._resolve_delivery_scopes,
-            authorization_facts=self._publication_authorizations,
+            resolve_scopes=policy.resolve_scopes,
+            authorization_facts=policy.authorization_facts,
         )
 
         async def transport(request):
@@ -295,7 +319,11 @@ class NotificationService:
         return NotificationPublicationManager(data, transport, logger=log)
 
     async def notification_deliverable(
-        self, notification_id: uuid.UUID, user_id: uuid.UUID
+        self,
+        notification_id: uuid.UUID,
+        user_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
     ) -> bool:
         """Whether an already-stored row may still be pushed to ``user_id``.
 
@@ -308,8 +336,22 @@ class NotificationService:
         if row is None or row.user_id != user_id:
             return False
         try:
-            scopes = await self._resolve_delivery_scopes([row])
-            allowed = await self._allowed_delivery_indices([row], scopes)
+            if not include_migration_inventory and row.target_type == "async_job":
+                kind = await self.db.scalar(
+                    select(AsyncJob.kind).where(AsyncJob.id == row.target_id)
+                )
+                if (
+                    kind
+                    or (
+                        row.payload.get("kind")
+                        if isinstance(row.payload, dict)
+                        else None
+                    )
+                ) in {"storage_migration_inventory", "storage_migration_copy"}:
+                    return False
+            policy = self._delivery_policy()
+            scopes = await policy.resolve_scopes([row])
+            allowed = await policy.allowed_indices([row], scopes)
         except Exception:
             log.exception(
                 "notification delivery recheck failed notification=%s", notification_id
@@ -358,11 +400,16 @@ class NotificationService:
         unread_only: bool = False,
         limit: int = 30,
         offset: int = 0,
+        include_migration_inventory: bool = True,
     ) -> tuple[list[Notification], int, int]:
         user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return [], 0, 0
-        inbox = NotificationInboxQueryPostgresData(self.db, Notification)
+        inbox = NotificationInboxQueryPostgresData(
+            self.db,
+            Notification,
+            include_migration_inventory=include_migration_inventory,
+        )
         items = await inbox.page(
             user.id,
             user.role,
@@ -374,31 +421,64 @@ class NotificationService:
         unread = await inbox.unread_count(user.id, user.role)
         return items, total, unread
 
-    async def unread_count(self, user_id: uuid.UUID) -> int:
+    async def unread_count(
+        self,
+        user_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
+    ) -> int:
         user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return 0
-        inbox = NotificationInboxQueryPostgresData(self.db, Notification)
+        inbox = NotificationInboxQueryPostgresData(
+            self.db,
+            Notification,
+            include_migration_inventory=include_migration_inventory,
+        )
         return await inbox.unread_count(user.id, user.role)
 
-    async def mark_read(self, user_id: uuid.UUID, notification_id: uuid.UUID) -> bool:
+    async def mark_read(
+        self,
+        user_id: uuid.UUID,
+        notification_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
+    ) -> bool:
         """Mark one row read. The handler publishes ``reason=read`` after commit."""
         read_at = datetime.now(timezone.utc)
         result = await NotificationReadStateManager(
-            NotificationReadStatePostgresData(self.db)
+            NotificationReadStatePostgresData(
+                self.db,
+                include_migration_inventory=include_migration_inventory,
+            )
         ).mark_read(user_id, notification_id, read_at)
         self._synchronize_read_state_identity(
-            user_id, read_at, notification_id=notification_id
+            user_id,
+            read_at,
+            notification_id=notification_id,
+            include_migration_inventory=include_migration_inventory,
         )
         return result.updated
 
-    async def mark_all_read(self, user_id: uuid.UUID) -> int:
+    async def mark_all_read(
+        self,
+        user_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
+    ) -> int:
         """Mark all rows read. The handler publishes ``reason=read`` after commit."""
         read_at = datetime.now(timezone.utc)
         result = await NotificationReadStateManager(
-            NotificationReadStatePostgresData(self.db)
+            NotificationReadStatePostgresData(
+                self.db,
+                include_migration_inventory=include_migration_inventory,
+            )
         ).mark_all_read(user_id, read_at)
-        self._synchronize_read_state_identity(user_id, read_at)
+        self._synchronize_read_state_identity(
+            user_id,
+            read_at,
+            include_migration_inventory=include_migration_inventory,
+        )
         return result.updated
 
     def _synchronize_read_state_identity(
@@ -407,6 +487,7 @@ class NotificationService:
         read_at: datetime,
         *,
         notification_id: uuid.UUID | None = None,
+        include_migration_inventory: bool = True,
     ) -> None:
         """Mirror SQLAlchemy's evaluate synchronization after the owner UPDATE.
 
@@ -421,6 +502,8 @@ class NotificationService:
         criteria.extend(
             [Notification.user_id == user_id, Notification.read_at.is_(None)]
         )
+        if not include_migration_inventory:
+            criteria.append(_without_migration_inventory())
         statement = update(Notification).where(*criteria).values(read_at=read_at)
         mapper = sa_inspect(Notification)
         # shortcut: Uses pinned SQLAlchemy cache hooks; rebaseline on upgrades.
@@ -445,21 +528,44 @@ class NotificationService:
         BulkORMUpdate._do_post_synchronize_evaluate(session, statement, result, options)
 
     async def delete_for_user(
-        self, user_id: uuid.UUID, notification_id: uuid.UUID
+        self,
+        user_id: uuid.UUID,
+        notification_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
     ) -> bool:
         """Delete one row. The handler publishes ``reason=deleted`` after commit."""
         result = await NotificationDeleteManager(
-            NotificationDeletePostgresData(self.db)
+            NotificationDeletePostgresData(
+                self.db,
+                include_migration_inventory=include_migration_inventory,
+            )
         ).delete_for_user(user_id, notification_id)
-        self._synchronize_delete_identity(user_id, notification_id=notification_id)
+        self._synchronize_delete_identity(
+            user_id,
+            notification_id=notification_id,
+            include_migration_inventory=include_migration_inventory,
+        )
         return result.deleted
 
-    async def clear_read(self, user_id: uuid.UUID) -> int:
+    async def clear_read(
+        self,
+        user_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
+    ) -> int:
         """Delete all read rows. The handler publishes ``reason=deleted`` after commit."""
         result = await NotificationDeleteManager(
-            NotificationDeletePostgresData(self.db)
+            NotificationDeletePostgresData(
+                self.db,
+                include_migration_inventory=include_migration_inventory,
+            )
         ).clear_read(user_id)
-        self._synchronize_delete_identity(user_id, clear_read=True)
+        self._synchronize_delete_identity(
+            user_id,
+            clear_read=True,
+            include_migration_inventory=include_migration_inventory,
+        )
         return result.deleted
 
     def _synchronize_delete_identity(
@@ -468,6 +574,7 @@ class NotificationService:
         *,
         notification_id: uuid.UUID | None = None,
         clear_read: bool = False,
+        include_migration_inventory: bool = True,
     ) -> None:
         """Mirror SQLAlchemy's post-evaluate DELETE identity synchronization."""
         if clear_read:
@@ -482,6 +589,8 @@ class NotificationService:
             ]
         else:
             raise ValueError("delete cache synchronization needs an operation")
+        if not include_migration_inventory:
+            criteria.append(_without_migration_inventory())
 
         # This ORM statement is only the pinned identity-map evaluator input;
         # the actual DELETE already ran through the Notifications owner.

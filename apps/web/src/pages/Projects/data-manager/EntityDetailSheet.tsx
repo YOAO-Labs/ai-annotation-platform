@@ -1,3 +1,5 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -76,6 +78,10 @@ export function EntityDetailSheet({
     );
   };
 
+  const membersPagination = useListPagination(
+    trackQ.data?.members ?? [],
+    `${projectId}:${selected}`,
+  );
   return (
     <Sheet open={Boolean(selected)} onOpenChange={onOpenChange}>
       <SheetContent className={scope === "tracks" ? "sm:max-w-2xl" : "sm:max-w-xl"}>
@@ -190,7 +196,7 @@ export function EntityDetailSheet({
               <div>
                 <h3 className="mb-2 text-sm font-medium">可见成员</h3>
                 <div className="flex flex-col gap-1">
-                  {trackQ.data?.members.map((member, index) => (
+                  {membersPagination.items.map((member, index) => (
                     <button
                       key={`${member.annotation_id}-${member.frame_index ?? index}`}
                       type="button"
@@ -216,6 +222,15 @@ export function EntityDetailSheet({
                     </button>
                   ))}
                 </div>
+                <ListPagination
+                  label="轨迹成员"
+                  page={membersPagination.page}
+                  pageSize={membersPagination.pageSize}
+                  total={membersPagination.total}
+                  loading={trackQ.isFetching}
+                  onPageChange={membersPagination.setPage}
+                  onPageSizeChange={membersPagination.setPageSize}
+                />
               </div>
             </div>
           )}

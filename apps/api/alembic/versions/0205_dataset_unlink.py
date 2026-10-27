@@ -1,7 +1,7 @@
 """Coordinate dataset unlink through owner capabilities and immutable receipts.
 
-Revision ID: 0205
-Revises: 0204
+Revision ID: bo0205
+Revises: bo0204
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0205"
-down_revision = "0204"
+revision = "bo0205"
+down_revision = "bo0204"
 branch_labels = depends_on = None
 
 

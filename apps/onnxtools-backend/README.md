@@ -62,6 +62,7 @@ docker run --rm --gpus '"device=0"' --entrypoint python3 \
   -e VALIDATION_IMAGE_ID="$(docker image inspect \
     ai-annotation-platform-onnxtools-backend:latest --format '{{.Id}}')" \
   -v "$PWD/apps/onnxtools-backend/models:/app/models:ro" \
+  --mount "type=bind,src=$PWD/data/inference-auth/onnxtools,dst=/run/aap-inference-auth,readonly" \
   -v "$VALIDATION_IMAGE_PATH:/validation/vehicle.jpg:ro" \
   ai-annotation-platform-onnxtools-backend:latest \
   /app/scripts/validate_managed_lifecycle.py \
@@ -69,6 +70,8 @@ docker run --rm --gpus '"device=0"' --entrypoint python3 \
 jq -e '.passed == true and .runtime_ephemera_clean == true' \
   "$EVIDENCE_DIR/onnxtools-managed-lifecycle.json"
 ```
+
+运行前先由平台初始化内置服务默认凭据。独立验收容器只读挂载 ONNXTools 自己的凭据目录；缺少或损坏的凭据会明确拒绝验证。已有手动认证的部署可显式传入相同的 `AAP_BACKEND_AUTH_TOKEN`，脚本不会生成临时绕过凭据。
 
 代表图必须让 `vehicle-attr` 复合管道实际产生检测与分类结果。验收器会执行两轮三句柄/四 session 加载与受签全池卸载，拒绝任一 session 退回 CPU，并要求每轮卸载后显存稳定、回收至上下文基线且至少回收 90% 的模型工作集。严格证据只保留路径无关的制品指纹、物理 GPU 身份、显存样本与最终 residency；仅在 `passed=true` 并完成复核后，才能在目标部署中把 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 设为 `1`。
 

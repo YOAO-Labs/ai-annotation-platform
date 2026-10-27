@@ -7,7 +7,7 @@ last_reviewed: 2026-10-21
 
 # ML Backend 注册（全局注册表）
 
-ML Backend 是平台对接外部推理服务的契约层。注册表是**全局**的：一个物理 backend（一行 `ml_backends` 记录，URL 全局唯一）只注册一次，所有项目共享同一条记录。项目侧不再各自注册 backend，而是从全局注册表里**勾选启用**（详见 [启用 ML 后端](../projects/ml-backends)）。
+ML Backend 是平台调用的推理服务。注册表是**全局**的：一个物理 backend 对应一行 `ml_backend_registry` 记录，同一 URL 只注册一次，所有项目共享该记录。项目侧从全局注册表里**勾选启用**，详见 [启用 ML 后端](../projects/ml-backends)。模型权重、服务实例和服务池的区别，以及 Token 的基本用途，见[模型服务接入、路由与认证](../../dev/concepts/ml-backend-routing-and-auth)。
 
 ## 入口
 
@@ -18,17 +18,18 @@ ML Backend 是平台对接外部推理服务的契约层。注册表是**全局*
 
 ![注册表单全貌含 max_concurrency/extra_params](../images/superadmin/ml-backend/register-form.png)
 
-| 字段         | 含义                                     | 约束                                                                                                             |
-| ------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 名称         | 显示名                                   | 无全局唯一性约束（`ml_backends` 表无 UNIQUE 索引）                                                               |
-| URL          | Backend HTTP 入口                        | **全局唯一**（同一 URL 只能注册一次）；**不能填 loopback**（详见下）                                             |
-| 交互式       | 是否支持工作台一键推理                   | 布尔开关，默认关                                                                                                 |
-| API Key      | 可选，header `Authorization: Bearer ...` | —                                                                                                                |
-| GPU 物理资源 | 稳定 `gpu_resource_id`                   | 从运维显式配置的逐卡资源中选择；留空不等于已确认 CPU                                                             |
-| 显存预算     | `vram_budget_mb`                         | 与 GPU 资源成对填写，正整数 MiB，不得超过该卡 `allocatable_mb`                                                   |
-| 驱逐优先级   | `eviction_priority`                      | 数值越大越难被驱逐，可为负数，不是请求队列优先级                                                                 |
-| 最大并发     | `max_concurrency`                        | 1–32；始终作为单进程 / 事件循环的本地背压；`ML_BACKEND_ROUTER_MODE=enforce` 时还作为持久路由准入的跨进程实例上限 |
-| 额外参数     | JSON 扩展字段                            | 不得与上述强类型字段冲突                                                                                         |
+| 字段         | 含义                         | 约束                                                                                                                       |
+| ------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 名称         | 显示名                       | 名称无全局唯一性约束，同名服务仍由实例 ID 和 URL 区分；`ml_backends` 表无 UNIQUE 索引                                      |
+| URL          | Backend HTTP 入口            | **全局唯一**（同一 URL 只能注册一次）；**不能填 loopback**（详见下）                                                       |
+| 交互能力     | 是否支持工作台交互式推理     | 健康检查时从 `/setup` 自动探测，无需手填                                                                                   |
+| 认证方式     | 系统托管、手动 Token 或 None | 内置可信地址默认使用对应的系统托管方式；None 不发送凭据                                                                    |
+| 手动 Token   | 调用该服务的访问凭据         | 与服务端配置一致；编辑留空保留原值，首次设置或从系统托管切回手动时必须填写                                                 |
+| GPU 物理资源 | 稳定 `gpu_resource_id`       | 从运维显式配置的逐卡资源中选择；留空不等于已确认 CPU                                                                       |
+| 显存预算     | `vram_budget_mb`             | 与 GPU 资源成对填写，正整数 MiB，不得超过该卡 `allocatable_mb`                                                             |
+| 驱逐优先级   | `eviction_priority`          | 数值越大越难被驱逐，可为负数，不是请求队列优先级                                                                           |
+| 最大并发     | `max_concurrency`            | 1 至 32；始终作为单进程 / 事件循环的本地背压；`ML_BACKEND_ROUTER_MODE=enforce` 时还作为 Redis route lease 的跨进程实例上限 |
+| 额外参数     | JSON 扩展字段                | 不得与上述强类型字段冲突                                                                                                   |
 
 > **已删除的虚构字段**：`type`（类型选择器）、默认 prompt、默认阈值均**不是**注册表单的真实字段。backend 类型由 backend 自身通过 `/setup` 声明，不在注册时指定。`max_concurrency` 由表单单独填写后保存到 `extra_params` JSONB；其他扩展参数仍在高级 JSON 中编辑。
 
@@ -53,13 +54,25 @@ ML Backend 是平台对接外部推理服务的契约层。注册表是**全局*
 
 dev 环境 placeholder 已默认填 `172.17.0.1:8001`。
 
+## 认证方式与凭据
+
+编辑已有实例时，可直接切换认证方式或更换 Token，包括已经受 GPU 管理的实例，无需先退役。认证属于全局实例，保存后所有引用它的项目共用新凭据；请与服务端配置保持一致。平台会清除该实例原有的健康结果，执行健康检查通过后再使用。URL、GPU 资源、显存预算、驱逐优先级与运行参数的变更仍受 GPU 退役保护。
+
+五个内置推理服务（Grounded SAM 2、SAM 3、YOLO、ONNXTools、RapidOCR）默认使用各自独立的系统托管凭据。注册内置地址时表单默认选择对应的系统托管方式；保存会生成或复用私有凭据，并验证部署指定的服务身份。无需复制令牌或修改 `.env`。超管也可进入「设置 → 系统设置 → ML 服务认证与维护」，为单个或全部服务初始化并同步已有的无认证实例；已有手动 Token 不会被自动覆盖，未注册服务不会因此自动注册或在项目中启用。
+
+旧容器首次升级需重建镜像并应用共享目录挂载，之后凭据初始化与同步无需重建。凭据已保存只表示本地文件可用；普通 `/health` 不证明认证就绪。系统托管保存会额外验证 `/managed-auth`，失败时保留本地文件供重试，实例原认证不变。保存成功后执行实例健康检查更新状态。
+
+远程或自行配置的服务继续使用手动 Token。YOLO 的手动 `YOLO_MANAGED_MODELS_TOKEN` 优先；模型回流要求至少 32 个字符。手动 Token 留空编辑只保留原值；从系统托管切回手动 Token 必须重新填写。`none` 始终不发送凭据。
+
+这里的 Token 是平台调用 Backend 的凭据，与个人 API 密钥分别管理。选择系统托管时不填写 Token，但认证方式仍需选择对应服务的「系统托管」。内置服务的手动 Token 环境变量留空时会读取默认私有文件，缺少有效凭据会拒绝受保护请求，不会自动关闭认证。再次初始化只复用并同步已有值，不会轮换凭据。
+
 ## 健康检查
 
 <!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/superadmin/ml-backend/health-state-badges.png — connected/error/disconnected 三状态徽章对比 [manual] -->
 
-注册后系统会自动调用 `GET <url>/health`。失败不阻断创建（避免临时网络问题让你卡住），但会在列表里显示红色徽章，状态值为 **`error`**（不是 `unreachable`；`state` 字段枚举：`disconnected` / `connected` / `error`，见 `apps/api/app/services/ml_backend.py:122`）。
+通过认证设置校验后，注册会自动调用 `GET <url>/health`。普通健康检查失败不阻断创建，但列表会显示错误状态，`state` 取值为 `disconnected`、`connected` 或 `error`。系统托管的认证握手失败会阻止保存，不能用公开健康端点成功代替认证验证。
 
-**注册前连通性测试**：`POST /admin/ml-integrations/probe` 提供无 DB 副作用的探测（`/probe`），注册表单「测试连接」按钮即调用此端点。
+**注册前连通性测试**：手动 Token 或 None 方式可通过表单「测试连接」调用 `POST /admin/ml-integrations/probe`，只探测 `/health`，不写数据库。系统托管在保存时验证受认证端点，表单会禁用普通「测试连接」。连接成功只证明健康端点可达。
 
 探测和试启动保留管理员对内网与新后端地址的诊断能力，URL 须为有效 HTTP(S) base URL，不含内嵌凭据、查询参数或 fragment；认证 token 单独填写。网络失败只回报安全的错误类别。项目 warmup 还要求 backend 已启用于该项目；共享 reload/unload 继续按超级管理员全局权限执行。
 
@@ -145,6 +158,8 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 以下事件写入 `audit_logs`：
 
 - `ml_registry.created` / `ml_registry.updated` / `ml_registry.deleted`（全局注册 CRUD）
+- `ml_registry.managed_auth_initialized`（默认凭据初始化与同步）
+- `ml_backend.rebuild_requested`（系统设置提交指定服务的镜像与容器重建）
 - `ml_service_pool.created` / `updated` / `deleted`（服务池 CRUD）
 - `ml_service_pool.member_upserted` / `member_removed` / `member_drained` / `member_resumed`（成员与接流状态）
 - `ml_service_pool.capability_drift_accepted`（审核并接受新的池能力基线）
@@ -161,8 +176,12 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 - **GPU 资源诊断**：超管可查看逐卡容量、静态预算、desired → effective mode 及配置 blocker。`observe` 仅记录影子决策，不会拒绝、排队或驱逐请求。
 - **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由持久路由 owner 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。
 
+训练完成后的候选注册、加载试用和人工发布见[模型回流与默认预标](../online-learning/models)。全局服务注册不会自动把权重加入项目模型。
+
 ## 相关
 
 - [ADR 0015 — ML Backend URL 验证](../../dev/adr/archive/0015-ml-backend-url-validation)
 - [模型市场](./model-market)
 - [ML Backend 协议](../../dev/reference/ml-backend-protocol)
+- [模型服务接入、路由与认证](../../dev/concepts/ml-backend-routing-and-auth)
+- [本机 ML 服务维护](../../ops/deploy/ml-backend-maintenance)

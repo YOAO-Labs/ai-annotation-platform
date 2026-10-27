@@ -1,24 +1,22 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 状态机总览
 
-平台里至少有三类会影响业务流的状态机：
+平台的核心业务与在线学习闭环由多套相互协作的状态机驱动：
 
-- project 状态
-- batch 状态
-- task 状态
+- **标注生产主链**：`Project` 状态、`Batch` 状态、`Task` 状态
+- **在线学习闭环**：`TrainingDatasetVersion`、`TrainingRun` / `TrainingAttempt`、`TrainingStudy`、`SampleEvaluationRun`、`ActiveLearningRound` 与 `LearningTrigger`
 
-它们的复杂度并不相同：真正承载生产流转压力的是 batch 和 task。
+---
 
 ## Project 状态
 
-当前项目状态较轻。下图表达管理视图采用的生命周期约定；后端目前只有模型默认值和枚举，没有像 Batch 一样的受控 transition guard 或自动推进。`ProjectUpdate.status` 仍是未受枚举约束的字符串，owner 可以通过通用 PATCH 直接写入，因此它不是可据此校验请求的状态真值：
+当前项目状态较轻量。下图表达管理视图采用的生命周期约定；后端目前只有模型默认值和枚举，没有像 Batch 一样的受控迁移守卫或自动推进。`ProjectUpdate.status` 仍是未受枚举约束的字符串，owner 可以通过通用 PATCH 直接写入，因此它不是派题或权限校验的唯一真值：
 
 <ExcalidrawDiagram
   src="/diagrams/shared/state-machines/project-status-convention.svg"
@@ -26,12 +24,13 @@ last_reviewed: 2026-07-29
   caption="Project.status 的管理视图约定与真正的运行时控制边界"
 />
 
-说明：
+关键边界：
 
-- project 状态更多是管理视图，不是工作台派题的唯一真值
-- 四个枚举值是约定集合，不是 PATCH 输入白名单
-- 当前服务端没有自动写入 `pending_review / completed / archived` 的项目状态迁移链
-- 真正影响“能不能标、能不能审”的，主要还是 batch / task
+- `Project.status` 主要服务于项目管理视图；不过当项目处于 `completed` 或 `archived` 时，在线学习子系统会阻断自动训练策略触发与新模型发布回流。
+- 四个枚举值（`in_progress`、`pending_review`、`completed`、`archived`）是产品层约定集合。
+- 真正决定「工作台能不能标、能不能审」的核心真值是 `Batch`、`Task`、项目角色权限与 `Task Lock`。
+
+---
 
 ## Batch 状态
 
@@ -43,11 +42,12 @@ last_reviewed: 2026-07-29
 
 关键点：
 
-- `active → pre_annotated` 由 AI worker 在批量预标成功结束后推进
-- `active | pre_annotated → annotating` 是自动迁移
-- `annotating → reviewing` 可以自动推进，也可以由被分派 annotator 主动送审
-- owner 有多条逆向迁移兜底路径
-- `reset_to_draft` 是绕过正常迁移边的 owner 恢复操作；`admin_lock` 只暂停派题和自动推进，不是一个生命周期状态
+- `active → pre_annotated`：由 Celery worker 在批量 AI 预标注成功结束后自动推进。
+- `active | pre_annotated → annotating`：当首个任务发生人工实写标注时自动迁移。
+- `annotating → reviewing`：全部任务提交后自动推进，也可由被分派标注员主动送审。
+- `reset_to_draft`：是绕过常规迁移边的 owner 恢复操作；`admin_lock` 仅暂停派题和自动推进，本身不是生命周期状态。
+
+---
 
 ## Task 状态
 
@@ -59,16 +59,15 @@ last_reviewed: 2026-07-29
 
 关键点：
 
-- 首个有效 annotation 触发 `pending → in_progress`，删掉最后一个有效 annotation 会触发 `in_progress → pending`
-- `pending / in_progress` 都可以通过 `submit / skip` 直接进入 `review`
-- `withdraw`、`reopen`、`accept-rejection` 都会回到 `in_progress`
-- 直接上传任务会先经过 `uploading`；普通数据集关联创建的 task 直接从 `pending` 开始
-- 批次驳回会把 `review / completed` task 回退到 `pending`，批次终极重置会把所有非 `pending` task 回退到 `pending`
-- 现仓运行时存在 `rejected` task 状态，虽然枚举定义仍有历史差异
+- 首个有效 annotation 触发 `pending → in_progress`；删除最后一个有效 annotation 触发 `in_progress → pending`。
+- `pending / in_progress` 均可通过 `submit / skip` 直接进入 `review`。
+- `withdraw`、`reopen`、`accept-rejection` 均会回到 `in_progress`。
+- 直接上传任务会先经过 `uploading`；关联数据集创建的任务直接从 `pending` 开始。
+- 批次驳回会将 `review / completed` 任务回退到 `pending`；批次终极重置会将所有非 `pending` 任务回退到 `pending`。
+
+---
 
 ## 三者怎么联动
-
-最重要的联动链路：
 
 <ExcalidrawDiagram
   src="/diagrams/shared/workflow/derived-state-propagation.svg"
@@ -76,67 +75,57 @@ last_reviewed: 2026-07-29
   caption="事实写入如何有条件地传播到 Task、Batch、Project 与读模型"
 />
 
-也就是说：
+联动规则：
 
-- annotation 写入只有在引发 `pending ↔ in_progress` 状态翻转时，才从 `_update_task_stats()` 继续推动 batch；批量导入还可以显式关闭这条自动迁移
-- `admin_locked` batch 会跳过自动推进
-- batch 状态会反过来影响 task 可见性和派题
-- project 配置决定 scheduler 如何在 task 间做选择，但 Project.status 本身不参与当前候选查询
+- **按需传播**：Annotation 写入只有在引发 `pending ↔ in_progress` 状态翻转时，才从 `_update_task_stats()` 继续推动 Batch；批量导入可显式关闭自动迁移。
+- **锁定豁免**：处于 `admin_locked` 的批次会跳过自动推进。
+- **反向约束**：Batch 状态会反向决定 Task 的可见性与派题资格。
+- **调度解耦**：Project 配置决定 Scheduler 如何在候选 Task 间排序，但 `Project.status` 本身不参与工作台候选查询。
+
+---
 
 ## 在线学习与训练状态机
 
-除了标注与质检业务的 Project / Batch / Task，在线学习与模型闭环引入了受控的数据版本与训练执行状态机：
+除了标注与质检主链，在线学习与模型闭环引入了受控的数据集物化、独立算力训练与评估选样状态机：
 
 ### 训练数据版本（TrainingDatasetVersion）
 
-```mermaid
-stateDiagram-v2
-    [*] --> pending: 校验参数并创建快照
-    pending --> running: Export worker 领取消耗并物化图片
-    running --> ready: 素材校验通过、ZIP 发布至 MinIO training 桶
-    running --> failed: 素材损坏或校验失败
-    pending --> cancelled: 取消排队
-    running --> cancelled: 取消构建（图片边界安全退出）
-    failed --> running: 重试构建（复用已复制原图）
-    cancelled --> running: 重试构建
-```
+<ExcalidrawDiagram
+  src="/diagrams/shared/state-machines/training-dataset-version-lifecycle.svg"
+  alt="TrainingDatasetVersion 从创建快照进入 pending，由 Export worker 领取并物化至 running，校验发布至 ready；失败或取消支持复用原图重试，终态无引用版本支持清理"
+  caption="训练数据版本状态机：快照、导出物化、校验发布与失败重试"
+/>
 
-- 失败或取消版本可以重试同一快照，沿用既有序号与请求身份；
-- 终态且无子版本引用的数据版本可以物理删除。
+关键点：
+
+- 失败或取消版本可基于同一冻结快照重试，沿用既有序号（`ordinal`）与版本 ID，仅在 `training_dataset_versions.attempt_id` 上分配新 UUID 并写入 `attempts/{attempt_id}/dataset.zip`。
+- 终态且无下游实验或子版本引用的数据版本，可通过 `training_storage_deletions` 两阶段清理意图表安全删除数据库记录与 MinIO 对象。
+- 序号（`next_ordinal`）在所属 `(project_id, canonical_task)` 版本流内严格单调递增，失败与取消版本占号不回收。
 
 ### 训练实验与执行尝试（TrainingRun & Attempt）
 
-```mermaid
-stateDiagram-v2
-    [*] --> queued: 提交配置并排队
-    queued --> preparing: 独立执行器 Claim 实验
-    preparing --> training: 拉取训练包、启动原生子进程
-    training --> evaluating: 训练完成、开始最终评估
-    evaluating --> uploading: 上传权重与产物清单
-    uploading --> succeeded: 产物 SHA 校验通过、发布完成
-    training --> cancelling: 用户请求停止
-    cancelling --> cancelled: 确认进程组退出并释放锁
-    preparing --> failed: 准备失败或 OOM 退出
-    training --> failed: 原生异常退出
-    training --> lost: 执行器心跳超时（保留 GPU 租约）
-    lost --> preparing: 恢复执行
-    failed --> queued: 从不可变检查点续训（新增 Attempt）
-    cancelled --> queued: 从不可变检查点续训（新增 Attempt）
-```
+<ExcalidrawDiagram
+  src="/diagrams/shared/state-machines/training-run-lifecycle.svg"
+  alt="TrainingRun 从 queued 入队，独立执行器 claim 并在锁定 GPU flock 后进入 preparing 和 training；完成后经 evaluating 和 uploading 达到 succeeded；支持 lost 超时恢复和从不可变检查点续训"
+  caption="训练实验与执行尝试状态机：算力排他租约、原生训练守护、评估发布与断点续训"
+/>
 
-- 训练运行在独立拉取式执行器上，利用 OS 文件锁独占物理 GPU，不占普通 Celery 队列；
-- 心跳超时只标记 `lost`，不立刻释放 GPU 租约，等待确认子进程退出；
-- 续训产生新的 `TrainingAttempt`，沿用原配置与验证基准，新执行不会改写历史曲线或覆盖前次产物。
+关键点：
 
-## 为什么需要单独一页
+- 训练运行在独立拉取式执行器（`apps/training-executor`）上，通过 OS `flock` 文件锁防止协作执行器重复认领资源，不占用普通 Celery 队列。
+- 心跳超时仅标记为 `lost`，**不立刻释放 GPU 租约**，等待确认子进程退出或重连恢复。
+- 断点续训或失败重试会分配新的 `TrainingAttempt`，沿用原配置与验证基准，新尝试绝不覆盖历史指标曲线或前次产物。
+- 用户请求停止后先进入 `cancelling`，经单调时钟 watchdog 确认整个进程组退出后才转为 `cancelled` 并释放算力锁。
 
-最常见的误解是：
+### 配套学习与评估状态流转
 
-- 只改 task 状态机，不看 batch
-- 只改 batch 状态机，不看 scheduler
-- 只改枚举，不看路由分支
+| 实体                                              | 状态流转路径                                                       | 驱动者与关键约束                                                                                       |
+| :------------------------------------------------ | :----------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------- |
+| **`TrainingStudy` / `TrainingTrial`**             | `queued → running → succeeded \| failed \| cancelled`              | 由 Beat `check_studies`（每 10s）串行推进；入队前预扣 `native_budget` 计时额度                         |
+| **`SampleEvaluationRun` / `ActiveLearningRound`** | `queued → running → cancelling → completed \| failed \| cancelled` | 由 `ml.cpu` 队列执行；每分钟 `maintain_evaluations` / `maintain_rounds` 回收失联任务并重试存储墓碑清理 |
+| **`LearningTrigger`**                             | `building → queued → running → completed \| failed \| cancelled`   | 由 Beat `check_policies`（每 60s）巡检触发；部分唯一索引保证同项目同时仅一个活跃自动实验               |
 
-这页的作用就是把“有哪些状态机”先一次讲清，再去看各模块页细节。
+---
 
 ## 深入阅读
 

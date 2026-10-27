@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 /**
  * v0.21.0 · 全局编排库 UI (WS2 落地 + 收尾优化).
  *
@@ -107,6 +110,14 @@ export default function GlobalPipelineLibraryPage() {
     reset: resetComposer,
   } = usePipelineComposer({
     availableBackendCount: uniqueBackendCount,
+    hasCompatibleDownstream: globalModelOptions.some(
+      (option) =>
+        !option.disabled &&
+        !option.model.is_interactive &&
+        option.model.composition !== "composite" &&
+        ((option.model.supported_inputs ?? []).includes("crop") ||
+          (option.model.supported_inputs ?? []).includes("bbox_prompt")),
+    ),
     onWarn: (msg, sub) => pushToast({ msg, sub, kind: "warning" }),
     onCascadeDelete: (n) => pushToast({ msg: "已删除阶段", sub: `连带移除 ${n} 个子阶段` }),
   });
@@ -361,6 +372,8 @@ export default function GlobalPipelineLibraryPage() {
     [projectPipelinesQ.data],
   );
 
+  const libraryPagination = useListPagination(libraryPipelines);
+
   const loadFromPipeline = useCallback(
     (p: ProjectPipeline) => {
       resetComposer();
@@ -415,15 +428,6 @@ export default function GlobalPipelineLibraryPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.pageIntro}>
-        <div>
-          <h1 className={styles.pageTitle}>编排库</h1>
-          <div className={styles.pageSubtitle}>
-            从全局 backend/model 池创建可复用编排；项目页只负责套用到当前项目。
-          </div>
-        </div>
-      </div>
-
       <Card>
         <div className={styles.toolbar}>
           <div className={styles.toolbarGroup}>
@@ -545,15 +549,17 @@ export default function GlobalPipelineLibraryPage() {
                     value={srcExecUnit}
                     onChange={(e) => setSrcExecUnit(e.target.value as "video" | "frame")}
                   >
-                    <option value="video">整段序列（detect-then-track 追踪）</option>
-                    <option value="frame">逐帧（图像检测逐帧跑，落单帧框）</option>
+                    <option value="video">整段序列</option>
+                    <option value="frame">逐帧</option>
                   </select>
                 </label>
               )}
               <div className={styles.stageEmptyHint}>
                 {isVideoTracking
-                  ? "源模型只列 tracker；下游对轨迹富集。"
-                  : "源模型只列图像检测；下游对检出框富集。"}
+                  ? "对整段视频做多目标追踪，生成跨帧轨迹；源模型只列 tracker，下游对轨迹富集。"
+                  : srcDataType === "video"
+                    ? "对每一帧独立做图像检测，生成无跨帧关联的单帧框；下游对检出框富集。"
+                    : "源模型只列图像检测；下游对检出框富集。"}
               </div>
             </div>
             {/* 源模型 stage (SOURCE_SID, 后端 stage 0): 选中时显示; 池按数据源声明过滤。 */}
@@ -607,9 +613,12 @@ export default function GlobalPipelineLibraryPage() {
             暂无命名编排。保存一条上方画布后会出现在这里。
           </div>
         ) : (
-          <ul className={styles.libraryList}>
-            {libraryPipelines.map((p) => (
-              <li key={p.id} className={styles.libraryRow}>
+          <ul className={listStyles.surface}>
+            {libraryPagination.items.map((p) => (
+              <li
+                key={p.id}
+                className={`${listStyles.row} flex flex-wrap items-center justify-between gap-3`}
+              >
                 <div className={styles.libraryRowMain}>
                   <strong>{p.name}</strong>
                   <span className={styles.libraryMeta}>
@@ -642,6 +651,13 @@ export default function GlobalPipelineLibraryPage() {
             ))}
           </ul>
         )}
+        <ListPagination
+          label="命名编排"
+          {...libraryPagination}
+          loading={projectPipelinesQ.isLoading}
+          onPageChange={libraryPagination.setPage}
+          onPageSizeChange={libraryPagination.setPageSize}
+        />
       </Card>
     </div>
   );

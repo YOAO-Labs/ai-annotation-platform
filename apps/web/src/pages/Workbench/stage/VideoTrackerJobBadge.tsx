@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 
@@ -75,6 +76,7 @@ export function VideoTrackerJobBadge({ job, onCancel }: VideoTrackerJobBadgeProp
     >
       <Icon name="bot" size={12} />
       <span>{statusMeta.label}</span>
+      {job.errorMessage && <CopyableError message={job.errorMessage} iconOnly />}
       {progressLabel && <span className="mono text-muted-foreground">{progressLabel}</span>}
       {canCancel && (
         <Button

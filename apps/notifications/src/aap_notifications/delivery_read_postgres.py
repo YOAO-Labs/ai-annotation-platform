@@ -103,3 +103,18 @@ class NotificationDeliveryReadPostgresData:
 
     async def super_pairs(self, pairs):
         return await self._pairs("delivery_super_pairs", pairs)
+
+    async def global_super_admins(self, user_ids):
+        if not user_ids:
+            return set()
+        if self.session.autoflush:
+            await self.session.flush()
+        result = await self.session.execute(
+            text(
+                "SELECT actor.id FROM aap_identity_v1.account_profiles AS actor "
+                "WHERE actor.id = ANY(CAST(:user_ids AS pg_catalog.uuid[])) "
+                "AND actor.is_active IS TRUE AND actor.role = 'super_admin'"
+            ),
+            {"user_ids": [str(user_id) for user_id in user_ids]},
+        )
+        return {row[0] for row in result.all()}

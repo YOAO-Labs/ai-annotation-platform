@@ -678,15 +678,15 @@ def latest_disposition():
     )
 
 
-def current_model_id(project_id):
+def current_model_ids(project_id):
     return (
         select(Release.model_version_id)
         .join(ProjectModelSelection, ProjectModelSelection.release_id == Release.id)
         .where(
             ProjectModelSelection.project_id == project_id,
             Release.project_id == project_id,
+            ProjectModelSelection.task == Release.task,
         )
-        .scalar_subquery()
     )
 
 
@@ -709,7 +709,7 @@ async def model_metadata(db, project_id, model_ids):
                     Model.id,
                     latest_disposition().label("disposition"),
                     sequence.label("sequence"),
-                    (Model.id == current_model_id(project_id)).label("current"),
+                    Model.id.in_(current_model_ids(project_id)).label("current"),
                 ).where(Model.id.in_(model_ids), Model.project_id == project_id)
             )
         )
@@ -735,6 +735,6 @@ def archive_condition(project_id, archive):
         return or_(
             disposition.is_(None),
             disposition != "archived",
-            Model.id == current_model_id(project_id),
+            Model.id.in_(current_model_ids(project_id)),
         )
     return True

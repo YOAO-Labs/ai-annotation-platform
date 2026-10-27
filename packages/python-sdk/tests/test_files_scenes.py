@@ -1,5 +1,6 @@
 """Files and scenes SDK route, query, and serialization contracts."""
 
+import hashlib
 import json
 from uuid import UUID, uuid4
 
@@ -53,15 +54,31 @@ def test_file_upload_init_uses_typed_body_and_api_default(client, respx_mock):
     assert result.expires_in == 900
 
 
-def test_file_write_and_read_routes_keep_their_exact_envelopes(client, respx_mock):
+def test_file_write_and_read_routes_keep_their_exact_envelopes(
+    client, respx_mock, tmp_path
+):
     complete = respx_mock.post(f"{API}/files/upload-complete/{TASK_ID}").mock(
         return_value=httpx.Response(200, json={"status": "ok", "task_id": TASK_ID})
     )
-    file_url = respx_mock.get(f"{API}/files/tasks/{TASK_ID}/file-url").mock(
+    payload = b"verified-original-bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    identity = respx_mock.get(f"{API}/files/tasks/{TASK_ID}/original-identity").mock(
         return_value=httpx.Response(
             200,
-            json={"url": "https://storage.test/get?signature=xyz", "expires_in": 3600},
+            json={
+                "owner_kind": "task_original",
+                "content_id": str(uuid4()),
+                "sha256": digest,
+                "size_bytes": len(payload),
+                "media_type": "image/png",
+                "verification_state": "verified",
+                "original_availability": "unchecked",
+                "download_path": f"/files/tasks/{TASK_ID}/original",
+            },
         )
+    )
+    original = respx_mock.get(f"{API}/files/tasks/{TASK_ID}/original").mock(
+        return_value=httpx.Response(200, content=payload)
     )
     operation_id = str(uuid4())
     job_id = str(uuid4())
@@ -85,7 +102,12 @@ def test_file_write_and_read_routes_keep_their_exact_envelopes(client, respx_moc
     backfill_key = str(uuid4())
 
     assert files.upload_complete(TASK_ID).status == "ok"
-    assert files.file_url(TASK_ID).expires_in == 3600
+    destination = tmp_path / "original.png"
+    assert files.download_original(TASK_ID, destination) == destination
+    assert destination.read_bytes() == payload
+    assert identity.called
+    assert original.calls.last.request.url.params["content_id"]
+    assert original.calls.last.request.url.params["sha256"] == digest
     receipt = files.backfill_thumbnails(PROJECT_ID, idempotency_key=backfill_key)
     assert receipt.project_id == UUID(PROJECT_ID)
     assert receipt.operation_id == UUID(operation_id)
@@ -98,7 +120,7 @@ def test_file_write_and_read_routes_keep_their_exact_envelopes(client, respx_moc
     assert generated_receipt.job_id == UUID(job_id)
     generated_key = backfill.calls.last.request.headers["Idempotency-Key"]
     assert str(UUID(generated_key)) == generated_key
-    assert complete.called and file_url.called and backfill.called
+    assert complete.called and identity.called and original.called and backfill.called
 
 
 def test_file_init_request_rejects_unknown_fields():

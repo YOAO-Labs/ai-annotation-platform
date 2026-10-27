@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useRef, useState } from "react";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
@@ -64,7 +65,7 @@ export function useTrainingDraft(
         ...current.current,
         ...patch,
         revision: current.current.revision + 1,
-        requestId: crypto.randomUUID(),
+        requestId: randomId(),
         pending: undefined,
         pendingStudy: undefined,
       }),

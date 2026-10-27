@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 from aap_inference_contract.topology import (
     CapabilityDriftAcceptance,
@@ -18,6 +18,9 @@ from aap_inference_contract.topology import (
     RegistryPublicFacts,
     RegistryReference,
 )
+
+
+RepairModelLockStatus = Literal["ready", "backend_unavailable", "model_changed"]
 
 
 @dataclass(frozen=True)
@@ -152,6 +155,9 @@ class BackendTopologyData(Protocol):
     ) -> tuple[
         PoolFacts | None, RegistryPublicFacts | None, PoolMemberFacts | None
     ]: ...
+    async def lock_repair_model_rows(
+        self, project_id: UUID, pool_id: UUID, registry_ids: Sequence[UUID]
+    ) -> RepairModelLockStatus: ...
     async def upsert_member(
         self, pool_id: UUID, registry_id: UUID, weight: int, expected: Mapping[str, Any]
     ) -> tuple[PoolMemberFacts, PoolFacts]: ...

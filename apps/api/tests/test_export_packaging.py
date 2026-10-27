@@ -27,6 +27,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.exporting.packaging import (
     _FETCH_FRAMES_TEMPLATE,
+    _FETCH_VIDEOS_TEMPLATE,
     _build_video_export_zip,
     clean_export_targets,
     relative_path_from_file_path,
@@ -107,12 +108,15 @@ def test_fetch_frames_script_extracts_only_selected_frames(tmp_path):
                         "rel_path": "clip.mp4",
                         "sequence": "clip",
                         "grid_source_frames": [0, 5, 11],
+                        "sha256": hashlib.sha256(fixture["mp4_bytes"]).hexdigest(),
+                        "size_bytes": len(fixture["mp4_bytes"]),
                     }
                 ]
             }
         )
     )
     script = tmp_path / "fetch_frames.py"
+    (tmp_path / "fetch_videos.py").write_text(_FETCH_VIDEOS_TEMPLATE)
     script.write_text(_FETCH_FRAMES_TEMPLATE)
     result = subprocess.run(
         [sys.executable, str(script)], capture_output=True, text=True
@@ -129,6 +133,15 @@ def test_strips_dataset_prefix():
     assert (
         relative_path_from_file_path("mydataset/animals/cat/001.jpg", "mydataset")
         == "animals/cat/001.jpg"
+    )
+
+
+def test_managed_identity_is_not_exported_as_directory():
+    from app.services.dataset_storage_keys import managed_dataset_key
+
+    key = managed_dataset_key(uuid.uuid4(), "scene-1/camera/front/001.jpg")
+    assert (
+        relative_path_from_file_path(key, "renamed") == "scene-1/camera/front/001.jpg"
     )
 
 

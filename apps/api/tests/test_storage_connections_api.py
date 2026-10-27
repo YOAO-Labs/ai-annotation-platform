@@ -7,7 +7,9 @@ from cryptography.fernet import Fernet
 from sqlalchemy import select
 
 from app.config import settings
+from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
+from tests.factory import create_api_key
 
 
 @pytest.fixture
@@ -37,6 +39,103 @@ _S3_CONN = {
     "secret": {"access_key": "AK", "secret_key": "SK"},
     "scope": "global",
 }
+
+
+@pytest.fixture
+async def configuration_connections(
+    httpx_client, super_admin, project_admin, crypto_key
+):
+    await _set_allowlist(httpx_client, super_admin[1], ["8.8.8.0/24"])
+    connections = {}
+    for name, actor, scope in [
+        ("global", super_admin, "global"),
+        ("super-owned", super_admin, "owner"),
+        ("project-owned", project_admin, "owner"),
+    ]:
+        response = await httpx_client.post(
+            "/api/v1/storage-connections",
+            headers=_h(actor[1]),
+            json={**_S3_CONN, "name": name, "scope": scope},
+        )
+        assert response.status_code == 201, response.text
+        connections[name] = response.json()["id"]
+    return connections
+
+
+@pytest.mark.parametrize("role", ["employee", "annotator", "reviewer", "viewer"])
+@pytest.mark.parametrize("api_key", [False, True])
+async def test_configuration_reads_require_current_management_role(
+    httpx_client, db_session, project_admin, configuration_connections, role, api_key
+):
+    user, token = project_admin
+    if api_key:
+        _, token = await create_api_key(db_session, user.id, "config-read", ["*"])
+    user.role = UserRole(role)
+    await db_session.flush()
+    for suffix in [
+        "",
+        "/" + configuration_connections["global"],
+        "/" + configuration_connections["project-owned"],
+    ]:
+        response = await httpx_client.get(
+            "/api/v1/storage-connections" + suffix, headers=_h(token)
+        )
+        assert response.status_code == 403, response.text
+        assert "8.8.8.8" not in response.text
+        assert '"config"' not in response.text
+
+
+@pytest.mark.parametrize("actor_name", ["super_admin", "project_admin"])
+@pytest.mark.parametrize(
+    "scopes", [None, [], ["datasets:write"], ["datasets:read"], ["*"]]
+)
+async def test_configuration_reads_preserve_manager_visibility_and_require_read_scope(
+    httpx_client, db_session, request, configuration_connections, actor_name, scopes
+):
+    user, token = request.getfixturevalue(actor_name)
+    if scopes is not None:
+        _, token = await create_api_key(db_session, user.id, "config-read", scopes)
+    allowed = scopes is None or "datasets:read" in scopes or "*" in scopes
+    listed = await httpx_client.get("/api/v1/storage-connections", headers=_h(token))
+    assert listed.status_code == (200 if allowed else 403), listed.text
+    visible = set(configuration_connections)
+    if actor_name == "project_admin":
+        visible.remove("super-owned")
+    if allowed:
+        assert {item["id"] for item in listed.json()} == {
+            configuration_connections[name] for name in visible
+        }
+    for name, conn_id in configuration_connections.items():
+        response = await httpx_client.get(
+            f"/api/v1/storage-connections/{conn_id}", headers=_h(token)
+        )
+        expected = 403 if not allowed else 200 if name in visible else 404
+        assert response.status_code == expected, response.text
+        if expected == 200:
+            assert response.json()["config"] == _S3_CONN["config"]
+            assert response.json()["secret_set"] is True
+            assert "secret" not in response.json()
+            assert "AK" not in response.text and "SK" not in response.text
+
+
+async def test_configuration_reads_recheck_role_after_successful_read(
+    httpx_client, db_session, project_admin, configuration_connections
+):
+    user, token = project_admin
+    endpoint = (
+        "/api/v1/storage-connections/" + configuration_connections["project-owned"]
+    )
+    assert (await httpx_client.get(endpoint, headers=_h(token))).status_code == 200
+    user.role = UserRole.EMPLOYEE
+    await db_session.flush()
+    assert (await httpx_client.get(endpoint, headers=_h(token))).status_code == 403
+    changed = await httpx_client.patch(
+        endpoint,
+        headers=_h(token),
+        json={"expected_revision": 1, "name": "unauthorized-edit"},
+    )
+    assert changed.status_code == 403, changed.text
+    assert '"config"' not in changed.text
 
 
 async def test_allowlist_super_admin_only(httpx_client, super_admin, project_admin):

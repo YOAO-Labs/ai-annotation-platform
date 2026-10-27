@@ -351,7 +351,7 @@ async def test_disconnect_after_body_cancels_ingest_and_rolls_back(kind) -> None
     runtime = SourceRuntime(
         config,
         database,
-        SimpleNamespace(client=object(), datasets_bucket="datasets"),
+        SimpleNamespace(client=object(), datasets_bucket="datasets", managed=object()),
     )
     app = create_app(config=config, runtime=runtime)
     app.state.config = config

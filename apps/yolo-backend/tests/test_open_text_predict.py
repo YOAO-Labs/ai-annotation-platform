@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import sys
-import types
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -15,21 +13,9 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-sys.modules.setdefault(
-    "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-)
-
-# stub ultralytics yoloe VP predictor 叶子模块 (测试环境无 ultralytics);
-# predictor._predict_visual_prompt 内部 lazy `from ...yoloe.predict import YOLOEVPSegPredictor`。
-# 仅注册叶子模块: 叶子在 sys.modules 时 import 机制短路, 不触发父包导入, 故不覆盖其他测试
-# 对 "ultralytics" 根 (MagicMock) 的桩, 避免跨测试污染。
-_vp_mod = types.ModuleType("ultralytics.models.yolo.yoloe.predict")
-_vp_mod.YOLOEVPSegPredictor = type("YOLOEVPSegPredictor", (), {})
-sys.modules.setdefault("ultralytics.models.yolo.yoloe.predict", _vp_mod)
-
-import predictor as pred  # noqa: E402
-from predictor import YoloPredictor  # noqa: E402
-from schemas import Context  # noqa: E402
+import predictor as pred
+from predictor import YoloPredictor
+from schemas import Context
 
 
 class _FakeBoxes:

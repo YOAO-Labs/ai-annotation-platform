@@ -10,6 +10,8 @@ lines = [
 ]
 excluded = {
     "yolo-backend",
+    "aap-backend-runtime",
+    "aap-protocol-v2",
     "aap-training-contract",
     "aap-task-contract",
     "clip",

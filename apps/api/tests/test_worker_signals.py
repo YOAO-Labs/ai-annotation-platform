@@ -373,6 +373,7 @@ async def test_mark_failed_mask_repair_rollback_keeps_rollback_failed(signal_wor
         user_id=user_id,
         async_job_id=rollback_job,
         rollback=True,
+        status="rolling_back",
     )
     repair_job, repair_task = await signal_world.job(
         kind="mask_repair", user_id=user_id, project_id=project_id
@@ -388,6 +389,52 @@ async def test_mark_failed_mask_repair_rollback_keeps_rollback_failed(signal_wor
         await signal_world.scalar_repair(rollback_batch)
     ).status == "rollback_failed"
     assert (await signal_world.scalar_repair(repair_batch)).status == "failed"
+
+
+@pytest.mark.parametrize("status", ["completed", "dispatch_pending"])
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_repair_signal_preserves_committed_candidates(
+    signal_world, status, cancelled
+):
+    user_id = await signal_world.user()
+    project_id = await signal_world.project(user_id)
+    job_id, task_id = await signal_world.job(
+        kind="mask_repair", user_id=user_id, project_id=project_id
+    )
+    batch_id = await signal_world.mask_repair(
+        project_id=project_id,
+        user_id=user_id,
+        async_job_id=job_id,
+        result={"candidates": {"0": {"status": status}}},
+    )
+    if cancelled:
+        await signals._mark_cancelled(task_id)
+    else:
+        await signals._mark_failed(task_id, "interrupted")
+    assert (await signal_world.scalar_repair(batch_id)).status == "partial"
+
+
+async def test_rollback_cancel_signal_preserves_checkpoint(signal_world):
+    user_id = await signal_world.user()
+    project_id = await signal_world.project(user_id)
+    job_id, task_id = await signal_world.job(
+        kind="mask_repair_rollback", user_id=user_id, project_id=project_id
+    )
+    result = {
+        "rollback": {"shards": {"done": {"status": "completed", "mutation_count": 1}}}
+    }
+    batch_id = await signal_world.mask_repair(
+        project_id=project_id,
+        user_id=user_id,
+        async_job_id=job_id,
+        rollback=True,
+        status="rolling_back",
+        result=result,
+    )
+    await signals._mark_cancelled(task_id)
+    batch = await signal_world.scalar_repair(batch_id)
+    assert batch.status == "rollback_failed"
+    assert batch.result_json == result
 
 
 async def test_signal_handlers_ignore_missing_task_id(signal_world):

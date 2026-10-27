@@ -54,6 +54,7 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_admission_header_values,
     parse_gpu_control_token_header_values,
 )
+from aap_backend_runtime.backend_auth import install_backend_auth
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import ValidationError
 
@@ -157,6 +158,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="rapidocr-backend", version=BACKEND_VERSION, lifespan=lifespan)
 install_backend_routing_controller(app)
+
+install_backend_auth(app, "rapidocr")
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:

@@ -150,7 +150,10 @@ describe("FilterValueEditor", () => {
     const user = userEvent.setup();
     const onCommit = vi.fn();
     render(<FilterValueEditor field={booleanField} operator="eq" onCommit={onCommit} />);
-    expect(screen.getByRole("option", { name: "请选择" })).toBeInTheDocument();
+    const prompt = screen.getByRole("combobox", { name: "条件值" }).querySelector("option");
+    expect(prompt).toBeDisabled();
+    expect(prompt).toHaveAttribute("hidden");
+    expect(screen.queryByRole("option", { name: "请选择" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "条件值" })).toHaveValue("");
     expect(onCommit).not.toHaveBeenCalled();
     await user.selectOptions(screen.getByRole("combobox", { name: "条件值" }), "true");

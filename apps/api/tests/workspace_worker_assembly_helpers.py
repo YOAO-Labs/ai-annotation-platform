@@ -371,12 +371,7 @@ class WorkspaceCeleryWorker:
             env.get(key) != value for key, value in self.object_store_buckets.items()
         ):
             raise RuntimeError("Worker bucket bindings differ from its owned resources")
-        if (
-            env.get("WORKSPACE_GUIDE_OBJECTS_URL")
-            or env.get("WORKSPACE_GUIDE_OBJECTS_TOKEN")
-            or env.get("WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE")
-            or env.get("WORKSPACE_INFERENCE_PROBE_URL")
-        ):
+        if env.get("WORKSPACE_INFERENCE_PROBE_URL"):
             raise RuntimeError("Worker unexpectedly selects a Workspace HTTP owner")
         mounts = record.get("Mounts") or []
         secrets = {
@@ -537,9 +532,6 @@ class WorkspaceCeleryWorker:
             "IDENTITY_BRIEFS_DATABASE_URL_FILE": "",
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN": "",
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE": "",
-            "WORKSPACE_GUIDE_OBJECTS_URL": "",
-            "WORKSPACE_GUIDE_OBJECTS_TOKEN": "",
-            "WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE": "",
             "WORKSPACE_INFERENCE_PROBE_URL": "",
             "HOME": "/tmp",
             "PYTHONDONTWRITEBYTECODE": "1",

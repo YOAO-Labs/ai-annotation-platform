@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -18,6 +19,7 @@ import { useBugDrawerStore } from "@/stores/bugDrawerStore";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
+import { jobNotificationVerb } from "@/components/jobs/asyncJobPresentation";
 import { ApiError } from "@/api/client";
 import { tasksApi } from "@/api/tasks";
 import { batchesApi } from "@/api/batches";
@@ -95,24 +97,6 @@ const TYPE_LABEL: Record<string, string> = {
   "user.deactivation_completed": "账号注销完成",
 };
 
-const JOB_KIND_LABEL: Record<string, string> = {
-  sample_evaluation: "逐样本评估",
-  active_learning_round: "主动学习选样",
-  batch_predict: "批量预标",
-  video_tracker: "视频追踪",
-  video_correction: "视频 Mask 纠错",
-  predictions_import: "预测导入",
-  prediction_retry: "失败预测重试",
-  dataset_import: "数据集导入",
-  create_tasks: "建任务",
-  audit_archive: "审计归档",
-  mask_qc: "Mask 质检",
-  mask_repair: "Mask 批量修复",
-  mask_repair_rollback: "Mask 修复回滚",
-  mask_format_import: "Mask 格式导入",
-  point_cloud_cross_frame: "3D 跨帧传播",
-};
-
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -131,17 +115,6 @@ export function chooseWorkMode(capabilities: ReadonlySet<string>, status?: strin
   if (status === "review") return canReview ? "review" : "annotate";
   if (canReview && !canAnnotate) return "review";
   return "annotate";
-}
-
-function jobVerb(item: NotificationItem): string | null {
-  if (!item.type.startsWith("job.")) return null;
-  const payload = notificationPayloadRecord(item.payload);
-  const kind = stringValue(payload.kind);
-  const label = JOB_KIND_LABEL[kind] ?? "后台任务";
-  if (item.type === "job.completed") return `${label}完成`;
-  if (item.type === "job.failed") return `${label}失败`;
-  if (item.type === "job.cancelled") return `${label}已取消`;
-  return null;
 }
 
 function jobTitle(item: NotificationItem): string {
@@ -276,7 +249,7 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
         : stringValue(payload.reject_reason) || stringValue(payload.snippet);
 
   const verb =
-    jobVerb(item) ??
+    jobNotificationVerb(item.type, payload.kind, payload) ??
     (reopen
       ? "重新打开了反馈"
       : item.type === "bug_report.status_changed" || item.type === "feedback.status_changed"
@@ -336,6 +309,13 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
           </div>
         </div>
       </button>
+      {(stringValue(payload.error) || stringValue(payload.error_message)) && (
+        <CopyableError
+          message={stringValue(payload.error) || stringValue(payload.error_message)}
+          iconOnly
+          label="复制通知错误详情"
+        />
+      )}
       <button
         type="button"
         className="-mt-0.5 inline-flex h-[22px] w-[22px] flex-shrink-0 cursor-pointer appearance-none items-center justify-center rounded-sm border border-transparent bg-transparent text-muted-foreground opacity-0 hover:bg-status-danger-soft hover:text-status-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
@@ -571,7 +551,9 @@ export function NotificationsPopover({
         >
           {target.error ? (
             <div className="space-y-3 text-sm">
-              <p role="alert">{target.error}</p>
+              <p role="alert">
+                <CopyableError message={target.error} />
+              </p>
               <div className="flex gap-2">
                 <Button onClick={() => void openNotificationTarget(target.item)}>重新打开</Button>
                 <Button

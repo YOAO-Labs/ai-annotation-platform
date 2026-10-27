@@ -16,6 +16,8 @@ import { useIsMutating, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToastStore } from "@/components/ui/Toast";
 import { annotationSlicesApi, type PolygonSliceCommitRequest } from "@/api/annotationSlices";
 import { randomId } from "@/utils/id";
+import { captureOriginalOwner, isOriginalOwnerCurrent, originalOwnerKey } from "@/api/originals";
+import { readOriginalImage } from "@/utils/originalImageCache";
 import { useProject, useUpdateProject } from "@/hooks/useProjects";
 import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { useProjectPipelines } from "@/hooks/useProjectPipelines";
@@ -67,7 +69,11 @@ import { publishTaskBoxCount } from "@/components/PerfHud/useTaskBoxCount";
 import { useWorkbenchState, type VideoTool } from "./useWorkbenchState";
 import { usePendingGeom } from "./usePendingGeom";
 import { useToolBindings, classesForUnit, attributeSchemaForUnit } from "./useToolBindings";
-import { MANUAL_IMAGE_TOOLS, manualImageTool, continuousIntentError } from "./manualImageCreation";
+import {
+  MANUAL_IMAGE_TOOLS,
+  manualImageTool,
+  useContinuousCreationGuard,
+} from "./manualImageCreation";
 import { ManualCreationPopover } from "../shell/ManualCreationPopover";
 import { videoToolUnit, videoToolEnabled } from "../stage/videoToolUnits";
 import type { ToolUnitId } from "@/constants/toolUnits";
@@ -103,7 +109,10 @@ import {
 import type { VideoSamPrompt } from "../stage/videoStageTypes";
 import { isSamCandidateNavTool } from "../stage/videoKonvaInteraction";
 import { tightenBboxFromPolygon } from "../stage/shared/geometry/bbox";
-import { buildImageRasterMaskDescriptors } from "./imageRasterMaskDescriptors";
+import {
+  buildImageRasterMaskDescriptors,
+  buildImagePredictionMaskDescriptors,
+} from "./imageRasterMaskDescriptors";
 import { useRasterMaskRecords } from "../stage/shared/useRasterMaskRecords";
 import { useRasterMaskWorkerPool } from "../stage/shared/useRasterMaskWorkerPool";
 import { useRasterResourceCoordinator } from "../stage/shared/useRasterResourceCoordinator";
@@ -148,7 +157,14 @@ import type {
 import type { VideoLoopRegion } from "../stage/videoNavigationState";
 import { VideoTrackSidebar } from "../stage/VideoTrackSidebar";
 import type { TrackFilter } from "../stage/VideoTrackPanel";
-import { VideoTrackerPropagateDialog } from "../stage/VideoTrackerPropagateDialog";
+import {
+  VideoTrackerPropagateDialog,
+  visibleTrackerModelOptions,
+} from "../stage/VideoTrackerPropagateDialog";
+import {
+  resolveWorkbenchAiAvailability,
+  resolveWorkbenchAiRunUnavailableReason,
+} from "./workbenchAiAvailability";
 import {
   VideoMaskCorrectionDialog,
   type VideoMaskCorrectionModel,
@@ -179,8 +195,8 @@ import {
   useWorkbenchImageSource,
   workbenchImagePreviewUrl,
 } from "../stage/useWorkbenchImageSource";
-import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { loadAbortableImage } from "../stage/useAbortableImage";
+import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { WorkbenchOverlays } from "../shell/WorkbenchOverlays";
 import type { ClassPickerAttrEditing } from "../shell/ClassPickerPopover";
 import { WorkbenchLayout } from "../shell/WorkbenchLayout";
@@ -439,8 +455,56 @@ export function useWorkbenchShellModel({
 
   const aiModel =
     selectedBackend?.name ?? (currentProject?.ml_backend_id ? "已接入模型" : "未接入模型");
+  // 交互线能力路由: 对每个注册后端拉 /setup 建 capIndex, 按当前工具 prompt 解析交互后端。
+  // 交互后端选择的服务端持久化偏好 (按 project, 跨设备; 替代旧 localStorage)。
+  const interactiveBackendPref = useInteractiveBackendPref(projectId);
+  const routing = useBackendRouting({
+    projectId,
+    backends,
+    defaultBackendId: currentProject?.ml_backend_id ?? null,
+    savedInteractiveBackendId: interactiveBackendPref.savedBackendId ?? null,
+    onSaveInteractiveBackend: interactiveBackendPref.save,
+  });
+  // tracker 可用性按项目已启用、已连接且 reachable 的 backend 分别计算；保留 provider
+  // 归属，避免把两个 backend 的原子能力误拼成一个可执行 combo。
+  const trackerModelProviders = useMemo(() => {
+    const providers: Record<string, string[]> = {};
+    for (const backend of backends) {
+      const entry = routing.capIndex[backend.id];
+      if (backend.state !== "connected" || !entry?.reachable) continue;
+      for (const tracker of entry.trackers) {
+        (providers[tracker] ??= []).push(backend.name);
+      }
+      if (
+        entry.trackers.includes("sam3_video") &&
+        entry.trackers.includes("sam3_video_interactive")
+      ) {
+        (providers.sam3_video_combo ??= []).push(backend.name);
+      }
+    }
+    return providers;
+  }, [backends, routing.capIndex]);
+  const allSupportedTrackers = useMemo(
+    () => Object.keys(trackerModelProviders),
+    [trackerModelProviders],
+  );
+  const { aiUnavailableReason, trackerUnavailableReason } = resolveWorkbenchAiAvailability({
+    backends,
+    capIndex: routing.capIndex,
+    backendsLoading: backendsQ.isLoading,
+    backendsError: backendsQ.isError,
+    capabilitiesLoading: routing.isLoading,
+    hasTrackers: visibleTrackerModelOptions(true, false, allSupportedTrackers).length > 0,
+  });
+  const notifyAiUnavailable = useCallback(
+    (reason: string) => pushToast({ msg: "AI 暂不可用", sub: reason, kind: "warning" }),
+    [pushToast],
+  );
 
   const meUserId = useAuthStore((s) => s.user?.id);
+  const continuousOwnerKey = useAuthStore((state) =>
+    state.user?.id && state.sessionId ? JSON.stringify([state.user.id, state.sessionId]) : null,
+  );
   const { hasPermission } = usePermissions();
   const s = useWorkbenchState();
   const pendingDiscussionTaskSwitch = Boolean(
@@ -755,8 +819,11 @@ export function useWorkbenchShellModel({
   const imageMediaKey = task?.dataset_item_id ?? task?.id ?? null;
   const blurhash = task?.blurhash ?? null;
   const thumbnailUrl = task?.thumbnail_url ?? null;
-  const { source: workbenchImageSource, retry: retryWorkbenchImagePyramid } =
-    useWorkbenchImageSource(task, imageMediaKey);
+  const {
+    source: workbenchImageSource,
+    retry: retryWorkbenchImagePyramid,
+    contentBlockedReason,
+  } = useWorkbenchImageSource(task, imageMediaKey, currentTaskId ?? requestedTaskId);
   const workbenchImagePreview = workbenchImagePreviewUrl(workbenchImageSource);
   const isVideoTask = task?.file_type === "video" || currentProject?.type_key === "video-track";
   const stageKind = currentProject?.type_key === "lidar" ? "3d" : isVideoTask ? "video" : "image";
@@ -818,7 +885,11 @@ export function useWorkbenchShellModel({
       null,
     [activeVideoSegmentId, videoSegmentsQuery.data?.segments],
   );
-  const videoFrameTimetable = useVideoFrameTimetable(taskId, isVideoTask && !!videoManifest.data);
+  const videoFrameTimetable = useVideoFrameTimetable(
+    taskId,
+    isVideoTask && !!videoManifest.data,
+    videoManifest.data?.metadata_generation_id,
+  );
   const videoDatasetItemId = videoManifest.data?.dataset_item_id ?? null;
   const videoChaptersQuery = useVideoChapters(isVideoTask ? videoDatasetItemId : null);
   const videoChaptersData = useMemo(() => videoChaptersQuery.data ?? [], [videoChaptersQuery.data]);
@@ -939,10 +1010,9 @@ export function useWorkbenchShellModel({
     disarmChapterDraft,
     clearPropagateBrush,
     trackerJobs,
+    unavailableReason: trackerUnavailableReason,
+    onUnavailable: notifyAiUnavailable,
   });
-  const toggleAiPopover = useCallback(() => {
-    workspaceCommands.current?.show("ai-task");
-  }, []);
   useEffect(() => {
     if (!isVideoTask) return;
     if (videoChaptersData.length === 0) return;
@@ -1018,13 +1088,13 @@ export function useWorkbenchShellModel({
           ? "讨论所在任务已删除、不可访问或暂时无法读取"
           : null;
   useEffect(() => {
-    if (
-      discussionRequest.status !== "valid" ||
-      !discussionTaskAvailable ||
-      currentTaskId === discussionRequest.taskId ||
-      !meUserId
-    )
-      return;
+    if (discussionRequest.status !== "valid" || !discussionTaskAvailable || !meUserId) return;
+    const localUrlSync = resolveLocalTaskUrlSync(
+      discussionRequest.taskId,
+      pendingLocalTaskIdRef.current,
+    );
+    if (localUrlSync.clearPendingTarget) pendingLocalTaskIdRef.current = null;
+    if (localUrlSync.holdRequestedTask || currentTaskId === discussionRequest.taskId) return;
     const controller = new AbortController();
     const previousTaskId = currentTaskId;
     const previousBatchId = selectedBatchId;
@@ -1469,23 +1539,6 @@ export function useWorkbenchShellModel({
   );
   const rasterResources = useRasterResourceCoordinator({ taskId });
   const rasterMaskWorkerPool = useRasterMaskWorkerPool(taskId, rasterResources);
-  const imageRasterMaskDescriptors = useMemo(() => {
-    if (isVideoTask || maskCapabilities.data?.read_enabled !== true) return [];
-    return buildImageRasterMaskDescriptors(visibleAnnotationsData, rasterMaskSelectedIds);
-  }, [
-    isVideoTask,
-    maskCapabilities.data?.read_enabled,
-    rasterMaskSelectedIds,
-    visibleAnnotationsData,
-  ]);
-  const imageRasterMasks = useRasterMaskRecords({
-    scopeKey:
-      !isVideoTask && maskCapabilities.data?.read_enabled === true ? (taskId ?? null) : null,
-    descriptors: imageRasterMaskDescriptors,
-    workerPool: rasterMaskWorkerPool,
-    resourceCoordinator: rasterResources,
-    resourceOwner: "mask-render:annotation",
-  });
 
   const taskAiMeta = useMemo(() => {
     if (predictionsData.length === 0)
@@ -1838,39 +1891,6 @@ export function useWorkbenchShellModel({
     [interpolateScene, runSceneWrite],
   );
 
-  // 交互线能力路由: 对每个注册后端拉 /setup 建 capIndex, 按当前工具 prompt 解析交互后端。
-  // 交互后端选择的服务端持久化偏好 (按 project, 跨设备; 替代旧 localStorage)。
-  const interactiveBackendPref = useInteractiveBackendPref(projectId);
-  const routing = useBackendRouting({
-    projectId,
-    backends,
-    defaultBackendId: currentProject?.ml_backend_id ?? null,
-    savedInteractiveBackendId: interactiveBackendPref.savedBackendId ?? null,
-    onSaveInteractiveBackend: interactiveBackendPref.save,
-  });
-  // tracker 可用性按项目已启用、已连接且 reachable 的 backend 分别计算；保留 provider
-  // 归属，避免把两个 backend 的原子能力误拼成一个可执行 combo。
-  const trackerModelProviders = useMemo(() => {
-    const providers: Record<string, string[]> = {};
-    for (const backend of backends) {
-      const entry = routing.capIndex[backend.id];
-      if (backend.state !== "connected" || !entry?.reachable) continue;
-      for (const tracker of entry.trackers) {
-        (providers[tracker] ??= []).push(backend.name);
-      }
-      if (
-        entry.trackers.includes("sam3_video") &&
-        entry.trackers.includes("sam3_video_interactive")
-      ) {
-        (providers.sam3_video_combo ??= []).push(backend.name);
-      }
-    }
-    return providers;
-  }, [backends, routing.capIndex]);
-  const allSupportedTrackers = useMemo(
-    () => Object.keys(trackerModelProviders),
-    [trackerModelProviders],
-  );
   const correctionModels = useMemo<VideoMaskCorrectionModel[]>(() => {
     const models = new Map<string, VideoMaskCorrectionModel>();
     for (const backend of backends) {
@@ -2374,6 +2394,7 @@ export function useWorkbenchShellModel({
   // 与批量页 ProjectDetailPanel 同一 hook + PreannotateConfigForm (单一事实源). 驱动批量 AI 面板
   // (运行当前题 AI) — 批量线, 用 batchBackendId.
   const preCfg = usePreannotateConfig({
+    executionScope: "workbench",
     projectId: projectId ?? "",
     backendId: batchBackendId,
     // 工作台「当前题 AI」面板恒做**单帧检测**(方案 a): 传 executionUnit="frame" 放开
@@ -2381,6 +2402,12 @@ export function useWorkbenchShellModel({
     // to_video_bbox_result 落 video_bbox。整段追踪走 Ctrl+B 种子追踪 / 批量页 (execution_unit=video)。
     // (图像项目 isVideoProject=false, 此参数无副作用。)
     executionUnit: "frame",
+  });
+  const aiRunUnavailableReason = resolveWorkbenchAiRunUnavailableReason({
+    backendId: isVideoTask ? batchBackendId : preCfg.backendId,
+    backends,
+    capIndex: routing.capIndex,
+    unavailableReason: aiUnavailableReason,
   });
   useEffect(() => {
     sam.cancel();
@@ -2453,6 +2480,8 @@ export function useWorkbenchShellModel({
   useEffect(() => {
     const idx = tasks.findIndex((t) => t.id === taskId);
     const controller = new AbortController();
+    const imageOwner = captureOriginalOwner();
+    const imageCurrent = () => !controller.signal.aborted && isOriginalOwnerCurrent(imageOwner);
     const prefetch = (t: TaskResponse | undefined) => {
       if (!t) return;
       if (!videoCollaborationEnabled) {
@@ -2470,32 +2499,50 @@ export function useWorkbenchShellModel({
           }),
       });
       if (stageKind === "image" && t.image_pyramid && LARGE_IMAGE_TILES_ENABLED) {
+        if (!imageCurrent()) return;
         void queryClient
           .fetchQuery({
-            queryKey: ["image-pyramid", t.id, t.image_pyramid.generation],
-            queryFn: () => tasksApi.getImagePyramid(t.id, { signal: controller.signal }),
+            queryKey: ["image-pyramid", originalOwnerKey(), t.id, t.image_pyramid.generation],
+            queryFn: ({ signal }) => tasksApi.getImagePyramid(t.id, { signal }),
             staleTime: 30_000,
           })
           .then((pyramid) => {
-            if (!pyramid.overview?.url) return;
+            if (!imageCurrent() || !pyramid.overview?.url) return;
             return loadAbortableImage(pyramid.overview.url, controller.signal);
           })
           .catch(() => {});
-      } else if (stageKind === "image" && t.file_url && !t.image_pyramid?.required) {
-        const deviceMemory = (navigator as Navigator & { deviceMemory?: unknown }).deviceMemory;
+      } else if (
+        stageKind === "image" &&
+        t.thumbnail_url &&
+        !t.image_pyramid?.required &&
+        imageCurrent()
+      ) {
+        void loadAbortableImage(t.thumbnail_url, controller.signal).catch(() => {});
+      } else if (
+        stageKind === "image" &&
+        !t.image_pyramid &&
+        t.storage_mode !== "reference" &&
+        imageOwner &&
+        imageCurrent()
+      ) {
+        const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
         const budget = imageTileDeviceBudget(
-          typeof deviceMemory === "number" ? deviceMemory : null,
+          typeof memory === "number" ? memory : null,
         ).retainedBytes;
-        const width = t.image_pyramid?.width ?? t.image_width;
-        const height = t.image_pyramid?.height ?? t.image_height;
-        const originalAllowed = t.image_pyramid
-          ? singleImageFitsDecodedBudget(width, height, budget)
-          : width && height
-            ? singleImageFitsDecodedBudget(width, height, budget)
-            : true;
-        const url = t.thumbnail_url ?? (originalAllowed ? t.file_url : null);
-        if (!url) return;
-        void loadAbortableImage(url, controller.signal).catch(() => {});
+        if (
+          t.image_width &&
+          t.image_height &&
+          !singleImageFitsDecodedBudget(t.image_width, t.image_height, budget)
+        )
+          return;
+        void readOriginalImage(
+          { kind: "task", taskId: t.id },
+          {
+            owner: imageOwner,
+            signal: controller.signal,
+            priority: "prefetch",
+          },
+        ).catch(() => {});
       }
     };
     const timer = window.setTimeout(() => {
@@ -2733,7 +2780,7 @@ export function useWorkbenchShellModel({
     closeDrawer: closeOfflineDrawer,
   } = offlineQ;
 
-  const isLockedForActions =
+  const businessLockedForActions =
     projectWriteBlocked ||
     sceneWriteBlocked ||
     (mode === "review"
@@ -2747,6 +2794,25 @@ export function useWorkbenchShellModel({
             activeVideoSegment.status === "completed" ||
             activeVideoSegment.locked_by !== meUserId ||
             !!segmentLeaseError)));
+  const notifyInvalidContinuousBinding = useCallback(
+    (error: string) => {
+      setTool("select");
+      pushToast({ msg: "已退出连续创建", sub: error, kind: "warning" });
+    },
+    [pushToast, setTool],
+  );
+  const isLockedForActions = useContinuousCreationGuard({
+    intent: s.continuousCreation,
+    setIntent: s.setContinuousCreation,
+    ownerKey: continuousOwnerKey,
+    projectId,
+    contextAllowsIntent: stageKind === "image" && mode !== "review",
+    businessLocked: businessLockedForActions,
+    mediaBlocked: !!contentBlockedReason,
+    tool: s.tool,
+    bindings: currentProject?.id === projectId ? currentProject?.tool_bindings : undefined,
+    onInvalidBinding: notifyInvalidContinuousBinding,
+  });
   const pushSliceHistory = history.push;
   const sliceWriteOwner = useRef({ taskId, canWrite: false });
   useLayoutEffect(() => {
@@ -3085,50 +3151,6 @@ export function useWorkbenchShellModel({
   }));
   const { continuousCreation, setContinuousCreation } = s;
   useEffect(() => {
-    if (!continuousCreation) return;
-    const error =
-      currentProject && currentProject.id === projectId
-        ? continuousIntentError(continuousCreation, currentProject.tool_bindings)
-        : null;
-    if (
-      stageKind !== "image" ||
-      mode === "review" ||
-      isLockedForActions ||
-      continuousCreation.projectId !== projectId ||
-      error
-    ) {
-      setContinuousCreation(null);
-      if (error) {
-        setTool("select");
-        pushToast({ msg: "已退出连续创建", sub: error, kind: "warning" });
-      }
-      return;
-    }
-    const next = manualImageTool(s.tool);
-    if (!next) {
-      setContinuousCreation(null);
-      return;
-    }
-    if (next.unit !== continuousCreation.toolUnitId)
-      setContinuousCreation({
-        projectId: projectId!,
-        tool: next.tool,
-        toolUnitId: next.unit,
-        className: "",
-      });
-  }, [
-    continuousCreation,
-    stageKind,
-    mode,
-    isLockedForActions,
-    currentProject,
-    projectId,
-    pushToast,
-    s.tool,
-    setTool,
-    setContinuousCreation,
-  ]);
-  useEffect(() => {
     if (isLockedForActions && s.pendingDrawing?.creation) s.setPendingDrawing(null);
   }, [isLockedForActions, s]);
   const blockCreationIntentChange = () => {
@@ -3325,7 +3347,11 @@ export function useWorkbenchShellModel({
 
   const handleRunAi = useCallback(() => {
     if (!projectId || !taskId) return;
-    const mlBackendId = batchBackendId;
+    if (aiRunUnavailableReason) {
+      notifyAiUnavailable(aiRunUnavailableReason);
+      return;
+    }
+    const mlBackendId = preCfg.backendId;
     if (!mlBackendId) {
       pushToast({
         msg: "AI 暂不可用",
@@ -3378,7 +3404,6 @@ export function useWorkbenchShellModel({
     });
   }, [
     projectId,
-    batchBackendId,
     aiModel,
     task?.display_id,
     taskId,
@@ -3386,6 +3411,8 @@ export function useWorkbenchShellModel({
     pushToast,
     preCfg,
     aiRequest,
+    aiRunUnavailableReason,
+    notifyAiUnavailable,
   ]);
 
   // 项目默认命名编排成为 popover「按项目编排」来源; 旧 preannotate_pipeline 仅作读兼容兜底。
@@ -3396,9 +3423,16 @@ export function useWorkbenchShellModel({
   );
   const hasProjectPipeline = (projectPipeline?.length ?? 0) > 0;
   const projectPipelineStageCount = projectPipeline?.length ?? 0;
-  // claude[bot] P1 #5 · 编排引用的 backend 被删/停时, popover 入口该不可点 + 弹明确原因, 而非默默 422。
-  // 复用上面已拉的 backends 列表 (line ~199 backendsQ), 不重复 query。
-  const availableBackendIds = useMemo(() => new Set<string>(backends.map((b) => b.id)), [backends]);
+  // Pipeline admission follows its referenced backends, independently of the selected single-task backend.
+  const availableBackendIds = useMemo(
+    () =>
+      new Set(
+        backends
+          .filter((b) => b.state === "connected" && routing.capIndex[b.id]?.reachable)
+          .map((b) => b.id),
+      ),
+    [backends, routing.capIndex],
+  );
   const pipelineMissingBackends = useMemo(
     () => missingBackendIdsForStages(projectPipeline, availableBackendIds),
     [projectPipeline, availableBackendIds],
@@ -3409,7 +3443,7 @@ export function useWorkbenchShellModel({
     if (pipelineMissingBackends.length > 0) {
       pushToast({
         msg: "项目编排引用的后端不可用",
-        sub: `请到「AI 预标」修编排或重新注册 ${pipelineMissingBackends.length} 个后端`,
+        sub: `请检查编排引用的 ${pipelineMissingBackends.length} 个后端是否已启用、连接且能力可达`,
         kind: "warning",
       });
       return;
@@ -4226,6 +4260,7 @@ export function useWorkbenchShellModel({
     [currentProject?.tool_bindings, toolView.attributeSchema],
   );
   const submitBlockedReason = useMemo(() => {
+    if (contentBlockedReason) return contentBlockedReason;
     if (!queueReady) return "正在检查本机待同步记录，请稍候";
     return resolveSubmitBlockedReason({
       pendingWrites: pendingAnnotationWrites,
@@ -4236,6 +4271,7 @@ export function useWorkbenchShellModel({
       syncError,
     });
   }, [
+    contentBlockedReason,
     hasPendingMaskDraft,
     imageActions.hasManualDraft,
     maskEditor.phase,
@@ -4289,6 +4325,10 @@ export function useWorkbenchShellModel({
   // 与图像的 handleRunAi 走不同路(那条投 task_id 让后端从 task URL 取图, 视频 task URL 是整段 mp4)。
   const handleRunVideoFrameAi = useCallback(() => {
     if (!projectId || !taskId) return;
+    if (aiRunUnavailableReason) {
+      notifyAiUnavailable(aiRunUnavailableReason);
+      return;
+    }
     const mlBackendId = batchBackendId;
     if (!mlBackendId) {
       pushToast({
@@ -4350,6 +4390,8 @@ export function useWorkbenchShellModel({
     batchBackendId,
     preCfg,
     aiModel,
+    aiRunUnavailableReason,
+    notifyAiUnavailable,
     task?.display_id,
     taskId,
     videoFrameIndex,
@@ -4379,8 +4421,51 @@ export function useWorkbenchShellModel({
     resumeTaskLock,
   });
   const modeState = mode === "review" ? reviewModeState : annotateModeState;
+  const imageRasterMaskDescriptors = useMemo(() => {
+    if (isVideoTask || !taskId || maskCapabilities.data?.read_enabled !== true) return [];
+    return [
+      ...buildImageRasterMaskDescriptors(visibleAnnotationsData, rasterMaskSelectedIds),
+      ...buildImagePredictionMaskDescriptors(
+        taskId,
+        modeState.diffMode === "final" ? [] : aiBoxes,
+        rasterMaskSelectedIds,
+      ),
+    ];
+  }, [
+    aiBoxes,
+    isVideoTask,
+    maskCapabilities.data?.read_enabled,
+    modeState.diffMode,
+    rasterMaskSelectedIds,
+    taskId,
+    visibleAnnotationsData,
+  ]);
+  const imageRasterMasks = useRasterMaskRecords({
+    scopeKey:
+      !isVideoTask && maskCapabilities.data?.read_enabled === true ? (taskId ?? null) : null,
+    descriptors: imageRasterMaskDescriptors,
+    workerPool: rasterMaskWorkerPool,
+    resourceCoordinator: rasterResources,
+    resourceOwner: "mask-render:image",
+  });
+  const imageAnnotationMaskRecords = useMemo(
+    () =>
+      imageRasterMasks.records.filter(
+        (record): record is typeof record & { source: "annotation" } =>
+          record.source === "annotation",
+      ),
+    [imageRasterMasks.records],
+  );
+  const imagePredictionMaskRecords = useMemo(
+    () =>
+      imageRasterMasks.records.filter(
+        (record): record is typeof record & { source: "prediction" } =>
+          record.source === "prediction",
+      ),
+    [imageRasterMasks.records],
+  );
   const { topbarActions, bannerActions } = modeState;
-  const isLocked = modeState.isLocked || sceneWriteBlocked;
+  const isLocked = modeState.isLocked || sceneWriteBlocked || !!contentBlockedReason;
   // 章节 × 时间轴联动控制器 (状态/handler 声明在前, 此处 isLocked 就绪后组装并 gate 编辑)。
   const canEditChapters = !isLocked && isOwner;
   const videoTimelineChapterControls = useMemo<VideoTimelineChapterControls | undefined>(() => {
@@ -4674,10 +4759,18 @@ export function useWorkbenchShellModel({
       mode === "annotate" &&
       isVideoTask &&
       workspaceState.videoTrackerVisible &&
+      !trackerUnavailableReason &&
       !propagateDialog
     )
       openPropagateDialog(null);
-  }, [isVideoTask, mode, openPropagateDialog, propagateDialog, workspaceState.videoTrackerVisible]);
+  }, [
+    isVideoTask,
+    mode,
+    openPropagateDialog,
+    propagateDialog,
+    trackerUnavailableReason,
+    workspaceState.videoTrackerVisible,
+  ]);
   const setWorkbenchLayout = s.setWorkbenchLayout;
   const leftOpen = workspaceState.taskQueueVisible;
   const rightOpen = workspaceState.inspectorVisible;
@@ -4859,8 +4952,8 @@ export function useWorkbenchShellModel({
         hiddenVideoTrackIds={hiddenVideoTrackIds}
         lockedVideoTrackIds={lockedVideoTrackIds}
         rasterMaskStatus={
-          selectedAnnotationForPanel
-            ? imageRasterMasks.statusById.get(selectedAnnotationForPanel.id)
+          selectedAnnotationForPanel || selectedAiBox
+            ? imageRasterMasks.statusById.get((selectedAnnotationForPanel ?? selectedAiBox)!.id)
             : undefined
         }
         rasterMaskRetry={imageRasterMasks.retry}
@@ -5408,6 +5501,17 @@ export function useWorkbenchShellModel({
       : isVideoTask
         ? aiBoxes.filter((b) => aiBoxOnFrame(b, s.videoFrameIndex)).length
         : aiBoxes.length;
+  const aiEntryDisabled = Boolean(
+    aiUnavailableReason &&
+    !workspaceState.aiTaskVisible &&
+    aiRequest.presentation.status === "idle" &&
+    aiPopoverBoxCount === 0,
+  );
+  const trackerEntryDisabled = Boolean(trackerUnavailableReason && !propagateDialog);
+  const toggleAiPopover = () => {
+    if (aiEntryDisabled) return;
+    workspaceCommands.current?.show("ai-task");
+  };
   const aiPopoverBatchEligibleCount = modeState.diffMode === "final" ? 0 : batchEligibleCount;
 
   const selectedMaskJoinCandidates = [
@@ -5542,6 +5646,8 @@ export function useWorkbenchShellModel({
     banners: {
       mode,
       task,
+      contentBlockedReason,
+      onRetryContent: retryWorkbenchImagePyramid,
       lockError,
       lockConflict,
       claimInfo: modeState.claimInfo,
@@ -5569,11 +5675,14 @@ export function useWorkbenchShellModel({
       onToggleSide: toggleWorkspaceSide,
       onRunAi: stageKind === "3d" ? undefined : toggleAiPopover,
       aiOpen: workspaceState.aiTaskVisible,
-      // 视频项目也开放当前题 AI(单帧 → 图像 backend), 不再禁用工具栏 AI 按钮。
-      aiDisabled: false,
+      aiDisabled: aiEntryDisabled,
+      aiDisabledReason: aiUnavailableReason,
+      isVideoTask,
       onToggleTracker: isVideoTask ? togglePropagateDialog : undefined,
       trackerOpen: workspaceState.videoTrackerVisible,
       trackerRunning: Boolean(trackingJobId),
+      trackerDisabled: trackerEntryDisabled,
+      trackerDisabledReason: trackerUnavailableReason,
       onPrev: () => navigateTask("prev"),
       onNext: () => navigateTask("next"),
       onSubmit: sceneWriteBlocked
@@ -6032,7 +6141,8 @@ export function useWorkbenchShellModel({
         bboxCreationMode: s.bboxCreationMode,
         continuousCreation: !!continuousCreation,
         resourceCoordinator: rasterResources,
-        rasterMaskRecords: imageRasterMasks.records,
+        rasterMaskRecords: imageAnnotationMaskRecords,
+        predictionRasterMaskRecords: imagePredictionMaskRecords,
         rasterMaskStatusById: imageRasterMasks.statusById,
         onRetryRasterMask: imageRasterMasks.retry,
         editingRasterMaskId: editingImageRasterMaskId,
@@ -6294,6 +6404,7 @@ export function useWorkbenchShellModel({
       aiModel,
       aiRunning,
       aiBoxCount: aiPopoverBoxCount,
+      runUnavailableReason: aiRunUnavailableReason,
       request: aiRequest.presentation,
       onRetryRequest: aiRequest.retry,
       onCancelRequest: aiRequest.cancel,

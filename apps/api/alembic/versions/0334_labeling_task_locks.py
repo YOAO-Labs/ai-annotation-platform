@@ -5,8 +5,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0334"
-down_revision = "0333"
+revision = "bo0334"
+down_revision = "bo0333"
 branch_labels = depends_on = None
 
 _SQL_PATH = Path(__file__).resolve().parents[1] / "sql" / "0334_labeling_task_locks.sql"

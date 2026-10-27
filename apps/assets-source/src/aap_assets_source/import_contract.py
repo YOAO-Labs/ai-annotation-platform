@@ -37,6 +37,7 @@ ImportFailureCode = Literal[
     "import_cancelled",
     "invalid_response",
     "storage_unavailable",
+    "storage_maintenance",
     "source_changed",
 ]
 

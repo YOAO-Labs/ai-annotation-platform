@@ -85,8 +85,9 @@ async def test_secondary_inference_capability_gate_precedes_inference(
     app.include_router(annotations.router, prefix="/tasks")
     app.dependency_overrides[deps.get_current_user] = lambda: user
     app.dependency_overrides[deps.get_db] = lambda: _FakeSession(project)
-    app.dependency_overrides[deps.get_gpu_shadow_session_factory] = lambda: object()
-    app.dependency_overrides[deps.get_gpu_dispatch_context_factory] = lambda: object()
+    app.dependency_overrides[deps.get_prediction_input_session_factory] = lambda: (
+        object()
+    )
 
     task = Task(
         id=uuid.uuid4(),

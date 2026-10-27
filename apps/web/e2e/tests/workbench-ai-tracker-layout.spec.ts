@@ -1,7 +1,34 @@
 import { panelCommand } from "../fixtures/workbench-panel-actions";
 import { layoutCommand, openLayoutSettings } from "../helpers/workbench-layout";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../fixtures/seed";
+import { expect, test, type SeedData } from "../fixtures/seed";
+
+async function trackerCapabilities(page: Page, data: SeedData) {
+  // Layout uses real project/task/preferences APIs and needs no model inference.
+  // Keep the owned seed backend connected and stub only capability discovery.
+  const backend = `**/api/v1/projects/${data.project_id}/ml-backends/${data.ml_backend_id}`;
+  const model = {
+    id: "e2e-layout-tracker",
+    display_name: "E2E layout tracker",
+    task: "tracker",
+    model_family: "sam2",
+    composition: "atom",
+    is_interactive: false,
+    supported_prompts: ["point", "bbox", "correction_frame"],
+    supported_inputs: ["video", "point_prompt", "bbox_prompt", "mask_prompt"],
+    supported_geometric_outputs: ["mask"],
+    supported_trackers: ["sam2_video"],
+    max_window_frames: 16,
+    resource_profile: { device: "cpu", batchable: false },
+  };
+  for (const endpoint of ["setup", "capabilities"]) {
+    await page.route(`${backend}/${endpoint}`, (route) =>
+      route.fulfill({
+        json: { name: "E2E layout capabilities", version: "1", models: [model] },
+      }),
+    );
+  }
+}
 
 async function savedVideoWorkspace(page: Page) {
   const token = await page.evaluate(() => localStorage.getItem("token"));
@@ -25,18 +52,7 @@ test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, se
   });
   const data = await seed.owned();
   const video = await seed.videoTask(data.project_id);
-  // The shared seed binds an unreachable mock backend; this layout test needs no inference.
-  const token = await seed.accessToken(data.admin_email);
-  const disabled = await page.request.put(
-    `/api/v1/projects/${data.project_id}/ml-backends/${data.ml_backend_id}/enablement`,
-    { headers: { Authorization: `Bearer ${token}` }, data: { enabled: false } },
-  );
-  expect(disabled.ok(), await disabled.text()).toBe(true);
-  const clearedDefault = await page.request.patch(`/api/v1/projects/${data.project_id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: { ml_backend_id: null },
-  });
-  expect(clearedDefault.ok(), await clearedDefault.text()).toBe(true);
+  await trackerCapabilities(page, data);
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`/projects/${data.project_id}/annotate?task=${video.task_id}`);
@@ -90,6 +106,7 @@ test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, se
 
 test("图片 AI 审阅预设显示单例面板，图片上下文不暴露视频追踪", async ({ page, seed }) => {
   const data = await seed.owned();
+  await trackerCapabilities(page, data);
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
@@ -100,7 +117,7 @@ test("图片 AI 审阅预设显示单例面板，图片上下文不暴露视频�
   const settings = await openLayoutSettings(page);
   await expect(settings.getByRole("button", { name: "图片 AI 审阅", exact: true })).toBeVisible();
   await settings.locator("summary").filter({ hasText: "面板与高级布局" }).click();
-  await expect(settings.getByRole("button", { name: "当前题 AI", exact: true })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "单图 AI", exact: true })).toBeVisible();
   await expect(settings.getByRole("button", { name: "视频追踪", exact: true })).toHaveCount(0);
   await settings.getByRole("button", { name: "图片 AI 审阅", exact: true }).click();
   await expect(settings.getByRole("button", { name: "图片 AI 审阅", exact: true })).toHaveAttribute(
@@ -111,7 +128,7 @@ test("图片 AI 审阅预设显示单例面板，图片上下文不暴露视频�
 
   await expect(page.getByTestId("ai-prediction-popover")).toBeVisible();
   expect(await aiWrapper.evaluate((node, original) => node === original, identity)).toBe(true);
-  await panelCommand(page, "当前题 AI", "隐藏面板");
+  await panelCommand(page, "单图 AI", "隐藏面板");
   await expect(aiWrapper).toHaveAttribute("aria-hidden", "true");
   await expect(page.getByTestId("ai-prediction-popover")).toHaveCount(1);
   await page.getByTestId("workbench-ai-single").click();
@@ -123,6 +140,7 @@ test("AI 与视频追踪使用同一 Dockview 工作区，隐藏和预设不重�
   test.setTimeout(90_000);
   const data = await seed.owned();
   const video = await seed.videoTask(data.project_id);
+  await trackerCapabilities(page, data);
   await seed.injectToken(page, data.admin_email);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto(`/projects/${data.project_id}/annotate?task=${video.task_id}`);

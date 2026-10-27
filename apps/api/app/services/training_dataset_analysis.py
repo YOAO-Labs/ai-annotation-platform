@@ -24,6 +24,7 @@ from app.db.models.training_dataset_analysis import (
     TrainingDatasetAnalyzedSample,
 )
 from app.services.storage import storage_service as storage
+from app.services import training_dataset_storage, storage_access
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -31,7 +32,14 @@ from app.services.training_dataset_bridge import (
     semantic_partitions,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, MAX_SAMPLES
-from training_contract.dataset import SEGMENTATION
+from training_contract.dataset import (
+    SEGMENTATION,
+    is_instance_rle,
+    instance_rle_evidence,
+    INSTANCE_RLE_LIMITS,
+)
+from training_contract.lineage import validate_source_lineage
+from app.services.training_dataset_sources import frozen_source_evidence
 from app.services.training_dataset_insight_adapters import (
     adapter_cache_identity,
     adapter_for_profile,
@@ -39,7 +47,7 @@ from app.services.training_dataset_insight_adapters import (
     unsupported_capabilities,
 )
 
-ANALYSIS_SCHEMA = 5
+ANALYSIS_SCHEMA = 7
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -51,6 +59,9 @@ CHANGES = {
     "reintroduced",
     "unchanged",
     "unknown",
+    "source_relation_changed",
+    "source_evidence_updated",
+    "source_unknown",
 }
 
 
@@ -120,6 +131,12 @@ def derive(
     preparation_report: dict | None,
     snapshot_digest: str,
 ) -> dict:
+    validate_source_lineage(snapshot)
+    validate_source_lineage(manifest)
+    if snapshot.get("source_lineage_contract") != manifest.get(
+        "source_lineage_contract"
+    ):
+        raise TrainingDatasetError("frozen_source_mismatch", "冻结来源合同与清单不一致")
     members = manifest.get("samples", [])
     if len(members) > MAX_SAMPLES or len(snapshot.get("samples", [])) > MAX_SAMPLES:
         raise TrainingDatasetError(
@@ -135,6 +152,10 @@ def derive(
             "analysis_classes", "冻结类别表不可用", status_code=409
         )
     frozen = {str(s["task_id"]): s for s in snapshot.get("samples", [])}
+    if "managed_original_contract" in snapshot and len(frozen) != len(
+        snapshot.get("samples", [])
+    ):
+        raise TrainingDatasetError("frozen_source_mismatch", "托管冻结来源成员身份重复")
     try:
         contract = contract_of(manifest)
         profile = contract_profile(manifest)
@@ -143,6 +164,10 @@ def derive(
     except TrainingDatasetError as exc:
         contract, profile, adapter = None, None, None
         unavailable_reason = str(exc)
+    try:
+        snapshot_profile = contract_profile(snapshot)
+    except TrainingDatasetError:
+        snapshot_profile = None
     segmentation = bool(contract and normalize_task(contract["task"]) == SEGMENTATION)
     class_rows = [
         {
@@ -217,27 +242,46 @@ def derive(
         else:
             unknown_dimensions += 1
         source = frozen.get(task_id)
+        if member.get("source_lineage") != (source or {}).get("source_lineage"):
+            raise TrainingDatasetError(
+                "frozen_source_mismatch", "冻结来源证据与清单不一致"
+            )
         try:
             if (
                 not source
                 or "annotations" not in source
                 or snapshot.get("classes") != classes
                 or contract is None
-                or contract_profile(snapshot) != profile
+                or snapshot_profile != profile
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_unavailable", "冻结标注或类别映射未保留"
                 )
-            text, instances, labels = adapter.labels(
-                source["annotations"], classes, contract
-            )
+            if is_instance_rle(contract):
+                instances, labels = adapter.mask_labels(
+                    source["annotations"], classes, member
+                )
+                text = None
+                from app.services.training_dataset_bridge import instance_rle_semantic
+
+                if member.get("semantic_label_sha256") != instance_rle_semantic(
+                    instances
+                ):
+                    raise TrainingDatasetError(
+                        "frozen_labels_mismatch", "掩码像素语义摘要不一致"
+                    )
+            else:
+                text, instances, labels = adapter.labels(
+                    source["annotations"], classes, contract
+                )
             if segmentation and member.get("instances") != instances:
                 raise TrainingDatasetError(
                     "frozen_instances_mismatch", "冻结实例来源与训练包不一致"
                 )
             if (
                 not row["label_sha256"]
-                or hashlib.sha256(text.encode()).hexdigest() != row["label_sha256"]
+                or text is not None
+                and hashlib.sha256(text.encode()).hexdigest() != row["label_sha256"]
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_mismatch", "冻结标签与训练包摘要不一致"
@@ -291,8 +335,34 @@ def derive(
                     "unknown_split_members": 0,
                     "task_ids": [],
                     "multiplicity": 0,
+                    "source_relations": [],
+                    "source_evidence": [],
+                    "unknown_source_members": 0,
                 },
             )
+            lineage = frozen_source_evidence(
+                snapshot, manifest, member, source, snapshot_digest
+            )
+            if lineage["status"] != "recorded":
+                content["unknown_source_members"] += 1
+            else:
+                evidence = lineage["evidence"] or lineage["managed_evidence"]
+                content["source_relations"].append(
+                    content_digest(
+                        {
+                            "kind": lineage["kind"],
+                            **{
+                                key: evidence[key]
+                                for key in (
+                                    ("owner_kind", "content_id", "location_id")
+                                    if lineage["kind"] == "managed_original"
+                                    else ("source_id", "location_id", "path_digest")
+                                )
+                            },
+                        }
+                    )
+                )
+                content["source_evidence"].append(content_digest(evidence))
             if (
                 content["semantic_label_digest"] != row["semantic_label_digest"]
                 or content["label_sha256"] != row["label_sha256"]
@@ -495,6 +565,12 @@ def compare(baseline: dict, target: dict) -> dict:
     changes["reintroduced"] = changes["added"] & baseline["history"].keys()
     for sha in common:
         a, b = before[sha], after[sha]
+        if a.get("unknown_source_members") != 0 or b.get("unknown_source_members") != 0:
+            changes["source_unknown"].add(sha)
+        elif sorted(a["source_relations"]) != sorted(b["source_relations"]):
+            changes["source_relation_changed"].add(sha)
+        elif sorted(a["source_evidence"]) != sorted(b["source_evidence"]):
+            changes["source_evidence_updated"].add(sha)
         if a["semantic_label_digest"] is None or b["semantic_label_digest"] is None:
             changes["unknown"].add(sha)
         elif a["semantic_label_digest"] != b["semantic_label_digest"]:
@@ -547,6 +623,11 @@ def compare(baseline: dict, target: dict) -> dict:
         else "complete",
         "counts": {key: len(value) for key, value in changes.items()},
         "count_unit": "unique_contents",
+        "source_comparison_status": "unavailable"
+        if not common
+        else "partial"
+        if changes["source_unknown"]
+        else "complete",
         "baseline_members": baseline["overview"]["counts"]["images"],
         "target_members": target["overview"]["counts"]["images"],
         "overlapping_changes": True,
@@ -616,6 +697,7 @@ async def ensure_analysis(db, project_id, version_id):
                         "format",
                         "geometry",
                         "bridge",
+                        "source_lineage_contract",
                     )
                     for part in (
                         key,
@@ -696,7 +778,24 @@ async def ensure_analysis(db, project_id, version_id):
             else "冻结元数据不完整，分析不可用"
         )
         raise HTTPException(status_code=409, detail=message) from exc
+    media_observations = {}
     if cached:
+        observed = (
+            await db.execute(
+                select(
+                    TrainingDatasetAnalyzedSample.task_id,
+                    TrainingDatasetAnalyzedSample.sha256,
+                    TrainingDatasetAnalyzedSample.size_bytes,
+                    TrainingDatasetAnalyzedSample.included,
+                    TrainingDatasetAnalyzedSample.media_state,
+                    TrainingDatasetAnalyzedSample.media_checked_at,
+                ).where(
+                    TrainingDatasetAnalyzedSample.version_id == version.id,
+                    TrainingDatasetAnalyzedSample.media_state != "unchecked",
+                )
+            )
+        ).all()
+        media_observations = {tuple(row[:4]): tuple(row[4:]) for row in observed}
         await db.execute(
             delete(TrainingDatasetAnalysis)
             .where(TrainingDatasetAnalysis.version_id == version.id)
@@ -704,6 +803,12 @@ async def ensure_analysis(db, project_id, version_id):
         )
         db.expunge(cached)
     rows = result.pop("samples")
+    for row in rows:
+        identity = tuple(
+            row[key] for key in ("task_id", "sha256", "size_bytes", "included")
+        )
+        if identity in media_observations:
+            row["media_state"], row["media_checked_at"] = media_observations[identity]
     cached = TrainingDatasetAnalysis(
         version_id=version.id, input_digest=fingerprint, summary=result
     )
@@ -753,13 +858,21 @@ async def record_media_observation(db, sample, *, error_code=None):
     await db.commit()
 
 
-def read_media(project_id, version, sample, *, preview=False):
+def read_media(project_id, version, sample, *, preview=False, transport=None):
     """Verify the complete retained object before sending any byte to the caller."""
-    key = f"projects/{project_id}/datasets/{version.id}/media/{sample.task_id}"
+    owner = training_dataset_storage.resolve(version)
+    if transport is None and owner.key_prefix:
+        training_dataset_storage._reject("training_storage_binding_unproven")
+    destination = transport or storage
+    if str(project_id) != str(version.project_id):
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "冻结图片不属于该项目", status_code=409
+        )
+    key = owner.key(f"media/{sample.task_id}")
     temporary = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     body = None
     try:
-        head = storage.client.head_object(Bucket=storage.training_bucket, Key=key)
+        head = destination.client.head_object(Bucket=owner.bucket, Key=key)
         if (
             head.get("Metadata", {}).get("snapshot-digest") != version.snapshot_digest
             or head.get("Metadata", {}).get("sha256") != sample.sha256
@@ -771,8 +884,8 @@ def read_media(project_id, version, sample, *, preview=False):
             raise TrainingDatasetError(
                 "frozen_media_identity", "冻结图片身份或大小不匹配", status_code=409
             )
-        response = storage.client.get_object(
-            Bucket=storage.training_bucket, Key=key, IfMatch=head["ETag"]
+        response = destination.client.get_object(
+            Bucket=owner.bucket, Key=key, IfMatch=head["ETag"]
         )
         body = response["Body"]
         digest, size = hashlib.sha256(), 0
@@ -840,7 +953,7 @@ def read_media(project_id, version, sample, *, preview=False):
         raise
     finally:
         if body is not None:
-            body.close()
+            storage_access.close_registered(body)
 
 
 def stream_media(source):
@@ -849,3 +962,69 @@ def stream_media(source):
             yield chunk
     finally:
         source.close()
+
+
+def read_instance_masks(project_id, version, sample, annotation_ids, *, transport=None):
+    """Read and verify requested instances from one independent frozen object."""
+    if not sample.included or not sample.label_sha256:
+        raise TrainingDatasetError(
+            "frozen_mask_unavailable", "冻结掩码不可用", status_code=404
+        )
+    requested = {str(identifier) for identifier in annotation_ids}
+    if not requested:
+        return {}
+    owner = training_dataset_storage.resolve(version)
+    if transport is None and owner.key_prefix:
+        training_dataset_storage._reject("training_storage_binding_unproven")
+    destination = transport or storage
+    if str(project_id) != str(version.project_id):
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "冻结掩码不属于该项目", status_code=409
+        )
+    key = owner.key(f"masks/{sample.task_id}.json")
+    result = {}
+    try:
+        response = destination.client.get_object(Bucket=owner.bucket, Key=key)
+        try:
+            data = response["Body"].read(
+                INSTANCE_RLE_LIMITS["max_sample_label_bytes"] + 1
+            )
+        finally:
+            storage_access.close_registered(response["Body"])
+        if len(data) > INSTANCE_RLE_LIMITS["max_sample_label_bytes"]:
+            raise ValueError("frozen mask object exceeds budget")
+        if hashlib.sha256(data).hexdigest() != sample.label_sha256:
+            raise ValueError("frozen mask object digest mismatch")
+        import json
+
+        payload = json.loads(data)
+        for instance in payload["instances"]:
+            identifier = instance["annotation_id"]
+            if identifier in requested:
+                if identifier in result:
+                    raise ValueError("duplicate frozen mask identity")
+                evidence = instance_rle_evidence(instance["rle"])
+                if any(instance[key] != value for key, value in evidence.items()):
+                    raise ValueError("frozen mask evidence mismatch")
+                result[identifier] = {
+                    "annotation_id": identifier,
+                    "annotation_version": instance["annotation_version"],
+                    "pixel_sha256": evidence["pixel_sha256"],
+                    "rle": instance["rle"],
+                }
+    except (BotoCoreError, ClientError, ValueError, KeyError, TypeError) as exc:
+        raise TrainingDatasetError(
+            "frozen_mask_unavailable", "冻结掩码不可用或校验失败", status_code=409
+        ) from exc
+    if set(result) != requested:
+        raise TrainingDatasetError(
+            "frozen_mask_not_found", "实例不属于该冻结样本", status_code=404
+        )
+    return result
+
+
+def read_instance_mask(project_id, version, sample, annotation_id, *, transport=None):
+    """Read one frozen mask from the version-owned independent training object."""
+    return read_instance_masks(
+        project_id, version, sample, [annotation_id], transport=transport
+    )[str(annotation_id)]

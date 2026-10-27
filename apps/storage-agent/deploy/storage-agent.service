@@ -1,0 +1,32 @@
+[Unit]
+Description=AAP controlled read-only storage Agent
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=aap-storage-agent
+Group=aap-storage-agent
+UMask=0077
+StateDirectory=aap-storage-agent
+StateDirectoryMode=0700
+ExecStart=/opt/aap-storage-agent/bin/aap-storage-agent --config /etc/aap-storage-agent/agent.json
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LimitNOFILE=512
+
+[Install]
+WantedBy=multi-user.target

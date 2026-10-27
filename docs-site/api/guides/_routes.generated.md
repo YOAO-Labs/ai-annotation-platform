@@ -9,8 +9,11 @@
 
 | Method | Path |
 |---|---|
+| POST | `/{round_id}/storage-pin` |
 | GET | `/pool` |
 | POST | `:preview` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/{round_id}` |
 | POST | `/{round_id}/cancel` |
 | POST | `/{round_id}/retry` |
@@ -34,6 +37,14 @@
 |---|---|
 | GET | `/{panel_name}` |
 
+## `admin_backend_operations.py`
+
+| Method | Path |
+|---|---|
+| GET | `/status` |
+| POST | `/jobs` |
+| GET | `/jobs/{job_id}` |
+
 ## `admin_ml_integrations.py`
 
 | Method | Path |
@@ -41,6 +52,8 @@
 | GET | `/overview` |
 | POST | `/probe` |
 | GET | `/runtime-hints` |
+| GET | `/managed-auth` |
+| POST | `/managed-auth/initialize` |
 | GET | `/all` |
 | GET | `/gpu-resources` |
 | POST | `/registry` |
@@ -72,6 +85,12 @@
 | POST | `/admin/preannotate-queue/bulk-clear` |
 | GET | `/admin/preannotate-summary` |
 
+## `admin_system_health.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
+
 ## `annotation_comments.py`
 
 | Method | Path |
@@ -85,6 +104,7 @@
 | PATCH | `/comments/{comment_id}` |
 | DELETE | `/comments/{comment_id}` |
 | POST | `/annotations/{annotation_id}/comment-attachments/upload-init` |
+| POST | `/annotations/{annotation_id}/comment-attachments/upload` |
 | GET | `/annotations/{annotation_id}/comment-attachments/download` |
 
 ## `annotation_feedbacks.py`
@@ -119,6 +139,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | PATCH | `/{key_id}` |
 | POST | `/{key_id}/rotate` |
 | DELETE | `/{key_id}` |
@@ -136,6 +158,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/monthly-summary` |
 | GET | `/archives` |
 | GET | `/archives/{year}/{month}` |
@@ -167,8 +190,10 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/unclassified-count` |
 | GET | `/{batch_id}` |
+| POST | `/` |
 | PATCH | `/{batch_id}` |
 | POST | `/{batch_id}/assignment-preview` |
 | POST | `/{batch_id}/assignment-apply` |
@@ -198,6 +223,7 @@
 | Method | Path |
 |---|---|
 | POST | `/bug_reports/screenshot/upload-init` |
+| POST | `/bug_reports/screenshot/upload` |
 | POST | `/bug_reports` |
 | GET | `/bug_reports` |
 | GET | `/bug_reports/mine` |
@@ -231,6 +257,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/reviewer/batches` |
 | GET | `/reviewer` |
 | GET | `/reviewer/today-mini` |
 | GET | `/me/recent-reviews` |
@@ -251,15 +278,110 @@
 | POST | `/projects/{project_id}/data-manager/tracks/query` |
 | GET | `/projects/{project_id}/data-manager/tracks/{track_ref}/detail` |
 
+## `dataset_lifecycle.py`
+
+| Method | Path |
+|---|---|
+| POST | `/{dataset_id}/lifecycle-preview` |
+| POST | `/{dataset_id}/lifecycle` |
+
+## `dataset_quality_review.py`
+
+| Method | Path |
+|---|---|
+| POST | `/preview` |
+| GET | `/` |
+| GET | `/{batch_id}` |
+| GET | `/{batch_id}/members` |
+| POST | `/{batch_id}/execute` |
+| POST | `/{batch_id}/resume` |
+
+## `dataset_quality.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
+| POST | `/` |
+| GET | `/{run_id}` |
+| POST | `/{run_id}/resume` |
+| GET | `/{run_id}/results` |
+| POST | `/{run_id}/results/{result_id}/review` |
+
+## `dataset_reference_replicas.py`
+
+| Method | Path |
+|---|---|
+| GET | `/dataset-items/{item_id}/reference-replicas` |
+| GET | `/dataset-items/{item_id}/reference-replica-candidates` |
+| POST | `/dataset-items/{item_id}/reference-replicas` |
+| PATCH | `/dataset-items/{item_id}/reference-replicas/{replica_id}` |
+| DELETE | `/dataset-items/{item_id}/reference-replicas/{replica_id}` |
+
+## `dataset_sources.py`
+
+| Method | Path |
+|---|---|
+| POST | `/dataset-sources` |
+| GET | `/dataset-sources` |
+| GET | `/dataset-sources/{source_id}` |
+| PATCH | `/dataset-sources/{source_id}` |
+| PUT | `/dataset-sources/{source_id}/external-protection` |
+| GET | `/dataset-sources/{source_id}/lifecycle-impact` |
+| POST | `/dataset-sources/{source_id}/lifecycle` |
+| GET | `/dataset-sources/{source_id}/entries/{path_digest}/preview` |
+| POST | `/dataset-sources/{source_id}/scans` |
+| GET | `/dataset-sources/{source_id}/scans` |
+| GET | `/dataset-scans/{run_id}` |
+| GET | `/dataset-sources/{source_id}/active-registration` |
+| GET | `/dataset-scans/{run_id}/entries` |
+| POST | `/dataset-scans/{run_id}/resume` |
+| POST | `/dataset-scans/{run_id}/entries/{path_digest}/verify` |
+| GET | `/dataset-scans/{run_id}/entries/{path_digest}/content` |
+| POST | `/dataset-scans/{run_id}/entries/{path_digest}/register` |
+| GET | `/dataset-items/{item_id}/content` |
+| GET | `/dataset-scans/{scan_id}/registration` |
+| POST | `/dataset-scans/{scan_id}/registration` |
+| POST | `/dataset-registrations/{registration_id}/confirm` |
+| POST | `/dataset-registrations/{registration_id}/resume` |
+| POST | `/dataset-registrations/{registration_id}/entries/{path_digest}/retry` |
+| GET | `/dataset-registrations/{registration_id}/entries` |
+| GET | `/dataset-registrations/{registration_id}/changes` |
+| GET | `/dataset-sources/{source_id}/sync-schedule` |
+| PUT | `/dataset-sources/{source_id}/sync-schedule` |
+| POST | `/dataset-sources/{source_id}/sync-schedule/continue` |
+| POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision` |
+| POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/revalidate` |
+| POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/relocate` |
+| GET | `/dataset-registrations/{registration_id}/changes/{path_digest}/move-candidates` |
+| GET | `/dataset-sources/{source_id}/revisions` |
+| POST | `/dataset-sources/{source_id}/rules/preview` |
+| POST | `/dataset-sources/{source_id}/rules` |
+
+## `dataset_views.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
+| POST | `/` |
+| PUT | `/{view_id}` |
+| DELETE | `/{view_id}` |
+
 ## `datasets.py`
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{dataset_id}` |
 | PUT | `/{dataset_id}` |
 | POST | `/{dataset_id}/sniff-axis-convention` |
 | DELETE | `/{dataset_id}` |
+| GET | `/{dataset_id}/scene-options` |
 | GET | `/{dataset_id}/items` |
+| GET | `/{dataset_id}/items/{item_id}` |
+| GET | `/{dataset_id}/items/{item_id}/preview` |
+| GET | `/{dataset_id}/workbench` |
+| GET | `/{dataset_id}/training-versions` |
 | POST | `/{dataset_id}/import-from-connection` |
 | POST | `/{dataset_id}/items/upload-init` |
 | POST | `/{dataset_id}/items/upload-complete/{item_id}` |
@@ -281,13 +403,17 @@
 | POST | `/upload-init` |
 | POST | `/upload-complete/{task_id}` |
 | GET | `/tasks/{task_id}/file-url` |
+| GET | `/tasks/{task_id}/content` |
+| GET | `/tasks/{task_id}/content-identity` |
 | POST | `/projects/{project_id}/backfill-thumbnails` |
 
 ## `groups.py`
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/query` |
+| POST | `/` |
 | PATCH | `/{group_id}` |
 | DELETE | `/{group_id}` |
 
@@ -295,9 +421,11 @@
 
 | Method | Path |
 |---|---|
+| POST | `/{project_id}/guide-assets/upload` |
+| GET | `/{project_id}/guide-assets/content` |
+| DELETE | `/{project_id}/guide-assets` |
 | POST | `/{project_id}/guide-assets/upload-init` |
 | POST | `/{project_id}/guide-assets/upload-complete` |
-| DELETE | `/{project_id}/guide-assets` |
 | GET | `/{project_id}/guide-assets/sign-url` |
 
 ## `internal.py`
@@ -310,6 +438,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/query` |
 | GET | `/stats` |
 | GET | `/export` |
@@ -329,9 +458,12 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| PUT | `/` |
 | POST | `/disable` |
 | POST | `/check` |
 | GET | `/triggers` |
+| DELETE | `/` |
 
 ## `mask_formats.py`
 
@@ -368,6 +500,7 @@
 | Method | Path |
 |---|---|
 | POST | `/heartbeat` |
+| PATCH | `/` |
 | POST | `/avatar` |
 | PATCH | `/avatar` |
 | DELETE | `/avatar` |
@@ -378,10 +511,18 @@
 | DELETE | `/deactivation-request` |
 | POST | `/task-events:batch` |
 
+## `media_cache.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{kind}/{output_id}/{relative:path}` |
+
 ## `ml_backends.py`
 
 | Method | Path |
 |---|---|
+| POST | `/` |
+| GET | `/` |
 | GET | `/available` |
 | PUT | `/{backend_id}/enablement` |
 | GET | `/{backend_id}` |
@@ -408,6 +549,13 @@
 | GET | `/protocol` |
 | GET | `/instances` |
 
+## `model_catalog.py`
+
+| Method | Path |
+|---|---|
+| GET | `/model-catalog` |
+| GET | `/projects/{project_id}/model-catalog` |
+
 ## `model_lineage.py`
 
 | Method | Path |
@@ -428,6 +576,27 @@
 | DELETE | `/notifications/{notification_id}` |
 | GET | `/notification-preferences` |
 | PUT | `/notification-preferences` |
+
+## `original_playback.py`
+
+| Method | Path |
+|---|---|
+| POST | `/files/tasks/{task_id}/original-playback` |
+| POST | `/datasets/{dataset_id}/items/{item_id}/original-playback` |
+| DELETE | `/files/tasks/{task_id}/original-playback/{lease_id}` |
+| DELETE | `/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}` |
+| GET | `/media/original-playback/{lease_id}` |
+
+## `originals.py`
+
+| Method | Path |
+|---|---|
+| GET | `/files/tasks/{task_id}/original-identity` |
+| GET | `/files/tasks/{task_id}/original` |
+| GET | `/files/tasks/{task_id}/links/{link_id}/original-identity` |
+| GET | `/files/tasks/{task_id}/links/{link_id}/original` |
+| GET | `/datasets/{dataset_id}/items/{item_id}/original-identity` |
+| GET | `/datasets/{dataset_id}/items/{item_id}/original` |
 
 ## `point_cloud_quality.py`
 
@@ -467,6 +636,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{pipeline_id}` |
 | PUT | `/{pipeline_id}` |
 | DELETE | `/{pipeline_id}` |
@@ -475,12 +646,15 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/unrecognized-versions` |
 
 ## `project_templates.py`
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{template_id}` |
 | PATCH | `/{template_id}` |
 | DELETE | `/{template_id}` |
@@ -490,8 +664,10 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/query` |
 | GET | `/stats` |
+| POST | `/` |
 | GET | `/{project_id}` |
 | GET | `/{project_id}/readiness` |
 | PATCH | `/{project_id}` |
@@ -519,7 +695,10 @@
 
 | Method | Path |
 |---|---|
+| POST | `/{run_id}/storage-pin` |
 | GET | `/qualification` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/compare` |
 | GET | `/{evaluation_id}` |
 | POST | `/{evaluation_id}/cancel` |
@@ -534,9 +713,37 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/{scene_id}` |
 | GET | `/{scene_id}/trajectory` |
 | PATCH | `/{scene_id}` |
+
+## `search.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
+
+## `site_agent_transport.py`
+
+| Method | Path |
+|---|---|
+| POST | `/commands/poll` |
+| POST | `/commands/{command_id}/chunks` |
+| POST | `/commands/{command_id}/result` |
+
+## `site_agents.py`
+
+| Method | Path |
+|---|---|
+| GET | `/sites` |
+| POST | `/sites` |
+| GET | `/agents` |
+| POST | `/sites/{site_id}/agents` |
+| POST | `/agents/{agent_id}/rotate` |
+| POST | `/agents/{agent_id}/revoke` |
+| POST | `/agents/{agent_id}/drain` |
+| POST | `/pair` |
 
 ## `storage_connections.py`
 
@@ -546,10 +753,117 @@
 | PUT | `/allowlist` |
 | DELETE | `/allowlist` |
 | GET | `/deployment-sftp-preset` |
+| GET | `/` |
+| POST | `/` |
 | GET | `/{conn_id}` |
 | PATCH | `/{conn_id}` |
 | DELETE | `/{conn_id}` |
 | POST | `/{conn_id}/test` |
+
+## `storage_locations.py`
+
+| Method | Path |
+|---|---|
+| GET | `/roots` |
+| GET | `/bindings` |
+| GET | `/bindings/avatars/candidates` |
+| POST | `/bindings/avatars/change-preview` |
+| PATCH | `/bindings/avatars` |
+| GET | `/bindings/bug-reports/candidates` |
+| POST | `/bindings/bug-reports/change-preview` |
+| PATCH | `/bindings/bug-reports` |
+| GET | `/bindings/audit-archive/candidates` |
+| POST | `/bindings/audit-archive/change-preview` |
+| PATCH | `/bindings/audit-archive` |
+| GET | `/bindings/export/candidates` |
+| POST | `/bindings/export/change-preview` |
+| PATCH | `/bindings/export` |
+| GET | `/bindings/import/candidates` |
+| POST | `/bindings/import/change-preview` |
+| PATCH | `/bindings/import` |
+| GET | `/bindings/datasets/candidates` |
+| POST | `/bindings/datasets/change-preview` |
+| PATCH | `/bindings/datasets` |
+| GET | `/bindings/annotations/candidates` |
+| POST | `/bindings/annotations/change-preview` |
+| PATCH | `/bindings/annotations` |
+| GET | `/bindings/training/candidates` |
+| POST | `/bindings/training/change-preview` |
+| PATCH | `/bindings/training` |
+| GET | `/bindings/media-cache/candidates` |
+| POST | `/bindings/media-cache/change-preview` |
+| PATCH | `/bindings/media-cache` |
+| GET | `/` |
+| POST | `/` |
+| POST | `/agent` |
+| GET | `/{location_id}/faults` |
+| GET | `/{location_id}` |
+| GET | `/{location_id}/source-summary` |
+| POST | `/{location_id}/change-preview` |
+| PATCH | `/{location_id}` |
+| GET | `/{location_id}/maintenance-impact` |
+| GET | `/{location_id}/original-cache` |
+| POST | `/{location_id}/original-cache/cleanup` |
+| GET | `/{location_id}/directories` |
+| POST | `/{location_id}/probe` |
+| GET | `/{location_id}/probes` |
+
+## `storage_maintenance.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{location_id}/maintenance` |
+| POST | `/{location_id}/maintenance-preview` |
+| POST | `/{location_id}/maintenance` |
+
+## `storage_migration_copies.py`
+
+| Method | Path |
+|---|---|
+| GET | `/migration-copy-targets` |
+| POST | `/migration-copies` |
+| POST | `/migration-copies/{parent_id}/generations` |
+| GET | `/migration-copies` |
+| GET | `/migration-copies/{copy_id}` |
+| POST | `/migration-copies/{copy_id}/attempts` |
+| POST | `/migration-copies/{copy_id}/dispatch` |
+| GET | `/migration-copies/{copy_id}/failed-objects` |
+| GET | `/migration-copies/{copy_id}/checkpoint` |
+
+## `storage_migration_inventories.py`
+
+| Method | Path |
+|---|---|
+| POST | `/` |
+| GET | `/` |
+| POST | `/{job_id}/dispatch` |
+| GET | `/{job_id}/report` |
+
+## `storage_migration_windows.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
+| POST | `/` |
+| GET | `/{window_id}` |
+| POST | `/{window_id}/transitions` |
+
+## `storage_reclamation.py`
+
+| Method | Path |
+|---|---|
+| GET | `/managed-original-reclamation` |
+| GET | `/managed-original-retirements/{retirement_id}/retention` |
+| POST | `/managed-original-retirements/{retirement_id}/retention-preview` |
+| POST | `/managed-original-retirements/{retirement_id}/retention` |
+| GET | `/managed-original-retirements/{retirement_id}/verifications` |
+| POST | `/managed-original-retirements/{retirement_id}/verifications` |
+| GET | `/managed-original-retirements/{retirement_id}/reclaims` |
+| POST | `/managed-original-retirements/{retirement_id}/reclaim-preview` |
+| POST | `/managed-original-retirements/{retirement_id}/reclaims` |
+| POST | `/managed-original-reclaims/{attempt_id}/redispatch` |
+| GET | `/managed-original-reference-reconciliation` |
+| POST | `/managed-original-reference-reconciliation` |
 
 ## `storage.py`
 
@@ -557,6 +871,8 @@
 |---|---|
 | GET | `/health` |
 | GET | `/buckets` |
+| POST | `/usage-inventory` |
+| PUT | `/usage-schedule` |
 | GET | `/video-assets/failures` |
 | POST | `/video-assets/retry` |
 
@@ -644,6 +960,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/next` |
 | GET | `/{task_id}` |
 | GET | `/{task_id}/neighbors` |
@@ -685,6 +1002,7 @@
 | Method | Path |
 |---|---|
 | GET | `/{task_id}/predictions` |
+| GET | `/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` |
 | GET | `/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}` |
 | POST | `/{task_id}/predictions/{prediction_id}/accept` |
 | POST | `/{task_id}/predictions/{prediction_id}/reject` |
@@ -756,6 +1074,7 @@
 | POST | `/trained-models` |
 | GET | `/trained-models` |
 | GET | `/trained-models/{version_id}` |
+| GET | `/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}` |
 | POST | `/trained-models/{version_id}/deploy` |
 | GET | `/trained-models/{version_id}/download` |
 | GET | `/model-releases` |
@@ -765,10 +1084,12 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/classes` |
 | GET | `/compare` |
 | GET | `/samples` |
 | GET | `/samples/{task_id}` |
+| GET | `/samples/{task_id}/masks/{annotation_id}` |
 | GET | `/samples/{task_id}/media` |
 
 ## `training_datasets.py`
@@ -776,9 +1097,12 @@
 | Method | Path |
 |---|---|
 | POST | `:preflight` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/{version_id}` |
 | POST | `/{version_id}/retry` |
 | GET | `/{version_id}/download` |
+| POST | `/{version_id}/storage-pin` |
 | DELETE | `/{version_id}` |
 
 ## `training_hub.py`
@@ -802,6 +1126,8 @@
 | Method | Path |
 |---|---|
 | GET | `/capabilities` |
+| POST | `/` |
+| POST | `/{preview_id}/storage-pin` |
 | GET | `/{preview_id}` |
 | POST | `/{preview_id}/cancel` |
 | DELETE | `/{preview_id}` |
@@ -812,6 +1138,8 @@
 | Method | Path |
 |---|---|
 | POST | `:resolve` |
+| GET | `/` |
+| POST | `/` |
 | POST | `/{recipe_id}/revisions` |
 | GET | `/{recipe_id}` |
 | GET | `/{recipe_id}/revisions` |
@@ -826,11 +1154,15 @@
 | GET | `/initialization-sources/{model_id}` |
 | POST | `:preflight` |
 | GET | `/parameter-schema` |
+| POST | `/` |
+| GET | `/` |
+| POST | `/{run_id}/storage-pin` |
 | GET | `/{run_id}` |
 | GET | `/{run_id}/events` |
 | GET | `/{run_id}/attempts/{attempt_id}/evaluation` |
 | POST | `/{run_id}/cancel` |
 | POST | `/{run_id}/resume` |
+| GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/content` |
 | GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` |
 | DELETE | `/{run_id}` |
 
@@ -839,6 +1171,8 @@
 | Method | Path |
 |---|---|
 | POST | `:preview` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/{study_id}` |
 | POST | `/{study_id}/cancel` |
 
@@ -848,6 +1182,7 @@
 |---|---|
 | GET | `/stats` |
 | GET | `/query` |
+| GET | `/` |
 | GET | `/export` |
 | POST | `/invite` |
 | POST | `/bulk-invite/preview` |
@@ -868,6 +1203,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/{job_id}` |
 | DELETE | `/{job_id}` |
 | POST | `/{job_id}/accept` |
@@ -896,4 +1232,4 @@
 
 ---
 
-_共 93 模块 / 509 路由_
+_共 115 模块 / 740 路由_

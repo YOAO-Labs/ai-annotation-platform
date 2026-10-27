@@ -180,6 +180,94 @@ async def lock_task_rows_for_core_read(
     return (await execute_core_read(db, statement)).scalars().all()
 
 
+async def lock_task_rows_for_core_read_share(
+    db: AsyncSession,
+    task_ids: list[uuid.UUID],
+    *,
+    project_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+    populate_existing: bool = False,
+):
+    """Take exact FOR SHARE NOWAIT locks without UPDATE rights on the view."""
+    if not task_ids:
+        return []
+    locked = func.aap_labeling_v1.lock_task_rows_for_core_read_share(
+        task_ids, project_id, batch_id
+    ).table_valued(
+        *(
+            column(name, Task.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["task_rows"]
+        )
+    )
+    row = aliased(Task, locked, adapt_on_names=True)
+    statement = select(row).order_by(row.id)
+    if populate_existing:
+        statement = statement.execution_options(populate_existing=True)
+    return (await execute_core_read(db, statement)).scalars().all()
+
+
+async def lock_prediction_for_core_read_share(
+    db: AsyncSession,
+    prediction_id: uuid.UUID,
+    *,
+    task_id: uuid.UUID | None = None,
+    populate_existing: bool = False,
+):
+    locked = func.aap_labeling_v1.lock_prediction_for_core_read_share(
+        prediction_id, task_id
+    ).table_valued(
+        *(
+            column(name, Prediction.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["prediction_rows"]
+        )
+    )
+    statement = select(aliased(Prediction, locked, adapt_on_names=True))
+    if populate_existing:
+        statement = statement.execution_options(populate_existing=True)
+    return (await execute_core_read(db, statement)).scalar_one_or_none()
+
+
+async def lock_prediction_meta_for_core_read_share(
+    db: AsyncSession,
+    meta_id: uuid.UUID,
+    *,
+    populate_existing: bool = False,
+):
+    locked = func.aap_labeling_v1.lock_prediction_meta_for_core_read_share(
+        meta_id
+    ).table_valued(
+        *(
+            column(name, PredictionMeta.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["prediction_meta_rows"]
+        )
+    )
+    statement = select(aliased(PredictionMeta, locked, adapt_on_names=True))
+    if populate_existing:
+        statement = statement.execution_options(populate_existing=True)
+    return (await execute_core_read(db, statement)).scalar_one_or_none()
+
+
+async def lock_video_segment_for_core_read_share(
+    db: AsyncSession,
+    segment_id: uuid.UUID,
+    dataset_item_id: uuid.UUID | None,
+    *,
+    populate_existing: bool = False,
+):
+    locked = func.aap_labeling_v1.lock_video_segment_for_core_read_share(
+        segment_id, dataset_item_id
+    ).table_valued(
+        *(
+            column(name, VideoSegment.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["video_segment_rows"]
+        )
+    )
+    statement = select(aliased(VideoSegment, locked, adapt_on_names=True))
+    if populate_existing:
+        statement = statement.execution_options(populate_existing=True)
+    return (await execute_core_read(db, statement)).scalar_one_or_none()
+
+
 async def lock_feedback_task_rows_for_share(
     db: AsyncSession,
     project_id: uuid.UUID,
@@ -296,6 +384,7 @@ __all__ = [
     "lock_feedback_task_rows_for_share",
     "lock_task_for_core_read",
     "lock_task_rows_for_core_read",
+    "lock_task_rows_for_core_read_share",
     "prediction_meta_row",
     "prediction_row",
     "scene_track_interval_row",
@@ -305,4 +394,7 @@ __all__ = [
     "video_segment_row",
     "video_tracker_job_row",
     "lock_video_segment_for_core_read",
+    "lock_video_segment_for_core_read_share",
+    "lock_prediction_for_core_read_share",
+    "lock_prediction_meta_for_core_read_share",
 ]

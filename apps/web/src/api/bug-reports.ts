@@ -90,7 +90,8 @@ export interface BugReportUpdatePayload {
 }
 
 export const bugReportsApi = {
-  create: (payload: BugReportPayload) => apiClient.post<BugReportResponse>("/bug_reports", payload),
+  create: (payload: BugReportPayload) =>
+    apiClient.silentPost<BugReportResponse>("/bug_reports", payload),
 
   list: (params?: BugReportListParams, signal?: AbortSignal) => {
     const q = new URLSearchParams();
@@ -117,45 +118,24 @@ export const bugReportsApi = {
   addComment: (id: string, body: string) =>
     apiClient.post<BugCommentResponse>(`/bug_reports/${id}/comments`, { body }),
 
-  // v0.6.6 · 截图上传 init：签发 PUT URL，前端再调 PUT 真正上传
-  initScreenshotUpload: (file_name = "screenshot.png", content_type = "image/png") =>
-    apiClient.post<{ storage_key: string; upload_url: string; expires_in: number }>(
-      "/bug_reports/screenshot/upload-init",
-      { file_name, content_type },
+  downloadAttachment: (reportId: string, key: string, signal?: AbortSignal) =>
+    apiClient.silentGetBlob(
+      `/bug_reports/${reportId}/attachments/download?key=${encodeURIComponent(key)}`,
+      { signal },
     ),
-
-  attachmentDownloadUrl: (reportId: string, key: string) =>
-    `/api/v1/bug_reports/${reportId}/attachments/download?key=${encodeURIComponent(key)}`,
 };
 
-/** 高阶：先 init 拿 PUT URL，再前端 fetch PUT 上传，返回 storage_key */
 export async function uploadBugScreenshot(blob: Blob): Promise<string> {
-  const init = await bugReportsApi.initScreenshotUpload("screenshot.png", blob.type || "image/png");
-  const res = await fetch(init.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": blob.type || "image/png" },
-    body: blob,
-  });
-  if (!res.ok) throw new Error(`上传失败 (${res.status})`);
-  return init.storage_key;
+  return (await uploadBugAttachment(blob)).storageKey;
 }
 
-export async function uploadBugAttachment(
+export function uploadBugAttachment(
   file: Blob,
   fileName = "screenshot.png",
 ): Promise<BugAttachment> {
-  const mimeType = file.type || "image/png";
-  const init = await bugReportsApi.initScreenshotUpload(fileName, mimeType);
-  const res = await fetch(init.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": mimeType },
-    body: file,
-  });
-  if (!res.ok) throw new Error(`上传失败 (${res.status})`);
-  return {
-    storageKey: init.storage_key,
-    fileName,
-    mimeType,
-    size: file.size,
-  };
+  return apiClient.silentPost<BugAttachment>(
+    `/bug_reports/screenshot/upload?file_name=${encodeURIComponent(fileName)}`,
+    undefined,
+    { body: file, headers: { "Content-Type": file.type || "image/png" } },
+  );
 }

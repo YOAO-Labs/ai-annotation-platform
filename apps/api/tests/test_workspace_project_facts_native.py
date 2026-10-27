@@ -46,7 +46,7 @@ async def test_native_column_contract_owner_and_grants_match_database(test_engin
     schema = read_relations_schema()
     native = json.loads(
         (
-            _ROOT / "apps/api/alembic/sql/0298_workspace_project_facts.schema.json"
+            _ROOT / "apps/api/alembic/sql/0377_workspace_project_snapshots.schema.json"
         ).read_text()
     )
     observations = {}

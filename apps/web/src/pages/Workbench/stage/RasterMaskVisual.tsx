@@ -14,6 +14,8 @@ interface RasterMaskVisualProps {
   visual: AnnotationVisualConfig;
   labelText?: string | null;
   showLabel?: boolean;
+  source?: "annotation" | "prediction";
+  opacityScale?: number;
 }
 
 /** Mask 选中态沿真实像素轮廓增亮，不再用容易被误解为矩形标注的 AABB 虚线框。 */
@@ -29,15 +31,17 @@ export function RasterMaskVisual({
   visual,
   labelText,
   showLabel = false,
+  source = "annotation",
+  opacityScale = 1,
 }: RasterMaskVisualProps) {
   const x = bounds.x * sourceWidth;
   const y = bounds.y * sourceHeight;
   const width = bounds.w * sourceWidth;
   const height = bounds.h * sourceHeight;
-  const resolvedOpacity = fillAlpha(selected, visual);
+  const resolvedOpacity = fillAlpha(selected, visual) * opacityScale;
 
   return (
-    <Group id={id} name="raster-mask-annotation" listening={false}>
+    <Group id={id} name={`raster-mask-${source}`} listening={false}>
       <KonvaImage
         name="raster-mask-fill"
         image={image}

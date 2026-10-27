@@ -51,6 +51,9 @@ BEGIN
     FOR v_function IN
         SELECT * FROM (VALUES
             ('aap_jobs_v1.read_job(uuid)','record',true,'s'),
+            ('aap_jobs_v1.read_job_execution_snapshot(uuid)','uuid',false,'s'),
+            ('aap_jobs_v1.read_job_progress(uuid)','record',true,'s'),
+            ('aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)','boolean',false,'v'),
             ('aap_jobs_v1.jobs_by_execution_id(text)','record',true,'s'),
             ('aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)','boolean',false,'v'),
             ('aap_jobs_v1.apply_lifecycle(uuid,jsonb)','record',true,'v'),
@@ -69,7 +72,11 @@ BEGIN
               AND function.prokind='f'
               AND function.prorettype=pg_catalog.to_regtype(v_function.return_type)
               AND function.proretset=v_function.returns_set
-              AND function.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+              AND function.proconfig=CASE
+                  WHEN v_function.signature='aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)'
+                  THEN ARRAY['search_path=pg_catalog, pg_temp','TimeZone=UTC']::text[]
+                  ELSE ARRAY['search_path=pg_catalog, pg_temp']::text[]
+              END
         ) THEN
             RAISE EXCEPTION 'Jobs lifecycle function ownership or fixed signature differs';
         END IF;
@@ -127,6 +134,9 @@ BEGIN
 END;
 $revoke_columns$;
 REVOKE ALL ON FUNCTION
+    aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
+    aap_jobs_v1.read_job_execution_snapshot(uuid),
+    aap_jobs_v1.read_job_progress(uuid),
     aap_jobs_v1.read_job(uuid),
     aap_jobs_v1.jobs_by_execution_id(text),
     aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
@@ -141,6 +151,9 @@ GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"api_role", :"lifecycle_client";
 GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation
     TO :"api_role", :"lifecycle_client";
 GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
+    aap_jobs_v1.read_job_execution_snapshot(uuid),
+    aap_jobs_v1.read_job_progress(uuid),
     aap_jobs_v1.read_job(uuid),
     aap_jobs_v1.jobs_by_execution_id(text),
     aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
@@ -160,6 +173,9 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                      WHERE rolname=current_setting('aap.lifecycle_client'));
     v_allowed oid[] := ARRAY[
+        'aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)'::regprocedure::oid,
+        'aap_jobs_v1.read_job_execution_snapshot(uuid)'::regprocedure::oid,
+        'aap_jobs_v1.read_job_progress(uuid)'::regprocedure::oid,
         'aap_jobs_v1.read_job(uuid)'::regprocedure::oid,
         'aap_jobs_v1.jobs_by_execution_id(text)'::regprocedure::oid,
         'aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)'::regprocedure::oid,

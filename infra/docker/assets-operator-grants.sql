@@ -100,6 +100,25 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_operator_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_operator_role";
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.publish_operator_item_original(jsonb),
+    aap_assets_v1.operator_item_original_facts(uuid,uuid),
+    aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid),
+    aap_assets_v1.begin_operator_auxiliary(jsonb),
+    aap_assets_v1.publish_operator_auxiliary(uuid),
+    aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid),
+    aap_assets_v1.operator_auxiliary_material(uuid,uuid),
+    aap_assets_v1.operator_item_original_material(uuid,uuid),
+    aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid),
+    aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid),
+    aap_assets_v1.operator_dataset_state(uuid),
+    aap_assets_v1.operator_scene_state(uuid,uuid),
+    aap_assets_v1.open_operator_storage_operation(uuid),
+    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    aap_assets_v1.mark_operator_original_writing(uuid),
+    aap_assets_v1.record_operator_original_written(uuid,jsonb),
+    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
+    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean),
     aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text),
     aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb),
     aap_assets_v1.append_operator_items(uuid,uuid,jsonb),
@@ -116,6 +135,63 @@ DECLARE
         WHERE role.rolname = current_setting('aap.asset_operator_role')
     );
     allowed_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.publish_operator_item_original(jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_item_original_facts(uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.begin_operator_auxiliary(jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.publish_operator_auxiliary(uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_auxiliary_material(uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_item_original_material(uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_dataset_state(uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.operator_scene_state(uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.open_operator_storage_operation(uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.record_operator_original_prepared(uuid,jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.mark_operator_original_writing(uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.record_operator_original_written(uuid,jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.record_operator_original_verified(uuid,jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)'
+        )::oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)'
         )::oid,

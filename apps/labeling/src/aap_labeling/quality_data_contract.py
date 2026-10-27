@@ -289,6 +289,12 @@ class ReadMaskRepairBatchById(_Command):
     lock: StrictBool
 
 
+class ReadMaskRepairBatchForSource(_Command):
+    operation: Literal["read_batch_for_source"]
+    batch_id: uuid.UUID
+    lock: StrictBool
+
+
 class ReadMaskRepairBatchByToken(_Command):
     operation: Literal["read_batch_by_token"]
     token_hash: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
@@ -341,6 +347,14 @@ class RecordRepairShard(_Command):
     shard_id: StrictStr = Field(pattern=r"^[0-9a-f]{24}$")
     result_value: dict[str, object]
     rollback_expires_at: AwareDatetime
+
+
+class RecordRepairRollbackShard(_Command):
+    operation: Literal["record_rollback_shard"]
+    batch_id: uuid.UUID
+    rollback_job_id: uuid.UUID
+    shard_id: StrictStr = Field(pattern=r"^[0-9a-f]{24}$")
+    result_value: dict[str, object]
 
 
 class RecordRepairCandidate(_Command):
@@ -494,6 +508,7 @@ MaskQCCommand = Annotated[
 MaskRepairCommand = Annotated[
     CreateMaskRepairBatch
     | ReadMaskRepairBatchById
+    | ReadMaskRepairBatchForSource
     | ReadMaskRepairBatchByToken
     | ReadMaskRepairBatchByJob
     | AttachRepairJob
@@ -502,6 +517,7 @@ MaskRepairCommand = Annotated[
     | BeginRepairExecution
     | BeginRepairRollback
     | RecordRepairShard
+    | RecordRepairRollbackShard
     | RecordRepairCandidate
     | FailRepairShard
     | FinishRepairExecution
@@ -547,6 +563,7 @@ QualityDataCommand = Annotated[
     | ReadTrackerCandidateContext
     | CreateMaskRepairBatch
     | ReadMaskRepairBatchById
+    | ReadMaskRepairBatchForSource
     | ReadMaskRepairBatchByToken
     | ReadMaskRepairBatchByJob
     | AttachRepairJob
@@ -555,6 +572,7 @@ QualityDataCommand = Annotated[
     | BeginRepairExecution
     | BeginRepairRollback
     | RecordRepairShard
+    | RecordRepairRollbackShard
     | RecordRepairCandidate
     | FailRepairShard
     | FinishRepairExecution

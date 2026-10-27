@@ -13,9 +13,14 @@ from pydantic import BaseModel, ValidationError
 
 from .config import SourceConfig
 from aap_assets_source.connections_contract import (
+    ConnectionProbeFinish,
+    ConnectionProbeLease,
     CONNECTION_NATIVE_ARGUMENTS,
     CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
+    RUNTIME_NATIVE_ARGUMENTS,
+    RUNTIME_NATIVE_OPERATIONS,
+    RUNTIME_NATIVE_SIGNATURES,
     CaptureConnectionRequest,
     ConnectionCapture,
     ConnectionFailure,
@@ -32,7 +37,7 @@ from aap_assets_source.connections_contract import (
     NativeConnectionsPage,
     ReadConnectionRequest,
     RecordConnectionTestRequest,
-    UpdateConnectionNativeRequest,
+    decode_connection_probe_reply,
     decode_connection_reply,
     require_connection_scope,
 )
@@ -64,6 +69,13 @@ from aap_assets_source.legacy_upload_contract import (
     LegacyUploadState,
     decode_legacy_upload_reply,
 )
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalFailure,
+    ManagedOriginalMaterial,
+    ManagedOriginalOperation,
+    decode_managed_original_reply,
+    require_managed_original_ok,
+)
 from aap_assets_source.upload_contract import (
     DatasetUploadAcceptance,
     DatasetUploadCompletion,
@@ -94,10 +106,21 @@ EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
         "resolve_internal_image_source(text,uuid,text,jsonb)",
         "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
         "read_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
+        "begin_operator_auxiliary(jsonb)",
+        "open_operator_storage_operation(uuid)",
+        "record_operator_original_prepared(uuid,jsonb)",
+        "mark_operator_original_writing(uuid)",
+        "record_operator_original_written(uuid,jsonb)",
+        "record_operator_original_verified(uuid,jsonb)",
+        "fail_operator_original(uuid,text,text,jsonb)",
+        "close_operator_storage_operation(uuid,uuid,boolean)",
     }
     | {
         f"{name}({signature})"
-        for name, signature in CONNECTION_NATIVE_SIGNATURES.items()
+        for name, signature in {
+            **CONNECTION_NATIVE_SIGNATURES,
+            **RUNTIME_NATIVE_SIGNATURES,
+        }.items()
     }
 )
 
@@ -262,29 +285,21 @@ class SourceDataPorts:
     deletions: NativeDeletionData
     ingest: NativeIngestData
     connections: NativeConnectionsData
+    connection_probes: NativeConnectionProbeData
     images: AsyncpgImageAdmissionData
 
 
 class _NativeData:
-    def __init__(self, connection: asyncpg.Connection, max_reply_bytes: int) -> None:
+    def __init__(
+        self,
+        connection: asyncpg.Connection,
+        max_reply_bytes: int,
+        *,
+        pool: asyncpg.Pool | None = None,
+    ) -> None:
         self._connection = connection
         self._max_reply_bytes = max_reply_bytes
-
-    async def _call(
-        self,
-        statement: str,
-        arguments: tuple[Any, ...],
-        decoder: _NativeDecoder[_Result],
-        expected_failures: tuple[type[Exception], ...],
-    ) -> _Result:
-        raw = await self._connection.fetchval(statement, *arguments)
-        payload = self._parse_payload(raw)
-        try:
-            return decoder(payload)
-        except expected_failures:
-            raise
-        except (TypeError, ValueError, ValidationError):
-            raise SourceFailure("invalid_response") from None
+        self._original_pool = pool
 
     def _parse_payload(self, raw: Any) -> object:
         if isinstance(raw, bytes):
@@ -314,8 +329,183 @@ class _NativeData:
             raise SourceFailure("invalid_response") from None
         return payload
 
+    async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:
+        if self._original_pool is None:
+            raw = await self._connection.fetchval(statement, *arguments)
+        else:
+            async with self._original_pool.acquire() as connection:
+                raw = await connection.fetchval(statement, *arguments)
+        return self._parse_payload(raw)
 
-class NativeConnectionsData(_NativeData):
+    async def _original_ok(self, statement: str, arguments: tuple[Any, ...]) -> Any:
+        raw = await self._original_reply(statement, arguments)
+        require_managed_original_ok(raw)
+        return raw
+
+    async def _call(
+        self,
+        statement: str,
+        arguments: tuple[Any, ...],
+        decoder: _NativeDecoder[_Result],
+        expected_failures: tuple[type[Exception], ...],
+    ) -> _Result:
+        raw = await self._connection.fetchval(statement, *arguments)
+        payload = self._parse_payload(raw)
+        try:
+            return decoder(payload)
+        except expected_failures:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            raise SourceFailure("invalid_response") from None
+
+    async def allocate(self, request: dict[str, Any]) -> ManagedOriginalMaterial:
+        """Allocate independently and durably before any physical I/O."""
+        payload = dict(request)
+        payload.setdefault("kind", "role_media")
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.begin_operator_auxiliary($1::jsonb)",
+            (payload,),
+        )
+        try:
+            return decode_managed_original_reply(raw, ManagedOriginalMaterial)
+        except ManagedOriginalFailure:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            raise SourceFailure("invalid_response") from None
+
+    async def open_operation(self, creation_id: UUID) -> ManagedOriginalOperation:
+        """Acquire this creation's one permit; verified reuse stays read-only."""
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.open_operator_storage_operation($1::uuid)",
+            (creation_id,),
+        )
+        try:
+            return decode_managed_original_reply(raw, ManagedOriginalOperation)
+        except ManagedOriginalFailure:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            raise SourceFailure("invalid_response") from None
+
+    async def original_prepared(
+        self, creation_id: UUID, prepared: dict[str, Any]
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
+            (creation_id, prepared),
+        )
+
+    async def original_writing(self, creation_id: UUID) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.mark_operator_original_writing($1::uuid)",
+            (creation_id,),
+        )
+
+    async def original_written(
+        self, creation_id: UUID, receipt: dict[str, Any]
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
+            (creation_id, receipt),
+        )
+
+    async def original_verified(
+        self, creation_id: UUID, verification: dict[str, Any]
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.record_operator_original_verified($1::uuid,$2::jsonb)",
+            (creation_id, verification),
+        )
+
+    async def fail_original(
+        self,
+        creation_id: UUID,
+        outcome: str,
+        error_code: str,
+        evidence: dict[str, Any],
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.fail_operator_original("
+            "$1::uuid,$2::text,$3::text,$4::jsonb)",
+            (creation_id, outcome, error_code, evidence),
+        )
+
+    async def close_operation(
+        self, creation_id: UUID, operation_id: UUID, physical_settled: bool
+    ) -> None:
+        """Settle only this creation's own read permit after a proven drain."""
+        await self._original_ok(
+            "SELECT aap_assets_v1.close_operator_storage_operation("
+            "$1::uuid,$2::uuid,$3::boolean)",
+            (creation_id, operation_id, physical_settled),
+        )
+
+
+class NativeConnectionProbeData(_NativeData):
+    """Probe lease and finish bindings with an independently durable ledger."""
+
+    _pool = None
+
+    def __init__(self, connection, max_reply_bytes, *, pool=None):
+        super().__init__(connection, max_reply_bytes)
+        self._pool = pool
+
+    async def begin_connection_probe(self, request):
+        return await self._runtime(
+            "begin_connection_probe", request, ConnectionProbeLease
+        )
+
+    async def finish_connection_probe(self, request):
+        return await self._runtime(
+            "finish_connection_probe", request, ConnectionProbeFinish
+        )
+
+    async def _runtime(self, name, request, result_type):
+        try:
+            request_type, expected_result_type = RUNTIME_NATIVE_OPERATIONS[name]
+            arguments = RUNTIME_NATIVE_ARGUMENTS[name]
+            kinds = RUNTIME_NATIVE_SIGNATURES[name].split(",")
+            if type(request) is not request_type:
+                raise ConnectionFailure("invalid_request")
+            if result_type is not expected_result_type or len(arguments) != len(kinds):
+                raise ConnectionFailure("invalid_response")
+        except KeyError:
+            raise ConnectionFailure("invalid_request") from None
+        placeholders = ", ".join(
+            f"CAST(${index} AS {kind})" for index, kind in enumerate(kinds, 1)
+        )
+        values = []
+        for argument, kind in zip(arguments, kinds, strict=True):
+            value = getattr(request, argument)
+            if kind == "jsonb":
+                # The pool registers json/jsonb codecs, so bind objects not text.
+                values.append(
+                    value.model_dump(mode="json")
+                    if hasattr(value, "model_dump")
+                    else value
+                )
+            elif kind == "text[]":
+                values.append(list(value))
+            else:
+                values.append(value)
+        statement = f"SELECT aap_assets_v1.{name}({placeholders})"
+        if self._pool is None:
+            raw = await self._connection.fetchval(statement, *values)
+        else:
+            # Independently durable ledger/fence: a fresh pool transaction, not
+            # the caller's operation transaction.
+            async with self._pool.acquire() as connection:
+                raw = await connection.fetchval(statement, *values)
+        try:
+            return decode_connection_probe_reply(self._parse_payload(raw), result_type)
+        except ConnectionFailure:
+            raise
+        except SourceFailure:
+            raise ConnectionFailure("invalid_response") from None
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectionFailure("invalid_response") from None
+
+
+class NativeConnectionsData(NativeConnectionProbeData):
     """Bindings for the nine Assets-owned connection capabilities."""
 
     async def list_storage_connections(
@@ -406,11 +596,11 @@ class NativeConnectionsData(_NativeData):
             NativeConnectionMutation,
         )
 
-    async def update_storage_connection(
-        self, request: UpdateConnectionNativeRequest
+    async def update_storage_connection_authorized(
+        self, request
     ) -> NativeConnectionMutation:
         return await self._call_connection(
-            "update_storage_connection",
+            "update_storage_connection_authorized",
             request,
             (
                 request.operation_id,
@@ -423,6 +613,11 @@ class NativeConnectionsData(_NativeData):
                 request.policy_digest,
                 request.fallback_allowlist,
                 request.audit_context.model_dump(mode="json"),
+                request.api_key_id,
+                request.required_scopes,
+                request.expected_proof.model_dump(mode="json")
+                if request.expected_proof is not None
+                else None,
             ),
             NativeConnectionMutation,
         )
@@ -922,7 +1117,7 @@ class SourceDatabase:
             async with connection.transaction():
                 yield SourceDataPorts(
                     uploads=NativeUploadData(
-                        connection, self._config.max_response_bytes
+                        connection, self._config.max_response_bytes, pool=self._pool
                     ),
                     legacy_uploads=NativeLegacyUploadData(
                         connection, self._config.max_response_bytes
@@ -931,9 +1126,12 @@ class SourceDatabase:
                         connection, self._config.max_response_bytes
                     ),
                     ingest=NativeIngestData(
-                        connection, self._config.max_response_bytes
+                        connection, self._config.max_response_bytes, pool=self._pool
                     ),
                     connections=NativeConnectionsData(
+                        connection, self._config.max_response_bytes, pool=self._pool
+                    ),
+                    connection_probes=NativeConnectionProbeData(
                         connection, self._config.max_response_bytes
                     ),
                     images=AsyncpgImageAdmissionData(

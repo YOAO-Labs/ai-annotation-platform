@@ -102,8 +102,16 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_import_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_import_role";
 
--- The runtime can execute only the nine accepted-import capabilities.
+-- The runtime can execute only accepted-import and verified-original capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.claim_dataset_import(uuid,integer,uuid),
+    aap_assets_v1.begin_operator_auxiliary(jsonb),
+    aap_assets_v1.open_operator_storage_operation(uuid),
+    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    aap_assets_v1.mark_operator_original_writing(uuid),
+    aap_assets_v1.record_operator_original_written(uuid,jsonb),
+    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
+    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean),
     aap_assets_v1.heartbeat_dataset_import(uuid,uuid,integer),
     aap_assets_v1.read_dataset_import_connection(uuid,uuid,jsonb),
     aap_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb),
@@ -130,6 +138,14 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_import(uuid,uuid,text)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_operator_auxiliary(jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.open_operator_storage_operation(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_prepared(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.mark_operator_original_writing(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_written(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_verified(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid
     ];
 BEGIN

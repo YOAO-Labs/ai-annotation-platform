@@ -1,10 +1,12 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ProjectTaskQueryPayload } from "@/api/taskViews";
+import { server } from "@/mocks/server";
 import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import {
@@ -12,11 +14,14 @@ import {
   createTaskView,
   installDataManagerApi,
   READ_CAPABILITIES,
+  SCHEMA,
+  SUMMARY,
 } from "@/test/dataManagerApi";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
 import { ProjectDataManagerPage } from "./ProjectDataManagerPage";
 import { updateDataManagerUrl } from "./data-manager/dataManagerUrlState";
+import { datasetDataManagerPath, datasetTaskFilter } from "./data-manager/datasetScope";
 
 function LocationProbe() {
   const location = useLocation();
@@ -95,9 +100,65 @@ describe("ProjectDataManagerPage task data", () => {
       filter_json: {},
       sort_json: [{ field: "task.created_at", direction: "asc" }],
       columns_json: ["display_id"],
-      limit: 50,
+      limit: 20,
       offset: 0,
     });
+  });
+
+  it("filters the first task and summary requests from a dataset and class deep link", async () => {
+    const datasetId = "5c806f2e-1c40-48cb-a809-0a5e013bd276";
+    const classFilter = { field: "annotation.class_name", op: "eq", value: "car" };
+    const expectedFilter = { op: "and", rules: [datasetTaskFilter(datasetId), classFilter] };
+    const captured = installDataManagerApi();
+    const summaryRequests: unknown[] = [];
+    const datasetField = {
+      key: "dataset.dataset_id",
+      label: "数据集 ID",
+      group: "数据集",
+      value_type: "text",
+      operators: ["eq", "ne", "in"],
+      options: [],
+      expensive: false,
+      tool_unit_id: null,
+      attribute_key: null,
+    };
+    server.use(
+      http.get("*/api/v1/projects/p1/data-manager/schema", () =>
+        HttpResponse.json({
+          ...SCHEMA,
+          filter_fields: [
+            ...SCHEMA.filter_fields,
+            datasetField,
+            { ...datasetField, key: "annotation.class_name", label: "标注类别", group: "标注" },
+          ],
+        }),
+      ),
+      http.post("*/api/v1/projects/p1/data-manager/summary", async ({ request }) => {
+        summaryRequests.push(await request.json());
+        return HttpResponse.json(SUMMARY);
+      }),
+    );
+
+    renderDataManager(datasetDataManagerPath("p1", datasetId, classFilter));
+
+    expect(await screen.findByText("T-1")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(captured.taskQueries).toHaveLength(1);
+      expect(summaryRequests).toHaveLength(1);
+    });
+    expect(captured.taskQueries[0].filter_json).toEqual(expectedFilter);
+    expect(summaryRequests[0]).toEqual({ filter_json: expectedFilter });
+  });
+
+  it("uses the selected row count at the API boundary and returns to the first page", async () => {
+    const captured = installDataManagerApi();
+    renderDataManager("/projects/p1/data-manager?lens=tasks&view=builtin:all");
+    expect(await screen.findByText("T-1")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("每页任务数"), { target: { value: "50" } });
+    await waitFor(() =>
+      expect(lastTaskQuery(captured.taskQueries)).toMatchObject({ limit: 50, offset: 0 }),
+    );
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
   });
 
   it("restores the URL filter for a saved view without issuing a premature query", async () => {

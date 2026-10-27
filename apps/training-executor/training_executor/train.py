@@ -14,8 +14,8 @@ from pathlib import Path
 from .files import atomic_json, atomic_bytes, immutable_copy
 from training_contract import verify_native
 from training_contract.catalog import digest
-from training_contract.validation import normalized
-from training_contract.dataset import SEGMENTATION, config_task
+from training_contract.validation import native_values, normalized
+from training_contract.dataset import SEGMENTATION, config_task, is_instance_rle
 from training_contract.observability import (
     InputMismatchError,
     NativeConfigurationMismatch,
@@ -23,6 +23,7 @@ from training_contract.observability import (
     failure_receipt,
 )
 from .observability import NativeProgress
+from .native_identity import validate_architecture
 
 
 def record_native_configuration(spec, output, observed, runtime_options, evidence=None):
@@ -59,6 +60,84 @@ def metrics_of(raw):
         for key, value in raw.items()
         if isinstance(value, (float, int)) and math.isfinite(float(value))
     }
+
+
+def ultralytics_epoch_metrics(trainer):
+    """Include the native epoch-averaged training losses beside validation metrics."""
+    metrics = metrics_of(trainer.metrics or {})
+    if trainer.tloss is not None:
+        metrics.update(
+            metrics_of(trainer.label_loss_items(trainer.tloss, prefix="train"))
+        )
+    return metrics
+
+
+def ultralytics_model_path(spec):
+    config = spec["frozen_config"]
+    pretrained = (
+        config.get("configuration", {})
+        .get("effective_values", {})
+        .get("pretrained", True)
+    )
+    if not pretrained and config.get("initialization"):
+        raise InputMismatchError("Random initialization cannot load project weights")
+    if spec.get("resume_path"):
+        return spec["resume_path"]
+    if not pretrained:
+        return config["base_model"]["id"] + ".yaml"
+    return spec.get("initialization_path") or spec["base_path"]
+
+
+class UltralyticsTrainingEvaluation:
+    """Evaluate frozen training members with the validation recipe, without augmentation."""
+
+    def __init__(self, output, membership=None):
+        self.output = output
+        self.membership = membership
+        self.validator = None
+
+    def __call__(self, trainer):
+        import random
+
+        import numpy as np
+        import torch
+
+        # Evaluation must not advance the optimizer's augmentation/random stream.
+        python_state, numpy_state = random.getstate(), np.random.get_state()
+        devices = [trainer.device.index] if trainer.device.type == "cuda" else []
+        try:
+            with torch.random.fork_rng(devices=devices):
+                return self.evaluate(trainer)
+        finally:
+            random.setstate(python_state)
+            np.random.set_state(numpy_state)
+
+    def evaluate(self, trainer):
+        from copy import copy
+
+        if self.validator is None:
+            args = copy(trainer.validator.args)
+            args.split = "train"
+            args.rect = trainer.validator.dataloader.dataset.rect
+            args.augment = args.plots = args.save_json = args.save_txt = False
+            args.workers = 0
+            validator = type(trainer.validator)(
+                save_dir=self.output / "training-evaluation", args=args
+            )
+            validator.data, validator.device = trainer.data, trainer.device
+            validator.stride, validator.names = trainer.stride, trainer.model.names
+            validator.dataloader = validator.get_dataloader(
+                trainer.data["train"], trainer.batch_size
+            )
+            if self.membership is not None:
+                self.membership.observe("train", validator.dataloader.dataset.im_files)
+            self.validator = validator
+        # A separate validator preserves validation fitness, best selection and reports.
+        return {
+            f"train/{key}": value
+            for key, value in metrics_of(self.validator(trainer=trainer)).items()
+            if key.startswith("metrics/")
+        }
 
 
 class UltralyticsCheckpoints:
@@ -125,7 +204,7 @@ class UltralyticsCheckpoints:
         if isinstance(names, dict) and set(names) == set(range(len(names))):
             names = [names[index] for index in range(len(names))]
         if (
-            blob.get("version") != "8.4.177"
+            blob.get("version") != self.spec["frozen_config"]["framework_version"]
             or blob.get("train_args", {}).get("task")
             != (
                 "segment"
@@ -141,16 +220,18 @@ class UltralyticsCheckpoints:
             raise InputMismatchError(
                 "Native checkpoint version, task, class or epoch identity mismatch"
             )
-        if config_task(self.spec["frozen_config"]) == SEGMENTATION:
-            yaml = getattr(model, "yaml", {})
-            if (
-                yaml.get("scale") != "n"
-                or Path(yaml.get("yaml_file", "")).stem != "yolo11n-seg"
-                or type(model.model[-1]).__name__ != "Segment"
-            ):
-                raise InputMismatchError(
-                    "Unqualified segmentation checkpoint architecture"
+        if (
+            self.spec["frozen_config"]["framework_version"] == "8.4.183"
+            or config_task(self.spec["frozen_config"]) == SEGMENTATION
+        ):
+            try:
+                validate_architecture(
+                    model,
+                    self.spec["frozen_config"]["base_model"]["id"],
+                    classes=len(names),
                 )
+            except (ValueError, AttributeError, KeyError, TypeError) as exc:
+                raise InputMismatchError("Unqualified checkpoint architecture") from exc
 
     def started(self, trainer):
         if self.best_bytes is not None:
@@ -232,7 +313,7 @@ def ultralytics_report(result, spec, comparison=None):
         "validation_digest": spec["frozen_config"]["validation_digest"],
         "evaluation": {
             "framework": "ultralytics",
-            "version": "8.4.177",
+            "version": spec["frozen_config"]["framework_version"],
             "task": "instance-segmentation" if segmentation else "detection",
             "split": "val",
             "imgsz": spec["parameters"]["imgsz"],
@@ -244,7 +325,10 @@ def ultralytics_report(result, spec, comparison=None):
     return report
 
 
-def ultralytics_train(spec: dict, output: Path, progress=None):
+def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
+    from .input_membership import membership_for
+
+    membership = membership_for(spec, output, membership)
     progress = progress or NativeProgress(spec, output)
     # The framework checks the parent before creating its config subdirectory.
     # Materialize our writable state directory before importing it.
@@ -258,7 +342,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     from ultralytics.models.yolo.segment import SegmentationTrainer
     from ultralytics.utils import USER_CONFIG_DIR
 
-    if ultralytics.__version__ != "8.4.177":
+    if ultralytics.__version__ != spec["frozen_config"]["framework_version"]:
         raise NativeRuntimeMismatch("Unexpected Ultralytics runtime")
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
@@ -276,7 +360,13 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
 
     segmentation = config_task(spec["frozen_config"]) == SEGMENTATION
     native_task = "segment" if segmentation else "detect"
+    raster = is_instance_rle(spec["frozen_config"].get("data_contract", {}))
     trainer_class = SegmentationTrainer if segmentation else DetectionTrainer
+    if raster:
+        from .instance_rle import InstanceRLETrainer, consumer_evidence
+
+        trainer_class = InstanceRLETrainer
+        atomic_json(output / "rle-consumer.json", consumer_evidence())
 
     class FixedBatchTrainer(trainer_class):
         def preprocess_batch(self, batch):
@@ -303,6 +393,15 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
                 self.args.save_dir = str(output / "framework")
 
     checkpoints = UltralyticsCheckpoints(spec, output)
+    evaluate_train = (
+        spec["frozen_config"]
+        .get("configuration", {})
+        .get("effective_values", {})
+        .get("evaluate_train", False)
+    )
+    training_evaluation = (
+        UltralyticsTrainingEvaluation(output, membership) if evaluate_train else None
+    )
 
     def epoch_end(trainer):
         # The pinned final_eval temporarily increments epoch before invoking this
@@ -311,11 +410,18 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
             not getattr(trainer, "_platform_final_eval", False)
             and 0 <= trainer.epoch < trainer.epochs
         ):
+            metrics = ultralytics_epoch_metrics(trainer)
+            if training_evaluation is not None:
+                progress.phase("evaluating")
+                try:
+                    metrics.update(training_evaluation(trainer))
+                finally:
+                    progress.phase("training")
             emit(
                 output,
                 "epoch",
                 epoch=trainer.epoch + 1,
-                metrics=metrics_of(trainer.metrics or {}),
+                metrics=metrics,
             )
             progress.epoch(trainer.epoch + 1)
 
@@ -325,22 +431,21 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
         observation as initialization_observation,
     )
 
-    model_path = (
-        spec.get("resume_path") or spec.get("initialization_path") or spec["base_path"]
-    )
+    model_path = ultralytics_model_path(spec)
     validate_initialization_input(spec)
     model = YOLO(model_path, task=native_task)
     if model.task != native_task:
         raise InputMismatchError("Loaded weights do not match the frozen native task")
-    if segmentation and (
-        model.model.yaml.get("scale") != "n"
-        or Path(model.model.yaml.get("yaml_file", "")).stem != "yolo11n-seg"
-        or type(model.model.model[-1]).__name__ != "Segment"
-    ):
-        raise InputMismatchError("Unqualified segmentation base architecture")
+    try:
+        validate_architecture(model.model, spec["frozen_config"]["base_model"]["id"])
+    except (ValueError, AttributeError, KeyError, TypeError) as exc:
+        raise InputMismatchError("Unqualified native base architecture") from exc
     initialization_baseline = prepare_initialization(spec, model)
 
     def started(trainer):
+        if membership is not None:
+            membership.observe("train", trainer.train_loader.dataset.im_files)
+            membership.observe("val", trainer.test_loader.dataset.im_files)
         checkpoints.started(trainer)
         record_native_configuration(
             spec,
@@ -390,7 +495,13 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
             getattr(trainer, "_platform_batch_images", None)
         ),
     )
-    model.add_callback("on_val_start", lambda validator: progress.phase("evaluating"))
+
+    def validating(validator):
+        if membership is not None:
+            membership.observe("val", validator.dataloader.dataset.im_files)
+        progress.phase("evaluating")
+
+    model.add_callback("on_val_start", validating)
     model.add_callback("on_val_end", lambda validator: progress.phase("training"))
     # Upstream resets its OOM counter after on_train_start. Set it at epoch start
     # so an OOM propagates instead of silently changing this fixed batch size.
@@ -417,7 +528,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     }
     if spec["frozen_config"]["adapter_revision"] == 2:
         arguments = {
-            **spec["frozen_config"]["configuration"]["effective_values"],
+            **native_values(spec["frozen_config"]["configuration"]),
             "data": spec["data_yaml"],
             "project": str(output),
             "name": "framework",
@@ -435,9 +546,19 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     from .evaluation import ultralytics_descriptor
 
     report = ultralytics_report(result, spec)
+    if raster:
+        report["mask_consumer"] = consumer_evidence()
+        report["mask_resolution"] = {
+            split: json.loads(
+                (output / f"framework/rle-{split}-preflight.json").read_text()
+            )
+            for split in ("train", "val")
+        }
     report["comparison"] = ultralytics_descriptor(
         spec, weights, model.trainer.validator, report["summary"]
     )
+    if membership is not None:
+        membership.complete()
     atomic_json(output / "metrics.json", report)
     atomic_json(
         output / "result.json",

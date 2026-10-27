@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +17,7 @@ interface Props {
 
 export function GroupManageModal({ open, onClose }: Props) {
   const { data: groups = [], isLoading } = useGroups(open);
+  const pagination = useListPagination(groups, String(open));
   const createMut = useCreateGroup();
   const updateMut = useUpdateGroup();
   const deleteMut = useDeleteGroup();
@@ -119,11 +123,11 @@ export function GroupManageModal({ open, onClose }: Props) {
 
         {!isLoading && groups.length > 0 && (
           <div className={styles.list}>
-            {groups.map((g) => {
+            {pagination.items.map((g) => {
               const isEditing = editingId === g.id;
               const isPending = pendingDelete === g.id;
               return (
-                <div key={g.id} className={styles.row}>
+                <div key={g.id} className={`${styles.row} ${listStyles.row}`}>
                   <Icon name="folder" size={14} className={styles.mutedIcon} />
                   {isEditing ? (
                     <input
@@ -191,6 +195,15 @@ export function GroupManageModal({ open, onClose }: Props) {
             })}
           </div>
         )}
+
+        <ListPagination
+          label="数据组"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
 
         <div className={styles.actions}>
           <Button variant="primary" onClick={onClose}>

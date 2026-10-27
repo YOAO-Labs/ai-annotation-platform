@@ -13,9 +13,14 @@ export const videoApi = {
   getChunk: (datasetItemId: string, chunkId: number, init?: RequestInit) =>
     apiClient.silentGet<VideoChunkOut>(`/videos/${datasetItemId}/chunks/${chunkId}`, init),
   /** chunk 的 packet sample manifest(decode order + pts/duration/offset/size + codec description)。 */
-  getChunkSamples: (datasetItemId: string, chunkId: number, init?: RequestInit) =>
+  getChunkSamples: (
+    datasetItemId: string,
+    chunkId: number,
+    init?: RequestInit,
+    expectedOutputId?: string,
+  ) =>
     apiClient.silentGet<VideoChunkSamplesResponse>(
-      `/videos/${datasetItemId}/chunks/${chunkId}/samples`,
+      `/videos/${datasetItemId}/chunks/${chunkId}/samples${expectedOutputId ? `?expected_output_id=${encodeURIComponent(expectedOutputId)}` : ""}`,
       init,
     ),
 };

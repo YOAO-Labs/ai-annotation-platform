@@ -102,8 +102,16 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_source_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_source_role";
 
--- The runtime can execute only the twenty-six frozen Source capabilities.
+-- The runtime can execute only Source and verified-original capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text),
+    aap_assets_v1.begin_operator_auxiliary(jsonb),
+    aap_assets_v1.open_operator_storage_operation(uuid),
+    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    aap_assets_v1.mark_operator_original_writing(uuid),
+    aap_assets_v1.record_operator_original_written(uuid,jsonb),
+    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
+    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean),
     aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid),
     aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text),
     aap_assets_v1.complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer),
@@ -123,7 +131,9 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,te
     aap_assets_v1.capture_storage_connection(uuid,uuid,text),
     aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb),
     aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb),
-    aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb),
+    aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb),
+    aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]),
+    aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean),
     aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb),
     aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb),
     aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
@@ -139,6 +149,14 @@ DECLARE
         WHERE role.rolname = current_setting('aap.asset_source_role')
     );
     allowed_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_operator_auxiliary(jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.open_operator_storage_operation(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_prepared(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.mark_operator_original_writing(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_written(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_verified(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text)')::oid,
@@ -159,7 +177,9 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.capture_storage_connection(uuid,uuid,text)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,

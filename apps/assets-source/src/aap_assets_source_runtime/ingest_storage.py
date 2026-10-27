@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-import hashlib
 from io import BytesIO
 import logging
 import re
@@ -14,7 +13,13 @@ from botocore.exceptions import ClientError
 from aap_assets_images.contract import ImageFailure, ObjectIdentity
 
 from aap_assets_source.ingest_contract import IngestEntryErrorCode, IngestFailure
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+    ManagedOriginalProof,
+)
 from .image_admission import object_identity_from_head
+from .ingest_storage_errors import ManagedStorageError
+from .managed_storage import ManagedStorage
 
 logger = logging.getLogger("aap_assets_source_runtime.ingest_storage")
 
@@ -65,11 +70,18 @@ async def run_in_thread(function, /, *args, **kwargs):
 class IngestStorage:
     """Use one explicit S3 client and bucket for legacy reads and new writes."""
 
-    def __init__(self, client: Any, datasets_bucket: str) -> None:
+    def __init__(
+        self,
+        client: Any,
+        datasets_bucket: str,
+        *,
+        managed: ManagedStorage | None = None,
+    ) -> None:
         if not datasets_bucket:
             raise ValueError("datasets_bucket must not be empty")
         self._client = client
         self.datasets_bucket = datasets_bucket
+        self.managed = managed or ManagedStorage(client)
 
     async def iter_objects(self, prefix: str) -> AsyncIterator[IngestStorageObject]:
         """Yield one listed object at a time while retaining at most one S3 page."""
@@ -186,178 +198,151 @@ class IngestStorage:
     async def publish(
         self,
         source: BinaryIO,
+        target: ManagedOriginalMaterial,
         *,
-        key: str,
         content_type: str,
         expected_size: int,
         expected_hash: str | None = None,
         image: bool = False,
-    ) -> IngestStorageFacts:
-        if (
-            not key.startswith("dataset-sources/")
-            or expected_size < 0
-            or not content_type
-        ):
-            raise IngestEntryFailure("invalid_source_object")
-        return await run_in_thread(
-            self._publish,
-            source,
-            key,
-            content_type,
-            expected_size,
-            expected_hash,
-            image,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ) -> tuple[IngestStorageFacts, ManagedOriginalProof]:
+        """Conditionally create the allocated key and fully read it back."""
+        try:
+            written = await self.managed.publish_stream(
+                source,
+                target,
+                content_type=content_type,
+                expected_size=expected_size,
+                expected_hash=expected_hash,
+                image=image,
+                on_prepared=on_prepared,
+                on_writing=on_writing,
+                on_written=on_written,
+            )
+        except ManagedStorageError as exc:
+            raise IngestEntryFailure(exc.code) from None
+        facts = IngestStorageFacts(
+            written.file_size,
+            written.content_hash,
+            written.dimensions[0] if written.dimensions else None,
+            written.dimensions[1] if written.dimensions else None,
+            written.object_identity,
         )
+        return facts, written.proof
 
-    def _publish(
+    async def publish_from_existing(
         self,
-        source: BinaryIO,
-        key: str,
+        source_key: str,
+        target: ManagedOriginalMaterial,
+        *,
         content_type: str,
         expected_size: int,
         expected_hash: str | None,
         image: bool,
-    ) -> IngestStorageFacts:
-        upload_id: str | None = None
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ) -> tuple[IngestStorageFacts, ManagedOriginalProof]:
+        """Copy an existing platform object into a connection-backed target."""
+        body = None
         try:
-            multipart = expected_size > _PART_BYTES
-            if multipart:
-                created = self._client.create_multipart_upload(
-                    Bucket=self.datasets_bucket,
-                    Key=key,
-                    ContentType=content_type,
-                )
-                upload_id = created.get("UploadId")
-                if not isinstance(upload_id, str) or not upload_id:
-                    raise IngestEntryFailure("storage_write_failed")
-
-            md5 = hashlib.md5(usedforsecurity=False)
-            header = bytearray()
-            total = 0
-            parts: list[dict[str, Any]] = []
-            body = bytearray()
-            part = bytearray()
-            part_number = 0
-
-            while True:
-                try:
-                    read_size = _PART_BYTES - len(part) if multipart else _PART_BYTES
-                    chunk = source.read(read_size)
-                except (
-                    Exception
-                ) as exc:  # ZIP readers may report CRC/decompression errors here.
-                    raise IngestEntryFailure("archive_entry_read_failed") from exc
-                if not chunk:
-                    break
-                if not isinstance(chunk, bytes):
-                    raise IngestEntryFailure("archive_entry_read_failed")
-                total += len(chunk)
-                if total > expected_size:
-                    raise IngestEntryFailure("archive_entry_read_failed")
-                md5.update(chunk)
-                if len(header) < _IMAGE_HEADER_BYTES:
-                    header.extend(chunk[: _IMAGE_HEADER_BYTES - len(header)])
-
-                if multipart:
-                    part.extend(chunk)
-                    if len(part) == _PART_BYTES:
-                        parts.append(
-                            self._upload_part(
-                                key, upload_id, part_number + 1, bytes(part)
-                            )
-                        )
-                        part_number += 1
-                        part.clear()
-                else:
-                    body.extend(chunk)
-
-            if total != expected_size:
-                raise IngestEntryFailure("archive_entry_read_failed")
-            digest = md5.hexdigest()
-            if expected_hash is not None and digest != expected_hash:
-                raise IngestEntryFailure("archive_entry_read_failed")
-
-            if multipart:
-                if part:
-                    parts.append(
-                        self._upload_part(key, upload_id, part_number + 1, bytes(part))
-                    )
-                self._client.complete_multipart_upload(
-                    Bucket=self.datasets_bucket,
-                    Key=key,
-                    UploadId=upload_id,
-                    MultipartUpload={"Parts": parts},
-                    IfNoneMatch="*",
-                )
-                upload_id = None
-            else:
-                self._client.put_object(
-                    Bucket=self.datasets_bucket,
-                    Key=key,
-                    Body=bytes(body),
-                    ContentType=content_type,
-                    IfNoneMatch="*",
-                )
-        except IngestEntryFailure:
-            self._abort_multipart(key, upload_id)
-            raise
-        except Exception as exc:  # noqa: BLE001 - hide storage SDK details per file.
-            self._abort_multipart(key, upload_id)
-            logger.warning(
-                "Immutable source publication failed (%s)", type(exc).__name__
+            response = await run_in_thread(
+                self._client.get_object, Bucket=self.datasets_bucket, Key=source_key
             )
-            raise IngestEntryFailure("storage_write_failed") from None
+            body = response.get("Body")
+            if not callable(getattr(body, "read", None)):
+                raise IngestEntryFailure("source_read_failed")
+            written = await self.managed.publish_stream(
+                body,
+                target,
+                content_type=content_type,
+                expected_size=expected_size,
+                expected_hash=expected_hash,
+                image=image,
+                on_prepared=on_prepared,
+                on_writing=on_writing,
+                on_written=on_written,
+            )
+        except ManagedStorageError as exc:
+            raise IngestEntryFailure(exc.code) from None
+        finally:
+            if body is not None:
+                try:
+                    await run_in_thread(body.close)
+                except Exception:
+                    raise ManagedStorageError(
+                        "storage_write_failed", uncertain=True
+                    ) from None
+        facts = IngestStorageFacts(
+            written.file_size,
+            written.content_hash,
+            written.dimensions[0] if written.dimensions else None,
+            written.dimensions[1] if written.dimensions else None,
+            written.object_identity,
+        )
+        return facts, written.proof
 
-        width, height = _dimensions(bytes(header)) if image else (None, None)
+    async def verify_managed(
+        self,
+        target: ManagedOriginalMaterial,
+        *,
+        sha256: str | None,
+        size_bytes: int | None,
+        image: bool,
+    ) -> IngestStorageFacts:
+        """Read back a verified creation without acquiring new bytes."""
+        if sha256 is None or size_bytes is None:
+            raise IngestEntryFailure("source_read_failed")
+        try:
+            read = await self.managed.verify(
+                target, sha256=sha256, size_bytes=size_bytes, image=image
+            )
+        except ManagedStorageError as exc:
+            raise IngestEntryFailure(exc.code) from None
         object_identity = None
         if image:
             try:
-                head = self._client.head_object(
-                    Bucket=self.datasets_bucket,
-                    Key=key,
+                object_identity = ObjectIdentity(
+                    etag=read.etag.strip().strip('"'),
+                    byte_size=read.size_bytes,
+                    version_id=read.version_id,
                 )
-                object_identity = object_identity_from_head(head, expected_size=total)
-            except ImageFailure as exc:
-                code = (
-                    "source_changed"
-                    if exc.code == "source_changed"
-                    else "storage_write_failed"
-                )
-                raise IngestEntryFailure(code) from None
-            except Exception as exc:  # noqa: BLE001 - do not expose storage SDK details.
-                logger.warning(
-                    "Published image verification failed (%s)", type(exc).__name__
-                )
-                raise IngestEntryFailure("storage_write_failed") from None
-        return IngestStorageFacts(total, digest, width, height, object_identity)
+            except (TypeError, ValueError):
+                raise IngestEntryFailure("source_read_failed") from None
+        return IngestStorageFacts(
+            read.size_bytes,
+            read.md5,
+            read.dimensions[0] if read.dimensions else None,
+            read.dimensions[1] if read.dimensions else None,
+            object_identity,
+        )
 
-    def _upload_part(
-        self, key: str, upload_id: str | None, part_number: int, body: bytes
-    ) -> dict[str, Any]:
+    async def adopt(
+        self,
+        target: ManagedOriginalMaterial,
+        *,
+        expected_size: int,
+        image: bool,
+    ) -> tuple[IngestStorageFacts, ManagedOriginalProof]:
+        """Pin an existing source object's exact version after a full read."""
         try:
-            uploaded = self._client.upload_part(
-                Bucket=self.datasets_bucket,
-                Key=key,
-                UploadId=upload_id,
-                PartNumber=part_number,
-                Body=body,
+            written = await self.managed.adopt(
+                target, max_bytes=max(expected_size, 0), image=image
             )
-            etag = uploaded.get("ETag")
-            if not isinstance(etag, str) or not etag:
-                raise ValueError("S3 part acknowledgement is missing its ETag")
-        except Exception as exc:  # noqa: BLE001 - do not expose SDK details.
-            raise IngestEntryFailure("storage_write_failed") from exc
-        return {"PartNumber": part_number, "ETag": etag}
-
-    def _abort_multipart(self, key: str, upload_id: str | None) -> None:
-        if upload_id is None:
-            return
-        try:
-            self._client.abort_multipart_upload(
-                Bucket=self.datasets_bucket, Key=key, UploadId=upload_id
-            )
-        except Exception as exc:  # noqa: BLE001 - abort failure cannot delete published data.
-            logger.info("Multipart source abort failed (%s)", type(exc).__name__)
+        except ManagedStorageError as exc:
+            raise IngestEntryFailure(exc.code) from None
+        if written.file_size != expected_size:
+            raise IngestEntryFailure("source_changed")
+        facts = IngestStorageFacts(
+            written.file_size,
+            written.content_hash,
+            written.dimensions[0] if written.dimensions else None,
+            written.dimensions[1] if written.dimensions else None,
+            written.object_identity,
+        )
+        return facts, written.proof
 
 
 def _next_or_none(iterator):

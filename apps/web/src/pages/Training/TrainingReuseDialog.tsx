@@ -1,6 +1,9 @@
+import { listStyles } from "@/components/ui/listStyles";
+import { CopyableError } from "@/components/ui/CopyableError";
 import type { ReusableSnapshot, TrainingReuseCandidate } from "@/api/trainingRecipes";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingValueLabel } from "./TrainingParameterField";
 
 export function effectiveChanges(before: ReusableSnapshot | null, after: ReusableSnapshot) {
@@ -38,7 +41,8 @@ export function TrainingReuseDialog({
         <p className="break-all text-muted-foreground">
           {after.framework} {after.framework_version} · 原始基础权重 {after.base_model.id}
           <br />
-          SHA256：{after.base_model.sha256}
+          SHA256：
+          <CopyValueButton value={after.base_model.sha256} label="复制基础权重哈希" />
         </p>
         <p className="text-muted-foreground">
           {purpose === "policy"
@@ -48,30 +52,57 @@ export function TrainingReuseDialog({
         <div className="space-y-1 break-all rounded-md bg-muted p-3">
           <p>
             当前初始化：
-            {before?.initialization
-              ? `${before.initialization.model_name} · ${before.initialization.artifact.sha256}`
-              : "受控目录基础权重"}
+            {before?.initialization ? (
+              <>
+                {before.initialization.model_name} ·{" "}
+                <CopyValueButton
+                  value={before.initialization.artifact.sha256}
+                  label="复制当前初始化权重哈希"
+                />
+              </>
+            ) : (
+              "预训练基础权重"
+            )}
           </p>
           <p>
             采用后初始化：
-            {after.initialization
-              ? `${after.initialization.model_name} · ${after.initialization.artifact.sha256}`
-              : "受控目录基础权重"}
+            {after.initialization ? (
+              <>
+                {after.initialization.model_name} ·{" "}
+                <CopyValueButton
+                  value={after.initialization.artifact.sha256}
+                  label="复制采用后初始化权重哈希"
+                />
+              </>
+            ) : (
+              "预训练基础权重"
+            )}
           </p>
           {after.initialization && (
             <p className="text-muted-foreground">
-              固定来源 {after.initialization.model_version_id}；不会自动使用被克隆实验的新产物。
+              固定来源{" "}
+              <CopyValueButton
+                value={after.initialization.model_version_id}
+                kind="id"
+                label="复制固定来源模型版本 ID"
+              />
+              ；不会自动使用被克隆实验的新产物。
             </p>
           )}
         </div>
         {candidate.source_dataset_id && (
           <p className="break-all text-muted-foreground">
-            来源数据版本：{candidate.source_dataset_id}
+            来源数据版本：
+            <CopyValueButton
+              value={candidate.source_dataset_id}
+              kind="id"
+              label="复制来源数据版本 ID"
+            />
           </p>
         )}
         {(!candidate.compatible || error) && (
           <p role="alert" className="text-status-danger">
-            {error || candidate.incompatibility}
+            <CopyableError message={error || candidate.incompatibility} />
           </p>
         )}
         <p>
@@ -80,7 +111,7 @@ export function TrainingReuseDialog({
             : "当前尚无完整配置；以下为来源的全部生效参数。"}
         </p>
         <div className="max-h-72 overflow-auto rounded-md border border-border">
-          <table className="w-full text-left text-xs">
+          <table className={listStyles.table}>
             <thead>
               <tr className="border-b border-border">
                 <th scope="col" className="p-2">

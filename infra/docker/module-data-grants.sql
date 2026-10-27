@@ -418,6 +418,9 @@ GRANT SELECT (id, email)
 GRANT SELECT (id, display_id, data_type, name, file_count),
     UPDATE (id, file_count, updated_at), DELETE
     ON public.datasets TO :"assets_owner";
+GRANT SELECT (storage_scan_prefix, archived_at, archived_by, lifecycle_revision)
+    ON public.datasets TO :"assets_owner";
+GRANT SELECT (location_id) ON public.dataset_sources TO :"assets_owner";
 GRANT SELECT (id, project_id, dataset_id, created_at),
     INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";
@@ -426,6 +429,7 @@ GRANT SELECT (id, dataset_id, name, source_format, source_metadata, created_by),
     INSERT (id, display_id, dataset_id, name, source_format, source_metadata, created_by),
     UPDATE (id), DELETE
     ON public.scenes TO :"assets_owner";
+GRANT SELECT (nuscenes_map_original_id) ON public.scenes TO :"assets_owner";
 GRANT USAGE ON SEQUENCE public.display_seq_scenes TO :"assets_owner";
 GRANT SELECT, INSERT (
     id, dataset_id, file_name, file_path, file_type, file_size,
@@ -869,8 +873,9 @@ GRANT SELECT (
     first_review_eligible, first_reviewed_at, first_review_result, first_review_contributor_ids, annotation_contributor_ids,
     review_contributor_ids, review_submitter_id, reviewed_at, reject_reason, reject_reason_type,
     skip_reason, skipped_at, reopened_count, last_reopened_at, created_at,
-    updated_at
+    updated_at, thumbnail_output_id, original_id
 ) ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (original_id) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (id, user_id, result, was_postponed, created_at, updated_at),
     INSERT (id, task_id, user_id, result, was_postponed), UPDATE (result, updated_at)
     ON public.annotation_drafts TO :"labeling_owner";
@@ -2804,10 +2809,6 @@ ALTER FUNCTION aap_labeling_v1.prediction_record_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.prediction_partition_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text)
-    OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text)
-    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.scene_track_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.cross_frame_write_command(jsonb)
@@ -3904,4 +3905,174 @@ ALTER TABLE aap_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inferen
 REVOKE CREATE ON SCHEMA aap_inference_topology_v1,
     aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
     aap_inference_gpu_caller_v1, aap_inference_gpu_collector_v1 FROM :"inference_owner";
+-- Forward main integration: each new capability retains its domain owner.
+GRANT SELECT (avatar_ref), UPDATE (avatar_ref) ON public.users TO :"identity_owner";
+GRANT SELECT, UPDATE ON public.avatar_uploads TO :"identity_owner";
+GRANT SELECT (guide_assets_revision), UPDATE (guide_assets_revision)
+    ON public.projects TO :"workspace_owner";
+GRANT SELECT, INSERT, DELETE
+    ON public.project_guide_assets TO :"workspace_owner";
+GRANT SELECT, UPDATE (id, state, retired_at)
+    ON public.guide_asset_uploads TO :"workspace_owner";
+GRANT SELECT (id, bound_comment_id, state, created_at), UPDATE (id, state, retired_at)
+    ON public.comment_attachment_uploads TO :"labeling_owner";
+GRANT INSERT (execution_snapshot_id) ON public.failed_predictions TO :"labeling_owner";
+GRANT SELECT (id, project_id) ON public.prediction_execution_snapshots TO :"jobs_owner";
+GRANT SELECT (execution_snapshot_id), UPDATE (execution_snapshot_id)
+    ON public.async_jobs TO :"jobs_owner";
+
+GRANT SELECT, INSERT, UPDATE ON public.storage_locations,
+    public.managed_original_creations, public.dataset_assets,
+    public.dataset_asset_locations, public.storage_operations TO :"assets_owner";
+GRANT DELETE ON public.storage_locations TO :"assets_owner";
+GRANT SELECT ON public.storage_bindings TO :"assets_owner";
+GRANT SELECT (revision), INSERT (revision), UPDATE (revision)
+    ON public.storage_connections TO :"assets_owner";
+GRANT SELECT, INSERT ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT UPDATE (location_id) ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT ON public.image_pyramid_assets, public.image_pyramid_generations,
+    public.image_pyramid_outputs TO :"assets_owner";
+GRANT UPDATE (id) ON public.image_pyramid_assets TO :"assets_owner";
+GRANT UPDATE (asset_id) ON public.image_pyramid_generations TO :"assets_owner";
+GRANT UPDATE (id) ON public.image_pyramid_outputs TO :"assets_owner";
+
+-- Physical retention checks can see addresses, never the referencing payloads.
+GRANT SELECT (location_id) ON public.original_cache_entries,
+    public.managed_original_retirements, public.dataset_auxiliary_originals,
+    public.task_originals TO :"assets_owner";
+GRANT SELECT (storage_ref) ON public.thumbnail_outputs,
+    public.video_derivative_outputs, public.prediction_input_leases,
+    public.mask_format_uploads, public.comment_attachment_uploads,
+    public.avatar_uploads, public.guide_asset_uploads, public.raster_mask_objects,
+    public.bug_attachment_uploads, public.audit_archive_outputs,
+    public.export_outputs, public.export_media_bundles,
+    public.training_dataset_versions, public.training_runs,
+    public.training_previews, public.sample_evaluation_runs,
+    public.active_learning_rounds, public.training_storage_deletions TO :"assets_owner";
+GRANT SELECT (staging_ref) ON public.mask_format_imports TO :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.storage_connection_revision_bump() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._connector_location_id(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._storage_connection_location_referenced(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_endpoint(text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_prefix(text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_identity(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_gate_revision(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_request_valid(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_reply(jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_facts(public.managed_original_creations) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_proof_valid(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.publish_verified_dataset_original() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_source_gate_active(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.lock_publication_storage_gate(uuid,bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.read_video_derivative_links(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA aap_assets_v1 TO :"identity_owner", :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_publication_storage_gate(uuid,bigint)
+    TO :"identity_owner", :"workspace_owner";
+
+GRANT USAGE, CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.retire_project_comment_uploads(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.publish_task_pyramid_thumbnail(uuid,text) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"assets_owner", :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.retire_project_comment_uploads(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.publish_task_pyramid_thumbnail(uuid,text)
+    TO :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.retire_project_uploads(uuid) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
+GRANT USAGE, CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.read_job_execution_snapshot(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.read_job_progress(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.read_job_progress_for_update(uuid,text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+
+GRANT USAGE, CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1._notification_is_migration_inventory(uuid) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1._visible_inbox_rows_scoped(uuid,text) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1.read_state_command_scoped(jsonb) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1.delete_command_scoped(jsonb) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1.inbox_total_count_scoped(uuid,text) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1.inbox_unread_count_scoped(uuid,text) OWNER TO :"notifications_owner";
+REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM :"notifications_owner";
+
+GRANT USAGE, CREATE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_entry_matches(jsonb,uuid,uuid,text,text,integer,timestamptz)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_lock_project(uuid,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_authority(uuid,uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_storage_gate(uuid,bigint) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_failure(jsonb,text,integer,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA aap_workspace_configuration_v1 FROM :"workspace_owner";
+
+GRANT USAGE, CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_accepted_api_key_facts(uuid,uuid) OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
+GRANT USAGE, CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)
+    OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+GRANT SELECT (id, task_id, project_id, creation_id, sha256, size_bytes)
+    ON public.task_originals TO :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.read_task_original_binding(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA aap_assets_v1 TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.read_task_original_binding(uuid)
+    TO :"labeling_owner";
+GRANT DELETE ON public.storage_operations TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)
+    TO :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._connection_probe_reply(jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.publish_operator_item_original(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_item_original_facts(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_import_prefix(text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._managed_original_scope_key(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._operator_read_permit_purpose(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_operator_auxiliary(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.publish_operator_auxiliary(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_auxiliary_material(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_item_original_material(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_dataset_state(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.operator_scene_state(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.open_operator_storage_operation(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.record_operator_original_prepared(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.mark_operator_original_writing(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.record_operator_original_written(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.record_operator_original_verified(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fail_operator_original(uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean) OWNER TO :"assets_owner";
+GRANT SELECT, INSERT ON public.dataset_auxiliary_originals TO :"assets_owner";
+GRANT DELETE ON public.dataset_asset_locations TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.storage_usage_mutations TO :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 COMMIT;

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, make_transient_to_detached
@@ -151,10 +152,32 @@ class TaskLockService:
             raise
         return result["available"]
 
-    async def _lock_task_scope(self, task_id: uuid.UUID) -> None:
-        """Serialize TaskLock operations with annotation writes in this transaction."""
+    async def _lock_task_scope(
+        self,
+        task_id: uuid.UUID,
+        *,
+        nowait: bool = False,
+        shared: bool = False,
+    ) -> None:
+        """Serialize TaskLock operations with annotation writes in this transaction.
 
-        await self._execute("lock_scope", task_id=task_id)
+        The owner command owns the plain exclusive form.  Callers that need the
+        non-blocking probe or the shared read form take the same advisory scope
+        directly, so both forms exclude each other on the same key.
+        """
+
+        if not nowait and not shared:
+            await self._execute("lock_scope", task_id=task_id)
+            return
+        function = (
+            "pg_try_advisory_xact_lock" if nowait else "pg_advisory_xact_lock"
+        ) + ("_shared" if shared else "")
+        result = await self.db.execute(
+            text(f"SELECT {function}(hashtextextended(:key, 0))"),
+            {"key": f"aap:task-edit-lock:{task_id}"},
+        )
+        if nowait and not result.scalar():
+            raise TaskLockConflictError("task edit scope is busy")
 
     async def acquire(
         self,
@@ -254,9 +277,25 @@ class TaskLockService:
         record = result["lock"]
         return None if record is None else await self._attach(record)
 
-    async def active_locks(self, task_id: uuid.UUID) -> list[TaskLock]:
-        result = await self._read("active_locks", task_id)
-        return [await self._attach(row) for row in result["locks"]]
+    async def active_locks(
+        self, task_id: uuid.UUID, *, cleanup: bool = True
+    ) -> list[TaskLock]:
+        """Return every current lock row for one task.
+
+        ``cleanup=False`` is the read-only form: it filters expired rows instead
+        of deleting them, so a read path never writes.
+        """
+
+        if cleanup:
+            result = await self._read("active_locks", task_id)
+            return [await self._attach(row) for row in result["locks"]]
+        rows = await self.db.execute(
+            select(TaskLock).where(
+                TaskLock.task_id == task_id,
+                TaskLock.expire_at >= datetime.now(timezone.utc),
+            )
+        )
+        return list(rows.scalars().all())
 
     async def _read(self, action: str, task_id: uuid.UUID):
         await self._flush_for_orm_query()

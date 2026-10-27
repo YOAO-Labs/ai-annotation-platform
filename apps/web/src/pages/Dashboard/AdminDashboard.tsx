@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Avatar } from "@/components/ui/Avatar";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { StatCard } from "@/components/ui/StatCard";
@@ -453,11 +454,11 @@ export function AdminDashboard() {
                             <span className="text-xs text-muted-foreground">
                               {it.target_type}
                               {it.target_id && (
-                                <span className="mono ml-1">
-                                  {it.target_id.length > 24
-                                    ? it.target_id.slice(0, 8) + "…"
-                                    : it.target_id}
-                                </span>
+                                <CopyValueButton
+                                  value={it.target_id}
+                                  kind="id"
+                                  label={`复制${it.target_type} ID`}
+                                />
                               )}
                             </span>
                           )}

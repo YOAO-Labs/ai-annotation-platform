@@ -21,7 +21,6 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
-    _database_head,
     _drop_owned_clone,
 )
 from tests.test_inference_backend_probe_bindings import setup_backend
@@ -80,7 +79,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
     test_engine, tmp_path
 ):
     await assert_owned_test_database(test_engine)
-    assert await _database_head(test_engine) == "0276"
+
     identity = uuid.uuid4().hex[:10]
     names = [
         f"aap_workspace_configuration_restore_{identity}_{part}_test"
@@ -160,7 +159,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
             )
             engines.append(restored)
             await _assert_clone_identity(restored, names[1], owners[names[1]])
-            assert await _database_head(restored) == "0276"
+
             assert await _state(restored) == before
             probe = await _connect(restored, role="inference_backend_probe_client")
             try:

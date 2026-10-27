@@ -670,9 +670,6 @@ class WorkspaceImportCli:
             "IDENTITY_TOKEN": "",
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN": "",
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE": "",
-            "WORKSPACE_GUIDE_OBJECTS_URL": "",
-            "WORKSPACE_GUIDE_OBJECTS_TOKEN": "",
-            "WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE": "",
             "WORKSPACE_INFERENCE_PROBE_URL": "",
             "ASSETS_CATALOG_URL": "",
             "ASSETS_CATALOG_TOKEN": "",
@@ -684,7 +681,7 @@ class WorkspaceImportCli:
         for prefix in _EMPTY_SELECTOR_PREFIXES:
             for suffix in _EMPTY_SELECTOR_SUFFIXES:
                 values[prefix + suffix] = ""
-        for name in ("WORKSPACE_GUIDE_OBJECTS", "WORKSPACE_INFERENCE_PROBE"):
+        for name in ("WORKSPACE_INFERENCE_PROBE",):
             for suffix in ("_URL", "_TOKEN", "_TOKEN_FILE"):
                 values[name + suffix] = ""
         values["IDENTITY_URL"] = ""

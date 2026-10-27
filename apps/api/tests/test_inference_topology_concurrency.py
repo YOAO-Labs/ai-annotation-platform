@@ -9,7 +9,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from aap_inference.topology import RegistryTopologySnapshot
@@ -1040,3 +1040,255 @@ async def test_empty_pool_delete_retries_busy_project_binding_without_partial_de
             await cleanup.execute(delete(Project).where(Project.id == project_id))
             await cleanup.execute(delete(User).where(User.id == actor_id))
         await _cleanup(test_engine, registry_id, pool_id)
+
+
+async def _seed_repair_route(test_engine, monkeypatch):
+    """Create one enabled project route whose singleton pool is usable."""
+    from tests.factory import create_user, create_project
+
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as seed:
+        user = await create_user(
+            seed,
+            "project_admin",
+            f"repair-route-{uuid.uuid4().hex}@example.test",
+            "Owner",
+        )
+        project = await create_project(seed, owner_id=user.id)
+        (await seed.get(MLBackendServicePool, pool_id)).enabled = True
+        await seed.flush()
+        association = await MLBackendService(seed).set_pool_enabled(
+            project.id, pool_id, True
+        )
+        assert association.enabled is True
+        return registry_id, pool_id, project.id, user.id
+
+
+async def _cleanup_repair_route(
+    test_engine, registry_id, pool_id, project_id, actor_id, *extra_pool_ids
+):
+    from app.db.models.project import Project
+    from app.db.models.user import User
+
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as cleanup:
+        await cleanup.execute(delete(Project).where(Project.id == project_id))
+        await cleanup.execute(delete(User).where(User.id == actor_id))
+        for extra_pool_id in extra_pool_ids:
+            await cleanup.execute(
+                delete(MLBackendServicePool).where(
+                    MLBackendServicePool.id == extra_pool_id
+                )
+            )
+    await _cleanup(test_engine, registry_id, pool_id)
+
+
+@pytest.mark.parametrize("release", ["commit", "rollback"])
+async def test_repair_model_lock_holds_route_until_transaction_ends(
+    test_engine, monkeypatch, release
+):
+    await assert_owned_test_database(test_engine)
+    registry_id, pool_id, project_id, actor_id = await _seed_repair_route(
+        test_engine, monkeypatch
+    )
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    holder, peer = maker(), maker()
+    tasks = []
+    try:
+        holder_pid = await _timeouts(holder)
+        peer_pid = await _timeouts(peer)
+        assert (
+            await InferenceTopologyData(holder).lock_repair_model_rows(
+                project_id, pool_id, [registry_id]
+            )
+            == "ready"
+        )
+
+        async def drain():
+            await MLBackendService(peer).drain_pool_member(pool_id, registry_id)
+            await peer.commit()
+
+        tasks.append(asyncio.create_task(drain()))
+        await _blocked_by(test_engine, peer_pid, holder_pid)
+        if release == "commit":
+            await holder.commit()
+        else:
+            await holder.rollback()
+        await asyncio.wait_for(tasks[0], 4)
+        async with maker() as observer:
+            member = await observer.scalar(
+                select(MLBackendPoolMember).where(
+                    MLBackendPoolMember.registry_id == registry_id
+                )
+            )
+            assert member.traffic_state == "draining"
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await holder.rollback()
+        await peer.rollback()
+        await holder.close()
+        await peer.close()
+        await _cleanup_repair_route(
+            test_engine, registry_id, pool_id, project_id, actor_id
+        )
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        ("pool_disabled", "backend_unavailable"),
+        ("association_disabled", "backend_unavailable"),
+        ("association_missing", "backend_unavailable"),
+        ("member_missing", "model_changed"),
+        ("member_draining", "model_changed"),
+        ("member_moved", "model_changed"),
+        ("unknown_registry", "model_changed"),
+    ],
+)
+async def test_repair_model_lock_reports_unusable_routes(
+    test_engine, monkeypatch, change, expected
+):
+    from app.db.models.ml_backend_registry import ProjectMLBackendPool
+
+    await assert_owned_test_database(test_engine)
+    registry_id, pool_id, project_id, actor_id = await _seed_repair_route(
+        test_engine, monkeypatch
+    )
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    destination_pool_id = None
+    requested_registry_ids = [registry_id]
+    try:
+        async with maker.begin() as change_db:
+            if change == "pool_disabled":
+                await change_db.execute(
+                    update(MLBackendServicePool)
+                    .where(MLBackendServicePool.id == pool_id)
+                    .values(enabled=False)
+                )
+            elif change == "association_disabled":
+                await change_db.execute(
+                    update(ProjectMLBackendPool)
+                    .where(
+                        ProjectMLBackendPool.project_id == project_id,
+                        ProjectMLBackendPool.pool_id == pool_id,
+                    )
+                    .values(enabled=False)
+                )
+            elif change == "association_missing":
+                await change_db.execute(
+                    delete(ProjectMLBackendPool).where(
+                        ProjectMLBackendPool.project_id == project_id,
+                        ProjectMLBackendPool.pool_id == pool_id,
+                    )
+                )
+            elif change == "member_missing":
+                await change_db.execute(
+                    delete(MLBackendPoolMember).where(
+                        MLBackendPoolMember.registry_id == registry_id
+                    )
+                )
+            elif change == "member_draining":
+                await change_db.execute(
+                    update(MLBackendPoolMember)
+                    .where(MLBackendPoolMember.registry_id == registry_id)
+                    .values(traffic_state="draining")
+                )
+            elif change == "member_moved":
+                destination = await MLBackendService(change_db).create_pool(
+                    "Repair route destination"
+                )
+                destination_pool_id = destination.id
+                await change_db.execute(
+                    update(MLBackendPoolMember)
+                    .where(MLBackendPoolMember.registry_id == registry_id)
+                    .values(pool_id=destination_pool_id)
+                )
+            else:
+                assert change == "unknown_registry"
+                requested_registry_ids = [uuid.uuid4()]
+
+        async with maker() as db:
+            try:
+                assert (
+                    await InferenceTopologyData(db).lock_repair_model_rows(
+                        project_id, pool_id, requested_registry_ids
+                    )
+                    == expected
+                )
+            finally:
+                await db.rollback()
+    finally:
+        await _cleanup_repair_route(
+            test_engine,
+            registry_id,
+            pool_id,
+            project_id,
+            actor_id,
+            *([destination_pool_id] if destination_pool_id is not None else []),
+        )
+
+
+async def test_repair_model_lock_propagates_nowait_conflict(test_engine, monkeypatch):
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.inference_topology_data import _sqlstate
+
+    await assert_owned_test_database(test_engine)
+    registry_id, pool_id, project_id, actor_id = await _seed_repair_route(
+        test_engine, monkeypatch
+    )
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    holder, peer = maker(), maker()
+    try:
+        await _timeouts(holder)
+        await _timeouts(peer)
+        await peer.execute(
+            select(MLBackendServicePool.id)
+            .where(MLBackendServicePool.id == pool_id)
+            .with_for_update()
+        )
+        with pytest.raises(DBAPIError) as failure:
+            await InferenceTopologyData(holder).lock_repair_model_rows(
+                project_id, pool_id, [registry_id]
+            )
+        assert _sqlstate(failure.value) == "55P03"
+    finally:
+        await holder.rollback()
+        await peer.rollback()
+        await holder.close()
+        await peer.close()
+        await _cleanup_repair_route(
+            test_engine, registry_id, pool_id, project_id, actor_id
+        )
+
+
+async def test_repair_model_lock_validates_and_deduplicates_registry_ids(
+    test_engine, monkeypatch
+):
+    await assert_owned_test_database(test_engine)
+    registry_id, pool_id, project_id, actor_id = await _seed_repair_route(
+        test_engine, monkeypatch
+    )
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as db:
+        try:
+            data = InferenceTopologyData(db)
+            with pytest.raises(ValueError):
+                await data.lock_repair_model_rows(project_id, pool_id, [])
+            with pytest.raises(ValueError):
+                await data.lock_repair_model_rows(
+                    project_id, pool_id, [registry_id, uuid.uuid4(), uuid.uuid4()]
+                )
+            assert (
+                await data.lock_repair_model_rows(
+                    project_id, pool_id, [registry_id, registry_id]
+                )
+                == "ready"
+            )
+        finally:
+            await db.rollback()
+    await _cleanup_repair_route(test_engine, registry_id, pool_id, project_id, actor_id)

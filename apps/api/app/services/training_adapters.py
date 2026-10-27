@@ -7,20 +7,36 @@ from training_contract import (
     resolve,
     schema_identity,
 )
+from training_contract.assets import AssetReference
+from training_contract.catalog import instance_rle_capability
 from training_contract.dataset import DETECTION, SEGMENTATION
+from training_contract.models import (
+    LEGACY_ULTRALYTICS_VERSION,
+    ULTRALYTICS_VERSION,
+    model_spec,
+    supports_version,
+)
 
 from app.config import settings
 
 
-def capabilities(framework, task=None):
+def capabilities(framework, task=None, base_model=None):
     adapter = ADAPTERS[framework]
+    try:
+        segment_return = (
+            framework == "ultralytics"
+            and model_spec(framework, base_model).task == SEGMENTATION
+        )
+    except (ValueError, TypeError):
+        segment_return = False
     return {
         "tasks": [task]
         if task
         else ([DETECTION, SEGMENTATION] if framework == "ultralytics" else [DETECTION]),
         "resume": True,
         "artifact_download": True,
-        "model_registration": adapter["model_registration"] and task != SEGMENTATION,
+        "model_registration": adapter["model_registration"]
+        and (task != SEGMENTATION or segment_return),
     }
 
 
@@ -68,7 +84,12 @@ def catalog():
         image = entry.get("image_digest", "")
         models = entry.get("base_models", {})
         if (
-            version != ADAPTERS[framework]["version"]
+            version
+            not in (
+                {ULTRALYTICS_VERSION, LEGACY_ULTRALYTICS_VERSION}
+                if framework == "ultralytics"
+                else {ADAPTERS[framework]["version"]}
+            )
             or not image.startswith("sha256:")
             or len(image) != 71
         ):
@@ -76,11 +97,26 @@ def catalog():
         valid_models = []
         for name, model in models.items():
             try:
-                task = definition(framework, name)["task"]
+                spec = model_spec(framework, name)
+                if not supports_version(spec, version):
+                    continue
+                task = definition(framework, name, version=version)["task"]
             except ValueError:
                 continue
             sha = model.get("sha256", "")
             filename = model.get("filename", "")
+            try:
+                AssetReference.from_mapping(model)
+            except (ValueError, KeyError, TypeError):
+                continue
+            object_key = model.get("object_key")
+            size_bytes = model.get("size_bytes")
+            if object_key is not None and (
+                object_key != f"model-assets/sha256/{sha}/weights.pt"
+                or type(size_bytes) is not int
+                or not 0 < size_bytes <= 2 * 1024**3
+            ):
+                continue
             if (
                 len(sha) == 64
                 and all(c in "0123456789abcdef" for c in sha)
@@ -95,7 +131,21 @@ def catalog():
                         "sha256": sha,
                         "filename": filename,
                         "task": task,
-                        "capabilities": capabilities(framework, task),
+                        "model_family": spec.family,
+                        "model_size": spec.scale,
+                        **(
+                            {"object_key": object_key, "size_bytes": size_bytes}
+                            if object_key
+                            else {}
+                        ),
+                        "capabilities": {
+                            **capabilities(framework, task, name),
+                            **(
+                                {"instance_rle": instance_rle_capability(version)}
+                                if task == SEGMENTATION
+                                else {}
+                            ),
+                        },
                     }
                 )
         if valid_models:
@@ -116,7 +166,9 @@ def catalog():
                             )
                         },
                     },
-                    "parameter_schemas": parameter_summaries(framework, valid_models),
+                    "parameter_schemas": parameter_summaries(
+                        framework, valid_models, version=version
+                    ),
                 }
             )
     return {
@@ -126,11 +178,11 @@ def catalog():
     }
 
 
-def parameter_summaries(framework, models):
+def parameter_summaries(framework, models, *, version=None):
     schemas = {}
     for base in models:
         try:
-            schema = definition(framework, base["id"])
+            schema = definition(framework, base["id"], version=version)
         except ValueError:
             continue
         identity = schema_identity(schema)
@@ -162,6 +214,10 @@ def controlled_template(framework, base_model):
         "framework": framework,
         "framework_version": template["version"],
         "image_digest": template["image_digest"],
-        "base_model": {key: base[key] for key in ("id", "sha256", "filename")},
+        "base_model": {
+            key: base[key]
+            for key in ("id", "sha256", "filename", "object_key", "size_bytes")
+            if key in base
+        },
         "resource_id": options["resource_id"],
     }

@@ -30,6 +30,7 @@ from app.services.jobs_dispatch import (
 )
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.service import canonical_digest
+from app.services.point_cloud_quality import originals
 from app.services.point_cloud_quality.config import (
     effective_thresholds,
     load_point_cloud_quality_config,
@@ -74,6 +75,7 @@ async def build_source_snapshot(
     project: Project,
     request: PointCloudQualityRunRequest,
     validate_expected: bool = True,
+    original_contract: bool = False,
 ) -> tuple[list[dict], dict]:
     source = await spatial_quality_data(db, "read_point_source", project_id=project.id)
     tasks = quality_records(source.get("tasks"))
@@ -388,6 +390,11 @@ async def build_source_snapshot(
                 "ego_rotation": row.ego_rotation,
             }
         )
+    if original_contract:
+        records = [
+            await originals.pin(db, record) if record["kind"] == "task" else record
+            for record in records
+        ]
     records.sort(key=lambda value: canonical_digest(value))
     scope_json = {
         "scope": request.scope,
@@ -415,6 +422,7 @@ async def current_source_digest(
         project=project,
         request=_request_from_scope(run.scope_json),
         validate_expected=False,
+        original_contract=run.scope_json.get("original_contract") == 1,
     )
     return canonical_digest(snapshot)
 
@@ -425,14 +433,20 @@ async def create_quality_run(
     project: Project,
     actor_id: uuid.UUID,
     request: PointCloudQualityRunRequest,
+    http_request,
 ) -> tuple[PointCloudQualityRun, AsyncJob | None, bool]:
     if project.data_type != "lidar":
         raise PointCloudQualityError(422, "point_cloud_quality_lidar_project_required")
+    authority = await originals.capture_authority(db, actor_id, http_request)
     config = load_point_cloud_quality_config(project.point_cloud_quality_config)
     if not config.enabled:
         raise PointCloudQualityError(409, "point_cloud_quality_disabled")
     snapshot, scope_json = await build_source_snapshot(
-        db, project=project, request=request
+        db, project=project, request=request, original_contract=True
+    )
+    scope_json = {**scope_json, "original_contract": 1}
+    await originals.check_authority(
+        db, authority, project.id, scope_json, all_tasks=True
     )
     if not await AssetsSpatialGateway(db).lock_scene_source_references(
         [uuid.UUID(value) for value in scope_json["scene_ids"]]
@@ -445,6 +459,7 @@ async def create_quality_run(
             "scope": scope_json,
             "source_snapshot_digest": source_digest,
             "config_digest": config_digest,
+            "authority": originals.authorization(authority),
         }
     )
     result = await spatial_quality_data(
@@ -471,6 +486,7 @@ async def create_quality_run(
                 payload={
                     "scope": scope_json,
                     "source_snapshot_digest": source_digest,
+                    originals.AUTHORITY: originals.authorization(authority),
                 },
                 celery_task_id=celery_task_id,
             )
@@ -734,6 +750,7 @@ async def refresh_issue_staleness_bulk(
 
     result: dict[uuid.UUID, bool] = {}
     stale_issue_ids: list[uuid.UUID] = []
+    current_originals: dict[uuid.UUID, dict | None] = {}
     for issue in issues:
         stale = False
         run_id = issue.last_seen_run_id or issue.run_id
@@ -771,6 +788,35 @@ async def refresh_issue_staleness_bulk(
                 != (issue.evidence or {}).get("pointcloud_content_hash")
                 or item.file_path != (issue.evidence or {}).get("pointcloud_file_path")
             )
+            if not stale and issue.task_id is not None:
+                evidence = issue.evidence or {}
+                convention = item.axis_convention or "iso_8855"
+                stale = evidence.get(
+                    "pointcloud_contract"
+                ) != 1 or convention != evidence.get("axis_convention")
+                if not stale:
+                    if issue.task_id not in current_originals:
+                        try:
+                            current_originals[issue.task_id] = await originals.pin(
+                                db,
+                                {
+                                    "task_id": str(issue.task_id),
+                                    "pointcloud": {
+                                        "item_id": str(item.id),
+                                        "file_path": item.file_path,
+                                    },
+                                },
+                                lock=False,
+                            )
+                        except originals.ContentError:
+                            current_originals[issue.task_id] = None
+                    current = current_originals[issue.task_id]
+                    stale = current is None or (
+                        current["pointcloud"].get("original")
+                        != evidence.get("pointcloud_original")
+                        or current["pointcloud"].get("original_error")
+                        != evidence.get("pointcloud_original_error")
+                    )
         camera_item_id = (issue.evidence or {}).get("camera_item_id")
         camera_role = (issue.evidence or {}).get("camera_role")
         if not stale and camera_item_id is not None and camera_role is not None:

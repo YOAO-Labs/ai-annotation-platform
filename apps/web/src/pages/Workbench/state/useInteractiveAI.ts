@@ -515,11 +515,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
         if (controller.signal.aborted || myInflight !== inflightRef.current) return;
         const formatted = formatPredictError(err);
         const msg = err instanceof Error ? err.message : String(err);
-        setError(
-          formatted
-            ? `${formatted.msg}${formatted.sub ? `：${formatted.sub}` : ""}`
-            : msg.slice(0, 120),
-        );
+        setError(formatted ? `${formatted.msg}${formatted.sub ? `：${formatted.sub}` : ""}` : msg);
         const sessionReason = apiErrorReason(err);
         const invalidSession =
           sessionReason === "invalid_mask_session" ||
@@ -546,7 +542,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
         // backend 503 (变体 checkpoint 未预置) 的 detail 经 ApiError.message 透出。
         pushToast({
           msg: formatted?.msg ?? (isVariantSwitch ? "模型切换失败" : "SAM 推理失败"),
-          sub: formatted?.sub ?? msg.slice(0, 120),
+          sub: formatted?.sub ?? msg,
           kind: "error",
         });
       } finally {
@@ -969,17 +965,17 @@ function apiErrorReason(err: unknown): string | null {
 function formatPredictError(err: unknown): { msg: string; sub?: string } | null {
   if (!(err instanceof ApiError)) return null;
   if (err.status === 422) {
-    return { msg: "参数错误，请检查输入", sub: err.message.slice(0, 120) };
+    return { msg: "参数错误，请检查输入", sub: err.message };
   }
   if (err.status === 503) {
     const retryAfter = err.headers?.["retry-after"];
     return {
       msg: "模型暂不可用",
-      sub: retryAfter ? `${retryAfter} 秒后重试` : err.message.slice(0, 120),
+      sub: retryAfter ? `${retryAfter} 秒后重试\n${err.message}` : err.message,
     };
   }
   if (err.status >= 500) {
-    return { msg: "服务异常", sub: `HTTP ${err.status}` };
+    return { msg: "服务异常", sub: `HTTP ${err.status}\n${err.message}` };
   }
   return null;
 }

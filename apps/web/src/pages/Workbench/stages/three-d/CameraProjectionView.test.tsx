@@ -1,3 +1,6 @@
+vi.mock("./useCameraOriginalImage", () => ({
+  useCameraOriginalImage: (source: string) => ({ url: source }),
+}));
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SensorCalibration } from "@/types";
@@ -46,7 +49,8 @@ describe("CameraProjectionView frame loading", () => {
       />,
     );
 
-    expect(image.className).toContain("opacity-0");
+    expect(image.isConnected).toBe(false);
+    expect(screen.getByRole("img", { name: "front" }).className).toContain("opacity-0");
     expect(screen.getByText("加载相机…")).toBeTruthy();
     expect(screen.getByLabelText("front 相机投影").className).toContain("pointer-events-none");
   });

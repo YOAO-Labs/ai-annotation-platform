@@ -3,7 +3,7 @@ title: 超大图金字塔派生资产
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-24
 ---
 
 # 超大图金字塔派生资产
@@ -40,7 +40,7 @@ display ID 已被其它数据占用，脚本不会自动接管或覆盖。
 `image_pyramid_assets` 表示稳定 owner：
 
 - DatasetItem 来源以 DatasetItem 为 owner，多个 Task 共用一份资产；
-- 未关联 DatasetItem 的 direct Task 以 Task 为 owner；
+- direct／primary 关联解析到 DatasetItem 时共享该 Item；独立 TaskOriginal 以 Task 为 owner；
 - owner 与 `profile_version` 唯一，数据库约束保证两种 owner 恰有一个非空。
 
 `asset_image_jobs` 持有已受理的尺寸、缩略图、金字塔与回填作业；不可变操作回执支持网络结果不确定后的重放。作业代次与公开金字塔代次分别计数，不能互相替代。`image_pyramid_generations` 是一次生成的交付投影：
@@ -57,10 +57,12 @@ pending → building → ready
 
 原生发布同时检查来源快照、对象身份、作业代次及未过期的 attempt lease，再修改 active 与缩略图投影。DatasetItem 投影由 Assets 持有；direct Task 通过 Labeling 的窄接口发布。账号停用或角色变化不撤销已接受工作，显式取消、来源改变、重新关联或删除会阻止旧结果发布。
 
-对象布局是服务端实现细节：
+`image_pyramid_outputs` 独立保存每次租约的物理责任，不随 Task、Item 或 Asset 级联删除。分配时保存已登记位置、端点身份、桶和独立 UUID 前缀；用途绑定只选择新输出。公开 manifest 不暴露这些字段。输出从 building 进入 ready 或 retiring，删除成功后进入 deleted；已发布内容清单不可改写。
+
+每次租约使用不同的输出目录，旧任务失败不会删除新租约的结果。对象布局是服务端实现细节：
 
 ```text
-image-pyramids/{asset_id}/g{generation}/a{lease_token}/
+image-pyramids/objects/{output_id}/
   manifest.json
   overview.webp
   tiles/{level}/{x}/{y}.webp
@@ -68,8 +70,9 @@ image-pyramids/{asset_id}/g{generation}/a{lease_token}/
 
 ## 源身份与规范化
 
-快速 source fence 由对象 ETag、字节数和可用的 version ID 组成。Worker 同时在流式下载时计算 SHA-256，
-作为 manifest 的内容 fingerprint。生成前和发布前都会再次验证快速身份，覆盖生成期间源对象被替换的竞态。
+原件由 canonical resolver 解析已登记 DatasetAsset／TaskOriginal 的 SHA-256、长度、保存位置与准确关联，不按当前用途桶猜读。准备只冻结元数据；Worker 用当前观测设置条件请求，完整核对原件 SHA 与长度，再交给 libvips。manifest fingerprint 必须等于登记 SHA，下载后自行计算一个摘要不构成原件登记证据。
+
+HTTP 委派绑定发起 Task、实际凭据指纹与现行 annotations:read／Task 可见性，后台持续检查当前身份、API Key、关系和 Gate。内部上传、导入与维护使用显式系统委派，缺失凭据不隐式升级为系统。读取已归档数据集中的可见 Task 不要求数据集管理权限；目录与原地引用仍不进入此派生链。
 
 规范化 profile 的合同为：
 
@@ -100,10 +103,6 @@ Task 层先把图片解析成 `single`、`pyramid`、`pyramid-pending` 或 `pyra
 building、failed、missing、stale、inconsistent 或客户端 gate 关闭时只使用 overview、thumbnail 或 blurhash，不自动请求 original；
 optional 图片可以继续使用有界的 single-image 路径。
 
-ready pyramid 的 level 由 `viewport scale × scaleFactor × devicePixelRatio` 决定，当前 level 在
-`0.75..1.25` 的采样区间内保持，避免连续缩放时跨阈值抖动。tile node 仍占 full-resolution world rect；
-1px 存储 overlap 只用于 crop，不改变标注、Mask、Issue 或 Minimap 坐标。
-
 调度器分两阶段工作：
 
 ```text
@@ -113,15 +112,13 @@ ready pyramid 的 level 由 `viewport scale × scaleFactor × devicePixelRatio` 
         └─ 失败时 HTMLImageElement + ObjectURL
 ```
 
-低、标准、高设备档位的 decoded tile budget 分别为 32/64/128 MiB，并发为 2/4/6。成本按
-`decodedWidth × decodedHeight × 4` 计算；可见 tile pin，非可见 tile 按 LRU 淘汰。
-`ImageBitmap.close()`、ObjectURL revoke、请求 abort、reservation 和 stale commit 都进入 resource
-snapshot。overview 与已缓存的粗层级在目标 tile 到达前保持，单 tile 失败不会制造空白棋盘。
-短期 tile URL 过期或首次拉取失败时只重新批签一次；仍失败的可见区域由 overview/粗层级覆盖，
-并在五秒冷却结束后自动重试，无需用户平移或缩放视口。
-
-异步 Konva 绘制从调度器读取当前仍存活的 tile，不持有 React 提交前的 bitmap 快照。淘汰会先移除可绘制列表，
-再同步关闭 bitmap；tile 变化重新调度绘制，避免缩放或平移后继续访问已释放资源而冻结画布。
+| 调度维度                       | 取值与规则                                                                            | 设计目的                                       |
+| :----------------------------- | :------------------------------------------------------------------------------------ | :--------------------------------------------- |
+| **LOD 选择与滞回区间**         | `viewport scale × scaleFactor × devicePixelRatio`，在 `0.75..1.25` 区间内保持当前层级 | 避免连续缩放视口时跨阈值频繁抖动               |
+| **解码缓存预算（低/标/高档）** | `32 MiB` / `64 MiB` / `128 MiB`（按 `decodedWidth × decodedHeight × 4` 计费）         | 可见 tile 固定（pin），非可见 tile 按 LRU 淘汰 |
+| **请求并发与批签上限**         | 并发 `2` / `4` / `6`，单次 `asset-urls` 批签最多 `128` 项                             | 控制连接池占用并减少签名往返                   |
+| **降级覆盖与失败重试**         | 目标 tile 到达前保持 overview 或已缓存粗层级；拉取失败重签一次，5 秒冷却后自动重试    | 杜绝缩放平移时出现空白棋盘格                   |
+| **Konva 生命周期对账**         | 淘汰时先移出可绘制列表再同步执行 `ImageBitmap.close()` / `revokeObjectURL`            | 防止异步重绘访问已释放位图导致画布冻结         |
 
 背景路径不读取 `navigator.gpu`。Raster Mask 的 WebGPU/CPU 计算与图片 tile 保持独立 owner 和释放语义，
 但共同进入当前 Task 的[栅格资源协调账本](./raster-resource-coordination)。前台 Mask 运算会暂停背景预取，
@@ -141,7 +138,7 @@ POST /api/v1/tasks/{task_id}/image-pyramid/retry
 
 GET 返回状态 envelope；ready 时返回 manifest 和短期 overview URL，并支持 `ETag`/`If-None-Match`。
 `asset-urls` 最多接受 128 个 overview/tile 逻辑请求，去重后按首次出现顺序返回。服务端验证 Task 可见性、
-generation、level/grid 坐标和对象存在性，再统一签发到期时间。
+generation、level/grid 坐标和保存清单中的完整 SHA／长度，再统一签发到期时间。读取、签名与最终响应前复验权限、原件关联、active generation、独立输出 owner 与维护门禁。
 
 金字塔缺失时仍返回明确摘要，`generation` 为空，不再省略 required 图片的缺失状态。ETag 同时反映失败刷新和正在构建的新代次，避免旧 manifest 的 304 隐藏新错误。
 
@@ -160,18 +157,19 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
 独立 `aap_assets_images_runtime.worker` 轮询原生作业，使用专用 SQL/S3 身份，初始并发为 1。本地开发的 `image-pyramid` Celery 队列仅作为同一执行器的唤醒适配。生成流程按以下顺序执行：
 
 ```text
-取得 DB lease
-  → 流式下载到有界临时文件
+固定原件与显式委派，取得 DB lease 和独立输出 owner
+  → durable Permit 下完整核验原件临时文件
   → libvips 规范化并生成
   → 校验完整网格、edge 尺寸和摘要
   → 上传 tile 与 overview
-  → 最后上传 manifest
-  → 事务发布 active generation
+  → 最后上传 manifest，逐文件完整读回 SHA／长度
+  → 原生工作、文件和临时目录真实收尾
+  → 短事务复验授权／原件／有效 lease／owner／Gate 并发布
 ```
 
-像素、单边尺寸、source/derived/temp bytes、tile 数和作业时间均受捕获策略约束。条件传输可在截止时间取消，libvips 子进程在取消确认前结束。reconciliation 回收过期
-lease、非 active 旧代次和孤儿前缀。source 或 owner 删除时在事务内记录清理责任，独立 Cleanup 等待租约并保留迟到写入重扫；原始来源与不确定的旧缩略图 key 保留。`image-pyramids/`
-不使用普通媒体缓存的固定期限 lifecycle。
+像素、单边尺寸、source/derived/temp bytes、tile 数和作业时间均受捕获策略约束；源读取另有两槽 admission。条件传输可在截止时间取消，libvips 子进程在取消确认前结束。取消、超时和软时限等到真实 I/O、原生生成与注册句柄关闭，未知收尾保留 durable StorageOperation。统一 Asset→Generation→Output 锁序，metadata 锁不跨物理读取。
+
+每日 reconciliation 复验过期租约、移除非 active 旧代的引用，再将无引用且无在用操作的已知输出退役。已发布输出从退役时重新计算宽限期，保护已经签发的 URL；宽限期结束后按保存前缀删除，删除失败保留责任重试。source 或 owner 删除时在事务内记录清理责任，独立 Cleanup 等待租约并保留迟到写入重扫；原始来源与不确定的旧缩略图 key 保留。业务删除不执行当前缓存桶前缀清理，独立 output 留待 GC。不裸扫默认桶，不按时间删除其他任务临时目录，`image-pyramids/` 不使用普通媒体缓存的固定期限 lifecycle。旧无归属代不自动签名、采纳或删除；原件已登记后可以显式重试新代，旧未知文件留待单独核验。该消费者迁移不开放整个 media-cache 用途切换。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
-客户端背景选择见 [ADR-0063](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0063-konva-viewport-image-tiles.md)，联合资源决策见 [ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0064-task-scoped-raster-resource-coordination.md)。
+客户端背景选择见 [ADR 0063](../adr/archive/0063-konva-viewport-image-tiles)，联合资源决策见 [ADR 0064](../adr/archive/0064-task-scoped-raster-resource-coordination)。

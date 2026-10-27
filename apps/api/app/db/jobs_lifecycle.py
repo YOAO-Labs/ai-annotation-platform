@@ -7,7 +7,7 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 
-from sqlalchemy import column, event, func, inspect, select, text
+from sqlalchemy import column, event, func, inspect, select, text, true
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, aliased, attributes, object_session
 from sqlalchemy.orm.exc import StaleDataError
@@ -15,6 +15,16 @@ from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import BindParameter, BinaryExpression
 
 _TRACE = "aap_jobs_lifecycle_commands"
+_SNAPSHOT_COLUMN = "execution_snapshot_id"
+_PROGRESS_TIMESTAMP_COLUMN = "last_progress_at"
+_PROGRESS_OBSERVATION_COLUMN = "progress_observation"
+_READ_JOB_OMITTED_COLUMNS = frozenset(
+    {
+        _SNAPSHOT_COLUMN,
+        _PROGRESS_TIMESTAMP_COLUMN,
+        _PROGRESS_OBSERVATION_COLUMN,
+    }
+)
 _TABLES = set()
 
 
@@ -135,6 +145,12 @@ def _apply_job_update(mapper, connection, target):
         for prop in mapper.column_attrs
         if state.attrs[prop.key].history.has_changes()
     }
+    if _SNAPSHOT_COLUMN in changes:
+        state.info.pop(_TRACE, None)
+        raise ValueError(
+            "execution_snapshot_id is owned by "
+            "aap_jobs_v1.bind_prediction_execution_snapshot"
+        )
     if not changes:
         state.info.pop(_TRACE, None)
         return
@@ -210,12 +226,47 @@ def _retarget_job_column_load(execute_state):
     if primary_key_bind is None:
         return
 
-    source = (
+    read_columns = [
+        column_
+        for column_ in table.columns
+        if column_.key not in _READ_JOB_OMITTED_COLUMNS
+    ]
+    read_job = (
         func.aap_jobs_v1.read_job(primary_key_bind)
         .table_valued(
-            *(column(column_.name, type_=column_.type) for column_ in table.columns)
+            *(column(column_.name, type_=column_.type) for column_ in read_columns)
         )
-        .alias(table.name)
+        .alias("job")
+    )
+    progress = (
+        func.aap_jobs_v1.read_job_progress(primary_key_bind)
+        .table_valued(
+            column(
+                _PROGRESS_TIMESTAMP_COLUMN,
+                type_=table.c[_PROGRESS_TIMESTAMP_COLUMN].type,
+            ),
+            column(
+                _PROGRESS_OBSERVATION_COLUMN,
+                type_=table.c[_PROGRESS_OBSERVATION_COLUMN].type,
+            ),
+        )
+        .alias("progress")
+    )
+    # The frozen read_job projection intentionally omits the owner-bound
+    # snapshot and the storage progress facts, so the refresh supplies them
+    # from the dedicated Jobs capabilities in the same statement instead of
+    # reading the private async_jobs row.
+    source = (
+        select(
+            *(read_job.c[column_.name] for column_ in read_columns),
+            func.aap_jobs_v1.read_job_execution_snapshot(primary_key_bind).label(
+                _SNAPSHOT_COLUMN
+            ),
+            progress.c[_PROGRESS_TIMESTAMP_COLUMN],
+            progress.c[_PROGRESS_OBSERVATION_COLUMN],
+        )
+        .select_from(read_job.join(progress, true()))
+        .subquery(table.name)
     )
     entity = aliased(mapper.class_, source, adapt_on_names=True)
 
@@ -260,6 +311,19 @@ def _clear_insert_trace(mapper, connection, target):
     inspect(target).info.pop(_TRACE, None)
 
 
+def _reject_snapshot_insert(mapper, connection, target):
+    """Keep the owner-bound snapshot out of every generic ORM INSERT.
+
+    The closed creation view has no such column, and the only permitted writer
+    is ``aap_jobs_v1.bind_prediction_execution_snapshot`` after creation.
+    """
+    if _SNAPSHOT_COLUMN in inspect(target).dict:
+        raise ValueError(
+            "execution_snapshot_id must be bound after creation through "
+            "aap_jobs_v1.bind_prediction_execution_snapshot"
+        )
+
+
 def _clear_rolled_back_traces(session, *_):
     states = list(session.identity_map.all_states())
     states.extend(inspect(row) for row in session.new)
@@ -273,6 +337,7 @@ def install_jobs_owner_mapping(model):
         return
     _TABLES.add(model.__table__)
     event.listen(model, "before_update", _apply_job_update)
+    event.listen(model, "before_insert", _reject_snapshot_insert)
     event.listen(model, "after_insert", _clear_insert_trace)
     if not event.contains(Session, "do_orm_execute", _retarget_job_column_load):
         event.listen(Session, "do_orm_execute", _retarget_job_column_load)

@@ -210,7 +210,7 @@ async def test_mask_qc_execution_dedupes_findings_and_advances_last_seen(
         assert value["sha256"] == reference["sha256"]
         return rle
 
-    async def fake_store(value):
+    async def fake_store(value, *, db):
         return build_rle_reference(value)
 
     monkeypatch.setattr("app.services.mask_qc.execution.load_coco_rle", fake_load)

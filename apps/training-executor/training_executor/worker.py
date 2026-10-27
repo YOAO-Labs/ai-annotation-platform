@@ -18,6 +18,10 @@ from pathlib import Path
 
 import httpx
 import psutil
+from training_contract.assets import (
+    available_asset_digests,
+    resolve_asset,
+)
 from training_contract.observability import (
     FAILURE_CODES,
     PHASES,
@@ -58,12 +62,14 @@ def retryable_publication_response(response, *, storage=False):
 
 def runtime_identity():
     import torch
-    from training_contract.catalog import supported_identities
+    from training_contract.catalog import supported_identities, instance_rle_capability
     from training_contract.preview import POLICY_DIGEST
     from training_contract.initialization import (
         POLICY_DIGEST as INITIALIZATION_POLICY_DIGEST,
+        supported_policy_digests,
     )
     from training_contract.budget import POLICY_DIGEST as BUDGET_POLICY_DIGEST
+    from training_contract.input_membership import POLICY_DIGEST as INPUT_POLICY_DIGEST
 
     gpu = os.environ["TRAINING_GPU_UUID"]
     devices = (
@@ -93,12 +99,21 @@ def runtime_identity():
         pass
     return {
         "executor_protocol": 2,
+        "training_saved_prefix_schema": 2,
         "preview_protocol": 1,
         "observability_protocol": 1,
         "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,
+        "initialization_policy_digests": supported_policy_digests(
+            frameworks["ultralytics"]
+        ),
         "native_budget_policy_digest": BUDGET_POLICY_DIGEST,
+        "input_receipt_policy_digest": INPUT_POLICY_DIGEST,
         "preview_policy_digest": POLICY_DIGEST,
-        "supported_configs": supported_identities(),
+        "supported_configs": supported_identities(frameworks),
+        "instance_rle_consumer": instance_rle_capability(frameworks["ultralytics"]),
+        "base_asset_sha256": available_asset_digests(
+            os.environ.get("TRAINING_MODELS_DIR", "/models")
+        ),
         "image_digest": image,
         "gpu_uuid": gpu,
         "frameworks": frameworks,
@@ -306,6 +321,9 @@ class Supervisor:
             ("metrics.json", "metrics"),
             ("config.json", "config"),
             ("native-config.json", "config"),
+            ("rle-consumer.json", "config"),
+            ("rle-train-preflight.json", "config"),
+            ("rle-val-preflight.json", "config"),
             ("train.log", "log"),
             ("observability.json", "telemetry"),
         ):
@@ -328,6 +346,19 @@ class Supervisor:
             "publication_runtime": self.runtime,
             "artifacts": artifacts,
         }
+        from training_contract.input_membership import declared_contract
+        from .input_membership import verified_local_receipt
+
+        if (
+            journal["outcome"] == "succeeded"
+            and declared_contract(manifest["config"]) is not None
+        ):
+            manifest["input_membership"] = verified_local_receipt(
+                manifest["config"],
+                manifest["run_id"],
+                manifest["attempt_id"],
+                directory / "input-membership.json",
+            )
         atomic_json(directory / "manifest.json", manifest)
         artifacts.append(
             {
@@ -595,14 +626,12 @@ class Supervisor:
                     capture.write(b"Controlled training preparation started.\n")
                     config = assignment["config"]
                     atomic_json(directory / "config.json", config)
-                    base = self.models / config["base_model"]["filename"]
-                    if (
-                        not base.is_file()
-                        or digest_file(base) != config["base_model"]["sha256"]
-                    ):
+                    try:
+                        base = resolve_asset(self.models, config["base_model"])
+                    except ValueError as exc:
                         raise InputMismatchError(
                             "Controlled base weights are missing or changed"
-                        )
+                        ) from exc
                     self.download(
                         assignment["dataset_url"],
                         directory / "dataset.zip",
@@ -668,6 +697,8 @@ class Supervisor:
                             exact_size=pin["artifact"]["size_bytes"],
                         )
                     spec = {
+                        "run_id": assignment["run_id"],
+                        "attempt_id": assignment["attempt_id"],
                         "framework": config["framework"],
                         "parameters": config["parameters"],
                         "base_path": str(base),

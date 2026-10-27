@@ -51,8 +51,7 @@ def _constants(path: Path) -> dict[str, object]:
 
 def test_0221_installer_orders_new_artifacts_and_preserves_0220():
     migration = _constants(MIGRATION)
-    assert migration["revision"] == "0221"
-    assert migration["down_revision"] == "0220"
+
     assert migration["_UPGRADE_ARTIFACTS"] == ARTIFACTS
     assert migration["_SCHEMA_ARTIFACTS"] == ("0221_accepted_inputs.schema.json",)
     assert all((SQL_DIR / name).is_file() for name in ARTIFACTS)

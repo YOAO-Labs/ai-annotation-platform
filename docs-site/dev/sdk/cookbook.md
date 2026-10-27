@@ -3,7 +3,7 @@ title: SDK Cookbook
 audience: [dev]
 type: how-to
 status: beta
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # SDK Cookbook

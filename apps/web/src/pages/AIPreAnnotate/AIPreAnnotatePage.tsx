@@ -1,58 +1,155 @@
-/**
- * v0.9.12 · /ai-pre 信息架构重构 (BUG B-17).
- *
- * 主视图: 项目卡片网格 (仅接了 ml_backend 的项目) → 点卡片进 ProjectDetailPanel.
- * ProjectDetailPanel 内: 多选 batch + 串/并行预标 + 已就绪 HistoryTable (含多选清理).
- *
- * v0.10.40 · 删除 v0.9.7 遗留且无消费方的 stepper 子组件 (PreannotateStepper /
- * ProjectBatchPicker / PromptComposer / OutputModeSelector / RunPanel / usePreannotateDraft);
- * 精细单批次 modal 方向已放弃, ProjectDetailPanel 用 inline 简化版承载全部预标交互.
- * HistoryTable 仍在 ProjectDetailPanel 内渲染.
- *
- * 旧版本 478 行单文件 + 内嵌 FailedPredictionsTab (B-2) 一并清理 → /ai-pre/jobs?status=failed.
- */
-
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { ProjectCardGrid } from "./components/ProjectCardGrid";
 import { ProjectDetailPanel } from "./components/ProjectDetailPanel";
 import { useAIPreProjectSummary } from "@/hooks/useBulkPreannotateActions";
-import styles from "./AIPreAnnotatePage.module.css";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import { Input } from "@/components/shadcn/ui/input";
 
 export default function AIPreAnnotatePage() {
   const summaryQ = useAIPreProjectSummary();
   const items = useMemo(() => summaryQ.data?.items ?? [], [summaryQ.data?.items]);
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [params, setParams] = useSearchParams();
+  const selectedProjectId = params.get("project");
+  const setSelectedProjectId = (id: string | null) => {
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (id) next.set("project", id);
+      else {
+        next.delete("project");
+        next.delete("catalog_model");
+      }
+      return next;
+    });
+  };
 
   const selectedSummary = useMemo(
     () => items.find((it) => it.project_id === selectedProjectId),
     [items, selectedProjectId],
   );
 
-  return (
-    <div className={styles.page}>
-      <header>
-        <h1 className={styles.title}>AI 预标</h1>
-        <p className={styles.subtitle}>
-          先选项目（仅展示已绑定 ML backend 的项目）。图像项目多选批次跑文本批量预标；视频项目的 AI
-          追踪在工作台逐轨迹发起（Ctrl+B）。
-        </p>
-      </header>
+  const filteredItems = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return query
+      ? items.filter((item) =>
+          [item.project_name, item.project_display_id, item.ml_backend_name].some((value) =>
+            value?.toLocaleLowerCase().includes(query),
+          ),
+        )
+      : items;
+  }, [items, search]);
 
-      {selectedProjectId ? (
-        <ProjectDetailPanel
-          projectId={selectedProjectId}
-          summary={selectedSummary}
-          onBack={() => setSelectedProjectId(null)}
-        />
-      ) : (
-        <ProjectCardGrid
-          items={items}
-          isLoading={summaryQ.isLoading}
-          onSelect={setSelectedProjectId}
-        />
+  const pagination = useListPagination(filteredItems, search);
+
+  if (selectedProjectId)
+    return (
+      <ProjectDetailPanel
+        projectId={selectedProjectId}
+        summary={selectedSummary}
+        initialCatalogModelId={params.get("catalog_model")}
+        onBack={() => setSelectedProjectId(null)}
+      />
+    );
+
+  return (
+    <section className="min-w-0 space-y-4" aria-labelledby="ai-pre-projects-title">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="ai-pre-projects-title" className="text-sm font-semibold">
+            选择项目
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            仅展示已接入推理服务的项目，选择后配置批次与预标流程。
+          </p>
+        </div>
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+          <Input
+            type="search"
+            aria-label="搜索预标项目"
+            placeholder="搜索项目、编号或推理服务"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 sm:w-64"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label="刷新项目列表"
+            title="刷新项目列表"
+            disabled={summaryQ.isFetching}
+            onClick={() => void summaryQ.refetch()}
+          >
+            <Icon
+              name="refresh"
+              size={14}
+              className={
+                summaryQ.isFetching ? "animate-spin motion-reduce:animate-none" : undefined
+              }
+            />
+          </Button>
+        </div>
+      </div>
+      {summaryQ.isError && (
+        <Card>
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-medium text-status-danger">项目列表加载失败</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                请检查网络连接，或稍后重新加载项目列表。
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={summaryQ.isFetching}
+              onClick={() => void summaryQ.refetch()}
+            >
+              重新加载
+            </Button>
+          </div>
+        </Card>
       )}
-    </div>
+      {!summaryQ.isLoading && !summaryQ.isError && items.length > 0 && (
+        <p className="text-xs tabular-nums text-muted-foreground" role="status">
+          {search.trim()
+            ? `匹配 ${filteredItems.length} / ${items.length} 个项目`
+            : `共 ${items.length} 个项目`}
+        </p>
+      )}
+      {items.length > 0 && filteredItems.length === 0 ? (
+        <Card>
+          <div className="space-y-2 p-8 text-center">
+            <p className="text-sm font-medium">没有匹配的项目</p>
+            <p className="text-xs text-muted-foreground">
+              换一个项目名称、编号或推理服务名称试试。
+            </p>
+            <Button size="sm" onClick={() => setSearch("")}>
+              清除搜索
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        (!summaryQ.isError || items.length > 0) && (
+          <ProjectCardGrid
+            items={pagination.items}
+            isLoading={summaryQ.isLoading}
+            onSelect={setSelectedProjectId}
+          />
+        )
+      )}
+      <ListPagination
+        label="预标项目"
+        {...pagination}
+        loading={summaryQ.isLoading}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
+    </section>
   );
 }

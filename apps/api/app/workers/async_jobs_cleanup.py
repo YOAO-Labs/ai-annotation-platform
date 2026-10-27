@@ -10,6 +10,9 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import delete, exists, select
+
+from app.db.models.async_job import AsyncJob
 from app.services import async_job as async_job_svc
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -31,6 +34,25 @@ async def _purge_async() -> dict:
             db,
             cutoff,
             statuses=("completed", "failed", "cancelled"),
+        )
+        from app.db.models.prediction_execution import PredictionExecutionSnapshot
+        from app.db.models.prediction import FailedPrediction
+
+        await db.execute(
+            delete(PredictionExecutionSnapshot).where(
+                PredictionExecutionSnapshot.created_at < cutoff,
+                ~exists(
+                    select(AsyncJob.id).where(
+                        AsyncJob.execution_snapshot_id == PredictionExecutionSnapshot.id
+                    )
+                ),
+                ~exists(
+                    select(FailedPrediction.id).where(
+                        FailedPrediction.execution_snapshot_id
+                        == PredictionExecutionSnapshot.id
+                    )
+                ),
+            )
         )
         await db.commit()
     log.info("purge_old_async_jobs: removed=%d cutoff=%s", len(ids), cutoff.isoformat())

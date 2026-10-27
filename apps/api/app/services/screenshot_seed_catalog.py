@@ -22,6 +22,7 @@ from aap_assets_images.transport import (
     ImageTileRequest,
 )
 
+from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.services.workspace_seed_data import seed_members, seed_projects
@@ -277,6 +278,24 @@ async def _ready_large_image_pyramid(
         return False
 
 
+async def verified_video_seed_digest(db, item) -> str:
+    """Validate the canonical seed original and its saved-owner poster."""
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives
+    from app.services.content_snapshot import ContentError
+
+    source = await originals.pin(db, "dataset_item", item.id)
+    authority = await originals.delegated(
+        db, originals.system_authorization("dataset_item", item.id, source)
+    )
+    async with originals.media(db, authority, source):
+        pass
+    checked = await video_derivatives.thumbnail(db, item_id=item.id)
+    if checked is None or checked[0] != item.thumbnail_path:
+        raise ContentError("video_metadata_unpinned", 409)
+    return source.sha256
+
+
 async def _resolve_backend(
     db: AsyncSession,
     project: Project,
@@ -440,8 +459,10 @@ async def _resolve_dataset_and_tasks(
             )
             continue
         try:
-            object_digest = await asyncio.to_thread(
-                _storage_object_digest, item.file_path
+            object_digest = (
+                await verified_video_seed_digest(db, item)
+                if item.file_type == "video"
+                else await asyncio.to_thread(_storage_object_digest, item.file_path)
             )
         except Exception as exc:  # noqa: BLE001 - report storage failure as an issue
             issues.append(
@@ -708,6 +729,57 @@ async def _resolve_project(
         "batches": batches,
         "ml_backend": backend,
     }
+
+
+async def _large_pyramid_ready(db, task, item, generation) -> bool:
+    """Validate persisted ownership without treating metadata as a live I/O test."""
+    from fastapi import HTTPException
+
+    from app.db.models.image_pyramid import ImagePyramidOutput
+    from app.services import image_pyramid as pyramids
+    from app.services import image_pyramid_objects as objects
+    from app.services import image_pyramid_storage as physical, storage_access
+    from app.services.content_snapshot import ContentError
+
+    if (
+        generation is None
+        or generation.status != "ready"
+        or generation.width != item.width
+        or generation.height != item.height
+        or generation.output_id is None
+        or generation.auth_ref is None
+        or generation.normalization_version
+        != settings.image_pyramid_normalization_version
+    ):
+        return False
+    try:
+        owner = await pyramids.owner_for_task(db, task)
+        if not pyramids.source_matches_generation(owner, generation):
+            return False
+        output = await db.get(
+            ImagePyramidOutput, generation.output_id, populate_existing=True
+        )
+        if (
+            output is None
+            or output.state != "ready"
+            or output.asset_id != generation.asset_id
+            or output.generation != generation.generation
+        ):
+            return False
+        saved = physical.resolve(output)
+        objects.validate_inventory(output, generation, output.inventory)
+        await storage_access.check(db, uuid.UUID(saved.ref["location_id"]))
+    except (
+        ContentError,
+        HTTPException,
+        pyramids.ImagePyramidError,
+        physical.ImagePyramidStorageError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        return False
+    return True
 
 
 async def _resolve_optional_large_image_project(

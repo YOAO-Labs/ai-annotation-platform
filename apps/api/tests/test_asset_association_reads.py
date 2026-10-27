@@ -193,7 +193,7 @@ async def _list_project_datasets(
 
 async def test_association_schema_freezes_both_read_capabilities():
     root = Path(__file__).parents[1] / "alembic" / "sql"
-    schema = json.loads((root / "0212_asset_association_reads.schema.json").read_text())
+    schema = json.loads((root / "0377_asset_association_reads.schema.json").read_text())
     assert schema["$id"] == "urn:aap:assets-associations:v1"
     assert set(schema["x-postgresql-functions"]) == {
         "aap_assets_v1.list_dataset_projects(uuid, uuid)",
@@ -288,7 +288,7 @@ async def test_dataset_projects_keep_global_read_policy_raw_workspace_and_stored
             Path(__file__).parents[1]
             / "alembic"
             / "sql"
-            / "0212_asset_association_reads.schema.json"
+            / "0377_asset_association_reads.schema.json"
         ).read_text()
     )
     expected_project_fields = set(

@@ -288,7 +288,7 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
             before_downgrade = await db.scalar(
                 text("SELECT version_num FROM public.alembic_version")
             )
-        refused = _alembic(owner_url, "downgrade", "0241")
+        refused = _alembic(owner_url, "downgrade", "bo0241")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Identity invitation ownership while receipts or durable mail state exists"
@@ -307,12 +307,12 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
                     "DELETE FROM public.identity_credential_mail_outbox WHERE purpose='invitation'"
                 )
             )
-        empty = _alembic(owner_url, "downgrade", "0241")
+        empty = _alembic(owner_url, "downgrade", "bo0241")
         assert empty.returncode == 0, "Owned empty invitation downgrade failed"
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0241"
+                == "bo0241"
             )
         record_property(
             "invitation_restore",

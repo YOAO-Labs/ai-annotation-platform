@@ -1,49 +1,77 @@
-"""Shared fake object storage for avatar tests.
-
-``services/avatar.py`` reaches object storage through the ``storage_service`` singleton, so
-the tests here swap that symbol for this fake. It records writes/deletes so tests can assert
-both the normalized output and the cleanup of replaced avatars.
-"""
+"""Saved avatar receipts and fake object storage with independent byte evidence."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import hashlib
 import io
+from types import SimpleNamespace
+import uuid
+
 from botocore.exceptions import ClientError
+
+from tests._owned_s3 import patch_owned_client
+from app.config import settings
+from app.services import avatar, avatar_storage
 
 
 def _missing(key: str) -> ClientError:
-    return ClientError({"Error": {"Code": "NoSuchKey", "Message": key}}, "HeadObject")
+    return ClientError({"Error": {"Code": "NoSuchKey", "Message": key}}, "GetObject")
 
 
 class _FakeS3Client:
     def __init__(self, owner: "FakeAvatarStorage") -> None:
         self._owner = owner
+        scheme = "https" if settings.minio_use_ssl else "http"
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{scheme}://{settings.minio_endpoint}"
+        )
 
-    def head_object(self, *, Bucket: str, Key: str) -> dict:  # noqa: N803 - boto3 kwargs
+    def get_object(self, *, Bucket: str, Key: str, VersionId=None) -> dict:  # noqa: N803
+        assert VersionId is None
+        self._owner.reads.append((Bucket, Key))
         try:
             data = self._owner.objects[(Bucket, Key)]
         except KeyError as exc:
             raise _missing(Key) from exc
-        return {"ETag": self._owner.etags[(Bucket, Key)], "ContentLength": len(data)}
+        body = self._owner.body_factory(data)
+        self._owner.bodies.append(body)
+        return {"Body": body, "ETag": self._owner.etags[(Bucket, Key)]}
 
-    def get_object(self, *, Bucket: str, Key: str) -> dict:  # noqa: N803
-        try:
-            data = self._owner.objects[(Bucket, Key)]
-        except KeyError as exc:
-            raise _missing(Key) from exc
-        return {"Body": io.BytesIO(data), "ETag": self._owner.etags[(Bucket, Key)]}
+    def put_object(self, *, Bucket, Key, Body, IfNoneMatch, ContentType, CacheControl):  # noqa: N803
+        assert IfNoneMatch == "*"
+        if (Bucket, Key) in self._owner.objects:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+        self._owner.put_bytes(
+            Key,
+            Body,
+            content_type=ContentType,
+            cache_control=CacheControl,
+            bucket=Bucket,
+        )
+        return {}
+
+    def delete_object(self, *, Bucket, Key, VersionId=None):  # noqa: N803
+        assert VersionId is None
+        self._owner.delete_object(Key, bucket=Bucket)
+        return {}
 
 
 class FakeAvatarStorage:
-    def __init__(self, *, avatars_bucket: str = "test-avatars") -> None:
-        self.bucket = "test-annotations"
-        self.avatars_bucket = avatars_bucket
+    def __init__(self, *, avatars_bucket: str | None = None) -> None:
+        self.bucket = settings.minio_bucket
+        self.avatars_bucket = avatars_bucket or settings.minio_avatars_bucket
         self.objects: dict[tuple[str, str], bytes] = {}
         self.etags: dict[tuple[str, str], str] = {}
         self.puts: list[dict] = []
+        self.reads: list[tuple[str, str]] = []
+        self.bodies: list[io.BytesIO] = []
         self.deleted: list[tuple[str, str]] = []
         self.client = _FakeS3Client(self)
         self.fail_deletes = False
+        self.fail_puts = False
+        self.fail_after_put = False
+        self.body_factory = io.BytesIO
 
     def put_bytes(
         self,
@@ -54,9 +82,10 @@ class FakeAvatarStorage:
         cache_control: str | None = None,
         bucket: str | None = None,
     ) -> None:
+        if self.fail_puts:
+            raise RuntimeError("storage unavailable with secret signature")
         target = bucket or self.bucket
-        self.objects[(target, key)] = data
-        self.etags[(target, key)] = f'"{key}"'
+        self.seed(key, data, bucket=target)
         self.puts.append(
             {
                 "bucket": target,
@@ -66,16 +95,46 @@ class FakeAvatarStorage:
                 "size": len(data),
             }
         )
+        if self.fail_after_put:
+            raise RuntimeError("unknown PUT response with secret signature")
 
     def delete_object(self, key: str, bucket: str | None = None) -> None:
         if self.fail_deletes:
-            raise RuntimeError("storage unavailable")
+            raise RuntimeError("storage unavailable with secret signature")
         target = bucket or self.bucket
         self.objects.pop((target, key), None)
         self.deleted.append((target, key))
 
     def seed(self, key: str, data: bytes, *, bucket: str | None = None) -> None:
-        """Insert an object as if a previous upload had stored it."""
         target = bucket or self.avatars_bucket
         self.objects[(target, key)] = data
-        self.etags[(target, key)] = f'"{key}"'
+        self.etags[(target, key)] = f'"{hashlib.sha256(data).hexdigest()}"'
+
+
+def patch_storage(monkeypatch, fake=None):
+    fake = fake or FakeAvatarStorage()
+    patch_owned_client(monkeypatch, fake.client)
+    monkeypatch.setattr(avatar, "storage_service", fake)
+    monkeypatch.setattr(avatar_storage, "storage_service", fake)
+    return fake
+
+
+async def seed_upload(
+    db, fake, token, data, *, owner_id=None, state="ready", store=True
+):
+    from app.db.models.avatar_upload import AvatarUpload
+
+    row = AvatarUpload(
+        token=token,
+        owner_id=owner_id or uuid.uuid4(),
+        storage_ref=await avatar_storage.allocate(db, token),
+        sha256=hashlib.sha256(data).hexdigest(),
+        size_bytes=len(data),
+        state=state,
+        retired_at=datetime.now(timezone.utc) if state == "retired" else None,
+    )
+    db.add(row)
+    await db.flush()
+    if store:
+        fake.seed(row.storage_ref["object_key"], data, bucket=row.storage_ref["bucket"])
+    return row

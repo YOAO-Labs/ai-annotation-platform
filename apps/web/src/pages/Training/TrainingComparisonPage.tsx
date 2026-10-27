@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
@@ -22,10 +25,7 @@ export function TrainingComparisonPage() {
   const { id = "" } = useParams();
   const userId = useAuthStore((state) => state.user?.id);
   const token = useAuthStore((state) => state.token);
-  const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, userId, token }),
-    [id, userId, token],
-  );
+  const scope = useMemo(() => ({ key: randomId(), id, userId, token }), [id, userId, token]);
   return <TrainingComparisonContent key={scope.key} projectId={id} scope={scope.key} />;
 }
 
@@ -33,10 +33,12 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
   const [params, setParams] = useSearchParams();
   const state = parseComparison(params);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const client = useQueryClient();
   const runs = useQuery({
-    queryKey: ["training-comparison-picker", projectId, scope, page],
-    queryFn: ({ signal }) => trainingRunsApi.list(projectId, page * 20, { signal }),
+    queryKey: ["training-comparison-picker", projectId, scope, page, pageSize],
+    queryFn: ({ signal }) =>
+      trainingRunsApi.list(projectId, page * pageSize, { signal }, {}, pageSize),
     retry: false,
   });
   const details = useQueries({
@@ -86,14 +88,16 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
         s.runId,
         s.attemptId,
         state.classPage,
+        state.classPageSize,
       ],
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const result = await trainingRunsApi.evaluation(
           projectId,
           s.runId,
           s.attemptId,
-          state.classPage * 50,
+          state.classPage * state.classPageSize,
           { signal },
+          state.classPageSize,
         );
         signal.throwIfAborted();
         if (result.provenance.run_id !== s.runId || result.provenance.attempt_id !== s.attemptId)
@@ -128,6 +132,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       next.set(key, value);
+      if (key === "class_page_size") next.delete("class_page");
       return next;
     });
   const choose = (selections: ComparisonSelection[]) =>
@@ -180,7 +185,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
         <div className="mt-4 space-y-2">
           {runs.error && (
             <p role="alert" className="text-sm text-status-danger">
-              {runs.error.message}
+              <CopyableError message={runs.error.message} />
             </p>
           )}
           {runs.isPending && (
@@ -228,23 +233,20 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
             <p className="py-4 text-sm text-muted-foreground">项目尚无训练实验。</p>
           )}
         </div>
-        {!!runs.data?.total && (
-          <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <Button size="sm" disabled={!page} onClick={() => setPage((p) => p - 1)}>
-              上一页实验
-            </Button>
-            <span>
-              {page + 1} / {Math.ceil(runs.data.total / 20)}
-            </span>
-            <Button
-              size="sm"
-              disabled={(page + 1) * 20 >= runs.data.total}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              下一页实验
-            </Button>
-          </div>
-        )}
+        <ListPagination
+          label="实验"
+          page={page}
+          pageSize={pageSize}
+          total={runs.data?.total ?? 0}
+          loading={runs.isFetching}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
+          previousLabel="上一页实验"
+          nextLabel="下一页实验"
+        />
       </details>
       <div
         className={`mb-5 grid items-start gap-3 ${experiments.length === 2 ? "md:grid-cols-2" : experiments.length === 3 ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4"}`}
@@ -254,10 +256,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
             key={e.selection.runId}
             className="min-w-0 rounded-xl border border-border bg-card p-4"
           >
-            <legend className="px-1 text-xs text-muted-foreground">
-              实验 {index + 1}
-              {state.reference === e.selection.runId ? " · 参照" : ""}
-            </legend>
+            <legend className="px-1 text-xs text-muted-foreground">实验 {index + 1}</legend>
             <div className="flex items-start justify-between gap-2">
               <h2 className="min-w-0 break-words text-sm font-semibold">
                 {e.run?.name ?? e.selection.runId}
@@ -275,7 +274,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
             </div>
             {e.error && (
               <p role="alert" className="mt-3 text-xs text-status-danger">
-                {e.error}
+                <CopyableError message={e.error} />
               </p>
             )}
             {!e.run && !e.error ? (
@@ -326,20 +325,6 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
         </p>
       ) : (
         <>
-          <label className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            参照实验
-            <select
-              className={`${trainingInputClass} max-w-xs`}
-              value={state.reference}
-              onChange={(event) => update("reference", event.target.value)}
-            >
-              {experiments.map((e) => (
-                <option key={e.selection.runId} value={e.selection.runId}>
-                  {e.run?.name ?? e.selection.runId}
-                </option>
-              ))}
-            </select>
-          </label>
           <TrainingComparisonResults experiments={experiments} state={state} onChange={update} />
         </>
       )}

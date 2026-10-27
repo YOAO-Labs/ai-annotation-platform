@@ -90,6 +90,7 @@ vi.mock("@/api/adminPreannotate", async () => {
       ...actual.adminPreannotateApi,
       summary: () => mockSummaryAPI(),
       queue: (limit: number) => mockQueueAPI(limit),
+      projectQueue: (projectId: string) => mockQueueAPI(projectId),
     },
   };
 });
@@ -576,10 +577,10 @@ describe("ProjectDetailPanel v0.9.12", () => {
   // v0.18.5 / v0.18.16 · 多阶段下游 backend 门控: 单 backend 兜底提示 vs 双 backend 可编排。
   // 加阶段已移入 DAG 画布 (lazy, 测试里渲染 Suspense 占位), 故此处只断言两列编排区的兜底/引导文案。
   describe("多阶段下游 backend 门控 (v0.18.16)", () => {
-    it("单 backend 项目: 提示需绑第二个 backend", () => {
+    it("没有兼容目录模型时提示启用或发布兼容模型", () => {
       // 默认 mockUseMLBackends 只有 bk1 (单 backend)。
       renderUI();
-      expect(screen.getByText(/需在项目设置绑定第二个 ML backend/)).toBeInTheDocument();
+      expect(screen.getByText(/暂无兼容的下游模型/)).toBeInTheDocument();
     });
 
     it("双 backend 项目: 无单 backend 提示, 显示编排空态引导", () => {
@@ -591,7 +592,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
         isLoading: false,
       });
       renderUI();
-      expect(screen.queryByText(/需在项目设置绑定第二个 ML backend/)).toBeNull();
+      expect(screen.queryByText(/暂无兼容的下游模型/)).toBeNull();
       expect(screen.getByText(/加下游阶段/)).toBeInTheDocument();
     });
   });

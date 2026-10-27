@@ -1,0 +1,688 @@
+"""Explicit physical changes in an offline, owned recovery target only.
+
+Immutable snapshots, manifests, business IDs and historical observations are
+deliberately outside this whitelist. This module never starts restored jobs.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from types import SimpleNamespace
+
+from worktree_env import BUCKETS, WorktreeError
+
+
+def bucket_mapping(source: dict, target: dict) -> dict[str, str]:
+    if set(source) != set(BUCKETS) or set(target) != set(BUCKETS):
+        raise WorktreeError("恢复映射必须包含全部九用途")
+    if any(
+        not isinstance(value, str) or not value
+        for value in (*source.values(), *target.values())
+    ):
+        raise WorktreeError("恢复桶名必须为非空字符串")
+    pairs = {}
+    for purpose in BUCKETS:
+        before, after = source[purpose], target[purpose]
+        if before in pairs and pairs[before] != after:
+            raise WorktreeError("恢复不能拆分共用桶")
+        pairs[before] = after
+    if len(set(pairs.values())) != len(pairs):
+        raise WorktreeError("恢复不能合并独立桶")
+    if set(source.values()) & set(target.values()):
+        raise WorktreeError("恢复目标必须与源桶完全隔离")
+    return pairs
+
+
+def identity(endpoint_url: str, bucket: str) -> str:
+    return hashlib.sha256(
+        json.dumps([endpoint_url.rstrip("/"), bucket]).encode()
+    ).hexdigest()
+
+
+def prediction_input_changes(row, *, source_bucket, target_bucket, endpoint_url):
+    """Relocate only an existing current locator; never upgrade a legacy lease."""
+    from app.services import prediction_inputs
+
+    if row.bucket != source_bucket or row.storage_identity != identity(
+        endpoint_url, source_bucket
+    ):
+        raise WorktreeError("预测输入存储身份与备份import用途不一致")
+    version = getattr(row, "contract_version", 1)
+    if type(version) is not int or version not in {1, 2, 3}:
+        raise WorktreeError("预测输入存在未知合同")
+    values = {
+        "bucket": target_bucket,
+        "storage_identity": identity(endpoint_url, target_bucket),
+    }
+    if version == 1:
+        if any(
+            getattr(row, name, None) is not None
+            for name in (
+                "storage_ref",
+                "inventory",
+                "source_ref",
+                "maintenance_revision",
+            )
+        ):
+            raise WorktreeError("历史预测输入含未核验归属")
+        return values
+    try:
+        ref = prediction_inputs._resolve(row)
+        prediction_inputs._inventory(row, row.inventory)
+    except (ValueError, TypeError, AttributeError):
+        raise WorktreeError("预测输入含未知归属或对象收据") from None
+    if ref["schema"] != 1 or ref["endpoint_url"] != endpoint_url.rstrip("/"):
+        raise WorktreeError("预测输入端点与备份不一致")
+    values["storage_ref"] = {
+        **ref,
+        "bucket": target_bucket,
+        "storage_identity": identity(endpoint_url, target_bucket),
+    }
+    return values
+
+
+async def remap_storage(
+    db, source: dict, target: dict, endpoint_url: str
+) -> list[dict]:
+    """Validate every supported row before modifying this caller's transaction."""
+    from sqlalchemy import select, text
+    from app.services.dataset_assets import (
+        LEGACY_LOCATION_ID,
+        PURPOSE_BUCKET_ATTRIBUTES,
+    )
+    from app.db.models.dataset_asset import (
+        DatasetAssetLocation,
+        StorageBinding,
+        StorageLocation,
+    )
+    from app.db.models.dataset_source import DatasetSourcePreview
+    from app.db.models.original_cache import OriginalCacheEntry
+    from app.db.models.thumbnail_output import ThumbnailOutput
+    from app.db.models.image_pyramid import ImagePyramidOutput
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from app.db.models.prediction_input import PredictionInputLease
+    from app.db.models.training_storage_deletion import TrainingStorageDeletion
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.db.models.training_run import TrainingRun
+    from app.db.models.training_preview import TrainingPreview
+    from app.db.models.sample_evaluation import SampleEvaluationRun
+    from app.db.models.active_learning import ActiveLearningRound
+    from app.db.models.avatar_upload import AvatarUpload
+    from app.db.models.export_output import ExportOutput
+    from app.db.models.export_media_bundle import ExportMediaBundle
+    from app.db.models.bug_attachment_upload import BugAttachmentUpload
+    from app.db.models.audit_archive_output import AuditArchiveOutput
+    from app.db.models.comment_attachment_upload import CommentAttachmentUpload
+    from app.db.models.guide_asset_upload import GuideAssetUpload
+    from app.db.models.raster_mask_object import RasterMaskObject
+    from app.db.models.task_original import TaskOriginal
+    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+    from app.services import avatar_storage
+    from app.services import export_storage
+    from app.services import export_media_bundles
+    from app.services import bug_attachment_storage
+    from app.services import audit_archive_storage
+    from app.services import comment_attachment_storage
+    from app.services import guide_asset_storage
+    from app.services import raster_object_storage
+    from app.services import task_originals
+    from app.services import auxiliary_originals
+    from app.services import (
+        training_dataset_storage,
+        training_run_storage,
+        training_preview_storage,
+        sample_evaluation_storage,
+        active_learning_storage,
+    )
+
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.db.models.mask_format_upload import MaskFormatUpload
+    from app.db.models.mask_format_import import MaskFormatImport
+
+    if (
+        await db.scalar(
+            select(ManagedOriginalCreation.id)
+            .where(ManagedOriginalCreation.staging_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(select(MaskFormatUpload.id).limit(1))
+        or await db.scalar(
+            select(MaskFormatImport.id)
+            .where(MaskFormatImport.staging_ref.is_not(None))
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("导入暂存含新归属，当前九桶恢复未覆盖其映射")
+
+    if (
+        await db.scalar(
+            select(DatasetAssetLocation.asset_id)
+            .where(DatasetAssetLocation.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(DatasetAuxiliaryOriginal.id)
+            .where(DatasetAuxiliaryOriginal.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ManagedOriginalCreation.id)
+            .where(
+                ManagedOriginalCreation.owner_kind.in_(
+                    ("dataset", "dataset_auxiliary")
+                ),
+                ManagedOriginalCreation.configuration["original_ref"].astext.is_not(
+                    None
+                ),
+            )
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("数据集原件含新归属，当前九桶恢复未覆盖其映射")
+
+    if (
+        await db.scalar(select(ThumbnailOutput.id).limit(1))
+        or await db.scalar(
+            select(OriginalCacheEntry.id)
+            .where(OriginalCacheEntry.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ImagePyramidOutput.id)
+            .where(ImagePyramidOutput.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+        or await db.scalar(
+            select(VideoDerivativeOutput.id)
+            .where(VideoDerivativeOutput.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("媒体缓存含新归属，当前九桶恢复未覆盖其映射")
+
+    if (
+        await db.scalar(
+            select(TaskOriginal.id)
+            .where(TaskOriginal.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ManagedOriginalCreation.id)
+            .where(
+                ManagedOriginalCreation.owner_kind == "task",
+                ManagedOriginalCreation.configuration["original_ref"].astext.is_not(
+                    None
+                ),
+            )
+            .limit(1)
+        )
+        or await db.scalar(
+            select(CommentAttachmentUpload.id)
+            .where(CommentAttachmentUpload.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+        or await db.scalar(
+            select(GuideAssetUpload.id)
+            .where(GuideAssetUpload.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+        or await db.scalar(
+            select(RasterMaskObject.id)
+            .where(RasterMaskObject.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("标注文件含新归属，当前九桶恢复未覆盖其映射")
+
+    for model in (
+        TrainingDatasetVersion,
+        TrainingRun,
+        TrainingPreview,
+        SampleEvaluationRun,
+        ActiveLearningRound,
+        TrainingStorageDeletion,
+    ):
+        if await db.scalar(
+            select(model.id)
+            .where(model.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        ):
+            raise WorktreeError("训练文件含新归属，当前九桶恢复未覆盖其映射")
+    if await db.scalar(
+        select(StorageBinding.purpose)
+        .where(
+            StorageBinding.purpose == "training",
+            (StorageBinding.location_id != LEGACY_LOCATION_ID)
+            | (StorageBinding.generation != 1),
+        )
+        .limit(1)
+    ):
+        raise WorktreeError("训练用途含新绑定，当前九桶恢复未覆盖其映射")
+
+    mapping = bucket_mapping(source, target)
+    planned = []
+    ledger = []
+    invalidated_caches = []
+
+    def change(row, field, value, table, key):
+        before = getattr(row, field)
+        if before != value:
+            planned.append((row, field, value))
+            ledger.append(
+                {
+                    "table": table,
+                    "id": key,
+                    "field": field,
+                    "before": before,
+                    "after": value,
+                }
+            )
+
+    def remap(row, table, key):
+        if row.bucket not in mapping:
+            raise WorktreeError(f"{table} 存在不属于备份的物理桶")
+        change(row, "bucket", mapping[row.bucket], table, key)
+
+    location = await db.get(StorageLocation, LEGACY_LOCATION_ID)
+    scheme, endpoint = endpoint_url.split("://", 1)
+    if (
+        location is None
+        or location.kind != "s3"
+        or location.config_revision != 1
+        or location.config
+        != {"endpoint": endpoint.rstrip("/"), "use_ssl": scheme == "https"}
+    ):
+        raise WorktreeError("恢复平台位置与备份端点不一致")
+    bindings = list(await db.scalars(select(StorageBinding)))
+    if {row.purpose for row in bindings} != set(PURPOSE_BUCKET_ATTRIBUTES):
+        raise WorktreeError("恢复平台绑定缺失或含未知用途")
+    by_suffix = {value: name for name, value in BUCKETS.items()}
+    for row in bindings:
+        role = by_suffix[row.purpose]
+        if (
+            row.location_id != LEGACY_LOCATION_ID
+            or row.generation != 1
+            or row.bucket != source[role]
+        ):
+            raise WorktreeError("恢复平台绑定与源配置不一致")
+        remap(row, "storage_bindings", row.purpose)
+    for row in await db.scalars(select(DatasetAssetLocation)):
+        if row.location_id == LEGACY_LOCATION_ID:
+            remap(row, "dataset_asset_locations", f"{row.asset_id}:{row.location_id}")
+        elif row.bucket in mapping:
+            raise WorktreeError("外部位置意外指向平台桶，需要独立恢复合同")
+    for row in await db.scalars(select(DatasetSourcePreview)):
+        if row.bucket is not None:
+            if row.location_id != LEGACY_LOCATION_ID:
+                raise WorktreeError("预览存在未知物理位置")
+            remap(row, "dataset_source_previews", f"{row.source_id}:{row.path_digest}")
+    for model, role in (
+        (OriginalCacheEntry, "MINIO_MEDIA_CACHE_BUCKET"),
+        (PredictionInputLease, "MINIO_IMPORT_BUCKET"),
+    ):
+        for row in await db.scalars(select(model)):
+            table = model.__tablename__
+            if model is PredictionInputLease:
+                for field, value in prediction_input_changes(
+                    row,
+                    source_bucket=source[role],
+                    target_bucket=target[role],
+                    endpoint_url=endpoint_url,
+                ).items():
+                    change(row, field, value, table, str(row.id))
+                continue
+            if row.bucket != source[role] or row.storage_identity != identity(
+                endpoint_url, source[role]
+            ):
+                raise WorktreeError(f"{table} 存储身份与源配置不一致")
+            if model is OriginalCacheEntry and (
+                row.location_id != LEGACY_LOCATION_ID or row.binding_generation != 1
+            ):
+                raise WorktreeError("完整缓存存在未知绑定")
+            remap(row, table, str(row.id))
+            change(
+                row,
+                "storage_identity",
+                identity(endpoint_url, target[role]),
+                table,
+                str(row.id),
+            )
+    owner_types = {
+        TrainingDatasetVersion: training_dataset_storage,
+        TrainingRun: training_run_storage,
+        TrainingPreview: training_preview_storage,
+        SampleEvaluationRun: sample_evaluation_storage,
+        ActiveLearningRound: active_learning_storage,
+    }
+    for model in (*owner_types, TrainingStorageDeletion):
+        for row in await db.scalars(select(model)):
+            ref = row.storage_ref
+            if ref is not None:
+                owners = owner_types.get(model)
+                if model is TrainingStorageDeletion:
+                    owners = {
+                        "training-dataset": training_dataset_storage,
+                        "training-run": training_run_storage,
+                    }.get(ref.get("purpose") if isinstance(ref, dict) else None)
+                    if owners is None:
+                        raise WorktreeError("恢复清理意图含未知归属")
+                expected = (
+                    row.prefix
+                    if model is TrainingStorageDeletion
+                    else owners.prefix_for(row.project_id, row.id)
+                )
+                try:
+                    owner = owners.resolve_ref(ref, expected_prefix=expected)
+                except ValueError:
+                    raise WorktreeError("训练对象或清理意图含未知归属") from None
+                if (
+                    ref["endpoint_url"] != endpoint_url.rstrip("/")
+                    or owner.bucket != source["MINIO_TRAINING_BUCKET"]
+                    or (model is TrainingStorageDeletion and row.bucket != owner.bucket)
+                ):
+                    raise WorktreeError("训练版本归属与备份源不一致")
+                bucket = target["MINIO_TRAINING_BUCKET"]
+                change(
+                    row,
+                    "storage_ref",
+                    {
+                        **ref,
+                        "bucket": bucket,
+                        "storage_identity": identity(endpoint_url, bucket),
+                    },
+                    model.__tablename__,
+                    str(row.id),
+                )
+            if model is TrainingStorageDeletion:
+                remap(row, "training_storage_deletions", str(row.id))
+    for row in await db.scalars(select(AvatarUpload)):
+        if getattr(row, "object_version_id", None) is not None:
+            raise WorktreeError("头像含固定版本回执，当前九桶恢复未覆盖其版本映射")
+        try:
+            owner = avatar_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("头像上传记录含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_AVATARS_BUCKET"]
+        ):
+            raise WorktreeError("头像上传归属与备份源不一致")
+        bucket = target["MINIO_AVATARS_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            AvatarUpload.__tablename__,
+            row.token,
+        )
+    for row in await db.scalars(select(ExportOutput)):
+        try:
+            owner = export_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("导出候选含未知归属或内容回执") from None
+        if (
+            owner.ref["schema"] != 1
+            or owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_EXPORT_BUCKET"]
+        ):
+            raise WorktreeError("导出候选归属与备份源不一致")
+        bucket = target["MINIO_EXPORT_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            ExportOutput.__tablename__,
+            str(row.id),
+        )
+    from worktree_recovery_export import typed_media_cache_indexes, validate_media_pairs
+
+    media_rows = list(await db.scalars(select(ExportMediaBundle)))
+    outputs = list(await db.scalars(select(ExportOutput)))
+    validate_media_pairs(media_rows, outputs)
+    for row in media_rows:
+        try:
+            frozen = export_media_bundles.snapshot(row)
+        except ValueError:
+            raise WorktreeError("导出媒体副本含未知归属、冻结输入或内容清单") from None
+        ref = frozen.storage_ref
+        if (
+            ref["schema"] != 1
+            or ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or ref["bucket"] != source["MINIO_EXPORT_BUCKET"]
+        ):
+            raise WorktreeError("导出媒体副本归属与备份export用途不一致")
+        bucket = target["MINIO_EXPORT_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            ExportMediaBundle.__tablename__,
+            str(row.id),
+        )
+    for cache in await typed_media_cache_indexes(db, media_rows, outputs):
+        invalidated_caches.append(cache)
+        ledger.append(
+            {
+                "table": "export_artifacts",
+                "id": str(cache.id),
+                "field": "cache_index",
+                "before": {
+                    "output_id": str(cache.output_id),
+                    "cache_key": cache.cache_key,
+                },
+                "after": None,
+                "reason": "immutable_embedded_media_urls",
+            }
+        )
+    for row in await db.scalars(select(BugAttachmentUpload)):
+        if (
+            getattr(row, "object_version_id", None) is not None
+            or (row.storage_ref or {}).get("schema") != 1
+        ):
+            raise WorktreeError(
+                "报告附件含新位置或固定版本回执，当前九桶恢复未覆盖其映射"
+            )
+        try:
+            owner = bug_attachment_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("报告附件含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_BUG_REPORTS_BUCKET"]
+        ):
+            raise WorktreeError("报告附件归属与备份源不一致")
+        bucket = target["MINIO_BUG_REPORTS_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            BugAttachmentUpload.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(CommentAttachmentUpload)):
+        try:
+            owner = comment_attachment_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("评论附件含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_BUCKET"]
+        ):
+            raise WorktreeError("评论附件归属与备份源不一致")
+        bucket = target["MINIO_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            CommentAttachmentUpload.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(GuideAssetUpload)):
+        try:
+            owner = guide_asset_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("指南图片含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_BUCKET"]
+        ):
+            raise WorktreeError("指南图片归属与备份源不一致")
+        bucket = target["MINIO_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            GuideAssetUpload.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(RasterMaskObject)):
+        try:
+            owner = raster_object_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("持久RLE含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_BUCKET"]
+        ):
+            raise WorktreeError("持久RLE归属与备份源不一致")
+        bucket = target["MINIO_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            RasterMaskObject.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(AuditArchiveOutput)):
+        if not isinstance(row.storage_ref, dict) or row.storage_ref.get("schema") != 1:
+            raise WorktreeError("九桶恢复不覆盖审计归档新位置或代次")
+        try:
+            owner = audit_archive_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("审计归档含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_AUDIT_ARCHIVE_BUCKET"]
+        ):
+            raise WorktreeError("审计归档归属与备份源不一致")
+        bucket = target["MINIO_AUDIT_ARCHIVE_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            AuditArchiveOutput.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(TaskOriginal)):
+        try:
+            owner = task_originals.resolve(row, endpoint_url=endpoint_url)
+        except ValueError:
+            raise WorktreeError("Task原件含未知归属或内容回执") from None
+        if (
+            owner.location_id != LEGACY_LOCATION_ID
+            or owner.bucket != source["MINIO_BUCKET"]
+            or owner.storage_identity != identity(endpoint_url, source["MINIO_BUCKET"])
+        ):
+            raise WorktreeError("Task原件归属与备份annotations用途不一致")
+        change(row, "bucket", target["MINIO_BUCKET"], "task_originals", str(row.id))
+        change(
+            row,
+            "storage_identity",
+            identity(endpoint_url, target["MINIO_BUCKET"]),
+            "task_originals",
+            str(row.id),
+        )
+    for row in await db.scalars(select(DatasetAuxiliaryOriginal)):
+        try:
+            owner = auxiliary_originals.resolve(row, endpoint_url=endpoint_url)
+        except (TypeError, ValueError):
+            raise WorktreeError("辅助原件含未知归属、来源合同或内容回执") from None
+        if (
+            owner.location_id != LEGACY_LOCATION_ID
+            or owner.bucket != source["MINIO_DATASETS_BUCKET"]
+            or owner.storage_identity
+            != identity(endpoint_url, source["MINIO_DATASETS_BUCKET"])
+        ):
+            raise WorktreeError("辅助原件归属与备份datasets用途不一致")
+        # Creation is historical write evidence. Only this current locator is
+        # relocated; source contracts, pointers and unbound attempts stay fixed.
+        table = "dataset_auxiliary_originals"
+        bucket = target["MINIO_DATASETS_BUCKET"]
+        change(row, "bucket", bucket, table, str(row.id))
+        change(
+            row, "storage_identity", identity(endpoint_url, bucket), table, str(row.id)
+        )
+    for row in await db.scalars(select(ManagedOriginalRetirement)):
+        if (
+            row.location_id != LEGACY_LOCATION_ID
+            or row.location_config_revision != 1
+            or row.binding_generation != 1
+            or row.identity_state != "verified_binding"
+            or row.role != "managed_original"
+            or row.bucket != source["MINIO_DATASETS_BUCKET"]
+            or row.storage_identity
+            != identity(endpoint_url, source["MINIO_DATASETS_BUCKET"])
+        ):
+            raise WorktreeError("托管原件保留记录存在未知物理身份，需要独立恢复合同")
+        table = "managed_original_retirements"
+        remap(row, table, str(row.id))
+        change(
+            row,
+            "storage_identity",
+            identity(endpoint_url, target["MINIO_DATASETS_BUCKET"]),
+            table,
+            str(row.id),
+        )
+    # Only the table owner may opt into the narrowly scoped JSON physical map.
+    # Any failure rolls back the caller's complete offline mapping transaction.
+    await db.execute(text("SET LOCAL aap.restore_training_storage = 'on'"))
+    for row, field, value in planned:
+        setattr(row, field, value)
+    for cache in invalidated_caches:
+        await db.delete(cache)
+    await db.flush()
+    await db.execute(text("SET LOCAL aap.restore_training_storage = 'off'"))
+    return ledger
+
+
+def storage_view(endpoint_url: str, buckets: dict):
+    """Build only the non-secret fields used by existing identity helpers."""
+    return SimpleNamespace(
+        client=SimpleNamespace(meta=SimpleNamespace(endpoint_url=endpoint_url)),
+        media_cache_bucket=buckets["MINIO_MEDIA_CACHE_BUCKET"],
+        import_bucket=buckets["MINIO_IMPORT_BUCKET"],
+    )

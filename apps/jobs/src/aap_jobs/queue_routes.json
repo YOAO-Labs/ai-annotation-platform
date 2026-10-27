@@ -99,6 +99,9 @@
     "app.workers.media.backfill_media": {
       "queue": "media"
     },
+    "app.workers.media.run_media_backfill": {
+      "queue": "media"
+    },
     "app.workers.media.backfill_tasks": {
       "queue": "media"
     },
@@ -176,6 +179,27 @@
     },
     "app.workers.video_tracker.run_video_tracker_job": {
       "queue": "gpu"
+    },
+    "app.workers.avatar_cleanup.purge_retired_avatars": {
+      "queue": "cleanup"
+    },
+    "app.workers.bug_attachment_cleanup.purge_bug_attachments": {
+      "queue": "cleanup"
+    },
+    "app.workers.cleanup.purge_guide_assets": {
+      "queue": "cleanup"
+    },
+    "app.workers.dataset_quality.detect_quality": {
+      "queue": "media"
+    },
+    "app.workers.dataset_source_sync.tick_source_syncs": {
+      "queue": "default"
+    },
+    "app.workers.original_cache.maintain_original_cache": {
+      "queue": "cleanup"
+    },
+    "app.workers.prediction_input_cleanup.recover_prediction_inputs": {
+      "queue": "cleanup"
     }
   },
   "task_serializer": "json"

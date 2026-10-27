@@ -1,7 +1,9 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState } from "react";
 
 import type { MaskRepairAction, MaskRepairBatch, MaskRepairDryRun } from "@/api/maskQc";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shadcn/ui/alert";
 import {
@@ -98,7 +100,7 @@ export function MaskRepairSheet({
   const isTerminal = currentBatch ? TERMINAL.has(currentBatch.status) : false;
   const canRollback = Boolean(
     currentBatch &&
-    ["completed", "partial"].includes(currentBatch.status) &&
+    ["completed", "partial", "rollback_failed"].includes(currentBatch.status) &&
     currentBatch.rollback_expires_at &&
     new Date(currentBatch.rollback_expires_at).getTime() > Date.now(),
   );
@@ -233,7 +235,9 @@ export function MaskRepairSheet({
           {dryRun.isError && (
             <Alert variant="destructive">
               <AlertTitle>预览失败</AlertTitle>
-              <AlertDescription>{errorText(dryRun.error)}</AlertDescription>
+              <AlertDescription>
+                <CopyableError message={errorText(dryRun.error)} />
+              </AlertDescription>
             </Alert>
           )}
 
@@ -296,7 +300,9 @@ export function MaskRepairSheet({
               </div>
 
               <div className="font-mono text-xs text-muted-foreground">
-                计划摘要 {dryRunResult.plan_digest.slice(0, 16)} · 收据 15 分钟有效
+                计划摘要{" "}
+                <CopyValueButton value={dryRunResult.plan_digest} label="复制修复计划哈希" /> · 收据
+                15 分钟有效
               </div>
             </>
           )}
@@ -311,8 +317,9 @@ export function MaskRepairSheet({
             >
               <AlertTitle>{statusLabel(currentBatch.status)}</AlertTitle>
               <AlertDescription>
-                批次 {currentBatch.id.slice(0, 8)} · 结果摘要{" "}
-                {currentBatch.result_digest.slice(0, 12)}
+                批次 <CopyValueButton value={currentBatch.id} kind="id" label="复制修复批次 ID" /> ·
+                结果摘要{" "}
+                <CopyValueButton value={currentBatch.result_digest} label="复制修复结果哈希" />
               </AlertDescription>
             </Alert>
           )}
@@ -321,7 +328,11 @@ export function MaskRepairSheet({
             <Alert variant="destructive">
               <AlertTitle>操作失败</AlertTitle>
               <AlertDescription>
-                {errorText(execute.error ?? batch.error ?? rollback.error ?? resume.error)}
+                <CopyableError
+                  message={errorText(
+                    execute.error ?? batch.error ?? rollback.error ?? resume.error,
+                  )}
+                />
               </AlertDescription>
             </Alert>
           )}
@@ -343,7 +354,7 @@ export function MaskRepairSheet({
           {canRollback && (
             <Button variant="danger" disabled={rollback.isPending} onClick={submitRollback}>
               {rollback.isPending && <Spinner data-icon="inline-start" />}
-              回滚本批修复
+              {currentBatch?.status === "rollback_failed" ? "继续回滚" : "回滚本批修复"}
             </Button>
           )}
           {currentBatch && ["failed", "partial"].includes(currentBatch.status) && (

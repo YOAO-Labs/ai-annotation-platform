@@ -13,11 +13,23 @@ from aap_task_contract import (
     normalize_task_fields,
 )
 
+from app.schemas.dataset_view import DatasetItemFilters
+
 
 class TrainingDatasetSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task: Literal["detect", "segment"] = DETECTION
+    bridge: (
+        Literal[
+            "ultralytics-bbox-1",
+            "ultralytics-simple-polygon-1",
+            "ultralytics-instance-rle-1",
+        ]
+        | None
+    ) = None
     batch_id: uuid.UUID | None = None
+    dataset_id: uuid.UUID | None = None
+    dataset_filter: DatasetItemFilters | None = None
     task_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20000)
     mode: Literal["reviewed", "manager_confirmed"] = "reviewed"
     confirmed_negative_ids: list[uuid.UUID] = Field(
@@ -34,6 +46,16 @@ class TrainingDatasetSelection(BaseModel):
 
     def canonical_payload(self):
         payload = self.model_dump(mode="json")
+        if payload.get("dataset_id") is None:
+            payload.pop("dataset_id")
+        if self.dataset_filter is None:
+            payload.pop("dataset_filter", None)
+        else:
+            payload["dataset_filter"] = self.dataset_filter.model_dump(
+                mode="json", exclude_none=True
+            )
+        if payload.get("bridge") is None:
+            payload.pop("bridge")
         if self.task == DETECTION:
             payload.pop("task")
         else:
@@ -42,6 +64,14 @@ class TrainingDatasetSelection(BaseModel):
 
     @model_validator(mode="after")
     def explicit_confirmation(self):
+        if self.dataset_filter is not None and self.dataset_id is None:
+            raise ValueError("筛选范围必须指定数据集")
+        if self.bridge is not None and self.bridge not in (
+            {"ultralytics-bbox-1"}
+            if self.task == DETECTION
+            else {"ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"}
+        ):
+            raise ValueError("训练桥接与任务不匹配")
         if self.mode == "manager_confirmed" and not self.task_ids:
             raise ValueError("负责人确认模式必须显式选择任务")
         if self.confirmed_negative_ids and (

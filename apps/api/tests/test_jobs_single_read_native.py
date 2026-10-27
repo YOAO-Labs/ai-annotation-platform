@@ -11,7 +11,10 @@ from sqlalchemy import event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
-from app.application.async_job_contracts import AsyncJobOperationFailure
+from app.application.async_job_contracts import (
+    AsyncJobOperationFailure,
+    RetryCredentialAuthority,
+)
 from app.application.async_job_read import SqlAsyncJobReadAdapter
 from app.application.job_cancellation import SqlJobCancellation
 from app.application.prediction_retry import SqlPredictionRetry
@@ -176,7 +179,13 @@ async def test_retry_scope_denial_reads_job_through_jobs_owner(
             with pytest.raises(AsyncJobOperationFailure) as denied:
                 await SqlPredictionRetry(
                     db_session, dispatcher=_UnusedRetryDispatcher()
-                ).retry_job_items(job_id=job_id, actor_id=actor.id)
+                ).retry_job_items(
+                    job_id=job_id,
+                    actor_id=actor.id,
+                    credential=RetryCredentialAuthority(
+                        actor_id=actor.id, authorization="Bearer stale"
+                    ),
+                )
 
     assert denied.value.status_code == 403
     assert denied.value.detail == "not your job"

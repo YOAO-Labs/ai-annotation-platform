@@ -95,6 +95,7 @@ PROJECT_ROW_COLUMNS = (
     "rendering_config",
     "annotation_guide",
     "guide_assets",
+    "guide_assets_revision",
     "model_version",
     "task_lock_ttl_seconds",
     "total_tasks",

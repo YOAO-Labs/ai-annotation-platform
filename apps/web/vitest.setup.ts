@@ -12,6 +12,15 @@ import { server } from "./src/mocks/server";
 // operation they exercise. waitFor still returns as soon as the condition holds.
 configure({ asyncUtilTimeout: 5000 });
 
+// Radix tooltips observe their anchor size; jsdom has no layout observer.
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 if (!window.matchMedia) {
   Object.defineProperty(window, "matchMedia", {
     writable: true,

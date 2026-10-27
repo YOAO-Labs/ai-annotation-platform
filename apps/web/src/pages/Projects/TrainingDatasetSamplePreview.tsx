@@ -1,11 +1,28 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/api/trainingDatasets";
+import {
+  trainingDatasetsApi,
+  type TrainingDatasetAnalyzedSampleOut,
+  type TrainingDatasetInstanceMask,
+  type TrainingDatasetSampleDetail,
+} from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
+
+import { FrozenInstanceMaskPreview } from "./FrozenInstanceMaskPreview";
+import { TrainingDatasetSourceLineage } from "./TrainingDatasetSourceLineage";
+
+const isInstanceMask = (
+  label: TrainingDatasetSampleDetail["labels"][number],
+): label is TrainingDatasetInstanceMask => "pixel_sha256" in label && "size" in label;
 
 type Props = {
   projectId: string;
@@ -67,7 +84,7 @@ export function TrainingDatasetSamplePanel(props: PanelProps) {
       taskId: props.sample.task_id,
       contentSha256: props.sample.sha256,
       labelSha256: props.sample.label_sha256,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [
       userId,
@@ -98,6 +115,7 @@ function SamplePreviewContent({
   const [mediaLoading, setMediaLoading] = useState(true);
   const [retry, setRetry] = useState(0);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [boxesVisible, setBoxesVisible] = useState(true);
   const detail = useQuery({
     queryKey: [
@@ -107,6 +125,7 @@ function SamplePreviewContent({
       sample.version_id,
       sample.task_id,
       page,
+      pageSize,
     ],
     queryFn: async ({ signal }) => {
       if (!ownsPreview(owner)) throw new Error("登录会话已变化，请重新打开冻结样本");
@@ -114,8 +133,9 @@ function SamplePreviewContent({
         projectId,
         sample.version_id,
         sample.task_id,
-        page * 500,
+        page * pageSize,
         { signal },
+        pageSize,
       );
       if (signal.aborted || !ownsPreview(owner))
         throw new DOMException("预览所属会话已变化", "AbortError");
@@ -169,17 +189,24 @@ function SamplePreviewContent({
     };
   }, [owner, projectId, sample.version_id, sample.task_id, retry]);
   const value = detail.data;
+  const lastPage = Math.max(0, Math.ceil((value?.total ?? 0) / pageSize) - 1);
+  useEffect(() => {
+    if (value && page > lastPage) setPage(lastPage);
+  }, [value, page, lastPage]);
   const polygons = value?.labels.some((label) => label.type === "polygon") ?? false;
+  const instanceMasks = value?.labels.filter(isInstanceMask) ?? [];
+  const masks = instanceMasks.length > 0;
   return (
     <>
-      <p className="mb-3 break-all text-xs text-muted-foreground">
-        样本 {sample.task_id} ·{" "}
+      <p className="mb-3 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+        样本 <CopyValueButton value={sample.task_id} kind="id" label="复制冻结样本任务 ID" /> ·{" "}
         {sample.split === "val" ? "验证集" : sample.split === "train" ? "训练集" : "划分未知"} ·{" "}
         {sample.width ?? "未知"} × {sample.height ?? "未知"}
       </p>
       <p className="mb-4 text-xs text-muted-foreground">
-        图片经冻结身份与字节校验后生成预览；实例来自训练包对应的冻结标注。预览按比例缩小。
+        本页读取训练版本保留的图片副本，不读取实时来源。图片经完整身份与字节校验后生成预览；实例来自对应的冻结标注。来源证据与副本当前可读性分别判断，预览按比例缩小。
       </p>
+      {value && <TrainingDatasetSourceLineage lineage={value.source_lineage} />}
       {mediaLoading && (
         <p role="status" className="py-8 text-center text-sm text-muted-foreground">
           正在读取并校验冻结图片…
@@ -190,58 +217,74 @@ function SamplePreviewContent({
           role="alert"
           className="rounded-md bg-status-caution-soft p-3 text-sm text-status-caution"
         >
-          <p>{mediaError}</p>
+          <p>
+            <CopyableError message={mediaError} />
+          </p>
           <Button size="sm" className="mt-2" onClick={() => setRetry((value) => value + 1)}>
             重试冻结图片
           </Button>
         </div>
       )}
-      {mediaUrl && (
-        <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-md border border-border bg-muted">
-          <img
-            src={mediaUrl}
-            alt={`冻结样本 ${sample.task_id.slice(0, 8)}`}
-            className="block max-h-[60vh] max-w-full"
-            onError={() => {
-              setMediaError("浏览器无法解码冻结图片预览，请重试或检查持久存储");
-              setMediaUrl("");
-            }}
-          />
-          {boxesVisible && value && !value.sample.issue && (
-            <svg
-              className="pointer-events-none absolute inset-0 size-full text-status-info"
-              viewBox="0 0 1 1"
-              preserveAspectRatio="none"
-              aria-label={polygons ? "冻结多边形" : "冻结矩形框"}
-              role="img"
-            >
-              {value.labels.map((box, index) =>
-                box.type === "polygon" ? (
-                  <polygon
-                    key={index}
-                    points={box.points.map((point) => point.join(",")).join(" ")}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ) : (
-                  <rect
-                    key={index}
-                    x={box.x_center - box.width / 2}
-                    y={box.y_center - box.height / 2}
-                    width={box.width}
-                    height={box.height}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ),
-              )}
-            </svg>
-          )}
-        </div>
+      {mediaUrl && masks && boxesVisible && !value?.sample.issue ? (
+        <FrozenInstanceMaskPreview
+          projectId={projectId}
+          versionId={sample.version_id}
+          taskId={sample.task_id}
+          scopeKey={owner.key}
+          sampleUrl={mediaUrl}
+          labels={instanceMasks}
+          assertOwner={() => {
+            if (!ownsPreview(owner)) throw new DOMException("预览所属会话已变化", "AbortError");
+          }}
+        />
+      ) : (
+        mediaUrl && (
+          <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-md border border-border bg-muted">
+            <img
+              src={mediaUrl}
+              alt="冻结样本图片"
+              className="block max-h-[60vh] max-w-full"
+              onError={() => {
+                setMediaError("浏览器无法解码冻结图片预览，请重试或检查持久存储");
+                setMediaUrl("");
+              }}
+            />
+            {boxesVisible && value && !value.sample.issue && (
+              <svg
+                className="pointer-events-none absolute inset-0 size-full text-status-info"
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+                aria-label={polygons ? "冻结多边形" : "冻结矩形框"}
+                role="img"
+              >
+                {value.labels.map((box, index) =>
+                  box.type === "polygon" ? (
+                    <polygon
+                      key={index}
+                      points={box.points.map((point) => point.join(",")).join(" ")}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : !isInstanceMask(box) ? (
+                    <rect
+                      key={index}
+                      x={box.x_center - box.width / 2}
+                      y={box.y_center - box.height / 2}
+                      width={box.width}
+                      height={box.height}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null,
+                )}
+              </svg>
+            )}
+          </div>
+        )
       )}
       {detail.isLoading && (
         <p role="status" className="mt-3 text-xs text-muted-foreground">
@@ -250,7 +293,7 @@ function SamplePreviewContent({
       )}
       {detail.error && (
         <p role="alert" className="mt-3 text-sm text-status-danger">
-          {detail.error.message}
+          <CopyableError message={detail.error.message} />
         </p>
       )}
       {value?.sample.issue && (
@@ -277,67 +320,86 @@ function SamplePreviewContent({
                 checked={boxesVisible}
                 onChange={(event) => setBoxesVisible(event.target.checked)}
               />
-              {polygons ? "显示本页冻结多边形" : "显示本页冻结框"}
+              {masks ? "显示本页冻结实例掩码" : polygons ? "显示本页冻结多边形" : "显示本页冻结框"}
             </label>
             <span className="text-muted-foreground">
-              当前显示 {page * 500 + 1}–{page * 500 + value.labels.length} / {value.total} 个实例
+              当前显示 {page * pageSize + 1}–{page * pageSize + value.labels.length} / {value.total}{" "}
+              个实例
             </span>
           </div>
-          <div className="mt-2 max-h-40 overflow-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-muted-foreground">
-                <tr>
-                  <th className="py-2 font-medium">冻结类别</th>
-                  <th className="py-2 font-medium">{polygons ? "顶点数量" : "中心位置"}</th>
-                  <th className="py-2 font-medium">
-                    {polygons ? "面积占比 / 来源标注" : "宽 × 高（归一化）"}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {value.labels.map((box, index) => (
-                  <tr key={index} className="border-t border-border">
-                    <td className="py-2">{box.class_name}</td>
-                    <td className="py-2 tabular-nums">
-                      {box.type === "polygon"
-                        ? `${box.points.length} 个顶点`
-                        : `${box.x_center.toFixed(4)}, ${box.y_center.toFixed(4)}`}
-                    </td>
-                    <td className="py-2 tabular-nums">
-                      {box.type === "polygon" ? (
-                        <span title={box.annotation_id}>
-                          {(box.area * 100).toFixed(2)}% · {box.annotation_id.slice(0, 8)} ·
-                          标注版本 {box.annotation_version}
-                        </span>
-                      ) : (
-                        `${box.width.toFixed(4)} × ${box.height.toFixed(4)}`
-                      )}
-                    </td>
+          <div className={`${listStyles.surface} mt-2`}>
+            <div className={listStyles.scroll}>
+              <table className={listStyles.table}>
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="py-2 font-medium">冻结类别</th>
+                    <th className="py-2 font-medium">
+                      {masks
+                        ? "前景像素 / 像素边界（右下不含）"
+                        : polygons
+                          ? "顶点数量"
+                          : "中心位置"}
+                    </th>
+                    <th className="py-2 font-medium">
+                      {masks || polygons ? "面积占比 / 来源标注" : "宽 × 高（归一化）"}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {value.total > 500 && (
-            <div className="mt-2 flex justify-end gap-2">
-              <Button
-                size="sm"
-                disabled={!page || detail.isFetching}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                上一页标注
-              </Button>
-              <Button
-                size="sm"
-                disabled={(page + 1) * 500 >= value.total || detail.isFetching}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                下一页标注
-              </Button>
+                </thead>
+                <tbody>
+                  {value.labels.map((box, index) => (
+                    <tr key={index} className="border-t border-border">
+                      <td className="py-2">{box.class_name}</td>
+                      <td className="py-2 tabular-nums">
+                        {isInstanceMask(box)
+                          ? `${box.area_pixels} px · [${box.bbox_xyxy.join(", ")}]`
+                          : box.type === "polygon"
+                            ? `${box.points.length} 个顶点`
+                            : `${box.x_center.toFixed(4)}, ${box.y_center.toFixed(4)}`}
+                      </td>
+                      <td className="py-2 tabular-nums">
+                        {box.type === "polygon" || isInstanceMask(box) ? (
+                          <span className="inline-flex items-center gap-1">
+                            {(box.area * 100).toFixed(2)}% ·
+                            <CopyValueButton
+                              value={box.annotation_id}
+                              kind="id"
+                              label="复制冻结标注 ID"
+                            />
+                            · 标注版本 {box.annotation_version}
+                            {isInstanceMask(box) && (
+                              <CopyValueButton
+                                value={box.pixel_sha256}
+                                label="复制冻结掩码像素摘要"
+                              />
+                            )}
+                          </span>
+                        ) : (
+                          `${box.width.toFixed(4)} × ${box.height.toFixed(4)}`
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
+          </div>
         </>
       )}
+      <ListPagination
+        label="冻结标注"
+        page={page}
+        pageSize={pageSize}
+        total={value?.total ?? undefined}
+        count={value?.labels.length}
+        loading={detail.isFetching}
+        previousLabel="上一页标注"
+        nextLabel="下一页标注"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPage(0);
+          setPageSize(size);
+        }}
+      />
     </>
   );
 }

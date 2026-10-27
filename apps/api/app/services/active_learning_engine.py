@@ -21,6 +21,69 @@ STRATEGY = {
     "confidence_semantics": "uncalibrated_detection_heuristic",
 }
 
+MASK_STRATEGY = {
+    "implementation": "aap-instance-mask-uncertainty-exploration",
+    "revision": 1,
+    "task": "segment",
+    "low_confidence": "max_one_minus_observed_instance_confidence",
+    "ambiguity": "max_original_pixel_mask_iou_between_different_classes",
+    "priority": "max_low_confidence_ambiguity",
+    "exploration": STRATEGY["exploration"],
+    "control": STRATEGY["control"],
+    "zero_instances": "missing_signal_random_fallback",
+    "confidence_semantics": "uncalibrated_instance_heuristic_without_pixel_probabilities",
+    "maximum_overlap_run_visits": 8_000_000,
+}
+
+
+def strategy_for(ref):
+    from aap_task_contract import normalize_task
+
+    return (
+        MASK_STRATEGY
+        if normalize_task(ref.get("task", "detection")) == "segment"
+        else STRATEGY
+    )
+
+
+def mask_features(predictions):
+    from app.services.sample_evaluation_masks import mask_iou
+
+    low = max((1 - row["score"] for row in predictions), default=None)
+    visits, ambiguity = 0, 0.0
+    for index, first in enumerate(predictions):
+        for second in predictions[index + 1 :]:
+            if first["class_index"] == second["class_index"]:
+                continue
+            visits += len(first["rle"]["counts"]) + len(second["rle"]["counts"])
+            if visits > MASK_STRATEGY["maximum_overlap_run_visits"]:
+                raise ValueError(
+                    "Mask ambiguity computation exceeds the frozen run budget"
+                )
+            ambiguity = max(ambiguity, mask_iou(first["rle"], second["rle"]))
+    return {
+        "low_confidence": low,
+        "ambiguity": ambiguity if predictions else None,
+        "priority": max(low, ambiguity) if low is not None else None,
+        "detections": len(predictions),
+        "possible_truncation": len(predictions) == MAX_PREDICTIONS,
+        "minimum_instance_pixels": min(
+            (row["area_pixels"] for row in predictions), default=None
+        ),
+        "total_instance_pixels_including_overlap": sum(
+            row["area_pixels"] for row in predictions
+        ),
+        "overlap_run_visits": visits,
+    }
+
+
+def prediction_features(predictions, ref):
+    return (
+        mask_features(predictions)
+        if strategy_for(ref) == MASK_STRATEGY
+        else features(predictions)
+    )
+
 
 def shuffled(items, seed, salt):
     return sorted(

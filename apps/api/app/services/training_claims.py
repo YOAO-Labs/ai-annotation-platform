@@ -19,11 +19,14 @@ async def project_lock(db, project_id, *, wait=True):
     return True if wait else bool(result)
 
 
-def fixed_policy_template(framework, base_model):
+def fixed_policy_template(framework, base_model, task="detect"):
     template = training_adapters.controlled_template(framework, base_model)
-    if normalize_task(definition(framework, base_model)["task"]) != "detect":
+    if normalize_task(definition(framework, base_model)["task"]) != task or (
+        task == "segment"
+        and (framework != "ultralytics" or base_model != "yolo11n-seg")
+    ):
         raise HTTPException(
-            status_code=422, detail="自动学习策略目前仅通过图片检测资格验证"
+            status_code=422, detail="基础模型与自动策略任务或受控规格不匹配"
         )
     return template
 
@@ -50,7 +53,11 @@ def policy_template_current(policy):
                 policy.config["configuration"]["identity"],
             )
         return (
-            fixed_policy_template(expected["framework"], expected["base_model"]["id"])
+            fixed_policy_template(
+                expected["framework"],
+                expected["base_model"]["id"],
+                getattr(policy, "task", "detect"),
+            )
             == expected
         )
     except (HTTPException, KeyError, ValueError, TypeError):

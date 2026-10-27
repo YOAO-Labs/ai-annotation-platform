@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
 /**
  * DiscussionPanel 的 Issue 列表。
@@ -391,7 +392,10 @@ export function DiscussionIssuesTab({
           )}
           {query.isError && (
             <div className="flex items-center justify-between gap-2 px-1 py-2 text-xs text-status-danger">
-              <span>加载失败：{errorMessage(query.error, "请重试")}</span>
+              <span>
+                加载失败：
+                <CopyableError message={errorMessage(query.error, "请重试")} />
+              </span>
               <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
                 重试
               </Button>
@@ -403,7 +407,9 @@ export function DiscussionIssuesTab({
               role="alert"
               data-testid="issue-mutation-error"
             >
-              <span>{mutationError}</span>
+              <span>
+                <CopyableError message={mutationError} />
+              </span>
               <Button size="sm" variant="ghost" onClick={() => setMutationError(null)}>
                 关闭
               </Button>

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { CopyableError } from "@/components/ui/CopyableError";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -55,12 +57,14 @@ export function TrainingQueuePanel({
   framework,
   onFilter,
   onStart,
+  pagination,
 }: {
   query: UseQueryResult<TrainingQueuePage, Error>;
   state: QueueState;
   framework: string;
   onFilter: (updates: { state?: QueueState; framework?: string }) => void;
   onStart: () => void;
+  pagination?: ReactNode;
 }) {
   const hasFilter = state !== "all" || Boolean(framework);
   return (
@@ -222,11 +226,6 @@ export function TrainingQueuePanel({
                           <span>{trainingTaskLabel(run.task ?? trainingTaskOf(run.config))}</span>
                           {run.auto_trigger_id && <span>· 自动训练</span>}
                         </p>
-                        {run.error_message && (
-                          <p className="mt-2 line-clamp-2 break-words text-xs text-status-danger">
-                            {run.error_message}
-                          </p>
-                        )}
                       </div>
                       <div className="order-2 min-w-0 lg:order-none">
                         <Badge
@@ -295,6 +294,11 @@ export function TrainingQueuePanel({
                         className="hidden size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none lg:block"
                       />
                     </Link>
+                    {run.error_message && (
+                      <p className="px-4 pb-4 text-xs text-status-danger sm:px-5">
+                        <CopyableError message={run.error_message} truncate className="w-full" />
+                      </p>
+                    )}
                   </li>
                 );
               })}
@@ -334,6 +338,7 @@ export function TrainingQueuePanel({
             </div>
           </div>
         )}
+        {pagination}
       </section>
       <p className="flex items-start gap-1.5 text-2xs leading-relaxed text-muted-foreground">
         <Server aria-hidden="true" className="mt-0.5 size-3 shrink-0" />

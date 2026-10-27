@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -225,7 +226,11 @@ function PreviewBody({
                 {item.current_group_name || "未分配"} → {item.next_group_name || targetGroupName}
               </div>
             </div>
-            {item.error && <span className="text-status-danger">{item.error}</span>}
+            {item.error && (
+              <span className="text-status-danger">
+                <CopyableError message={item.error} />
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -260,7 +265,11 @@ function ResultBody({
           >
             <Badge variant={item.ok ? "success" : "danger"}>{item.ok ? "成功" : "失败"}</Badge>
             <span className="mono flex-1 truncate">{item.user_id}</span>
-            {item.error && <span className="text-status-danger">{item.error}</span>}
+            {item.error && (
+              <span className="text-status-danger">
+                <CopyableError message={item.error} />
+              </span>
+            )}
           </div>
         ))}
       </div>

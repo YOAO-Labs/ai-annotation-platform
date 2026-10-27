@@ -1,6 +1,7 @@
 import { RotateCcw } from "lucide-react";
 import type { TrainingParameterField as Field } from "@/api/generated/types.gen";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 import {
   describeRule,
   parseParameterDraft,
@@ -11,6 +12,7 @@ import {
 
 export const trainingInputClass =
   "w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
+const parameterInputClass = cn(trainingInputClass, "py-1.5 text-xs tabular-nums");
 export function trainingValueLabel(value: unknown) {
   return value === null
     ? "未设置"
@@ -51,17 +53,24 @@ export function TrainingParameterField({
   const error = changed && !parsed.ok ? parsed.error : "";
   const description = `${id}-help${error ? ` ${id}-error` : ""}`;
   return (
-    <div className="min-w-0 border-b border-border py-4 last:border-b-0">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <label
-            id={`${id}-label`}
-            htmlFor={value.kind === "scalar" ? id : undefined}
-            className="text-sm font-medium"
-          >
-            {field.label}
-          </label>
-          <code className="ml-2 break-all text-xs text-muted-foreground">{field.key}</code>
+    <div className="min-w-0 border-b border-border py-3 last:border-b-0">
+      <div className="mb-1.5 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <div className="min-w-0">
+            <label
+              id={`${id}-label`}
+              htmlFor={value.kind === "scalar" ? id : undefined}
+              className="text-xs font-medium"
+            >
+              {field.label}
+            </label>
+            <code className="ml-2 break-all text-2xs text-muted-foreground">{field.key}</code>
+          </div>
+          <p id={`${id}-help`} className="min-w-0 text-2xs leading-relaxed text-muted-foreground">
+            {describeRule(rules)} · 默认 {trainingValueLabel(field.default)}
+            {JSON.stringify(field.default) !== JSON.stringify(field.native_default) &&
+              ` · 原生默认 ${trainingValueLabel(field.native_default)}`}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {changed && <span className="text-xs text-primary">已修改</span>}
@@ -80,7 +89,7 @@ export function TrainingParameterField({
       {rules.anyOf && (
         <select
           aria-label={`${field.label}的取值形式`}
-          className={`${trainingInputClass} mb-2`}
+          className={`${parameterInputClass} mb-2`}
           disabled={disabled}
           value={value.kind}
           onChange={(event) => {
@@ -126,7 +135,7 @@ export function TrainingParameterField({
                   : "上界"
                 : `第 ${index + 1} 项`}
               <input
-                className={`${trainingInputClass} mt-1`}
+                className={`${parameterInputClass} mt-1`}
                 inputMode="decimal"
                 aria-label={`${field.label}${rule.ordered && value.items.length === 2 ? (index === 0 ? "下界" : "上界") : `第 ${index + 1} 项`}`}
                 aria-invalid={!!error}
@@ -148,7 +157,7 @@ export function TrainingParameterField({
       ) : rule.enum ? (
         <select
           id={id}
-          className={trainingInputClass}
+          className={parameterInputClass}
           disabled={disabled}
           value={value.text}
           aria-invalid={!!error}
@@ -162,7 +171,7 @@ export function TrainingParameterField({
           ))}
         </select>
       ) : rule.type === "boolean" ? (
-        <label className="flex w-fit items-center gap-2 text-sm">
+        <label className="flex w-fit items-center gap-2 text-xs">
           <input
             id={id}
             type="checkbox"
@@ -177,7 +186,7 @@ export function TrainingParameterField({
       ) : (
         <input
           id={id}
-          className={trainingInputClass}
+          className={parameterInputClass}
           inputMode={rule.type === "integer" ? "numeric" : "decimal"}
           disabled={disabled}
           value={value.text}
@@ -187,11 +196,6 @@ export function TrainingParameterField({
           onChange={(event) => onChange({ kind: "scalar", text: event.target.value })}
         />
       )}
-      <p id={`${id}-help`} className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        {describeRule(rules)} · 默认 {trainingValueLabel(field.default)}
-        {JSON.stringify(field.default) !== JSON.stringify(field.native_default) &&
-          ` · 原生默认 ${trainingValueLabel(field.native_default)}`}
-      </p>
       {error && (
         <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-status-danger">
           {error}

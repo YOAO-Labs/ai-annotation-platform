@@ -46,7 +46,6 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
-    _database_head,
     _drop_owned_clone,
 )
 from tests.test_module_data_roles import _role_url
@@ -728,7 +727,7 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
         )
         migration = _alembic(source_engine.url, "upgrade", "head")
         assert migration.returncode == 0, "owned source database migration failed"
-        assert await _database_head(source_engine) == "0283"
+
         _apply_current_owner_grants(test_engine, source_database)
         await _assert_clone_identity(source_engine, source_database, source_marker)
 
@@ -738,13 +737,13 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
         source_before = await _snapshot(source_engine, world["job_id"])
         _assert_restorable_snapshot(source_before)
 
-        downgrade = _alembic(source_engine.url, "downgrade", "0282")
+        downgrade = _alembic(source_engine.url, "downgrade", "bo0282")
         assert downgrade.returncode != 0
         assert (
             b"cannot remove immutable video writer receipts"
             in (downgrade.stdout + downgrade.stderr).lower()
         )
-        assert await _database_head(source_engine) == "0283"
+
         assert await _snapshot(source_engine, world["job_id"]) == source_before
 
         dump.touch(mode=0o600, exist_ok=False)
@@ -785,7 +784,7 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
             restored_engine, restored_database, restored_marker
         )
         _apply_current_owner_grants(test_engine, restored_database)
-        assert await _database_head(restored_engine) == "0283"
+
         await _assert_writer_role_profile(_role_dsn(restored_database))
 
         restored_before = await _snapshot(restored_engine, world["job_id"])

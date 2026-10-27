@@ -4,14 +4,17 @@
 产物按类型归位: 属性型写回原框 (attributes_meta 标 origin=ai, 走 v0.20.10)、几何型建
 子框 (parent_annotation_id=选中框, 走 v0.20.9)。
 
-**复用 batch pipeline 下游阶段的同一套投递**: `crop_inputs_from_boxes` (裁 ROI + 上传) +
-`build_predict_context` (construct the wire context) + `merge_classify_attributes` / `remap_geometry_to_image`
-(产物归位)。与批量二次推理是「同一能力两个触发面」, 产物 schema / 溯源写法一致。
+**复用批量 pipeline 下游阶段的同一套投递**: `crop_inputs_from_boxes` (裁 ROI + 投递) +
+`build_secondary_context` (构造 wire) + `apply_secondary_result` (产物归位事实)。与批量
+二次推理是「同一能力两个触发面」, 产物 schema / 溯源写法一致。
 不走 worker (单框同步秒回), 不新建投递逻辑。
+
+图片 task 的原图读取由 ``managed_secondary_operation`` 独占: 冻结原图/父框事实、把原图
+快照写入带不可变目标的临时输入租约, 并在最终写事务里重新校验。其它 task 的 crop 投递
+走 ``prediction_inputs`` 临时租约。两者都不会把业务锁带进远程推理。
 """
 
 from __future__ import annotations
-
 
 import logging
 import uuid
@@ -85,29 +88,20 @@ def _raise_secondary_execution_error(error: ModelExecutionError) -> NoReturn:
     ) from error
 
 
-async def run_secondary_inference(
-    db,
-    *,
+def prepare_secondary_request(
     annotation: Annotation,
-    task: Task,
     backend: RegistryPublicFacts,
-    write_target: str,
-    write_keys: list[str] | None,
-    label: str | None,
+    *,
     model_id: str | None,
     model_variants: dict | None,
     params: dict | None,
     task_type: str | None = None,
     prompt: str | None,
     class_filter: list[int] | None,
-    pad: float,
     visual_task: str | None = None,
     prompt_type: str | None = None,
-) -> SecondaryInferenceResult:
-    """Run secondary inference and return immutable output facts for labeling."""
-    from app.services.inference_model_execution import model_execution_port
-    from app.services.ml_backend import MLBackendService
-    from app.services.storage import StorageService
+) -> tuple[dict, dict | None]:
+    """Validate model and geometry before acquiring any physical source input."""
     from app.services.trained_models import is_controlled
 
     if is_controlled(model_id):
@@ -152,34 +146,48 @@ async def run_secondary_inference(
                 "旋转框 / 线 / 点 / 多连通多边形不支持)"
             ),
         )
+    return ls_box, context
 
-    # 2. 读原图 (RGB) 供裁 ROI。
+
+async def _temporary_crop_batch(task: Task, ls_box: dict, *, pad: float, inputs):
+    """Encode one ROI and deliver it through its temporary input owner."""
     image = prediction_context.load_task_image(task)
-
-    # 3. 裁 crop + 上传 (presigned, 对所有走 httpx.get 的 backend 通用)。
-    #    自建 2 参 upload_fn (crop_inputs_from_boxes 调 upload_fn(idx, bytes));
-    #    key 复用 batch 的 roi-crops/ 前缀 → 同享 import 桶 7 天 lifecycle 自清。
-    storage = StorageService()
-
-    def upload_fn(box_idx: int, jpeg_bytes: bytes) -> str:
-        key = f"roi-crops/secondary/{annotation.id}/{box_idx}.jpg"
-        return storage.upload_crop_bytes(jpeg_bytes, key)
-
-    batch = crop_inputs_from_boxes(
-        image,
-        [ls_box],
-        pad=pad,
-        delivery="presigned",
-        upload_fn=upload_fn,
-        min_crop_side_px=32,
-    )
-    if not batch.inputs:
-        # v0.20.21 · 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
-        #   框太小 (短边 < min_crop_side_px=32) 或贴边裁出零面积。明确报错, 不再静默返回空。
-        raise HTTPException(
-            status_code=422,
-            detail="选中框过小或贴边, 裁出的 ROI 退化, 无法二次推理 (可放大框或改选更大的对象)",
+    try:
+        batch = crop_inputs_from_boxes(
+            image,
+            [ls_box],
+            pad=pad,
+            delivery="deferred",
+            min_crop_side_px=32,
         )
+    finally:
+        image.close()
+    for item in batch.inputs:
+        index = str(item["id"])
+        item["file_path"] = await inputs.upload_crop(
+            task, int(index), batch.contents.pop(index)
+        )
+    return batch
+
+
+async def _execute_secondary(
+    db,
+    *,
+    annotation: Annotation,
+    task: Task,
+    backend: RegistryPublicFacts,
+    write_target: str,
+    write_keys: list[str] | None,
+    label: str | None,
+    model_id: str | None,
+    ls_box: dict,
+    context: dict | None,
+    batch,
+    original_operation,
+) -> SecondaryInferenceResult:
+    """Dispatch one frozen operation and return immutable secondary facts."""
+    from app.services.inference_model_execution import model_execution_port
+    from app.services.ml_backend import MLBackendService
 
     requested_pool_id = await MLBackendService(db).pool_id_for_registry(
         uuid.UUID(str(backend.id))
@@ -198,10 +206,16 @@ async def run_secondary_inference(
         route_operation="secondary_inference",
         correlation={"annotation_id": str(annotation.id)},
     )
+    if original_operation is not None:
+        # Recheck the frozen source immediately before transport; the final
+        # fence below re-validates it under the caller's write locks.
+        await original_operation.before_dispatch()
     try:
         operation = await model_execution_port(db).execute(request)
     except ModelExecutionError as exc:
         _raise_secondary_execution_error(exc)
+    if original_operation is not None:
+        await original_operation.final()
 
     output = apply_secondary_result(
         ls_box,
@@ -219,3 +233,107 @@ async def run_secondary_inference(
         geometry_shapes=output.geometry_shapes,
         execution_provenance=operation.provenance,
     )
+
+
+async def run_secondary_inference(
+    db,
+    *,
+    annotation: Annotation,
+    task: Task,
+    backend: RegistryPublicFacts,
+    write_target: str,
+    write_keys: list[str] | None,
+    label: str | None,
+    model_id: str | None,
+    model_variants: dict | None,
+    params: dict | None,
+    task_type: str | None = None,
+    prompt: str | None,
+    class_filter: list[int] | None,
+    pad: float,
+    visual_task: str | None = None,
+    prompt_type: str | None = None,
+    input_session_factory=None,
+    original_operation=None,
+    prepared_request: tuple[dict, dict | None] | None = None,
+) -> SecondaryInferenceResult:
+    """Run secondary inference and return immutable output facts for labeling.
+
+    Image tasks must supply their ``managed_secondary_operation`` so the frozen
+    original and parent facts are checked in the final caller transaction.
+    """
+    from app.services.prediction_inputs import prediction_inputs
+    from app.services.reference_keys import is_reference
+
+    ls_box, context = prepared_request or prepare_secondary_request(
+        annotation,
+        backend,
+        model_id=model_id,
+        model_variants=model_variants,
+        params=params,
+        task_type=task_type,
+        prompt=prompt,
+        class_filter=class_filter,
+        visual_task=visual_task,
+        prompt_type=prompt_type,
+    )
+
+    dispatch = dict(
+        annotation=annotation,
+        task=task,
+        backend=backend,
+        write_target=write_target,
+        write_keys=write_keys,
+        label=label,
+        model_id=model_id,
+        ls_box=ls_box,
+        context=context,
+    )
+
+    if task.file_type == "image":
+        if original_operation is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "prediction_original_requires_new_request"},
+            )
+        batch = await original_operation.prepare_crop(ls_box, pad=pad)
+        if not batch.inputs:
+            raise HTTPException(
+                status_code=422,
+                detail="选中框过小或贴边, 裁出的 ROI 退化, 无法二次推理 (可放大框或改选更大的对象)",
+            )
+        return await _execute_secondary(
+            db, **dispatch, batch=batch, original_operation=original_operation
+        )
+
+    if original_operation is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "prediction_original_receipt_invalid"},
+        )
+    # Reference originals have no in-place crop contract for non-image tasks.
+    if is_reference(task.file_path):
+        raise HTTPException(
+            status_code=409, detail={"code": "reference_operation_not_supported"}
+        )
+    if input_session_factory is None:
+        raise HTTPException(
+            status_code=409, detail={"code": "prediction_input_required"}
+        )
+    async with prediction_inputs(
+        input_session_factory,
+        owner_id=uuid.uuid4(),
+        owner_kind="secondary_inference",
+        task_id=task.id,
+    ) as inputs:
+        batch = await _temporary_crop_batch(task, ls_box, pad=pad, inputs=inputs)
+        if not batch.inputs:
+            # v0.20.21 · 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
+            #   框太小 (短边 < min_crop_side_px=32) 或贴边裁出零面积。
+            raise HTTPException(
+                status_code=422,
+                detail="选中框过小或贴边, 裁出的 ROI 退化, 无法二次推理 (可放大框或改选更大的对象)",
+            )
+        return await _execute_secondary(
+            db, **dispatch, batch=batch, original_operation=None
+        )

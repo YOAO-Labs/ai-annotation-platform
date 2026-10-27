@@ -148,6 +148,74 @@ describe("ImageStage drag scheduling", () => {
     });
   };
 
+  it("picks candidate pixels, misses holes and removes filtered candidates", () => {
+    const select = vi.fn();
+    const box = {
+      id: "pred-a-8",
+      cls: "car",
+      conf: 0.9,
+      source: "prediction_based",
+      predictionId: "a",
+      shapeIndex: 8,
+      geometry: { type: "raster_mask", mask: {} },
+    };
+    const record = {
+      id: box.id,
+      source: "prediction",
+      image: document.createElement("canvas"),
+      bounds: { x: 0, y: 0, w: 1, h: 1 },
+      area: 8,
+      componentCount: 1,
+      holeCount: 1,
+      boundaryPixelCount: 8,
+      sourceWidth: 3,
+      sourceHeight: 3,
+      crop: {
+        x: 0,
+        y: 0,
+        width: 3,
+        height: 3,
+        alpha: new Uint8Array([255, 255, 255, 255, 0, 255, 255, 255, 255]),
+      },
+      zOrder: 0,
+      selected: false,
+      cacheKey: "candidate",
+      preview: false,
+    } satisfies RasterMaskRenderRecord<"prediction">;
+    const props = {
+      ...defaults,
+      tool: "select" as const,
+      onSelectBox: select,
+      aiBoxes: [box] as never,
+      predictionRasterMaskRecords: [record],
+    };
+    const view = render(<ImageStage {...props} />);
+    expect(screen.getAllByTestId("raster-mask-prediction")).toHaveLength(1);
+    fireEvent.mouseDown(screen.getByTestId("konva-stage"), { clientX: 10, clientY: 10, button: 0 });
+    expect(select).toHaveBeenLastCalledWith(box.id, { shift: false });
+    fireEvent.mouseUp(window);
+    select.mockClear();
+    fireEvent.mouseDown(screen.getByTestId("konva-stage"), { clientX: 50, clientY: 50, button: 0 });
+    expect(select).not.toHaveBeenCalledWith(box.id, expect.anything());
+    fireEvent.mouseUp(window);
+    view.rerender(<ImageStage {...props} aiBoxes={[]} />);
+    expect(screen.queryByTestId("raster-mask-prediction")).toBeNull();
+    select.mockClear();
+    fireEvent.mouseDown(screen.getByTestId("konva-stage"), { clientX: 10, clientY: 10, button: 0 });
+    expect(select).not.toHaveBeenCalledWith(box.id, expect.anything());
+    fireEvent.mouseUp(window);
+    view.rerender(
+      <ImageStage
+        {...props}
+        userBoxes={[{ ...box, id: "saved", source: "manual" }] as never}
+        rasterMaskRecords={[{ ...record, id: "saved", source: "annotation" }]}
+      />,
+    );
+    select.mockClear();
+    fireEvent.mouseDown(screen.getByTestId("konva-stage"), { clientX: 10, clientY: 10, button: 0 });
+    expect(select).toHaveBeenLastCalledWith("saved", { shift: false });
+  });
+
   it("does not render a persisted hidden raster mask while retaining its row data", () => {
     const annotation = {
       id: "hidden-mask",

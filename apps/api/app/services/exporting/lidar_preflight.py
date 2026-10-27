@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import math
 import uuid
 from pathlib import PurePosixPath
@@ -12,16 +13,23 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.services.project_access import get_workspace_project
+from app.db.models.dataset import DatasetItem
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from aap_assets_catalog.spatial_values import SensorCalibration
+from app.schemas._jsonb_types import SensorCalibration
 from app.schemas.export import (
     LidarExportIssue,
     LidarExportOptions,
     LidarExportPreflightResponse,
 )
+from app.services.content_snapshot import ContentError
+from app.services.sensor_calibration import (
+    SensorCalibrationState,
+    _metadata_calibration,
+    calibration_digest,
+)
+from app.services.project_access import get_workspace_project
 from aap_assets_catalog.axis_convention import R_NORM
 from aap_workspace_contract import derive_classes_list
 from app.services.labeling_scene import read_spatial_item_facts
@@ -29,7 +37,6 @@ from app.services.assets_spatial import AssetsSpatialGateway
 from aap_assets_catalog.spatial_contract import (
     ReadPosesRequest,
     SpatialFailure,
-    SpatialItem,
     normalize_calibration_record,
 )
 from app.services.storage import storage_service
@@ -84,10 +91,27 @@ def _rotation_is_orthonormal(matrix: list[float]) -> bool:
     )
 
 
-def _frame_key(task: Task, item) -> str:
+def _item_metadata(item) -> dict:
+    """Read metadata from a frozen owner row or a published spatial item."""
+    value = getattr(item, "metadata", None)
+    if value is None:
+        value = getattr(item, "metadata_", None)
+    return value if isinstance(value, dict) else {}
+
+
+def _frame_key(task: Task, item: DatasetItem | None) -> str:
+    from app.services.dataset_storage_keys import (
+        dataset_relative_path,
+        dataset_item_relative_path,
+    )
+
     path = (task.file_path or "").lstrip("/")
-    parts = path.split("/", 1)
-    relative = parts[1] if len(parts) == 2 else path
+    dataset_name = path.split("/", 1)[0] if "/" in path else ""
+    relative = (
+        dataset_item_relative_path(item, dataset_name)
+        if item is not None and item.file_path == task.file_path
+        else dataset_relative_path(path, dataset_name)
+    )
     base = relative.rsplit(".", 1)[0]
     return base or task.display_id
 
@@ -215,6 +239,134 @@ def _source_path_is_safe(raw: object) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class _RegisteredItem:
+    """Expose canonical media facts without changing the detached business row."""
+
+    item: DatasetItem
+    source: dict
+
+    def __getattr__(self, name):
+        return getattr(self.item, name)
+
+    @property
+    def file_size(self):
+        return self.source["size_bytes"]
+
+    @property
+    def content_hash(self):
+        return self.source["sha256"]
+
+
+class _RegisteredPreflight:
+    def __init__(self, snapshot, view):
+        self.snapshot, self.view = snapshot, view
+        self.media = {
+            (uuid.UUID(row["task_id"]), row["role"]): row["source"]
+            for row in snapshot["media"]
+        }
+        self.receipts = {
+            (source["object_key"], source["size_bytes"], source["sha256"].lower())
+            for source in self.media.values()
+        }
+
+    def item(self, task_id, role, fallback=None):
+        source = self.media.get((task_id, role))
+        if source is None:
+            return fallback
+        item_id = source.get("item_id")
+        if item_id is None:
+            return None
+        item = self.view.items.get(uuid.UUID(item_id))
+        if item is None:
+            raise ContentError("lidar_export_link_conflict")
+        return _RegisteredItem(item, source)
+
+    def calibration_states(self, items):
+        latest = {}
+        for row in sorted(
+            self.view.calibrations, key=lambda row: row.revision, reverse=True
+        ):
+            latest.setdefault(row.dataset_item_id, row)
+        states = {}
+        for item in items:
+            row = latest.get(item.id)
+            calibration = (
+                SensorCalibration.model_validate(row.calibration)
+                if row is not None
+                else _metadata_calibration(item)
+            )
+            states[item.id] = SensorCalibrationState(
+                item.id,
+                calibration,
+                row.revision if row is not None else 1,
+                row.digest if row is not None else calibration_digest(calibration),
+                row.created_at if row is not None else None,
+            )
+        return states
+
+    def has_receipt(self, key, size, sha256):
+        return (key, size, sha256) in self.receipts
+
+
+async def _collect_registered(db, project_id, batch_id, targets, options):
+    from app.services.exporting.lidar_frozen import FrozenLidar
+    from app.services.exporting.lidar_inputs import collect
+
+    # Preflight must still advertise the roles this project can export. The
+    # fresh snapshot keeps every Task link, so the report discovers camera
+    # roles from registered scope while remaining blocked until the user picks
+    # one. Export jobs never set this flag and keep rejecting a missing role.
+    pending_kitti_camera = "kitti" in targets and not (
+        options and options.kitti_camera_role
+    )
+    inputs = await collect(
+        db,
+        project_id,
+        batch_id,
+        targets,
+        {"lidar": options.model_dump(mode="json") if options else {}},
+        allow_missing_kitti_camera=pending_kitti_camera,
+    )
+    return _RegisteredPreflight(inputs.snapshot, FrozenLidar(inputs.snapshot))
+
+
+_REGISTERED_ISSUES = {
+    "kitti_camera_required": "KITTI 导出必须显式选择一条相机通道",
+    "kitti_camera_role_not_found": "导出范围内存在缺少所选相机通道的任务",
+    "multicamera_coco_camera_missing": "导出范围内存在没有关联相机图像的任务",
+    "lidar_export_empty": "导出范围内没有任务",
+    "multicamera_coco_export_empty": "多相机 COCO 导出范围内没有任务",
+    "lidar_export_input_budget_exceeded": "导出范围超过媒体、标注或冻结数据预算，请缩小范围",
+    "lidar_export_input_invalid": "导出范围包含无效的登记数据",
+    "lidar_export_pointmask_invalid": "点掩码的索引列表或类别无效",
+    "lidar_export_archive_path_conflict": "导出文件路径冲突，请检查帧名称和相机通道名称",
+    "lidar_export_original_unsupported": "原件缺少可信的存储登记、媒体类型或大小",
+    "lidar_export_link_conflict": "任务的主源或传感器关联存在冲突",
+    "lidar_export_contract_missing": "导出范围缺少完整的登记数据",
+    "lidar_export_inputs_busy": "导出数据正在变更，请稍后重新预检",
+    "lidar_export_inputs_changed": "导出数据已变更，请重新预检",
+    "export_scope_changed": "项目或批次的导出范围已变更",
+    "original_relation_conflict": "任务的主源关联存在冲突",
+    "original_location_ambiguous": "原件的存储位置不唯一，请检查存储登记",
+    "content_unverified": "原件尚未完成可信登记，请先校验来源",
+    "no_readable_original": "任务缺少已登记的可读原件",
+    "content_binding_changed": "原件与存储登记不一致，请重新校验来源",
+    "location_unavailable": "原件的已登记存储位置不可用",
+    "item_removed": "任务关联的数据项已移除",
+    "content_task_missing": "导出任务已移除",
+    "content_link_missing": "任务的传感器关联已移除",
+    "original_link_invalid": "任务的传感器原件关联无效",
+    "camera_original_not_image": "相机通道关联的原件不是图像",
+    "storage_original_busy": "原件登记正在变更，请稍后重新预检",
+    "auxiliary_original_unpinned": "nuScenes 原始点云或地图尚未完成可信登记，请重新导入来源",
+    "auxiliary_original_invalid_receipt": "nuScenes 原始点云或地图的登记凭据无效",
+    "auxiliary_original_invalid_location": "nuScenes 原始点云或地图的已登记存储位置无效",
+    "auxiliary_original_contract_invalid": "nuScenes 原始点云或地图的来源合同无效",
+    "auxiliary_original_contract_changed": "nuScenes 原始点云或地图的来源合同已变更",
+}
+
+
 async def preflight_lidar_export(
     db: AsyncSession,
     *,
@@ -222,6 +374,70 @@ async def preflight_lidar_export(
     batch_id: uuid.UUID | None,
     targets: list[str],
     options: LidarExportOptions | None,
+) -> LidarExportPreflightResponse:
+    frozen = None
+    if {"kitti", "pointmask", "coco-multicamera", "nuscenes"}.intersection(targets):
+        from app.services.project_access import get_workspace_project
+
+        project = await get_workspace_project(db, project_id=project_id)
+        if project is not None and project.data_type == "lidar":
+            try:
+                frozen = await _collect_registered(
+                    db, project_id, batch_id, targets, options
+                )
+            except ContentError as exc:
+                code = (
+                    exc.code
+                    if exc.code in _REGISTERED_ISSUES
+                    else "lidar_export_original_unavailable"
+                )
+                if exc.code in {
+                    "original_source_budget_exceeded",
+                    "original_relation_budget_exceeded",
+                    "auxiliary_original_source_budget_exceeded",
+                }:
+                    code = "lidar_export_input_budget_exceeded"
+                if exc.code == "lidar_export_empty":
+                    if "kitti" in targets and not (
+                        options and options.kitti_camera_role
+                    ):
+                        code = "kitti_camera_required"
+                    elif "coco-multicamera" in targets:
+                        code = "multicamera_coco_export_empty"
+                return LidarExportPreflightResponse(
+                    ready=False,
+                    camera_roles=[],
+                    selected_camera_role=options.kitti_camera_role if options else None,
+                    checked_tasks=0,
+                    issue_count=1,
+                    issues_truncated=False,
+                    issues=[
+                        LidarExportIssue(
+                            code=code,
+                            message=_REGISTERED_ISSUES.get(
+                                code, "无法确认原件的可信登记，请检查任务来源与存储配置"
+                            ),
+                        )
+                    ],
+                )
+    return await _preflight_lidar_export(
+        db,
+        project_id=project_id,
+        batch_id=batch_id,
+        targets=targets,
+        options=options,
+        frozen=frozen,
+    )
+
+
+async def _preflight_lidar_export(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    batch_id: uuid.UUID | None,
+    targets: list[str],
+    options: LidarExportOptions | None,
+    frozen: _RegisteredPreflight | None = None,
 ) -> LidarExportPreflightResponse:
     selected_role = options.kitti_camera_role if options else None
     issues: list[LidarExportIssue] = []
@@ -241,7 +457,7 @@ async def preflight_lidar_export(
             ready=issue_count == 0,
             camera_roles=[],
             selected_camera_role=selected_role,
-            checked_tasks=0,
+            checked_tasks=len(frozen.view.tasks) if frozen else 0,
             issue_count=issue_count,
             issues_truncated=issue_count > len(issues),
             issues=issues,
@@ -250,8 +466,12 @@ async def preflight_lidar_export(
     task_scope = [task_row.project_id == project_id]
     if batch_id is not None:
         task_scope.append(task_row.batch_id == batch_id)
-    task_count = int(
-        (await db.scalar(select(func.count(task_row.id)).where(*task_scope))) or 0
+    task_count = (
+        len(frozen.view.tasks)
+        if frozen
+        else int(
+            (await db.scalar(select(func.count(task_row.id)).where(*task_scope))) or 0
+        )
     )
     if needs_multicamera_coco and task_count == 0:
         add_issue(
@@ -305,7 +525,16 @@ async def preflight_lidar_export(
                     annotation_row.was_cancelled.is_(False),
                 )
             )
-            box_count = int((await db.scalar(box_count_query)) or 0)
+            box_count = (
+                sum(
+                    row.is_active
+                    and not row.was_cancelled
+                    and (row.geometry or {}).get("type") == "box_3d"
+                    for row in frozen.view.annotations
+                )
+                if frozen
+                else int((await db.scalar(box_count_query)) or 0)
+            )
             if box_count > MAX_NUSCENES_EXPORT_BOXES:
                 add_issue(
                     LidarExportIssue(
@@ -327,64 +556,101 @@ async def preflight_lidar_export(
                 issues=issues,
             )
 
-    task_query = (
-        select(task_row)
-        .where(task_row.project_id == project_id)
-        .order_by(task_row.sequence_order, task_row.created_at, task_row.id)
-    )
-    if batch_id is not None:
-        task_query = task_query.where(task_row.batch_id == batch_id)
-    tasks = list((await db.execute(task_query)).scalars())
-    tasks_by_id = {task.id: task for task in tasks}
-    task_ids = [task.id for task in tasks]
-    links_by_task: dict[uuid.UUID, dict[str, Any]] = {}
-    camera_link_rows_by_task: dict[
-        uuid.UUID, list[tuple[TaskDatasetItemLink, Any]]
-    ] = {}
-    camera_roles: set[str] = set()
-    item_ids = {task.dataset_item_id for task in tasks if task.dataset_item_id}
-    all_links: list[TaskDatasetItemLink] = []
-    for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
-        chunk_ids = task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
-        link_rows = list(
-            (
-                await db.execute(
-                    select(task_dataset_item_link_row)
-                    .where(task_dataset_item_link_row.task_id.in_(chunk_ids))
-                    .order_by(task_dataset_item_link_row.role)
-                )
-            ).scalars()
+    if frozen:
+        task_rows = []
+        for task in frozen.view.tasks:
+            linked = frozen.view.links_by_task.get(task.id, {})
+            primary = linked.get("primary_lidar")
+            item = frozen.item(
+                task.id,
+                "primary_lidar",
+                primary[1] if primary else frozen.view.items.get(task.dataset_item_id),
+            )
+            dataset = frozen.view.datasets.get(item.dataset_id) if item else None
+            task_rows.append((task, item, dataset))
+        tasks = [row[0] for row in task_rows]
+        task_ids = [task.id for task in tasks]
+        links_by_task: dict[uuid.UUID, dict[str, Any]] = {}
+        camera_link_rows_by_task: dict[
+            uuid.UUID, list[tuple[TaskDatasetItemLink, Any]]
+        ] = {}
+        camera_roles: set[str] = set()
+        for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
+            chunk_ids = task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
+            link_rows = [
+                (link, frozen.item(task_id, role, item))
+                for task_id in chunk_ids
+                for role, (link, item) in frozen.view.links_by_task.get(
+                    task_id, {}
+                ).items()
+            ]
+            for link, item in link_rows:
+                links_by_task.setdefault(link.task_id, {})[link.role] = item
+                if link.role.startswith("camera_"):
+                    camera_roles.add(link.role)
+                    camera_link_rows_by_task.setdefault(link.task_id, []).append(
+                        (link, item)
+                    )
+    else:
+        task_query = (
+            select(task_row)
+            .where(task_row.project_id == project_id)
+            .order_by(task_row.sequence_order, task_row.created_at, task_row.id)
         )
-        for link in link_rows:
-            all_links.append(link)
-            item_ids.add(link.dataset_item_id)
+        if batch_id is not None:
+            task_query = task_query.where(task_row.batch_id == batch_id)
+        tasks = list((await db.execute(task_query)).scalars())
+        task_ids = [task.id for task in tasks]
+        links_by_task = {}
+        camera_link_rows_by_task = {}
+        camera_roles = set()
+        item_ids = {task.dataset_item_id for task in tasks if task.dataset_item_id}
+        all_links: list[Any] = []
+        for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
+            chunk_ids = task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
+            link_rows = list(
+                (
+                    await db.execute(
+                        select(task_dataset_item_link_row)
+                        .where(task_dataset_item_link_row.task_id.in_(chunk_ids))
+                        .order_by(task_dataset_item_link_row.role)
+                    )
+                ).scalars()
+            )
+            for link in link_rows:
+                all_links.append(link)
+                item_ids.add(link.dataset_item_id)
+                if link.role.startswith("camera_"):
+                    camera_roles.add(link.role)
+        spatial_items, _ = await read_spatial_item_facts(db, list(item_ids))
+        for link in all_links:
+            item = spatial_items.get(link.dataset_item_id)
+            if item is None:
+                continue
+            links_by_task.setdefault(link.task_id, {})[link.role] = item
             if link.role.startswith("camera_"):
-                camera_roles.add(link.role)
-    spatial_items, scenes_by_id = await read_spatial_item_facts(db, list(item_ids))
-    for link in all_links:
-        item = spatial_items.get(link.dataset_item_id)
-        if item is None:
-            continue
-        links_by_task.setdefault(link.task_id, {})[link.role] = item
-        if link.role.startswith("camera_"):
-            camera_link_rows_by_task.setdefault(link.task_id, []).append((link, item))
-    task_rows = [
-        (
-            task,
-            spatial_items.get(
-                task.dataset_item_id
-                or next(
-                    (
-                        item.id
-                        for role, item in links_by_task.get(task.id, {}).items()
-                        if role == "primary_lidar"
-                    ),
-                    None,
+                camera_link_rows_by_task.setdefault(link.task_id, []).append(
+                    (link, item)
                 )
-            ),
-        )
-        for task in tasks
-    ]
+        task_rows = [
+            (
+                task,
+                spatial_items.get(
+                    task.dataset_item_id
+                    or next(
+                        (
+                            item.id
+                            for role, item in links_by_task.get(task.id, {}).items()
+                            if role == "primary_lidar"
+                        ),
+                        None,
+                    )
+                ),
+                None,
+            )
+            for task in tasks
+        ]
+    tasks_by_id = {task.id: task for task in tasks}
 
     if needs_kitti and selected_role is None:
         add_issue(
@@ -403,7 +669,11 @@ async def preflight_lidar_export(
         )
 
     if needs_multicamera_coco:
-        project = await get_workspace_project(db, project_id=project_id)
+        project = (
+            frozen.view.project
+            if frozen
+            else await get_workspace_project(db, project_id=project_id)
+        )
         known_classes = set(
             derive_classes_list(project.tool_bindings) if project is not None else []
         )
@@ -411,7 +681,7 @@ async def preflight_lidar_export(
             len(rows) for rows in camera_link_rows_by_task.values()
         )
         total_media_bytes = 0
-        camera_assets: dict[uuid.UUID, tuple[SpatialItem, dict]] = {}
+        camera_assets: dict[uuid.UUID, tuple[Any, dict]] = {}
         for task in tasks:
             common = {
                 "task_id": task.id,
@@ -446,7 +716,8 @@ async def preflight_lidar_export(
                     file_size = int(item.file_size or 0)
                 except (TypeError, ValueError):
                     file_size = 0
-                total_media_bytes += max(file_size, 0)
+                if not frozen:
+                    total_media_bytes += max(file_size, 0)
                 source_basename = PurePosixPath(item.file_path or "").name
                 export_rel_path = f"images/{link.role}/{task.id}/{source_basename}"
                 if (
@@ -482,25 +753,39 @@ async def preflight_lidar_export(
                         item.id, (item, common | {"camera_role": link.role})
                     )
 
-        manual_member_count = 0
-        for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
-            manual_member_count += int(
-                (
-                    await db.scalar(
-                        select(func.count(annotation_row.id)).where(
-                            annotation_row.task_id.in_(
-                                task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
-                            ),
-                            annotation_row.sensor_role.is_not(None),
-                            annotation_row.source == "manual",
-                            annotation_row.geometry["type"].as_string() == "bbox",
-                            annotation_row.is_active.is_(True),
-                            annotation_row.was_cancelled.is_(False),
+        if frozen:
+            total_media_bytes = frozen.snapshot["bytes"]["image"]
+            frozen_manual_members = [
+                member
+                for member in frozen.view.annotations
+                if member.task_id in tasks_by_id
+                and member.sensor_role is not None
+                and member.source == "manual"
+                and (member.geometry or {}).get("type") == "bbox"
+                and member.is_active
+                and not member.was_cancelled
+            ]
+            manual_member_count = len(frozen_manual_members)
+        else:
+            manual_member_count = 0
+            for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
+                manual_member_count += int(
+                    (
+                        await db.scalar(
+                            select(func.count(annotation_row.id)).where(
+                                annotation_row.task_id.in_(
+                                    task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
+                                ),
+                                annotation_row.sensor_role.is_not(None),
+                                annotation_row.source == "manual",
+                                annotation_row.geometry["type"].as_string() == "bbox",
+                                annotation_row.is_active.is_(True),
+                                annotation_row.was_cancelled.is_(False),
+                            )
                         )
                     )
+                    or 0
                 )
-                or 0
-            )
         multicamera_scope_too_large = (
             camera_image_count > MAX_MULTICAMERA_COCO_IMAGES
             or manual_member_count > MAX_MULTICAMERA_COCO_ANNOTATIONS
@@ -517,29 +802,33 @@ async def preflight_lidar_export(
                 )
             )
         else:
-            manual_members: list[Annotation] = []
-            for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
-                manual_members.extend(
-                    list(
-                        (
-                            await db.execute(
-                                select(annotation_row).where(
-                                    annotation_row.task_id.in_(
-                                        task_ids[
-                                            start : start + PREFLIGHT_LINK_CHUNK_SIZE
-                                        ]
-                                    ),
-                                    annotation_row.sensor_role.is_not(None),
-                                    annotation_row.source == "manual",
-                                    annotation_row.geometry["type"].as_string()
-                                    == "bbox",
-                                    annotation_row.is_active.is_(True),
-                                    annotation_row.was_cancelled.is_(False),
+            if frozen:
+                manual_members = frozen_manual_members
+            else:
+                manual_members: list[Annotation] = []
+                for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
+                    manual_members.extend(
+                        list(
+                            (
+                                await db.execute(
+                                    select(annotation_row).where(
+                                        annotation_row.task_id.in_(
+                                            task_ids[
+                                                start : start
+                                                + PREFLIGHT_LINK_CHUNK_SIZE
+                                            ]
+                                        ),
+                                        annotation_row.sensor_role.is_not(None),
+                                        annotation_row.source == "manual",
+                                        annotation_row.geometry["type"].as_string()
+                                        == "bbox",
+                                        annotation_row.is_active.is_(True),
+                                        annotation_row.was_cancelled.is_(False),
+                                    )
                                 )
-                            )
-                        ).scalars()
+                            ).scalars()
+                        )
                     )
-                )
 
             scene_track_ids = {
                 member.scene_track_id
@@ -548,47 +837,67 @@ async def preflight_lidar_export(
             }
             ordered_scene_track_ids = sorted(scene_track_ids, key=str)
             scene_tracks: dict[uuid.UUID, SceneTrack] = {}
-            for start in range(
-                0, len(ordered_scene_track_ids), PREFLIGHT_LINK_CHUNK_SIZE
-            ):
-                tracks = (
-                    await db.execute(
-                        select(scene_track_row).where(
-                            scene_track_row.id.in_(
-                                ordered_scene_track_ids[
-                                    start : start + PREFLIGHT_LINK_CHUNK_SIZE
-                                ]
-                            ),
-                            scene_track_row.project_id == project_id,
+            if frozen:
+                scene_tracks = {
+                    track.id: track
+                    for track in frozen.view.tracks
+                    if track.id in scene_track_ids and track.project_id == project_id
+                }
+            else:
+                for start in range(
+                    0, len(ordered_scene_track_ids), PREFLIGHT_LINK_CHUNK_SIZE
+                ):
+                    tracks = (
+                        await db.execute(
+                            select(scene_track_row).where(
+                                scene_track_row.id.in_(
+                                    ordered_scene_track_ids[
+                                        start : start + PREFLIGHT_LINK_CHUNK_SIZE
+                                    ]
+                                ),
+                                scene_track_row.project_id == project_id,
+                            )
                         )
-                    )
-                ).scalars()
-                scene_tracks.update({track.id: track for track in tracks})
+                    ).scalars()
+                    scene_tracks.update({track.id: track for track in tracks})
             parents_by_key: dict[tuple[uuid.UUID, uuid.UUID], list[Annotation]] = {}
-            for start in range(
-                0, len(ordered_scene_track_ids), PREFLIGHT_LINK_CHUNK_SIZE
-            ):
-                parents = (
-                    await db.execute(
-                        select(annotation_row)
-                        .join(task_row, task_row.id == annotation_row.task_id)
-                        .where(
-                            *task_scope,
-                            annotation_row.scene_track_id.in_(
-                                ordered_scene_track_ids[
-                                    start : start + PREFLIGHT_LINK_CHUNK_SIZE
-                                ]
-                            ),
-                            annotation_row.geometry["type"].as_string() == "box_3d",
-                            annotation_row.is_active.is_(True),
-                            annotation_row.was_cancelled.is_(False),
+            if frozen:
+                for parent in frozen.view.annotations:
+                    if (
+                        parent.task_id in tasks_by_id
+                        and parent.scene_track_id in scene_track_ids
+                        and (parent.geometry or {}).get("type") == "box_3d"
+                        and parent.is_active
+                        and not parent.was_cancelled
+                    ):
+                        parents_by_key.setdefault(
+                            (parent.task_id, parent.scene_track_id), []
+                        ).append(parent)
+            else:
+                for start in range(
+                    0, len(ordered_scene_track_ids), PREFLIGHT_LINK_CHUNK_SIZE
+                ):
+                    parents = (
+                        await db.execute(
+                            select(annotation_row)
+                            .join(task_row, task_row.id == annotation_row.task_id)
+                            .where(
+                                *task_scope,
+                                annotation_row.scene_track_id.in_(
+                                    ordered_scene_track_ids[
+                                        start : start + PREFLIGHT_LINK_CHUNK_SIZE
+                                    ]
+                                ),
+                                annotation_row.geometry["type"].as_string() == "box_3d",
+                                annotation_row.is_active.is_(True),
+                                annotation_row.was_cancelled.is_(False),
+                            )
                         )
-                    )
-                ).scalars()
-                for parent in parents:
-                    parents_by_key.setdefault(
-                        (parent.task_id, parent.scene_track_id), []
-                    ).append(parent)
+                    ).scalars()
+                    for parent in parents:
+                        parents_by_key.setdefault(
+                            (parent.task_id, parent.scene_track_id), []
+                        ).append(parent)
             member_items = {
                 member.sensor_dataset_item_id: camera_assets[
                     member.sensor_dataset_item_id
@@ -597,17 +906,20 @@ async def preflight_lidar_export(
                 if member.sensor_dataset_item_id in camera_assets
             }
             try:
-                calibration_records = await AssetsSpatialGateway(db).read_calibrations(
-                    list(member_items)
-                )
-                if len(calibration_records) != len(member_items):
-                    raise ValueError("camera calibration is missing")
-                for record in calibration_records:
-                    state = normalize_calibration_record(record)
-                    if not calibration_is_valid(
-                        state.calibration.model_dump(mode="json")
-                    ):
-                        raise ValueError("camera calibration is invalid")
+                if frozen:
+                    frozen.calibration_states(list(member_items.values()))
+                else:
+                    calibration_records = await AssetsSpatialGateway(
+                        db
+                    ).read_calibrations(list(member_items))
+                    if len(calibration_records) != len(member_items):
+                        raise ValueError("camera calibration is missing")
+                    for record in calibration_records:
+                        state = normalize_calibration_record(record)
+                        if not calibration_is_valid(
+                            state.calibration.model_dump(mode="json")
+                        ):
+                            raise ValueError("camera calibration is invalid")
             except (SpatialFailure, ValueError, TypeError):
                 add_issue(
                     LidarExportIssue(
@@ -691,8 +1003,8 @@ async def preflight_lidar_export(
                     )
 
         async def verify_camera_asset(
-            item, common: dict
-        ) -> tuple[Any, dict, dict | None]:
+            item: DatasetItem, common: dict
+        ) -> tuple[DatasetItem, dict, dict | None]:
             head = await asyncio.to_thread(
                 storage_service.verify_upload,
                 item.file_path,
@@ -700,7 +1012,11 @@ async def preflight_lidar_export(
             )
             return item, common, head
 
-        asset_rows = [] if multicamera_scope_too_large else list(camera_assets.values())
+        asset_rows = (
+            []
+            if frozen or multicamera_scope_too_large
+            else list(camera_assets.values())
+        )
         for start in range(0, len(asset_rows), 32):
             verified = await asyncio.gather(
                 *[
@@ -722,42 +1038,60 @@ async def preflight_lidar_export(
 
     scene_ids = {
         item.scene_id
-        for _task, item in task_rows
+        for _task, item, _dataset in task_rows
         if item is not None and item.scene_id is not None
     }
+    scenes_by_id: dict[uuid.UUID, Any] = {}
     poses_by_frame: dict[tuple[uuid.UUID, int], Any] = {}
     all_scene_tasks: dict[uuid.UUID, list[tuple[Task, Any]]] = {}
     if needs_nuscenes and scene_ids:
-        gateway = AssetsSpatialGateway(db)
-        poses_by_frame = {
-            (scene_id, pose.frame_index): pose
-            for scene_id in scene_ids
-            for pose in await gateway.read_poses(
-                ReadPosesRequest(actor_id=None, scene_id=scene_id)
+        if frozen:
+            scenes_by_id = {
+                key: value
+                for key, value in frozen.view.scenes_by_id.items()
+                if key in scene_ids
+            }
+            poses_by_frame = {
+                key: value
+                for key, value in frozen.view.poses_by_frame.items()
+                if key[0] in scene_ids
+            }
+            all_scene_tasks = {
+                key: value
+                for key, value in frozen.view.all_scene_tasks.items()
+                if key in scene_ids
+            }
+        else:
+            gateway = AssetsSpatialGateway(db)
+            poses_by_frame = {
+                (scene_id, pose.frame_index): pose
+                for scene_id in scene_ids
+                for pose in await gateway.read_poses(
+                    ReadPosesRequest(actor_id=None, scene_id=scene_id)
+                )
+            }
+            full_rows = (
+                await db.execute(
+                    select(task_row, task_row.dataset_item_id)
+                    .where(task_row.project_id == project_id)
+                    .where(task_row.dataset_item_id.is_not(None))
+                )
+            ).all()
+            full_items, scenes_by_id = await read_spatial_item_facts(
+                db, [item_id for _task, item_id in full_rows]
             )
-        }
-        full_rows = (
-            await db.execute(
-                select(task_row, task_row.dataset_item_id)
-                .where(task_row.project_id == project_id)
-                .where(task_row.dataset_item_id.is_not(None))
-            )
-        ).all()
-        full_items, scenes_by_id = await read_spatial_item_facts(
-            db, [item_id for _task, item_id in full_rows]
-        )
-        scenes_by_id = {
-            scene_id: scene
-            for scene_id, scene in scenes_by_id.items()
-            if scene_id in scene_ids
-        }
-        for full_task, item_id in full_rows:
-            full_item = full_items.get(item_id)
-            if full_item is None or full_item.scene_id not in scene_ids:
-                continue
-            all_scene_tasks.setdefault(full_item.scene_id, []).append(
-                (full_task, full_item)
-            )
+            scenes_by_id = {
+                scene_id: scene
+                for scene_id, scene in scenes_by_id.items()
+                if scene_id in scene_ids
+            }
+            for full_task, item_id in full_rows:
+                full_item = full_items.get(item_id)
+                if full_item is None or full_item.scene_id not in scene_ids:
+                    continue
+                all_scene_tasks.setdefault(full_item.scene_id, []).append(
+                    (full_task, full_item)
+                )
 
     camera_items = [
         item
@@ -767,30 +1101,41 @@ async def preflight_lidar_export(
     ]
     calibration_states = {}
     if (needs_kitti or needs_nuscenes) and camera_items:
-        for record in await AssetsSpatialGateway(db).read_calibrations(
-            [item.id for item in camera_items]
-        ):
+        if frozen:
             try:
-                calibration_states[record.dataset_item_id] = (
-                    normalize_calibration_record(record)
-                )
-            except (SpatialFailure, ValueError, TypeError):
-                continue
+                calibration_states = frozen.calibration_states(camera_items)
+            except (ValueError, TypeError):
+                calibration_states = {}
+        else:
+            for record in await AssetsSpatialGateway(db).read_calibrations(
+                [item.id for item in camera_items]
+            ):
+                try:
+                    calibration_states[record.dataset_item_id] = (
+                        normalize_calibration_record(record)
+                    )
+                except (SpatialFailure, ValueError, TypeError):
+                    continue
 
     invalid_boxes_by_task: dict[uuid.UUID, list[uuid.UUID]] = {}
     box_counts_by_task: dict[uuid.UUID, int] = {}
     if needs_nuscenes:
         for start in range(0, len(task_ids), PREFLIGHT_LINK_CHUNK_SIZE):
             chunk_ids = task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
-            annotations = (
-                await db.execute(
-                    select(annotation_row).where(
-                        annotation_row.task_id.in_(chunk_ids),
-                        annotation_row.is_active.is_(True),
-                        annotation_row.was_cancelled.is_(False),
+            if frozen:
+                annotations = [
+                    row for row in frozen.view.annotations if row.task_id in chunk_ids
+                ]
+            else:
+                annotations = (
+                    await db.execute(
+                        select(annotation_row).where(
+                            annotation_row.task_id.in_(chunk_ids),
+                            annotation_row.is_active.is_(True),
+                            annotation_row.was_cancelled.is_(False),
+                        )
                     )
-                )
-            ).scalars()
+                ).scalars()
             for annotation in annotations:
                 if (
                     isinstance(annotation.geometry, dict)
@@ -855,12 +1200,20 @@ async def preflight_lidar_export(
             )
             return
         asset_contracts[key] = (expected_size, normalized_sha256, common, kind)
+        if frozen and not frozen.has_receipt(key, expected_size, normalized_sha256):
+            add_issue(
+                LidarExportIssue(
+                    code="nuscenes_source_asset_drift",
+                    message=f"{kind} 与已登记原件不一致",
+                    **common,
+                )
+            )
 
     point_box_tests = 0
     total_pcd_bytes = 0
     pcd_size_exceeded = False
     if needs_nuscenes:
-        for task, primary_item in task_rows:
+        for task, primary_item, _dataset in task_rows:
             if primary_item is None:
                 continue
             try:
@@ -874,7 +1227,10 @@ async def preflight_lidar_export(
             box_count = box_counts_by_task.get(task.id, 0)
             if box_count == 0:
                 continue
-            raw_point_count = (primary_item.metadata or {}).get("point_count")
+            item_metadata = getattr(primary_item, "metadata", None) or getattr(
+                primary_item, "metadata_", None
+            )
+            raw_point_count = (item_metadata or {}).get("point_count")
             try:
                 metadata_point_count = max(int(raw_point_count), 0)
             except (TypeError, ValueError):
@@ -906,7 +1262,7 @@ async def preflight_lidar_export(
             )
 
     selected_tasks_by_scene: dict[uuid.UUID, list[tuple[Task, Any]]] = {}
-    for task, primary_item in task_rows:
+    for task, primary_item, dataset in task_rows:
         frame_key = _frame_key(task, primary_item)
         common = {
             "task_id": task.id,
@@ -930,9 +1286,9 @@ async def preflight_lidar_export(
                         **common,
                     )
                 )
-            convention = (
-                primary_item.axis_convention if primary_item is not None else None
-            )
+            convention = getattr(primary_item, "axis_convention", None)
+            if convention is None and dataset is not None:
+                convention = (dataset.metadata_ or {}).get("axis_convention")
             if convention is None:
                 add_issue(
                     LidarExportIssue(
@@ -1098,13 +1454,14 @@ async def preflight_lidar_export(
             common=common,
             kind="map",
         )
-        check_asset(
-            key=primary_item.file_path,
-            size=primary_item.file_size,
-            sha256=primary_item.content_hash,
-            common=common,
-            kind="platform_pcd",
-        )
+        if not frozen:
+            check_asset(
+                key=primary_item.file_path,
+                size=primary_item.file_size,
+                sha256=primary_item.content_hash,
+                common=common,
+                kind="platform_pcd",
+            )
 
         pose = poses_by_frame.get((primary_item.scene_id, primary_item.frame_index))
         if (
@@ -1128,7 +1485,7 @@ async def preflight_lidar_export(
         for role, item in sensor_items.items():
             if role != "primary_lidar" and not role.startswith("camera_"):
                 continue
-            source = (item.metadata or {}).get("nuscenes_export")
+            source = _item_metadata(item).get("nuscenes_export")
             if not isinstance(source, dict):
                 add_issue(
                     LidarExportIssue(
@@ -1315,7 +1672,7 @@ async def preflight_lidar_export(
                 continue
             ordered = sorted(all_rows, key=lambda row: int(row[1].frame_index))
             source_samples = [
-                ((item.metadata or {}).get("nuscenes_export") or {}).get("sample")
+                (_item_metadata(item).get("nuscenes_export") or {}).get("sample")
                 for _task, item in ordered
             ]
             tokens = [
@@ -1354,7 +1711,7 @@ async def preflight_lidar_export(
             )
             return key, contract, head
 
-        asset_rows = list(asset_contracts.items())
+        asset_rows = [] if frozen else list(asset_contracts.items())
         for start in range(0, len(asset_rows), 32):
             verified = await asyncio.gather(
                 *[
@@ -1405,4 +1762,31 @@ async def assert_lidar_export_ready(
     )
     if not report.ready:
         raise LidarExportPreflightFailed(report)
+    return report
+
+
+async def assert_frozen_lidar_ready(snapshot):
+    """Recheck all owned LiDAR business rules on captured inputs without I/O."""
+    from app.services.exporting.lidar_frozen import FrozenLidar
+
+    class NoLiveReads:
+        def __getattr__(self, _name):
+            raise ContentError("lidar_export_unfrozen_preflight")
+
+    report = await _preflight_lidar_export(
+        NoLiveReads(),
+        project_id=uuid.UUID(snapshot["project_id"]),
+        batch_id=uuid.UUID(snapshot["batch_id"]) if snapshot["batch_id"] else None,
+        targets=[
+            target
+            for target in snapshot["targets"]
+            if target in {"kitti", "pointmask", "coco-multicamera", "nuscenes"}
+        ],
+        options=LidarExportOptions.model_validate(
+            snapshot["options"].get("lidar") or {}
+        ),
+        frozen=_RegisteredPreflight(snapshot, FrozenLidar(snapshot)),
+    )
+    if not report.ready:
+        raise ContentError(report.issues[0].code, 409)
     return report

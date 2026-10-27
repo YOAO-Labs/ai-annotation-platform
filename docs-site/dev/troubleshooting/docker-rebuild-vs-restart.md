@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-19
 ---
 
 # Docker rebuild vs restart：Celery 不会热重载
@@ -55,7 +54,7 @@ docker compose build celery-worker celery-worker-gpu celery-worker-cpu celery-wo
 docker compose up -d celery-worker celery-worker-gpu celery-worker-cpu celery-worker-export
 ```
 
-**rebuild 触发条件清单**（CLAUDE.md §7）：
+**rebuild 触发条件清单**：
 
 - `pyproject.toml` / `uv.lock` / `requirements.txt`
 - `package.json` / `pnpm-lock.yaml`

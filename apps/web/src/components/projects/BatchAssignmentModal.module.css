@@ -37,6 +37,7 @@
 .column {
   max-height: 280px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 8px;
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-md);

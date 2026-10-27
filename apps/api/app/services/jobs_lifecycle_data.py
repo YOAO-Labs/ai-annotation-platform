@@ -11,7 +11,10 @@ from sqlalchemy.orm.bulk_persistence import (
     BulkUDCompileState,
 )
 
-from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
+from aap_jobs.row_lock_contract import (
+    JOBS_EXECUTION_SNAPSHOT_FUNCTION,
+    JOBS_ROW_LOCK_FUNCTIONS,
+)
 
 from app.db.jobs_lifecycle import encode_jobs_json, observe_job_changes
 from app.db.models.async_job import AsyncJob, AsyncJobKind
@@ -23,7 +26,16 @@ def job_lock_statement(job_id, *, mode, populate_existing=False):
     return (
         select(AsyncJob)
         .from_statement(
-            text(f"SELECT * FROM {function}(CAST(:job_id AS pg_catalog.uuid))")
+            text(
+                "SELECT job.*, "
+                "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                "AS execution_snapshot_id, progress.last_progress_at, "
+                "progress.progress_observation FROM "
+                f"{function}("
+                "CAST(:job_id AS pg_catalog.uuid)) AS job "
+                "CROSS JOIN LATERAL aap_jobs_v1.read_job_progress(job.id) "
+                "AS progress"
+            )
         )
         .params(job_id=job_id)
         .execution_options(populate_existing=populate_existing)
@@ -36,7 +48,37 @@ class JobsLifecyclePostgresData:
 
     changes = staticmethod(observe_job_changes)
 
+    @staticmethod
+    def _reset_snapshot_binding(row):
+        """Keep the owner-bound snapshot out of generic lifecycle payload flushes.
+
+        ``execution_snapshot_id`` is written only by
+        ``aap_jobs_v1.bind_prediction_execution_snapshot``. A public read must
+        therefore return the database value as committed instead of re-submitting
+        an unsupported direct change through the lifecycle command channel.
+        """
+        from sqlalchemy.orm import attributes
+
+        state = inspect(row)
+        if (
+            not state.persistent
+            or "execution_snapshot_id" not in state.mapper.column_attrs
+        ):
+            return
+        key = "execution_snapshot_id"
+        committed = state.committed_state.get(key, attributes.NO_VALUE)
+        if committed is attributes.NO_VALUE:
+            if key not in state.dict:
+                return
+            committed = state.dict[key]
+        attributes.set_committed_value(row, key, committed)
+
     async def create_job(self, **values):
+        if "execution_snapshot_id" in values:
+            raise ValueError(
+                "execution_snapshot_id must be bound after creation through "
+                "aap_jobs_v1.bind_prediction_execution_snapshot"
+            )
         row = AsyncJob(**values)
         self.db.add(row)
         await self.db.flush()
@@ -45,19 +87,36 @@ class JobsLifecyclePostgresData:
     async def flush(self):
         await self.db.flush()
 
+    async def read_execution_snapshot_id(self, job_id):
+        """Read the immutable snapshot binding after the caller read/locked the Job."""
+        await self._autoflush()
+        return await self.db.scalar(
+            text(
+                f"SELECT {JOBS_EXECUTION_SNAPSHOT_FUNCTION}("
+                "CAST(:job_id AS pg_catalog.uuid))"
+            ),
+            {"job_id": job_id},
+        )
+
     async def get_job(self, job_id, *, populate_existing=False):
         session = self.db.sync_session
         identity = inspect(AsyncJob).identity_key_from_primary_key((job_id,))
         cached = session.identity_map.get(identity)
         state = inspect(cached) if cached is not None else None
         if not populate_existing and state is not None and not state.expired:
+            self._reset_snapshot_binding(cached)
             return cached
         result = await self.db.execute(
             select(AsyncJob)
             .from_statement(
                 text(
-                    "SELECT * FROM aap_jobs_v1.read_job("
-                    "CAST(:job_id AS pg_catalog.uuid))"
+                    "SELECT job.*, "
+                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "AS execution_snapshot_id, progress.last_progress_at, "
+                    "progress.progress_observation FROM aap_jobs_v1.read_job("
+                    "CAST(:job_id AS pg_catalog.uuid)) AS job "
+                    "CROSS JOIN LATERAL "
+                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             )
             .execution_options(populate_existing=True),
@@ -66,6 +125,8 @@ class JobsLifecyclePostgresData:
         row = result.scalar_one_or_none()
         if row is None and state is not None and state.expired:
             session._remove_newly_deleted([state])
+        if row is not None:
+            self._reset_snapshot_binding(row)
         return row
 
     async def find_by_execution_id(self, execution_id):
@@ -74,13 +135,22 @@ class JobsLifecyclePostgresData:
         result = await self.db.execute(
             select(AsyncJob).from_statement(
                 text(
-                    "SELECT * FROM aap_jobs_v1.jobs_by_execution_id("
-                    "CAST(:execution_id AS pg_catalog.text))"
+                    "SELECT job.*, "
+                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "AS execution_snapshot_id, progress.last_progress_at, "
+                    "progress.progress_observation FROM "
+                    "aap_jobs_v1.jobs_by_execution_id("
+                    "CAST(:execution_id AS pg_catalog.text)) AS job "
+                    "CROSS JOIN LATERAL "
+                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"execution_id": execution_id},
         )
-        return result.scalar_one_or_none()
+        row = result.scalar_one_or_none()
+        if row is not None:
+            self._reset_snapshot_binding(row)
+        return row
 
     async def insert_video_summary(self, **values):
         await self._autoflush()

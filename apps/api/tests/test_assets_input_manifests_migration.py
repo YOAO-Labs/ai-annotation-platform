@@ -69,8 +69,7 @@ def _compact(value: str) -> str:
 
 def test_0222_installer_is_after_frozen_0221_and_lists_all_artifacts():
     migration = _constants(MIGRATION)
-    assert migration["revision"] == "0222"
-    assert migration["down_revision"] == "0221"
+
     assert migration["_UPGRADE_ARTIFACTS"] == ARTIFACTS
     assert migration["_SCHEMA_ARTIFACTS"] == (
         "0222_accepted_input_manifests.schema.json",

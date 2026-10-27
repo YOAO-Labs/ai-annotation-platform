@@ -298,6 +298,7 @@ async def create_prediction_record_failed_state(
     error_type: str,
     message: str,
     extra: dict,
+    execution_snapshot_id: uuid.UUID | None = None,
 ) -> datetime:
     data = await prediction_record_command(
         db,
@@ -313,6 +314,7 @@ async def create_prediction_record_failed_state(
             error_type=error_type,
             message=message,
             extra=extra,
+            execution_snapshot_id=execution_snapshot_id,
         ),
     )
     assert isinstance(data, CreateFailedPredictionData)

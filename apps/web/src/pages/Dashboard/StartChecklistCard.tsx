@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/Badge";
@@ -54,7 +55,7 @@ export function StartChecklistCard({
     useOnboardingProjectState(project.id, guideVersion);
   const summaryQuery = useOnboardingProjectSummary(project.id);
   const summary = summaryQuery.isError ? undefined : summaryQuery.data;
-  const { resolveImage } = useGuideAssets(project.id);
+  const { resolveImage, imageScope } = useGuideAssets(project.id);
   const batchesForProject = useMemo(
     () => projectBatches(project.id, batches),
     [batches, project.id],
@@ -153,7 +154,9 @@ export function StartChecklistCard({
             role="alert"
             className="flex items-center gap-2 border-t border-border px-4 py-2 text-xs text-status-danger"
           >
-            <span>{saveError}</span>
+            <span>
+              <CopyableError message={saveError} />
+            </span>
             <button type="button" className="underline" onClick={() => void retry()}>
               重试
             </button>
@@ -237,7 +240,9 @@ export function StartChecklistCard({
           role="alert"
           className="flex items-center gap-2 border-t border-border px-4 py-2 text-xs text-status-danger"
         >
-          <span>{saveError}</span>
+          <span>
+            <CopyableError message={saveError} />
+          </span>
           <button type="button" className="underline" onClick={() => void retry()}>
             重试
           </button>
@@ -280,7 +285,7 @@ export function StartChecklistCard({
             <GuideMarkdownView
               content={project.annotation_guide!.trim()}
               resolveImage={resolveImage}
-              imageScope={project.id}
+              imageScope={imageScope}
             />
           </div>
           <Button

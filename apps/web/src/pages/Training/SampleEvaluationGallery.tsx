@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -9,6 +11,7 @@ import {
   type SampleEvaluationOut,
 } from "@/api/sampleEvaluations";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { trainingInputClass } from "./TrainingParameterField";
 import {
@@ -20,6 +23,7 @@ import {
 import { useTrainingViewOwner } from "./trainingViewOwner";
 import { SampleEvaluationImage } from "./SampleEvaluationImage";
 import { PickerPage } from "./SampleEvaluationCreate";
+import { evaluationTask } from "./useSampleEvaluation";
 
 export function SampleEvaluationGallery({
   run,
@@ -157,7 +161,9 @@ export function SampleEvaluationGallery({
           )}
           {samples.error && (
             <div role="alert" className="p-2 text-xs text-status-danger">
-              <p>{samples.error.message}</p>
+              <p>
+                <CopyableError message={samples.error.message} />
+              </p>
               <Button size="sm" className="mt-2" onClick={() => void samples.refetch()}>
                 重试列表
               </Button>
@@ -185,8 +191,8 @@ export function SampleEvaluationGallery({
                           ? "失败"
                           : "未完成"}
                     </span>
-                    <span className="mt-1 block break-all font-mono text-muted-foreground">
-                      {sample.task_id.slice(0, 8)} · {sample.width} × {sample.height}
+                    <span className="mt-1 block tabular-nums text-muted-foreground">
+                      {sample.width} × {sample.height}
                     </span>
                   </button>
                 ))}
@@ -196,7 +202,11 @@ export function SampleEvaluationGallery({
               )}
               <PickerPage
                 page={state.page}
-                pageSize={12}
+                pageSize={state.filters.limit}
+                loading={samples.isFetching}
+                onPageSizeChange={(size) =>
+                  update({ page_size: String(size), page: undefined, sample: undefined })
+                }
                 total={samples.data.total}
                 label="误差样本"
                 onChange={(page) => update({ page: String(page), sample: undefined })}
@@ -213,11 +223,9 @@ export function SampleEvaluationGallery({
           {selected && (
             <>
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-1">
                   <h3 className="text-sm font-semibold">样本 {selected.ordinal + 1}</h3>
-                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                    {selected.task_id}
-                  </p>
+                  <CopyValueButton value={selected.task_id} kind="id" label="复制样本任务 ID" />
                 </div>
                 <Button ref={sourceTrigger} size="sm" onClick={() => setSourceOpen(true)}>
                   <ExternalLink className="size-3.5" />
@@ -232,27 +240,56 @@ export function SampleEvaluationGallery({
                 sample={selected}
                 classes={run.spec.classes}
                 scope={`${scope}:image:${selected.ordinal}`}
+                task={evaluationTask(run.spec)}
               />
               {selected.status !== "succeeded" ? (
                 <p role="status" className="mt-4 text-sm text-status-caution">
-                  {selected.status === "failed"
-                    ? `样本失败：${selected.error_message ?? selected.error_code}`
-                    : "本次尝试未完成此成员，尚无预测证据。"}
+                  {selected.status === "failed" ? (
+                    <CopyableError
+                      message={`样本失败：${selected.error_message ?? selected.error_code}`}
+                    />
+                  ) : (
+                    "本次尝试未完成此成员，尚无预测证据。"
+                  )}
                 </p>
               ) : (
-                <SampleEvidence sample={selected} classes={run.spec.classes} />
+                <SampleEvidence
+                  sample={selected}
+                  classes={run.spec.classes}
+                  task={evaluationTask(run.spec)}
+                />
               )}
               <details className="mt-4 text-xs text-muted-foreground">
                 <summary className="cursor-pointer">冻结成员身份与执行来源</summary>
-                <dl className="mt-2 space-y-2 break-all">
+                <dl className="mt-2 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
                   <dt>原图 SHA256</dt>
-                  <dd>{selected.sha256}</dd>
+                  <dd>
+                    <CopyValueButton value={selected.sha256} label="复制原图哈希" />
+                  </dd>
                   <dt>标签 SHA256</dt>
-                  <dd>{selected.label_sha256}</dd>
+                  <dd>
+                    <CopyValueButton value={selected.label_sha256} label="复制标签哈希" />
+                  </dd>
                   <dt>归一化图片 SHA256</dt>
-                  <dd>{selected.derived_sha256 ?? "尚未生成"}</dd>
+                  <dd>
+                    {selected.derived_sha256 ? (
+                      <CopyValueButton value={selected.derived_sha256} label="复制归一化图片哈希" />
+                    ) : (
+                      "尚未生成"
+                    )}
+                  </dd>
                   <dt>证据产生于尝试</dt>
-                  <dd>{selected.produced_attempt_id ?? "尚无证据"}</dd>
+                  <dd>
+                    {selected.produced_attempt_id ? (
+                      <CopyValueButton
+                        value={selected.produced_attempt_id}
+                        kind="id"
+                        label="复制证据执行尝试 ID"
+                      />
+                    ) : (
+                      "尚无证据"
+                    )}
+                  </dd>
                 </dl>
               </details>
               {sourceOpen && (
@@ -277,9 +314,11 @@ export function SampleEvaluationGallery({
 function SampleEvidence({
   sample,
   classes,
+  task,
 }: {
   sample: EvaluationSampleResult;
   classes: string[];
+  task: "detect" | "segment";
 }) {
   const matching = sample.matching!;
   return (
@@ -289,7 +328,9 @@ function SampleEvidence({
       </p>
       <div className="mt-3 grid gap-4 xl:grid-cols-2">
         <div>
-          <h4 className="font-medium">冻结真值（实线）</h4>
+          <h4 className="font-medium">
+            {task === "segment" ? "冻结真值掩码（蓝色）" : "冻结真值（实线）"}
+          </h4>
           <ul className="mt-2 max-h-64 space-y-2 overflow-auto">
             {sample.truth.map((box) => (
               <li key={box.index}>
@@ -298,7 +339,9 @@ function SampleEvidence({
                 </span>{" "}
                 · {matching.false_negative_indices.includes(box.index) ? "漏检 FN" : "已匹配 TP"}
                 <code className="mt-0.5 block text-muted-foreground">
-                  {box.xyxy.map((v) => v.toFixed(4)).join(", ")}
+                  {"rle" in box
+                    ? `${box.area_pixels.toLocaleString()} 原图像素`
+                    : box.xyxy.map((v) => v.toFixed(4)).join(", ")}
                 </code>
               </li>
             ))}
@@ -308,7 +351,9 @@ function SampleEvidence({
           )}
         </div>
         <div>
-          <h4 className="font-medium">预测（虚线）</h4>
+          <h4 className="font-medium">
+            {task === "segment" ? "预测掩码（橙色）" : "预测（虚线）"}
+          </h4>
           <ul className="mt-2 max-h-64 space-y-2 overflow-auto">
             {(sample.predictions ?? []).map((box) => {
               const match = matching.matches.find((item) => item.prediction_index === box.index);
@@ -322,30 +367,38 @@ function SampleEvidence({
                   </span>{" "}
                   · {metricValue(box.score, true)} ·{" "}
                   {match
-                    ? `TP → 真值 #${match.truth_index}，IoU ${match.iou.toFixed(3)}`
+                    ? `TP → 真值 #${match.truth_index}，${task === "segment" ? "Mask IoU" : "IoU"} ${match.iou.toFixed(3)}${"dice" in match ? `，Dice ${Number(match.dice).toFixed(3)}` : ""}`
                     : matching.excluded_prediction_indices.includes(box.index)
                       ? "低于固定阈值，不计入匹配"
                       : "误检 FP"}
                   {diagnostic && (
                     <span className="block text-status-caution">
                       {diagnostic.kind === "confusion" ? "类别混淆" : "定位偏差"} → 真值 #
-                      {diagnostic.truth_index}，IoU {diagnostic.iou.toFixed(3)}
+                      {diagnostic.truth_index}，{task === "segment" ? "Mask IoU" : "IoU"}{" "}
+                      {diagnostic.iou.toFixed(3)}
                     </span>
                   )}
                   <code className="mt-0.5 block text-muted-foreground">
-                    {box.xyxy.map((v) => v.toFixed(4)).join(", ")}
+                    {"rle" in box
+                      ? `${box.area_pixels.toLocaleString()} 原图像素`
+                      : box.xyxy.map((v) => v.toFixed(4)).join(", ")}
                   </code>
                 </li>
               );
             })}
           </ul>
           {!sample.predictions?.length && (
-            <p className="mt-2 text-muted-foreground">没有预测框。</p>
+            <p className="mt-2 text-muted-foreground">
+              {task === "segment" ? "没有预测实例掩码。" : "没有预测框。"}
+            </p>
           )}
         </div>
       </div>
       <p className="mt-3 text-muted-foreground">
-        坐标为逻辑图片上的归一化 x1, y1, x2, y2。混淆与定位诊断解释已有 FP/FN，不重复增加主计数。
+        {task === "segment"
+          ? "Mask IoU、Dice 直接比较原图掩码像素，仅已匹配实例计入均值；漏检另计 FN，不是 AP/mAP。"
+          : "坐标为逻辑图片上的归一化 x1, y1, x2, y2。"}
+        混淆与定位诊断解释已有 FP/FN，不重复增加主计数。
       </p>
     </div>
   );
@@ -366,7 +419,7 @@ function SourceDialog({
   onClose: () => void;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
-  const [requestScope] = useState(() => crypto.randomUUID());
+  const [requestScope] = useState(() => randomId());
   const { assert } = useTrainingViewOwner(run.project_id, `${scope}:${requestScope}`);
   const location = useLocation();
   const navigate = useNavigate();
@@ -428,7 +481,9 @@ function SourceDialog({
       )}
       {source.error && (
         <div role="alert" className="space-y-3 text-sm text-status-danger">
-          <p>{source.error.message}</p>
+          <p>
+            <CopyableError message={source.error.message} />
+          </p>
           <Button size="sm" onClick={() => void source.refetch()}>
             重新核对
           </Button>

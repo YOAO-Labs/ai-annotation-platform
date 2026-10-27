@@ -9,7 +9,6 @@ from sqlalchemy import or_, select
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.services import learning_policies as policies, training_runs as runs
-from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.training_authority_contract import TrainingAuthorityPort
 
@@ -60,7 +59,6 @@ async def tick(
                 await policies.check_policy(
                     db,
                     identity,
-                    source_reader=SqlAlchemyProjectTaskSourceReader(db),
                     training_authority=training_authority_factory(db),
                     force=force,
                 )

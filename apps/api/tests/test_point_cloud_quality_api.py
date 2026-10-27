@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import hashlib
 from types import SimpleNamespace
 import uuid
 
 import numpy as np
+import pytest
 from sqlalchemy import event, select, update
 
 from app.application.quality_execution import execute_point_cloud_quality
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
@@ -21,17 +25,52 @@ from aap_workspace.point_quality_configuration_values import PointCloudQualityCo
 from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
+from app.services import async_job as async_job_svc
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
+from app.services.point_cloud_quality import originals
 from app.services.point_cloud_quality.service import (
     create_quality_run,
     list_issues,
     refresh_issue_staleness,
 )
 from app.services.task_dataset_link import link_items
-from app.services.point_cloud_quality.execution import (
-    _cancel_requested,
-    _normalize_points,
-)
+from app.services.point_cloud_quality.execution import _cancel_requested
 from tests.factory import create_membership, create_project
+from tests.sample_evaluation_original_fixtures import Objects
+from tests.test_original_binary import request as credentials_request
+
+
+def _pcd_bytes(points: np.ndarray) -> bytes:
+    points = np.asarray(points, dtype=np.float32).reshape(-1, 3)
+    header = (
+        "VERSION .7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
+        f"WIDTH {len(points)}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\n"
+        f"POINTS {len(points)}\nDATA ascii\n"
+    )
+    rows = "".join(" ".join(f"{value:.9g}" for value in row) + "\n" for row in points)
+    return (header + rows).encode("ascii")
+
+
+class PointCloudObjects(Objects):
+    def metadata(self, bucket, key):
+        return {
+            **super().metadata(bucket, key),
+            "ContentType": "application/octet-stream",
+        }
+
+
+@pytest.fixture
+def original_objects(monkeypatch):
+    provider = PointCloudObjects().install(monkeypatch)
+    yield provider
+    assert all(body.closed for body in provider.bodies)
+
+
+async def _enter_running(db, run, job):
+    assert run.status == "pending" and job is not None and job.status == "pending"
+    run.status, run.started_at = "running", datetime.now(timezone.utc)
+    await async_job_svc.mark_running(db, job.id)
+    await db.flush()
 
 
 def _box(center_x: float = 0) -> dict:
@@ -44,7 +83,15 @@ def _box(center_x: float = 0) -> dict:
     }
 
 
-async def _seed_quality_scene(db, *, owner_id):
+async def _seed_quality_scene(db, *, owner_id, original_objects=None, points=None):
+    if original_objects is not None:
+        await ensure_legacy_bindings(db)
+        raw = _pcd_bytes(
+            np.zeros((32, 3), dtype=np.float32) if points is None else points
+        )
+        sha256 = hashlib.sha256(raw).hexdigest()
+    else:
+        raw = sha256 = None
     project = await create_project(db, owner_id=owner_id, type_key="lidar")
     project.data_type = "lidar"
     dataset = Dataset(
@@ -71,12 +118,35 @@ async def _seed_quality_scene(db, *, owner_id):
             file_name=f"{frame:06d}.pcd",
             file_path=f"quality/{frame:06d}.pcd",
             file_type="point_cloud",
-            content_hash=f"hash-{frame}",
+            content_hash=sha256 if raw is not None else f"quality-hash-{frame}",
+            file_size=len(raw) if raw is not None else None,
             scene_id=scene.id,
             frame_index=frame,
         )
         db.add(item)
         await db.flush()
+        if raw is not None:
+            asset = DatasetAsset(
+                id=uuid.uuid4(),
+                dataset_item_id=item.id,
+                media_type="point_cloud",
+                verification_state="verified",
+                checksum_algorithm="sha256",
+                checksum_value=sha256,
+                size_bytes=len(raw),
+            )
+            db.add(asset)
+            await db.flush()
+            replica = DatasetAssetLocation(
+                asset_id=asset.id,
+                location_id=LEGACY_LOCATION_ID,
+                bucket="saved-quality-originals",
+                object_key=item.file_path,
+                role="managed_original",
+                reference_state="present",
+            )
+            db.add(replica)
+            original_objects.put(replica.bucket, replica.object_key, raw)
         task = Task(
             project_id=project.id,
             dataset_item_id=item.id,
@@ -132,11 +202,14 @@ async def _seed_quality_scene(db, *, owner_id):
 
 
 async def test_projection_residual_scan_and_staleness(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, original_objects
 ):
     user, _token = super_admin
     project, scene, tasks, track, annotations = await _seed_quality_scene(
-        db_session, owner_id=user.id
+        db_session,
+        owner_id=user.id,
+        original_objects=original_objects,
+        points=np.asarray([(100.0, 0.0, 0.0)], dtype=np.float32),
     )
     task = tasks[0]
     source = annotations[0]
@@ -212,12 +285,9 @@ async def test_projection_residual_scan_and_staleness(
         project=project,
         actor_id=user.id,
         request=PointCloudQualityRunRequest(scope="task_ids", task_ids=[task.id]),
+        http_request=credentials_request(user),
     )
     assert created is True and job is not None
-    monkeypatch.setattr(
-        "app.services.point_cloud_quality.execution._read_pointcloud",
-        lambda _key: np.asarray([(100.0, 0.0, 0.0)], dtype=np.float32),
-    )
     await execute_point_cloud_quality(
         db_session, run_id=run.id, celery_task_id=job.celery_task_id
     )
@@ -308,18 +378,33 @@ async def test_issue_status_filter_refreshes_stale_rows_before_pagination(
 
 
 async def test_quality_run_singleflight_and_worker_track_findings(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, original_objects
 ):
     user, _token = super_admin
+    ground = np.asarray(
+        [(100 + x, y, 0.0) for x in np.linspace(-3, 3, 12) for y in (-1.0, 0.0, 1.0)],
+        dtype=np.float32,
+    )
     project, scene, tasks, track, _annotations = await _seed_quality_scene(
-        db_session, owner_id=user.id
+        db_session,
+        owner_id=user.id,
+        original_objects=original_objects,
+        points=ground,
     )
     request = PointCloudQualityRunRequest(scope="scene_ids", scene_ids=[scene.id])
     first, job, created = await create_quality_run(
-        db_session, project=project, actor_id=user.id, request=request
+        db_session,
+        project=project,
+        actor_id=user.id,
+        request=request,
+        http_request=credentials_request(user),
     )
     second, second_job, second_created = await create_quality_run(
-        db_session, project=project, actor_id=user.id, request=request
+        db_session,
+        project=project,
+        actor_id=user.id,
+        request=request,
+        http_request=credentials_request(user),
     )
     assert created is True and job is not None
     assert second_created is False and second_job is None and second.id == first.id
@@ -330,14 +415,6 @@ async def test_quality_run_singleflight_and_worker_track_findings(
     )
     assert pointcloud_record["pointcloud"]["axis_convention"] == "iso_8855"
 
-    ground = np.asarray(
-        [(100 + x, y, 0.0) for x in np.linspace(-3, 3, 12) for y in (-1.0, 0.0, 1.0)],
-        dtype=np.float32,
-    )
-    monkeypatch.setattr(
-        "app.services.point_cloud_quality.execution._read_pointcloud",
-        lambda _key: ground,
-    )
     await execute_point_cloud_quality(
         db_session, run_id=first.id, celery_task_id=job.celery_task_id
     )
@@ -382,7 +459,10 @@ async def test_quality_run_singleflight_and_worker_track_findings(
     assert point_issue is not None
     assert point_issue.severity == "blocker"
     assert point_issue.evidence["axis_convention"] == "iso_8855"
-    item = await db_session.get(DatasetItem, tasks[0].dataset_item_id)
+    source_task = next(
+        task for task in tasks.values() if task.id == point_issue.task_id
+    )
+    item = await db_session.get(DatasetItem, source_task.dataset_item_id)
     assert item is not None
     item.content_hash = "changed-content"
     await db_session.flush()
@@ -397,12 +477,12 @@ async def test_quality_run_singleflight_and_worker_track_findings(
 
 
 async def test_quality_api_lists_locates_and_requires_wont_fix_reason(
-    db_session, httpx_client, super_admin, annotator, monkeypatch
+    db_session, httpx_client, super_admin, annotator, monkeypatch, original_objects
 ):
     user, token = super_admin
     other_user, other_token = annotator
     project, scene, tasks, track, annotations = await _seed_quality_scene(
-        db_session, owner_id=user.id
+        db_session, owner_id=user.id, original_objects=original_objects
     )
 
     def fake_apply_async(*, args, task_id):
@@ -621,17 +701,17 @@ async def test_quality_api_lists_locates_and_requires_wont_fix_reason(
 def test_quality_worker_normalizes_source_points_to_iso() -> None:
     points = np.asarray([[1.0, 2.0, 3.0]], dtype=np.float32)
     np.testing.assert_allclose(
-        _normalize_points(points, "apollo"),
+        originals.normalize_points(points, "apollo"),
         [[2.0, -1.0, 3.0]],
     )
 
 
 async def test_quality_run_can_be_cancelled_through_async_jobs(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch, original_objects
 ) -> None:
     user, token = super_admin
     project, scene, _tasks, _track, _annotations = await _seed_quality_scene(
-        db_session, owner_id=user.id
+        db_session, owner_id=user.id, original_objects=original_objects
     )
 
     def fake_apply_async(*, args, task_id):
@@ -669,25 +749,24 @@ async def test_quality_run_can_be_cancelled_through_async_jobs(
 
 
 async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_issues(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, original_objects
 ) -> None:
     user, _token = super_admin
     project, scene, tasks, _track, _annotations = await _seed_quality_scene(
-        db_session, owner_id=user.id
+        db_session,
+        owner_id=user.id,
+        original_objects=original_objects,
+        points=np.zeros((32, 3), dtype=np.float32),
     )
-    points = np.zeros((32, 3), dtype=np.float32)
-    monkeypatch.setattr(
-        "app.services.point_cloud_quality.execution._read_pointcloud",
-        lambda _key: points,
-    )
-    scene_run, _scene_job, _created = await create_quality_run(
+    scene_run, scene_job, _created = await create_quality_run(
         db_session,
         project=project,
         actor_id=user.id,
         request=PointCloudQualityRunRequest(scope="scene_ids", scene_ids=[scene.id]),
+        http_request=credentials_request(user),
     )
     await execute_point_cloud_quality(
-        db_session, run_id=scene_run.id, celery_task_id=None
+        db_session, run_id=scene_run.id, celery_task_id=scene_job.celery_task_id
     )
     gap = (
         await db_session.execute(
@@ -698,14 +777,15 @@ async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_iss
         )
     ).scalar_one()
 
-    task_run, _task_job, _created = await create_quality_run(
+    task_run, task_job, _created = await create_quality_run(
         db_session,
         project=project,
         actor_id=user.id,
         request=PointCloudQualityRunRequest(scope="task_ids", task_ids=[tasks[0].id]),
+        http_request=credentials_request(user),
     )
     await execute_point_cloud_quality(
-        db_session, run_id=task_run.id, celery_task_id=None
+        db_session, run_id=task_run.id, celery_task_id=task_job.celery_task_id
     )
     persisted_task_run = await db_session.get(
         PointCloudQualityRun, task_run.id, populate_existing=True
@@ -719,19 +799,21 @@ async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_iss
 
 
 async def test_cancel_probe_reads_database_instead_of_stale_identity_map(
-    db_session, super_admin
+    db_session, super_admin, original_objects
 ) -> None:
     user, _token = super_admin
     project, scene, _tasks, _track, _annotations = await _seed_quality_scene(
-        db_session, owner_id=user.id
+        db_session, owner_id=user.id, original_objects=original_objects
     )
     run, job, _created = await create_quality_run(
         db_session,
         project=project,
         actor_id=user.id,
         request=PointCloudQualityRunRequest(scope="scene_ids", scene_ids=[scene.id]),
+        http_request=credentials_request(user),
     )
     assert job is not None
+    job = await db_session.get(AsyncJob, job.id, populate_existing=True)
     job.status = "running"
     await db_session.flush()
     await db_session.execute(

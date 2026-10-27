@@ -16,11 +16,6 @@ from app.schemas.task import (
     VideoMetadata,
 )
 from app.schemas.image_pyramid import ImagePyramidSummary
-from app.services.image_pyramid_contract import (
-    ImagePyramidApiPort,
-    ImagePyramidFailure,
-    ImagePyramidTaskSource,
-)
 from app.deps import get_current_user, get_db
 from app.services import task_access
 from aap_workspace_contract.access import (
@@ -325,6 +320,19 @@ def _task_with_url(
         except Exception:
             pass
 
+    if task.file_type == "video":
+        checked = getattr(task, "_video_derivative_thumbnail", None)
+        if thumbnail_path and checked is not None and checked[0] == thumbnail_path:
+            thumbnail_url = checked[1]
+        blurhash = None
+    elif thumbnail_path:
+        # The asynchronous sidecar checks the exact active owner and path.
+        for name in ("_image_pyramid_thumbnail", "_media_cache_thumbnail"):
+            checked = getattr(task, name, None)
+            if checked is not None and checked[0] == thumbnail_path:
+                thumbnail_url = checked[1]
+                break
+
     out = TaskOut.model_validate(task, from_attributes=True)
     out.file_url = file_url
     out.thumbnail_url = thumbnail_url
@@ -385,21 +393,51 @@ async def _attach_dimensions_batch(
 
 
 async def _attach_image_pyramids_batch(
-    image_pyramid: ImagePyramidApiPort,
+    db: AsyncSession,
     tasks: list[Task],
+    dimensions: dict[
+        uuid.UUID,
+        tuple[int | None, int | None, str | None, str | None, dict | None],
+    ],
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
-    sources = tuple(_image_pyramid_task_source(task) for task in tasks)
-    try:
-        return await image_pyramid.task_summaries(sources)
-    except ImagePyramidFailure as exc:
-        raise HTTPException(
-            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
-        ) from exc
+    from app.services.image_pyramid import pyramid_summary, task_pyramid_assets
+    from app.services.image_pyramid_objects import thumbnail_url
+    from app.services import thumbnail_outputs
 
+    assets = await task_pyramid_assets(db, tasks)
+    result: dict[uuid.UUID, ImagePyramidSummary] = {}
+    for task in tasks:
+        width, height, path, *_ = dimensions.get(
+            task.id, (None, None, None, None, None)
+        )
+        task._image_pyramid_thumbnail = None
+        task._media_cache_thumbnail = None
+        task._video_derivative_thumbnail = None
+        if task.file_type == "video":
+            from app.services import video_derivatives
 
-def _image_pyramid_task_source(task: Task) -> ImagePyramidTaskSource:
-    """Project only the already-loaded Task fields needed by the media owner."""
-    return ImagePyramidTaskSource(
-        task_id=task.id,
-        file_type=task.file_type,
-    )
+            checked = await video_derivatives.thumbnail(db, task_id=task.id)
+            if checked is not None and checked[0] == path:
+                task._video_derivative_thumbnail = checked
+        elif path:
+            pair = assets.get(task.id)
+            if (
+                pair is not None and getattr(pair[1], "overview_key", None) == path
+            ) or path.startswith("image-pyramids/"):
+                task._image_pyramid_thumbnail = (
+                    path,
+                    await thumbnail_url(db, "task", task.id, path),
+                )
+            else:
+                task._media_cache_thumbnail = (
+                    path,
+                    await thumbnail_outputs.thumbnail_url(db, "task", task.id, path),
+                )
+        pair = assets.get(task.id)
+        if pair is None:
+            continue
+        _, generation = pair
+        summary = pyramid_summary(generation, width=width, height=height)
+        if summary is not None:
+            result[task.id] = summary
+    return result

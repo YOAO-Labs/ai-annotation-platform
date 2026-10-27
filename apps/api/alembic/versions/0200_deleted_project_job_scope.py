@@ -1,7 +1,7 @@
 """Retain project authorization scope after project deletion.
 
-Revision ID: 0200
-Revises: 0199
+Revision ID: bo0200
+Revises: bo0199
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0200"
-down_revision = "0199"
+revision = "bo0200"
+down_revision = "bo0199"
 branch_labels = depends_on = None
 
 _ARTIFACT = (

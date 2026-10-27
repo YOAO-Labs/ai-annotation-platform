@@ -6,6 +6,9 @@ import { ApiError } from "@/api/client";
 import type { NotificationItem } from "@/api/notifications";
 import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse } from "@/api/auth";
+import { copyToClipboard } from "@/lib/clipboard";
+
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn() }));
 
 const mocks = vi.hoisted(() => ({
   task: vi.fn(),
@@ -194,6 +197,53 @@ describe("通知直达当前目标", () => {
     expect(mocks.delete).toHaveBeenCalledWith("n1");
     expect(mocks.task).not.toHaveBeenCalled();
     expect(mocks.read).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["training_run", "job.completed", "模型训练完成"],
+    ["training_run", "job.failed", "模型训练失败"],
+    ["training_run", "job.cancelled", "模型训练已取消"],
+    ["training_dataset", "job.completed", "训练数据构建完成"],
+    ["training_dataset", "job.failed", "训练数据构建失败"],
+    ["training_dataset", "job.cancelled", "训练数据构建已取消"],
+  ])("renders %s %s with a specific task name", async (kind, type, text) => {
+    mocks.notifications = [
+      {
+        ...notification,
+        type,
+        target_type: "async_job",
+        payload: { kind, project_display_id: "P-1" },
+      },
+    ];
+    renderUI();
+    fireEvent.click(screen.getByTitle("通知，1 条未读"));
+    expect(await screen.findByRole("button", { name: `打开通知：${text} P-1` })).toBeVisible();
+    expect(mocks.read).not.toHaveBeenCalled();
+  });
+
+  it("copies full notification errors without opening, deleting, or marking the notification read", async () => {
+    const error = `Traceback\n${"diagnostic ".repeat(200)}\nlast line`;
+    mocks.notifications = [
+      {
+        ...notification,
+        type: "job.failed",
+        target_type: "async_job",
+        payload: { error_message: error },
+      },
+    ];
+    vi.mocked(copyToClipboard).mockResolvedValue(true);
+    const navigate = vi.fn();
+    renderUI(navigate);
+    fireEvent.click(screen.getByTitle("通知，1 条未读"));
+    const copy = await screen.findByRole("button", { name: "复制通知错误详情" });
+    expect(copy.closest("button")?.parentElement?.closest("button")).toBeNull();
+    fireEvent.click(copy);
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(error));
+    expect(mocks.job).not.toHaveBeenCalled();
+    expect(mocks.read).not.toHaveBeenCalled();
+    expect(mocks.delete).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/dashboard");
   });
 
   it.each([403, 404])("目标 %s 保留说明且不误开首条任务", async (status) => {

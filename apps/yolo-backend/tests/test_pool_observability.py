@@ -2,19 +2,7 @@
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock
-
-import pytest
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_modules() -> None:
-    """Allow model_pool imports without a real torch installation."""
-
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
 
 
 def _make_pool(cap: int = 2):

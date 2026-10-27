@@ -74,9 +74,9 @@ export const trainingStudiesApi = {
     ),
   create: (projectId: string, body: TrainingStudyCreate, options?: RequestInit) =>
     apiClient.post<TrainingStudy>(base(projectId), body, options),
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
+  list: (projectId: string, offset = 0, options?: RequestInit, limit = 20) =>
     apiClient.get<{ total: number; items: StudySummary[] }>(
-      `${base(projectId)}?limit=20&offset=${offset}`,
+      `${base(projectId)}?limit=${limit}&offset=${offset}`,
       options,
     ),
   get: (projectId: string, studyId: string, options?: RequestInit) =>

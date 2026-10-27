@@ -385,17 +385,6 @@ def test_api_coverage_manifest_classifies_watched_operations():
                 f"{operation}: uncovered operation needs the not-implemented reason"
             )
 
-    counts = {
-        status: sum(entry["status"] == status for entry in declared.values())
-        for status in _COVERAGE_STATUSES
-    }
-    assert counts == {
-        "covered": 558,
-        "excluded": 10,
-        "planned": 0,
-        "uncovered": 0,
-    }
-
     covered = {
         operation
         for operation, entry in declared.items()

@@ -44,6 +44,9 @@ from tests.sample_evaluation_fixtures import (
 
 @pytest.fixture
 async def world(test_engine, monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     objects = Objects()
     monkeypatch.setattr(service.storage, "client", objects)
     monkeypatch.setattr(service.storage, "delete_prefix", objects.delete_prefix)
@@ -371,21 +374,22 @@ async def test_lost_commit_acknowledgement_keeps_the_published_report(world):
         run, attempt = await worker.fenced(db, world.attempt.id, claim_id)
         await complete_rows(db, run, attempt, world.fixture)
         await db.commit()
-    calls = 0
 
     @asynccontextmanager
     async def uncertain_factory():
-        nonlocal calls
-        calls += 1
         async with world.factory() as db:
-            if calls == 2:
-                commit = db.commit
+            commit = db.commit
 
-                async def commit_then_lose_ack():
-                    await commit()
+            async def commit_then_lose_ack():
+                publishing = any(
+                    isinstance(row, Attempt) and row.report
+                    for row in db.identity_map.values()
+                )
+                await commit()
+                if publishing:
                     raise ConnectionError("Commit ACK lost after success")
 
-                db.commit = commit_then_lose_ack
+            db.commit = commit_then_lose_ack
             yield db
 
     with pytest.raises(ConnectionError, match="ACK lost"):
@@ -412,8 +416,8 @@ async def test_competing_cancel_publish_and_revocation_cannot_delete_a_committed
     both_started, release_second = threading.Event(), threading.Event()
     counter, mutex = [], threading.Lock()
 
-    def synchronized_upload(*args):
-        artifact = upload(*args)
+    def synchronized_upload(*args, **kwargs):
+        artifact = upload(*args, **kwargs)
         with mutex:
             counter.append(artifact)
             index = len(counter)
@@ -504,9 +508,21 @@ async def test_deletion_intent_blocks_resurrection_and_purge_io_holds_no_domain_
         active = db
         assert await service.purge_requested(db, world.run.id)
         assert await db.get(Run, world.run.id) is None
-    late = {"key": service.report_prefix(world.run) + f"{world.attempt.id}/late.json"}
+    import hashlib
+
+    sha = hashlib.sha256(b"late").hexdigest()
+    late = {
+        "key": service.report_prefix(world.run) + f"{world.attempt.id}/{sha}.json",
+        "sha256": sha,
+    }
     world.objects.put_object(Bucket="test", Key=late["key"], Body=b"late")
-    await worker.cleanup_candidate(world.factory, world.run.id, world.attempt.id, late)
+    await worker.cleanup_candidate(
+        world.factory,
+        world.run.id,
+        world.attempt.id,
+        late,
+        storage_ref=world.run.storage_ref,
+    )
     assert late["key"] not in world.objects.objects
 
 

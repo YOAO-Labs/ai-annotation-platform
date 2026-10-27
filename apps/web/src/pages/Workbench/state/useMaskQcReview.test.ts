@@ -24,7 +24,7 @@ describe("Mask QC waits for actual frame presentation", () => {
     source: {},
     region_bbox: { x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.6 },
   } as MaskQcIssue;
-  function setup() {
+  function setup(isSourceReady?: () => boolean) {
     let finish!: (value: VideoFrameSeekResult) => void;
     const seek = new Promise<VideoFrameSeekResult>((resolve) => {
       finish = resolve;
@@ -52,7 +52,11 @@ describe("Mask QC waits for actual frame presentation", () => {
         getAiCandidate: () => null,
         getTrackerCandidates: () => [],
         videoControlsRef: {
-          current: { seekToFrameReady, focusRegion } as unknown as VideoStageControls,
+          current: {
+            seekToFrameReady,
+            focusRegion,
+            isSourceReady,
+          } as unknown as VideoStageControls,
         },
         selectTask: async () => true,
         setSelectedId,
@@ -70,6 +74,25 @@ describe("Mask QC waits for actual frame presentation", () => {
       compare,
     };
   }
+
+  it("metadata success waits for the current original lease and native source", async () => {
+    let ready = false;
+    const view = setup(() => ready);
+    let navigation!: Promise<void>;
+    act(() => {
+      navigation = view.result.current.navigate(issue);
+    });
+    await waitFor(() => expect(view.result.current.phase).toBe("waiting_manifest"));
+    expect(view.seekToFrameReady).not.toHaveBeenCalled();
+    ready = true;
+    await waitFor(() => expect(view.seekToFrameReady).toHaveBeenCalledOnce());
+    await act(async () => {
+      view.finish({ status: "unavailable", frameIndex: 17, source: null });
+      await navigation;
+    });
+    expect(view.setSelectedId).not.toHaveBeenCalled();
+    view.compare.mockRestore();
+  });
 
   it.each([
     { status: "cancelled", frameIndex: 17, source: null },
@@ -237,6 +260,7 @@ describe("Mask QC candidate identity", () => {
         annotationId: "annotation-1",
         frameIndex: 3,
         instanceId: "a",
+        label: "SAM2 · r4",
       }),
     ]);
   });

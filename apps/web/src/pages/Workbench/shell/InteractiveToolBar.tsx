@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 // v0.18.25 · 交互工具上下文浮块 (前身 AIToolDrawer, 已退役)。
 //
 // 浮在 ImageStage container 顶部居中, 选中 AI 工具 (point/box/exemplar) 时渲染, 与 MaskToolbar
@@ -646,7 +647,8 @@ export function InteractiveToolBar({
           className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-status-danger-soft p-2 text-xs text-status-danger"
         >
           <span role="alert" className="min-w-0 flex-1 break-words">
-            能力协商：{capabilityError ?? "无法获取后端能力"}
+            能力协商：
+            <CopyableError message={capabilityError ?? "无法获取后端能力"} />
           </span>
           {onRetryCapabilities && (
             <Button
@@ -669,7 +671,8 @@ export function InteractiveToolBar({
           role="alert"
           className="min-w-0 break-words rounded-lg bg-status-danger-soft p-2 text-xs text-status-danger"
         >
-          本轮推理：{inferenceError}
+          本轮推理：
+          <CopyableError message={inferenceError} />
         </div>
       )}
     </div>
@@ -840,7 +843,13 @@ export function InteractiveToolBar({
                         </option>
                       ))
                     ) : (
-                      <option value={backendName ?? ""}>{backendName ?? "未绑定 ML 后端"}</option>
+                      <option
+                        value={backendName ?? ""}
+                        disabled={!backendName}
+                        hidden={!backendName}
+                      >
+                        {backendName ?? "未绑定 ML 后端"}
+                      </option>
                     )}
                   </select>
                 </label>

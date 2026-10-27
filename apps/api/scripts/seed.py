@@ -247,6 +247,11 @@ async def seed(
     backend_requirements: str | None = None,
 ) -> None:
     parse_backend_requirements(backend_requirements)
+    if profile == "online-training":
+        await _seed_online_training_profile(
+            cache_dir=cache_dir, asset_dir=asset_dir, offline=offline
+        )
+        return
     assets = {}
     generated_assets = None
     if profile == "screenshots":
@@ -334,6 +339,12 @@ async def seed(
                 if info is None:
                     print("  skip  video P-VIDEO-DEV (已存在)")
                 else:
+                    if not strict:
+                        from app.workers.media import generate_video_metadata
+
+                        generate_video_metadata.delay(
+                            info["item_id"], delegation=info["video_delegation"]
+                        )
                     m = info["video_meta"]
                     print(
                         f"  add   video {info['project']}  "
@@ -476,10 +487,11 @@ async def seed(
             )
 
     if not strict:
-        # Demo accepts image backfills through Assets. Video work retains the
-        # existing video-owner Celery path. The screenshots profile has already
-        # waited for and verified its owned media synchronously.
-        from app.db.models.dataset import Dataset
+        # Demo keeps asynchronous backfill for all image/video datasets. The
+        # screenshots profile has already verified its owned media synchronously.
+        from app.db.models.dataset import Dataset, DatasetItem
+        from app.services import video_derivative_originals as originals
+        from app.services.content_snapshot import ContentError
         from app.workers.media import backfill_media
 
         async with Session() as db:
@@ -488,42 +500,139 @@ async def seed(
                     Dataset.data_type.in_(["image", "video"])
                 )
             )
-            selected_datasets = ds_rows.all()
-        for ds_id, disp, data_type in selected_datasets:
-            if data_type == "image":
-                from aap_assets_images.contract import ImageBackfillSelection
-                from app.services.assets_images import image_policy
-                from scripts.image_media_backfill import accept_image_backfill
+            for ds_id, disp, data_type in ds_rows.all():
+                if data_type == "image":
+                    from aap_assets_images.contract import ImageBackfillSelection
+                    from app.services.assets_images import image_policy
+                    from scripts.image_media_backfill import accept_image_backfill
 
-                accepted = await accept_image_backfill(
-                    ImageBackfillSelection(
-                        owner_kind="dataset_item",
-                        dataset_id=ds_id,
-                        purpose="thumbnail",
-                        only_missing=True,
-                        accepted_before=datetime.now(UTC),
-                    ),
-                    operation_id=uuid.uuid4(),
-                    policy=image_policy(),
+                    accepted = await accept_image_backfill(
+                        ImageBackfillSelection(
+                            owner_kind="dataset_item",
+                            dataset_id=ds_id,
+                            purpose="thumbnail",
+                            only_missing=True,
+                            accepted_before=datetime.now(UTC),
+                        ),
+                        operation_id=uuid.uuid4(),
+                        policy=image_policy(),
+                    )
+                    print(
+                        f"  image  accepted thumbnail backfill → {disp} "
+                        f"operation={accepted.operation_id} "
+                        f"cutoff={accepted.spec.selection.accepted_before.isoformat()} "
+                        f"job={accepted.work.job_id}"
+                    )
+                    continue
+                video_delegations = {}
+                video_ids = await db.scalars(
+                    select(DatasetItem.id).where(
+                        DatasetItem.dataset_id == ds_id,
+                        DatasetItem.file_type == "video",
+                    )
                 )
-                print(
-                    f"  image  accepted thumbnail backfill → {disp} "
-                    f"operation={accepted.operation_id} "
-                    f"cutoff={accepted.spec.selection.accepted_before.isoformat()} "
-                    f"job={accepted.work.job_id}"
-                )
-            else:
-                result = backfill_media.delay(str(ds_id))
-                print(
-                    f"  video  accepted metadata/poster backfill → {disp} id={result.id}"
-                )
+                for item_id in video_ids:
+                    try:
+                        source = await originals.pin(db, "dataset_item", item_id)
+                    except ContentError as exc:
+                        if exc.code not in {
+                            "no_readable_original",
+                            "content_unverified",
+                            "video_derivative_input_unsupported",
+                            "directory_cache_not_supported",
+                            "reference_operation_not_supported",
+                        }:
+                            raise
+                        print(
+                            f"  media  skip video {item_id}: {exc.code}; register/verify the canonical original first"
+                        )
+                        continue
+                    video_delegations[str(item_id)] = originals.system_authorization(
+                        "dataset_item", item_id, source
+                    )
+                await db.commit()
+                backfill_media.delay(str(ds_id), video_delegations=video_delegations)
+                print(f"  media  enqueue 缩略图回填 → {disp}")
 
     await engine.dispose()
 
 
+async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> None:
+    from scripts.seed_online_training import (
+        DATASET_ID,
+        PROJECT_DISPLAY_ID,
+        prepare_baseline,
+        seed_online_training,
+    )
+    from app.workers.media import backfill_media
+    from app.workers.training_dataset import build_dataset
+
+    try:
+        assets = ensure_profile(
+            "online-training",
+            assets=select_profile(
+                "online-training", required_ids={"coco8", "coco8-seg"}
+            ),
+            cache_dir=cache_dir,
+            asset_dir=asset_dir,
+            offline=offline,
+        )
+        async with Session() as db:
+            users = await _ensure_seed_accounts(db)
+            project, created = await seed_online_training(
+                db,
+                fixture=assets["coco8"].root,
+                owner_id=users["pm"],
+                annotator_id=users["anno"],
+                reviewer_id=users["qa"],
+                segmentation_fixture=assets["coco8-seg"].root,
+            )
+            await _ensure_demo_memberships(db, display_ids=(PROJECT_DISPLAY_ID,))
+            versions = [
+                await prepare_baseline(db, project, task=task)
+                for task in ("detect", "segment")
+            ]
+            await db.commit()
+            builds = [
+                (v.id, v.async_job_id, v.attempt_id, v.status == "pending")
+                for v in versions
+            ]
+        # Materialize both immutable task streams without requiring a worker.
+        for version_id, job_id, attempt_id, pending in builds:
+            if pending:
+                await build_dataset(version_id, job_id, attempt_id, Session)
+        async with Session() as db:
+            from app.db.models.training_dataset import TrainingDatasetVersion
+
+            for task, (version_id, _, _, _) in zip(
+                ("detect", "segment"), builds, strict=True
+            ):
+                version = await db.get(TrainingDatasetVersion, version_id)
+                if version.status != "ready":
+                    raise SeedAssetError(
+                        f"COCO8 {task} baseline status={version.status}: "
+                        f"{version.error_message or '在训练数据页面检查、重试或创建新版本'}"
+                    )
+                print(
+                    f"  {'add ' if created else 'keep'}  {PROJECT_DISPLAY_ID} "
+                    f"task={task} baseline=ready version={version.id} images=8 split=4/4"
+                )
+        backfill_media.delay(str(DATASET_ID))
+        print("  ready 检测与实例分割夹具；登录 pm，在训练数据按任务选择初始版本。")
+        print(
+            "  hint  检测试跑：epochs=1, batch=4, imgsz=320；"
+            "实例分割：yolo11n-seg, epochs=3, batch=1, imgsz=640。"
+        )
+        print("  hint  训练与自动策略由页面明确启动。")
+    finally:
+        await engine.dispose()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("demo", "screenshots"), default="demo")
+    parser.add_argument(
+        "--profile", choices=("demo", "screenshots", "online-training"), default="demo"
+    )
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--asset-dir", type=Path)
     parser.add_argument("--offline", action="store_true")

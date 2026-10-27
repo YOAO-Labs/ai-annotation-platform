@@ -165,6 +165,7 @@
   min-height: 240px;
   max-height: 560px;
   overflow: auto;
+  scrollbar-gutter: stable;
   background: var(--mdx-editor-background);
 }
 
@@ -271,7 +272,7 @@
 
 .contentEditable :global(pre) {
   max-width: 100%;
-  overflow: auto;
+  overflow-x: auto;
   padding: 0.75rem;
   border-radius: 5px;
   background: var(--mdx-editor-code);
@@ -291,6 +292,7 @@
   min-height: 240px;
   max-height: 560px;
   overflow: auto;
+  scrollbar-gutter: stable;
   background: var(--mdx-editor-background);
 }
 

@@ -131,9 +131,10 @@ plan() {
 # Both installers set the global VENV_PATH and must be called as statements.
 install_editable() {
   local dir="$1" python_version="$2" extras="$3"
+  shift 3
   new_venv "$python_version"
   log "install $dir editable [$extras] (python $python_version)"
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]"
+  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]" "$@"
 }
 
 install_file() {
@@ -156,7 +157,7 @@ run() {
   local suite="${1:?suite name required}"
   case "$suite" in
     shared-backend-runtime)
-      install_editable "apps/_shared/backend_runtime" "3.10" "test"
+      install_editable "apps/_shared/backend_runtime" "3.10" "test" -e "$ROOT/apps/_shared/protocol_v2"
       run_pytest "apps/_shared/backend_runtime" "$VENV_PATH"
       ;;
     shared-mask-utils)

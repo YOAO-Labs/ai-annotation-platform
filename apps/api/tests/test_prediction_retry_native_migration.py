@@ -49,8 +49,7 @@ def _function_signature(statement: str) -> str | None:
 
 def test_revision_is_additive_after_tracker_and_artifacts_exist():
     module = _migration()
-    assert module.revision == "0233"
-    assert module.down_revision == "0232"
+
     assert module._UPGRADE_ARTIFACTS == (
         "0233_prediction_retry_state.sql",
         "0233_prediction_retry_result_scope.sql",

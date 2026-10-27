@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {},
+  "$id": "aap-workspace-project-facts-native/v1",
+  "title": "Workspace Project facts and existing Labeling counters",
+  "$comment": "Workspace native facts compose with the existing Labeling-owned counter relation in one caller query. Raw JSONB/native values are not decoded by this descriptor.",
+  "x-postgresql-relations": {
+    "aap_workspace_v1.project_facts": {
+      "columns": [
+        "id",
+        "organization_id",
+        "display_id",
+        "name",
+        "type_label",
+        "type_key",
+        "data_type",
+        "owner_id",
+        "status",
+        "ai_enabled",
+        "ml_backend_pool_id",
+        "default_variants",
+        "preannotate_pipeline",
+        "label_config",
+        "tool_bindings",
+        "sampling",
+        "maximum_annotations",
+        "show_overlap_first",
+        "iou_dedup_threshold",
+        "box_threshold",
+        "text_threshold",
+        "ai_interactive_enabled",
+        "raster_mask_native_editing_enabled",
+        "mask_qc_config",
+        "point_cloud_quality_config",
+        "rendering_config",
+        "annotation_guide",
+        "guide_assets",
+        "model_version",
+        "task_lock_ttl_seconds",
+        "video_sampling",
+        "video_collaboration",
+        "scene_mode",
+        "prefer_same_scene_continuation",
+        "scene_continuation_window_min",
+        "due_date",
+        "created_at",
+        "updated_at",
+        "guide_assets_revision"
+      ],
+      "column_types": {
+        "id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "organization_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "display_id": {
+          "type": "character varying(20)",
+          "nullable": false
+        },
+        "name": {
+          "type": "character varying(255)",
+          "nullable": false
+        },
+        "type_label": {
+          "type": "character varying(50)",
+          "nullable": false
+        },
+        "type_key": {
+          "type": "character varying(30)",
+          "nullable": false
+        },
+        "data_type": {
+          "type": "character varying(30)",
+          "nullable": false
+        },
+        "owner_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "status": {
+          "type": "character varying(30)",
+          "nullable": false
+        },
+        "ai_enabled": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "ml_backend_pool_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "default_variants": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "preannotate_pipeline": {
+          "type": "jsonb",
+          "nullable": true
+        },
+        "label_config": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "tool_bindings": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "sampling": {
+          "type": "character varying(30)",
+          "nullable": false
+        },
+        "maximum_annotations": {
+          "type": "integer",
+          "nullable": false
+        },
+        "show_overlap_first": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "iou_dedup_threshold": {
+          "type": "double precision",
+          "nullable": false
+        },
+        "box_threshold": {
+          "type": "real",
+          "nullable": false
+        },
+        "text_threshold": {
+          "type": "real",
+          "nullable": false
+        },
+        "ai_interactive_enabled": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "raster_mask_native_editing_enabled": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "mask_qc_config": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "point_cloud_quality_config": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "rendering_config": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "annotation_guide": {
+          "type": "text",
+          "nullable": true
+        },
+        "guide_assets": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "model_version": {
+          "type": "character varying(100)",
+          "nullable": true
+        },
+        "task_lock_ttl_seconds": {
+          "type": "integer",
+          "nullable": false
+        },
+        "video_sampling": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "video_collaboration": {
+          "type": "jsonb",
+          "nullable": false
+        },
+        "scene_mode": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "prefer_same_scene_continuation": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "scene_continuation_window_min": {
+          "type": "integer",
+          "nullable": false
+        },
+        "due_date": {
+          "type": "date",
+          "nullable": true
+        },
+        "created_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "updated_at": {
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "guide_assets_revision": {
+          "type": "integer",
+          "nullable": false
+        }
+      },
+      "owner": "workspace",
+      "read_only": true,
+      "row_key": [
+        "id"
+      ],
+      "security_barrier": true,
+      "semantics": "Return every raw Workspace-owned Project column, excluding Labeling counters. JSONB, null and non-finite native values are not decoded or coerced by this relation contract."
+    },
+    "aap_labeling_v1.project_catalog_counters": {
+      "columns": [
+        "project_id",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "in_progress_tasks",
+        "batch_summary"
+      ],
+      "column_types": {
+        "project_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "total_tasks": {
+          "type": "integer",
+          "nullable": false
+        },
+        "completed_tasks": {
+          "type": "integer",
+          "nullable": false
+        },
+        "review_tasks": {
+          "type": "integer",
+          "nullable": false
+        },
+        "in_progress_tasks": {
+          "type": "integer",
+          "nullable": false
+        },
+        "batch_summary": {
+          "type": "jsonb",
+          "nullable": false
+        }
+      },
+      "owner": "labeling",
+      "read_only": true,
+      "row_key": [
+        "project_id"
+      ],
+      "security_barrier": true,
+      "semantics": "Reuse the existing Labeling catalog counter projection. All five persisted counter columns are NOT NULL in supported migrations, so the existing COALESCE defaults preserve native values. No extra relation or row codec is introduced."
+    }
+  }
+}

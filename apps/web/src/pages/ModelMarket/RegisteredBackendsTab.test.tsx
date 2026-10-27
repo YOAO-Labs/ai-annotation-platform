@@ -62,6 +62,9 @@ const mockUnloadMutate = vi.fn();
 const mockDrainMutate = vi.fn();
 const mockResumeMutate = vi.fn();
 const mockPatchPoolMutate = vi.fn();
+const mockDeleteServicePoolMutate = vi.fn();
+const mockPutPoolMemberMutate = vi.fn();
+const mockRemovePoolMemberMutate = vi.fn();
 const mockCapabilityPreview = vi.fn();
 const mockAcceptCapabilityMutate = vi.fn();
 
@@ -85,9 +88,9 @@ vi.mock("./useGlobalRegistry", () => ({
   }),
   usePatchServicePool: () => ({ mutate: mockPatchPoolMutate, isPending: false }),
   useCreateServicePool: () => ({ mutate: vi.fn(), isPending: false }),
-  useDeleteServicePool: () => ({ mutate: vi.fn(), isPending: false }),
-  usePutPoolMember: () => ({ mutate: vi.fn(), isPending: false }),
-  useRemovePoolMember: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteServicePool: () => ({ mutate: mockDeleteServicePoolMutate, isPending: false }),
+  usePutPoolMember: () => ({ mutate: mockPutPoolMemberMutate, isPending: false }),
+  useRemovePoolMember: () => ({ mutate: mockRemovePoolMemberMutate, isPending: false }),
   useCapabilityDriftPreview: (...args: unknown[]) => mockCapabilityPreview(...args),
   useAcceptCapabilityDrift: () => ({
     mutate: mockAcceptCapabilityMutate,
@@ -336,6 +339,9 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     mockDrainMutate.mockReset();
     mockResumeMutate.mockReset();
     mockPatchPoolMutate.mockReset();
+    mockDeleteServicePoolMutate.mockReset();
+    mockPutPoolMemberMutate.mockReset();
+    mockRemovePoolMemberMutate.mockReset();
     mockCapabilityPreview.mockReset();
     mockAcceptCapabilityMutate.mockReset();
     mockTopology.mockReset();
@@ -424,16 +430,146 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(screen.getByRole("tab", { name: /问题中心/ })).toBeInTheDocument();
     });
 
-    it("服务池行展示策略、ID、可路由/总实例、操作菜单", async () => {
+    it("服务池行隐藏 ID 文本并可复制完整值，不展开成员", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       renderUI();
       await screen.findByText("grounded-sam2-pool");
+      expect(screen.queryByText("pool-1", { exact: true })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "复制服务池 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("pool-1"));
+      expect(screen.queryByText("grounded-sam2", { exact: true })).not.toBeInTheDocument();
       // routing_policy 超管可见
       expect(screen.getByText(/平滑加权轮询/)).toBeInTheDocument();
       // 操作按钮
       expect(screen.getAllByTitle("服务池操作").length).toBeGreaterThan(0);
     });
 
+    it("同名服务池使用稳定序号，重命名和删除确认保留选中池身份", async () => {
+      const pools = [
+        makeTopologyPool({ id: "pool-a", name: "Shared Pool", members: [] }),
+        makeTopologyPool({ id: "pool-b", name: "Shared Pool", members: [] }),
+      ];
+      mockTopology.mockResolvedValue(makeTopology({ pools }));
+      mockRuntimeSnapshot.mockResolvedValue(makeSnapshot({ pools: [] }));
+      mockPatchPoolMutate.mockImplementation((_input, options: { onSuccess?: () => void }) => {
+        options.onSuccess?.();
+      });
+      renderUI();
+
+      expect(await screen.findAllByText("Shared Pool")).toHaveLength(2);
+      expect(screen.getByText("同名服务池 1/2")).toBeInTheDocument();
+      const poolSearch = screen.getByRole("textbox", { name: "搜索服务池或成员" });
+      await userEvent.type(poolSearch, "pool-b");
+      expect(await screen.findByText("同名服务池 2/2")).toBeInTheDocument();
+      expect(screen.queryByText("同名服务池 1/2")).not.toBeInTheDocument();
+      await userEvent.clear(poolSearch);
+      const secondRow = screen.getByText("同名服务池 2/2").closest("tr")!;
+      await userEvent.click(within(secondRow).getByRole("button", { name: /服务池操作.*2\/2/ }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "重命名" }));
+
+      const renameDialog = await screen.findByRole("dialog");
+      expect(renameDialog).toHaveTextContent("重命名服务池「Shared Pool（同名服务池 2/2）」");
+      await userEvent.clear(within(renameDialog).getByRole("textbox"));
+      await userEvent.type(within(renameDialog).getByRole("textbox"), "Renamed Pool");
+      await userEvent.click(within(renameDialog).getByRole("button", { name: "保存" }));
+      await waitFor(() =>
+        expect(mockPatchPoolMutate).toHaveBeenCalledWith(
+          { poolId: "pool-b", payload: { name: "Renamed Pool" } },
+          expect.anything(),
+        ),
+      );
+
+      const currentSecondRow = screen.getByText("同名服务池 2/2").closest("tr")!;
+      await userEvent.click(
+        within(currentSecondRow).getByRole("button", { name: /服务池操作.*2\/2/ }),
+      );
+      await userEvent.click(await screen.findByRole("menuitem", { name: "删除服务池" }));
+      const deleteDialog = await screen.findByRole("alertdialog");
+      expect(deleteDialog).toHaveTextContent("删除服务池「Shared Pool（同名服务池 2/2）」");
+      await userEvent.click(within(deleteDialog).getByRole("button", { name: "删除" }));
+      expect(mockDeleteServicePoolMutate).toHaveBeenCalledWith("pool-b", expect.anything());
+    });
+
+    it("同名成员在行、编辑、能力审核和移除确认中保持可区分且指向原实例", async () => {
+      const members = [
+        {
+          registry_id: "backend-a",
+          name: "CPU backend",
+          traffic_state: "disabled" as const,
+          weight: 1,
+          state: "connected",
+          last_checked_at: "2026-07-20T10:00:00Z",
+          gpu_resource_id: null,
+        },
+        {
+          registry_id: "backend-b",
+          name: "CPU backend",
+          traffic_state: "disabled" as const,
+          weight: 1,
+          state: "connected",
+          last_checked_at: "2026-07-20T10:00:00Z",
+          gpu_resource_id: null,
+        },
+      ];
+      mockTopology.mockResolvedValue(
+        makeTopology({
+          pools: [makeTopologyPool({ id: "cpu-pool", name: "CPU pool", members })],
+        }),
+      );
+      mockRuntimeSnapshot.mockResolvedValue(makeSnapshot({ pools: [] }));
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+      renderUI();
+
+      const poolRow = (await screen.findByText("CPU pool")).closest("tr")!;
+      await userEvent.click(within(poolRow).getByRole("button", { name: "展开成员" }));
+      const secondMemberRow = screen.getByText("同名实例 2/2").closest("tr")!;
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /复制实例.*同名实例 2\/2/ }),
+      );
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("backend-b"));
+      expect(screen.queryByText("backend-b", { exact: true })).not.toBeInTheDocument();
+
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /编辑.*同名实例 2\/2.*权重/ }),
+      );
+      const editDialog = await screen.findByRole("dialog");
+      expect(editDialog).toHaveTextContent("编辑「CPU backend（同名实例 2/2）」权重");
+      expect(editDialog).toHaveTextContent("服务池「CPU pool」");
+      await userEvent.click(within(editDialog).getByRole("button", { name: "保存" }));
+      expect(mockPutPoolMemberMutate).toHaveBeenCalledWith(
+        { poolId: "cpu-pool", registryId: "backend-b", payload: { weight: 1 } },
+        expect.anything(),
+      );
+      await userEvent.click(within(editDialog).getByRole("button", { name: "取消" }));
+
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /审核.*同名实例 2\/2.*能力变更/ }),
+      );
+      const reviewDialog = await screen.findByRole("dialog");
+      expect(reviewDialog).toHaveTextContent("审核「CPU backend（同名实例 2/2）」能力变更");
+      expect(reviewDialog).toHaveTextContent("服务池「CPU pool」");
+      expect(mockCapabilityPreview).toHaveBeenCalledWith("cpu-pool", "backend-b", true);
+      await userEvent.click(within(reviewDialog).getByRole("button", { name: "取消" }));
+
+      await userEvent.click(
+        within(secondMemberRow).getByRole("button", { name: /移除.*同名实例 2\/2/ }),
+      );
+      const removeDialog = await screen.findByRole("alertdialog");
+      expect(removeDialog).toHaveTextContent(
+        "从服务池「CPU pool」移除实例「CPU backend（同名实例 2/2）」",
+      );
+      await userEvent.click(within(removeDialog).getByRole("button", { name: "移除" }));
+      expect(mockRemovePoolMemberMutate).toHaveBeenCalledWith(
+        { poolId: "cpu-pool", registryId: "backend-b" },
+        expect.anything(),
+      );
+    });
+
     it("实例 tab 渲染实例行 + 详情/操作按钮，GPU claim 收敛进摘要列（plan §4.3）", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       mockListAll.mockResolvedValue({ items: [makeBackend()] });
       renderUI();
       // 切到实例 tab（Radix Tabs 用 pointerdown 切换）
@@ -441,6 +577,10 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       await screen.findByText("grounded-sam2");
       // URL 收进名称副行，完整值仍可通过 title 查看
       expect(screen.getByTitle("http://172.17.0.1:8001")).toBeInTheDocument();
+      expect(screen.queryByText("bk-1", { exact: true })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "复制实例 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("bk-1"));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       // GPU claim 摘要列显示完整资源 ID（带 GPU 前缀），title 带预算
       expect(screen.getByText("GPU node-a/index:0")).toBeInTheDocument();
       expect(screen.getByTitle(/node-a\/index:0 · 8192 MiB/)).toBeInTheDocument();
@@ -462,6 +602,8 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     });
 
     it("GPU 资源 tab 渲染资源行 + 两根独立 Progress 条（静态 vs 运行时）", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       mockGpuResources.mockResolvedValue(makeGpuResources([makeGpuResource()]));
       renderUI();
       await switchTab(/GPU 资源/);
@@ -470,11 +612,14 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(within(summary).getByText("全局期望模式")).toBeInTheDocument();
       expect(within(summary).getByText("Observe 就绪")).toBeInTheDocument();
       expect(within(summary).getByText("Enforce 未就绪")).toBeInTheDocument();
-      // 身份列显示设备序号 + 节点，完整资源 ID 折叠为短 ID（tooltip/复制保留全值）
+      // 身份列保留设备序号 + 节点；资源 ID 通过复制按钮提供完整值。
       expect(await screen.findByText("index:0")).toBeInTheDocument();
       expect(screen.getByText("节点 · node-a")).toBeInTheDocument();
       expect(screen.getByText("配置 · observe")).toBeInTheDocument();
-      expect(screen.getByTitle("node-a/index:0")).toBeInTheDocument();
+      expect(screen.queryByText("node-a/index:0", { exact: true })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "复制 GPU 资源 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("node-a/index:0"));
+      expect(screen.getByRole("button", { name: /展开受影响实例/ })).toBeInTheDocument();
       expect(screen.getByText(/1 个 backend/)).toBeInTheDocument();
       // committed 运行时占用的数值
       expect(screen.getByText(/4,096 MiB/)).toBeInTheDocument();
@@ -518,6 +663,58 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       // 切换到按服务池视图
       fireEvent.click(screen.getByRole("button", { name: "按服务池" }));
       expect(await screen.findByText("grounded-sam2-pool")).toBeInTheDocument();
+    });
+
+    it("同名项目绑定保持项目设置链接与服务池行的身份区分", async () => {
+      const projectIds = ["project-a", "project-b"];
+      const pools = [
+        makeTopologyPool({ id: "pool-a", name: "Shared Pool", members: [] }),
+        makeTopologyPool({ id: "pool-b", name: "Shared Pool", members: [] }),
+      ];
+      mockTopology.mockResolvedValue(makeTopology({ pools }));
+      mockRuntimeSnapshot.mockResolvedValue(makeSnapshot({ pools: [] }));
+      mockOverview.mockResolvedValue(
+        makeOverview({
+          projects: projectIds.map((project_id) => ({
+            project_id,
+            project_name: "Shared Project",
+            backends: [],
+          })),
+        }),
+      );
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+      renderUI();
+      await switchTab(/项目绑定/);
+
+      expect(await screen.findAllByText("Shared Project")).toHaveLength(2);
+      expect(screen.getByText("同名项目 1/2")).toBeInTheDocument();
+      expect(screen.getByText("同名项目 2/2")).toBeInTheDocument();
+      expect(screen.queryByText("project-a", { exact: true })).not.toBeInTheDocument();
+      const firstProjectLink = screen.getByRole("link", { name: /同名项目 1\/2/ });
+      const secondProjectLink = screen.getByRole("link", { name: /同名项目 2\/2/ });
+      expect(firstProjectLink).toHaveAttribute(
+        "href",
+        "/projects/project-a/settings?section=ml-backends",
+      );
+      expect(secondProjectLink).toHaveAttribute(
+        "href",
+        "/projects/project-b/settings?section=ml-backends",
+      );
+      const projectSearch = screen.getByRole("textbox", { name: "搜索项目" });
+      await userEvent.type(projectSearch, "project-b");
+      expect(await screen.findByText("同名项目 2/2")).toBeInTheDocument();
+      expect(screen.queryByText("同名项目 1/2")).not.toBeInTheDocument();
+      await userEvent.clear(projectSearch);
+      await userEvent.click(screen.getByRole("button", { name: /同名项目 2\/2/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("project-b"));
+
+      await userEvent.click(screen.getByRole("button", { name: "按服务池" }));
+      expect(await screen.findAllByText("Shared Pool")).toHaveLength(2);
+      expect(screen.getByText("同名服务池 1/2")).toBeInTheDocument();
+      expect(screen.getByText("同名服务池 2/2")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /同名服务池 2\/2/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("pool-b"));
     });
   });
 
@@ -655,6 +852,8 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
     });
 
     it("disabled 实例审核能力变更 → 预览差异并提交候选指纹", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
       mockTopology.mockResolvedValue(
         makeTopology({
           pools: [
@@ -687,6 +886,10 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       expect(await screen.findByText(/审核「grounded-sam2」能力变更/)).toBeInTheDocument();
       expect(screen.getByText("models")).toBeInTheDocument();
       expect(screen.getByText("supported_prompts")).toBeInTheDocument();
+      expect(screen.queryByText("b".repeat(64))).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "复制实例当前值哈希" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("b".repeat(64)));
+      expect(mockAcceptCapabilityMutate).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: /接受新能力并恢复接流/ }));
 
       expect(mockAcceptCapabilityMutate).toHaveBeenCalledWith(

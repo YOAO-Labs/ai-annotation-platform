@@ -31,7 +31,6 @@ from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 import uuid
 
-import httpx
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
     BackendResidency,
@@ -1508,11 +1507,14 @@ async def _run_action(
             async with dispatch_factory(request) as grant:
                 row["grant_generation"] = grant.generation
                 headers = {"Content-Type": "application/json"}
-                if endpoint.auth_method == "token" and endpoint.auth_token:
-                    headers["Authorization"] = f"Bearer {endpoint.auth_token}"
+                from app.services.ml_client import MLBackendClient
+
+                headers.update(MLBackendClient(endpoint.client_subject())._headers())
                 headers[GPU_GENERATION_HEADER] = grant.generation
                 headers[GPU_ADMISSION_TOKEN_HEADER] = grant.admission_token
-                async with httpx.AsyncClient(timeout=action.timeout_seconds) as client:
+                async with MLBackendClient(endpoint.client_subject())._http_client(
+                    timeout=action.timeout_seconds
+                ) as client:
                     database_probe_started_ms = time.monotonic() * 1000
                     row["http_started_database_clock"] = await database_clock()
                     row["http_started_database_probe_rtt_ms"] = (

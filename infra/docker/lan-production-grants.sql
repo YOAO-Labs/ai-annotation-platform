@@ -138,6 +138,16 @@ GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(u
     aap_jobs_v1.count_running_registry_predictions(uuid),
     aap_jobs_v1.video_execution_step(text,text),
     aap_jobs_v1.video_execution_checkpoint_step(text,text) TO :"application_role";
+GRANT USAGE ON SCHEMA aap_assets_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_operator_auxiliary(jsonb),
+    aap_assets_v1.open_operator_storage_operation(uuid),
+    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    aap_assets_v1.mark_operator_original_writing(uuid),
+    aap_assets_v1.record_operator_original_written(uuid,jsonb),
+    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
+    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.task_edit_lock_command(jsonb),
     aap_labeling_v1.task_workflow_command(jsonb),
@@ -149,8 +159,6 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.batch_control_command(jsonb),
     aap_labeling_v1.prediction_record_command(jsonb),
     aap_labeling_v1.prediction_partition_command(jsonb),
-    aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text),
-    aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text),
     aap_labeling_v1.scene_track_command(jsonb),
     aap_labeling_v1.cross_frame_write_command(jsonb),
     aap_labeling_v1.annotation_prediction_command(jsonb),
@@ -163,6 +171,12 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.scene_read_query(jsonb),
     aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
     aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
+    aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid),
+    aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
+    aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
+    aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
+    aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
+    aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text),
     aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
     aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]),
     aap_labeling_v1.next_batch_display_id(),
@@ -218,6 +232,11 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_notifications_v1.preference_command(jsonb),
     aap_notifications_v1.append_notification(jsonb),
     aap_notifications_v1.append_job_terminal_notification(jsonb),
+    aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
+    aap_notifications_v1.inbox_total_count_scoped(uuid,text),
+    aap_notifications_v1.inbox_unread_count_scoped(uuid,text),
+    aap_notifications_v1.read_state_command_scoped(jsonb),
+    aap_notifications_v1.delete_command_scoped(jsonb),
     aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
     aap_notifications_v1.inbox_total_count(uuid,text),
     aap_notifications_v1.inbox_unread_count(uuid,text),
@@ -245,6 +264,11 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_jobs_v1.jobs_by_execution_id(text),
     aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
     aap_jobs_v1.apply_lifecycle(uuid,jsonb),
+    aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
+    aap_jobs_v1.read_job_execution_snapshot(uuid),
+    aap_jobs_v1.read_job_progress(uuid),
+    aap_jobs_v1.read_job_progress_for_update(uuid,text,text),
+    aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb),
     aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
     aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
     aap_jobs_v1.delete_batch_predict_jobs(uuid),
@@ -424,7 +448,9 @@ REVOKE ALL ON TABLE aap_notifications_v1.notification_facts
     FROM :"application_role", PUBLIC;
 REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
     ON TABLE aap_notifications_v1.notification_facts FROM :"application_role", PUBLIC;
-REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text)
+REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text),
+    aap_notifications_v1._visible_inbox_rows_scoped(uuid,text),
+    aap_notifications_v1._notification_is_migration_inventory(uuid)
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
 REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, target_id,
@@ -612,6 +638,7 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_v1.read_actor_facts(uuid),
     aap_identity_v1.lock_accounts_share(uuid[],boolean),
     aap_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
+    aap_identity_v1.read_accepted_api_key_facts(uuid,uuid),
     aap_identity_v1.lock_accounts_update(uuid[],boolean),
     aap_identity_v1.lock_accounts_key_share(uuid[],boolean),
     aap_identity_v1.lock_super_admin_invariant(),
@@ -690,6 +717,7 @@ GRANT USAGE ON SCHEMA aap_workspace_configuration_v1,
 GRANT EXECUTE ON FUNCTION
     aap_workspace_configuration_v1.configuration_policy(),
     aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[]),
+    aap_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb),
     aap_workspace_template_query_v1.template_query_policy(),
     aap_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text),
     aap_workspace_directory_query_v1.directory_query_policy(),
@@ -855,6 +883,8 @@ GRANT EXECUTE ON FUNCTION
 -- The monolithic API/Celery runtime still composes the image media owner
 -- locally. Preserve its published image runtime surface alongside video.
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.read_video_derivative_links(uuid[]),
+    aap_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid),
     aap_assets_v1.read_image_source(uuid,uuid,uuid),
     aap_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb),
     aap_assets_v1.read_image_summaries(uuid,jsonb,text),
@@ -1444,6 +1474,7 @@ DECLARE
         'aap_inference_topology_v1.lock_empty_pool(uuid)',
         'aap_inference_topology_v1.delete_empty_pool(uuid)',
         'aap_inference_topology_v1.lock_member_upsert_rows(uuid,uuid)',
+        'aap_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])',
         'aap_inference_topology_v1.upsert_member(uuid,uuid,integer,text)',
         'aap_inference_topology_v1.remove_member(uuid,uuid,text)',
         'aap_inference_topology_v1.drain_member(uuid,uuid)',
@@ -1534,4 +1565,12 @@ BEGIN
     END IF;
 END;
 $inference_private_acl$;
+REVOKE EXECUTE ON FUNCTION
+    aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb)
+    FROM :"application_role", PUBLIC;
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb),
+    aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]),
+    aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)
+    TO :"application_role";
 COMMIT;

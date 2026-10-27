@@ -1,7 +1,7 @@
 """Add stable Assets association read capabilities.
 
-Revision ID: 0212
-Revises: 0211
+Revision ID: bo0212
+Revises: bo0211
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0212"
-down_revision = "0211"
+revision = "bo0212"
+down_revision = "bo0211"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0212_asset_association_reads.sql"

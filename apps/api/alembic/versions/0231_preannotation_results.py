@@ -1,7 +1,7 @@
 """Add durable ordinary batch prediction result authority.
 
-Revision ID: 0231
-Revises: 0230
+Revision ID: bo0231
+Revises: bo0230
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0231"
-down_revision = "0230"
+revision = "bo0231"
+down_revision = "bo0230"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

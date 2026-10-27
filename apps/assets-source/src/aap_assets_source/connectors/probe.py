@@ -3,13 +3,72 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from contextlib import contextmanager, suppress
+from threading import Timer
 from typing import Any
 
 from .host_guard import assert_host_allowed, normalize_allowlist
 from .registry import target_host
 
 _SAMPLE_LIMIT = 20
+PROBE_CONNECT_TIMEOUT = 10
+PROBE_TIMEOUT_SECONDS = 10
+
+
+def _mark_unsettled(exc: BaseException) -> BaseException:
+    exc.storage_operation_unsettled = True
+    return exc
+
+
+def _close_registered(resource) -> None:
+    """A failed close is not proof that the physical handle ended."""
+    close = getattr(resource, "close", None)
+    if close is None:
+        return
+    try:
+        close()
+    except BaseException as exc:
+        raise _mark_unsettled(exc)
+
+
+def _close_all(*resources) -> None:
+    """Close every handle, then surface the first uncertain close."""
+    failures: list[BaseException] = []
+    for resource in resources:
+        if resource is None:
+            continue
+        close = getattr(resource, "close", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except BaseException as exc:
+            failures.append(_mark_unsettled(exc))
+    if failures:
+        raise failures[0]
+
+
+@contextmanager
+def _close_on_deadline(close):
+    """Close the transport if the remote listing stops yielding; wait for it."""
+    failures: list[BaseException] = []
+
+    def finish_on_deadline():
+        try:
+            close()
+        except BaseException as exc:
+            failures.append(_mark_unsettled(exc))
+
+    timer = Timer(PROBE_TIMEOUT_SECONDS, finish_on_deadline)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+        timer.join()
+        if failures:
+            raise failures[0]
 
 
 async def probe_connection(
@@ -76,7 +135,9 @@ def _probe_s3(config: dict[str, Any], secret: dict[str, Any]) -> int:
         aws_secret_access_key=secret.get("secret_key") or "",
         region_name=config.get("region"),
         config=BotoConfig(
-            connect_timeout=10, read_timeout=15, retries={"max_attempts": 1}
+            connect_timeout=10,
+            read_timeout=15,
+            retries={"total_max_attempts": 1, "mode": "standard"},
         ),
     )
     try:
@@ -87,14 +148,13 @@ def _probe_s3(config: dict[str, Any], secret: dict[str, Any]) -> int:
         )
         return max(0, min(int(response.get("KeyCount", 0)), _SAMPLE_LIMIT))
     finally:
-        close = getattr(client, "close", None)
-        if close is not None:
-            with suppress(Exception):
-                close()
+        _close_registered(client)
 
 
 def _probe_sftp(
-    config: dict[str, Any], secret: dict[str, Any], known_hosts_file: str | None
+    config: dict[str, Any],
+    secret: dict[str, Any],
+    known_hosts_file: str | None,
 ) -> int:
     import paramiko
 
@@ -102,32 +162,43 @@ def _probe_sftp(
 
     client = paramiko.SSHClient()
     sftp = None
+    entries = None
     try:
-        if known_hosts_file:
-            client.load_host_keys(known_hosts_file)
-        else:
-            client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        private_key = load_sftp_private_key(secret)
-        client.connect(
-            hostname=config["host"],
-            port=int(config.get("port", 22)),
-            username=config["username"],
-            password=secret.get("password") if not private_key else None,
-            pkey=private_key,
-            timeout=10,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        sftp = client.open_sftp()
-        entries = sftp.listdir(config.get("base_path", ".") or ".")
-        return min(len(entries), _SAMPLE_LIMIT)
+        with _close_on_deadline(client.close):
+            if known_hosts_file:
+                client.load_host_keys(known_hosts_file)
+            else:
+                client.load_system_host_keys()
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+            private_key = load_sftp_private_key(secret)
+            client.connect(
+                hostname=config["host"],
+                port=int(config.get("port", 22)),
+                username=config["username"],
+                password=secret.get("password") if not private_key else None,
+                pkey=private_key,
+                timeout=PROBE_CONNECT_TIMEOUT,
+                auth_timeout=PROBE_CONNECT_TIMEOUT,
+                channel_timeout=PROBE_CONNECT_TIMEOUT,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+            sftp = client.open_sftp()
+            channel = getattr(sftp, "get_channel", lambda: None)()
+            if channel is not None:
+                with suppress(Exception):
+                    channel.settimeout(PROBE_CONNECT_TIMEOUT)
+            entries = sftp.listdir_iter(
+                config.get("base_path", ".") or ".", read_aheads=1
+            )
+            count = 0
+            for _ in entries:
+                count += 1
+                if count >= _SAMPLE_LIMIT:
+                    break
+            return count
     finally:
-        if sftp is not None:
-            with suppress(Exception):
-                sftp.close()
-        with suppress(Exception):
-            client.close()
+        _close_all(entries, sftp, client)
 
 
 __all__ = ["probe_connection"]

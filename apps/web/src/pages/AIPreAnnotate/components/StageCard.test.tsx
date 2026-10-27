@@ -8,6 +8,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 const mockCfg: any = {
+  backendId: "bk2",
+  paramsValue: {},
+  selectedClassIdx: new Set<number>(),
   configReady: true,
   buildArgs: () => ({ ml_backend_id: "bk2", params: {} }),
   capabilitiesQ: { isLoading: false, data: { models: [] } },

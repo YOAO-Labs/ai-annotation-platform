@@ -43,6 +43,14 @@ def _reject_account_error(error: AccountFailure):
             status_code=409, detail={"reason": "operation_conflict"}
         ) from None
     if error.code in {
+        "avatar_reference_changed",
+        "avatar_receipt_invalid",
+        "storage_maintenance",
+        "storage_maintenance_changed",
+        "storage_maintenance_busy",
+    }:
+        raise HTTPException(status_code=409, detail={"code": error.code}) from None
+    if error.code in {
         "credential_invalid",
         "credential_revoked",
         "generation_outdated",

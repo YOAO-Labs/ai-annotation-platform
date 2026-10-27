@@ -39,7 +39,8 @@ from app.schemas.mask_repair import (
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
-from app.services.async_job_terminal import JobTerminal
+from app.services.async_job_terminal import JobTerminal, committed_repair_units
+from app.services.content_snapshot import ContentError
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.mask_qc.service import (
@@ -52,6 +53,7 @@ from app.services.project_access import is_privileged_for_project
 from app.services.raster_mask_storage import (
     build_rle_reference,
     load_coco_rle,
+    lock_raster_mask_references,
     reserve_raster_mask_upload,
     store_mask_reference_objects,
 )
@@ -70,12 +72,13 @@ from aap_labeling.quality_data_contract import (
     CancelRepairBatch,
     CheckMaskQCIssueVersions,
     CreateMaskRepairBatch,
-    FailRepairDispatch,
     FailRepairRollback,
     FailRepairShard,
     FinishRepairExecution,
     FinishRepairRollback,
     RecordRepairCandidate,
+    RecordRepairRollbackShard,
+    ReadMaskRepairBatchForSource,
     RecordRepairShard,
     ReconcileRepairBatch,
     ReadMaskRepairBatchById,
@@ -97,6 +100,13 @@ from app.services.labeling_core_read_relations import get_core_row, task_row
 PLAN_TTL = timedelta(minutes=15)
 ROLLBACK_TTL = timedelta(days=7)
 MAX_SHARD_MUTATIONS = 100
+
+
+def _content_http_error(exc):
+    from app.services.managed_mask_repair import repair_http_error
+
+    return repair_http_error(exc)
+
 
 _DETERMINISTIC_KINDS = {
     "delete_small_islands",
@@ -145,6 +155,8 @@ def result_digest(batch: MaskRepairBatch) -> str:
 
 
 def batch_out(batch: MaskRepairBatch) -> MaskRepairBatchOut:
+    from app.services.managed_mask_repair import public_plan
+
     return MaskRepairBatchOut(
         id=batch.id,
         project_id=batch.project_id,
@@ -152,7 +164,7 @@ def batch_out(batch: MaskRepairBatch) -> MaskRepairBatchOut:
         rollback_async_job_id=batch.rollback_async_job_id,
         status=batch.status,
         plan_digest=batch.plan_digest,
-        plan=batch.plan_json or {},
+        plan=public_plan(batch.plan_json),
         result=batch.result_json or {},
         result_digest=result_digest(batch),
         receipt_expires_at=batch.receipt_expires_at,
@@ -171,6 +183,23 @@ async def load_repair_batch(
         ReadMaskRepairBatchById(
             schema=QUALITY_DATA_PROTOCOL,
             operation="read_batch_by_id",
+            batch_id=batch_id,
+            lock=lock,
+        ),
+    )
+    return (
+        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
+    )
+
+
+async def load_repair_batch_source(
+    db: AsyncSession, *, batch_id: uuid.UUID, lock: bool = False
+) -> MaskRepairBatch | None:
+    row = await quality_data_command(
+        db,
+        ReadMaskRepairBatchForSource(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_batch_for_source",
             batch_id=batch_id,
             lock=lock,
         ),
@@ -570,6 +599,7 @@ async def _plan_action(
             "kind": action.kind,
             "frame_index": frame_index,
             "source_version": int(target.version or 1),
+            "source_geometry_digest": canonical_digest(target.geometry),
             "class_name": target.class_name,
             "tool_unit_id": target.tool_unit_id,
             "region_bbox": issue.region_bbox,
@@ -702,6 +732,7 @@ async def create_repair_plan(
     project: Project,
     actor: User | IdentityActorFacts,
     request: MaskRepairDryRunRequest,
+    http_request=None,
 ) -> MaskRepairDryRunResponse:
     public_items: list[dict[str, Any]] = []
     executable_items: list[dict[str, Any]] = []
@@ -715,6 +746,13 @@ async def create_repair_plan(
                 action=action,
                 planned_annotations=planned_annotations,
             )
+            if private is not None:
+                from app.services.reference_mask_repair import freeze_item
+
+                task = await db.get(Task, uuid.UUID(private["task_id"]))
+                await freeze_item(db, task, actor, private, http_request)
+        except ContentError as exc:
+            raise _content_http_error(exc) from None
         except (KeyError, TypeError, ValueError) as exc:
             public = _skip_item(
                 action,
@@ -744,7 +782,9 @@ async def create_repair_plan(
         shard_count=len(shards),
     )
     plan = {
-        "schema_version": 1,
+        "schema_version": 2
+        if any("original_input" in item for item in executable_items)
+        else 1,
         "items": executable_items,
         "public_items": public_items,
         "shards": shards,
@@ -792,6 +832,7 @@ async def execute_repair_plan(
     actor: User | IdentityActorFacts,
     receipt: str,
     plan_digest: str,
+    http_request=None,
 ) -> tuple[MaskRepairBatch, bool]:
     row = await quality_data_command(
         db,
@@ -847,13 +888,25 @@ async def execute_repair_plan(
             reason="repair_plan_empty",
             message="repair plan contains no executable actions",
         )
+    from app.services.reference_mask_repair import capture_job_authority
+
+    try:
+        authority = await capture_job_authority(
+            db, batch, actor, http_request, initial=True
+        )
+    except ContentError as exc:
+        raise _content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR.value,
         project_id=project.id,
         user_id=actor.id,
-        payload={"mask_repair_batch_id": str(batch.id)},
+        payload={
+            "mask_repair_batch_id": str(batch.id),
+            **({"repair_authority": authority} if authority else {}),
+        },
     )
+
     await db.flush()
     updated = await quality_data_command(
         db,
@@ -879,6 +932,7 @@ async def request_repair_rollback(
     batch_id: uuid.UUID,
     actor: User | IdentityActorFacts,
     expected_result_digest: str,
+    http_request=None,
 ) -> MaskRepairBatch:
     row = await quality_data_command(
         db,
@@ -905,7 +959,7 @@ async def request_repair_rollback(
             message="repair result changed; refresh before rollback",
         )
     now = datetime.now(timezone.utc)
-    if batch.status not in {"completed", "partial"}:
+    if batch.status not in {"completed", "partial", "rollback_failed"}:
         raise MaskRepairError(
             status_code=409,
             reason="repair_batch_not_rollbackable",
@@ -918,13 +972,25 @@ async def request_repair_rollback(
             reason="repair_rollback_expired",
             message="repair rollback retention has expired",
         )
+    from app.services.reference_mask_repair import capture_job_authority
+
+    try:
+        authority = await capture_job_authority(
+            db, batch, actor, http_request, rollback=True
+        )
+    except ContentError as exc:
+        raise _content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR_ROLLBACK.value,
         project_id=batch.project_id,
         user_id=actor.id,
-        payload={"mask_repair_batch_id": str(batch.id)},
+        payload={
+            "mask_repair_batch_id": str(batch.id),
+            **({"repair_authority": authority} if authority else {}),
+        },
     )
+
     await db.flush()
     updated = await quality_data_command(
         db,
@@ -935,7 +1001,7 @@ async def request_repair_rollback(
             rollback_job_id=job.id,
         ),
     )
-    if not isinstance(updated, dict):
+    if not isinstance(updated, dict) or updated.get("id") != str(batch.id):
         raise MaskRepairError(
             status_code=409,
             reason="repair_batch_not_rollbackable",
@@ -949,6 +1015,7 @@ async def resume_repair_batch(
     *,
     batch_id: uuid.UUID,
     actor: User | IdentityActorFacts,
+    http_request=None,
 ) -> MaskRepairBatch:
     row = await quality_data_command(
         db,
@@ -975,13 +1042,24 @@ async def resume_repair_batch(
             message="only failed or partial repair batches can be resumed",
             status=batch.status,
         )
+    from app.services.reference_mask_repair import capture_job_authority
+
+    try:
+        authority = await capture_job_authority(db, batch, actor, http_request)
+    except ContentError as exc:
+        raise _content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR.value,
         project_id=batch.project_id,
         user_id=actor.id,
-        payload={"mask_repair_batch_id": str(batch.id), "resumed": True},
+        payload={
+            "mask_repair_batch_id": str(batch.id),
+            "resumed": True,
+            **({"repair_authority": authority} if authority else {}),
+        },
     )
+
     await db.flush()
     updated = await quality_data_command(
         db,
@@ -1051,37 +1129,25 @@ def translate_http_exception(exc: HTTPException) -> MaskRepairError:
     )
 
 
-def _completed_repair_shards(batch: MaskRepairBatch) -> int:
-    return sum(
-        1
-        for value in ((batch.result_json or {}).get("shards") or {}).values()
-        if isinstance(value, dict) and value.get("status") == "completed"
-    )
-
-
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
     """Keep partial repair and rollback-failure semantics in the repair owner."""
-    if terminal.cancelled:
-        # Rollback cancellation belongs to the repair lifecycle, not this fallback.
-        if terminal.kind != "mask_repair":
-            return
-        batch = await load_repair_batch_for_job(db, job_id=terminal.job_id, lock=True)
-        if batch is None or batch.status not in {"pending", "running"}:
-            return
-        status = "partial" if _completed_repair_shards(batch) else "cancelled"
-    else:
-        batch = await load_repair_batch_for_job(
-            db,
-            job_id=terminal.job_id,
-            rollback=terminal.kind == "mask_repair_rollback",
-            lock=True,
-        )
-    if batch is None:
+    rollback = terminal.kind == "mask_repair_rollback"
+    batch = await load_repair_batch_for_job(
+        db, job_id=terminal.job_id, rollback=rollback, lock=True
+    )
+    if batch is None or batch.status not in (
+        {"rolling_back"} if rollback else {"pending", "running"}
+    ):
         return
-    if not terminal.cancelled:
-        status = (
-            "rollback_failed" if terminal.kind == "mask_repair_rollback" else "failed"
-        )
+    status = (
+        "rollback_failed"
+        if rollback
+        else "partial"
+        if committed_repair_units(batch)
+        else "cancelled"
+        if terminal.cancelled
+        else "failed"
+    )
     await quality_data_command(
         db,
         ReconcileRepairBatch(
@@ -1113,7 +1179,7 @@ async def request_job_cancel(
                     operation="cancel_pending",
                     batch_id=batch.id,
                     status=(
-                        "partial" if _completed_repair_shards(batch) else "cancelled"
+                        "partial" if committed_repair_units(batch) else "cancelled"
                     ),
                     completed_at=datetime.now(timezone.utc),
                 ),
@@ -1136,7 +1202,6 @@ __all__ = [
     "dispatch_repair_batch",
     "execute_repair_plan",
     "execute_repair_shard",
-    "fail_repair_dispatch",
     "fail_repair_rollback",
     "finish_repair_execution",
     "finish_repair_rollback",
@@ -1149,8 +1214,7 @@ __all__ = [
     "resume_repair_batch",
     "result_digest",
     "rollback_repair_shard",
-    "stop_repair_execution_if_cancelled",
-    "store_repair_result_rle",
+    "store_repair_result_rles",
 ]
 _MASK_UPLOAD_LIMIT = 1000
 
@@ -1169,24 +1233,23 @@ def _load_execution_plan_payload(raw: dict[str, Any]) -> MaskMutationCommitReque
     return MaskMutationCommitRequest.model_validate(normalized)
 
 
-async def store_repair_result_rle(
+async def store_repair_result_rles(
     db: AsyncSession,
     *,
     task_id: uuid.UUID,
-    geometry: dict[str, Any],
-    reference: dict[str, Any],
-    rle: dict[str, Any],
+    results: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]],
 ) -> None:
-    await reserve_raster_mask_upload(
-        db,
-        task_id=task_id,
-        object_key=str(reference["object_key"]),
-        limit=_MASK_UPLOAD_LIMIT,
-    )
+    for _geometry, reference, _rle in results:
+        await reserve_raster_mask_upload(
+            db,
+            task_id=task_id,
+            object_key=str(reference["object_key"]),
+            limit=_MASK_UPLOAD_LIMIT,
+        )
     await store_mask_reference_objects(
         db,
-        geometry,
-        [(reference, rle)],
+        [geometry for geometry, _reference, _rle in results],
+        [(reference, rle) for _geometry, reference, rle in results],
         task_id=task_id,
     )
 
@@ -1254,37 +1317,35 @@ async def begin_repair_execution(
     )
 
 
-async def stop_repair_execution_if_cancelled(
-    db: AsyncSession, *, batch_id: uuid.UUID, async_job_id: uuid.UUID
-) -> bool:
-    job = await async_job_svc.get_job(db, async_job_id)
-    if job is None or (
-        job.status != "cancelled"
-        and not bool((job.payload or {}).get("cancel_requested"))
-    ):
-        return False
-    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
-    if batch is not None and batch.async_job_id == async_job_id:
-        completed_shards = [
-            value
-            for value in (_execution_result_copy(batch).get("shards") or {}).values()
-            if isinstance(value, dict) and value.get("status") == "completed"
-        ]
-        await quality_data_command(
-            db,
-            CancelRepairBatch(
-                schema=QUALITY_DATA_PROTOCOL,
-                operation="cancel_pending",
-                batch_id=batch.id,
-                status="partial" if completed_shards else "cancelled",
-                completed_at=datetime.now(timezone.utc),
-            ),
-        )
-    await async_job_svc.mark_cancelled(
-        db, async_job_id, result={"reason": "cancelled_by_user"}
+async def _validate_repair_source_unit(db, task_id, actor_id, source_owner, payload):
+    from app.services.labeling_core_read_relations import get_core_row, task_row
+
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
+    if task is None:
+        raise ContentError("repair_task_missing", 404)
+    if source_owner is None:
+        if task.file_type == "image":
+            raise ContentError("repair_original_requires_new_plan")
+        await MaskMutationService(db)._lock_task(task_id)
+        return
+    if getattr(source_owner, "is_managed", False):
+        from app.services.managed_mask_repair import validate_receipt
+    else:
+        from app.services.reference_mask_repair import validate_receipt
+    await validate_receipt(
+        db, task_id, actor_id, source_owner.receipt("unit", payload), "unit", payload
     )
-    await notify_job_terminal(db, job_id=async_job_id)
-    return True
+
+
+def _repair_mutation_receipt(source_owner, payload):
+    if source_owner is None:
+        return {}
+    key = (
+        "repair_original_receipt"
+        if getattr(source_owner, "is_managed", False)
+        else "reference_repair_receipt"
+    )
+    return {key: source_owner.receipt("mutation", payload.model_dump(mode="json"))}
 
 
 async def execute_repair_shard(
@@ -1294,6 +1355,7 @@ async def execute_repair_shard(
     shard: dict[str, Any],
     actor: User | IdentityActorFacts | IdentityActorStatus,
     async_job_id: uuid.UUID,
+    source_owner=None,
 ) -> dict[str, Any] | None:
     batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is None or batch.async_job_id != async_job_id:
@@ -1304,7 +1366,28 @@ async def execute_repair_shard(
         return existing
 
     plan_items = list((batch.plan_json or {}).get("items") or [])
-    progressed: set[str] = set()
+    task_id = uuid.UUID(str(shard["task_id"]))
+    await _validate_repair_source_unit(db, task_id, actor.id, source_owner, shard)
+    shard_items = [plan_items[int(index)] for index in shard.get("item_indexes") or []]
+    geometries = [
+        _load_execution_plan_payload(item["payload"])
+        .mutations[0]
+        .geometry.model_dump(mode="json", by_alias=True)
+        for item in shard_items
+    ]
+    await store_repair_result_rles(
+        db,
+        task_id=task_id,
+        results=[
+            (geometry, dict(item["result_reference"]), dict(item["result_rle"]))
+            for item, geometry in zip(shard_items, geometries, strict=True)
+        ],
+    )
+    progressed: dict[str, int] = {}
+    for saved in (_execution_result_copy(batch).get("shards") or {}).values():
+        if saved.get("status") == "completed" and saved.get("task_id") == str(task_id):
+            for entry in saved.get("items") or []:
+                progressed[str(entry["annotation_id"])] = int(entry["after_version"])
     item_results: list[dict[str, Any]] = []
     for item_index in shard.get("item_indexes") or []:
         item = plan_items[int(item_index)]
@@ -1325,7 +1408,7 @@ async def execute_repair_shard(
         conflicts = [
             annotation_id
             for annotation_id, version in current.items()
-            if version != frozen[annotation_id] and annotation_id not in progressed
+            if version != progressed.get(annotation_id, frozen[annotation_id])
         ]
         if conflicts:
             raise RuntimeError(f"version_conflict:{','.join(sorted(conflicts))}")
@@ -1342,18 +1425,13 @@ async def execute_repair_shard(
             }
         )
         target_id = str(item["annotation_id"])
-        mutation = payload.mutations[0]
-        geometry = mutation.geometry.model_dump(mode="json", by_alias=True)
-        await store_repair_result_rle(
-            db,
-            task_id=task_id,
-            geometry=geometry,
-            reference=dict(item["result_reference"]),
-            rle=dict(item["result_rle"]),
+        response = await mutation_service._commit(
+            task_id, payload, actor, **_repair_mutation_receipt(source_owner, payload)
         )
-        response = await mutation_service._commit(task_id, payload, actor)
+        if getattr(source_owner, "is_managed", False):
+            await source_owner.note_committed_mutation(payload, response)
         after_version = int(response.result_versions[target_id])
-        progressed.add(target_id)
+        progressed[target_id] = after_version
         from app.services.mask_qc.service import resolve_repair_issue
 
         await resolve_repair_issue(
@@ -1376,6 +1454,17 @@ async def execute_repair_shard(
                 ),
             }
         )
+        if getattr(source_owner, "is_managed", False):
+            from app.services.managed_mask_repair import annotation_facts
+            from app.services.labeling_core_read_relations import (
+                annotation_row,
+                get_core_row,
+            )
+
+            target = await get_core_row(
+                db, annotation_row, uuid.UUID(target_id), populate_existing=True
+            )
+            item_results[-1]["after_facts"] = annotation_facts(target)
 
     shard_result = {
         "status": "completed",
@@ -1412,6 +1501,9 @@ async def record_repair_shard_failure(
         return False
     if batch.async_job_id != async_job_id:
         return False
+    existing = (_execution_result_copy(batch).get("shards") or {}).get(str(shard["id"]))
+    if isinstance(existing, dict) and existing.get("status") == "completed":
+        return True
     await quality_data_command(
         db,
         FailRepairShard(
@@ -1440,6 +1532,11 @@ async def record_repair_candidate(
         return False
     if batch.async_job_id != async_job_id:
         return False
+    existing = (_execution_result_copy(batch).get("candidates") or {}).get(
+        str(item_index)
+    )
+    if isinstance(existing, dict) and existing.get("status") == "completed":
+        return True
     await quality_data_command(
         db,
         RecordRepairCandidate(
@@ -1468,7 +1565,9 @@ async def finish_repair_execution(
     if batch.async_job_id != async_job_id:
         return False
     final_status = (
-        "completed" if failed == 0 else ("partial" if completed else "failed")
+        "completed"
+        if failed == 0 and completed
+        else ("partial" if committed_repair_units(batch) else "failed")
     )
     completed_at = datetime.now(timezone.utc)
     summary = {
@@ -1488,13 +1587,13 @@ async def finish_repair_execution(
             completed_at=completed_at,
         ),
     )
-    if completed:
+    if final_status == "completed":
         await async_job_svc.mark_complete(db, async_job_id, result=summary)
     else:
         await async_job_svc.mark_failed(
             db,
             async_job_id,
-            error="all mask repair shards failed",
+            error="mask repair has incomplete or failed units",
             result=summary,
         )
     await notify_job_terminal(db, job_id=async_job_id)
@@ -1574,6 +1673,7 @@ async def rollback_repair_shard(
     actor: User | IdentityActorFacts | IdentityActorStatus,
     batch_id: uuid.UUID | None = None,
     rollback_job_id: uuid.UUID | None = None,
+    source_owner=None,
 ) -> int | None:
     if (batch_id is None) != (rollback_job_id is None):
         raise ValueError("repair batch and rollback attempt must be supplied together")
@@ -1582,6 +1682,19 @@ async def rollback_repair_shard(
         if batch is None or batch.rollback_async_job_id != rollback_job_id:
             return None
     entries = list(shard_result.get("items") or [])
+    if entries:
+        task_id = uuid.UUID(str(plan_items[int(entries[0]["item_index"])]["task_id"]))
+        await _validate_repair_source_unit(
+            db, task_id, actor.id, source_owner, shard_result
+        )
+        await lock_raster_mask_references(
+            db,
+            [
+                plan_items[int(entry["item_index"])]["before_geometry"]
+                for entry in entries
+            ],
+            verify=False,
+        )
     for entry in entries:
         item = plan_items[int(entry["item_index"])]
         annotation_rows = await quality_data_command(
@@ -1610,8 +1723,59 @@ async def rollback_repair_shard(
             for_update=False,
         )
         payload = _execution_rollback_payload(item=item, current_members=members)
-        await mutation_service._commit(uuid.UUID(str(item["task_id"])), payload, actor)
+        response = await mutation_service._commit(
+            uuid.UUID(str(item["task_id"])),
+            payload,
+            actor,
+            **_repair_mutation_receipt(source_owner, payload),
+        )
+        if getattr(source_owner, "is_managed", False):
+            await source_owner.note_committed_mutation(payload, response)
     return len(entries)
+
+
+async def record_repair_rollback_shard(
+    db: AsyncSession,
+    *,
+    batch_id: uuid.UUID,
+    rollback_job_id: uuid.UUID,
+    shard_id: str,
+    shard_result: dict[str, Any],
+    mutation_count: int,
+    managed: bool,
+) -> bool:
+    from app.services.labeling_core_read_relations import annotation_row, get_core_row
+    from app.services.managed_mask_repair import annotation_facts
+
+    versions, facts = {}, {}
+    for entry in shard_result.get("items") or []:
+        identifier = uuid.UUID(str(entry["annotation_id"]))
+        annotation = await get_core_row(
+            db, annotation_row, identifier, populate_existing=True
+        )
+        if annotation is None:
+            raise ContentError("repair_candidate_source_changed")
+        versions[str(identifier)] = annotation.version
+        if managed:
+            facts[str(identifier)] = annotation_facts(annotation)
+    result = await quality_data_command(
+        db,
+        RecordRepairRollbackShard(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="record_rollback_shard",
+            batch_id=batch_id,
+            rollback_job_id=rollback_job_id,
+            shard_id=shard_id,
+            result_value={
+                "status": "completed",
+                "mutation_count": mutation_count,
+                "versions": versions,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                **({"annotation_facts": facts} if managed else {}),
+            },
+        ),
+    )
+    return isinstance(result, dict) and result.get("id") == str(batch_id)
 
 
 async def finish_repair_rollback(
@@ -1629,10 +1793,13 @@ async def finish_repair_rollback(
     rolled_back_at = datetime.now(timezone.utc)
     result = _execution_result_copy(batch)
     result["rollback"] = {
+        **(result.get("rollback") or {}),
         "status": "completed",
         "mutation_count": rolled_back,
         "completed_at": rolled_back_at.isoformat(),
     }
+    for key in ("reason", "failed_shard_id", "failed_at", "rolled_back_count"):
+        result["rollback"].pop(key, None)
     await quality_data_command(
         db,
         FinishRepairRollback(
@@ -1668,6 +1835,7 @@ async def fail_repair_rollback(
     failed_at = datetime.now(timezone.utc)
     result = _execution_result_copy(batch)
     result["rollback"] = {
+        **(result.get("rollback") or {}),
         "status": "failed",
         "reason": error[:500],
         "failed_shard_id": failed_shard_id,
@@ -1708,30 +1876,3 @@ async def record_repair_dispatch_task(
     job = await async_job_svc.get_job(db, async_job_id)
     if job is not None:
         async_job_svc.bind_execution_id(job, celery_task_id)
-
-
-async def fail_repair_dispatch(
-    db: AsyncSession,
-    *,
-    batch_id: uuid.UUID,
-    async_job_id: uuid.UUID,
-    rollback: bool,
-    error: str,
-) -> None:
-    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
-    if batch is None:
-        return
-    current_job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
-    if current_job_id != async_job_id:
-        return
-    await quality_data_command(
-        db,
-        FailRepairDispatch(
-            schema=QUALITY_DATA_PROTOCOL,
-            operation="fail_rollback_dispatch" if rollback else "fail_dispatch",
-            batch_id=batch.id,
-            async_job_id=async_job_id,
-            error_message=error,
-        ),
-    )
-    await async_job_svc.mark_failed(db, async_job_id, error=error)

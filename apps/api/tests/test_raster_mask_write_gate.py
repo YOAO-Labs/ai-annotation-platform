@@ -195,13 +195,14 @@ def _prediction_write_scope(task, actor_id):
     )
 
 
-async def _apply_prediction(db, task, actor_id, result):
+async def _apply_prediction(db, task, actor_id, result, *, source="ml_backend"):
     return await PredictionService(db).apply_prediction_result(
         ApplyPredictionResultRequest(
             task_id=task.id,
             project_id=task.project_id,
             ml_backend_id=None,
             result=result,
+            source=source,
             write_scope=_prediction_write_scope(task, actor_id),
         )
     )
@@ -445,9 +446,14 @@ async def test_prediction_create_gate_on_keeps_all_contract_validation(
         load = AsyncMock(return_value=rle)
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    # Whole-video qualification owns ml_backend video results before this
+    # mask contract; the mask write path still has to reject the same task.
+    source = "interactive_accept" if case == "media" else "ml_backend"
 
     with pytest.raises(ApplyPredictionResultError) as exc_info:
-        await _apply_prediction(db_session, task, user.id, [_shape(reference)])
+        await _apply_prediction(
+            db_session, task, user.id, [_shape(reference)], source=source
+        )
 
     assert exc_info.value.detail["reason"] == expected_reason
     assert await _count_for_task(db_session, Prediction, task.id) == 0

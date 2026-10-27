@@ -5,8 +5,10 @@ import json
 import logging
 import re
 import uuid
+from copy import deepcopy
 from datetime import datetime
 from dataclasses import replace
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import inspect, or_, select
@@ -164,18 +166,18 @@ def _sync_attributes_meta(
     old_meta: dict | None,
     new_attrs: dict | None,
 ) -> dict:
-    """v0.20.10 · 人工改属性时同步 attributes_meta（键同步是正确性红线）。
+    """Preserve unchanged AI attributes and existing server-owned video lineage.
 
-    meta 只存 `origin=ai` 的条目；human 属性用「缺省即 human」隐式表达。规则：
-    - 某 AI key 的值**未变** → 保留其 meta（人工没动它，仍是 AI 产物）。
-    - 某 AI key 被人工**改值** → 删 meta（人工覆盖即认领，回落隐式 human）。
-    - 某 key 被**删除**（不在 new_attrs）→ meta 一并消失（不迭代即丢弃）。
-    - 新增的人工 key → 无 meta（隐式 human）。
-    内部键（`_shape_index` 等 `_` 前缀）不进 meta。
+    Human edits remove per-attribute AI provenance. Reserved keys from the
+    request never create or replace server-owned metadata.
     """
+    from app.services.video_prediction_reads import LINEAGE_KEY
+
     old_attrs = old_attrs or {}
     old_meta = old_meta or {}
     new_meta: dict = {}
+    if LINEAGE_KEY in old_meta:
+        new_meta[LINEAGE_KEY] = deepcopy(old_meta[LINEAGE_KEY])
     for key, val in (new_attrs or {}).items():
         if key.startswith("_"):
             continue
@@ -423,6 +425,7 @@ class AnnotationService:
         video_segment_id: uuid.UUID | None = None,
         verified_mask_content: _VerifiedMaskContent | None = None,
         require_verified_mask_content: bool = False,
+        native_original_receipt=None,
     ) -> Annotation:
         task = await get_core_row(self.db, task_row, task_id)
         if task is None:
@@ -430,7 +433,12 @@ class AnnotationService:
         if not require_verified_mask_content:
             verified_mask_content = (
                 verified_mask_content
-                or await preflight_mask_payload_for_write(self.db, task, geometry)
+                or await preflight_mask_payload_for_write(
+                    self.db,
+                    task,
+                    geometry,
+                    native_original_receipt=native_original_receipt,
+                )
             )
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
@@ -453,6 +461,7 @@ class AnnotationService:
             require_verified_content=(
                 require_verified_mask_content or verified_mask_content is not None
             ),
+            native_original_receipt=native_original_receipt,
         )
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
@@ -581,6 +590,9 @@ class AnnotationService:
         video_segment_id: uuid.UUID | None = None,
         *,
         write_scope: LabelingWriteScope,
+        reference_receipt=None,
+        repair_original_receipt=None,
+        video_acceptance_receipt=None,
     ) -> list[Annotation] | None:
         """采纳预测 → 转 annotation。
 
@@ -612,6 +624,54 @@ class AnnotationService:
             return None
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
+
+        from app.services.reference_access import reject_reference_scope
+
+        selection = None
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import (
+                selection_value,
+                validate_acceptance as validate_video_acceptance,
+            )
+            from app.services.content_snapshot import ContentError
+
+            if reference_receipt is not None or repair_original_receipt is not None:
+                raise ContentError("prediction_video_acceptance_receipt_invalid")
+            selection = selection_value(
+                shape_index, override_class_name, attribute_overrides, video_segment_id
+            )
+            await validate_video_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                video_acceptance_receipt,
+                selection=selection,
+            )
+        elif repair_original_receipt is not None:
+            from app.services.managed_repair_acceptance import (
+                selection_value,
+                validate_acceptance as validate_repair_acceptance,
+            )
+            from app.services.content_snapshot import ContentError
+
+            if reference_receipt is not None:
+                raise ContentError("repair_original_receipt_invalid")
+            selection = selection_value(
+                shape_index, override_class_name, attribute_overrides, video_segment_id
+            )
+            await validate_repair_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                repair_original_receipt,
+                selection=selection,
+            )
+        elif reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[prediction.task_id])
+        else:
+            from app.services.prediction_acceptance import validate_acceptance
+
+            await validate_acceptance(self.db, prediction, user_id, reference_receipt)
 
         pred_meta = (
             await self.db.execute(
@@ -782,15 +842,26 @@ class AnnotationService:
         from app.services.prediction import to_internal_shape
 
         raw_shapes = list(prediction.result or [])
+        rejected = set(prediction.rejected_shape_indexes or [])
         if shape_index is not None:
             if not (0 <= shape_index < len(raw_shapes)):
                 return None
+            if shape_index in rejected:
+                raise HTTPException(409, detail="Prediction shape was rejected")
             indexed = [(shape_index, to_internal_shape(raw_shapes[shape_index]))]
         else:
             indexed = [
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
+                if index not in rejected
             ]
+            if raw_shapes and not indexed:
+                raise HTTPException(409, detail="Prediction has no available shapes")
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import selected_shape_indexes
+
+            selected = set(selected_shape_indexes(video_acceptance_receipt))
+            indexed = [(index, shape) for index, shape in indexed if index in selected]
         preflight_task = await get_core_row(
             self.db, task_row, prediction.task_id, populate_existing=True
         )
@@ -798,6 +869,8 @@ class AnnotationService:
             self.db,
             preflight_task,
             [shape.get("geometry", {}) for _, shape in indexed],
+            repair_original_receipt=repair_original_receipt,
+            video_acceptance_receipt=video_acceptance_receipt,
         )
         task, _actor, _access = await lock_labeling_write(
             self.db,
@@ -813,6 +886,8 @@ class AnnotationService:
             [shape.get("geometry", {}) for _, shape in indexed],
             verified_content=verified_mask_content,
             require_verified_content=True,
+            repair_original_receipt=repair_original_receipt,
+            video_acceptance_receipt=video_acceptance_receipt,
         )
 
         # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
@@ -952,6 +1027,25 @@ class AnnotationService:
             annotation_id = uuid.uuid4()
             confidence = shape.get("confidence")
             annotation_type = shape.get("type", "bbox")
+            if video_acceptance_receipt is not None:
+                from app.services.video_prediction_reads import (
+                    LINEAGE_KEY,
+                    annotation_lineage,
+                )
+
+                attributes_meta[LINEAGE_KEY] = annotation_lineage(
+                    self.db,
+                    SimpleNamespace(
+                        task_id=task.id,
+                        project_id=task.project_id,
+                        parent_prediction_id=prediction_id,
+                        source="prediction_based",
+                        geometry=geometry,
+                    ),
+                    prediction,
+                    video_acceptance_receipt,
+                    idx,
+                )
             await annotation_prediction_command(
                 self.db,
                 CreateAcceptedAnnotation(
@@ -1053,6 +1147,14 @@ class AnnotationService:
                         detail={"reason": reason, "code": exc.code},
                     ) from exc
         await self._update_task_stats(prediction.task_id)
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import recheck_credentials
+
+            await recheck_credentials(self.db, video_acceptance_receipt)
         return anns
 
     async def _apply_secondary_inference(

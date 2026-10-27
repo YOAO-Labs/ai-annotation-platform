@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import event, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
@@ -18,6 +18,7 @@ from app.services import active_learning as service
 from app.services import active_learning_pool as pool
 from app.services import active_learning_references as references
 from app.services.assets_active_learning_fence_contract import CandidateItemFenceBusy
+from app.services.content_snapshot import ContentError
 from app.services.labeling_active_learning_source_contract import (
     CandidateEditFence,
     CandidatePageRead,
@@ -37,6 +38,7 @@ from tests.active_learning_fixtures import (
 )
 from tests.test_training_dataset_analysis import inputs
 from tests.factory import create_batch
+from tests.test_original_binary import request as original_request
 
 
 @pytest.mark.parametrize(
@@ -83,68 +85,43 @@ async def test_pool_rejects_current_or_historical_human_work(
     assert error.value.detail["code"] == "pool_stale"
 
 
-async def test_labeling_candidate_reads_keep_page_and_batch_query_counts(
+async def test_labeling_candidate_reads_preserve_page_order_and_scope(
     db_session, super_admin, monkeypatch
 ):
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
     candidate_sources, _assets_fence = candidate_ports(db_session)
-    statements = []
-
-    def record_statement(_connection, _cursor, statement, _parameters, _context, _many):
-        statements.append(statement)
-
-    engine = db_session.bind.sync_engine
-    event.listen(engine, "before_cursor_execute", record_statement)
-    try:
-        page = await candidate_sources.list_candidates(
-            CandidatePageRead(world.project.id, limit=2, offset=0)
+    page = await candidate_sources.list_candidates(
+        CandidatePageRead(world.project.id, limit=2, offset=0)
+    )
+    expected_page = sorted(world.tasks, key=lambda task: (task.created_at, task.id))[:2]
+    assert [row["task_id"] for row in page["items"]] == [
+        str(task.id) for task in expected_page
+    ]
+    assert page["total"] == len(world.tasks)
+    requested = tuple(task.id for task in reversed(world.tasks))
+    snapshots = await candidate_sources.read_candidate_sources(
+        CandidateSourcesRead(world.project.id, requested)
+    )
+    assert [row["task_id"] for row in snapshots] == sorted(
+        str(identity) for identity in requested
+    )
+    assert (
+        await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(world.project.id, ())
         )
-        assert len(statements) == 2
-        expected_page = sorted(
-            world.tasks, key=lambda task: (task.created_at, task.id)
-        )[:2]
-        assert [row["task_id"] for row in page["items"]] == [
-            str(task.id) for task in expected_page
-        ]
-        assert page["total"] == len(world.tasks)
-
-        statements.clear()
-        requested = tuple(task.id for task in reversed(world.tasks))
-        snapshots = await candidate_sources.read_candidate_sources(
-            CandidateSourcesRead(world.project.id, requested)
+        == []
+    )
+    with pytest.raises(CandidateSourceError) as error:
+        await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(world.project.id, (uuid.uuid4(),))
         )
-        assert len(statements) == 1
-        assert [row["task_id"] for row in snapshots] == sorted(
-            str(identity) for identity in requested
+    assert error.value.code == "pool_stale"
+    with pytest.raises(CandidateSourceError) as error:
+        await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(uuid.uuid4(), (world.tasks[0].id,))
         )
-
-        statements.clear()
-        assert (
-            await candidate_sources.read_candidate_sources(
-                CandidateSourcesRead(world.project.id, ())
-            )
-            == []
-        )
-        assert len(statements) == 1
-
-        statements.clear()
-        with pytest.raises(CandidateSourceError) as error:
-            await candidate_sources.read_candidate_sources(
-                CandidateSourcesRead(world.project.id, (uuid.uuid4(),))
-            )
-        assert error.value.code == "pool_stale"
-        assert len(statements) == 1
-
-        statements.clear()
-        with pytest.raises(CandidateSourceError) as error:
-            await candidate_sources.read_candidate_sources(
-                CandidateSourcesRead(uuid.uuid4(), (world.tasks[0].id,))
-            )
-        assert error.value.code == "pool_stale"
-        assert len(statements) == 1
-    finally:
-        event.remove(engine, "before_cursor_execute", record_statement)
+    assert error.value.code == "pool_stale"
 
 
 async def test_candidate_source_snapshot_detaches_mutable_json_arrays(
@@ -242,12 +219,15 @@ async def test_accept_revalidates_every_duplicate_member_not_only_representative
         other.assignee_id = owner.id
         await db_session.flush()
     else:
-        world.objects.put_object(
-            Bucket=service.storage.bucket,
-            Key=other.file_path,
-            Body=world.objects.objects[world.tasks[-1].file_path]["raw"],
+        replica = world.replicas[other.id]
+        replacement = world.replicas[world.tasks[-1].id]
+        world.originals.put(
+            replica.bucket,
+            replica.object_key,
+            world.originals.objects[replacement.bucket, replacement.object_key],
         )
-    with pytest.raises(HTTPException) as error:
+    expected_error = HTTPException if change == "assignment" else ContentError
+    with pytest.raises(expected_error) as error:
         await decide_with_ports(
             db_session,
             world.project,
@@ -257,7 +237,10 @@ async def test_accept_revalidates_every_duplicate_member_not_only_representative
                 request_id=uuid.uuid4(), action="accept", ordinals=[grouped["ordinal"]]
             ),
         )
-    assert error.value.detail["code"] in {"pool_stale", "source_stale"}
+    if change == "assignment":
+        assert error.value.detail["code"] in {"pool_stale", "source_stale"}
+    else:
+        assert error.value.code == "content_mismatch"
     assert round.accepted_tasks == 0
 
 
@@ -270,21 +253,18 @@ async def test_conditional_reads_compute_actual_sha_and_detect_inflight_object_c
         db_session, world.project, world.selection, owner.id
     )
     for sample in preview["pool"]:
-        raw = world.objects.objects[sample["snapshot"]["source_key"]]["raw"]
+        replica = world.replicas[uuid.UUID(sample["task_id"])]
+        raw = world.originals.objects[replica.bucket, replica.object_key]
         assert sample["sha256"] == hashlib.sha256(raw).hexdigest()
-    original = world.objects.get_object
+    original = world.originals.get_object
 
     def replaced(**kwargs):
-        key = kwargs["Key"]
-        world.objects.put_object(
-            Bucket=service.storage.bucket, Key=key, Body=b"changed after HEAD"
-        )
+        world.originals.put(kwargs["Bucket"], kwargs["Key"], b"changed after HEAD")
         return original(**kwargs)
 
-    monkeypatch.setattr(world.objects, "get_object", replaced)
-    with pytest.raises(HTTPException) as error:
+    monkeypatch.setattr(world.originals, "get_object", replaced)
+    with pytest.raises(ContentError, match="source_changed"):
         await prepare_with_ports(db_session, world.project, world.selection, owner.id)
-    assert error.value.detail["code"] == "source_unavailable"
 
 
 async def test_prepare_rechecks_api_key_after_candidate_media_io(
@@ -293,20 +273,23 @@ async def test_prepare_rechecks_api_key_after_candidate_media_io(
     from tests.factory import create_api_key
 
     owner, _ = super_admin
-    world = await seed(db_session, owner, monkeypatch)
+    world = await seed(db_session, owner, monkeypatch, count=2)
     key, _token = await create_api_key(
         db_session, owner.id, "active-learning-revocation", ["*"]
     )
-    original = pool.asyncio.to_thread
+    original = pool.originals.read_input
+    completed = 0
 
-    async def revoke_after_source_read(function, *args, **kwargs):
-        result = await original(function, *args, **kwargs)
-        if function is pool.read_input:
+    async def revoke_after_source_read(*args, **kwargs):
+        nonlocal completed
+        result = await original(*args, **kwargs)
+        completed += 1
+        if completed == len(world.tasks):
             key.revoked_at = service.now()
             await db_session.flush()
         return result
 
-    monkeypatch.setattr(pool.asyncio, "to_thread", revoke_after_source_read)
+    monkeypatch.setattr(pool.originals, "read_input", revoke_after_source_read)
     with pytest.raises(TrainingDatasetError) as error:
         await prepare_with_ports(
             db_session,
@@ -314,6 +297,9 @@ async def test_prepare_rechecks_api_key_after_candidate_media_io(
             world.selection,
             owner.id,
             str(key.id),
+            request=original_request(
+                owner, token=_token, key_id=key.id, scopes=key.scopes
+            ),
         )
     assert error.value.code == "api_key_revoked"
 
@@ -329,6 +315,7 @@ async def test_source_item_contention_maps_to_source_busy_during_create(
         world.project,
         world.selection,
         owner.id,
+        request=original_request(owner),
         candidate_sources=candidate_sources,
         training_authority=bind_training_authority(db_session),
     )

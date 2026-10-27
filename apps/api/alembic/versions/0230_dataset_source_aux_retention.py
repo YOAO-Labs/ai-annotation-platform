@@ -1,7 +1,7 @@
 """Fence DatasetItem deletion against scene history and retained Assets work.
 
-Revision ID: 0230
-Revises: 0229
+Revision ID: bo0230
+Revises: bo0229
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0230"
-down_revision = "0229"
+revision = "bo0230"
+down_revision = "bo0229"
 branch_labels = depends_on = None
 
 _ARTIFACT = (

@@ -17,16 +17,44 @@ service, mirroring the existing `test_seed_router.py` harness.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import hashlib
 import uuid
 
+import httpx
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 pytestmark = pytest.mark.asyncio
 
 A = "regaa"
 B = "regbb"
+
+
+@pytest.fixture
+async def committed_client(app_module, test_engine):
+    """Independent original readers must see the fixture's committed rows."""
+    from app.deps import get_db
+
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async def session():
+        async with factory() as db:
+            yield db
+
+    previous = app_module.dependency_overrides.get(get_db)
+    app_module.dependency_overrides[get_db] = session
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+        ) as client:
+            yield client
+    finally:
+        if previous is None:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous
 
 
 async def _build_owned(client, namespace: str) -> dict:
@@ -45,6 +73,210 @@ async def _cleanup_owned(client, namespace: str):
 
 def _owned_project_name(namespace: str) -> str:
     return f"E2E Owned {namespace}"
+
+
+@contextmanager
+def _restore_video_seed_objects(monkeypatch):
+    """Restore only the exact shared fixture keys written by this test."""
+    from botocore.exceptions import ClientError
+
+    from app.services.storage import storage_service
+
+    client = storage_service.client
+    put_object = client.put_object
+    previous = {}
+
+    def record_put(**kwargs):
+        locator = (kwargs["Bucket"], kwargs["Key"])
+        if not locator[1].startswith("e2e/video/"):
+            return put_object(**kwargs)
+        if locator not in previous:
+            try:
+                obj = client.get_object(Bucket=locator[0], Key=locator[1])
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] != "NoSuchKey":
+                    raise
+                previous[locator] = None
+            else:
+                body = obj["Body"]
+                try:
+                    previous[locator] = {
+                        "Body": body.read(),
+                        **{
+                            name: obj[name]
+                            for name in (
+                                "ContentType",
+                                "Metadata",
+                                "CacheControl",
+                                "ContentDisposition",
+                                "ContentEncoding",
+                                "ContentLanguage",
+                                "Expires",
+                            )
+                            if name in obj
+                        },
+                    }
+                finally:
+                    body.close()
+        return put_object(**kwargs)
+
+    monkeypatch.setattr(client, "put_object", record_put)
+    try:
+        yield
+    finally:
+        for (bucket, key), obj in previous.items():
+            if obj is None:
+                client.delete_object(Bucket=bucket, Key=key)
+            else:
+                put_object(Bucket=bucket, Key=key, **obj)
+
+
+async def _assert_verified_video_bytes(db_session, task_id):
+    from app.services import original_sources
+    from app.services.storage import storage_service
+
+    source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
+    assert source.media_type == "video" and source.bucket is not None
+    body = storage_service.client.get_object(
+        Bucket=source.bucket, Key=source.object_key
+    )["Body"]
+    try:
+        payload = body.read()
+    finally:
+        body.close()
+    assert payload
+    assert source.size_bytes == len(payload)
+    assert source.sha256 == hashlib.sha256(payload).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("route", "fixture"),
+    [("video-task", None), ("video-webcodecs", "malformed-samples")],
+)
+async def test_video_seeds_register_actual_original_bytes(
+    committed_client, db_session, route, fixture
+):
+    httpx_client = committed_client
+    body = await _build_owned(httpx_client, A)
+    try:
+        # Register after the owned image seed so this fixture owns only video writes.
+        with pytest.MonkeyPatch.context() as video_patch:
+            with _restore_video_seed_objects(video_patch):
+                payload = {"project_id": body["project_id"]}
+                if fixture is not None:
+                    payload["fixture"] = fixture
+                response = await httpx_client.post(
+                    f"/api/v1/__test/seed/{route}", json=payload
+                )
+                assert response.status_code == 200, response.text
+                await _assert_verified_video_bytes(
+                    db_session, response.json()["task_id"]
+                )
+    finally:
+        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+
+
+@pytest.fixture
+async def fixture_playback_registry(app_module, monkeypatch):
+    from app.services.original_playback_registry import PlaybackRegistry
+
+    registry = PlaybackRegistry()
+    monkeypatch.setattr(
+        app_module.state, "original_playback_registry", registry, raising=False
+    )
+    try:
+        yield registry
+    finally:
+        await registry.shutdown()
+
+
+@pytest.mark.parametrize("kind", ["task", "item"])
+async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neighbor(
+    committed_client, db_session, fixture_playback_registry, kind
+):
+    httpx_client = committed_client
+    from app.db.models.task import Task
+
+    async def seed_and_prepare(fixture, resource_kind):
+        video = await httpx_client.post(
+            "/api/v1/__test/seed/video-task",
+            json={"project_id": fixture["project_id"]},
+        )
+        assert video.status_code == 200, video.text
+        task_id = video.json()["task_id"]
+        task = await db_session.get(Task, uuid.UUID(task_id))
+        if resource_kind == "task":
+            base = f"/api/v1/files/tasks/{task_id}/original"
+        else:
+            from app.db.models.dataset import DatasetItem
+
+            item = await db_session.get(DatasetItem, task.dataset_item_id)
+            base = f"/api/v1/datasets/{item.dataset_id}/items/{item.id}/original"
+        login = await httpx_client.post(
+            "/api/v1/__test/seed/login", json={"email": fixture["admin_email"]}
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        identity = await httpx_client.get(base + "-identity", headers=headers)
+        assert identity.status_code == 200, identity.text
+        payload = {
+            "content_id": identity.json()["content_id"],
+            "sha256": identity.json()["sha256"],
+            "session_id": str(uuid.uuid4()),
+        }
+        response = await httpx_client.post(
+            base + "-playback", headers=headers, json=payload
+        )
+        assert response.status_code == 200, response.text
+        return response.json(), base, headers, payload
+
+    with pytest.MonkeyPatch.context() as video_patch:
+        with _restore_video_seed_objects(video_patch):
+            try:
+                owned = await _build_owned(httpx_client, A)
+                neighbor = await _build_owned(httpx_client, B)
+                own_wire, base, headers, payload = await seed_and_prepare(owned, kind)
+                other_kind = "item" if kind == "task" else "task"
+                neighbor_wire, _, _, _ = await seed_and_prepare(neighbor, other_kind)
+                registry = fixture_playback_registry
+                assert registry.diagnostics()["stages"] == 2
+                blocked = await httpx_client.post(
+                    base + "-playback",
+                    headers=headers,
+                    json={**payload, "session_id": str(uuid.uuid4())},
+                )
+                assert blocked.status_code == 429, blocked.text
+                assert blocked.json()["detail"]["code"] == (
+                    "video_playback_capacity_exceeded"
+                )
+
+                assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+                assert (
+                    await httpx_client.head(own_wire["media_path"])
+                ).status_code == 410
+                assert (
+                    await httpx_client.head(neighbor_wire["media_path"])
+                ).status_code == 200
+                assert registry.diagnostics()["stages"] == 1
+                assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+
+                rebuilt = await _build_owned(httpx_client, A)
+                rebuilt_wire, _, _, _ = await seed_and_prepare(rebuilt, kind)
+                assert registry.diagnostics()["stages"] == 2
+                retried = await _build_owned(httpx_client, A)
+                assert (
+                    await httpx_client.head(rebuilt_wire["media_path"])
+                ).status_code == 410
+                assert (
+                    await httpx_client.head(neighbor_wire["media_path"])
+                ).status_code == 200
+                assert registry.diagnostics()["stages"] == 1
+                await seed_and_prepare(retried, kind)
+                assert registry.diagnostics()["stages"] == 2
+            finally:
+                cleanups = [await _cleanup_owned(httpx_client, ns) for ns in (A, B)]
+                assert all(response.status_code == 200 for response in cleanups)
+                assert fixture_playback_registry.diagnostics()["stages"] == 0
 
 
 @pytest.mark.parametrize(
@@ -204,7 +436,7 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
         Bucket=storage_service.datasets_bucket, Prefix=f"e2e/owned/{A}/image/"
     )
     assert {obj["Key"] for obj in listing.get("Contents", [])} == {
-        f"e2e/owned/{A}/image/task-{index}.svg" for index in range(1, 6)
+        f"e2e/owned/{A}/image/task-{index}.png" for index in range(1, 6)
     }
 
     assert (await _cleanup_owned(httpx_client, A)).status_code == 200
@@ -577,6 +809,27 @@ async def test_owned_filtering_fixture_is_namespaced_and_converges(
     manifest_a = body_a.json()
     assert manifest_a["image"]["project_id"]
 
+    from app.services import original_sources
+
+    image_source = await original_sources.resolve_task(
+        db_session, uuid.UUID(manifest_a["image"]["task_ids"]["cross_object"])
+    )
+    assert image_source.media_type == "image" and image_source.size_bytes > 0
+    for task_id in manifest_a["video"]["task_ids"].values():
+        await _assert_verified_video_bytes(db_session, task_id)
+    for task_id in manifest_a["lidar"]["task_ids"]:
+        source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
+        assert source.media_type == "point_cloud" and source.size_bytes > 0
+        camera_links = [
+            link for link in source.relation.links if link.role.startswith("camera_")
+        ]
+        assert camera_links
+        for link in camera_links:
+            camera_source = await original_sources.resolve_task_link(
+                db_session, uuid.UUID(task_id), link.id
+            )
+            assert camera_source.media_type == "image" and camera_source.size_bytes > 0
+
     project_a_id = uuid.UUID(manifest_a["image"]["project_id"])
     assert (
         await db_session.scalar(
@@ -631,6 +884,7 @@ async def test_owned_filtering_fixture_is_namespaced_and_converges(
         )
         == 4
     )
+    assert (await _cleanup_owned(httpx_client, B)).status_code == 200
 
 
 async def test_owned_lidar_fixture_is_namespaced(
@@ -661,6 +915,22 @@ async def test_owned_lidar_fixture_is_namespaced(
         )
         == 1
     )
+
+    from app.db.models.dataset_asset import DatasetAsset
+    from app.services import original_sources
+
+    for task_id in body["lidar_task_ids"]:
+        source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
+        assert source.media_type == "point_cloud" and source.size_bytes > 0
+        assert source.bucket is not None
+        for link in source.relation.links:
+            if link.role.startswith("camera_"):
+                camera = await original_sources.resolve_task_link(
+                    db_session, uuid.UUID(task_id), link.id
+                )
+                assert camera.media_type == "image" and camera.size_bytes > 0
+                asset = await db_session.get(DatasetAsset, camera.content_id)
+                assert asset.checksum_value == camera.sha256
 
     assert (await _cleanup_owned(httpx_client, A)).status_code == 200
     assert (

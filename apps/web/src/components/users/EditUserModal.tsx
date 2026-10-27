@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -228,7 +229,11 @@ export function EditUserModal({ open, user, onClose }: Props) {
                     {rolePreviewPending ? "读取中…" : rolePreview ? "重新预览" : "查看影响"}
                   </Button>
                 </div>
-                {rolePreviewError && <div className="text-status-danger">{rolePreviewError}</div>}
+                {rolePreviewError && (
+                  <div className="text-status-danger">
+                    <CopyableError message={rolePreviewError} />
+                  </div>
+                )}
                 {currentPreview && (
                   <>
                     <div className="text-muted-foreground">
@@ -308,7 +313,8 @@ export function EditUserModal({ open, user, onClose }: Props) {
 
         {error && (
           <div className={styles.errorBox}>
-            <Icon name="warning" size={13} /> {(error as Error)?.message ?? "操作失败"}
+            <Icon name="warning" size={13} />{" "}
+            <CopyableError message={(error as Error)?.message ?? "操作失败"} />
           </div>
         )}
 

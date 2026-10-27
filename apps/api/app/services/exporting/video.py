@@ -139,6 +139,7 @@ def track_grid_rows(
     img_w: int,
     img_h: int,
     source_frames: list[int] | None = None,
+    checkpoint=None,
 ) -> list[dict]:
     """单 track 在采样网格上的逐帧行。
 
@@ -149,6 +150,8 @@ def track_grid_rows(
     grid = source_to_grid(frame_count, step, source_frames)
     rows: list[dict] = []
     for frame_index, grid_index in grid.items():
+        if checkpoint is not None:
+            checkpoint()
         frame = resolve_track_at_frame(geometry, frame_index)
         if frame is None:
             continue
@@ -202,6 +205,7 @@ def build_yolo_frame_det_labels(
     frame_start_number: int,
     include_attributes: bool,
     source_frames: list[int] | None = None,
+    checkpoint=None,
 ) -> dict[int, tuple[list[str], list[dict]]]:
     """YOLO det labels for sampled video frames.
 
@@ -215,6 +219,8 @@ def build_yolo_frame_det_labels(
     }
 
     for class_name, geometry, attributes in bboxes:
+        if checkpoint is not None:
+            checkpoint()
         source_frame = int(geometry.get("frame_index", 0))
         grid_index = grid.get(source_frame)
         if grid_index is None:
@@ -230,8 +236,12 @@ def build_yolo_frame_det_labels(
             attrs.append(attributes or {})
 
     for class_name, geometry, attributes in tracks:
+        if checkpoint is not None:
+            checkpoint()
         class_id = cat_map.get(class_name or "", 0)
         for source_frame, grid_index in grid.items():
+            if checkpoint is not None:
+                checkpoint()
             frame = resolve_track_at_frame(geometry, source_frame)
             if frame is None:
                 continue
@@ -260,6 +270,7 @@ def build_yolo_frame_seg_labels(
     frame_start_number: int,
     include_attributes: bool,
     source_frames: list[int] | None = None,
+    checkpoint=None,
 ) -> dict[int, tuple[list[str], list[dict]]]:
     """YOLO-seg labels：逐帧多边形（**保留顶点，不降级为外接框**）。
 
@@ -276,6 +287,8 @@ def build_yolo_frame_seg_labels(
     }
 
     for class_name, geometry, attributes in bboxes:
+        if checkpoint is not None:
+            checkpoint()
         if geometry.get("type") != "video_polygon":
             continue
         points = geometry.get("points") or []
@@ -290,10 +303,14 @@ def build_yolo_frame_seg_labels(
             attrs.append(attributes or {})
 
     for class_name, geometry, attributes in tracks:
+        if checkpoint is not None:
+            checkpoint()
         if geometry.get("type") != "video_track_polygon":
             continue
         class_id = cat_map.get(class_name or "", 0)
         for source_frame, grid_index in grid.items():
+            if checkpoint is not None:
+                checkpoint()
             frame = resolve_track_at_frame(geometry, source_frame)
             if frame is None:
                 continue
@@ -370,6 +387,7 @@ def build_coco_frames_seg(
     frame_start_number: int,
     include_attributes: bool,
     description: str = "",
+    checkpoint=None,
 ) -> dict:
     """视频逐帧 COCO instance segmentation 单文档（纯函数，无时间戳，确定性）。
 
@@ -398,6 +416,8 @@ def build_coco_frames_seg(
     skipped_class_names: set[str] = set()
 
     for record in sequences:
+        if checkpoint is not None:
+            checkpoint()
         seq = record["seq"]
         frame_count = int(record["frame_count"])
         step = max(1, int(record["step"]))
@@ -412,6 +432,8 @@ def build_coco_frames_seg(
         grid = {source: idx for idx, source in enumerate(sampled)}
 
         for grid_index, source_frame in enumerate(sampled):
+            if checkpoint is not None:
+                checkpoint()
             frame_no = grid_index + frame_start_number
             image_id_by_key[(seq, frame_no)] = next_image_id
             images.append(
@@ -426,6 +448,8 @@ def build_coco_frames_seg(
             next_image_id += 1
 
         for class_name, geometry, attributes, track_id in record["bboxes"]:
+            if checkpoint is not None:
+                checkpoint()
             if geometry.get("type") != "video_polygon":
                 continue
             points = geometry.get("points") or []
@@ -456,6 +480,8 @@ def build_coco_frames_seg(
             next_ann_id += 1
 
         for class_name, geometry, attributes, track_id in record["tracks"]:
+            if checkpoint is not None:
+                checkpoint()
             if geometry.get("type") not in {"video_track_polygon", "video_track_mask"}:
                 continue
             category_id = cat_map.get(class_name or "")
@@ -464,6 +490,8 @@ def build_coco_frames_seg(
                 skipped_class_names.add(class_name or "(empty)")
                 continue
             for source_frame, grid_index in grid.items():
+                if checkpoint is not None:
+                    checkpoint()
                 frame = resolve_track_at_frame(geometry, source_frame)
                 if frame is None:
                     continue
@@ -550,6 +578,7 @@ def build_mot_gt(
     img_w: int,
     img_h: int,
     source_frames: list[int] | None = None,
+    checkpoint=None,
 ) -> str:
     """gt.txt：``frame,id,bb_left,bb_top,bb_w,bb_h,conf,x,y,z``（conf=1，x/y/z=-1）。
 
@@ -558,6 +587,8 @@ def build_mot_gt(
     """
     lines: list[tuple[int, int, str]] = []
     for track_number, _class_name, geometry in tracks:
+        if checkpoint is not None:
+            checkpoint()
         for row in track_grid_rows(
             geometry,
             frame_count=frame_count,
@@ -565,6 +596,7 @@ def build_mot_gt(
             img_w=img_w,
             img_h=img_h,
             source_frames=source_frames,
+            checkpoint=checkpoint,
         ):
             frame = row["grid_index"] + 1  # MOT 1-based
             lines.append(
@@ -620,6 +652,7 @@ def build_kitti_labels(
     img_w: int,
     img_h: int,
     source_frames: list[int] | None = None,
+    checkpoint=None,
 ) -> str:
     """KITTI tracking label：每行 17 列。
 
@@ -629,6 +662,8 @@ def build_kitti_labels(
     """
     lines: list[tuple[int, int, str]] = []
     for track_number, class_name, geometry in tracks:
+        if checkpoint is not None:
+            checkpoint()
         kitti_type = class_name or "DontCare"
         for row in track_grid_rows(
             geometry,
@@ -637,6 +672,7 @@ def build_kitti_labels(
             img_w=img_w,
             img_h=img_h,
             source_frames=source_frames,
+            checkpoint=checkpoint,
         ):
             frame = row["grid_index"]  # KITTI 0-based
             x1 = row["left"]

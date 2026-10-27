@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { AttributeSchema, ToolBindings } from "@/api/projects";
 import type { ToolUnitId } from "@/constants/toolUnits";
 import type { AnnotationPayload } from "@/api/tasks";
@@ -47,6 +48,78 @@ export function continuousIntentError(
   if (intent.className && !classesForUnit(bindings, intent.toolUnitId).includes(intent.className))
     return "当前类别已不属于该工具";
   return null;
+}
+
+interface ContinuousCreationGuardOptions {
+  intent: ContinuousImageCreation | null;
+  setIntent: (intent: ContinuousImageCreation | null) => void;
+  ownerKey: string | null;
+  projectId: string | undefined;
+  contextAllowsIntent: boolean;
+  businessLocked: boolean;
+  mediaBlocked: boolean;
+  tool: Tool;
+  bindings: ToolBindings | undefined;
+  onInvalidBinding: (error: string) => void;
+}
+
+/** Media admission pauses writes without retiring a project-scoped creation intent. */
+export function useContinuousCreationGuard({
+  intent,
+  setIntent,
+  ownerKey,
+  projectId,
+  contextAllowsIntent,
+  businessLocked,
+  mediaBlocked,
+  tool,
+  bindings,
+  onInvalidBinding,
+}: ContinuousCreationGuardOptions): boolean {
+  const previousOwner = useRef(ownerKey);
+  const ownerChanged = previousOwner.current !== ownerKey;
+  useLayoutEffect(() => {
+    previousOwner.current = ownerKey;
+    if (!intent) return;
+    if (
+      ownerChanged ||
+      !ownerKey ||
+      !contextAllowsIntent ||
+      businessLocked ||
+      intent.projectId !== projectId
+    ) {
+      setIntent(null);
+      return;
+    }
+    const error = bindings ? continuousIntentError(intent, bindings) : null;
+    if (error) {
+      setIntent(null);
+      onInvalidBinding(error);
+      return;
+    }
+    const next = manualImageTool(tool);
+    if (!next) setIntent(null);
+    else if (next.unit !== intent.toolUnitId)
+      setIntent({
+        projectId: intent.projectId,
+        tool: next.tool,
+        toolUnitId: next.unit,
+        className: "",
+      });
+  }, [
+    intent,
+    setIntent,
+    ownerKey,
+    ownerChanged,
+    projectId,
+    contextAllowsIntent,
+    businessLocked,
+    tool,
+    bindings,
+    onInvalidBinding,
+  ]);
+  // Fence the changing owner's render before the layout effect clears its old intent.
+  return businessLocked || mediaBlocked || (ownerChanged && !!intent) || !ownerKey;
 }
 
 /** Every object starts with its own defaults, including false and zero. */

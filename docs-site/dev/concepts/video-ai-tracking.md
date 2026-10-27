@@ -56,7 +56,7 @@ tracker 先按能力确定请求所属服务池，再进入路由选择：
 
 ## 面板与布局状态
 
-AI 追踪与 AI 单题是两个独立的 Dockview panel，可以同时停靠、成组或浮动。顶部入口只显示或聚焦已有实例；布局隐藏不会关闭 tracker session、取消后台 job 或清空方向、范围与种子草稿，业务取消仍由面板内动作处理。
+AI 追踪与 单帧 AI是两个独立的 Dockview panel，可以同时停靠、成组或浮动。顶部入口只显示或聚焦已有实例；布局隐藏不会关闭 tracker session、取消后台 job 或清空方向、范围与种子草稿，业务取消仍由面板内动作处理。
 
 两个工具的空间状态进入账号级、按 context 保存的 `workbench.layout.workspace` schema 4。旧 `wb:video-tracker-panel-*` 与 `wb:ai-popover-*` 坐标 key 保留供旧构建回滚，新客户端不再读取、写入或上传它们。
 
@@ -118,7 +118,7 @@ queued -> running -> pending_review -> partially_reviewed -> accepted | discarde
                   -> cancelled ----------+----------+     # 已有部分结果时
 ```
 
-runner 把结果序列化到：
+runner 把结果序列化到 `VideoTrackerJob.staged_result`：
 
 ```json
 {
@@ -139,23 +139,37 @@ runner 把结果序列化到：
 }
 ```
 
-`geometry` 是 typed union：bbox、polygon，或 `{type:"mask", mask:coco_rle_ref, bbox?}`。`output_geometry` 可显式选择 `bbox / polygon / mask`；省略时跟随源轨迹。runner 在发布帧事件和追加候选前校验并把 inline tracker RLE 写成内容寻址引用。单 mask 限制 4096×4096、1,000,000 runs、4 MiB canonical object；annotation geometry 限 8 MiB，整个 staged payload 限 64 MiB。超限 job 以 `tracker_candidate_too_large` 失败并保持 `staged_result=NULL`。
+### 几何形态与体积上限
 
-正常完成进入 `pending_review`。第一次局部决定后进入 `partially_reviewed`，`staged_result.results` 只保留未决集合；全部候选决定后才进入 `accepted` 或 `discarded`。取消时 worker 在停止前暂存已收集的部分结果，状态保持 `cancelled`；若候选非空，前端仍可进入审阅。失败不生成可审候选。
+- **几何形态**：`geometry` 是 typed union（`bbox`、`polygon`，或 `{type:"mask", mask:coco_rle_ref, bbox?}`）。`output_geometry` 可显式选择 `bbox / polygon / mask`，省略时跟随源轨迹。
+- **内容寻址与体积护栏**：runner 在发布帧事件和追加候选前校验并把 inline tracker RLE 写成内容寻址引用：
+  - 单个 Mask 上限：`4096 × 4096`、`1,000,000` runs、`4 MiB` canonical object
+  - 单条 Annotation geometry 上限：`8 MiB`
+  - 整个 `staged_result` 载荷上限：`64 MiB`（超限 job 以 `tracker_candidate_too_large` 失败并保持 `staged_result=NULL`）
 
-局部决定需要 task 可见性，并限制为 job 创建者或项目特权角色。preview 返回 job revision、源 annotation version、稳定 candidate key、人工帧保护标记与决定计数；客户端必须把 revision 和源版本原样回传。服务端在落库事务内锁定并刷新 job、task、segment 和选中目标对应的源 annotation，复核 task 状态、assignment、segment lease、源版本、active 状态与 annotation lock；源删除不降级为新轨迹。重复相同决定幂等回放，旧 revision、相反决定或源版本漂移返回结构化 409。
+### 审阅状态流转与局部决定（`POST /video-tracker-jobs/{job_id}/decisions`）
 
-接受只写选中目标与闭区间帧窗口，拒绝只移除选区；窗口外、其它目标和未决 Mask 引用保持不变。人工关键帧默认返回 `manual_keyframe_protected`，显式 `override_manual=true` 才允许覆盖，并在与 annotation 变更同一事务的 `VIDEO_TRACKER_JOB_DECISION` 审计中记录 before / after digest。部分接受产生的新实例会把 `instance_id → annotation_id` 映射保存在 review state，后续窗口复用同一轨迹；每次写入后源版本基线随 annotation 单调更新。
+- **状态流转**：正常完成进入 `pending_review`；第一次局部决定后进入 `partially_reviewed`（`staged_result.results` 只保留未决集合）；全部候选决定后进入 `accepted` 或 `discarded`。取消时 worker 暂存已收集的部分结果（状态保持 `cancelled`，候选非空仍可审阅）；失败不生成可审候选。
+- **并发与版本复核**：
+  - 局部决定需要 task 可见性，并限制为 job 创建者或项目特权角色。
+  - `preview` 返回 `job.revision`、源 `annotation.version`、稳定 `candidate_key`、人工帧保护标记与决定计数；客户端必须原样回传 `revision` 和源版本。
+  - 服务端在落库事务内锁定并刷新 job、task、segment 和源 annotation，复核 task 状态、assignment、segment lease、源版本、active 状态与 annotation lock（源删除不降级为新轨迹）。重复相同决定幂等回放，旧 revision、相反决定或源版本漂移返回结构化 `409`。
+- **局部接受与人工关键帧保护**：
+  - 接受只写选中目标与闭区间帧窗口，拒绝只移除选区；窗口外、其它目标和未决 Mask 引用保持不变。
+  - 人工关键帧默认返回 `manual_keyframe_protected`，仅显式传入 `override_manual=true` 才允许覆盖，并在同事务 `VIDEO_TRACKER_JOB_DECISION` 审计中记录 before / after digest。
+  - 部分接受产生的新实例将 `instance_id → annotation_id` 映射保存在 review state，后续窗口复用同一轨迹。
 
 ### 人工 Mask 纠错与定向重传播
 
-纠错不会修改既有 tracking job，也不会在保存笔画时直接覆盖一段预测。工作台先通过版本条件写入一个 `source="manual"` 的 Mask 关键帧，再创建独立 `job_kind="correction"` 的 job。这样传播创建、路由或入队失败时，人工修正仍然是可恢复的持久事实；重试只创建新 job，不重复保存关键帧。
-
-correction prompt 冻结源 annotation / track、source version、corrected digest、方向窗口、segment lease、backend registry / pool / model 和 `protect_manual=true`。数据库的 partial unique lease 保证同一 task + track 只有一个活跃 correction。原生 seed 要求一个方向完全落在 backend 的单窗上限内；双向传播拆成 backward / forward 两次单窗调用，两个窗口都以同一人工帧播种，runner 丢弃 seed frame 的预测结果。
-
-Grounded-SAM2 与 SAM3 PVS 可消费 `CorrectionFramePrompt.mask_prompt`。SAM3 Multiplex 只消费显式 bbox fallback：用户必须确认，文本模型还必须提供文本，lineage 固定记录 fallback 原因和 seed digest。无论哪种 seed，runner 只暂存所选轨迹、所选窗口的 candidate，后续仍走局部 decision；整批 accept / discard 对 correction 固定拒绝。
-
-取消 correction 会清 staged candidate、释放活跃租约并保留人工帧。无人处理的 staged candidate 在 24 小时后释放引用；待审状态转为 discarded，避免候选和同轨租约永久阻止对象 GC。
+- **人工修正先持久化**：工作台先通过版本条件写入一个 `source="manual"` 的 Mask 关键帧，再创建独立 `job_kind="correction"` 的 job。传播创建、路由或入队失败时，人工修正仍是可恢复的持久事实；重试只创建新 job，不重复保存关键帧。
+- **单轨并发租约与双向拆分**：
+  - correction prompt 冻结源 annotation / track、source version、corrected digest、方向窗口、segment lease、backend registry / pool / model 和 `protect_manual=true`；数据库 partial unique lease 保证同一 `task + track` 只有一个活跃 correction。
+  - 双向传播拆成 backward / forward 两次单窗调用，两个窗口都以同一人工帧播种，runner 丢弃 seed frame 的预测结果。
+- **后端种子适配**：
+  - Grounded-SAM2 与 SAM3 PVS 直接消费 `CorrectionFramePrompt.mask_prompt`。
+  - SAM3 Multiplex 只消费显式 bbox fallback（需用户确认并提供文本，lineage 记录 fallback 原因和 seed digest）。
+  - runner 只暂存所选轨迹、所选窗口的 candidate，后续仍走局部 decision（整批 `accept / discard` 对 correction 固定拒绝）。
+- **取消与超时回收**：取消 correction 会清 staged candidate、释放活跃租约并保留人工帧；无人处理的 staged candidate 在 24 小时后释放引用并转为 `discarded`，避免永久阻止对象 GC。
 
 ## 接受阶段如何落库
 

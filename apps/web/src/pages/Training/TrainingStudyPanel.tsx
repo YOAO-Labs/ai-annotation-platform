@@ -1,9 +1,13 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { trainingStudiesApi } from "@/api/trainingStudies";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useTrainingViewOwner } from "./trainingViewOwner";
@@ -33,6 +37,7 @@ export function TrainingStudyPanel({
   const [params, setParams] = useSearchParams();
   const [expanded, setExpanded] = useState(() => params.has("study"));
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const lock = useRef(false);
@@ -40,10 +45,15 @@ export function TrainingStudyPanel({
   const client = useQueryClient();
   const identity = [projectId, scope, session.owner.userId, session.owner.revision];
   const studies = useQuery({
-    queryKey: ["training-studies", ...identity, page],
+    queryKey: ["training-studies", ...identity, page, pageSize],
     queryFn: async ({ signal }) => {
       session.assert(signal);
-      const result = await trainingStudiesApi.list(projectId, page * 20, { signal });
+      const result = await trainingStudiesApi.list(
+        projectId,
+        page * pageSize,
+        { signal },
+        pageSize,
+      );
       session.assert(signal);
       return result;
     },
@@ -68,6 +78,7 @@ export function TrainingStudyPanel({
     retry: false,
   });
   const study = detail.data;
+  const trials = useListPagination(study?.trials ?? [], selected);
   const cancel = async () => {
     if (!study || lock.current || !session.owns()) return;
     const id = study.id;
@@ -133,7 +144,7 @@ export function TrainingStudyPanel({
         <div className="mt-4">
           {(error || studies.error || detail.error) && (
             <p role="alert" className="mb-3 text-xs text-status-danger">
-              {error || studies.error?.message || detail.error?.message}
+              <CopyableError message={error || studies.error?.message || detail.error?.message} />
             </p>
           )}
           {studies.isLoading && (
@@ -161,20 +172,20 @@ export function TrainingStudyPanel({
               ))}
             </div>
           )}
-          {(studies.data?.total ?? 0) > 20 && (
-            <div className="mb-4 flex gap-2">
-              <Button size="sm" disabled={!page} onClick={() => setPage(page - 1)}>
-                上一页搜索
-              </Button>
-              <Button
-                size="sm"
-                disabled={(page + 1) * 20 >= (studies.data?.total ?? 0)}
-                onClick={() => setPage(page + 1)}
-              >
-                下一页搜索
-              </Button>
-            </div>
-          )}
+          <ListPagination
+            label="搜索"
+            page={page}
+            pageSize={pageSize}
+            total={studies.data?.total ?? 0}
+            loading={studies.isFetching}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(0);
+            }}
+            previousLabel="上一页搜索"
+            nextLabel="下一页搜索"
+          />
           {study && (
             <div aria-label="搜索详情" className="min-w-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -227,11 +238,11 @@ export function TrainingStudyPanel({
                   ，停止宽限中的实际计算已完整计入。
                 </p>
               )}
-              <p className="mt-3 break-all font-mono text-2xs text-muted-foreground">
-                计划 SHA256 {study.plan_digest}
+              <p className="mt-3 flex items-center gap-1 text-2xs text-muted-foreground">
+                计划摘要 <CopyValueButton value={study.plan_digest} label="复制搜索计划摘要" />
               </p>
               <div className="mt-4 space-y-3">
-                {study.trials.map((trial) => (
+                {trials.items.map((trial) => (
                   <article
                     key={trial.id}
                     className="min-w-0 rounded-lg border border-border p-3 text-xs"
@@ -275,14 +286,17 @@ export function TrainingStudyPanel({
                         {secondsLabel(trial.lease_seconds ?? 0)}
                       </p>
                     )}
-                    <p className="mt-2 break-all font-mono text-2xs text-muted-foreground">
-                      配置 SHA256 {trial.config_digest}
+                    <p className="mt-2 flex items-center gap-1 text-2xs text-muted-foreground">
+                      配置摘要{" "}
+                      <CopyValueButton value={trial.config_digest} label="复制试验配置摘要" />
                     </p>
                     {trial.result && (
                       <p className="mt-2">最终目标指标 {(trial.result.value * 100).toFixed(2)}%</p>
                     )}
                     {trial.result_error && (
-                      <p className="mt-2 text-status-caution">{trial.result_error}</p>
+                      <p className="mt-2 text-status-caution">
+                        <CopyableError message={trial.result_error} />
+                      </p>
                     )}
                     {trial.run_id && (
                       <Link
@@ -295,6 +309,14 @@ export function TrainingStudyPanel({
                   </article>
                 ))}
               </div>
+              <ListPagination
+                label="搜索试验"
+                page={trials.page}
+                pageSize={trials.pageSize}
+                total={trials.total}
+                onPageChange={trials.setPage}
+                onPageSizeChange={trials.setPageSize}
+              />
               <div className="mt-4 space-y-3" aria-label="兼容结果排名">
                 {study.rankings.length === 0 && (
                   <p className="text-xs text-muted-foreground">
@@ -323,8 +345,12 @@ export function TrainingStudyPanel({
                           </li>
                         ))}
                       </ol>
-                      <p className="mt-2 break-all font-mono text-2xs text-muted-foreground">
-                        评估身份 {group.compatibility_digest}
+                      <p className="mt-2 flex items-center gap-1 text-2xs text-muted-foreground">
+                        评估身份{" "}
+                        <CopyValueButton
+                          value={group.compatibility_digest}
+                          label="复制评估身份摘要"
+                        />
                       </p>
                       {ranked.length >= 2 && (
                         <Link

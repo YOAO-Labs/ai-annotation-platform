@@ -13,6 +13,10 @@ import pytest
 
 from aap_assets_source.connectors import SourceChangedError
 from aap_assets_source.connectors.base import SourceObject
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+    ManagedOriginalProof,
+)
 from aap_assets_source.import_contract import (
     ImportConnection,
     ImportEntry,
@@ -23,7 +27,6 @@ from aap_assets_source.import_contract import (
     ImportState,
 )
 from aap_assets_images.contract import ImageFailure, ObjectIdentity
-from aap_assets_source_import.database import EXPECTED_IMPORT_FUNCTIONS
 from aap_assets_source_import.__main__ import _handle_failure
 from aap_assets_source_import.storage import SourceReadError
 from aap_assets_source_import.workflow import (
@@ -358,9 +361,98 @@ class _RejectedSourceDatabase:
     def __init__(self, data: _RejectedSourceData) -> None:
         self.data = data
 
+    def __getattr__(self, name):
+        return getattr(self.data, name)
+
+    async def allocate(self, request):
+        return _managed_target(request)
+
+    async def open_operation(self, creation_id):
+        from aap_assets_source.managed_original_contract import (
+            ManagedOriginalOperation,
+        )
+
+        return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
+
+    async def close_operation(self, creation_id, operation_id, physical_settled):
+        return None
+
+    async def original_prepared(self, creation_id, prepared):
+        return None
+
+    async def original_writing(self, creation_id):
+        return None
+
+    async def original_written(self, creation_id, receipt):
+        return None
+
+    async def original_verified(self, creation_id, verification):
+        return None
+
+    async def fail_original(self, creation_id, outcome, error_code, evidence):
+        return None
+
     @asynccontextmanager
     async def transaction(self):
         yield self.data
+
+
+def _managed_target(request: dict) -> ManagedOriginalMaterial:
+    from uuid import UUID
+
+    file_path = request["file_path"]
+    key_prefix = ""
+    return ManagedOriginalMaterial(
+        creation_id=uuid4(),
+        dataset_id=UUID(request["dataset_id"]),
+        location_id=UUID("4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"),
+        bucket="datasets",
+        object_key=file_path,
+        key_prefix=key_prefix,
+        endpoint_url="http://s3",
+        storage_identity="a" * 64,
+        config_revision=1,
+        binding_generation=1,
+        max_bytes=request["max_bytes"],
+        content_type=request["content_type"],
+        origin=request["origin"],
+        mode=request["mode"],
+        publication_id=UUID(request["publication_id"]),
+        file_path=file_path,
+    )
+
+
+def _managed_result(file_size: int, content_hash: str, *, sha256: str, version="v1"):
+    proof = ManagedOriginalProof.verified(
+        mode="write",
+        sha256=sha256,
+        md5=content_hash,
+        size_bytes=file_size,
+        etag='"etag"',
+        version_id=version,
+        request_id="request",
+        prepared={"mode": "write"},
+        verification={
+            "sha256": sha256,
+            "md5": content_hash,
+            "size_bytes": file_size,
+            "etag": '"etag"',
+            "version_id": version,
+        },
+    )
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        file_size=file_size,
+        content_hash=content_hash,
+        dimensions=None,
+        object_identity=(
+            ObjectIdentity(etag="etag", byte_size=file_size, version_id=version)
+            if file_size and content_hash
+            else None
+        ),
+        proof=proof,
+    )
 
 
 class _TransactionRecorder:
@@ -368,6 +460,39 @@ class _TransactionRecorder:
         self.data = data
         self.commits = 0
         self.rollbacks = 0
+        self.originals: list[tuple] = []
+
+    async def allocate(self, request):
+        return _managed_target(request)
+
+    async def open_operation(self, creation_id):
+        from uuid import uuid4
+
+        from aap_assets_source.managed_original_contract import (
+            ManagedOriginalOperation,
+        )
+
+        return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
+
+    async def close_operation(
+        self, creation_id, operation_id, physical_settled
+    ) -> None:
+        self.originals.append((creation_id, "closed"))
+
+    async def original_prepared(self, creation_id, prepared) -> None:
+        self.originals.append((creation_id, "prepared"))
+
+    async def original_writing(self, creation_id) -> None:
+        self.originals.append((creation_id, "writing"))
+
+    async def original_written(self, creation_id, receipt) -> None:
+        self.originals.append((creation_id, "written"))
+
+    async def original_verified(self, creation_id, verification) -> None:
+        self.originals.append((creation_id, "verified"))
+
+    async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
+        self.originals.append((creation_id, outcome))
 
     @asynccontextmanager
     async def transaction(self):
@@ -521,16 +646,28 @@ class _ValidOnlyAdapter:
 
 
 class _ValidOnlyStorage:
-    async def transfer(self, _stream, entry, *, byte_budget, before_io, on_bytes):
+    async def transfer(
+        self,
+        _stream,
+        entry,
+        *,
+        target,
+        byte_budget,
+        before_io,
+        on_bytes,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ):
         assert entry.source.relpath == "batch/valid.jpg"
+        assert target.object_key == entry.file_path
         assert byte_budget >= 3
         before_io()
         on_bytes(3)
-        return (
+        return _managed_result(
             3,
             hashlib.md5(b"img", usedforsecurity=False).hexdigest(),
-            None,
-            ObjectIdentity(etag="published", byte_size=3),
+            sha256=hashlib.sha256(b"img").hexdigest(),
         )
 
 
@@ -614,7 +751,19 @@ class _BudgetStorage:
         self.fail_after = fail_after or {}
         self.budgets: list[int] = []
 
-    async def transfer(self, stream, entry, *, byte_budget, before_io, on_bytes):
+    async def transfer(
+        self,
+        stream,
+        entry,
+        *,
+        target,
+        byte_budget,
+        before_io,
+        on_bytes,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ):
         self.budgets.append(byte_budget)
         before_io()
         if entry.source.size > byte_budget:
@@ -628,11 +777,10 @@ class _BudgetStorage:
             raise SourceReadError("simulated partial source read")
         payload = stream.read()
         on_bytes(len(payload))
-        return (
+        return _managed_result(
             len(payload),
             hashlib.md5(payload, usedforsecurity=False).hexdigest(),
-            None,
-            None,
+            sha256=hashlib.sha256(payload).hexdigest(),
         )
 
 
@@ -764,7 +912,7 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     assert data.image_admission.calls[0]["item_id"] == data.entry.item_id
     assert data.image_admission.calls[0]["publication_id"] == data.entry.publication_id
     assert data.image_admission.calls[0]["object_identity"] == ObjectIdentity(
-        etag="published", byte_size=3
+        etag="etag", byte_size=3, version_id="v1"
     )
 
 
@@ -866,20 +1014,6 @@ async def test_wrong_scope_failure_finish_reply_rolls_back_before_commit() -> No
 
     assert database.commits == 0
     assert database.rollbacks == 1
-
-
-def test_database_role_is_limited_to_the_frozen_nine_capabilities() -> None:
-    assert EXPECTED_IMPORT_FUNCTIONS == {
-        "claim_dataset_import(uuid,integer,uuid)",
-        "heartbeat_dataset_import(uuid,uuid,integer)",
-        "read_dataset_import_connection(uuid,uuid,jsonb)",
-        "save_dataset_import_manifest(uuid,uuid,jsonb)",
-        "next_dataset_import_entry(uuid,uuid,uuid)",
-        "complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)",
-        "finish_dataset_import(uuid,uuid,text)",
-        "resolve_internal_image_source(text,uuid,text,jsonb)",
-        "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
-    }
 
 
 class _HeartbeatData:

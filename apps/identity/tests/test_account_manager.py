@@ -334,6 +334,43 @@ async def test_avatar_noop_returns_no_previous_ref_and_api_key_hash_is_fenced():
 
 
 @pytest.mark.asyncio
+async def test_upload_uses_the_frozen_expected_previous_reference_as_base():
+    token = "a" * 32
+    request = account_request(
+        "set_avatar_ref",
+        payload={
+            "avatar_ref": "upload:" + token,
+            "kind": "upload",
+            "bytes": 9,
+            "expected_previous_avatar_ref": "preset:blue",
+            "receipt": {
+                "token": token,
+                "sha256": "b" * 64,
+                "size_bytes": 9,
+                "object_version_id": "version-1",
+                "maintenance_revision": 1,
+                "storage_ref": {
+                    "schema": 1,
+                    "purpose": "avatars",
+                    "location_id": "4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7",
+                    "config_revision": 1,
+                    "binding_generation": 1,
+                    "endpoint_url": "http://minio:9000",
+                    "bucket": "avatars",
+                    "object_key": token + ".webp",
+                    "storage_identity": "c" * 64,
+                },
+            },
+        },
+    )
+    data = Data(account=account_record(avatar_ref="preset:other"))
+    reply = await manager(data).execute(request)
+    assert data.apply_command.base_value == "preset:blue"
+    assert data.apply_command.new_value.avatar_ref == "upload:" + token
+    assert reply.data.account.avatar_ref == "upload:" + token
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_uses_native_apply_without_receipt_payload():
     data = Data()
     reply = await manager(data).execute(account_request("heartbeat"))

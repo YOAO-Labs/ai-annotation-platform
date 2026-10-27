@@ -33,6 +33,7 @@ class StorageConnectionCreate(BaseModel):
 
 
 class StorageConnectionUpdate(BaseModel):
+    expected_revision: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     config: dict | None = None
     # 留空 = 不改密钥；给出则整体轮换。
@@ -41,6 +42,7 @@ class StorageConnectionUpdate(BaseModel):
 
 class StorageConnectionOut(BaseModel):
     id: uuid.UUID
+    revision: int
     name: str
     kind: StorageKind
     config: dict

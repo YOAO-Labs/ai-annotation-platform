@@ -7,6 +7,7 @@
   max-height: 240px;
   padding: 4px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   background: var(--sc-card);
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-md);

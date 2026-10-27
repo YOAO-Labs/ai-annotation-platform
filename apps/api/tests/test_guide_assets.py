@@ -1,590 +1,365 @@
-"""v0.10.13 · E1 · /projects/{id}/guide-assets/* endpoints.
+"""Guide bytes are authenticated by current project references and saved owners."""
 
-覆盖:
-- upload-init 成功签发 URL + key 形如 projects/{id}/guide/{uuid}-{filename}
-- 非 owner / 非 super_admin 写入 → 403
-- 不支持的 content_type → 400
-- upload-complete 成功 append entry 到 project.guide_assets
-- upload-complete 校验 storage 上文件存在 (head_object), 不存在 → 400
-- DELETE 同步移除 entry + 调 storage.delete_object
-- sign-url 对项目可见用户返回签名 URL，非成员或已移除成员 → 404
-- key 不属于当前项目 → 404 (防越权)
-"""
-
-from __future__ import annotations
-
+from copy import deepcopy
+import hashlib
 import uuid
 
 import pytest
-from sqlalchemy import event, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import inspect, select
 
-from aap_assets_source.guide_object_contract import GuideObjectFailure
-from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
-from app.db.models.user import User
-from aap_workspace.guide_asset_policy import MAX_GUIDE_ASSET_SIZE_BYTES
-from tests.factory import create_membership
-
-
-async def _seed_project(db: AsyncSession, owner_id: uuid.UUID) -> Project:
-    proj = Project(
-        id=uuid.uuid4(),
-        display_id=f"P-GA-{uuid.uuid4().hex[:6]}",
-        name="guide-asset-test",
-        type_label="图像-检测",
-        type_key="image-det",
-        owner_id=owner_id,
-    )
-    db.add(proj)
-    await db.flush()
-    return proj
+from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
+from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
+from app.services import guide_asset_references as references
+from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
+from tests._owned_s3 import patch_owned_client
+from tests.factory import create_membership, create_project
+from tests.test_comment_attachment_uploads import Objects, bearer
 
 
-def _add_guide_asset(proj: Project) -> str:
-    key = f"projects/{proj.id}/guide/{uuid.uuid4()}-show.png"
-    proj.guide_assets = [
-        {
-            "key": key,
-            "original_name": "show.png",
-            "content_type": "image/png",
-            "size": 100,
-            "uploaded_at": "2026-05-18T00:00:00+00:00",
-        }
-    ]
-    return key
+@pytest.fixture
+def objects(monkeypatch):
+    value = Objects()
+    patch_owned_client(monkeypatch, value.client)
+    monkeypatch.setattr(storage, "storage_service", value)
+    monkeypatch.setattr(uploads, "storage_service", value)
+    return value
 
 
-async def _add_member(
-    db: AsyncSession, proj: Project, user_id: uuid.UUID, role: str
-) -> ProjectMember:
-    return await create_membership(
-        db,
-        project_id=proj.id,
-        user_id=user_id,
-        role=role,
-        assigned_by=proj.owner_id,
-    )
-
-
-def _patch_storage(monkeypatch, *, upload_present=True, content_length=1024):
-    """Mock the narrow guide-object capability instead of API-wide storage."""
-
-    class GuideObjectPort:
-        def __init__(self):
-            self.deleted: list[str] = []
-
-        async def generate_upload_url(self, project_id, key, *, content_type):
-            return f"http://storage.local/put/{key}"
-
-        async def verify_upload(self, project_id, key):
-            return content_length if upload_present else None
-
-        async def delete_object(self, project_id, key):
-            self.deleted.append(key)
-
-        async def generate_download_url(self, project_id, key):
-            return f"http://storage.local/get/{key}"
-
-    port = GuideObjectPort()
-    monkeypatch.setattr(
-        "app.services.workspace_configuration._guide_objects", lambda: port
-    )
-    return port
-
-
-async def test_upload_init_returns_project_scoped_key(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
+@pytest.fixture
+async def project(db_session, project_admin):
+    result = await create_project(db_session, owner_id=project_admin[0].id)
     await db_session.commit()
+    return result
 
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-init",
-        json={"filename": "hint.png", "content_type": "image/png", "size": 1024},
-        headers=headers,
+
+def endpoint(project, suffix=""):
+    state = inspect(project, raiseerr=False)
+    identifier = state.identity[0] if state is not None else project
+    return f"/api/v1/projects/{identifier}/guide-assets" + (
+        f"/{suffix}" if suffix else ""
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["key"].startswith(f"projects/{proj.id}/guide/")
 
 
-async def test_upload_init_rejects_disallowed_content_type(
-    httpx_client, super_admin, db_session, monkeypatch
+async def upload(
+    client,
+    actor,
+    project,
+    *,
+    data=b"image\x00bytes",
+    mime="image/png",
+    name="参考 图%一.png",
 ):
-    _patch_storage(monkeypatch)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    await db_session.commit()
-
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-init",
-        json={
-            "filename": "boom.exe",
-            "content_type": "application/x-msdownload",
-            "size": 1024,
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 400
-
-
-async def test_upload_init_forbidden_to_non_owner(
-    httpx_client, super_admin, project_admin, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch)
-    super_user, _ = super_admin
-    pm_user, pm_token = project_admin
-    proj = await _seed_project(db_session, super_user.id)
-    # Visible work member: a non-owner project administrator is denied management
-    # with 403 instead of an invisible-project 404.
-    await _add_member(db_session, proj, pm_user.id, "annotator")
-    await db_session.commit()
-
-    headers = {"Authorization": f"Bearer {pm_token}"}
-    resp = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-init",
-        json={"filename": "x.png", "content_type": "image/png", "size": 100},
-        headers=headers,
-    )
-    assert resp.status_code == 403, resp.text
-
-
-async def test_upload_complete_appends_entry(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch, content_length=2048)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    await db_session.commit()
-
-    key = f"projects/{proj.id}/guide/{uuid.uuid4()}-cat.png"
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-complete",
-        json={"key": key, "original_name": "cat.png", "content_type": "image/png"},
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.text
-
-    # Read through the public endpoint rather than expiring the shared SAVEPOINT session.
-    detail = await httpx_client.get(f"/api/v1/projects/{proj.id}", headers=headers)
-    assert detail.status_code == 200, detail.text
-    keys = [e["key"] for e in detail.json()["guide_assets"]]
-    assert key in keys
-
-
-async def test_upload_complete_rejects_missing_storage_object(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch, upload_present=False)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    await db_session.commit()
-
-    key = f"projects/{proj.id}/guide/{uuid.uuid4()}-x.png"
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-complete",
-        json={"key": key, "original_name": "x.png", "content_type": "image/png"},
-        headers=headers,
-    )
-    assert resp.status_code == 400
-
-
-async def test_upload_complete_rejects_observed_oversize_object(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch, content_length=MAX_GUIDE_ASSET_SIZE_BYTES + 1)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    await db_session.commit()
-
-    key = f"projects/{proj.id}/guide/{uuid.uuid4()}-large.png"
-    response = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-complete",
-        json={"key": key, "original_name": "large.png", "content_type": "image/png"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert response.status_code == 400
-    detail = await httpx_client.get(
-        f"/api/v1/projects/{proj.id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert detail.status_code == 200
-    assert detail.json()["guide_assets"] == []
-
-
-async def test_upload_complete_rejects_foreign_key(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    """key 不属于该项目 (路径前缀不匹配) → 404, 防越权写入."""
-    _patch_storage(monkeypatch)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    other_id = uuid.uuid4()
-    await db_session.commit()
-
-    foreign_key = f"projects/{other_id}/guide/{uuid.uuid4()}-x.png"
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.post(
-        f"/api/v1/projects/{proj.id}/guide-assets/upload-complete",
-        json={
-            "key": foreign_key,
-            "original_name": "x.png",
-            "content_type": "image/png",
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 404
-
-
-async def test_delete_asset_removes_registered_metadata(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-
-    existing_key = f"projects/{proj.id}/guide/{uuid.uuid4()}-old.png"
-    proj.guide_assets = [
-        {
-            "key": existing_key,
-            "original_name": "old.png",
-            "content_type": "image/png",
-            "size": 100,
-            "uploaded_at": "2026-05-18T00:00:00+00:00",
-        }
-    ]
-    await db_session.commit()
-
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.request(
-        "DELETE",
-        f"/api/v1/projects/{proj.id}/guide-assets",
-        params={"key": existing_key},
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.text
-
-    detail = await httpx_client.get(f"/api/v1/projects/{proj.id}", headers=headers)
-    assert detail.status_code == 200
-    assert detail.json()["guide_assets"] == []
-
-
-async def test_delete_asset_removes_entry_when_storage_delete_fails(
-    httpx_client, super_admin, db_session, monkeypatch
-):
-    storage = _patch_storage(monkeypatch)
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    existing_key = f"projects/{proj.id}/guide/{uuid.uuid4()}-old.png"
-    proj.guide_assets = [
-        {
-            "key": existing_key,
-            "original_name": "old.png",
-            "content_type": "image/png",
-            "size": 100,
-            "uploaded_at": "2026-05-18T00:00:00+00:00",
-        }
-    ]
-    await db_session.commit()
-
-    async def fail_delete(project_id: uuid.UUID, key: str):
-        raise GuideObjectFailure("storage_error")
-
-    monkeypatch.setattr(storage, "delete_object", fail_delete)
-    response = await httpx_client.request(
-        "DELETE",
-        f"/api/v1/projects/{proj.id}/guide-assets",
-        params={"key": existing_key},
-        headers={"Authorization": f"Bearer {token}"},
+    response = await client.post(
+        endpoint(project, "upload"),
+        params={"file_name": name},
+        content=data,
+        headers={**bearer(actor[1]), "Content-Type": mime},
     )
     assert response.status_code == 200, response.text
-    detail = await httpx_client.get(
-        f"/api/v1/projects/{proj.id}",
-        headers={"Authorization": f"Bearer {token}"},
+    return response.json()
+
+
+async def content(client, actor, project, key):
+    return await client.get(
+        endpoint(project, "content"), params={"key": key}, headers=bearer(actor[1])
     )
-    assert detail.status_code == 200
-    assert detail.json()["guide_assets"] == []
 
 
-@pytest.mark.parametrize("as_super_admin", [False, True])
-async def test_managers_can_read_registered_guide_images(
-    httpx_client,
-    super_admin,
-    project_admin,
-    db_session,
-    monkeypatch,
-    as_super_admin,
-):
-    _patch_storage(monkeypatch)
-    user, token = project_admin
-    proj = await _seed_project(db_session, user.id)
-    key = _add_guide_asset(proj)
-    await db_session.commit()
-
-    if as_super_admin:
-        _, token = super_admin
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = await httpx_client.get(
-        f"/api/v1/projects/{proj.id}/guide-assets/sign-url",
-        params={"key": key},
-        headers=headers,
+async def unlink(client, actor, project, key):
+    return await client.delete(
+        endpoint(project), params={"key": key}, headers=bearer(actor[1])
     )
-    assert resp.status_code == 200, resp.text
-
-
-@pytest.mark.parametrize("role", ["annotator", "reviewer", "viewer"])
-async def test_project_members_can_read_guide_images(
-    httpx_client,
-    project_admin,
-    annotator,
-    reviewer,
-    db_session,
-    monkeypatch,
-    role,
-):
-    _patch_storage(monkeypatch)
-    owner, _ = project_admin
-    user, token = reviewer if role == "reviewer" else annotator
-    proj = await _seed_project(db_session, owner.id)
-    key = _add_guide_asset(proj)
-    await _add_member(db_session, proj, user.id, role)
-    await db_session.commit()
-
-    resp = await httpx_client.get(
-        f"/api/v1/projects/{proj.id}/guide-assets/sign-url",
-        params={"key": key},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert resp.status_code == 200, resp.text
-
-
-async def test_removed_member_cannot_request_new_guide_image_urls(
-    httpx_client, project_admin, annotator, db_session, monkeypatch
-):
-    _patch_storage(monkeypatch)
-    owner, _ = project_admin
-    user, token = annotator
-    proj = await _seed_project(db_session, owner.id)
-    key = _add_guide_asset(proj)
-    member = await _add_member(db_session, proj, user.id, "annotator")
-    await db_session.commit()
-    endpoint = f"/api/v1/projects/{proj.id}/guide-assets/sign-url"
-    kwargs = {"params": {"key": key}, "headers": {"Authorization": f"Bearer {token}"}}
-
-    allowed = await httpx_client.get(endpoint, **kwargs)
-    assert allowed.status_code == 200, allowed.text
-    await db_session.delete(member)
-    await db_session.commit()
-    denied = await httpx_client.get(endpoint, **kwargs)
-    assert denied.status_code == 404, denied.text
-
-
-@pytest.mark.parametrize("as_project_admin", [False, True])
-async def test_non_member_cannot_read_guide_images(
-    httpx_client,
-    super_admin,
-    project_admin,
-    annotator,
-    db_session,
-    monkeypatch,
-    as_project_admin,
-):
-    _patch_storage(monkeypatch)
-    owner, _ = super_admin
-    _, token = project_admin if as_project_admin else annotator
-    proj = await _seed_project(db_session, owner.id)
-    key = _add_guide_asset(proj)
-    await db_session.commit()
-
-    resp = await httpx_client.get(
-        f"/api/v1/projects/{proj.id}/guide-assets/sign-url",
-        params={"key": key},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert resp.status_code == 404, resp.text
-
-
-@pytest.mark.parametrize("foreign_project", [False, True])
-async def test_member_cannot_sign_unregistered_or_foreign_guide_keys(
-    httpx_client,
-    project_admin,
-    annotator,
-    db_session,
-    monkeypatch,
-    foreign_project,
-):
-    _patch_storage(monkeypatch)
-    owner, _ = project_admin
-    user, token = annotator
-    proj = await _seed_project(db_session, owner.id)
-    _add_guide_asset(proj)
-    await _add_member(db_session, proj, user.id, "annotator")
-    key_project_id = uuid.uuid4() if foreign_project else proj.id
-    key = f"projects/{key_project_id}/guide/{uuid.uuid4()}-unknown.png"
-    if foreign_project:
-        proj.guide_assets = [{**proj.guide_assets[0], "key": key}]
-    await db_session.commit()
-
-    resp = await httpx_client.get(
-        f"/api/v1/projects/{proj.id}/guide-assets/sign-url",
-        params={"key": key},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert resp.status_code == 404, resp.text
-
-
-@pytest.mark.parametrize("operation", ["upload-init", "upload-complete", "delete"])
-async def test_project_member_cannot_modify_guide_assets(
-    httpx_client, project_admin, annotator, db_session, monkeypatch, operation
-):
-    storage = _patch_storage(monkeypatch)
-    owner, _ = project_admin
-    user, token = annotator
-    proj = await _seed_project(db_session, owner.id)
-    key = _add_guide_asset(proj)
-    await _add_member(db_session, proj, user.id, "annotator")
-    await db_session.commit()
-    await db_session.refresh(proj)
-    endpoint = f"/api/v1/projects/{proj.id}/guide-assets"
-    headers = {"Authorization": f"Bearer {token}"}
-    if operation == "delete":
-        resp = await httpx_client.delete(endpoint, params={"key": key}, headers=headers)
-    else:
-        payload = (
-            {"filename": "new.png", "content_type": "image/png", "size": 100}
-            if operation == "upload-init"
-            else {"key": key, "original_name": "show.png", "content_type": "image/png"}
-        )
-        resp = await httpx_client.post(
-            f"{endpoint}/{operation}", json=payload, headers=headers
-        )
-    assert resp.status_code == 403, resp.text
-    assert storage.deleted == []
-    detail = await httpx_client.get(f"/api/v1/projects/{proj.id}", headers=headers)
-    assert detail.status_code == 200, detail.text
-    assert [asset["key"] for asset in detail.json()["guide_assets"]] == [key]
-
-
-async def test_patch_project_annotation_guide(httpx_client, super_admin, db_session):
-    """v0.10.13 · PATCH /projects/{id} 写入 annotation_guide markdown."""
-    user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    await db_session.commit()
-
-    headers = {"Authorization": f"Bearer {token}"}
-    body = {"annotation_guide": "# 项目标注指引\n\n请标注**所有**车辆."}
-    resp = await httpx_client.patch(
-        f"/api/v1/projects/{proj.id}", json=body, headers=headers
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["annotation_guide"].startswith("# 项目标注指引")
-
-
-def _inject_change_after_head(monkeypatch, test_engine, mutation, storage):
-    boundary = {"verified": False, "changed": False}
-
-    async def verify_upload(project_id: uuid.UUID, key: str):
-        boundary["verified"] = True
-        return 1024
-
-    def change_before_next_query(
-        connection, cursor, statement, parameters, context, executemany
-    ):
-        if boundary["verified"] and not boundary["changed"]:
-            boundary["changed"] = True
-            connection.execute(mutation)
-
-    monkeypatch.setattr(storage, "verify_upload", verify_upload)
-    event.listen(
-        test_engine.sync_engine, "before_cursor_execute", change_before_next_query
-    )
-    return change_before_next_query
 
 
 @pytest.mark.parametrize(
-    ("change", "expected_status"), [("owner_transferred", 404), ("actor_disabled", 401)]
+    "mime,size",
+    [
+        ("image/png", 1),
+        ("image/jpeg", 12),
+        ("image/webp", 12),
+        ("image/gif", 12),
+        ("image/svg+xml", 12),
+        ("image/png", 5 * 1024**2),
+    ],
 )
-async def test_guide_completion_rechecks_authority_after_storage_head(
-    httpx_client,
-    db_session,
-    test_engine,
-    project_admin,
-    super_admin,
-    monkeypatch,
-    change,
-    expected_status,
+async def test_upload_atomic_reference_revision_and_authenticated_exact_bytes(
+    httpx_client, project_admin, project, objects, db_session, mime, size
 ):
-    storage = _patch_storage(monkeypatch)
-    owner, token = project_admin
-    successor, _ = super_admin
-    project = await _seed_project(db_session, owner.id)
-    await db_session.commit()
-    key = f"projects/{project.id}/guide/{uuid.uuid4()}-new.png"
-    mutation = (
-        update(Project).where(Project.id == project.id).values(owner_id=successor.id)
-        if change == "owner_transferred"
-        else update(User).where(User.id == owner.id).values(is_active=False)
+    project_id, uploader_id = project.id, project_admin[0].id
+    await db_session.refresh(project)
+    initial = project.guide_assets_revision
+    data = b"x" * size
+    value = await upload(httpx_client, project_admin, project_id, data=data, mime=mime)
+    row = await db_session.scalar(select(Upload).where(Upload.project_id == project_id))
+    assert (
+        row.state == "ready"
+        and row.project_id == project_id
+        and row.owner_id == uploader_id
     )
-    listener = _inject_change_after_head(monkeypatch, test_engine, mutation, storage)
-    try:
-        response = await httpx_client.post(
-            f"/api/v1/projects/{project.id}/guide-assets/upload-complete",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"key": key, "original_name": "new.png", "content_type": "image/png"},
-        )
-    finally:
-        event.remove(test_engine.sync_engine, "before_cursor_execute", listener)
-    assert response.status_code == expected_status
-    assets = await db_session.scalar(
-        select(Project.guide_assets).where(Project.id == project.id)
+    assert row.sha256 == hashlib.sha256(data).hexdigest() and row.size_bytes == size
+    assert value == storage.entry(row)
+    assert value["key"] == f"projects/{project_id}/guide/{row.id}"
+    assert await db_session.get(Reference, (project_id, row.id)) is not None
+    await db_session.refresh(project)
+    assert (
+        project.guide_assets == [value] and project.guide_assets_revision == initial + 1
     )
-    assert assets == []
+    result = await content(httpx_client, project_admin, project_id, value["key"])
+    assert result.status_code == 200 and result.content == data
+    assert result.headers["cache-control"] == "private, no-store"
+    assert result.headers["x-content-type-options"] == "nosniff"
+    assert result.headers["content-disposition"].startswith("attachment;")
+    assert all(body.closed for body in objects.bodies)
 
 
-async def test_guide_completion_preserves_asset_added_during_storage_head(
-    httpx_client, db_session, test_engine, super_admin, monkeypatch
+@pytest.mark.parametrize(
+    "kind,status", [("empty", 400), ("oversize", 413), ("mime", 422), ("encoding", 415)]
+)
+async def test_invalid_raw_body_never_creates_owner_or_object(
+    httpx_client, project_admin, project, objects, db_session, kind, status
 ):
-    storage = _patch_storage(monkeypatch)
-    owner, token = super_admin
-    project = await _seed_project(db_session, owner.id)
-    await db_session.commit()
-    concurrent_key = f"projects/{project.id}/guide/{uuid.uuid4()}-concurrent.png"
-    entry = {
-        "key": concurrent_key,
-        "original_name": "concurrent.png",
-        "content_type": "image/png",
-        "size": 1,
-        "uploaded_at": "2026-10-18T00:00:00+00:00",
+    data = (
+        b""
+        if kind == "empty"
+        else b"x" * (storage.MAX_BYTES + 1 if kind == "oversize" else 1)
+    )
+    headers = {
+        **bearer(project_admin[1]),
+        "Content-Type": "text/plain" if kind == "mime" else "image/png",
     }
-    key = f"projects/{project.id}/guide/{uuid.uuid4()}-new.png"
-    listener = _inject_change_after_head(
-        monkeypatch,
-        test_engine,
-        update(Project).where(Project.id == project.id).values(guide_assets=[entry]),
-        storage,
+    if kind == "encoding":
+        headers["Content-Encoding"] = "gzip"
+    response = await httpx_client.post(
+        endpoint(project, "upload"),
+        params={"file_name": "x.png"},
+        content=data,
+        headers=headers,
     )
-    try:
-        response = await httpx_client.post(
-            f"/api/v1/projects/{project.id}/guide-assets/upload-complete",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"key": key, "original_name": "new.png", "content_type": "image/png"},
+    assert response.status_code == status, response.text
+    assert await db_session.scalar(select(Upload.id)) is None
+    assert not objects.puts and not objects.deleted
+
+
+@pytest.mark.parametrize("operation", ["upload-init", "upload-complete", "sign-url"])
+async def test_old_transfer_routes_do_not_issue_final_key_urls(
+    httpx_client, project_admin, project, objects, db_session, operation
+):
+    key = f"projects/{project.id}/guide/{uuid.uuid4()}-legacy.png"
+    project.guide_assets = [
+        {
+            "key": key,
+            "original_name": "legacy.png",
+            "content_type": "image/png",
+            "size": 1,
+            "uploaded_at": "2026-01-01T00:00:00Z",
+        }
+    ]
+    await db_session.commit()
+    if operation == "sign-url":
+        result = await httpx_client.get(
+            endpoint(project, operation),
+            params={"key": key},
+            headers=bearer(project_admin[1]),
         )
-    finally:
-        event.remove(test_engine.sync_engine, "before_cursor_execute", listener)
-    assert response.status_code == 200
-    detail = await httpx_client.get(
+    else:
+        payload = (
+            {"filename": "x.png", "size": 1, "content_type": "image/png"}
+            if operation == "upload-init"
+            else {
+                "key": key,
+                "original_name": "legacy.png",
+                "content_type": "image/png",
+            }
+        )
+        result = await httpx_client.post(
+            endpoint(project, operation), json=payload, headers=bearer(project_admin[1])
+        )
+    assert result.status_code == 409 and "content_path" in result.json()["detail"]
+    assert "upload_url" not in result.text and not objects.puts and not objects.reads
+
+
+@pytest.mark.parametrize("role", ["annotator", "reviewer", "viewer"])
+async def test_current_members_read_but_cannot_manage(
+    httpx_client, project_admin, annotator, project, objects, db_session, role
+):
+    value = await upload(httpx_client, project_admin, project)
+    member = await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=annotator[0].id,
+        role=role,
+        assigned_by=project_admin[0].id,
+    )
+    await db_session.commit()
+    project_id = project.id
+    allowed = await content(httpx_client, annotator, project_id, value["key"])
+    assert allowed.status_code == 200, allowed.text
+    denied = await unlink(httpx_client, annotator, project_id, value["key"])
+    assert denied.status_code == 403
+    await db_session.refresh(member)
+    await db_session.delete(member)
+    await db_session.commit()
+    assert (
+        await content(httpx_client, annotator, project_id, value["key"])
+    ).status_code == 404
+
+
+async def test_invisible_nonmember_gets_404_on_read_and_write(
+    httpx_client, project_admin, annotator, project, objects
+):
+    key = (await upload(httpx_client, project_admin, project))["key"]
+    project_id = project.id
+    assert (await content(httpx_client, annotator, project_id, key)).status_code == 404
+    assert (await unlink(httpx_client, annotator, project_id, key)).status_code == 404
+    result = await httpx_client.post(
+        endpoint(project_id, "upload"),
+        params={"file_name": "x.png"},
+        content=b"x",
+        headers={**bearer(annotator[1]), "Content-Type": "image/png"},
+    )
+    assert result.status_code == 404
+
+
+async def test_unknown_legacy_can_be_unlinked_without_claiming_or_deleting_bytes(
+    httpx_client, project_admin, project, objects, db_session
+):
+    project_id = project.id
+    key = f"projects/{project_id}/guide/{uuid.uuid4()}-旧 图%.svg"
+    project.guide_assets = [
+        {
+            "key": key,
+            "original_name": "旧 图%.svg",
+            "content_type": "image/svg+xml",
+            "size": 3,
+            "uploaded_at": "2026-01-01T00:00:00+00:00",
+        }
+    ]
+    await db_session.commit()
+    objects.objects[objects.bucket, key] = b"old"
+    result = await content(httpx_client, project_admin, project_id, key)
+    assert (
+        result.status_code == 409
+        and result.json()["detail"]["code"] == "guide_asset_storage_unpinned"
+    )
+    assert not objects.reads
+    assert (
+        await unlink(httpx_client, project_admin, project_id, key)
+    ).status_code == 200
+    assert objects.objects[objects.bucket, key] == b"old" and not objects.deleted
+    assert await db_session.scalar(select(Upload.id)) is None
+    await db_session.refresh(project)
+    assert project.guide_assets == []
+
+
+async def test_shared_copy_keeps_original_key_after_source_unlink_until_last_reference(
+    httpx_client, project_admin, project, objects, db_session
+):
+    value = await upload(httpx_client, project_admin, project)
+    project_id = project.id
+    target = await create_project(db_session, owner_id=project_admin[0].id)
+    target_id = target.id
+    current = await uploads.lock_projects(
+        db_session, project_admin[0], [project_id, target_id], write_ids=[target_id]
+    )
+    await references.copy(
+        db=db_session,
+        actor_id=project_admin[0].id,
+        source=current[project_id],
+        target=current[target_id],
+    )
+    await db_session.commit()
+    identifier = uuid.UUID(value["key"].split("/")[-1])
+    assert (
+        await unlink(httpx_client, project_admin, project_id, value["key"])
+    ).status_code == 200
+    row = await db_session.get(Upload, identifier, populate_existing=True)
+    assert row.state == "ready" and not objects.deleted
+    assert (
+        await content(httpx_client, project_admin, target_id, value["key"])
+    ).content == b"image\x00bytes"
+    assert (
+        await unlink(httpx_client, project_admin, target_id, value["key"])
+    ).status_code == 200
+    await db_session.refresh(row)
+    assert row.state == "retired" and not objects.deleted
+    result = await uploads.cleanup(db_session, identifiers=[identifier])
+    assert result["objects"] == 1 and await db_session.get(Upload, identifier) is None
+    assert len(objects.deleted) == 1
+
+
+async def test_same_json_without_reference_does_not_authorize_known_owner(
+    httpx_client, project_admin, project, objects, db_session
+):
+    value = await upload(httpx_client, project_admin, project)
+    project_id = project.id
+    target = await create_project(db_session, owner_id=project_admin[0].id)
+    target.guide_assets = [deepcopy(value)]
+    await db_session.commit()
+    target_id = target.id
+    before = len(objects.reads)
+    result = await content(httpx_client, project_admin, target_id, value["key"])
+    assert result.status_code == 409 and len(objects.reads) == before
+    assert (
+        await unlink(httpx_client, project_admin, target_id, value["key"])
+    ).status_code == 200
+    assert (
+        await content(httpx_client, project_admin, project_id, value["key"])
+    ).status_code == 200
+
+
+async def test_saved_bucket_exact_read_corruption_and_missing_are_not_current_bucket_fallbacks(
+    httpx_client, project_admin, project, objects, db_session, monkeypatch
+):
+    value = await upload(httpx_client, project_admin, project)
+    project_id = project.id
+    identifier = uuid.UUID(value["key"].split("/")[-1])
+    row = await db_session.get(Upload, identifier)
+    saved = deepcopy(row.storage_ref)
+    from app.services import annotations_storage
+
+    current_bucket = "guide-current-test-bucket"
+    monkeypatch.setattr(annotations_storage.storage_service, "bucket", current_bucket)
+    monkeypatch.setattr(objects, "bucket", current_bucket)
+    objects.objects[current_bucket, value["key"]] = b"current trap"
+    result = await content(httpx_client, project_admin, project_id, value["key"])
+    assert result.status_code == 200 and result.content == b"image\x00bytes"
+    objects.objects[saved["bucket"], value["key"]] = b"other\x00bytes"
+    assert (
+        await content(httpx_client, project_admin, project_id, value["key"])
+    ).status_code == 409
+    del objects.objects[saved["bucket"], value["key"]]
+    assert (
+        await content(httpx_client, project_admin, project_id, value["key"])
+    ).status_code == 404
+    assert objects.objects[current_bucket, value["key"]] == b"current trap"
+
+
+async def test_write_failure_keeps_pending_and_does_not_publish_or_compensate(
+    httpx_client, project_admin, project, objects, db_session
+):
+    project_id = project.id
+    objects.fail_put = True
+    result = await httpx_client.post(
+        endpoint(project_id, "upload"),
+        params={"file_name": "x.png"},
+        content=b"x",
+        headers={**bearer(project_admin[1]), "Content-Type": "image/png"},
+    )
+    assert result.status_code == 503
+    row = await db_session.scalar(select(Upload).where(Upload.project_id == project_id))
+    assert row.state == "pending" and not objects.deleted
+    assert await db_session.get(Reference, (project_id, row.id)) is None
+    await db_session.refresh(project)
+    assert project.guide_assets == []
+
+
+async def test_body_autosave_does_not_replace_guide_assets(
+    httpx_client, project_admin, project, objects
+):
+    value = await upload(httpx_client, project_admin, project)
+    result = await httpx_client.patch(
         f"/api/v1/projects/{project.id}",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=bearer(project_admin[1]),
+        json={"annotation_guide": "# 指引\n\n保留**图片**"},
     )
-    assert detail.status_code == 200
-    assert {asset["key"] for asset in detail.json()["guide_assets"]} == {
-        concurrent_key,
-        key,
-    }
+    assert result.status_code == 200 and result.json()["guide_assets"] == [value]

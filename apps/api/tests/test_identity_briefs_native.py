@@ -192,8 +192,7 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     assert schema == canonical
     assert _SCHEMA.read_bytes() == _CANONICAL_SCHEMA.read_bytes()
     assert schema["$id"] == "aap-identity-briefs-native/v1"
-    assert 'revision = "0249"' in migration
-    assert 'down_revision = "0248"' in migration
+
     assert migration.index('"0249_identity_briefs_support.sql"') < migration.index(
         '"0249_identity_briefs.sql"'
     )

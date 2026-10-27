@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, literal_column, select, update
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
@@ -127,8 +127,9 @@ def _patch_rle_loaders(monkeypatch, *rles: dict) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("unbounded_retention", [False, True])
 async def test_previous_version_compare_returns_authorized_immutable_locators(
-    httpx_client, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch, unbounded_retention
 ):
     user, token = super_admin
     (
@@ -141,6 +142,12 @@ async def test_previous_version_compare_returns_authorized_immutable_locators(
         _current_ref,
     ) = await _seed_image_compare(db_session, owner_id=user.id)
     _patch_rle_loaders(monkeypatch, previous, current)
+    if unbounded_retention:
+        await db_session.execute(
+            update(MaskAnnotationRevision)
+            .where(MaskAnnotationRevision.annotation_id == annotation.id)
+            .values(expires_at=literal_column("'infinity'::timestamptz"))
+        )
     await db_session.commit()
 
     response = await httpx_client.get(

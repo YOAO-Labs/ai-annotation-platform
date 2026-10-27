@@ -201,17 +201,13 @@ async def test_restored_admin_password_receipt_replays_without_second_audit(
                 request(_token(actor, changed_secret))
             )
 
-        refused = _alembic(owner_url, "downgrade", "0243")
+        refused = _alembic(owner_url, "downgrade", "bo0243")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Identity administrator password ownership while receipts exist"
             in refused.stdout + refused.stderr
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             await db.execute(
                 text(
                     "DELETE FROM public.identity_admin_password_reset_receipts "
@@ -219,12 +215,12 @@ async def test_restored_admin_password_receipt_replays_without_second_audit(
                 ),
                 {"operation_id": operation_id},
             )
-        empty = _alembic(owner_url, "downgrade", "0243")
+        empty = _alembic(owner_url, "downgrade", "bo0243")
         assert empty.returncode == 0, "Owned empty admin-password downgrade failed"
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0243"
+                == "bo0243"
             )
         record_property(
             "admin_password_restore",

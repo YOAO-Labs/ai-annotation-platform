@@ -15,37 +15,12 @@ import { trainingHubApi, type QueueState } from "@/api/trainingHub";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { TrainingWarehouseCards } from "./TrainingWarehouseCards";
 import { TrainingQueuePanel } from "./TrainingQueuePanel";
 import { TrainingError, TrainingLoading } from "./TrainingFeedback";
-
-function Pagination({
-  page,
-  total,
-  onChange,
-  label,
-}: {
-  page: number;
-  total: number;
-  onChange: (page: number) => void;
-  label: string;
-}) {
-  if (total <= 20 && page === 0) return null;
-  return (
-    <nav aria-label={`${label}分页`} className="mt-4 flex items-center justify-end gap-3">
-      <span className="text-xs text-muted-foreground">
-        第 {page + 1} / {Math.ceil(total / 20)} 页
-      </span>
-      <Button size="sm" disabled={page === 0} onClick={() => onChange(page - 1)}>
-        上一页
-      </Button>
-      <Button size="sm" disabled={(page + 1) * 20 >= total} onClick={() => onChange(page + 1)}>
-        下一页
-      </Button>
-    </nav>
-  );
-}
+import { ListPagination } from "@/components/ui/ListPagination";
 
 export function TrainingPage() {
   const [params, setParams] = useSearchParams();
@@ -63,6 +38,8 @@ export function TrainingPage() {
   const [search, setSearch] = useState("");
   const [projectPage, setProjectPage] = useState(0);
   const [queuePage, setQueuePage] = useState(0);
+  const [projectPageSize, setProjectPageSize] = useState(20);
+  const [queuePageSize, setQueuePageSize] = useState(20);
   const patch = (updates: Record<string, string>) =>
     setParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -76,15 +53,19 @@ export function TrainingPage() {
     queryFn: trainingHubApi.catalog,
     refetchInterval: 5000,
   });
+  const resourceId = catalog.data?.resource_id;
+  const resourceNode = resourceId?.includes("/")
+    ? resourceId.slice(0, resourceId.lastIndexOf("/"))
+    : null;
   const projects = useQuery({
-    queryKey: ["training-hub", "projects", search, projectPage],
-    queryFn: () => trainingHubApi.projects(search, projectPage * 20),
+    queryKey: ["training-hub", "projects", search, projectPage, projectPageSize],
+    queryFn: () => trainingHubApi.projects(search, projectPage * projectPageSize, projectPageSize),
     enabled: tab === "start",
     refetchInterval: tab === "start" ? 10000 : false,
   });
   const queue = useQuery({
-    queryKey: ["training-hub", "runs", state, queuePage, framework],
-    queryFn: () => trainingHubApi.runs(state, queuePage * 20, framework),
+    queryKey: ["training-hub", "runs", state, queuePage, queuePageSize, framework],
+    queryFn: () => trainingHubApi.runs(state, queuePage * queuePageSize, framework, queuePageSize),
     enabled: tab === "queue",
     refetchInterval: tab === "queue" ? 3000 : false,
   });
@@ -92,15 +73,15 @@ export function TrainingPage() {
     setQueuePage(0);
   }, [state, framework]);
   useEffect(() => {
-    if (queue.data && queuePage > 0 && queuePage * 20 >= queue.data.total) {
-      setQueuePage(Math.max(0, Math.ceil(queue.data.total / 20) - 1));
+    if (queue.data && queuePage > 0 && queuePage * queuePageSize >= queue.data.total) {
+      setQueuePage(Math.max(0, Math.ceil(queue.data.total / queuePageSize) - 1));
     }
-  }, [queue.data, queuePage]);
+  }, [queue.data, queuePage, queuePageSize]);
   useEffect(() => {
-    if (projects.data && projectPage > 0 && projectPage * 20 >= projects.data.total) {
-      setProjectPage(Math.max(0, Math.ceil(projects.data.total / 20) - 1));
+    if (projects.data && projectPage > 0 && projectPage * projectPageSize >= projects.data.total) {
+      setProjectPage(Math.max(0, Math.ceil(projects.data.total / projectPageSize) - 1));
     }
-  }, [projects.data, projectPage]);
+  }, [projects.data, projectPage, projectPageSize]);
   return (
     <PageContainer>
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
@@ -209,7 +190,7 @@ export function TrainingPage() {
                   {projects.data?.items.map((project) => (
                     <article
                       key={project.id}
-                      className="grid items-center gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:p-5"
+                      className="grid items-center gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto]"
                     >
                       <div className="flex min-w-0 items-start gap-3">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
@@ -222,15 +203,15 @@ export function TrainingPage() {
                           >
                             {project.name}
                           </Link>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {project.display_id} ·{" "}
-                            {project.data_type === "image"
-                              ? "图片项目"
-                              : project.data_type === "video"
-                                ? "视频项目"
-                                : "点云项目"}
-                          </p>
-                          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                            <span className="text-muted-foreground">
+                              {project.display_id} ·{" "}
+                              {project.data_type === "image"
+                                ? "图片项目"
+                                : project.data_type === "video"
+                                  ? "视频项目"
+                                  : "点云项目"}
+                            </span>
                             {project.ready_dataset_count > 0 ? (
                               <Badge variant="success">
                                 {project.ready_dataset_count} 个就绪版本
@@ -313,10 +294,16 @@ export function TrainingPage() {
                   </div>
                 )}
               </div>
-              <Pagination
+              <ListPagination
                 page={projectPage}
                 total={projects.data?.total ?? 0}
-                onChange={setProjectPage}
+                onPageChange={setProjectPage}
+                pageSize={projectPageSize}
+                loading={projects.isFetching}
+                onPageSizeChange={(size) => {
+                  setProjectPageSize(size);
+                  setProjectPage(0);
+                }}
                 label="项目"
               />
             </section>
@@ -360,12 +347,20 @@ export function TrainingPage() {
               patch(updates);
             }}
             onStart={() => patch({ tab: "start" })}
-          />
-          <Pagination
-            page={queuePage}
-            total={queue.data?.total ?? 0}
-            onChange={setQueuePage}
-            label="训练队列"
+            pagination={
+              <ListPagination
+                page={queuePage}
+                total={queue.data?.total ?? 0}
+                onPageChange={setQueuePage}
+                pageSize={queuePageSize}
+                loading={queue.isFetching}
+                onPageSizeChange={(size) => {
+                  setQueuePageSize(size);
+                  setQueuePage(0);
+                }}
+                label="训练队列"
+              />
+            }
           />
         </TabsContent>
         <TabsContent value="warehouses" className="space-y-5">
@@ -387,10 +382,17 @@ export function TrainingPage() {
                   <h3 className="text-sm font-semibold">共享训练执行器</h3>
                 </div>
                 <dl className="grid gap-4 text-xs sm:grid-cols-3">
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-muted-foreground">资源</dt>
-                    <dd className="mt-1 break-all font-mono">
-                      {catalog.data.resource_id ?? "尚未配置"}
+                    <dd className="mt-1 flex min-w-0 items-center gap-1 font-medium">
+                      {resourceId ? (
+                        <>
+                          <span className="min-w-0 truncate">{resourceNode || "共享 GPU"}</span>
+                          <CopyValueButton value={resourceId} kind="id" label="复制训练资源 ID" />
+                        </>
+                      ) : (
+                        "尚未配置"
+                      )}
                     </dd>
                   </div>
                   <div>

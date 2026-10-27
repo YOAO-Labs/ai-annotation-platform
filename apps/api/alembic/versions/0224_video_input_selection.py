@@ -1,7 +1,7 @@
 """Install Labeling's bounded video selection projections.
 
-Revision ID: 0224
-Revises: 0223
+Revision ID: bo0224
+Revises: bo0223
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0224"
-down_revision = "0223"
+revision = "bo0224"
+down_revision = "bo0223"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

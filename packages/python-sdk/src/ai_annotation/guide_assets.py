@@ -1,18 +1,17 @@
-"""Project-scoped annotation guide assets."""
+"""Project-scoped annotation guide assets over authenticated transfer."""
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
+from typing import get_args
 from uuid import UUID
 
 from ai_annotation._http import HttpTransport
 from ai_annotation.guide_asset_models import (
+    GuideAssetContentType,
     GuideAssetDeleteResult,
     GuideAssetEntry,
-    GuideAssetSignedUrlResponse,
-    GuideAssetUploadCompleteRequest,
-    GuideAssetUploadInitRequest,
-    GuideAssetUploadInitResponse,
 )
 
 ProjectIdLike = str | UUID
@@ -22,34 +21,37 @@ class GuideAssets:
     def __init__(self, http: HttpTransport):
         self._http = http
 
-    def upload_init(
-        self, project_id: ProjectIdLike, request: GuideAssetUploadInitRequest
-    ) -> GuideAssetUploadInitResponse:
-        response = self._http.request(
-            "POST",
-            f"/projects/{project_id}/guide-assets/upload-init",
-            json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
-        )
-        return GuideAssetUploadInitResponse.model_validate(response.json())
-
-    def upload_bytes(
+    def upload(
         self,
-        upload_url: str,
+        project_id: ProjectIdLike,
         file_path: str | Path,
-        content_type: str,
-    ) -> None:
-        """PUT bytes to the signed URL without API credentials or completion."""
-        self._http.put_presigned(upload_url, Path(file_path), content_type)
-
-    def upload_complete(
-        self, project_id: ProjectIdLike, request: GuideAssetUploadCompleteRequest
+        *,
+        file_name: str | None = None,
+        content_type: GuideAssetContentType | None = None,
     ) -> GuideAssetEntry:
+        """Upload verified bytes; the server owns storage naming and validation."""
+        path = Path(file_path)
+        name = file_name or path.name
+        mime_type = content_type or mimetypes.guess_type(name)[0]
+        if mime_type not in get_args(GuideAssetContentType):
+            raise ValueError(f"unsupported guide asset content type: {mime_type!r}")
         response = self._http.request(
             "POST",
-            f"/projects/{project_id}/guide-assets/upload-complete",
-            json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+            f"/projects/{project_id}/guide-assets/upload",
+            params={"file_name": name},
+            content=path.read_bytes(),
+            headers={"Content-Type": mime_type},
         )
         return GuideAssetEntry.model_validate(response.json())
+
+    def content(self, project_id: ProjectIdLike, key: str) -> bytes:
+        """Read authenticated guide bytes; no signed URL is issued."""
+        response = self._http.request(
+            "GET",
+            f"/projects/{project_id}/guide-assets/content",
+            params={"key": key},
+        )
+        return response.content
 
     def delete(self, project_id: ProjectIdLike, key: str) -> GuideAssetDeleteResult:
         response = self._http.request(
@@ -58,13 +60,3 @@ class GuideAssets:
             params={"key": key},
         )
         return GuideAssetDeleteResult.model_validate(response.json())
-
-    def sign_url(
-        self, project_id: ProjectIdLike, key: str
-    ) -> GuideAssetSignedUrlResponse:
-        response = self._http.request(
-            "GET",
-            f"/projects/{project_id}/guide-assets/sign-url",
-            params={"key": key},
-        )
-        return GuideAssetSignedUrlResponse.model_validate(response.json())

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import storage_service
+from app.services.storage import storage_service
 from app.db.models.project import Project
 from app.db.models.task import Task
 
@@ -110,7 +110,7 @@ async def test_cursor_pagination_preserves_sequence_order(
 
 
 @pytest.mark.asyncio
-async def test_point_cloud_task_without_dataset_item_uses_datasets_bucket(
+async def test_legacy_point_cloud_task_lists_lazy_identity_without_signing(
     httpx_client, db_session, super_admin, monkeypatch
 ):
     admin_user, token = super_admin
@@ -133,7 +133,8 @@ async def test_point_cloud_task_without_dataset_item_uses_datasets_bucket(
 
     assert response.status_code == 200
     item = response.json()["items"][0]
-    assert item["file_url"].startswith(
-        f"http://storage.local/{storage_service.datasets_bucket}/"
+    assert item["file_url"] is None
+    assert item["original_identity_path"] == (
+        f"/api/v1/files/tasks/{item['id']}/original-identity"
     )
-    assert signed == [("/tmp/x.pcd", storage_service.datasets_bucket)]
+    assert signed == []

@@ -101,7 +101,7 @@ describe.each([
 
   it("shares page state between list/grid and restores history; size changes reset the page", async () => {
     renderPage(Page, "/dashboard?page=2&from=p1&keep=1");
-    expect(screen.getByText("共 41 个项目 · 第 2 / 3 页")).toBeInTheDocument();
+    expect(screen.getByText("共 41 条 · 第 2 / 3 页")).toBeInTheDocument();
     expect(screen.getByText("Project 21")).toBeInTheDocument();
     expect(screen.queryByText("Project 01")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("切换到网格视图"));
@@ -174,13 +174,13 @@ describe.each([
     fetching = false;
     fireEvent.click(screen.getByRole("button", { name: "测试刷新结果" }));
     expect(screen.getByTestId("url")).toHaveTextContent("page=2");
-    expect(screen.getByText("共 41 个项目 · 第 2 / 3 页")).toBeInTheDocument();
+    expect(screen.getByText("共 41 条 · 第 2 / 3 页")).toBeInTheDocument();
     total = 20;
     fireEvent.click(screen.getByRole("button", { name: "测试刷新结果" }));
     await waitFor(() =>
       expect(mockPage).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 })),
     );
-    expect(screen.getByText("共 20 个项目 · 第 1 / 1 页")).toBeInTheDocument();
+    expect(screen.getByText("共 20 条 · 第 1 / 1 页")).toBeInTheDocument();
   });
 
   it("keeps pagination usable and exposes retry when cached data fails to refresh", () => {

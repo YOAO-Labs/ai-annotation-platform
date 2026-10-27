@@ -219,7 +219,7 @@ async def health_redis():
     responses={503: {"model": HealthCheck, "description": "Component unavailable"}},
 )
 async def health_minio():
-    result = _check_minio()
+    result = await asyncio.to_thread(_check_minio)
     code = 200 if result["status"] == "ok" else 503
     return JSONResponse(status_code=code, content=_public_check(result))
 

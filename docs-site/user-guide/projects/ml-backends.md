@@ -19,7 +19,7 @@ last_reviewed: 2026-07-20
 <DocsVideo
   src="/media/projects/ml-routing.mp4"
   poster="/media/projects/ml-routing-poster.webp"
-  alt="项目启用 YOLO 并设为主后端后，工作台当前题 AI 使用 YOLO，而 Smart Point 自动选择 SAM3"
+  alt="项目启用 YOLO 并设为主后端后，工作台单图 AI 使用 YOLO，而 Smart Point 自动选择 SAM3"
   caption="同一项目的两条 AI 路由：YOLO 作为当前题批量主后端，Smart Point 按 point 能力自动命中 SAM3。"
 />
 
@@ -31,7 +31,7 @@ last_reviewed: 2026-07-20
 
 - **启用开关**：勾选后该 backend 对本项目可用（成为工作台 AI 与批量预标的可选项）。取消勾选即对本项目停用，不影响其它项目，也不删除全局注册项。
 
-> **推理参数不在此预设**：检测阈值（如 `box_threshold` / `text_threshold`）这类参数因 backend 而异（由协议 `/setup.params` 自描述），统一在工作台「当前题 AI」面板与 `/ai-pre` 跑批配置里**运行时**按所选 backend 动态渲染调整、即调即生效；项目级 `box_threshold`（默认 0.35）仅作 `/setup` 拉取失败时的兜底。
+> **推理参数不在此预设**：检测阈值（如 `box_threshold` / `text_threshold`）这类参数因 backend 而异（由协议 `/setup.params` 自描述），统一在工作台「单图／单帧 AI」面板与 `/ai-pre` 跑批配置里**运行时**按所选 backend 动态渲染调整、即调即生效；项目级 `box_threshold`（默认 0.35）仅作 `/setup` 拉取失败时的兜底。
 
 每行还展示全局注册项自带的能力快照（`supported_prompts` / `supported_trackers`）、URL、鉴权方式与 `max_concurrency` 并发闸——这些由超管在全局注册时设定，项目侧只读。
 

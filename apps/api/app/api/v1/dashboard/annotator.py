@@ -20,7 +20,6 @@ from app.schemas.dashboard import (
     MyPerformance,
     OnboardingProjectSummary,
 )
-from app.services.storage import storage_service
 from app.services.scheduler import task_visibility_clause
 from app.services.project_aggregates import (
     ANNOTATOR_ROLE,
@@ -446,6 +445,8 @@ async def annotator_dashboard(
 
 @router.get("/annotator/batches", response_model=list[MyBatchItem])
 async def my_batches(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(
         require_roles(*DASHBOARD_PLATFORM_ROLES)
@@ -481,8 +482,10 @@ async def my_batches(
         )
         if batch_scope is not None:
             q = q.where(batch_scope)
-    q = q.order_by(visible_projects.c.project_name, batch_row.created_at.desc()).limit(
-        100
+    q = (
+        q.order_by(visible_projects.c.project_name, batch_row.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
 
     rows = (await db.execute(q)).all()
@@ -509,8 +512,16 @@ async def my_batches(
     cover_map: dict = {}
     video_cover_requests: list[ReadSourceRequest] = []
     if batch_ids:
-        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path)
-        eff_blur = func.coalesce(DatasetItem.blurhash, task_row.blurhash)
+        from app.services.directory_policy import legacy_media_column
+
+        eff_thumb = legacy_media_column(
+            func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path).label(
+                "thumbnail_path"
+            )
+        )
+        eff_blur = legacy_media_column(
+            func.coalesce(DatasetItem.blurhash, task_row.blurhash).label("blurhash")
+        )
         cover_rows = await db.execute(
             select(
                 task_row.batch_id,
@@ -577,8 +588,10 @@ async def my_batches(
         cover = cover_map.get(b.id)
         thumbnail_url: str | None = None
         cover_blurhash: str | None = None
+        cover_task_id = None
         if cover is not None:
             task_id, item_id, task_type, item_type, cover_path, cover_blurhash = cover
+            cover_task_id = task_id
         else:
             task_id = item_id = None
             task_type = item_type = None
@@ -587,15 +600,15 @@ async def my_batches(
             thumbnail_url = video_posters_by_task.get(task_id)
             cover_blurhash = None
         elif cover_path:
-            thumb_bucket = storage_service.bucket_for_cache_key(
-                cover_path, default=storage_service.bucket
+            from app.services import image_pyramid_objects, thumbnail_outputs
+
+            thumbnail_url = await image_pyramid_objects.thumbnail_url(
+                db, "task", cover_task_id, cover_path
             )
-            try:
-                thumbnail_url = storage_service.generate_download_url(
-                    cover_path, bucket=thumb_bucket
+            if thumbnail_url is None:
+                thumbnail_url = await thumbnail_outputs.thumbnail_url(
+                    db, "task", cover_task_id, cover_path
                 )
-            except Exception:
-                thumbnail_url = None
         items.append(
             MyBatchItem(
                 batch_id=str(b.id),

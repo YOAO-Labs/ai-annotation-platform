@@ -1,3 +1,4 @@
+import { listPageSize } from "@/components/ui/ListPagination";
 import type {
   TrainingAttemptOut,
   TrainingEpochEvent,
@@ -67,6 +68,7 @@ export function parseComparison(params: URLSearchParams) {
     metricExplicit: params.has("metric"),
     smoothing,
     classPage: Number(classPage),
+    classPageSize: listPageSize(params.get("class_page_size")),
     showAll: inputs === "all",
     error,
   };
@@ -113,7 +115,7 @@ export function frozenInputs(experiment: ComparisonExperiment) {
       ? "完整检查点续训"
       : initialization.kind === "trained_model"
         ? "项目模型权重 · 全新训练"
-        : "受控目录基础权重",
+        : "预训练基础权重",
     原始初始化模型: initialization.model_version_id ?? "目录权重",
     原始初始化来源摘要: initialization.source_digest ?? "目录权重",
     "原始初始化权重 SHA": initializationArtifact.sha256 ?? base.sha256,
@@ -185,6 +187,11 @@ export function comparisonPoints(experiment: ComparisonExperiment) {
   return [...byEpoch.values()].sort((a, b) => a.epoch - b.epoch);
 }
 
+export function comparisonLatestPoint(experiment: ComparisonExperiment) {
+  const points = comparisonPoints(experiment);
+  return points[points.length - 1];
+}
+
 export function curveIncompatibility(
   a: ComparisonExperiment,
   b: ComparisonExperiment,
@@ -207,6 +214,62 @@ export function curveIncompatibility(
   if ([...keys].some((k) => stable(inputs[0][k]) !== stable(inputs[1][k])))
     reasons.push("轮次评估或损失参数不同");
   return [...new Set(reasons)];
+}
+
+export type ComparisonMetricSource = "best" | "last";
+
+export function comparisonMetricValues(
+  experiment: ComparisonExperiment,
+  source: ComparisonMetricSource,
+): Record<string, number | null> {
+  if (experiment.error || (source === "best" ? experiment.reportError : experiment.eventsError))
+    return {};
+  const values = source === "best" ? experiment.report?.summary : comparisonLatestPoint(experiment);
+  return Object.fromEntries(
+    Object.entries(values ?? {})
+      .filter(([key]) => key.startsWith("metrics/"))
+      .map(([key, value]) => [
+        key,
+        typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null,
+      ]),
+  );
+}
+
+/** Rank each metric within its own compatible evidence group, independently of URL reference. */
+export function comparisonMetricRanking(
+  experiments: ComparisonExperiment[],
+  source: ComparisonMetricSource,
+  metric: string,
+) {
+  const values = experiments.map((e) => comparisonMetricValues(e, source)[metric]);
+  const compatible = (a: ComparisonExperiment, b: ComparisonExperiment) =>
+    (source === "best" ? incompatibility(a.report, b.report) : curveIncompatibility(a, b, metric))
+      .length === 0;
+  const groups: number[][] = [];
+  experiments.forEach((experiment, index) => {
+    if (values[index] == null || !compatible(experiment, experiment)) return;
+    const group = groups.find((items) =>
+      items.every((other) => compatible(experiments[other], experiment)),
+    );
+    if (group) group.push(index);
+    else groups.push([index]);
+  });
+  const ranking: ({ best: boolean; tied: boolean; grouped: boolean; delta: number } | undefined)[] =
+    experiments.map(() => undefined);
+  for (const group of groups) {
+    if (group.length < 2) continue;
+    const best = Math.max(...group.map((index) => values[index]!));
+    const winners = group.filter((index) => Math.abs(values[index]! - best) <= 1e-12);
+    group.forEach((index) => {
+      ranking[index] = {
+        best: winners.includes(index),
+        tied: winners.length > 1,
+        grouped: groups.length > 1,
+        delta: winners.includes(index) ? 0 : values[index]! - best,
+      };
+    });
+  }
+  return ranking;
 }
 
 /** Null entries mark absent observations, never interpolated metric values. */

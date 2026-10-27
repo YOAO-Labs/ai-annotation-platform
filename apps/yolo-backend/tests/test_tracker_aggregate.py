@@ -6,19 +6,10 @@
 
 from __future__ import annotations
 
-import sys
 import types
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_heavy_imports() -> None:
-    """predictor 顶层 import ultralytics/torch 间接依赖; 桩掉让纯逻辑可导入。"""
-    sys.modules.setdefault("torch", MagicMock())
-    sys.modules.setdefault("ultralytics", MagicMock())
 
 
 class _IdTensor:

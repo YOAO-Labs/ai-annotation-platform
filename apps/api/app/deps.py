@@ -52,6 +52,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             ) from None
 
 
+def get_prediction_input_session_factory():
+    """Independent commits retain cleanup intent outside the request transaction."""
+    return async_session
+
+
 def get_quality_job_dispatcher() -> QualityJobDispatcher:
     """Bind the quality execution port without importing tasks into services."""
     from app.services.jobs_queue import build_quality_job_dispatcher

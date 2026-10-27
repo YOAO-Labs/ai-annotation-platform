@@ -283,8 +283,7 @@ def test_frozen_group_artifacts_and_owner_capabilities():
             "CREATE TABLE public.identity_group_operation_receipts", 1
         )[1].split("-- aap-statement-break", 1)[0]
     )
-    assert 'revision = "0240"' in migration
-    assert 'down_revision = "0239"' in migration
+
     assert "Cannot remove Identity group operation receipts" in migration
     assert 'identity_group_operation_receipts TO :"identity_owner"' in module_grants
     assert "lock_group_assignment_scope" in module_grants

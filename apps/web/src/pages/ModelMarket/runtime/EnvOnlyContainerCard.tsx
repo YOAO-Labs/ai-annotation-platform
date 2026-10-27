@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · unregistered env container card (plan §6.2 / §A.4).
  *
@@ -12,6 +13,7 @@ import { useState, type ReactNode } from "react";
 import { adminMlIntegrationsApi, type ObserveTarget } from "@/api/adminMlIntegrations";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 import {
@@ -92,7 +94,9 @@ export function EnvOnlyContainerCard({ target, onRegister }: EnvOnlyContainerCar
       </div>
 
       {!target.ok ? (
-        <div className="text-xs text-status-danger">{target.error ?? "不可达"}</div>
+        <div className="text-xs text-status-danger">
+          <CopyableError message={target.error ?? "不可达"} />
+        </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           {modelVersion && <span className="mono">{modelVersion}</span>}
@@ -102,8 +106,13 @@ export function EnvOnlyContainerCard({ target, onRegister }: EnvOnlyContainerCar
             </span>
           )}
           {(gpuInfo?.physical_device_token || gpuInfo?.mig_uuid || gpuInfo?.device_uuid) && (
-            <span className="mono" title="物理设备身份">
-              {gpuInfo.physical_device_token ?? gpuInfo.mig_uuid ?? gpuInfo.device_uuid}
+            <span className="inline-flex items-center gap-1">
+              设备
+              <CopyValueButton
+                value={gpuInfo.physical_device_token || gpuInfo.mig_uuid || gpuInfo.device_uuid}
+                kind="id"
+                label="复制物理设备 ID"
+              />
             </span>
           )}
           {cacheHitRate != null && <span>cache {(cacheHitRate * 100).toFixed(1)}%</span>}

@@ -20,6 +20,37 @@ from aap_workspace_contract import derive_classes_list
 from app.services.raster_mask_storage import load_coco_rle
 from app.utils.raster_mask_rle import decode_coco_rle, validate_coco_rle
 
+MAX_RETAINED_IMAGE_MASK_RUNS = 4_000_000
+
+
+async def _load_retained_image_masks(annotations):
+    """Bound an indexed image's simultaneously retained strict-owner RLEs."""
+    selected = [
+        row
+        for row in sorted(annotations, key=lambda row: str(row.id))
+        if (row.geometry or {}).get("type") == "raster_mask"
+    ]
+    if len(selected) > 255:
+        raise ValueError(
+            "instance_id_overflow:indexed PNG supports at most 255 instances"
+        )
+    rows, runs = [], 0
+    for annotation in selected:
+        reference = annotation.geometry.get("mask") or {}
+        declared = reference.get("runs")
+        if type(declared) is int and runs + declared > MAX_RETAINED_IMAGE_MASK_RUNS:
+            raise ValueError("image mask expansion budget exceeded")
+        rle = await load_coco_rle(reference)
+        counts = rle.get("counts")
+        if (
+            not isinstance(counts, list)
+            or runs + len(counts) > MAX_RETAINED_IMAGE_MASK_RUNS
+        ):
+            raise ValueError("image mask expansion budget exceeded")
+        runs += len(counts)
+        rows.append((annotation, rle))
+    return rows
+
 
 def _dimensions(
     task: Task, item: DatasetItem | None, rle: dict[str, Any]
@@ -56,7 +87,10 @@ async def write_binary_png_export(
     prefix: str,
     project: Project,
     chunks,
+    media_paths=None,
+    task_items=None,
 ) -> int:
+    media_paths = media_paths or {}
     class_ids = {
         name: index
         for index, name in enumerate(derive_classes_list(project.tool_bindings or {}))
@@ -66,7 +100,9 @@ async def write_binary_png_export(
     async for tasks, ann_by_task, dataset_items in chunks:
         for task in tasks:
             dataset_item = (
-                dataset_items.get(task.dataset_item_id)
+                task_items.get(task.id)
+                if task_items is not None
+                else dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
@@ -99,7 +135,7 @@ async def write_binary_png_export(
             if instances:
                 manifest_items.append(
                     {
-                        "media_path": task.file_path,
+                        "media_path": media_paths.get(task.id, task.file_path),
                         "width": width,
                         "height": height,
                         "instances": instances,
@@ -127,7 +163,10 @@ async def write_indexed_png_export(
     project: Project,
     chunks,
     overlap_policy: str,
+    media_paths=None,
+    task_items=None,
 ) -> int:
+    media_paths = media_paths or {}
     class_ids = {
         name: index
         for index, name in enumerate(derive_classes_list(project.tool_bindings or {}))
@@ -138,25 +177,15 @@ async def write_indexed_png_export(
     async for tasks, ann_by_task, dataset_items in chunks:
         for task in tasks:
             dataset_item = (
-                dataset_items.get(task.dataset_item_id)
+                task_items.get(task.id)
+                if task_items is not None
+                else dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
-            rows: list[tuple[Annotation, dict[str, Any]]] = []
-            for annotation in sorted(
-                ann_by_task.get(task.id, []), key=lambda row: str(row.id)
-            ):
-                geometry = annotation.geometry or {}
-                if geometry.get("type") == "raster_mask":
-                    rows.append(
-                        (annotation, await load_coco_rle(geometry.get("mask") or {}))
-                    )
+            rows = await _load_retained_image_masks(ann_by_task.get(task.id, []))
             if not rows:
                 continue
-            if len(rows) > 255:
-                raise ValueError(
-                    "instance_id_overflow:indexed PNG supports at most 255 instances"
-                )
             width, height = _dimensions(task, dataset_item, rows[0][1])
             instances: list[dict[str, Any]] = []
             composition: list[tuple[int, dict[str, Any], int]] = []
@@ -187,10 +216,12 @@ async def write_indexed_png_export(
                     "overlap_policy": overlap_policy,
                 }
                 item_losses.append(detail)
-                loss_report.append({"media_path": task.file_path, **detail})
+                loss_report.append(
+                    {"media_path": media_paths.get(task.id, task.file_path), **detail}
+                )
             manifest_items.append(
                 {
-                    "media_path": task.file_path,
+                    "media_path": media_paths.get(task.id, task.file_path),
                     "width": width,
                     "height": height,
                     "mask_path": relative_path,
@@ -225,13 +256,18 @@ async def write_label_studio_export(
     data_key: str,
     from_name: str,
     to_name: str,
+    media_paths=None,
+    task_items=None,
 ) -> int:
+    media_paths = media_paths or {}
     output: list[dict[str, Any]] = []
     file_count = 0
     async for tasks, ann_by_task, dataset_items in chunks:
         for task in tasks:
             dataset_item = (
-                dataset_items.get(task.dataset_item_id)
+                task_items.get(task.id)
+                if task_items is not None
+                else dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
@@ -264,7 +300,7 @@ async def write_label_studio_export(
             output.append(
                 {
                     "id": task.display_id,
-                    "data": {data_key: task.file_path},
+                    "data": {data_key: media_paths.get(task.id, task.file_path)},
                     "annotations": [{"result": results}],
                 }
             )

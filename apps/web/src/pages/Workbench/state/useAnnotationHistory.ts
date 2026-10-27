@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { isCurrentAuthOwner } from "@/stores/authStore";
 import type { AnnotationResponse, VideoTrackKeyframe, VideoTrackMaskKeyframe } from "@/types";
@@ -67,7 +68,7 @@ export async function applyLeaf(cmd: LeafCommand, direction: "undo" | "redo", h:
       }
       // A redo is a new creation. Keep its identity on the command so retries
       // replay that creation, while the next undo/redo cycle gets another key.
-      cmd.payload = { ...cmd.payload, client_request_id: crypto.randomUUID() };
+      cmd.payload = { ...cmd.payload, client_request_id: randomId() };
     } else {
       const fresh = await h.createAnnotation(cmd.payload);
       // redo 重新创建会拿到新 id；后续 undo 还得知道这个 id
@@ -364,7 +365,7 @@ export function useAnnotationHistory(
           if (!cmd.pendingRestore || cmd.pendingRestore.target !== target) {
             cmd.pendingRestore = {
               target,
-              idempotencyKey: crypto.randomUUID().replace(/-/g, ""),
+              idempotencyKey: randomId().replace(/-/g, ""),
             };
           }
           // Persist the retry key before making the request, including across reloads.

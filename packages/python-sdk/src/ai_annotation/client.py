@@ -136,6 +136,10 @@ from ai_annotation.models import (
     DashboardStats,
     Dataset,
     DatasetItem,
+    DatasetLifecycleOperation,
+    DatasetLifecyclePreview,
+    DatasetLifecycleResult,
+    DatasetListState,
     DatasetUnlinkPreview,
     DatasetUnlinkResult,
     FeedbackAnchorPosition,
@@ -412,6 +416,7 @@ class Datasets:
         offset: int = 0,
         *,
         has_scenes: bool | None = None,
+        state: DatasetListState = "active",
     ) -> Page[Dataset]:
         resp = self._http.request(
             "GET",
@@ -423,6 +428,7 @@ class Datasets:
                     "limit": limit,
                     "offset": offset,
                     "has_scenes": has_scenes,
+                    "state": state,
                 }
             ),
         )
@@ -562,6 +568,50 @@ class Datasets:
             "POST", f"/datasets/{dataset_id}/sniff-axis-convention"
         )
         return DatasetSniffAxisResult.model_validate(response.json())
+
+    def preview_lifecycle(
+        self,
+        dataset_id: IdLike,
+        operation: DatasetLifecycleOperation,
+        *,
+        expected_revision: int,
+    ) -> DatasetLifecyclePreview:
+        """Review archive/restore effects without applying the lifecycle change.
+
+        Submit the returned revision and impact token explicitly with
+        ``set_lifecycle``. Expired or changed reviews require a new review;
+        neither method refreshes or retries a lifecycle request automatically.
+        """
+        resp = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/lifecycle-preview",
+            json={"operation": operation, "expected_revision": expected_revision},
+        )
+        return DatasetLifecyclePreview.model_validate(resp.json())
+
+    def set_lifecycle(
+        self,
+        dataset_id: IdLike,
+        operation: DatasetLifecycleOperation,
+        *,
+        expected_revision: int,
+        impact_token: str,
+    ) -> DatasetLifecycleResult:
+        """Apply an explicitly reviewed archive/restore operation.
+
+        Restore changes state only: revoked rights and source/sync delegations
+        stay revoked, and old jobs are not automatically resumed.
+        """
+        resp = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/lifecycle",
+            json={
+                "operation": operation,
+                "expected_revision": expected_revision,
+                "impact_token": impact_token,
+            },
+        )
+        return DatasetLifecycleResult.model_validate(resp.json())
 
     def list_items(
         self, dataset_id: IdLike, limit: int = 50, offset: int = 0

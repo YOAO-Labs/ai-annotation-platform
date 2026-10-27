@@ -25,7 +25,7 @@ beforeEach(() => {
     total: 1000,
     pages: 40,
     page: params.page,
-    page_size: 25,
+    page_size: 20,
   }));
   api.stats.mockResolvedValue({ total: 1000, pending: 1000, accepted: 0, revoked: 0, expired: 0 });
 });
@@ -112,10 +112,12 @@ it("paginates 1000 invitations and shares selected filters with stats and export
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "下一页" }));
-  await screen.findByText("第 2 / 40 页 · 共 1000 条");
+  const nextPage = await screen.findByRole("button", { name: "下一页" });
+  await waitFor(() => expect(nextPage).toBeEnabled());
+  fireEvent.click(nextPage);
+  await screen.findByText("共 1000 条 · 第 2 / 50 页");
   expect(api.page).toHaveBeenLastCalledWith(
-    expect.objectContaining({ page: 2, page_size: 25 }),
+    expect.objectContaining({ page: 2, page_size: 20 }),
     expect.any(AbortSignal),
   );
   fireEvent.click(screen.getByRole("button", { name: "筛选" }));
@@ -132,7 +134,7 @@ it("paginates 1000 invitations and shares selected filters with stats and export
   };
   await waitFor(() =>
     expect(api.page).toHaveBeenLastCalledWith(
-      { ...filters, page: 1, page_size: 25 },
+      { ...filters, page: 1, page_size: 20 },
       expect.any(AbortSignal),
     ),
   );

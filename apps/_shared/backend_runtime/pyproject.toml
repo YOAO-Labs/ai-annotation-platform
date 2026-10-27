@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 # gpu_info_snapshot 内部把 `import torch` 包在 try 里, torch 不可用时降级为 no-op / 返回 {}。
 # httpx / pillow 仅 fetch_image 用 (惰性 import), onnxtools / rapidocr 经本包 editable 安装补上 pillow。
 dependencies = [
+    "aap-protocol-v2",
     "httpx>=0.27",
     "pillow>=10.0",
 ]
@@ -25,3 +26,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.uv.sources]
+aap-protocol-v2 = { path = "../protocol_v2", editable = true }

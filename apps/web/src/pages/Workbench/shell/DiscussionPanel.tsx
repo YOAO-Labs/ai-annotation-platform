@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import {
   useCallback,
   useEffect,
@@ -398,7 +399,11 @@ export function DiscussionPanel({
           >
             {"message" in navigationState && (
               <span className="min-w-0 flex-1">
-                {navigationState.message}
+                {navigationState.status === "error" ? (
+                  <CopyableError message={navigationState.message} />
+                ) : (
+                  navigationState.message
+                )}
                 {navigationState.status === "loading" && navigationState.checked > 0
                   ? `（已检查 ${navigationState.checked} 条）`
                   : ""}

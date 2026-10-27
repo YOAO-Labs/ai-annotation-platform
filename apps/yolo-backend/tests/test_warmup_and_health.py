@@ -1,13 +1,11 @@
 """端点契约: POST /warmup + /health.pool 统一 PoolStatus 格式.
 
-stub torch + ultralytics, 用 FastAPI TestClient 直接打 app, mock predictor 与 pool 的
-回调点验证响应 body 形状.
+Use FastAPI TestClient with fake model builders to verify endpoint response shapes.
+Framework modules remain real so runtime qualification is independent of test order.
 """
 
 from __future__ import annotations
 
-import os
-import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,30 +15,26 @@ from aap_protocol_v2.lifecycle import (
 )
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _stub_modules() -> None:
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
-    sys.modules.setdefault("ultralytics", MagicMock())
-
-
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
-    """启动 FastAPI TestClient. lifespan 内会建一个真实 ModelPool, 但 build_model 是
-    mock (sys.modules ultralytics MagicMock), 不会真的拉权重."""
+    """Run the real ModelPool with a scoped builder that never loads weights."""
     # CHECKPOINTS_DIR 默认 /app/checkpoints, 在测试机上不可写; 改指向 tmp.
-    tmp = tmp_path_factory.mktemp("yolo-test-")
-    os.environ["YOLO_CHECKPOINTS_DIR"] = str(tmp)
     # main 已被其他测试 import 过, 用 importlib.reload 让 env 重新生效.
     import importlib
     import main
 
-    main = importlib.reload(main)
     from fastapi.testclient import TestClient
 
-    with TestClient(main.app) as c:
-        yield c
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv(
+            "YOLO_CHECKPOINTS_DIR", str(tmp_path_factory.mktemp("yolo-test-"))
+        )
+        main = importlib.reload(main)
+        monkeypatch.setattr(
+            main, "_build_model", lambda *_args: MagicMock(device="cpu", names={})
+        )
+        with TestClient(main.app) as c:
+            yield c
 
 
 def test_warmup_first_call_cache_miss(client) -> None:

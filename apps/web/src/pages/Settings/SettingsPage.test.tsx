@@ -4,8 +4,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
+import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 
 const mockPushToast = vi.fn();
 
@@ -159,16 +160,22 @@ vi.mock("@/components/connections/ConnectorAllowlistSettings", () => ({
   ConnectorAllowlistSettings: () => <div>连接器主机白名单</div>,
 }));
 
+vi.mock("./MLBackendOperationsSection", () => ({
+  MLBackendOperationsSection: () => <div>ML 服务认证与维护</div>,
+}));
+
 import { SettingsPage } from "./SettingsPage";
 
-function renderUI() {
+function renderUI(initialEntry = "/settings") {
   // 头像选择器读取内置头像目录（react-query），因此页面必须有 QueryClientProvider；
   // 线上由 App 根提供，这里补上同一层。
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Link to="/settings?section=profile">打开个人资料</Link>
         <SettingsPage />
+        <DecisionDialogHost />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -204,6 +211,42 @@ describe("SettingsPage", () => {
     expect(screen.getByText("设置")).toBeInTheDocument();
     expect(screen.getByText("个人资料")).toBeInTheDocument();
     expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+  });
+
+  it("从其他设置分区打开个人资料深链时切换内容，重复使用仍有效", () => {
+    renderUI("/settings?section=workbench");
+    expect(screen.getByText(/图像平滑/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "打开个人资料" }));
+    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "标注偏好" }));
+    expect(screen.getByText(/图像平滑/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "打开个人资料" }));
+    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+  });
+
+  it("未知设置分区回退到个人资料", () => {
+    renderUI("/settings?section=unknown");
+    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+  });
+
+  it("未保存的系统设置在头像深链和分区切换时共用一次离开确认", async () => {
+    renderUI("/settings?section=system");
+    const registration = screen.getByLabelText(/已关闭.*仅邀请注册/);
+    fireEvent.click(registration);
+    fireEvent.click(screen.getByRole("link", { name: "打开个人资料" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("系统设置有未保存修改");
+    fireEvent.click(screen.getByRole("button", { name: "留在本页" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(registration).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "个人资料" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("系统设置有未保存修改");
+    fireEvent.click(screen.getByRole("button", { name: "离开" }));
+    await waitFor(() => expect(screen.getByText("alice@example.com")).toBeInTheDocument());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "标注偏好" }));
+    expect(screen.getByText(/图像平滑/)).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("保存按钮在姓名未变化时 disabled", () => {
@@ -291,6 +334,7 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/开放注册/)).toBeInTheDocument();
     expect(screen.getByText(/SMTP 邮件/)).toBeInTheDocument();
     expect(screen.getByText("连接器主机白名单")).toBeInTheDocument();
+    expect(screen.getByText("ML 服务认证与维护")).toBeInTheDocument();
   });
 
   it("系统设置 - 系统设置 tab 加载中状态", () => {

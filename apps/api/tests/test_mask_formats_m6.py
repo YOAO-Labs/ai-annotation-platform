@@ -7,15 +7,21 @@ import stat
 import struct
 import uuid
 import zipfile
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 
+from app.config import settings
 from app.db.models.annotation import Annotation
+from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.schemas.mask_format import MaskFormatPlan
 from app.services.exporting.cache import compute_cache_key
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
+from app.services.mask_formats.contracts import StagedObject
 from aap_assets_source.archive import (
     ArchiveLimits,
     ArchiveSafetyError,
@@ -289,11 +295,150 @@ async def test_export_preflight_reports_loss_and_unsupported_items(
     assert len(body["preflight_digest"]) == 64
 
 
+@pytest.mark.asyncio
+async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
+    httpx_client,
+    super_admin,
+    db_session,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    user, token = super_admin
+    project, task, payload = await _seed_aap_import(db_session, owner_id=user.id)
+    await db_session.commit()
+    digest = hashlib.sha256(payload).hexdigest()
+    object_key = f"mask-formats/{project.id}/{user.id}/{uuid.uuid4()}/annotations.json"
+
+    class Body(io.BytesIO):
+        pass
+
+    monkeypatch.setattr(
+        storage_service,
+        "verify_upload",
+        lambda *_args, **_kwargs: {"ContentLength": len(payload)},
+    )
+    monkeypatch.setattr(
+        storage_service,
+        "client",
+        SimpleNamespace(
+            meta=SimpleNamespace(
+                endpoint_url=(
+                    f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+                )
+            ),
+            get_object=lambda **_kwargs: {"Body": Body(payload)},
+        ),
+    )
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
+        headers=_bearer(token),
+        json={
+            "format_id": "aap_json",
+            "staged_object_key": object_key,
+            "staged_sha256": digest,
+            "mapping": {},
+            "options": {"overwrite": False},
+        },
+    )
+    assert response.status_code == 200, response.text
+    preflight = response.json()
+    assert preflight["plan"]["loss_class"] == "lossless"
+    assert preflight["plan"]["items"][0]["task_id"] == str(task.id)
+
+    dispatches: list[uuid.UUID] = []
+    executions: list[str] = []
+
+    async def fake_dispatch(
+        batch_id: uuid.UUID, *, execution_id: str, dispatcher
+    ) -> str:
+        dispatches.append(batch_id)
+        executions.append(execution_id)
+        return execution_id
+
+    monkeypatch.setattr("app.api.v1.mask_formats.dispatch_import", fake_dispatch)
+    execute_payload = {
+        "receipt": preflight["receipt"],
+        "plan_digest": preflight["plan"]["plan_digest"],
+        "confirm_lossy": False,
+    }
+    first = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/mask-formats/imports",
+        headers=_bearer(token),
+        json=execute_payload,
+    )
+    replay = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/mask-formats/imports",
+        headers=_bearer(token),
+        json=execute_payload,
+    )
+    assert first.status_code == 202, first.text
+    assert replay.status_code == 202, replay.text
+    assert first.json()["id"] == replay.json()["id"]
+    assert len(dispatches) == 1
+
+    local_file = tmp_path / "annotations.json"
+    local_file.write_bytes(payload)
+    adapter = registry.get("aap_json")
+    result = await adapter.execute_import_item(
+        db_session,
+        project=project,
+        staged=StagedObject(
+            object_key=object_key,
+            sha256=digest,
+            local_path=str(local_file),
+            size_bytes=len(payload),
+        ),
+        plan=MaskFormatPlan.model_validate(preflight["plan"]),
+        item_index=0,
+        operator_user_id=user.id,
+        options={"overwrite": False},
+    )
+    await db_session.flush()
+    assert result == {
+        "status": "committed",
+        "task_id": str(task.id),
+        "imported": 1,
+        "skipped": 0,
+    }
+    annotation = (
+        await db_session.execute(
+            select(Annotation).where(
+                Annotation.task_id == task.id,
+                Annotation.attributes["_imported"].astext == "true",
+            )
+        )
+    ).scalar_one()
+    assert annotation.class_name == "object"
+
+    batch = await db_session.get(
+        MaskFormatImport,
+        uuid.UUID(first.json()["id"]),
+    )
+    assert batch is not None
+    assert batch.async_job_id is not None
+
+    revoked: list[str] = []
+    monkeypatch.setattr(
+        "app.workers.celery_app.celery_app.control.revoke",
+        lambda task_id, **_kwargs: revoked.append(task_id),
+    )
+    cancel = await httpx_client.post(
+        f"/api/v1/async-jobs/{batch.async_job_id}/cancel",
+        headers=_bearer(token),
+    )
+    assert cancel.status_code == 200, cancel.text
+    assert cancel.json()["status"] == "cancelled"
+    await db_session.refresh(batch)
+    assert batch.status == "cancelled"
+    assert revoked == executions
+
+
+@pytest.mark.asyncio
 async def test_import_execute_rejects_plan_without_executable_items(
     httpx_client,
     super_admin,
     db_session,
-    request,
+    monkeypatch,
 ) -> None:
     user, token = super_admin
     project, _task, payload = await _seed_aap_import(db_session, owner_id=user.id)
@@ -303,17 +448,26 @@ async def test_import_execute_rejects_plan_without_executable_items(
     await db_session.commit()
     digest = hashlib.sha256(payload).hexdigest()
     object_key = f"mask-formats/{project.id}/{user.id}/{uuid.uuid4()}/empty.json"
-    request.addfinalizer(
-        lambda: storage_service.delete_object(
-            object_key, bucket=storage_service.import_bucket
-        )
-    )
 
-    storage_service.client.put_object(
-        Bucket=storage_service.import_bucket,
-        Key=object_key,
-        Body=payload,
-        ContentType="application/json",
+    class Body(io.BytesIO):
+        pass
+
+    monkeypatch.setattr(
+        storage_service,
+        "verify_upload",
+        lambda *_args, **_kwargs: {"ContentLength": len(payload)},
+    )
+    monkeypatch.setattr(
+        storage_service,
+        "client",
+        SimpleNamespace(
+            meta=SimpleNamespace(
+                endpoint_url=(
+                    f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+                )
+            ),
+            get_object=lambda **_kwargs: {"Body": Body(payload)},
+        ),
     )
     preflight = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",

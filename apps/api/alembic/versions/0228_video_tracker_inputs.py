@@ -1,7 +1,7 @@
 """Retain the source scope and exact video input for tracker jobs.
 
-Revision ID: 0228
-Revises: 0227
+Revision ID: bo0228
+Revises: bo0227
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0228"
-down_revision = "0227"
+revision = "bo0228"
+down_revision = "bo0227"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

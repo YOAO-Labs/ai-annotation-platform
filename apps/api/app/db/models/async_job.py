@@ -35,6 +35,18 @@ class AsyncJobKind(str, enum.Enum):
     TRAINING_PREVIEW = "training_preview"
     SAMPLE_EVALUATION = "sample_evaluation"
     ACTIVE_LEARNING_ROUND = "active_learning_round"
+    STORAGE_MIGRATION_INVENTORY = "storage_migration_inventory"
+    STORAGE_MIGRATION_COPY = "storage_migration_copy"
+    STORAGE_USAGE = "storage_usage"
+    VIDEO_ASSET_RETRY = "video_asset_retry"
+    MANAGED_ORIGINAL_VERIFICATION = "managed_original_verification"
+    MANAGED_ORIGINAL_RECLAIM = "managed_original_reclaim"
+    MANAGED_REFERENCE_RECONCILIATION = "managed_reference_reconciliation"
+    DATASET_QUALITY = "dataset_quality"
+    DATASET_QUALITY_REVIEW = "dataset_quality_review"
+    DATASET_SCAN = "dataset_scan"
+    MEDIA_BACKFILL = "media_backfill"  # dataset 存量图片/视频媒体回填
+    DATASET_REGISTRATION = "dataset_registration"
     DATASET_IMPORT = "dataset_import"  # 外部连接器数据集导入
     CREATE_TASKS = "create_tasks"  # dataset link → 建 task
     MASK_QC = "mask_qc"  # Raster / Video Mask 异步质量扫描
@@ -59,6 +71,19 @@ ASYNC_JOB_TERMINAL_STATUSES = frozenset(
     {AsyncJobStatus.COMPLETED, AsyncJobStatus.FAILED, AsyncJobStatus.CANCELLED}
 )
 
+# The frozen ``aap_jobs_v1.async_job_creation`` view projects neither the
+# owner-bound ``execution_snapshot_id`` nor the storage progress facts added by
+# a later revision. Evaluating ``None`` for these types keeps an unassigned
+# value out of the ORM INSERT instead of rendering an explicit NULL that the
+# closed creation relation cannot accept. Explicit writes to the snapshot
+# column are rejected by the lifecycle guards.
+_EXECUTION_SNAPSHOT_TYPE = UUID(as_uuid=True)
+_EXECUTION_SNAPSHOT_TYPE.should_evaluate_none = True
+_ABSENT_ON_CREATE_TIMESTAMP = DateTime(timezone=True)
+_ABSENT_ON_CREATE_TIMESTAMP.should_evaluate_none = True
+_ABSENT_ON_CREATE_JSONB = JSONB()
+_ABSENT_ON_CREATE_JSONB.should_evaluate_none = True
+
 
 class AsyncJob(Base):
     __tablename__ = "async_jobs"
@@ -67,6 +92,11 @@ class AsyncJob(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    execution_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        _EXECUTION_SNAPSHOT_TYPE,
+        ForeignKey("prediction_execution_snapshots.id", ondelete="RESTRICT"),
+        index=True,
+    )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("projects.id", ondelete="SET NULL"),
@@ -86,6 +116,12 @@ class AsyncJob(Base):
     )
     progress_pct: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
+    )
+    last_progress_at: Mapped[datetime | None] = mapped_column(
+        _ABSENT_ON_CREATE_TIMESTAMP, nullable=True
+    )
+    progress_observation: Mapped[dict | None] = mapped_column(
+        _ABSENT_ON_CREATE_JSONB, nullable=True
     )
     # 输入摘要（不要塞大对象，仅放 batch_id / 文件数等元数据）
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

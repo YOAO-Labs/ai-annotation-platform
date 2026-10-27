@@ -6,12 +6,12 @@
  * reason, organized into product-domain rule groups so each suite composes
  * exactly the cancellations observed on its own flows; membership in another
  * suite's group never widens a whitelist. The engine only classifies
- * `net::ERR_ABORTED` *request* failures: keep-alive session telemetry POSTs
- * (heartbeat, task-event batches) are the only write-shaped requests allowed,
- * because the API may have accepted them while unload already cancelled the
- * socket. Console/page errors, HTTP responses and every other failure stay
- * errors; suites keep intended business HTTP failures explicit through their
- * own expected-error registries instead of this engine.
+ * `net::ERR_ABORTED` request failures. Write-shaped allowances are restricted to
+ * unload telemetry, best-effort playback lease revocation, and the read-only
+ * frame-prefetch batch whose frame list requires a POST body. Derivative cache
+ * work retains its server-side owner after cancellation; annotation and other
+ * business writes never qualify. Console/page errors, HTTP responses and every
+ * other failure stay errors.
  */
 
 /** A normalized failure signal recorded from page / console / request events. */
@@ -39,8 +39,8 @@ export interface AbortAllowRule {
 const UUID = "[0-9a-f-]{36}";
 
 /**
- * Keep-alive session telemetry may be reported as aborted on unload even
- * though the API accepted it. This is the only write-shaped allowance.
+ * Keep-alive session telemetry may be reported as aborted on unload.
+ * Session telemetry stays restricted to these two POST routes.
  */
 export const sessionTelemetryAborts: readonly AbortAllowRule[] = [
   {
@@ -141,12 +141,48 @@ export const objectCommentsAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Mask editor content read retired when the mask edit session closes. */
+/** Mask content reads retire with their canvas or editor owner. */
 export const maskEditorAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
     path: new RegExp(`^/api/v1/annotations/${UUID}/mask-content$`),
-    reason: "closing the mask editor retires its in-flight mask content fetch",
+    reason: "retiring the mask canvas or editor cancels its in-flight content fetch",
+  },
+];
+
+/**
+ * Verified original reads retire with their task, camera or dataset preview owner.
+ */
+const originalMediaAborts: readonly AbortAllowRule[] = [
+  {
+    method: "GET",
+    path: new RegExp(`^/api/v1/files/tasks/${UUID}(?:/links/${UUID})?/original(?:-identity)?$`),
+    reason: "task or camera retirement/reload cancels its owned original read",
+  },
+  {
+    method: "GET",
+    path: new RegExp(`^/api/v1/datasets/${UUID}/items/${UUID}/original(?:-identity)?$`),
+    reason: "closing or reloading the dataset preview cancels its owned original read",
+  },
+];
+
+/**
+ * A leaving document can only revoke its native playback lease with a keepalive
+ * DELETE, and the browser reports that request as aborted once the document is
+ * discarded. Lease expiry and the registry reaper stay the final owner, so the
+ * cancelled revoke is a documented lifecycle cancellation rather than a lost
+ * write; HTTP failures and every other method stay errors.
+ */
+export const originalPlaybackReleaseAborts: readonly AbortAllowRule[] = [
+  {
+    method: "DELETE",
+    path: new RegExp(`^/api/v1/files/tasks/${UUID}/original-playback/${UUID}$`),
+    reason: "reload/leave aborts the best-effort keepalive lease revoke; expiry owns cleanup",
+  },
+  {
+    method: "DELETE",
+    path: new RegExp(`^/api/v1/datasets/${UUID}/items/${UUID}/original-playback/${UUID}$`),
+    reason: "closing the dataset preview aborts its best-effort lease revoke",
   },
 ];
 
@@ -167,9 +203,19 @@ export const videoMediaAborts: readonly AbortAllowRule[] = [
     reason: "leaving the frame preview retires its in-flight frame fetch",
   },
   {
+    method: "POST",
+    path: new RegExp(`^/api/v1/tasks/${UUID}/video/frames:prefetch$`),
+    reason: "retiring the video owner cancels its read-only batch frame prefetch",
+  },
+  {
     method: "GET",
     path: new RegExp(`^/api/v1/videos/${UUID}/chunks/\\d+(?:/samples)?$`),
     reason: "retiring a video owner may cancel chunk metadata and sample fetches",
+  },
+  {
+    method: "GET",
+    path: new RegExp(`^/api/v1/media-cache/video-derivative/${UUID}/chunk\\.mp4$`),
+    reason: "retiring native playback cancels its owned saved-derivative media stream",
   },
   {
     method: "GET",
@@ -193,6 +239,8 @@ export const imageWorkbenchAborts: readonly AbortAllowRule[] = [
   ...coreBootstrapAborts,
   ...dashboardViewAborts,
   ...taskContextAborts,
+  ...originalMediaAborts,
+  ...maskEditorAborts,
 ];
 
 /**
@@ -205,6 +253,8 @@ export const videoWorkbenchAborts: readonly AbortAllowRule[] = [
   ...taskContextAborts,
   ...videoTaskContextAborts,
   ...videoMediaAborts,
+  ...originalMediaAborts,
+  ...originalPlaybackReleaseAborts,
 ];
 
 /** Whether `signal`'s method + pathname satisfy one allow rule exactly. */

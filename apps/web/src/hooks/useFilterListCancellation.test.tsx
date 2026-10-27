@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
 
 const { listProjects, listDatasets, listTemplates, projectStats } = vi.hoisted(() => ({
   listProjects: vi.fn().mockResolvedValue([]),
@@ -153,6 +154,7 @@ describe("filter list cancellation plumbing", () => {
       { search: "car" },
       "filter-list-user",
       "filter-list-token",
+      getAuthSessionRevision(),
     ]);
     expect(client.getQueryCache().findAll({ queryKey: ["project-stats"] })[0]?.queryKey).toEqual([
       "project-stats",
@@ -160,5 +162,36 @@ describe("filter list cancellation plumbing", () => {
       "filter-list-token",
     ]);
     hook.unmount();
+  });
+
+  it("retires a dataset read across a same-account login with the same token", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 60_000 } },
+    });
+    let resolveOld: ((value: unknown) => void) | undefined;
+    listDatasets.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    const hook = renderHook(() => useDatasets({ search: "car" }), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    await waitFor(() => expect(listDatasets).toHaveBeenCalledTimes(1));
+    const obsoleteSignal = listDatasets.mock.calls[0][1].signal as AbortSignal;
+    act(() => {
+      useAuthStore.getState().logout();
+      useAuthStore.getState().setAuth("filter-list-token", { id: "filter-list-user" } as never);
+    });
+    await waitFor(() => expect(listDatasets).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(obsoleteSignal.aborted).toBe(true);
+    await act(async () => resolveOld?.({ items: [{ id: "retired" }], total: 1 }));
+    expect(hook.result.current.data?.items).toEqual([]);
+    hook.unmount();
+    client.clear();
   });
 });

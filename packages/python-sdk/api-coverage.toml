@@ -415,7 +415,7 @@ watched_tags = ["*"]
 "GET /api/v1/bug_reports/mine" = { status = "covered" }
 "GET /api/v1/bug_reports/{report_id}" = { status = "covered" }
 "GET /api/v1/bug_reports/{report_id}/attachments/download" = { status = "covered" }
-"GET /api/v1/files/tasks/{task_id}/file-url" = { status = "covered" }
+"GET /api/v1/files/tasks/{task_id}/file-url" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/groups" = { status = "covered" }
 "GET /api/v1/groups/query" = { status = "covered" }
 "GET /api/v1/invitations" = { status = "covered" }
@@ -439,7 +439,7 @@ watched_tags = ["*"]
 "GET /api/v1/projects/{project_id}/data-manager/objects/{annotation_id}/location" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/data-manager/schema" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/data-manager/tracks/{track_ref}/detail" = { status = "covered" }
-"GET /api/v1/projects/{project_id}/guide-assets/sign-url" = { status = "covered" }
+"GET /api/v1/projects/{project_id}/guide-assets/sign-url" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/projects/{project_id}/mask-formats" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/mask-formats/imports/{import_id}" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/mask-qc/issues" = { status = "covered" }
@@ -542,8 +542,8 @@ watched_tags = ["*"]
 "POST /api/v1/projects/{project_id}/data-manager/tasks/assignment-preview" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/data-manager/tasks/export" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/data-manager/tracks/query" = { status = "covered" }
-"POST /api/v1/projects/{project_id}/guide-assets/upload-complete" = { status = "covered" }
-"POST /api/v1/projects/{project_id}/guide-assets/upload-init" = { status = "covered" }
+"POST /api/v1/projects/{project_id}/guide-assets/upload-complete" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/projects/{project_id}/guide-assets/upload-init" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/projects/{project_id}/mask-formats/exports:preflight" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/mask-formats/imports" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/mask-formats/imports/{import_id}/resume" = { status = "covered" }
@@ -582,3 +582,194 @@ watched_tags = ["*"]
 "PUT /api/v1/notification-preferences" = { status = "covered" }
 "PUT /api/v1/project-pipelines/{pipeline_id}" = { status = "covered" }
 "PUT /api/v1/storage-connections/allowlist" = { status = "covered" }
+
+"GET /api/v1/projects/{project_id}/guide-assets/content" = { status = "covered" }
+"POST /api/v1/projects/{project_id}/guide-assets/upload" = { status = "covered" }
+"GET /api/v1/admin/ml-integrations/managed-auth" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/preview" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/scene-options" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/workbench" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/training-versions" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/ml-integrations/managed-auth/initialize" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/lifecycle" = { status = "covered" }
+"POST /api/v1/datasets/{dataset_id}/lifecycle-preview" = { status = "covered" }
+"POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/projects/{project_id}/training-previews/{preview_id}/storage-pin" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{run_id}/storage-pin" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/content" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/masks/{annotation_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/roots" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/avatars/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/avatars/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/avatars" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/bug-reports/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/bug-reports/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/bug-reports" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/{location_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/original-cache" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/{location_id}/original-cache/cleanup" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/directories" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/{location_id}/probe" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/probes" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-sources" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/dataset-sources/{source_id}" = { status = "uncovered", reason = "not-implemented" }
+"PUT /api/v1/dataset-sources/{source_id}/external-protection" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-sources/{source_id}/scans" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}/scans" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-scans/{run_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-scans/{run_id}/entries" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-scans/{run_id}/resume" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-scans/{run_id}/entries/{path_digest}/verify" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-scans/{run_id}/entries/{path_digest}/content" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/files/tasks/{task_id}/content" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/files/tasks/{task_id}/content-identity" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/files/tasks/{task_id}/original-identity" = { status = "covered" }
+"GET /api/v1/files/tasks/{task_id}/original" = { status = "covered" }
+"GET /api/v1/files/tasks/{task_id}/links/{link_id}/original-identity" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/files/tasks/{task_id}/links/{link_id}/original" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/original-identity" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/original" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/files/tasks/{task_id}/original-playback" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/items/{item_id}/original-playback" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/media/original-playback/{lease_id}" = { status = "uncovered", reason = "not-implemented" }
+"DELETE /api/v1/files/tasks/{task_id}/original-playback/{lease_id}" = { status = "uncovered", reason = "not-implemented" }
+"DELETE /api/v1/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-scans/{run_id}/entries/{path_digest}/register" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-items/{item_id}/content" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-scans/{scan_id}/registration" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-scans/{scan_id}/registration" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-registrations/{registration_id}/confirm" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-registrations/{registration_id}/resume" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-registrations/{registration_id}/entries/{path_digest}/retry" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-registrations/{registration_id}/entries" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-registrations/{registration_id}/changes" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}/lifecycle-impact" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-sources/{source_id}/lifecycle" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}/entries/{path_digest}/preview" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "uncovered", reason = "not-implemented" }
+"PUT /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-sources/{source_id}/sync-schedule/continue" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}/revisions" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/revalidate" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/relocate" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/move-candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-sources/{source_id}/rules/preview" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-sources/{source_id}/rules" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/source-summary" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/{location_id}/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/maintenance-impact" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-sources/{source_id}/active-registration" = { status = "uncovered", reason = "not-implemented" }
+# Personal dataset browsing preferences; application UI only.
+"GET /api/v1/datasets/{dataset_id}/saved-views" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/saved-views" = { status = "uncovered", reason = "not-implemented" }
+"PUT /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "uncovered", reason = "not-implemented" }
+"DELETE /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "uncovered", reason = "not-implemented" }
+# Dataset quality review currently belongs to the web workbench.
+"GET /api/v1/datasets/{dataset_id}/quality-runs" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results/{result_id}/review" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/resume" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/preview" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/members" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/execute" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/resume" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/usage-inventory" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-inventories" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-windows" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-windows" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-windows/{window_id}" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-windows/{window_id}/transitions" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-inventories" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-inventories/{job_id}/dispatch" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-inventories/{job_id}/report" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-copy-targets" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-copies" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-copies" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-copies/{parent_id}/generations" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-copies/{copy_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-copies/{copy_id}/failed-objects" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-copies/{copy_id}/attempts" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/migration-copies/{copy_id}/dispatch" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/migration-copies/{copy_id}/checkpoint" = { status = "uncovered", reason = "not-implemented" }
+"PUT /api/v1/storage/usage-schedule" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/maintenance" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/{location_id}/faults" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/{location_id}/maintenance-preview" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/{location_id}/maintenance" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/managed-original-reclamation" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention-preview" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/reclaims" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/reclaim-preview" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/reclaims" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-reclaims/{attempt_id}/redispatch" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage/managed-original-reference-reconciliation" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage/managed-original-reference-reconciliation" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/audit-archive/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/audit-archive/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/audit-archive" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/export/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/export/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/export" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/datasets/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/datasets/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/datasets" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/import/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/import/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/import" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/media-cache/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/media-cache/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/media-cache" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/media-cache/{kind}/{output_id}/{relative}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/annotations/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/annotations/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/annotations" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/storage-locations/bindings/training/candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/bindings/training/change-preview" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/storage-locations/bindings/training" = { status = "uncovered", reason = "not-implemented" }
+# Independent Agent protocol and administrator registry; no SDK consumer yet.
+"GET /api/v1/site-agents/agents" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/site-agents/sites" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/agents/{agent_id}/drain" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/agents/{agent_id}/revoke" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/agents/{agent_id}/rotate" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/commands/poll" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/commands/{command_id}/chunks" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/commands/{command_id}/result" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/pair" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/sites" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/site-agents/sites/{site_id}/agents" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/storage-locations/agent" = { status = "uncovered", reason = "not-implemented" }
+# Reference replica administration remains available through the platform API/UI.
+"GET /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dataset-items/{item_id}/reference-replica-candidates" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "uncovered", reason = "not-implemented" }
+"PATCH /api/v1/dataset-items/{item_id}/reference-replicas/{replica_id}" = { status = "uncovered", reason = "not-implemented" }
+"DELETE /api/v1/dataset-items/{item_id}/reference-replicas/{replica_id}" = { status = "uncovered", reason = "not-implemented" }
+
+"GET /api/v1/admin/ml-backend-operations/jobs/{job_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/admin/ml-backend-operations/status" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/dashboard/reviewer/batches" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/model-catalog" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/projects/{project_id}/model-catalog" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/ml-backend-operations/jobs" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/annotations/{annotation_id}/comment-attachments/upload" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/bug_reports/screenshot/upload" = { status = "uncovered", reason = "not-implemented" }

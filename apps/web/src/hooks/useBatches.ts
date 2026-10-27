@@ -142,10 +142,15 @@ export function useBulkActivateBatches(projectId: string) {
 }
 
 // v0.7.3 · 批次操作历史
-export function useBatchAuditLogs(projectId: string, batchId: string | null, enabled: boolean) {
+export function useBatchAuditLogs(
+  projectId: string,
+  batchId: string | null,
+  enabled: boolean,
+  pagination = { limit: 50, offset: 0 },
+) {
   return useQuery({
-    queryKey: ["batch-audit-logs", projectId, batchId],
-    queryFn: () => batchesApi.auditLogs(projectId, batchId!),
+    queryKey: ["batch-audit-logs", projectId, batchId, pagination],
+    queryFn: () => batchesApi.auditLogs(projectId, batchId!, pagination.limit, pagination.offset),
     enabled: enabled && !!projectId && !!batchId,
   });
 }

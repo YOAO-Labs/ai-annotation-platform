@@ -15,6 +15,16 @@ def load_task_image(task):
 
     storage = StorageService()
     bucket = storage.datasets_bucket if task.dataset_item_id else storage.bucket
-    obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
-    raw = obj["Body"].read()
-    return Image.open(io.BytesIO(raw)).convert("RGB")
+    body = None
+    try:
+        obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
+        body = obj["Body"]
+        raw = body.read()
+        with Image.open(io.BytesIO(raw)) as image:
+            return image.convert("RGB")
+    finally:
+        try:
+            if body is not None:
+                body.close()
+        finally:
+            storage.client.close()

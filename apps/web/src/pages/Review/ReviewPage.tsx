@@ -1,3 +1,8 @@
+import { listStyles } from "@/components/ui/listStyles";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPageState } from "@/hooks/useListPageState";
+import { useInfiniteListPagination } from "@/hooks/useInfiniteListPagination";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
 import { FilterGroup } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -87,7 +92,9 @@ function TaskRow({
   onOpen: () => void;
 }) {
   return (
-    <div className="mb-2 grid grid-cols-[32px_48px_minmax(0,1fr)_140px_200px_96px] items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
+    <div
+      className={`${listStyles.row} grid grid-cols-[32px_48px_minmax(0,1fr)_100px_160px_80px] items-center gap-3 max-lg:grid-cols-[24px_40px_minmax(0,1fr)_80px] max-lg:[&>:nth-last-child(2)]:hidden max-lg:[&>:nth-last-child(3)]:hidden`}
+    >
       <label className="inline-flex cursor-pointer items-center">
         <input
           type="checkbox"
@@ -157,7 +164,7 @@ function QueryErrorState({
       <Icon name="warning" size={compact ? 20 : 28} className="text-status-danger" />
       <div className="text-sm font-semibold">无法加载{resource}</div>
       <div className="max-w-[360px] text-xs leading-relaxed text-muted-foreground">
-        {queryErrorMessage(error, resource)}
+        <CopyableError message={queryErrorMessage(error, resource)} />
       </div>
       <Button size="sm" onClick={onRetry}>
         重新加载
@@ -183,7 +190,7 @@ function RefreshNotice({
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <strong className="text-status-caution">{resource}更新失败</strong>
         <span className="text-muted-foreground">
-          {queryErrorMessage(error, resource)} 当前内容已保留。
+          <CopyableError message={queryErrorMessage(error, resource)} /> 当前内容已保留。
         </span>
       </div>
       <Button size="sm" onClick={onRetry}>
@@ -227,13 +234,24 @@ export function ReviewPage() {
 
   // v0.12.5 · 绩效页项目下钻带入的 assignee 过滤(后端 tasks 已支持 assignee_id)。
   const assigneeFilter = queueScope.assignee;
+  const authOwnerKey = useAuthStore(
+    (state) => `${state.user?.id ?? "anonymous"}:${state.token ?? "none"}`,
+  );
+  const paginationScope = JSON.stringify([
+    authOwnerKey,
+    projectId,
+    selectedBatchId,
+    assigneeFilter,
+  ]);
+  const pageState = useListPageState(paginationScope);
   const taskListParams = useMemo(
     () => ({
       status: "review" as const,
+      limit: pageState.pageSize,
       ...(selectedBatchId ? { batch_id: selectedBatchId } : {}),
       ...(assigneeFilter ? { assignee_id: assigneeFilter } : {}),
     }),
-    [selectedBatchId, assigneeFilter],
+    [selectedBatchId, assigneeFilter, pageState.pageSize],
   );
   const taskListQuery = useTaskList(projectId, taskListParams);
   const taskListData = taskListQuery.data;
@@ -248,16 +266,14 @@ export function ReviewPage() {
       setLoadMoreRequested(false);
     }
   }, [taskListPaused, taskListQuery.isFetchingNextPage]);
-  const tasks = useMemo(() => flattenTaskPages(taskListData?.pages), [taskListData?.pages]);
+  const pagination = useInfiniteListPagination(paginationScope, taskListQuery, pageState);
+  const tasks = pagination.items;
   const total = taskListData?.pages[0]?.total ?? tasks.length;
 
   const approveMut = useApproveTask();
   const rejectMut = useRejectTask();
   // 整批退回的批次驳回 mutation（原 RejectBatchModal 内联 hook，plan T2 迁移到调用方）
   const rejectBatchMut = useRejectBatch(projectId ?? "");
-  const authOwnerKey = useAuthStore(
-    (state) => `${state.user?.id ?? "anonymous"}:${state.token ?? "none"}`,
-  );
 
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   // plan 1789527942 · T2：批次驳回 / 任务退回已迁移 decisionDialog；弹窗期间 URL 作用域可能漂移，
@@ -283,13 +299,13 @@ export function ReviewPage() {
   }, [authOwnerKey, queueSearch]);
 
   useEffect(() => {
-    const taskIds = new Set(tasks.map((task) => task.id));
+    const taskIds = new Set(flattenTaskPages(taskListData?.pages).map((task) => task.id));
     setCheckedIds((previous) => {
       const next = new Set([...previous].filter((id) => taskIds.has(id)));
       if (next.size === previous.size) return previous;
       return next;
     });
-  }, [tasks]);
+  }, [taskListData?.pages]);
 
   const handleSelectBatch = (b: ReviewingBatchItem | null) => {
     // 合并而非整体重写：保留 assignee 等下钻带入的过滤 param。
@@ -335,8 +351,15 @@ export function ReviewPage() {
     });
   };
   const toggleAll = () => {
-    if (checkedIds.size === tasks.length) setCheckedIds(new Set());
-    else setCheckedIds(new Set(tasks.map((t) => t.id)));
+    const allOnPage = tasks.every((task) => checkedIds.has(task.id));
+    setCheckedIds((previous) => {
+      const next = new Set(previous);
+      for (const task of tasks) {
+        if (allOnPage) next.delete(task.id);
+        else next.add(task.id);
+      }
+      return next;
+    });
   };
 
   const openTask = (id: string) => {
@@ -655,12 +678,24 @@ export function ReviewPage() {
             onRetry={() => void taskListQuery.refetch()}
           />
         ) : tasks.length === 0 ? (
-          <div className="p-15 text-center text-muted-foreground">
-            <Icon name="check" size={40} className="mx-auto mb-3 opacity-30" />
-            <div className="text-sm">
-              {selectedBatchId ? "该批次暂无待审核任务" : "暂无待审核任务"}
+          <>
+            <div className="p-15 text-center text-muted-foreground">
+              <Icon name="check" size={40} className="mx-auto mb-3 opacity-30" />
+              <div className="text-sm">
+                {selectedBatchId ? "该批次暂无待审核任务" : "暂无待审核任务"}
+              </div>
             </div>
-          </div>
+            <ListPagination
+              label="任务"
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              count={0}
+              hasNext={pagination.hasNext}
+              onPageChange={pagination.onPageChange}
+              onPageSizeChange={pagination.setPageSize}
+            />
+          </>
         ) : (
           <>
             <div
@@ -671,14 +706,14 @@ export function ReviewPage() {
               <label className="inline-flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={checkedIds.size > 0 && checkedIds.size === tasks.length}
+                  checked={tasks.length > 0 && tasks.every((task) => checkedIds.has(task.id))}
                   onChange={toggleAll}
                   className="cursor-pointer accent-brand"
                 />
                 <span>
                   {checkedIds.size > 0
-                    ? `已选 ${checkedIds.size}/${tasks.length}`
-                    : `共 ${total} 个待审核任务${tasks.length < total ? `（已加载 ${tasks.length}）` : ""}`}
+                    ? `已选 ${checkedIds.size} 个任务`
+                    : `共 ${total} 个待审核任务`}
                 </span>
               </label>
               {checkedIds.size > 0 && (
@@ -700,33 +735,31 @@ export function ReviewPage() {
                 </div>
               )}
             </div>
-            {tasks.map((t) => (
-              <TaskRow
-                key={t.id}
-                task={t}
-                checked={checkedIds.has(t.id)}
-                onToggle={() => toggleChecked(t.id)}
-                onOpen={() => openTask(t.id)}
+            <div className={listStyles.surface}>
+              {tasks.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  checked={checkedIds.has(t.id)}
+                  onToggle={() => toggleChecked(t.id)}
+                  onOpen={() => openTask(t.id)}
+                />
+              ))}
+              <ListPagination
+                label="任务"
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                total={pagination.total}
+                count={tasks.length}
+                hasNext={pagination.hasNext}
+                loading={taskListQuery.isFetchingNextPage || isLoading}
+                onPageChange={(page) => {
+                  setLoadMoreRequested(page > pagination.page);
+                  void pagination.onPageChange(page);
+                }}
+                onPageSizeChange={pagination.setPageSize}
               />
-            ))}
-            {taskListQuery.hasNextPage && (
-              <div className="mb-4 flex items-center justify-center gap-3 rounded-md border border-border bg-card px-3 py-3">
-                <span className="text-xs text-muted-foreground">
-                  已加载 {tasks.length}
-                  {typeof total === "number" ? ` / ${total}` : ""} 个任务
-                </span>
-                <Button
-                  size="sm"
-                  disabled={taskListQuery.isFetchingNextPage}
-                  onClick={() => {
-                    setLoadMoreRequested(true);
-                    void Promise.resolve(taskListQuery.fetchNextPage()).catch(() => undefined);
-                  }}
-                >
-                  {taskListQuery.isFetchingNextPage ? "加载中…" : "加载更多"}
-                </Button>
-              </div>
-            )}
+            </div>
           </>
         )}
       </section>

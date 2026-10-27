@@ -1,9 +1,13 @@
 import uuid
 from typing import Any
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1._mask_content import MASK_CONTENT_RESPONSES, mask_content_response
+from app.config import settings
+from app.services.content_snapshot import ContentError
 from app.application.candidate_decision import bind_candidate_decision_port
 from app.deps import (
     get_db,
@@ -160,6 +164,94 @@ async def get_predictions(
 
 
 @router.get(
+    "/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}",
+    response_model=CocoRleContent,
+    responses=MASK_CONTENT_RESPONSES,
+    dependencies=[Depends(require_scopes("annotations:read"))],
+)
+async def get_prediction_raster_mask_content(
+    task_id: uuid.UUID,
+    prediction_id: uuid.UUID,
+    request: Request,
+    shape_index: int = Path(ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: IdentityActorFacts = Depends(get_current_user),
+) -> Response:
+    """Read image-candidate pixels after current task and source qualification."""
+    task = await _load_task_or_404(db, task_id)
+    await task_access.assert_task_visible(db, task, current_user.id)
+    prediction = await db.scalar(
+        select(prediction_row).where(prediction_row.id == prediction_id)
+    )
+    if (
+        prediction is None
+        or prediction.task_id != task.id
+        or prediction.project_id != task.project_id
+        or prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+    ):
+        raise HTTPException(status_code=404, detail="Prediction not found")
+    shapes = prediction.result or []
+    if shape_index in set(
+        prediction.rejected_shape_indexes or []
+    ) or not 0 <= shape_index < len(shapes):
+        raise HTTPException(status_code=404, detail="Prediction shape not found")
+    from app.services.prediction import to_internal_shape
+
+    geometry = to_internal_shape(shapes[shape_index]).get("geometry") or {}
+    if geometry.get("type") != "raster_mask":
+        raise HTTPException(
+            status_code=422, detail="Prediction shape is not an image mask"
+        )
+    if not settings.raster_mask_read_enabled:
+        raise HTTPException(
+            status_code=404, detail={"reason": "raster_mask_read_disabled"}
+        )
+    if task.file_type != "image":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "raster_mask_image_required",
+                "message": "image mask requires an image task",
+            },
+        )
+    try:
+        repair_read_receipt = None
+        from app.services.reference_keys import is_reference
+
+        if not is_reference(task.file_path) and prediction.source == "mask_repair":
+            from app.services.managed_repair_acceptance import qualify_candidate_read
+
+            metadata = await db.scalar(
+                select(prediction_meta_row).where(
+                    prediction_meta_row.prediction_id == prediction.id
+                )
+            )
+            repair_read_receipt = await qualify_candidate_read(
+                db, task, current_user, request, prediction, metadata
+            )
+        await validate_mask_geometry_for_task(
+            db, task, geometry, repair_read_receipt=repair_read_receipt
+        )
+    except ContentError as exc:
+        from app.services.managed_mask_repair import repair_http_error
+
+        raise repair_http_error(exc) from None
+    except RasterMaskContractError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "mask_task_context_invalid", "message": str(exc)},
+        ) from exc
+    return await mask_content_response(
+        owner_id=prediction.id,
+        mask_ref=geometry["mask"],
+        request=request,
+        loader=load_coco_rle,
+    )
+
+
+@router.get(
     "/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}",
     response_model=CocoRleContent,
     dependencies=[Depends(require_scopes("annotations:read"))],
@@ -167,6 +259,7 @@ async def get_predictions(
 async def get_prediction_mask_content_frame(
     task_id: uuid.UUID,
     prediction_id: uuid.UUID,
+    request: Request,
     shape_index: int = Path(ge=0),
     frame_index: int = Path(ge=0),
     db: AsyncSession = Depends(get_db),
@@ -195,7 +288,26 @@ async def get_prediction_mask_content_frame(
             status_code=422, detail="Prediction shape is not a video mask track"
         )
     try:
-        await validate_mask_geometry_for_task(db, task, geometry)
+        from app.services import video_prediction_reads as video_reads
+        from app.services.video_prediction_acceptance import requires_qualification
+
+        metadata = await db.scalar(
+            select(prediction_meta_row).where(
+                prediction_meta_row.prediction_id == prediction.id
+            )
+        )
+        video_read_receipt = None
+        if requires_qualification(prediction, metadata):
+            video_read_receipt = await video_reads.qualify_candidate_read(
+                db, task, current_user, request, prediction.id, shape_index, frame_index
+            )
+        await validate_mask_geometry_for_task(
+            db, task, geometry, video_read_receipt=video_read_receipt
+        )
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
@@ -207,7 +319,15 @@ async def get_prediction_mask_content_frame(
     if resolved is None:
         raise HTTPException(status_code=404, detail="Mask is outside at this frame")
     try:
+        if video_read_receipt is not None:
+            return await video_reads.read_content(
+                db, task, video_read_receipt, resolved["mask"]
+            )
         return await load_coco_rle(resolved["mask"])
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except (KeyError, ValueError) as exc:
         raise HTTPException(
             status_code=409,
@@ -234,6 +354,7 @@ async def get_prediction_mask_content_frame(
 async def accept_prediction(
     task_id: uuid.UUID,
     prediction_id: uuid.UUID,
+    request: Request,
     video_segment_id: uuid.UUID | None = Query(None),
     shape_index: int | None = Query(
         None,
@@ -293,6 +414,13 @@ async def accept_prediction(
                 override_class_name=override_class_name,
                 attribute_overrides=attribute_overrides,
                 video_segment_id=video_segment_id,
+                reference_receipt=getattr(request.state, "reference_acceptance", None),
+                repair_original_receipt=getattr(
+                    request.state, "repair_original_acceptance", None
+                ),
+                video_acceptance_receipt=getattr(
+                    request.state, "video_prediction_acceptance", None
+                ),
             )
         )
     except CandidateDecisionError as exc:
@@ -316,6 +444,7 @@ async def accept_prediction(
 async def reject_prediction(
     task_id: uuid.UUID,
     prediction_id: uuid.UUID,
+    request: Request,
     shape_index: int | None = Query(
         None,
         ge=0,
@@ -350,6 +479,9 @@ async def reject_prediction(
                 write_scope=write_scope,
                 prediction_id=prediction_id,
                 shape_index=shape_index,
+                video_rejection_receipt=getattr(
+                    request.state, "video_prediction_rejection", None
+                ),
             )
         )
     except CandidateDecisionError as exc:

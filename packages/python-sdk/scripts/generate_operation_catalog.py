@@ -37,9 +37,14 @@ METHOD_NOTES: dict[str, dict[str, Any]] = {
             "Requires project manager authority before storage verification or queue dispatch. The task must still be uploading; success moves it to pending and may enqueue an image thumbnail. No automatic retry or implicit wait."
         ],
     },
-    "files.file_url": {
+    "files.original_identity": {
         "constraints": [
-            "Rechecks current task visibility, including project, batch and assignment, before signing. URL is temporary (3600 seconds), not durable identity; reacquire it after expiry."
+            "Requires tasks:read for API keys and rechecks current task visibility, including project, batch and assignment. Returns the verified content descriptor (content_id, sha256, size_bytes, media_type); original availability remains unchecked."
+        ],
+    },
+    "files.download_original": {
+        "constraints": [
+            "Reads the verified identity first, then streams the full original over platform credentials with content_id and sha256 bound to that descriptor. Enforces the descriptor SHA-256 and size, accepts only HTTP 200, and replaces the destination atomically; the legacy signed file-url route returns 409 original_requires_authenticated_download."
         ],
     },
     "files.backfill_thumbnails": {

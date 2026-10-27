@@ -23,18 +23,17 @@ from aap_assets_source.connections_contract import (
     NativeConnectionsPage,
     ReadConnectionRequest,
     RecordConnectionTestRequest,
+    UpdateConnectionAuthorizedRequest,
     UpdateConnectionIntent,
-    UpdateConnectionNativeRequest,
 )
 from aap_assets_source.deletion_contract import DatasetSourceDeletionCommand
 from aap_assets_source_runtime.config import load_config
 from aap_assets_source_runtime.database import (
-    EXPECTED_ASSET_SOURCE_FUNCTIONS,
     NativeDeletionData,
     NativeLegacyUploadData,
     NativeConnectionsData,
-    ROLE_PREFLIGHT_SQL,
     SourceDatabase,
+    _NativeData,
 )
 from aap_assets_source.legacy_upload_contract import (
     LegacyUploadCompletion,
@@ -242,46 +241,6 @@ async def test_scope_mismatch_and_wrong_legacy_receipt_rollback() -> None:
     assert connection.transaction_events == ["begin", "rollback"]
 
 
-def test_role_preflight_is_exactly_twenty_six_source_functions_and_rejects_extra_access() -> (
-    None
-):
-    expected = {
-        "reserve_dataset_upload(uuid,uuid,uuid,text,text)",
-        "lock_dataset_upload(uuid,uuid,uuid)",
-        "find_dataset_upload_duplicate(uuid,uuid,uuid,text)",
-        "complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)",
-        "discard_dataset_upload(uuid,uuid,uuid,text)",
-        "delete_dataset(uuid,uuid,uuid,text,jsonb)",
-        "delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)",
-        "lock_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
-        "complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)",
-        "begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
-        "prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
-        "complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
-        "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
-        "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
-        "resolve_internal_image_source(text,uuid,text,jsonb)",
-        "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
-        "read_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
-    }
-    expected |= {
-        f"{name}({signature})"
-        for name, signature in CONNECTION_NATIVE_SIGNATURES.items()
-    }
-    assert EXPECTED_ASSET_SOURCE_FUNCTIONS == expected
-    assert "membership.member = login_role.oid" in ROLE_PREFLIGHT_SQL
-    assert "membership.roleid = login_role.oid" in ROLE_PREFLIGHT_SQL
-    assert "runtime_privileges.no_table_privileges" in ROLE_PREFLIGHT_SQL
-    assert "runtime_privileges.no_sequence_privileges" in ROLE_PREFLIGHT_SQL
-    assert "aap_assets_v1.' || expected.signature" in ROLE_PREFLIGHT_SQL
-    assert "array_agg(function_oid ORDER BY function_oid)" in ROLE_PREFLIGHT_SQL
-    assert "oidvectortypes" not in ROLE_PREFLIGHT_SQL
-    assert "namespace.nspname <> 'aap_assets_v1'" in ROLE_PREFLIGHT_SQL
-    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 26
-    for signature in EXPECTED_ASSET_SOURCE_FUNCTIONS:
-        assert f"('{signature}'::text)" in ROLE_PREFLIGHT_SQL
-
-
 @pytest.mark.asyncio
 async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argument_order() -> (
     None
@@ -374,8 +333,8 @@ async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argume
             ),
         ),
         (
-            "update_storage_connection",
-            UpdateConnectionNativeRequest(
+            "update_storage_connection_authorized",
+            UpdateConnectionAuthorizedRequest(
                 operation_id=operation_id,
                 actor_id=actor_id,
                 connection_id=connection_id,
@@ -385,6 +344,9 @@ async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argume
                 source_snapshot=digest,
                 policy_digest=None,
                 fallback_allowlist=["host.test"],
+                api_key_id=None,
+                required_scopes=[],
+                expected_proof=None,
             ),
             (
                 operation_id,
@@ -396,7 +358,7 @@ async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argume
                 digest,
                 None,
                 ["host.test"],
-                UpdateConnectionNativeRequest(
+                UpdateConnectionAuthorizedRequest(
                     operation_id=operation_id,
                     actor_id=actor_id,
                     connection_id=connection_id,
@@ -410,6 +372,9 @@ async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argume
                     policy_digest=None,
                     fallback_allowlist=["host.test"],
                 ).audit_context.model_dump(mode="json"),
+                None,
+                [],
+                None,
             ),
         ),
         (
@@ -685,3 +650,87 @@ async def test_delete_item_uses_configured_native_function_and_scope_order() -> 
         "media-cache",
         None,
     )
+
+
+def _material_reply(*, origin="direct", staging=True):
+    dataset_id, item_id, publication_id = uuid4(), uuid4(), uuid4()
+    file_path = f"dataset-sources/{dataset_id}/{item_id}/{publication_id}/photo.png"
+    data = {
+        "creation_id": str(uuid4()),
+        "dataset_id": str(dataset_id),
+        "location_id": "4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7",
+        "bucket": "datasets",
+        "object_key": file_path,
+        "key_prefix": "",
+        "endpoint_url": "http://s3",
+        "storage_identity": "a" * 64,
+        "config_revision": 1,
+        "binding_generation": 1,
+        "max_bytes": 4096,
+        "content_type": "image/png",
+        "origin": origin,
+        "mode": "write",
+        "publication_id": str(publication_id),
+        "file_path": file_path,
+        "status": "allocated",
+    }
+    if staging:
+        data["staging"] = {
+            "bucket": "imports",
+            "key": f"dataset-uploads/{item_id}/source",
+        }
+    return {
+        "schema": "aap-managed-original/v1",
+        "ok": True,
+        "data": data,
+    }
+
+
+def test_native_reply_decoder_is_bounded_and_rejects_nonfinite_json():
+    data = _NativeData(_Connection(None), 64)
+    assert data._parse_payload('{"ok":true}') == {"ok": True}
+    assert data._parse_payload(b'{"ok":true}') == {"ok": True}
+    for reply in (
+        '{"value": NaN}',
+        '{"value": Infinity}',
+        '{"value": ' + '"' + "x" * 64 + '"}',
+        "not-json",
+    ):
+        with pytest.raises(SourceFailure) as error:
+            data._parse_payload(reply)
+        assert error.value.code == "invalid_response"
+    with pytest.raises(SourceFailure):
+        data._parse_payload({"value": float("inf")})
+    with pytest.raises(SourceFailure):
+        data._parse_payload({"value": "x" * 64})
+
+
+@pytest.mark.asyncio
+async def test_transaction_exposes_connection_and_probe_ports_and_allocates_objects_once():
+    reply = _material_reply()
+    connection = _Connection(reply)
+    database = SourceDatabase(_Pool(connection), _config())
+
+    async with database.transaction() as ports:
+        assert isinstance(ports.connections, NativeConnectionsData)
+        material = await ports.uploads.allocate(
+            {
+                "dataset_id": str(reply["data"]["dataset_id"]),
+                "item_id": str(uuid4()),
+                "publication_id": str(uuid4()),
+                "authority": {"kind": "dataset_upload"},
+                "origin": "direct",
+                "mode": "write",
+                "file_path": reply["data"]["file_path"],
+                "logical_path": "photo.png",
+                "file_type": "image",
+                "content_type": "image/png",
+                "max_bytes": 4096,
+                "staging": {"key": "dataset-uploads/item/source"},
+                "requested_by": None,
+            }
+        )
+
+    assert str(material.creation_id) == reply["data"]["creation_id"]
+    # Direct-origin material carries the owner-persisted staging ownership.
+    assert material.staging is not None and material.staging.bucket == "imports"

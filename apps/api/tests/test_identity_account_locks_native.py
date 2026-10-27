@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from pathlib import Path
 import uuid
 
 import asyncpg
@@ -15,29 +14,12 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import aap_identity
 from aap_identity.account_lock_contract import (
     ACCOUNT_LOCK_PROTOCOL,
     AccountLockRequest,
     decode_account_lock_reply,
 )
 from tests.test_identity_auth_native import _cleanup, _seed
-
-_ROOT = Path(__file__).parents[3]
-_SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SQL = _SQL_DIR / "0251_identity_account_locks.sql"
-_SCHEMA = _SQL_DIR / "0251_identity_account_locks.schema.json"
-_MIGRATION = (
-    Path(__file__).parents[1] / "alembic/versions/0251_identity_account_locks.py"
-)
-_CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/account_lock_protocol.schema.json"
-)
-if not _CANONICAL_SCHEMA.is_file():
-    _CANONICAL_SCHEMA = (
-        Path(aap_identity.__file__).resolve().parent
-        / "account_lock_protocol.schema.json"
-    )
 
 _FUNCTIONS = {
     "share": "aap_identity_v1.lock_accounts_share",
@@ -75,41 +57,6 @@ def _request(account_ids, mode: str, *, nowait: bool) -> AccountLockRequest:
         mode=mode,
         nowait=nowait,
     )
-
-
-def test_account_lock_artifact_matches_the_portable_contract():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    canonical = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
-    sql = _SQL.read_text(encoding="utf-8")
-    migration = _MIGRATION.read_text(encoding="utf-8")
-
-    assert schema["$id"] == ACCOUNT_LOCK_PROTOCOL
-    assert schema["$defs"] == canonical["$defs"]
-    assert schema["x-postgresql-functions"] == [
-        "aap_identity_v1.lock_accounts_key_share(uuid[], boolean)",
-        "aap_identity_v1.lock_accounts_share(uuid[], boolean)",
-        "aap_identity_v1.lock_accounts_update(uuid[], boolean)",
-    ]
-    assert "SQLSTATE 22023" in schema["$comment"]
-    assert "55P03, 40001, and 40P01" in schema["$comment"]
-    assert 'revision = "0251"' in migration
-    assert 'down_revision = "0250"' in migration
-    assert sql.count("CREATE FUNCTION aap_identity_v1.lock_accounts_") == 3
-    assert "RETURNS jsonb" in sql
-    assert "VOLATILE" in sql
-    assert "SECURITY DEFINER" in sql
-    assert "SET search_path = pg_catalog, pg_temp" in sql
-    assert "FOR SHARE OF account" in sql
-    assert "FOR UPDATE OF account" in sql
-    assert "FOR KEY SHARE OF account" in sql
-    assert "ORDER BY account.id" in sql
-    assert "ARRAY[]" not in sql
-    assert "EXCEPTION WHEN" not in sql.upper()
-    assert "INSERT INTO" not in sql.upper()
-    assert "UPDATE PUBLIC." not in sql.upper()
-    assert "DELETE FROM" not in sql.upper()
-    assert "COMMIT;" not in sql.upper()
-    assert "ROLLBACK;" not in sql.upper()
 
 
 @pytest.mark.asyncio

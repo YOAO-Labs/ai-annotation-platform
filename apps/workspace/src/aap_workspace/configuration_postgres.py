@@ -18,6 +18,7 @@ CONFIGURATION_SCHEMA = "aap_workspace_configuration_v1"
 CONFIGURATION_FUNCTIONS = {
     ("configuration_policy", ""),
     ("configuration_step", "jsonb, text, jsonb, text[], text[]"),
+    ("guide_assets_step", "jsonb, text, jsonb"),
 }
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
 _BUSY_MARKERS = {
@@ -27,6 +28,17 @@ _BUSY_MARKERS = {
     "aap.workspace.configuration.template_busy": "template_busy",
 }
 _logger = logging.getLogger(__name__)
+
+
+def _guide_patch(request_json):
+    """Guide-bearing Project updates keep the fast busy response for any lock."""
+    if (request_json or {}).get("operation") != "update_project":
+        return False
+    try:
+        payload = json.loads(request_json.get("payload_ascii", "{}"))
+    except (TypeError, ValueError):
+        return False
+    return isinstance(payload, dict) and "guide_assets" in payload
 
 
 class _RollbackOnlySignal(Exception):
@@ -73,6 +85,38 @@ class ConfigurationPostgresTransaction:
             mapped = configuration_busy_error(error.sqlstate, error.hint)
             if mapped is not None:
                 raise ConfigurationCommandFailure(mapped) from error
+            if _guide_patch(request_json) and error.sqlstate in {
+                "55P03",
+                "40001",
+                "40P01",
+            }:
+                raise ConfigurationCommandFailure(
+                    ConfigurationError(
+                        status_code=409, detail={"code": "guide_asset_busy"}
+                    )
+                ) from error
+            raise
+
+    async def guide_step(self, request_json, action, args):
+        import asyncpg
+
+        from .configuration import ConfigurationCommandFailure
+
+        try:
+            return await self.connection.fetchval(
+                f"SELECT {CONFIGURATION_SCHEMA}.guide_assets_step("
+                "$1::jsonb, $2::text, $3::jsonb)",
+                _json_bytes(request_json).decode("ascii"),
+                action,
+                json.dumps(args, ensure_ascii=True, allow_nan=False),
+            )
+        except asyncpg.PostgresError as error:
+            if error.sqlstate in {"55P03", "40001", "40P01"}:
+                raise ConfigurationCommandFailure(
+                    ConfigurationError(
+                        status_code=409, detail={"code": "guide_asset_busy"}
+                    )
+                ) from error
             raise
 
 

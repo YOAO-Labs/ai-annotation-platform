@@ -202,24 +202,20 @@ async def test_restored_directory_export_replays_snapshot_and_rejects_epoch(
             await manager(dsn("DIRECTORY"), dsn("AUTH"), changed_secret).execute(
                 changed_request
             )
-        refused = _alembic(owner_url, "downgrade", "0242")
+        refused = _alembic(owner_url, "downgrade", "bo0242")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Identity directory ownership while export receipts exist"
             in refused.stdout + refused.stderr
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             await db.execute(
                 text(
                     "DELETE FROM public.identity_directory_export_receipts WHERE operation_id=:id"
                 ),
                 {"id": operation_id},
             )
-        assert _alembic(owner_url, "downgrade", "0242").returncode == 0
+        assert _alembic(owner_url, "downgrade", "bo0242").returncode == 0
         record_property(
             "directory_restore",
             "same-eight-field-export-and-metadata,current-principal-profile,exact-two-functions,no-repeat-Audit,epoch-refusal,populated-downgrade-refusal",

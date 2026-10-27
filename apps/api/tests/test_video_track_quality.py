@@ -47,14 +47,10 @@ def _bind_fixture_metadata_reader(monkeypatch, item):
     # These rows belong to a rollback-only SAVEPOINT, not the independent owner.
     metadata = VideoMetadata.model_validate((item.metadata_ or {}).get("video") or {})
 
-    class Reader:
-        def __init__(self, db):
-            pass
+    async def read_context(db, task, **kwargs):
+        return SimpleNamespace(metadata=metadata)
 
-        async def from_task(self, **kwargs):
-            return SimpleNamespace(metadata=metadata)
-
-    monkeypatch.setattr(video_track_quality, "AssetsVideoContextReader", Reader)
+    monkeypatch.setattr(video_track_quality, "build_context_from_task", read_context)
 
 
 async def test_boundary_annotations_exclude_foreign_task_on_shared_segments(
@@ -206,16 +202,10 @@ async def test_quality_run_rejects_unready_source_before_sampling(
     project.video_collaboration = {"enabled": True, "overlap_frames": 10}
     project.video_sampling = {"mode": "fps", "target_fps": 10}
 
-    class Reader:
-        def __init__(self, db):
-            pass
+    async def read_context(db, task, **kwargs):
+        return SimpleNamespace(metadata=VideoMetadata.model_validate(unready_metadata))
 
-        async def from_task(self, **kwargs):
-            return SimpleNamespace(
-                metadata=VideoMetadata.model_validate(unready_metadata)
-            )
-
-    monkeypatch.setattr(video_track_quality, "AssetsVideoContextReader", Reader)
+    monkeypatch.setattr(video_track_quality, "build_context_from_task", read_context)
     with pytest.raises(VideoTrackQualityError) as error:
         await create_quality_run(
             db_session,

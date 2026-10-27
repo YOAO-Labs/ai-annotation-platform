@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-24
 ---
 
 # 项目
@@ -89,6 +89,7 @@ PATCH /api/v1/projects/:id
 - `ai_enabled` / `ml_backend_id`
 - `review_required`
 - `annotation_guide` / `video_sampling` / `rendering_config`
+- `guide_assets` 与期望的 `guide_assets_revision`（见下文，仅删减或重排已有图片清单）
 
 类别**重命名**走专用端点（原子迁移 annotations）：
 
@@ -118,19 +119,41 @@ POST /api/v1/projects/:id/cleanup-orphans
 ## 标注指引图片
 
 ```http
-GET    /api/v1/projects/:id/guide-assets/sign-url?key=<resource-key>
-POST   /api/v1/projects/:id/guide-assets/upload-init
-POST   /api/v1/projects/:id/guide-assets/upload-complete
+POST   /api/v1/projects/:id/guide-assets/upload?file_name=<encoded-file-name>
+GET    /api/v1/projects/:id/guide-assets/content?key=<encoded-resource-key>
 DELETE /api/v1/projects/:id/guide-assets?key=<resource-key>
 ```
 
-图片读取沿用项目可见性规则：超级管理员、项目负责人及项目成员可申请短期签名链接，响应的 `expires_in` 为 3600 秒，实际签名到期时间会向下一个 10 分钟缓存窗口边界对齐。非成员或已移出的成员返回 404。资源 key 必须属于当前项目且已登记在该项目的 `guide_assets` 中，未登记或跨项目的 key 返回 404。已签发链接在到期前仍可使用。
+上传请求使用当前认证，正文直接发送文件原始字节，不能使用 multipart 或 JSON。`file_name` 查询参数必填，长度为 1–255；`Content-Type` 支持 `image/png`、`image/jpeg`、`image/webp`、`image/gif`、`image/svg+xml`，文件须非空且不超过 5 MiB。服务端保存安全文件名，保留原始内容，不进行图片转换。成功响应沿用五个字段，并已在本项目登记可读取的引用：
 
-上传与删除仅限项目负责人或超级管理员；普通项目成员写入返回 403。正文通过项目的 `annotation_guide` 字段读取和保存。
+```json
+{
+  "key": "projects/<original-project-uuid>/guide/<upload-uuid>",
+  "original_name": "示例图.png",
+  "content_type": "image/png",
+  "size": 12345,
+  "uploaded_at": "2026-10-24T00:00:00Z"
+}
+```
 
-初始化接受 PNG、JPEG、WebP、GIF 和 SVG 的 MIME 类型，文件声明大小为 1 字节至 5 MiB。完成登记以实际对象 HEAD 为准；校验期间不持有权限/项目行锁，随后重新核对当前账号和管理权限，再锁定、刷新项目登记。期间失权的旧请求不得登记或执行无效文件清理；当前账号停用返回 401，转移后不可见返回 404，资源争用返回 409。
+读取沿用项目可见性规则：超级管理员、项目负责人及项目成员可请求图片内容；非成员或已移出的成员返回 404。服务端按当前项目的独立引用找到已就绪上传，沿保存位置完整核对 SHA-256 和大小后返回原始字节，响应为保存的 MIME，并带 `Cache-Control: private, no-store`、`X-Content-Type-Options: nosniff` 和附件文件名。响应不提供匿名下载链接。复制项目取得独立引用后，可读取原 key；key 的原项目路径不代表读取授权。
 
-重复完成同一个 key 仍追加登记，不改成去重或幂等更新；删除移除该 key 的全部登记。正常的零字节或超限对象会先删除再返回 400，清理失败仍传播存储异常。显式删除则沿用原策略：对象服务失败仍移除项目登记，因此 API 成功不等于物理对象删除已确认，SQL 与对象存储不是一个原子事务。
+上传与删除仅限项目负责人或超级管理员；可见项目的普通成员写入返回 403。DELETE 只解除当前项目引用并移除对应清单项，不改写 `annotation_guide` Markdown；其他项目仍在引用的图片继续可读。最后一个引用解除后进入退休流程，物理删除由后台清理执行。
+
+项目响应包含 `guide_assets` 和 `guide_assets_revision`。显式 PATCH 图片清单时，必须同时提交读取到的期望修订：
+
+```json
+{
+  "guide_assets": [],
+  "guide_assets_revision": 3
+}
+```
+
+清单只允许保留当前项目已登记、已核验图片的原条目并删减或重排，或原样保留已有历史条目；不能添加 key、改写元数据或借清单认领图片。实际清单变化会增加修订，上传、删除和复制也使用同一修订规则。缺失或过时修订返回 409 `guide_asset_revision_conflict`，须重新读取并核对后再提交；null、重复 key 或单独提交修订返回 422。仅保存 `annotation_guide` 正文不需要图片修订，不受此限制。
+
+历史图片保留原元数据和正文，但没有独立上传归属时读取返回 409 `guide_asset_storage_unpinned`；请重新上传并替换正文引用，或移除旧图片。旧 `upload-init`、`upload-complete`、`sign-url` 入口保留认证与输入校验，合法请求返回 409 `guide_asset_authenticated_transfer_required` 及新上传、读取路径。升级前已签发的链接仍可能在原有效期内可用。
+
+上传是单次认证请求：没有独立的初始化／完成阶段，也不再按 key 追加完成登记。DELETE 只解除当前项目引用并移除清单项，物理对象由后台清理退休；因此 API 成功不等于物理对象已删除，SQL 与对象存储不在同一原子事务中。
 
 ## 当前账号的项目权限
 
@@ -230,7 +253,7 @@ POST /api/v1/projects/:id/preannotate
 
 导出按调用人的可见任务范围校验，接受 `targets` 和已有导出选项，返回 202 与持久化 `job_id`。暂不支持 `voc`、`coco-multicamera`、`kitti`、`nuscenes`、`pointmask` 的局部任务范围，也不能混用视频局部范围参数。
 
-预标注保留原项目/批次入口；显式 `task_ids` 必须非空且最多 200 项，不能用空数组表示整个项目。默认（`execution_scope: "bulk"`，数据管理批量路径）所选任务必须属于项目、满足给定批次、处于 pending，批次为 active 或尚未分派标注员及审核员的 draft，且未被管理锁定，任务没有编辑锁。工作台「当前题 AI」传 `execution_scope: "workbench"` 与单个 `task_ids`，按当前用户对该题的编辑语义校验：允许 pending / in_progress / rejected 任务与 draft 批次，但批次管理员锁、任一他人编辑锁以及 uploading / review / completed 任务仍被拒绝（不接受 `batch_id`），拒绝原因返回中文提示。所有预标注请求都在派发前提交持久作业，包括不带幂等键的普通项目／批次请求。返回的 `job_id` 是 `async_jobs.id`，工作进程未启动时也可查询；派发异常仅将仍为 pending 的作业转为 failed，已认领或已结束的作业保留其状态。
+预标注保留原项目/批次入口；显式 `task_ids` 必须非空且最多 200 项，不能用空数组表示整个项目。默认（`execution_scope: "bulk"`，数据管理批量路径）所选任务必须属于项目、满足给定批次、处于 pending，批次为 active 或尚未分派标注员及审核员的 draft，且未被管理锁定，任务没有编辑锁。工作台「当前题 AI」传 `execution_scope: "workbench"` 与单个 `task_ids`，按当前用户对该题的编辑语义校验：允许 pending / in_progress / rejected 任务与 draft 批次，但批次管理员锁、任一他人编辑锁以及 uploading / review / completed 任务仍被拒绝（不接受 `batch_id`），拒绝原因返回中文提示。所有预标注请求都在派发前提交持久作业，包括不带幂等键的普通项目／批次请求。返回的 `job_id` 是 `async_jobs.id`，工作进程未启动时也可查询；派发异常仅将仍为 pending 的作业转为 failed，已认领或已结束的作业保留其状态。工作进程在推理前的复校验中拒绝时同样留下失败终态，客户端不会一直等待。
 
 普通图片项目的批量请求（含 Scene 模式中的单图任务）与持久作业在同一事务冻结任务成员及逻辑来源；提交后新增任务不进入原作业。未显式指定任务时仍无总任务数上限，服务端按最多 100 项读取内部清单，不把全量 ID 放进队列消息。`skip_predicted` 在冻结时排除已有预测，`total_tasks` 使用实际选中数量。执行前等待所选原图准备完成；同一幂等请求复用原清单，来源变化不会换成当前图片。首次尚无对象身份的来源，以准备时首次成功读取对象身份为字节受理时点。显式场景执行单位、视频、逐帧和文字／跟踪流程保留各自执行路径。
 
@@ -286,7 +309,21 @@ GET /api/v1/dashboard?view=projects        # 超管看全部
 
 ## 开工状态
 
+工作列表分别通过 `GET /api/v1/dashboard/annotator/batches` 和 `GET /api/v1/dashboard/reviewer/batches` 读取本人可进入的标注／审核批次，支持 `limit`（默认 100，1–200）与 `offset`（默认 0）。响应保持批次数组，先应用成员、任务可见性与状态条件，再以时间、批次 ID 稳定分页。概览接口中的有界摘要继续保留原口径；需要完整列表时应逐页读取专用批次接口。
+
 - `GET /api/v1/projects/{project_id}/readiness`：项目负责人或超管读取真实数据、任务创建作业、非空批次及有效成员和分派状态。空批次不算可执行；停用账号或角色不匹配的成员不算有效接收人。
 - `GET /api/v1/dashboard/annotator/projects/{project_id}/onboarding`：当前用户在可见项目内的分派、访问、有效标注和审核结果计数，`reviewed_task_id` 指向最近产生审核结果的本人任务；reviewed_task_display_id、reviewed_task_status 和 reviewed_task_reason 可直接展示审核结论。分派计数只包含当前可进入的任务，历史结果不依赖任务仍可编辑。等待审核的任务不计入审核结果。
 
 清单的跳过与指南确认继续通过个人偏好接口持久化，按项目和指南版本隔离。
+
+## 项目可用模型目录
+
+`GET /api/v1/projects/:id/model-catalog` 要求项目可见，返回已授权的模型摘要、类别来源、合法规格、部署状态和操作原因。普通成员看不到未发布的候选，能查看目录不代表能批量预标或管理模型。
+
+`GET /api/v1/model-catalog` 仅管理员可用；项目管理员仅聚合自己管理的项目，超管可查看全部。两条接口支持 `project_id`（全局接口）、`task`、`source`、`status`、`q`、`page` 和 `page_size`（最多 200），返回 `items/total/projects/current_release/task_counts`。使用 `Cache-Control: private, no-store`；不返回下载地址、实例 URL、Token 或安装密钥。
+
+目录 ID 是发现用标识；执行仍提交 `model_id` 与 `model_variants`，包括 `trained:<uuid>`、检测 `project-release` 或分割 `project-release:segment`，不能由客户端构造冻结部署身份。训练模型普通执行须已发布且未归档；Ultralytics 图片检测可作整图根和 crop 检测子阶段；受控 `yolo11n-seg` 实例分割只允许整图源阶段。目录以 `current_releases` 分别投影检测和分割的当前发布，同时保留检测兼容字段 `current_release`。
+
+显式管线和受控模型提交创建持久执行快照，每阶段冻结模型、参数、原生过滤和项目父类过滤。快照最多 1 MiB；旧无快照单阶段重试上下文仍限制 8 KiB。失败项重试复用原快照，缺失／摘要不符时明确失败，不回退到最新发布。普通批跑要求项目管理权限；`execution_scope=workbench` 要求当前项目标注权限及有效任务分派。
+
+受控模型的能力按实际任务解析，不把未知版本默认为检测；解析确切版本后再次检查分割仅为整图源阶段，不允许省略 `task` 绕过子阶段限制。整图原生 RLE 可为下游 crop/bbox prompt 提供紧像素外接框，类别路由使用项目绑定名称，保留原 Mask、实例索引及 shape lineage。带 `mask_objects` 的预测在任何 PUT 前验证完整对象集合、当前 native gate、任务尺寸、摘要、非空及预算；无效结果不会先上传一部分对象。尚未支持的下游原生结果记录 `NativeMaskChildOutputUnsupported` 阶段失败。图片引用的受控整图分割通过独立逐结果资格生成后台原生候选，两个失败重试入口共用该边界，采纳时复核当前原图、权限与生成记录；普通引用凭证不能放行原生载荷。

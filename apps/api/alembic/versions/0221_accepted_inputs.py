@@ -1,7 +1,7 @@
 """Install the durable, versioned accepted image-input boundary.
 
-Revision ID: 0221
-Revises: 0220
+Revision ID: bo0221
+Revises: bo0220
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0221"
-down_revision = "0220"
+revision = "bo0221"
+down_revision = "bo0220"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

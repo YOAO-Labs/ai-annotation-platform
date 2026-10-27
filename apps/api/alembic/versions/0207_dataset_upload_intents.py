@@ -1,7 +1,7 @@
 """Add Assets-owned Dataset upload intents.
 
-Revision ID: 0207
-Revises: 0206
+Revision ID: bo0207
+Revises: bo0206
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0207"
-down_revision = "0206"
+revision = "bo0207"
+down_revision = "bo0206"
 branch_labels = depends_on = None
 
 _ARTIFACT = Path(__file__).resolve().parents[1] / "sql/0207_dataset_upload_intents.sql"

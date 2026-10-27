@@ -18,19 +18,29 @@ from app.services.labeling_active_learning_sources import (
     SqlAlchemyLabelingActiveLearningSources,
 )
 from app.services.training_datasets import bind_training_authority
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from tests.factory import create_task
 from tests.sample_evaluation_fixtures import Objects, prediction, seed as seed_model
+from tests.sample_evaluation_original_fixtures import (
+    Objects as OriginalObjects,
+    registered,
+)
+from tests.test_original_binary import request as original_request
 
 
 async def seed(db, owner, monkeypatch, *, count=6, duplicate=False):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     objects = Objects()
     monkeypatch.setattr(service.storage, "client", objects)
     monkeypatch.setattr(service.storage, "delete_prefix", objects.delete_prefix)
     world = await seed_model(db, owner, objects)
+    originals = OriginalObjects().install(monkeypatch)
     monkeypatch.setattr(
         pool, "qualification", AsyncMock(return_value=(world.ref, world.profile))
     )
-    tasks = []
+    tasks, replicas, dataset_ids = [], {}, []
     for index in range(count):
         task = await create_task(db, project_id=world.project.id)
         task.total_annotations = 0
@@ -40,9 +50,10 @@ async def seed(db, owner, monkeypatch, *, count=6, duplicate=False):
             (16, 12),
             (20 + (0 if duplicate and index == 1 else index) * 20, 50, 90),
         ).save(raw, format="PNG")
-        objects.put_object(
-            Bucket=service.storage.bucket, Key=task.file_path, Body=raw.getvalue()
-        )
+        item, _asset, replica = await registered(db, task, owner, raw.getvalue())
+        originals.put(replica.bucket, replica.object_key, raw.getvalue())
+        replicas[task.id] = replica
+        dataset_ids.append(item.dataset_id)
         tasks.append(task)
     await db.flush()
     selection = Selection(
@@ -55,7 +66,13 @@ async def seed(db, owner, monkeypatch, *, count=6, duplicate=False):
         max_review_tasks=4,
     )
     return SimpleNamespace(
-        **vars(world), tasks=tasks, selection=selection, objects=objects
+        **vars(world),
+        tasks=tasks,
+        selection=selection,
+        objects=objects,
+        originals=originals,
+        replicas=replicas,
+        dataset_ids=dataset_ids,
     )
 
 
@@ -71,6 +88,7 @@ async def create(db, owner, world):
         world.project,
         world.selection,
         owner.id,
+        request=original_request(owner),
         candidate_sources=candidate_sources,
         training_authority=bind_training_authority(db),
     )
@@ -105,20 +123,28 @@ def candidate_ports(db):
     )
 
 
-async def prepare_with_ports(db, project, selection, actor_id, api_key_id=None):
+async def prepare_with_ports(
+    db, project, selection, actor_id, api_key_id=None, *, request=None
+):
     candidate_sources, _assets_fence = candidate_ports(db)
+    if request is None:
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+        request = original_request(actor)
     return await pool.prepare(
         db,
         project,
         selection,
         actor_id,
         api_key_id,
+        request=request,
         candidate_sources=candidate_sources,
         training_authority=bind_training_authority(db),
     )
 
 
-async def decide_with_ports(db, project, user, round_id, body, api_key_id=None):
+async def decide_with_ports(
+    db, project, user, round_id, body, api_key_id=None, *, request=None
+):
     candidate_sources, assets_fence = candidate_ports(db)
     return await service.decide(
         db,
@@ -127,6 +153,7 @@ async def decide_with_ports(db, project, user, round_id, body, api_key_id=None):
         round_id,
         body,
         api_key_id,
+        request=request or original_request(user),
         candidate_sources=candidate_sources,
         assets_fence=assets_fence,
         training_authority=bind_training_authority(db),
@@ -137,7 +164,7 @@ async def complete(db, round, attempt):
     rows = await service.candidate_rows(db, round)
     for row in rows:
         sample = round.spec["samples"][row.ordinal]
-        service.prepare_image(round, sample)
+        await service.prepare_image(db, round, sample)
         row.media = service.media_descriptor(round, sample)
         row.request = service.managed.request_identity(
             round.spec, row, sample["preprocessing"]

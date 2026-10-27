@@ -1,7 +1,7 @@
 """Publish Learning source-retention guards for dataset lifecycle commands.
 
-Revision ID: 0201
-Revises: 0200
+Revision ID: bo0201
+Revises: bo0200
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0201"
-down_revision = "0200"
+revision = "bo0201"
+down_revision = "bo0200"
 branch_labels = depends_on = None
 
 _ARTIFACT = (

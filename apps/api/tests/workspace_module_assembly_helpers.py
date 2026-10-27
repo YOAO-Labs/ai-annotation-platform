@@ -74,7 +74,6 @@ _EXPECTED_SERVICES = {
     *_WORKSPACE_SERVICES,
     "api",
     "inference-probe",
-    "workspace-guide-objects",
 }
 
 
@@ -89,10 +88,6 @@ class WorkspaceModuleStack:
         api_secret: str,
         control_token: str,
         inference_token: str,
-        guide_token: str,
-        guide_bucket: str,
-        guide_access_key: str,
-        guide_secret_key: str,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
@@ -104,10 +99,6 @@ class WorkspaceModuleStack:
         self._api_secret = api_secret
         self._control_token = control_token
         self._inference_token = inference_token
-        self._guide_token = guide_token
-        self._guide_bucket = guide_bucket
-        self._guide_access_key = guide_access_key
-        self._guide_secret_key = guide_secret_key
         _verify_postgres(test_engine.url)
         _verify_redis()
         self._postgres_name = self._required("AAP_MODULE_DATA_PG_CONTAINER_NAME")
@@ -211,9 +202,6 @@ class WorkspaceModuleStack:
             self._api_secret,
             self._control_token,
             self._inference_token,
-            self._guide_token,
-            self._guide_access_key,
-            self._guide_secret_key,
             os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY", ""),
             os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY", ""),
         ]
@@ -417,18 +405,6 @@ class WorkspaceModuleStack:
         paths["inference_token"] = self._write_secret(
             "inference_backend_probe_control_token", self._inference_token
         )
-        paths["guide_token"] = self._write_secret(
-            "guide_objects_token", self._guide_token
-        )
-        paths["guide_source_token"] = self._write_secret(
-            "guide_source_token", self._guide_token
-        )
-        paths["guide_access"] = self._write_secret(
-            "guide_source_access_key", self._guide_access_key
-        )
-        paths["guide_secret"] = self._write_secret(
-            "guide_source_secret_key", self._guide_secret_key
-        )
 
         self._write_environment_file(self._api_env_file, self._api_environment())
         compose_values = {
@@ -438,10 +414,6 @@ class WorkspaceModuleStack:
             "AAP_WORKSPACE_MODULE_ASSETS_SOURCE_IMAGE": self._assets_image,
             "WORKSPACE_MODULE_STACK_ID": self.project_name,
             "WORKSPACE_API_ENV_FILE": str(self._api_env_file),
-            "WORKSPACE_GUIDE_BUCKET": self._guide_bucket,
-            "WORKSPACE_GUIDE_SOURCE_TOKEN_FILE": str(paths["guide_source_token"]),
-            "WORKSPACE_GUIDE_SOURCE_ACCESS_KEY_FILE": str(paths["guide_access"]),
-            "WORKSPACE_GUIDE_SOURCE_SECRET_KEY_FILE": str(paths["guide_secret"]),
             "WORKSPACE_INFERENCE_PROBE_URL": "http://inference-probe:8768",
             "WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE": str(paths["membership"]),
             "WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE": str(
@@ -475,8 +447,6 @@ class WorkspaceModuleStack:
             "INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE": str(
                 paths["inference_token"]
             ),
-            "WORKSPACE_GUIDE_OBJECTS_URL": "http://workspace-guide-objects:8767",
-            "WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE": str(paths["guide_token"]),
             "ML_HEALTH_TIMEOUT": "10",
             "VIDEO_SEGMENT_SIZE_FRAMES": "18000",
             "VIDEO_TRACKER_WINDOW_SIZE_FRAMES": "300",
@@ -552,9 +522,6 @@ class WorkspaceModuleStack:
                 "WORKSPACE_TEMPLATE_QUERY_TIMEOUT_SECONDS": "20",
                 "WORKSPACE_PROJECT_QUERY_TIMEOUT_SECONDS": "20",
                 "WORKSPACE_DIRECTORY_QUERY_TIMEOUT_SECONDS": "20",
-                "WORKSPACE_GUIDE_OBJECTS_URL": "",
-                "WORKSPACE_GUIDE_OBJECTS_TOKEN": "",
-                "WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE": "",
             }
         )
         return values
@@ -582,8 +549,6 @@ class WorkspaceModuleStack:
     depends_on:
       inference-probe:
         condition: service_healthy
-      workspace-guide-objects:
-        condition: service_healthy
     labels: *workspace-module-owner-labels
   workspace-template-query:
     image: ${{AAP_WORKSPACE_MODULE_IMAGE:?}}
@@ -605,44 +570,6 @@ class WorkspaceModuleStack:
     build: !reset null
     ports: !override ["127.0.0.1::8768"]
     extra_hosts: ["host.docker.internal:host-gateway"]
-    labels:
-      org.aap.acceptance: workspace-module-assembly
-      org.aap.acceptance-id: ${{WORKSPACE_MODULE_STACK_ID:?}}
-  workspace-guide-objects:
-    image: ${{AAP_WORKSPACE_MODULE_ASSETS_SOURCE_IMAGE:?}}
-    build: !reset null
-    command: ["python", "-m", "aap_assets_source_runtime"]
-    user: "10003:10003"
-    environment:
-      ASSETS_SOURCE_MODE: guide-only
-      ASSETS_SOURCE_HOST: 0.0.0.0
-      ASSETS_SOURCE_PORT: 8767
-      ASSETS_SOURCE_TOKEN_FILE: /run/secrets/guide_source_token
-      ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT: "4"
-      ASSETS_SOURCE_GUIDE_S3_ENDPOINT: {json.dumps(self._docker_http_endpoint(self._required("MINIO_ENDPOINT")))}
-      ASSETS_SOURCE_GUIDE_S3_PUBLIC_URL: /minio
-      ASSETS_SOURCE_GUIDE_S3_BUCKET: ${{WORKSPACE_GUIDE_BUCKET:?}}
-      ASSETS_SOURCE_GUIDE_S3_ACCESS_KEY_FILE: /run/secrets/guide_source_access_key
-      ASSETS_SOURCE_GUIDE_S3_SECRET_KEY_FILE: /run/secrets/guide_source_secret_key
-    secrets:
-      - guide_source_token
-      - guide_source_access_key
-      - guide_source_secret_key
-    ports: ["127.0.0.1::8767"]
-    extra_hosts: ["host.docker.internal:host-gateway"]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    pids_limit: 64
-    mem_limit: 256m
-    cpus: 1
-    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8767/ready', timeout=2)"]
-      interval: 1s
-      timeout: 3s
-      start_period: 5s
-      retries: 10
     labels:
       org.aap.acceptance: workspace-module-assembly
       org.aap.acceptance-id: ${{WORKSPACE_MODULE_STACK_ID:?}}
@@ -693,12 +620,6 @@ secrets:
     file: ${{INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE:?}}
   inference_backend_probe_control_token:
     file: ${{INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE:?}}
-  guide_source_token:
-    file: ${{WORKSPACE_GUIDE_SOURCE_TOKEN_FILE:?}}
-  guide_source_access_key:
-    file: ${{WORKSPACE_GUIDE_SOURCE_ACCESS_KEY_FILE:?}}
-  guide_source_secret_key:
-    file: ${{WORKSPACE_GUIDE_SOURCE_SECRET_KEY_FILE:?}}
 """,
             encoding="utf-8",
         )
@@ -729,8 +650,6 @@ secrets:
             str(ROOT / "docker-compose.workspace-class-rename.yml"),
             "-f",
             str(ROOT / "docker-compose.workspace-inference-probe.yml"),
-            "-f",
-            str(ROOT / "docker-compose.workspace-guide-assets.yml"),
             "-f",
             str(ROOT / "docker-compose.inference-probe.yml"),
             "-f",
@@ -919,9 +838,6 @@ secrets:
             origins[service] = self._published_origin(service, port)
         origins["api"] = self._published_origin("api", 8000)
         origins["inference-probe"] = self._published_origin("inference-probe", 8768)
-        origins["workspace-guide-objects"] = self._published_origin(
-            "workspace-guide-objects", 8767
-        )
         self._origins = origins
 
     def _published_origin(self, service: str, target_port: int) -> str:
@@ -1026,7 +942,7 @@ secrets:
                 "10004:10004"
                 if service in _WORKSPACE_SERVICES
                 else "10003:10003"
-                if service in {"api", "workspace-guide-objects"}
+                if service == "api"
                 else "10008:10008"
             )
             if config.get("User") != expected_user:
@@ -1063,7 +979,6 @@ secrets:
                     "project_query_database_url",
                     "identity_briefs_database_url",
                     "workspace_inference_probe_token",
-                    "guide_objects_token",
                 },
                 "workspace-template-query": {
                     "template_query_database_url",
@@ -1082,11 +997,6 @@ secrets:
                 "inference-probe": {
                     "inference_backend_probe_database_url",
                     "inference_backend_probe_control_token",
-                },
-                "workspace-guide-objects": {
-                    "guide_source_token",
-                    "guide_source_access_key",
-                    "guide_source_secret_key",
                 },
                 "api": {
                     "membership_control_token",

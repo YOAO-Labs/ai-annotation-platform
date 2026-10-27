@@ -123,6 +123,7 @@ class ProjectOut(BaseModel):
     annotation_guide: str | None = None
     # v0.10.13 · E1 · 已上传的指引图片资源元数据列表.
     guide_assets: list[dict] = []
+    guide_assets_revision: int = 1
     model_version: str | None = None
     task_lock_ttl_seconds: int = 300
     total_tasks: int

@@ -215,7 +215,7 @@ describe("ReviewPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "返回全部批次" }));
       expect(screen.getByText("暂无待审核任务")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "返回全部批次" })).not.toBeInTheDocument();
-      expect(mockUseTaskList).toHaveBeenLastCalledWith(undefined, { status: "review" });
+      expect(mockUseTaskList).toHaveBeenLastCalledWith(undefined, { status: "review", limit: 20 });
     },
   );
 
@@ -389,7 +389,7 @@ describe("ReviewPage", () => {
     const checkboxes = screen.getAllByRole("checkbox");
     // 第一个是全选 checkbox（bulkBar 中的）
     fireEvent.click(checkboxes[0]);
-    expect(screen.getByText(/已选 2\/2/)).toBeInTheDocument();
+    expect(screen.getByText(/已选 2 个任务/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /批量通过/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /批量退回/ })).toBeInTheDocument();
   });
@@ -510,10 +510,10 @@ describe("ReviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "导航" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "批次B" })).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("checkbox")[0]);
-    expect(screen.getByText("已选 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
 
     await act(async () => settled?.());
-    expect(screen.getByText("已选 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
   });
 
   it("切换 URL 批次后，迟到的旧通过结果不会清空新选择", async () => {
@@ -566,10 +566,10 @@ describe("ReviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "导航" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "批次B" })).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("checkbox")[0]);
-    expect(screen.getByText("已选 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
 
     await act(async () => settled?.());
-    expect(screen.getByText("已选 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
   });
 
   it("同一批次内选择集合变化后，迟到的旧通过结果不会清空新选择", async () => {
@@ -614,10 +614,10 @@ describe("ReviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /批量通过/ }));
     checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[2]);
-    expect(screen.getByText("已选 2/2")).toBeInTheDocument();
+    expect(screen.getByText("已选 2 个任务")).toBeInTheDocument();
 
     await act(async () => settled?.());
-    expect(screen.getByText("已选 2/2")).toBeInTheDocument();
+    expect(screen.getByText("已选 2 个任务")).toBeInTheDocument();
   });
 
   it("同一路由切换认证 owner 后，迟到的旧通过结果不会清空新选择", async () => {
@@ -659,12 +659,12 @@ describe("ReviewPage", () => {
         <ReviewPage />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.queryByText("已选 1/1")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("已选 1 个任务")).not.toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("checkbox")[0]);
-    expect(screen.getByText("已选 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
 
     await act(async () => settled?.());
-    expect(screen.getByText("已选 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
   });
 
   it("任务首页请求失败 → 显示错误态而不是空队列，并可重试", () => {
@@ -777,7 +777,7 @@ describe("ReviewPage", () => {
       },
     });
     mockUseTaskList.mockReturnValue({
-      data: { pages: [{ items: [sampleTask], total: 250 }] },
+      data: { pages: [{ items: [sampleTask], total: 250, next_cursor: "next" }] },
       isLoading: false,
       isError: true,
       error: new Error("network"),
@@ -789,14 +789,14 @@ describe("ReviewPage", () => {
     renderUI("/review?project=p1&batch=b1");
     expect(screen.getByText("T-1")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("当前内容已保留");
-    expect(screen.getByText("共 250 个待审核任务（已加载 1）")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+    expect(screen.getByText("共 250 个待审核任务")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     expect(fetchNextPage).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
     expect(refetch).toHaveBeenCalledOnce();
   });
 
-  it("跨页任务去重并保留总数口径", () => {
+  it("cursor 页面分别展示并保留首页总数口径", () => {
     mockUseReviewerStats.mockReturnValue({
       data: {
         reviewing_batches: [
@@ -816,7 +816,7 @@ describe("ReviewPage", () => {
     mockUseTaskList.mockReturnValue({
       data: {
         pages: [
-          { items: [sampleTask], total: 3 },
+          { items: [sampleTask], total: 3, next_cursor: "next" },
           { items: [sampleTask, { ...sampleTask, id: "t2", display_id: "T-2" }] },
         ],
       },
@@ -824,9 +824,51 @@ describe("ReviewPage", () => {
       hasNextPage: false,
     });
     renderUI("/review?project=p1&batch=b1");
-    expect(screen.getByText("共 3 个待审核任务（已加载 2）")).toBeInTheDocument();
+    expect(screen.getByText("共 3 个待审核任务")).toBeInTheDocument();
+    expect(screen.getAllByText("T-1")).toHaveLength(1);
+    expect(screen.queryByText("T-2")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     expect(screen.getAllByText("T-1")).toHaveLength(1);
     expect(screen.getByText("T-2")).toBeInTheDocument();
+  });
+
+  it("preserves cross-page selections while current-page select-all affects only visible tasks", () => {
+    mockUseReviewerStats.mockReturnValue({
+      data: {
+        reviewing_batches: [
+          {
+            batch_id: "b1",
+            batch_name: "批次A",
+            batch_display_id: "B-1",
+            project_id: "p1",
+            project_name: "项目X",
+            total_tasks: 2,
+            review_tasks: 2,
+            completed_tasks: 0,
+          },
+        ],
+      },
+    });
+    mockUseTaskList.mockReturnValue({
+      data: {
+        pages: [
+          { items: [sampleTask], total: 2, next_cursor: "next" },
+          { items: [{ ...sampleTask, id: "t2", display_id: "T-2" }], next_cursor: null },
+        ],
+      },
+      isLoading: false,
+    });
+    renderUI("/review?project=p1&batch=b1");
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.queryByText("T-1")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    expect(screen.getByText("已选 2 个任务")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上一页" }));
+    expect(screen.getAllByRole("checkbox")[0]).toBeChecked();
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    expect(screen.getByText("已选 1 个任务")).toBeInTheDocument();
   });
 
   it("从浏览器 URL 导航恢复项目和批次筛选", async () => {
@@ -872,6 +914,7 @@ describe("ReviewPage", () => {
     await waitFor(() => {
       expect(mockUseTaskList).toHaveBeenLastCalledWith("p2", {
         status: "review",
+        limit: 20,
         batch_id: "b2",
       });
     });

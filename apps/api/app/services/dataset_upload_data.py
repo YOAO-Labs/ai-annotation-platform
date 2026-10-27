@@ -5,6 +5,10 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import managed_original_native as native_lifecycle
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+)
 from aap_assets_source.upload_contract import (
     DatasetUploadAcceptance,
     DatasetUploadCompletion,
@@ -18,11 +22,47 @@ from aap_assets_source.upload_contract import (
 )
 
 
+def _json(value) -> str:
+    import json
+
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    return json.dumps(value, ensure_ascii=False, allow_nan=False)
+
+
 class DatasetUploadData(DatasetUploadDataPort):
     """Bind upload facts to the caller's transaction without ORM rows or commits."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def allocate(self, request: dict) -> ManagedOriginalMaterial:
+        return await native_lifecycle.begin_admitted(self.db, request)
+
+    async def open_operation(self, creation_id):
+        return await native_lifecycle.open_operation(self.db, creation_id)
+
+    async def close_operation(
+        self, creation_id, operation_id, physical_settled
+    ) -> None:
+        await native_lifecycle.close_operation(
+            self.db, creation_id, operation_id, physical_settled
+        )
+
+    async def original_prepared(self, creation_id, prepared) -> None:
+        await native_lifecycle.prepared(self.db, creation_id, prepared)
+
+    async def original_writing(self, creation_id) -> None:
+        await native_lifecycle.writing(self.db, creation_id)
+
+    async def original_written(self, creation_id, receipt) -> None:
+        await native_lifecycle.written(self.db, creation_id, receipt)
+
+    async def original_verified(self, creation_id, verification) -> None:
+        await native_lifecycle.verified(self.db, creation_id, verification)
+
+    async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
+        await native_lifecycle.fail(self.db, creation_id, outcome, error_code, evidence)
 
     async def reserve(self, request: DatasetUploadReserve) -> DatasetUploadIntent:
         result = await self._call(

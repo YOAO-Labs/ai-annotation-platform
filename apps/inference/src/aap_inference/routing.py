@@ -78,6 +78,10 @@ _NATIVE_REPLY_KEYS = frozenset({"schema", "status"})
 _MANAGED_CONTROL_PATHS = frozenset({"/unload", "/lifecycle/unload", "/reload"})
 _CONTROL_FIELDS = {"control_id", "registry_id", "kind", "phase", "capability"}
 _FINISHED_CONTROL_FIELDS = {"control_id", "registry_id", "kind", "phase"}
+# The Native admission snapshot serializes the whole ``ml_backend_registry`` row
+# (``to_jsonb(registry)``), which includes the database-managed auth_revision in
+# addition to the shared health-row columns.
+_ROUTING_BACKEND_FIELDS = (*_BACKEND_FIELDS, "auth_revision")
 _EPOCH_FIELDS = {
     "control_id",
     "registry_id",
@@ -1154,7 +1158,13 @@ def _decode_backend_control_reply(value: object) -> Any:
 
 
 def _decode_routing_backend(value: Any) -> BackendHealthRow:
-    values = _record_values(_json_object(value), _BACKEND_FIELDS)
+    # The Native admission snapshot serializes the whole registry row, so the
+    # routing wire also carries the database-managed ``auth_revision``. Validate
+    # it as part of the frozen subject instead of ignoring an unknown column.
+    values = _record_values(_json_object(value), _ROUTING_BACKEND_FIELDS)
+    auth_revision = values.pop("auth_revision")
+    if type(auth_revision) is not int or auth_revision < 0:
+        raise RoutingUnavailable()
     values["last_checked_at"] = _timestamp(values["last_checked_at"], nullable=True)
     values["created_at"] = _timestamp(values["created_at"])
     values["updated_at"] = _timestamp(values["updated_at"])

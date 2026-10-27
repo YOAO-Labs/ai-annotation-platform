@@ -45,6 +45,33 @@ class _UploadData:
             raise self.failure
         return self.intent
 
+    async def allocate(self, request):
+        from uuid import uuid4
+
+        from aap_assets_source.managed_original_contract import (
+            ManagedOriginalMaterial,
+        )
+
+        return ManagedOriginalMaterial(
+            creation_id=uuid4(),
+            dataset_id=self.intent.dataset_id,
+            location_id=uuid4(),
+            bucket="datasets",
+            object_key=request["file_path"],
+            key_prefix="",
+            endpoint_url="http://s3",
+            storage_identity="a" * 64,
+            config_revision=1,
+            binding_generation=1,
+            max_bytes=request["max_bytes"],
+            content_type=request["content_type"],
+            origin=request["origin"],
+            mode=request["mode"],
+            staging={"bucket": "imports", "key": request["staging"]["key"]},
+            publication_id=self.intent.publication_id,
+            file_path=request["file_path"],
+        )
+
 
 class _Storage:
     def __init__(self, url):

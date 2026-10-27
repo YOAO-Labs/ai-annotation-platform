@@ -697,26 +697,28 @@ def test_source_delete_json_requires_confirmation_even_with_a_key(
     assert route.call_count == 0
 
 
-def test_guide_asset_put_cli_requires_confirmation_and_does_not_complete(
+def test_guide_asset_upload_cli_requires_confirmation_and_posts_bytes(
     client, monkeypatch, respx_mock, tmp_path
 ):
     _patch_cli_clients(monkeypatch, client)
     source = tmp_path / "hint.png"
     source.write_bytes(b"png-bytes")
-    upload_url = "http://storage.local/put/hint.png?signature=temporary"
-    route = respx_mock.put(upload_url).mock(return_value=httpx.Response(201))
-    body = json.dumps(
-        {
-            "upload_url": upload_url,
-            "file_path": str(source),
-            "content_type": "image/png",
-        }
+    route = respx_mock.post(f"{API}/projects/{PROJECT_ID}/guide-assets/upload").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "key": "projects/key",
+                "original_name": "hint.png",
+                "content_type": "image/png",
+                "size": 9,
+                "uploaded_at": "2026-10-17T00:00:00Z",
+            },
+        )
     )
 
     refused = runner.invoke(
         guide_assets_app,
-        ["upload-bytes", "--body", "-", "--json"],
-        input=body,
+        ["upload", PROJECT_ID, str(source), "--json"],
         env=ENV,
     )
     assert refused.exit_code != 0
@@ -724,36 +726,34 @@ def test_guide_asset_put_cli_requires_confirmation_and_does_not_complete(
 
     accepted = runner.invoke(
         guide_assets_app,
-        ["upload-bytes", "--body", "-", "--json", "--yes"],
-        input=body,
+        ["upload", PROJECT_ID, str(source), "--json", "--yes"],
         env=ENV,
     )
     assert accepted.exit_code == 0, accepted.output
-    assert json.loads(accepted.stdout) == {"uploaded": True}
+    assert json.loads(accepted.stdout)["key"] == "projects/key"
     assert route.calls.last.request.content == b"png-bytes"
     assert route.calls.last.request.headers["content-type"] == "image/png"
-    assert "authorization" not in route.calls.last.request.headers
+    assert route.calls.last.request.url.params["file_name"] == "hint.png"
     assert len(respx_mock.calls) == 1
 
 
-def test_signed_guide_urls_are_only_printed_in_json(client, monkeypatch, respx_mock):
+def test_guide_asset_content_cli_writes_authenticated_bytes(
+    client, monkeypatch, respx_mock, tmp_path
+):
     _patch_cli_clients(monkeypatch, client)
-    upload_url = "http://storage.local/put/hint.png?signature=temporary"
-    init = respx_mock.post(
-        f"{API}/projects/{PROJECT_ID}/guide-assets/upload-init"
-    ).mock(
+    respx_mock.get(f"{API}/projects/{PROJECT_ID}/guide-assets/content").mock(
         return_value=httpx.Response(
-            200,
-            json={"key": "projects/key", "upload_url": upload_url, "expires_in": 900},
+            200, content=b"png-bytes", headers={"content-type": "image/png"}
         )
     )
-    body = json.dumps({"filename": "hint.png", "content_type": "image/png", "size": 10})
+    output = tmp_path / "downloaded.png"
+
     result = runner.invoke(
         guide_assets_app,
-        ["upload-init", PROJECT_ID, "--body", "-"],
-        input=body,
+        ["content", PROJECT_ID, "--key", "projects/key", "-o", str(output), "--json"],
         env=ENV,
     )
+
     assert result.exit_code == 0, result.output
-    assert upload_url not in result.stdout
-    assert init.called
+    assert output.read_bytes() == b"png-bytes"
+    assert json.loads(result.stdout)["bytes"] == 9

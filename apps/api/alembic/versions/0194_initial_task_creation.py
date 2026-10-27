@@ -1,7 +1,7 @@
 """Persist accepted initial task-creation plans and chunk receipts.
 
-Revision ID: 0194
-Revises: 0193
+Revision ID: bo0194
+Revises: bo0193
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0194"
-down_revision = "0193"
+revision = "bo0194"
+down_revision = "bo0193"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0194_initial_task_creation.sql"

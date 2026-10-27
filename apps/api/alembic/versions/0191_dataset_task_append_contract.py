@@ -1,7 +1,7 @@
 """Add the versioned dataset task append transaction contract.
 
-Revision ID: 0191
-Revises: 0190
+Revision ID: bo0191
+Revises: bo0190
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0191"
-down_revision = "0190"
+revision = "bo0191"
+down_revision = "bo0190"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0191_dataset_task_append_contract.sql"

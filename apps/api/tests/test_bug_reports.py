@@ -188,24 +188,16 @@ async def test_reporter_can_comment_via_http(httpx_client, db_session, annotator
 
 @pytest.mark.asyncio
 async def test_create_bug_report_accepts_multi_image_attachments(
-    httpx_client, annotator
+    httpx_client, annotator, db_session, monkeypatch
 ):
-    """提交 BUG 时可登记多张截图附件，详情接口原样返回。"""
-    _, token = annotator
-    attachments = [
-        {
-            "storageKey": f"bug-report-attachments/{uuid.uuid4()}/{uuid.uuid4()}-a.png",
-            "fileName": "a.png",
-            "mimeType": "image/png",
-            "size": 1234,
-        },
-        {
-            "storageKey": f"bug-report-attachments/{uuid.uuid4()}/{uuid.uuid4()}-b.webp",
-            "fileName": "b.webp",
-            "mimeType": "image/webp",
-            "size": 5678,
-        },
-    ]
+    """提交 BUG 绑定自己的已核验回执，详情保留服务端实际元数据。"""
+    from app.services import bug_attachment_uploads as uploads
+    from tests.test_bug_attachment_uploads import patch_objects, seed_receipt
+
+    user, token = annotator
+    objects = patch_objects(monkeypatch)
+    rows = [await seed_receipt(db_session, objects, user.id) for _ in range(2)]
+    attachments = [uploads.attachment(row).model_dump(by_alias=True) for row in rows]
 
     resp = await httpx_client.post(
         "/api/v1/bug_reports",
@@ -220,6 +212,10 @@ async def test_create_bug_report_accepts_multi_image_attachments(
     assert resp.status_code == 201
     data = resp.json()
     assert data["attachments"] == attachments
+    assert data["screenshot_url"] == attachments[0]["storageKey"]
+    for row in rows:
+        await db_session.refresh(row)
+        assert row.bound_report_id == uuid.UUID(data["id"])
 
     detail = await httpx_client.get(
         f"/api/v1/bug_reports/{data['id']}", headers=_bearer(token)
@@ -314,33 +310,28 @@ async def test_bug_report_attachment_download_checks_registered_key(
 ):
     reporter, token = annotator
     _, other_token = reviewer
-    key = f"bug-report-attachments/{reporter.id}/{uuid.uuid4()}-x.png"
-    report = await _seed_bug(db_session, reporter.id, status="new")
-    report.attachments = [
-        {
-            "storageKey": key,
-            "fileName": "x.png",
-            "mimeType": "image/png",
-            "size": 10,
-        }
-    ]
-    await db_session.commit()
-
-    from app.api.v1 import bug_reports
-
-    monkeypatch.setattr(
-        bug_reports.storage_service,
-        "generate_download_url",
-        lambda *args, **kwargs: "http://minio.test/signed",
+    from app.services import bug_attachment_uploads as uploads
+    from tests.test_bug_attachment_uploads import (
+        patch_objects,
+        seed_receipt,
+        image_bytes,
     )
+
+    objects = patch_objects(monkeypatch)
+    report = await _seed_bug(db_session, reporter.id, status="new")
+    row = await seed_receipt(db_session, objects, reporter.id, bound=report.id)
+    key = uploads.object_key(row)
+    report.attachments = [uploads.attachment(row).model_dump(by_alias=True)]
+    await db_session.commit()
 
     ok = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}/attachments/download",
         params={"key": key},
         headers=_bearer(token),
     )
-    assert ok.status_code == 302
-    assert ok.headers["location"] == "http://minio.test/signed"
+    assert ok.status_code == 200
+    assert ok.content == image_bytes()
+    assert "location" not in ok.headers
 
     bad_key = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}/attachments/download",
@@ -355,3 +346,133 @@ async def test_bug_report_attachment_download_checks_registered_key(
         headers=_bearer(other_token),
     )
     assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bug_report_upload_init_is_deprecated_without_new_put(
+    httpx_client, annotator
+):
+    response = await httpx_client.post(
+        "/api/v1/bug_reports/screenshot/upload-init",
+        json={"file_name": "x.png", "content_type": "image/png"},
+        headers=_bearer(annotator[1]),
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "bug_attachment_upload_init_retired",
+        "upload_path": "/api/v1/bug_reports/screenshot/upload",
+    }
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unknown",
+        "foreign",
+        "mismatch",
+        "mime",
+        "name",
+        "duplicate",
+        "alias",
+        "bound",
+        "pending",
+        "expired",
+    ],
+)
+async def test_report_create_rejects_unowned_or_inconsistent_receipts(
+    case, httpx_client, annotator, reviewer, db_session, monkeypatch
+):
+    from app.services import bug_attachment_uploads as uploads
+    from tests.test_bug_attachment_uploads import patch_objects, seed_receipt, created
+
+    objects = patch_objects(monkeypatch)
+    row = await seed_receipt(
+        db_session,
+        objects,
+        reviewer[0].id if case == "foreign" else annotator[0].id,
+        state="pending" if case == "pending" else "ready",
+        expired=case == "expired",
+    )
+    value = uploads.attachment(row).model_dump(by_alias=True)
+    if case == "bound":
+        await created(httpx_client, annotator, [value])
+    if case == "unknown":
+        value["storageKey"] = "bug-screenshots/unknown.png"
+    elif case == "mismatch":
+        value["size"] += 1
+    elif case == "mime":
+        value["mimeType"] = "image/webp"
+    elif case == "name":
+        value["fileName"] = "claimed-name.png"
+    fields = {
+        "title": "attachment rejection",
+        "description": "d",
+        "attachments": [value],
+    }
+    if case == "duplicate":
+        fields["attachments"].append(value)
+    elif case == "alias":
+        fields["screenshot_url"] = "bug-screenshots/other.png"
+    response = await httpx_client.post(
+        "/api/v1/bug_reports", json=fields, headers=_bearer(annotator[1])
+    )
+    assert response.status_code == (
+        403 if case == "foreign" else 410 if case == "expired" else 409
+    ), response.text
+    assert not objects.reads and not objects.deleted
+
+
+async def test_screenshot_only_expands_known_receipt_and_rejects_unknown(
+    httpx_client, annotator, db_session, monkeypatch
+):
+    from app.services import bug_attachment_uploads as uploads
+    from tests.test_bug_attachment_uploads import patch_objects, seed_receipt, created
+
+    objects = patch_objects(monkeypatch)
+    row = await seed_receipt(db_session, objects, annotator[0].id)
+    report = await created(
+        httpx_client, annotator, screenshot_url=uploads.object_key(row)
+    )
+    assert report["attachments"] == [uploads.attachment(row).model_dump(by_alias=True)]
+    assert report["screenshot_url"] == uploads.object_key(row)
+    response = await httpx_client.post(
+        "/api/v1/bug_reports",
+        json={
+            "title": "legacy",
+            "description": "d",
+            "screenshot_url": "https://unknown.invalid/old.png",
+        },
+        headers=_bearer(annotator[1]),
+    )
+    assert response.status_code == 409
+
+
+async def test_unknown_legacy_attachment_metadata_stays_readable_but_no_io(
+    httpx_client, annotator, db_session, monkeypatch
+):
+    from tests.test_bug_attachment_uploads import patch_objects
+
+    objects = patch_objects(monkeypatch)
+    report = await _seed_bug(db_session, annotator[0].id, "new")
+    legacy = {
+        "storageKey": "bug-screenshots/unknown.png",
+        "fileName": "legacy.png",
+        "mimeType": "image/png",
+        "size": 10,
+    }
+    report.attachments = [legacy]
+    await db_session.commit()
+    detail = await httpx_client.get(
+        f"/api/v1/bug_reports/{report.id}", headers=_bearer(annotator[1])
+    )
+    assert detail.status_code == 200 and detail.json()["attachments"] == [legacy]
+    download = await httpx_client.get(
+        f"/api/v1/bug_reports/{report.id}/attachments/download",
+        params={"key": legacy["storageKey"]},
+        headers=_bearer(annotator[1]),
+    )
+    assert download.status_code == 409
+    deleted = await httpx_client.delete(
+        f"/api/v1/bug_reports/{report.id}", headers=_bearer(annotator[1])
+    )
+    assert deleted.status_code == 204 and not objects.reads and not objects.deleted

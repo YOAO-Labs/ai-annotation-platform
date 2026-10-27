@@ -28,40 +28,12 @@ last_reviewed: 2026-10-21
 
 普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
 
-## 可选指南对象能力
+## 指南素材边界
 
-同一二进制支持 `ASSETS_SOURCE_MODE=guide-only` 和 `source-and-guide`，默认仍为 `source`。
-`guide-only` 无需数据库或原来源凭据，仅开放健康检查及带 bearer 认证的
-`POST /v1/guide-objects/execute`；其 readiness 不探测 S3 或 IAM。
-组合模式为指南对象使用独立存储身份，不扩大原来源凭据的权限。
-
-`aap-assets-guide-object/v1` 请求固定包含 `schema,request_id,operation,project_id,key,content_type`。
-`presign_put` 的 `content_type` 必须为字符串，其他操作必须传 null；业务 MIME 校验由 Workspace 持有。
-`key` 必须属于请求项目的 `projects/{project_id}/guide/`，桶由部署配置固定；
-不接受版本、凭据、actor 或权限布尔值。回复绑定请求 UUID、操作、项目和 key。
-Schema 随合同包分发于 `aap_assets_source/guide_object_contract.schema.json`。
-
-| 操作          | `result`                                       |
-| ------------- | ---------------------------------------------- |
-| `presign_put` | `url,expires_in=900`                           |
-| `head`        | `content_length`；缺失对象为 null              |
-| `delete`      | `deleted=true`；普通删除，不指定版本           |
-| `presign_get` | `url,expires_in=3600`；签名保留 600 秒对齐窗口 |
-
-失败返回绑定作用域的 `ok=false,error:{code}`，code 仅为 `storage_error`、
-`invalid_request`、`unavailable` 或 `busy`。无效请求返回通用 400，未认证为 401，
-请求超限为 413；未预期的存储异常为通用 500，不透传 SDK 信息。
-客户端与 SDK 均不自动重试。`ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT` 默认 4，超额立即拒绝。
-
-指南身份只允许配置标注桶 `projects/*/guide/*` 的 Get/Put/普通 Delete，
-无需 ListBucket 或桶管理；本地 MinIO 验证使用显式 Deny `s3:DeleteObjectVersion` 保留历史版本。
-内部普通 I/O 使用 SigV4；预签名保留旧 SigV2 内部签名后重写 `/minio` 前缀的行为。
-配置使用 `ASSETS_SOURCE_GUIDE_S3_*`，不从 API/MinIO/AWS 环境回退；完整变量见
-[环境变量参考](/dev/reference/env-vars)和服务 README。
-
-本接口只执行对象操作，Workspace 仍负责项目权限与元数据。公共指南工作流已接入 Workspace，命令的三路径与恢复验收仍在推进。
-网络超时或取消后的对象效果可能不确定；S3 与 SQL 没有原子提交，也不提供可自动重放的删除回执。
-实现边界、当前本地证据与后续命令验收见 [ADR-0144](/dev/adr/0144-workspace-guide-assets-owner)。
+指南素材不使用 Assets Source 的独立字节 RPC。公开上传、内容读取与删除入口使用受管上传、
+不可变存储引用和维护门；Workspace Configuration 持有发布、解除引用、列表 CAS 与复制命令。
+删除只退休最后一个引用，不在项目配置事务中直接删除对象。Assets Source 继续提供数据集、
+来源与连接器操作；完整指南流程见用户指南及 Workspace 部署说明。
 
 ## 存储连接器管理
 

@@ -150,13 +150,14 @@ def _address_matches_network(
     return False
 
 
-def assert_host_allowed(host_or_endpoint: str, allowlist: list[str]) -> None:
-    """Reject unlisted, loopback, link-local, multicast, or reserved targets."""
+def resolve_allowed_ips(host_or_endpoint: str, allowlist: list[str]) -> list[str]:
+    """Return the exact validated addresses for clients that can pin a socket."""
     if not allowlist:
         raise ConnectorHostDenied("connector host allowlist is empty")
     host = extract_host(host_or_endpoint)
     name_allowed = _host_matches_name(host, allowlist)
-    for address in _resolve_ips(host):
+    addresses = _resolve_ips(host)
+    for address in addresses:
         if _hard_blocked(address):
             raise ConnectorHostDenied(
                 "connector target resolves to a restricted address"
@@ -166,3 +167,9 @@ def assert_host_allowed(host_or_endpoint: str, allowlist: list[str]) -> None:
         if name_allowed and address.is_global:
             continue
         raise ConnectorHostDenied("connector target is not allowlisted")
+    return [str(address) for address in addresses]
+
+
+def assert_host_allowed(host_or_endpoint: str, allowlist: list[str]) -> None:
+    """Reject unlisted, loopback, link-local, multicast, or reserved targets."""
+    resolve_allowed_ips(host_or_endpoint, allowlist)

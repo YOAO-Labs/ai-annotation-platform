@@ -10,6 +10,7 @@ from aap_assets_source.connectors.host_guard import (
     assert_host_allowed,
     extract_host,
     normalize_allowlist,
+    resolve_allowed_ips,
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,4 +57,5 @@ __all__ = [
     "get_allowlist",
     "get_allowlist_state",
     "normalize_allowlist",
+    "resolve_allowed_ips",
 ]

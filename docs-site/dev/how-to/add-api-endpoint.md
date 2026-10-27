@@ -1,8 +1,9 @@
 ---
+title: 新增 API 端点
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # How-to：新增 API 端点
@@ -36,6 +37,36 @@ flowchart TD
 
 请求和响应复用已有 Pydantic schema。对新路由明确声明适用的 `response_model`、成功状态和非默认错误语义；对既有路由迁移则保留公开路径、字段、状态码和错误代码，不为内部改名重写外部合同。
 
+要点：
+
+- `status_code=204` 显式声明：FastAPI 默认会改 200 OK，无 body 端点应主动指定 204 让 OpenAPI 准确。
+- 三个 `Depends`：`HTTPBearer()` 拿原 token、`get_current_user` 校验签名+黑名单+gen、`get_db` 注入 session。`get_current_user` 内部已经 decode 一次 token，路由里再 decode 一次取 `jti` 是为了保持辅助函数职责单一与可读性。
+- `AuditService.log` 在 commit 前写：保证审计与业务事务原子性，崩溃要么都生效要么都回滚。
+
+如果你的端点返回 body，模板换成：
+
+```python
+@router.post(
+    "/widgets",
+    response_model=WidgetOut,
+    status_code=201,
+    summary="创建 Widget",
+    responses={
+        400: {"description": "参数非法"},
+        409: {"description": "重名冲突"},
+    },
+)
+async def create_widget(
+    payload: WidgetIn,
+    user=Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """业务规则：同一个 owner 下名字唯一；触发权限校验。"""
+    return await widget_service.create(db, payload, owner_id=user.id)
+```
+
+`summary` 一句话；`description` 用 docstring；`responses={}` 显式列出非默认状态码 → OpenAPI 完整 → 前端类型完整。
+
 ## 2. Service / Core helper
 
 根据所有权选择现有模块，不为每个端点再造 service、repository 或通用工作流基类：
@@ -51,6 +82,10 @@ flowchart TD
 公开边界优先传递 UUID、明确的命令/结果值和稳定引用；不把 Request、Celery 对象或二进制正文放进通用领域 DTO。读取当前权限和取得最终锁的所有者要明确，不能把缓存 ORM 或先前许可当成授权令牌。
 
 事务由工作流的不变量决定。新组合通常由调用方统一提交，领域方法只 flush；迁移既有路径时必须保留其真实提交、分块提交及提交后派发时点，不能机械删除已有 commit，也不能把共同成败的写入拆成多个独立 commit。
+
+- 纯逻辑函数，不接 `Request` / `db`：可独立单测，也可被多个端点复用（实际 `logout-all` 的代际号增量逻辑也在同一文件）。
+- TTL ≤ 0 提前返回：token 已过期再加黑名单等于永久占 key。
+- Redis 客户端用 `try/finally` 关闭：避免跑全套测试时 Redis 连接泄漏导致连接数触顶——**新加 Redis 调用务必关闭连接**。
 
 账号状态与业务审计可在同一 SQL 事务提交；Redis 黑名单不是该 SQL 事务的一部分，SQL 后续失败不会自动撤销已经完成的 Redis 写入。不能宣称跨存储原子性或 exactly-once。Redis 客户端仍需可靠关闭，非正 TTL 不应产生黑名单条目。
 
@@ -76,29 +111,63 @@ pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python 
 
 替换为本次改动对应的实际用例；不要把日常开发数据库当作测试库。测试之外还应实际调用变更的 HTTP、命令或 worker 路径，观察状态和产物。worker 改动要刷新所验证环境的实际消费者，而不是只导入新模块后就声称运行时已切换。
 
-## 4. snapshot 与前端类型
+## 4. OpenAPI Snapshot 与前端类型生成
 
 在仓库根目录使用既有脚本：
 
 ```bash
+# 导出最新 OpenAPI 快照并校验契约一致
 pnpm openapi:export
 pnpm openapi:check
+
+# 生成前端 TypeScript 类型与 SDK（输出至 apps/web/src/api/generated/，该目录被 Git 忽略）
 pnpm codegen
+grep -A 5 "logout" apps/web/src/api/generated/sdk.gen.ts | head
 ```
 
-公开 API 有变化时生成并提交受影响 snapshot/类型；只有内部所有者或导入路径改变且精确合同不变时，不制造无关生成文件变更。WebSocket、ML/训练和导出格式等独立合同仍需各自验证，不能用 OpenAPI 通过代替。
+公开 API 有变化时生成并提交受影响 snapshot/类型；只有内部所有者或导入路径改变且精确合同不变时，不制造无关生成文件变更。CI 会执行 `pnpm openapi:check` 与 `pnpm docs:gen`（刷新路由索引 `_routes.generated.md`），因此修改后端接口后必须将更新后的 `apps/api/openapi.snapshot.json`（及受影响的文档产物）一并提交。WebSocket、ML/训练和导出格式等独立合同仍需各自验证，不能用 OpenAPI 通过代替。
 
 ## 5. 前端 wrapper
 
 优先迁移已有 `apps/web/src/api/auth.ts` 或对应业务 API 模块及其真实调用方。生成客户端负责请求合同；业务 wrapper 组合原有凭据清理、会话状态和导航行为，组件只触发操作，不复制一份请求或直接拼业务 URL。
 
+```ts
+import { authLogout } from "./generated/sdk.gen";
+
+export async function logout(): Promise<void> {
+  await authLogout();
+  // 清本地存储
+  localStorage.removeItem("anno_token");
+  // 跳登录页
+  window.location.assign("/login");
+}
+```
+
+调用方在 `UserMenu.tsx` 之类的组件：
+
+```tsx
+<DropdownMenuItem onClick={() => logout()}>退出登录</DropdownMenuItem>
+```
+
+要点：
+
+- 优先复用 `generated/sdk.gen` 与 `types.gen` 中的契约定义（参见 [ADR-0003](/dev/adr/archive/0003-openapi-client-codegen) 与 [前后端契约边界](../concepts/api-schema-boundary)）。
+- 业务副作用（清 localStorage、跳页）放 wrapper 里；组件只负责调用。
+
 API 错误必须保留可观察语义。前端不能把锁繁忙、失去权限或陈旧版本当作成功，也不能把收到历史通知视为仍有资源访问权。
 
 ## 6. PR 检查清单
 
+- [ ] `pnpm openapi:check` 通过（`apps/api/openapi.snapshot.json` 已更新并提交）
+- [ ] `pnpm docs:gen` 已同步刷新 `docs-site/api/guides/_routes.generated.md`
+- [ ] 后端测试覆盖正常路径 + 至少 1 个错误路径 + 至少 1 个副作用断言
+- [ ] 端点声明了 `status_code` / `summary` / 非默认 `responses`
+- [ ] 关键业务变更写了 `AuditService.log`（如果端点有副作用）
+- [ ] 本地运行 `pnpm codegen` 与 `pnpm typecheck` 通过
 - [ ] 路由、应用组合、领域写入和持久化/执行适配器有明确所有者。
 - [ ] 当前权限、资源范围、版本、锁及提交时点与目标不变量一致。
 - [ ] 相关行为测试和实际调用 smoke 均通过，证据范围与交付声明一致。
 - [ ] 精确公开合同已核对；所有受影响调用方和必要生成文件已同步。
 - [ ] 文档与用户可见变更记录已更新，无过期处理器副本或兼容转发。
+- [ ] 若新增端点需暴露给 Python SDK / CLI，同步评估并更新 [Python SDK 参考](../sdk/python-client)
 - [ ] 完整 diff 已复核，`git diff --check` 通过。

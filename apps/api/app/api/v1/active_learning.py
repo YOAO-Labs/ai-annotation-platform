@@ -3,8 +3,9 @@
 import asyncio
 import time
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,8 +45,10 @@ from app.services.labeling_active_learning_sources import (
 )
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
-from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.content_snapshot import ContentError
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.original_request import connected_snapshot
+from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
     prefix="/projects/{project_id}/active-learning-rounds",
@@ -54,11 +57,39 @@ router = APIRouter(
 WRITE = [Depends(require_scopes("datasets:write"))]
 
 
+@router.post("/{round_id}/storage-pin", response_model=RoundOut, dependencies=WRITE)
+async def pin_legacy_round_storage(
+    round_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: IdentityActorFacts = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    round = await pin(
+        db,
+        "active-learning",
+        round_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(db, round)
+
+
 async def attempt_for(db, round, attempt_id):
     attempt = await db.get(Attempt, attempt_id)
     if not attempt or attempt.round_id != round.id:
         raise service.reject("attempt_missing", "选样执行尝试不存在", 404)
     return attempt
+
+
+async def connected(request, operation):
+    value = await connected_snapshot(request, operation, close_result=False)
+    if value is None:
+        raise HTTPException(499, {"code": "client_disconnected"})
+    return value
 
 
 @router.get("/pool")
@@ -93,17 +124,23 @@ async def preview(
         task_bucket=storage_service.bucket,
     )
     try:
-        prepared = await pool.prepare(
-            db,
-            project,
-            body,
-            user.id,
-            getattr(request.state, "api_key_id", None),
-            candidate_sources=candidate_sources,
-            training_authority=training_authority,
+        prepared = await connected(
+            request,
+            pool.prepare(
+                db,
+                project,
+                body,
+                user.id,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+                candidate_sources=candidate_sources,
+                training_authority=training_authority,
+            ),
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     except ValueError as exc:
         raise service.reject("pool_insufficient", str(exc), 422) from exc
     return {
@@ -155,14 +192,18 @@ async def create(
         selection = Selection.model_validate(
             body.model_dump(exclude={"request_id", "name", "preview_digest"})
         )
-        prepared = await pool.prepare(
-            db,
-            project,
-            selection,
-            user.id,
-            getattr(request.state, "api_key_id", None),
-            candidate_sources=candidate_sources,
-            training_authority=training_authority,
+        prepared = await connected(
+            request,
+            pool.prepare(
+                db,
+                project,
+                selection,
+                user.id,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+                candidate_sources=candidate_sources,
+                training_authority=training_authority,
+            ),
         )
         round = await service.create_round(
             db,
@@ -177,6 +218,8 @@ async def create(
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     except ValueError as exc:
         raise service.reject("pool_invalid", str(exc), 422) from exc
     await db.commit()
@@ -192,14 +235,28 @@ async def list_rounds(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    task: Literal["detect", "segment"] | None = None,
 ) -> dict:
-    total = await db.scalar(
-        select(func.count()).select_from(Round).where(Round.project_id == project.id)
-    )
+    predicates = [Round.project_id == project.id]
+    if task is not None:
+        aliases = (
+            [
+                "segment",
+                "segmentation",
+                "image-instance-segmentation",
+                "instance-segmentation",
+            ]
+            if task == "segment"
+            else ["detect", "detection", "image-detection"]
+        )
+        predicates.append(
+            func.coalesce(Round.spec["model_ref"]["task"].astext, "detect").in_(aliases)
+        )
+    total = await db.scalar(select(func.count()).select_from(Round).where(*predicates))
     rows = (
         await db.scalars(
             select(Round)
-            .where(Round.project_id == project.id)
+            .where(*predicates)
             .order_by(Round.created_at.desc(), Round.id.desc())
             .limit(limit)
             .offset(offset)
@@ -255,12 +312,8 @@ async def retry(
             "仅原窗口内的失联执行或尚未推理的失败可恢复；取消、封存或过期须新建轮次",
         )
     try:
-        await training_authority.assert_authority(
-            project_id=round.project_id,
-            actor_id=round.creator_id,
-            api_key_id=round.authorization.get("api_key_id"),
-            required_scopes=pool.SCOPES,
-        )
+        await service.authority(db, round, training_authority=training_authority)
+        service.owners.resolve(round)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await attempt_for(db, round, round.current_attempt_id)
@@ -328,9 +381,12 @@ async def image(
         raise service.reject("candidate_missing", "冻结候选不存在", 404)
     await db.commit()
     try:
+        service.owners.resolve(round)
         png = await asyncio.to_thread(
             service.read_retained_png, round, spec["samples"][ordinal]
         )
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     except Exception as exc:
         raise service.reject(
             "frozen_image_unavailable", "冻结图片尚未就绪或未通过完整性检查"
@@ -363,7 +419,13 @@ async def decisions(
             .offset(offset)
         )
     ).all()
-    return {"items": [service.decision_output(row) for row in rows]}
+    total = await db.scalar(
+        select(func.count()).select_from(Decision).where(Decision.round_id == round.id)
+    )
+    return {
+        "items": [service.decision_output(row) for row in rows],
+        "total": total or 0,
+    }
 
 
 @router.post("/{round_id}/decisions", dependencies=WRITE)
@@ -383,19 +445,25 @@ async def decide(
     )
     assets_fence = SqlAlchemyAssetsActiveLearningFence(db)
     try:
-        row = await service.decide(
-            db,
-            project,
-            user,
-            round_id,
-            body,
-            getattr(request.state, "api_key_id", None),
-            candidate_sources=candidate_sources,
-            assets_fence=assets_fence,
-            training_authority=training_authority,
+        row = await connected(
+            request,
+            service.decide(
+                db,
+                project,
+                user,
+                round_id,
+                body,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+                candidate_sources=candidate_sources,
+                assets_fence=assets_fence,
+                training_authority=training_authority,
+            ),
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     await db.commit()
     return service.decision_output(row)
 
@@ -418,7 +486,10 @@ async def feedback_list(
             .offset(offset)
         )
     ).all()
-    return {"items": [feedback.output(row) for row in rows]}
+    total = await db.scalar(
+        select(func.count()).select_from(Feedback).where(Feedback.round_id == round.id)
+    )
+    return {"items": [feedback.output(row) for row in rows], "total": total or 0}
 
 
 @router.post("/{round_id}/feedback", dependencies=WRITE)

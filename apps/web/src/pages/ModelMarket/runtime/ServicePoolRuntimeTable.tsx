@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 /**
  * v0.23.4 · service-pool runtime overview.
  *
@@ -15,6 +18,7 @@ import { ChevronDown, ChevronRight, Server } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import {
   Empty,
   EmptyDescription,
@@ -23,7 +27,6 @@ import {
   EmptyTitle,
 } from "@/components/shadcn/ui/empty";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/shadcn/ui/tooltip";
 import type { GlobalBackendItem, ObserveTarget } from "@/api/adminMlIntegrations";
 import {
   NO_METRICS_LABEL,
@@ -42,7 +45,6 @@ import {
   parseResidency,
   residencyStateToAxis,
 } from "./parseResidency";
-import { formatShortId } from "../registry/registryShared";
 
 /** Per-member lookups the orchestrator pre-computes from /all + /observe. */
 export interface MemberLookups {
@@ -68,6 +70,7 @@ export function ServicePoolRuntimeTable({
   onWarm,
   warming,
 }: ServicePoolRuntimeTableProps): ReactNode {
+  const pagination = useListPagination(topology.pools);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const toggle = (poolId: string) => {
@@ -81,23 +84,31 @@ export function ServicePoolRuntimeTable({
 
   if (topology.pools.length === 0) {
     return (
-      <Empty className="border border-border bg-muted/20">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Server strokeWidth={1.6} aria-hidden="true" />
-          </EmptyMedia>
-          <EmptyTitle>暂无服务池</EmptyTitle>
-          <EmptyDescription>
-            在“注册管理”新建服务池并加入实例后，运行时状态会显示在这里。
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <section className={listStyles.surface} aria-label="服务池运行时列表">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Server strokeWidth={1.6} aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>暂无服务池</EmptyTitle>
+            <EmptyDescription>
+              在“注册管理”新建服务池并加入实例后，运行时状态会显示在这里。
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+        <ListPagination
+          label="运行时服务池"
+          {...pagination}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      </section>
     );
   }
 
   return (
-    <section className="grid gap-3 xl:grid-cols-2" aria-label="服务池运行时列表">
-      {topology.pools.map((pool) => {
+    <section className={listStyles.surface} aria-label="服务池运行时列表">
+      {pagination.items.map((pool) => {
         const isOpen = expanded.has(pool.id);
         const residentCount = pool.members.filter((member) => {
           const { residency, trusted } = resolveMemberResidency(lookup(member.registry_id));
@@ -150,6 +161,12 @@ export function ServicePoolRuntimeTable({
           />
         );
       })}
+      <ListPagination
+        label="运行时服务池"
+        {...pagination}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </section>
   );
 }
@@ -209,8 +226,8 @@ function PoolRuntimeCard({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-xl border border-border bg-card",
-        isOpen && "border-primary/30 shadow-sm xl:col-span-2",
+        "overflow-hidden border-b border-border bg-card transition-colors last:border-b-0 hover:bg-muted/40",
+        isOpen && "bg-muted/20",
       )}
     >
       <div className="flex flex-col gap-2 px-4 py-3">
@@ -234,16 +251,9 @@ function PoolRuntimeCard({
           />
           <div className="flex min-w-0 items-center gap-1.5">
             <h4 className="truncate text-sm font-semibold tracking-tight">{pool.name}</h4>
+            <CopyValueButton value={pool.id} kind="id" label="复制服务池 ID" />
             {!pool.enabled && <Badge variant="outline">已停用</Badge>}
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="mono cursor-pointer text-2xs text-muted-foreground hover:text-foreground">
-                {formatShortId(pool.id)}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{pool.id}</TooltipContent>
-          </Tooltip>
           <span className="text-2xs text-muted-foreground">{pool.routing_policy}</span>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             <RuntimeStatusBadge axis="health" value={pool.status} />

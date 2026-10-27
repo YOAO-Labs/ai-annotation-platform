@@ -805,13 +805,15 @@ describe("useRasterMaskRecords", () => {
       },
     });
     const item = makeDescriptor("owned", { selected: true });
-    const view = renderHook(() =>
-      useRasterMaskRecords({
-        scopeKey: "task-1",
-        descriptors: [item.descriptor],
-        resourceCoordinator: coordinator,
-        resourceOwner: "mask-render:test",
-      }),
+    const view = renderHook(
+      ({ visible }) =>
+        useRasterMaskRecords({
+          scopeKey: "task-1",
+          descriptors: visible ? [item.descriptor] : [],
+          resourceCoordinator: coordinator,
+          resourceOwner: "mask-render:test",
+        }),
+      { initialProps: { visible: true } },
     );
 
     await flushAsync();
@@ -820,6 +822,20 @@ describe("useRasterMaskRecords", () => {
       reservedBytes: 0,
       invariantOk: true,
     });
+    expect(coordinator.getSnapshot().owners).toContainEqual(
+      expect.objectContaining({
+        owner: "mask-render:test",
+        pinnedBytes: view.result.current.cacheBytes,
+      }),
+    );
+
+    view.rerender({ visible: false });
+    expect(view.result.current.records).toHaveLength(0);
+    expect(coordinator.getSnapshot().owners).toContainEqual(
+      expect.objectContaining({ owner: "mask-render:test", pinnedBytes: 0 }),
+    );
+    view.rerender({ visible: true });
+    expect(view.result.current.statusById.get("owned")?.state).toBe("ready");
     expect(coordinator.getSnapshot().owners).toContainEqual(
       expect.objectContaining({
         owner: "mask-render:test",

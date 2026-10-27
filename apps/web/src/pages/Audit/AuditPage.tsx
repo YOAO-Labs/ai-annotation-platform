@@ -1,3 +1,4 @@
+import { ListPagination } from "@/components/ui/ListPagination";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
 import { FilterTrigger } from "@/components/filters/FilterTrigger";
@@ -43,8 +44,6 @@ import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { AUDIT_URL_DEFAULTS, AUDIT_URL_KEYS, auditUrlCodec } from "./auditUrlState";
 import styles from "./AuditPage.module.css";
 
-const PAGE_SIZE = 20;
-
 function cssVar(name: string): string {
   if (typeof window === "undefined") return "";
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -72,6 +71,7 @@ export function AuditPage() {
   const debouncedDetailKey = useDebouncedValue(detailKeyDraft, 250);
   const debouncedDetailValue = useDebouncedValue(detailValueDraft, 250);
   const page = filters.page;
+  const [pageSize, setPageSize] = useState(20);
   const scope = filters.scope;
   const actionFilter = filters.action;
   const targetType = filters.targetType;
@@ -198,8 +198,8 @@ export function AuditPage() {
     [actionFilter, actorId, detailKey, detailValue, scope, targetId, targetType],
   );
   const params = useMemo(
-    () => ({ ...appliedFilters, page, page_size: PAGE_SIZE }),
-    [appliedFilters, page],
+    () => ({ ...appliedFilters, page, page_size: pageSize }),
+    [appliedFilters, page, pageSize],
   );
   const { data, isLoading, refetch, isFetching } = useAuditLogs(params, {
     refetchInterval: autoRefresh ? 30_000 : false,
@@ -225,7 +225,11 @@ export function AuditPage() {
   const items = useMemo(() => data?.items ?? [], [data?.items]);
 
   const total = data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  useEffect(() => {
+    if (!data || isFetching) return;
+    const lastPage = Math.max(1, Math.ceil(total / pageSize));
+    if (page > lastPage) patch({ page: lastPage }, { replace: true });
+  }, [data, isFetching, total, pageSize, page, patch]);
 
   // v0.6.6 · 按 request_id 分组：同一 HTTP 请求的 metadata 行 + 业务 detail 行折叠为单行 + ▸ 展开
   // v0.7.0：折叠状态 sessionStorage 持久化（30min TTL），刷新页面后自动恢复最近展开的 request_id。
@@ -504,9 +508,6 @@ export function AuditPage() {
               </label>
             </div>
           </FilterPanel>
-          <span className={styles.totalText}>
-            共 {total} 条 · 第 {page} / {pageCount} 页
-          </span>
         </div>
 
         <AuditMonthlySummaryPanel
@@ -685,24 +686,18 @@ export function AuditPage() {
           </VirtualSizer>
         </div>
 
-        <div className={styles.pagination}>
-          <Button
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => patch({ page: Math.max(1, page - 1) }, { replace: false })}
-          >
-            <Icon name="chevLeft" size={11} />
-            上一页
-          </Button>
-          <Button
-            size="sm"
-            disabled={page >= pageCount}
-            onClick={() => patch({ page: page + 1 }, { replace: false })}
-          >
-            下一页
-            <Icon name="chevRight" size={11} />
-          </Button>
-        </div>
+        <ListPagination
+          label="审计日志"
+          page={page - 1}
+          pageSize={pageSize}
+          total={total}
+          loading={isLoading}
+          onPageChange={(next) => patch({ page: next + 1 }, { replace: false })}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            patch({ page: 1 }, { replace: false });
+          }}
+        />
       </Card>
 
       <Modal open={!!detail} onClose={() => setDetail(null)} title="审计日志详情" width={620}>

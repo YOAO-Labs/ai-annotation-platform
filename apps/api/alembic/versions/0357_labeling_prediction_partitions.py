@@ -5,8 +5,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0357"
-down_revision = "0356"
+revision = "bo0357"
+down_revision = "bo0356"
 branch_labels = depends_on = None
 
 _SQL_PATH = (

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import type { usePolygonBoundaryTrace } from "./usePolygonBoundaryTrace";
@@ -80,7 +81,7 @@ export function PolygonBoundaryTraceControls({
           )}
           {trace.error && (
             <p role="alert" className="m-0 text-2xs text-status-danger">
-              {trace.error}
+              <CopyableError message={trace.error} />
             </p>
           )}
         </div>

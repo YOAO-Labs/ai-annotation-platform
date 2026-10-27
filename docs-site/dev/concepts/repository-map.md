@@ -1,8 +1,9 @@
 ---
+title: 仓库地图：模块归属与调用链
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-26
 ---
 
 # 仓库地图：模块归属与调用链
@@ -28,6 +29,10 @@ last_reviewed: 2026-10-21
 | ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                                      |
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                           |
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                               |
+| 光栅掩码工具    | `apps/_shared/mask_utils`                                                                   | RLE 编解码、多边形与掩码转换等无状态图像/视频共享工具                                                      |
+| 只读文件原语    | `apps/_shared/filesystem_read`                                                              | 标准库 Linux `openat2` 只读目录/文件锚点校验与 `0600` 本地 `VerifiedStage`                                 |
+| 站点 Agent 契约 | `apps/_shared/site_agent_contract`                                                          | 中心与跨网络只读站点 Agent 共用的命令、回执、摘要与协议模型                                                |
+| 站点存储 Agent  | `apps/storage-agent`                                                                        | 独立出站 HTTPS 只读目录扫描与分块传输守护进程（零入站监听、本地 SQLite 状态）                              |
 | 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                                        |
 | 项目成员命令    | `apps/workspace` (`aap-workspace`)                                                          | 成员、负责人转移与配置命令的便携 owner；限定本地验收已完成，普通读取与相邻写入仍待迁移                     |
 | 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                             |
@@ -151,10 +156,10 @@ last_reviewed: 2026-10-21
   结构校验仍使用 `aap_inference.pipeline.validate_saved_pipeline`；canonical `PipelineStage` /
   `PreannotateRequest` 位于 `aap_inference.preannotate`。Private Native RPC、Workspace 权威桥接和
   commit/status/projection 阶段见 [后端分层](./backend-layers#分层规则)。
-- 指引图片：`aap_workspace.configuration.ConfigurationManager` 持有四项无状态命令，
-  `aap_workspace.guide_asset_policy` 持有 key、类型、大小与登记规则，Native 持有完整行读取和权限围栏。
-  `services/workspace_configuration.py` 选择绑定；`services/workspace_guide_objects.py` 只装配 Assets 字节端口。
-  借用事务由 HTTP 提交后完整刷新；独立 owner 自行提交和刷新。旧 API 工作流及 Guide ORM 写入已移除。
+- 指引图片：`services/guide_asset_uploads.py` 校验受管上传；
+  `services/guide_asset_references.py` 调用 Workspace Configuration 的发布、解除引用、列表 CAS 与复制命令。
+  Native `guide_assets_step` 持有当前权限、维护门、上传状态、引用与项目修订的同事务写入；
+  项目删除单独退休引用，物理对象由清理流程处理。Workspace 不持有 S3 凭据。
 - 全局 ML registry 删除：`application/ml_registry_deletion.py::delete_registry` 编排删除准入、路由静默、pool 解析与 registry 删除；成功后由 `services/project_workspace.py::clear_primary_backend_binding_for_pool` 在同一事务清空该 pool 的项目主绑定。workspace 持有主绑定 setter/clearer，`MLBackendService.delete` 不写 Project；HTTP 保留审计/提交，超管权限经 `identity_commands.IdentityCommandService.lock_platform_super_admin()` 锁定并刷新。
 - 原标注评论：`application/annotation_comment.py::AnnotationCommentWorkflow` 组合
   `services/annotation_comment.py`、反馈镜像、审计和通知；当前权威与真实任务/标注/评论行
@@ -173,9 +178,10 @@ last_reviewed: 2026-10-21
 - 选定任务分派：`app/services/labeling_assignment.py::LabelingTaskAssignmentService`
   持有预览/确认与当前管理、接收人和编辑围栏；`schemas/labeling_assignment.py` 保留原公开模型。
   `data_management` 保留查询/保存视图及异步操作幂等助手，不直接写任务指派。
-- 传统任务文件：`app/application/legacy_file_upload.py` 组合当前管理权威、存储验证与
-  `LabelingTaskService`；上传目标是不可变值快照，最终仍重取当前权限和任务锁。
-  原图地址用 `task_access.assert_task_visible`，不能只检查项目成员身份。
+- 独立任务文件：`app/services/task_uploads.py` 组合当前管理权威、受管原件分配、验证与
+  原生发布；`app/application/project_thumbnail_backfill.py` 持有项目缩略图回填的管理权
+  重检并直接接受 Image owner 作业。原图地址用 `task_access.assert_task_visible` 后拒绝
+  旧签名下载，不能只检查项目成员身份。
 - 媒体物化：`apps/assets-media` 通过视频与图片的公开协议持有 codec、对象 I/O、作业与派生缓存；独立 worker 通过来源、代次和租约围栏发布结果，direct Task 的投影调用 Labeling 窄能力。旧结果 writer 已移除。
 - 图片金字塔：`api/v1/tasks/image_pyramid.py` 保留 Task 可见性和 REST 缓存语义；`services/image_pyramid.py::AssetsImagePyramidApi` 将列表、manifest、asset URL 与重试组合到 `aap-assets-images/v1`，通过 `services/assets_images.py::ImageGateway` 调用本地原生能力或共享 `apps/assets-media` 控制服务。Assets 持有图片 source/job/receipt/generation 状态；Labeling 提供 direct Task 来源与 Task 缩略图投影，HTTP 不接收 ORM 作为跨模块值。图片 worker 使用独立 image LOGIN 与 lease 驱动执行；源/代次变化、取消和垃圾清理继续受 owner SQL 围栏。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
@@ -323,6 +329,14 @@ last_reviewed: 2026-10-21
    冻结与验证由 `trained_model_reference_contract.FreezeModelReferencePort` 定义，`trained_models.bind_frozen_model_reference` 绑定原 SQL Session。API、推理路由、批量执行、评估与主动学习统一使用该数据契约；固定试用仅传普通事实，原 JSON 摘要与三字段模型 wire 不变。
 5. 谱系与决策：`app/services/model_lineage.py` 提供单跳追溯，`model_decisions` 记录负责人处置（发布、归档、说明追加）。详见[在线学习与训练体系](./training-datasets)。
 6. 评估与主动学习的共同下层：`sample_evaluation_sources.py` 负责原图条件读取及评估前后核验，通过 `labeling_evaluation_source_contract.CurrentTaskSourceReader` 获取当前标注切面；请求路由绑定 `labeling_evaluation_source.SqlAlchemyLabelingEvaluationSourceReader` 到原 Session。主动学习的 `LabelingActiveLearningSources` 单独交付候选分页/来源与编辑围栏，Assets 通过 `assets_active_learning_fence` 持有素材共享行锁；路由组合仍使用同一 Session。`active_learning_pool.py` 保留学习历史排除、媒体核验和 preview 摘要，`active_learning_references.py` 持有版本/评估引用及删除保护。主动学习编排、评估清理和项目/素材/任务删除入口使用同一引用所有者，保留原 409 与事务顺序，不通过高层编排互相导入。
+
+## 5.5 数据集、目录来源与受控存储调用链
+
+1. **存储位置、连接器与九用途绑定**：`app/services/storage_connection.py`（Fernet 加密 + `connector_guard.py` SSRF 白名单）与 `storage_location.py` 管理外部连接及四类存储位置（`filesystem` / `s3` / `sftp` / `agent`）；`dataset_binding_change.py` 与各用途 `*_storage.py` 管理九用途绑定切换与 27 家族保存目标（`storage_ref`）隔离。位置级访问准入与排空由 `storage_access.py` 和 `storage_maintenance.py` 维护。
+2. **目录扫描、预检登记与增量同步**：`app/services/dataset_scans.py`、`dataset_registration.py`、`dataset_source_changes.py`、`dataset_source_revisions.py` 与 `dataset_source_sync.py` 编排目录枚举（底层调用 `apps/_shared/filesystem_read`、`sources/s3_reference.py`、`sources/sftp_reference.py` 或 `agent_storage.py`）、六类增量差异预检、内容修订与 Beat 周期同步。
+3. **跨网络只读站点 Agent**：`apps/storage-agent` 轮询 `app/api/v1/site_agent_transport.py`（`app/services/agent_transport.py`），借由 `apps/_shared/site_agent_contract` 校验命令并上传 `256 KiB` 分块；显式同内容备用来源由 `dataset_reference_replicas.py` 调度。
+4. **原件验证读取、缓存与保留回收**：`app/services/original_sources.py`、`managed_original_reader.py`、`original_binary.py` 与 `original_playback.py` 提供严格内容核验读取、认证下载与原生视频分片舞台；`original_cache.py` 管理按需完整原图缓存；`managed_original_creation.py`、`managed_original_retirement.py`、`managed_original_retention.py`、`managed_original_verification.py` 与 `managed_original_reclaim.py` 管理条件创建、删除保留账本、声明保留要求与准确版本回收。
+5. **数据集工作台、质量检测与存储迁移**：`app/services/dataset_workbench.py` 提供六态观测聚合、组合筛选与关联项目可见任务统计；`dataset_quality.py` 与 `dataset_quality_review.py` 执行可恢复图片质量检测与固定范围批量复核；`storage_migration_*.py` 与 `storage_usage*.py` 提供配置源迁移清单、复制批次、维护窗口、已封存读取映射（`PhysicalReadPlan`）、九用途原子切换与六分类容量盘点。详见[存储位置、连接器与用途绑定](./storage-connections)。
 
 ## 6. 测试层级与运行入口
 

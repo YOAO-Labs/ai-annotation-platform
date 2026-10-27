@@ -2,6 +2,27 @@ import type { TrainingEpochEvent, TrainingRunOut } from "@/api/trainingRuns";
 
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 
+export const trainingModelFamilyLabels: Record<string, string> = {
+  yolov8: "YOLOv8",
+  yolo11: "YOLO11",
+  yolo26: "YOLO26",
+  yolo9: "YOLO9",
+};
+
+export function trainingModelFamily(base: { id: string; model_family?: string | null }) {
+  if (base.model_family) return base.model_family;
+  const id = base.id.toLowerCase();
+  return id.startsWith("yolov8")
+    ? "yolov8"
+    : id.startsWith("libreyolo9")
+      ? "yolo9"
+      : id.startsWith("yolo26")
+        ? "yolo26"
+        : id.startsWith("yolo11")
+          ? "yolo11"
+          : base.id;
+}
+
 export const segmentationTask = "segment";
 export const trainingTaskLabel = (task?: unknown) => {
   const value = normalizeTask(typeof task === "string" ? task : "detect");
@@ -65,7 +86,7 @@ export function trainingProgress(run: TrainingRunOut) {
 }
 
 export function metricLabel(key: string) {
-  const normalized = key.replace(/\([BM]\)$/, "");
+  const normalized = key.replace(/^train\/(?=metrics\/)/, "").replace(/\([BM]\)$/, "");
   const labels: Record<string, string> = {
     "metrics/mAP50-95": "mAP50–95",
     "metrics/mAP50": "mAP50",
@@ -74,18 +95,27 @@ export function metricLabel(key: string) {
     "metrics/recall": "Recall",
     "metrics/AR100": "AR100",
     "train/loss": "训练损失",
-    "train/box_loss": "框回归损失",
-    "train/cls_loss": "分类损失",
-    "train/dfl_loss": "DFL 损失",
+    "train/box_loss": "训练框回归损失",
+    "train/cls_loss": "训练分类损失",
+    "train/dfl_loss": "训练 DFL 损失",
+    "train/l1_loss": "训练 L1 损失",
     "train/seg_loss": "掩码训练损失",
+    "train/sem_loss": "语义训练损失",
     "val/box_loss": "验证框回归损失",
     "val/cls_loss": "验证分类损失",
     "val/dfl_loss": "验证 DFL 损失",
+    "val/l1_loss": "验证 L1 损失",
     "val/seg_loss": "掩码验证损失",
+    "val/sem_loss": "语义验证损失",
     fitness: "原生最佳权重选择分数",
   };
   const label = labels[normalized] ?? key;
-  return key.endsWith("(M)") ? `掩码 ${label}` : key.endsWith("(B)") ? `框 ${label}` : label;
+  const scoped = key.endsWith("(M)")
+    ? `掩码 ${label}`
+    : key.endsWith("(B)")
+      ? `框 ${label}`
+      : label;
+  return key.startsWith("train/metrics/") ? `训练${scoped}` : scoped;
 }
 
 export function epochPoints(
@@ -102,7 +132,7 @@ export function epochPoints(
             Number.isFinite(value) &&
             !(framework === "libreyolo" && /precision|recall/i.test(key)) &&
             !(key.endsWith("(B)") && event.metrics[key.slice(0, -3)] != null) &&
-            !(/^metrics\/(mAP|AR|precision|recall)/.test(key) && value < 0),
+            !(/^(train\/)?metrics\/(mAP|AR|precision|recall)/.test(key) && value < 0),
         ),
       ),
     }));

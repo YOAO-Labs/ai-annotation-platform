@@ -1,8 +1,9 @@
 ---
+title: 项目模块
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-26
 ---
 
 # 项目模块
@@ -14,8 +15,8 @@ last_reviewed: 2026-10-21
 - 项目创建 / 更新 / 删除
 - 项目成员与 owner
 - 类目、属性 schema、采样配置
-- ML backend 绑定
-- 项目级统计、导出、预标注入口
+- ML backend 绑定与项目发布模型选择
+- 项目级统计、导出、预标注与在线学习入口
 
 先读这页。
 
@@ -90,6 +91,12 @@ Project 是业务顶层容器。项目可以属于 organization；成员、批�
 - Project 不只是“容器名”，它同时保存工作台策略、AI 行为默认值和统计缓存
 - `model_version` 只是展示提示；实际能力由项目已启用服务池的 `/setup` 快照、具体 prompt / tracker 路由与主服务池优先级共同决定
 
+### 标注指引图片
+
+`annotation_guide` 保存正文，`guide_assets` 保存展示顺序与元数据；图片读取和保活由 `ProjectGuideAsset` 引用及独立的 `GuideAssetUpload` 决定。复制项目建立新引用，源项目删除不改变副本的存储归属。最后一个引用移除后，独立记录保留到物理清理完成；未知历史 JSON 和未完成上传不会被推断成可删除对象。
+
+数据库在清单实际变化时递增 `guide_assets_revision`。显式清单更新须携带当前修订，只允许精确删减或重排；正文自动保存不替换清单。普通图片上传、读取和删除对单个项目行最多等待一秒，以容纳粘贴、多图预览和自动保存的短时竞争，等待后仍复核原凭证。跨项目复制与配置更新保留快速锁冲突响应；后端能力网络检查在业务行锁之前完成。协议与错误处理见[项目 API](../../api/guides/projects#标注指引图片)。
+
 ## 项目状态
 
 项目状态枚举在 `apps/api/app/db/enums.py`：
@@ -101,25 +108,18 @@ pending_review
 archived
 ```
 
-这些状态更多用于项目列表与总览展示，不像 task / batch 那样承载细粒度工作流。
-
-经验上：
-
-- 日常开发里更常碰的是 batch / task 状态机
-- project.status 更接近“管理看板状态”，而不是驱动工作台细节的唯一真值
+这些状态更多用于项目列表与总览展示，不像 task / batch 那样承载细粒度工作流。但需要注意：**`archived` 状态会阻断项目级在线学习的新增写操作**（如创建训练数据集、启动训练、切换项目发布模型、发起样本评估或主动学习轮次）。
 
 ## Project 负责哪些配置
 
 ### 1. 标注 schema（按工具单位拆分）
 
-项目定义:
+项目定义：
 
-- 启用哪些**工具单位** (tool_unit) 与各 unit 持有的类别 / 属性 schema: `tool_bindings` (唯一存储真值)
-- 响应 / 导出按需从 `tool_bindings` **读时派生**的扁平投影: `classes` / `classes_config` / `attribute_schema`
+- 启用哪些**工具单位**（`tool_unit`）与各 unit 持有的类别 / 属性 schema：`tool_bindings`（唯一存储真值）
+- 响应 / 导出按需从 `tool_bindings` **读时派生**的扁平投影：`classes` / `classes_config` / `attribute_schema`
 
-<!-- history: tool_bindings replaced the older flat project schema across the v0.10 tool-unit slices. -->
-
-`tool_bindings` 结构示例:
+`tool_bindings` 结构示例：
 
 ```json
 {
@@ -133,9 +133,9 @@ archived
 }
 ```
 
-工具单位枚举与 `app/schemas/_jsonb_types.ToolUnitId` Literal 对齐：`bbox` / `polyline` / `region` / `lidar_box_3d` / `rotated_bbox` / `keypoint` / `point_mask_3d`。交互式 AI 不是几何工具单位：smart-point / smart-box / exemplar 的多边形归 `region`，Magic Box 的矩形框归 `bbox`；项目级 `ai_interactive_enabled` 只控制能力是否开放。**强隔离决策**: 不同工具的同名类是两条独立记录, 详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
+工具单位枚举与 `app/schemas/_jsonb_types.ToolUnitId` Literal 对齐：`bbox` / `polyline` / `region` / `lidar_box_3d` / `rotated_bbox` / `keypoint` / `point_mask_3d`。交互式 AI 不是几何工具单位：smart-point / smart-box / exemplar 的多边形归 `region`，Magic Box 的矩形框归 `bbox`；项目级 `ai_interactive_enabled` 只控制能力是否开放。**强隔离决策**：不同工具的同名类是两条独立记录，详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
-如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
+如果你改的是「标注长什么样」，十有八九要从 `project.tool_bindings` 入手，而不是 `task`。
 
 写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；模板列表／详情和提交后的响应投影通过 `services/workspace_template_query.py` 进入读取 owner；API 附带成功命令回执读取当前行，再校验公开响应。原模板 ORM 读取适配器已删除；命名流水线复用 Identity 的窄组织事实能力。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；项目普通读取已由查询 owner 提供，成员／mention／access 也已接入各自查询 owner；其余相邻写入继续迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
 
@@ -170,6 +170,14 @@ scene 模式项目额外多一层连续派题逻辑：打开 `prefer_same_scene_
 AI 能力是 project 级开关，不是 batch 或 task 私有配置。
 
 前端项目设置的归属：这些 AI 字段统一在 `ML 模型` 页维护。该页上方是项目级 AI 预标注设置（选主服务池时同步启用、去重阈值），下方是**对全局服务池的启用 / 禁用清单**；物理 registry 由服务池成员承载，项目只管理哪些池可用以及哪个池是主池。per-backend 阈值覆盖已退役：推理参数运行时按 `/setup.params` 通用渲染，项目级 `box_threshold` 仅作兜底。物理注册与健康检查归超管在模型市场维护。
+
+### 4. 项目级在线学习与发布模型绑定
+
+图片项目拥有独立的在线学习工作台（`/projects/:id/learning`），覆盖「模型与血缘 / 训练数据集 / 评估与难例 / 主动学习」四个标签页：
+
+- **项目发布模型选择（`ProjectModelSelection`）**：项目管理员可在 `GET/PUT/DELETE /api/v1/projects/{id}/model-selection` 中将已通过资格验证的 `TrainedModelVersion` 设为项目当前发布模型。
+- **预标注流水线路由（`project-release`）**：在预标注流水线编排中选择 `model_source = "project-release"` 的阶段，入队时会冻结该项目当前的 `ProjectModelSelection`（写入 `frozen_model_ref` 并路由到 `model_id = "trained:{version_id}"`）。
+- 完整架构与契约见 [在线学习与训练体系](./training-datasets)。
 
 ## 成员与权限边界
 
@@ -216,11 +224,20 @@ Project 决定 task 的这些上层语义：
 
 这也是为什么 task 虽然有独立状态机，但很多行为仍要回读 project 配置。
 
+### Project ↔ Dataset 关联与筛选冻结
+
+项目与数据集通过 `ProjectDataset(project_id, dataset_id)` 建立多对多关联（`DatasetService.link_project`）：
+
+- **类型门禁与同步/异步建题**：关联前严格校验项目类型与数据集媒体类型/场景属性（`kind_mismatch_detail`）以及数据集归档/来源创建者权限。当样本数 `<= task_create_sync_threshold` 时在请求内分块同步创建 `batch_id=NULL` 的未分批任务；超过阈值时创建 `AsyncJob(kind=create_tasks)` 异步补建。后续数据集新增样本（含增量同步采纳）会通过 `create_tasks_for_items` 自动向已关联项目补建空白任务。
+- **数据集工作台筛选冻结与训练选样**：在数据集工作台或训练数据版本创建中选择关联项目与组合筛选条件（`source_id`、`availability`、`scene_id`、文件名、扩展名、尺寸区间）时，`dataset_workbench.project_filtered_item_ids` 会校验 `ProjectDataset` 关联并在版本创建时将命中的样本/任务与内容身份不可变地冻结至 `TrainingDatasetVersion.snapshot`（详见[数据集、目录来源与增量同步架构](./dataset-sources-and-sync)）。
+
 ## 主要 API 面
 
 `apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理。`/project-pipelines` 的五个 CRUD 路由与项目 apply 路由共六个公开路由仍保持原请求 / 响应合同，读写由 `aap_inference.pipeline_manager.PipelineManager` 执行，API 经 `services/inference_pipelines.py` 选择默认借用事务、专用 DSN 或 HTTP owner。命名编排数据不经 `ProjectPipeline` ORM 读写；请求与响应 schema 仍位于 API。项目内嵌旧配置和保存编排结构继续共用 `aap_inference.pipeline.validate_saved_pipeline`，canonical `PipelineStage` 与 `PreannotateRequest` 位于 `aap_inference.preannotate`。
 
 项目 apply 保留 `require_project_owner` 在源编排查询之前的入口检查；manager 读取源和 backend 启用事实后，再经 Workspace 固定能力重读当前账号、项目与成员锁。借用事务由 API 提交成功命令，再以完整命令回执读取新投影，并通过 Identity UserBrief 补充创建者名称；apply 响应沿用 `created_by_name: null`。
+
+在线学习的项目模型由独立的训练模型路由管理。`TrainedModelVersion` 保存不可变的训练来源、权重和训练版本，`ModelDeployment` 记录各推理实例的试用及实际推理版本；同一项目和任务可以保留多个部署，默认预标选择按任务独立维护。模型列表按全部类型或具体任务查看，模型名称进入统一详情；已回流的执行不能重复添加，来源实验仍受引用保护。操作入口见[模型回流与默认预标](../../user-guide/online-learning/models)。
 
 项目主路由覆盖的主要能力：
 
@@ -279,11 +296,11 @@ Project 模型本身保留了多种聚合字段：
 | 你想改什么                                                                                                    | 先看哪里                                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 新增项目配置字段                                                                                              | `db/models/project.py` + `schemas/project.py` + `api/v1/projects.py`                                                             |
-| 改项目权限                                                                                                    | `deps.py` + `api/v1/projects.py`                                                                                                 |
+| 改项目权限                                                                                                    | `services/project_access.py` + `deps.py` + `api/v1/projects.py`                                                                  |
 | 改派题策略                                                                                                    | `db/models/project.py` + `services/scheduler.py`                                                                                 |
 | 改 scene 模式 / 连续派题（`scene_mode` / `prefer_same_scene_continuation` / `scene_continuation_window_min`） | `db/models/project.py` + `schemas/project.py` + `services/project_kind.py`（`scene_mode_allowed` 门禁）+ `services/scheduler.py` |
 | 改 AI 默认参数                                                                                                | `schemas/project.py` + `projects.py` + 相关前端表单                                                                              |
-| 改项目统计                                                                                                    | `dashboard/`(admin/reviewer/annotator)+ 相关 service / counter 回写                                                              |
+| 改项目统计                                                                                                    | `dashboard/`（admin/reviewer/annotator）+ 相关 service / counter 回写                                                            |
 
 ## 测试与联动点
 

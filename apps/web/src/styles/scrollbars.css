@@ -1,0 +1,35 @@
+/* Extend the native scrolling utilities so their responsive/state variants
+   reserve the same space before and after a vertical scrollbar appears. */
+@utility overflow-auto {
+  scrollbar-gutter: stable;
+}
+
+@utility overflow-y-auto {
+  scrollbar-gutter: stable;
+}
+
+@utility overflow-scroll {
+  scrollbar-gutter: stable;
+}
+
+@utility overflow-y-scroll {
+  scrollbar-gutter: stable;
+}
+
+@layer base {
+  html,
+  textarea,
+  .dv-tabs-overflow-container {
+    scrollbar-gutter: stable;
+  }
+
+  /* The root gutter survives overflow:hidden. Radix's measured body margin
+     would reserve it a second time on long documents. Full-viewport app shells
+     have no root scrollbar and therefore need no body compensation either. */
+  @supports (scrollbar-gutter: stable) {
+    body[data-scroll-locked] {
+      margin-right: 0 !important;
+      --removed-body-scroll-bar-size: 0px !important;
+    }
+  }
+}

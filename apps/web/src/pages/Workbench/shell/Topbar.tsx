@@ -5,14 +5,13 @@ import { DropdownMenu, type DropdownItem } from "@/components/ui/DropdownMenu";
 import { AssigneeAvatarStack } from "@/components/ui/AssigneeAvatarStack";
 import { SkipTaskModal, type SkipReason } from "./SkipTaskModal";
 import { BatchStatusBadge } from "@/components/badges/BatchStatusBadge";
-import { useWhatsNewStore } from "@/components/shell/WhatsNewDialog";
-import { appVersion } from "@/utils/releaseNotes";
 import { useTheme } from "@/hooks/useTheme";
 import { useBugDrawerStore } from "@/stores/bugDrawerStore";
 import type { TaskResponse } from "@/types";
 import type { VideoSegment } from "@/api/videoTracker";
 import type { GuardedNavigate } from "@/utils/workbenchNavigation";
 import type { WorkspaceSide, WorkspaceSideState } from "../layout/workbenchLayoutExecutor";
+import { workbenchAiScopeLabel } from "../layout/workbenchPanelRegistry";
 
 // 与主界面 TopBar 共用同一懒加载通知入口；工作台传入自己的导航回调。
 const NotificationsPopover = lazy(() =>
@@ -45,10 +44,14 @@ interface TopbarProps {
   onRunAi?: () => void;
   aiOpen?: boolean;
   aiDisabled?: boolean;
+  aiDisabledReason?: string;
+  isVideoTask?: boolean;
   /** 视频任务的画布级 AI 追踪入口。 */
   onToggleTracker?: () => void;
   trackerOpen?: boolean;
   trackerRunning?: boolean;
+  trackerDisabled?: boolean;
+  trackerDisabledReason?: string;
   onPrev: () => void;
   onNext: () => void;
   onSubmit: () => void;
@@ -118,9 +121,13 @@ export function Topbar({
   onRunAi,
   aiOpen = false,
   aiDisabled = false,
+  aiDisabledReason,
+  isVideoTask = false,
   onToggleTracker,
   trackerOpen = false,
   trackerRunning = false,
+  trackerDisabled = false,
+  trackerDisabledReason,
   onPrev,
   onNext,
   onSubmit,
@@ -172,6 +179,7 @@ export function Topbar({
   }, [confThreshold]);
 
   const indexLabel = taskTotal > 0 && taskIdx >= 0 ? `${taskIdx + 1} / ${taskTotal}` : "";
+  const aiLabel = workbenchAiScopeLabel(isVideoTask);
 
   const smartItems: DropdownItem[] = [];
   if (onSmartNextOpen)
@@ -202,7 +210,19 @@ export function Topbar({
       }}
       className="h-7 min-w-0 w-32 max-w-full rounded border border-border bg-card px-2 text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring @max-[1000px]:hidden"
     >
-      <option value="">选择分段</option>
+      {activeVideoSegmentId ? (
+        <option value="">退出当前分段</option>
+      ) : (
+        <option value="" disabled hidden>
+          选择分段
+        </option>
+      )}
+      {activeVideoSegmentId &&
+        !videoSegments.some((segment) => segment.id === activeVideoSegmentId) && (
+          <option value={activeVideoSegmentId} disabled hidden>
+            当前分段（未在列表中）
+          </option>
+        )}
       {videoSegments.map((segment) => (
         <option key={segment.id} value={segment.id} disabled={segment.status === "completed"}>
           S{segment.segment_index + 1} · {segment.start_frame}-{segment.end_frame} ·{" "}
@@ -448,14 +468,18 @@ export function Topbar({
                   variant="ai"
                   size="sm"
                   onClick={onToggleTracker}
-                  aria-label="发现新目标"
+                  aria-label="追踪"
                   aria-pressed={trackerOpen}
+                  disabled={trackerDisabled}
+                  aria-description={trackerDisabled ? trackerDisabledReason : undefined}
                   title={
-                    trackerOpen
-                      ? "聚焦画布级多目标追踪"
-                      : "发现或播种多个新目标，不延展当前选中轨迹"
+                    trackerDisabled
+                      ? trackerDisabledReason
+                      : trackerOpen
+                        ? "聚焦画布级多目标追踪"
+                        : "打开追踪面板，发现或播种多个新目标"
                   }
-                  className="h-7 px-3 @max-[1100px]:w-7 @max-[1100px]:p-0"
+                  className="h-7 px-3 disabled:pointer-events-auto disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:hover:translate-y-0 @max-[1100px]:w-7 @max-[1100px]:p-0"
                   data-testid="workbench-ai-tracker"
                 >
                   {trackerRunning ? (
@@ -467,7 +491,7 @@ export function Topbar({
                   ) : (
                     <Icon name="bot" size={13} />
                   )}
-                  <span className="@max-[1100px]:hidden">发现目标</span>
+                  <span className="@max-[1100px]:hidden">追踪</span>
                 </Button>
               )}
               {onRunAi && (
@@ -475,11 +499,18 @@ export function Topbar({
                   variant="ai"
                   size="sm"
                   onClick={onRunAi}
-                  aria-label="AI 单题"
+                  aria-label={aiLabel}
                   aria-pressed={aiOpen}
                   disabled={aiDisabled}
-                  title={aiOpen ? "聚焦 AI 单题面板" : "打开 AI 单题面板"}
-                  className="h-7 px-3 @max-[1100px]:w-7 @max-[1100px]:p-0"
+                  aria-description={aiDisabled ? aiDisabledReason : undefined}
+                  title={
+                    aiDisabled
+                      ? aiDisabledReason
+                      : aiOpen
+                        ? `聚焦${aiLabel} AI 面板`
+                        : `打开${aiLabel} AI 面板，对${isVideoTask ? "当前帧" : "当前图片"}运行 AI`
+                  }
+                  className="h-7 px-3 disabled:pointer-events-auto disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:hover:translate-y-0 @max-[1100px]:w-7 @max-[1100px]:p-0"
                   data-testid="workbench-ai-single"
                 >
                   {aiRunning ? (
@@ -491,7 +522,7 @@ export function Topbar({
                   ) : (
                     <Icon name="wandSparkles" size={13} />
                   )}
-                  <span className="@max-[1100px]:hidden">AI</span>
+                  <span className="@max-[1100px]:hidden">{aiLabel}</span>
                 </Button>
               )}
             </>
@@ -503,20 +534,6 @@ export function Topbar({
             </Suspense>
           )}
           <div className="flex items-center gap-1.5 @max-[1000px]:hidden">
-            {/* 与主界面 TopBar 一致:版本号可点击,随时查看当前版本更新内容。
-                窄屏工作台顶栏已无横向余量(见 workbench-topbar.spec 的防重叠断言),
-                故随中段压缩一并收起;<1000px 时改由「更多工具」菜单提供入口。 */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => useWhatsNewStore.getState().openManually()}
-              title="查看本次更新内容"
-              aria-label={`查看 v${appVersion} 更新内容`}
-              data-testid="workbench-whats-new"
-              className="mono px-1.5 py-1 text-muted-foreground @max-[900px]:hidden"
-            >
-              v{appVersion}
-            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -559,11 +576,6 @@ export function Topbar({
                 ...smartItems,
                 { id: "hotkeys", label: "快捷键", onSelect: onShowHotkeys },
                 { id: "theme", label: themeActionLabel, onSelect: () => setTheme(nextTheme) },
-                {
-                  id: "whats-new",
-                  label: `本次更新 (v${appVersion})`,
-                  onSelect: () => useWhatsNewStore.getState().openManually(),
-                },
                 { id: "bug-report", label: "报告 Bug / 提交反馈", onSelect: openBugDrawer },
                 ...(onOpenWorkbenchSettings
                   ? [{ id: "settings", label: "工作台设置", onSelect: onOpenWorkbenchSettings }]

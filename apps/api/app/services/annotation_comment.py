@@ -262,6 +262,18 @@ class AnnotationCommentService:
         )
 
     async def delete_for_tasks(self, task_ids: list[uuid.UUID]) -> int:
+        """Delete task comments after retiring their exact storage owners."""
+        from app.services.comment_attachment_uploads import retire_for_comments
+
+        doomed_comments = (
+            select(annotation_comment_facts.id)
+            .join(
+                annotation_row,
+                annotation_row.id == annotation_comment_facts.annotation_id,
+            )
+            .where(annotation_row.task_id.in_(task_ids))
+        )
+        await retire_for_comments(self.db, doomed_comments)
         result = await discussion_command(
             self.db,
             DeleteCommentsForTasks(

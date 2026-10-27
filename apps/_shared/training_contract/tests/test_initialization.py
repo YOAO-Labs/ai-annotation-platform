@@ -85,6 +85,39 @@ def fresh(value):
     }
 
 
+@pytest.mark.parametrize("family", ["yolov8", "yolo11", "yolo26"])
+@pytest.mark.parametrize("suffix", ["", "-seg"])
+def test_current_initialization_policy_binds_exact_family_and_task(family, suffix):
+    from training_contract.dataset import INSTANCE_RLE_CONTRACT
+    from training_contract.initialization import policy_for_model
+
+    value = pin()
+    base = f"{family}x{suffix}"
+    policy = policy_for_model(base, "8.4.183")
+    value.update(
+        policy_digest=digest(policy),
+        base_model=base,
+        model_family=family,
+        framework_version="8.4.183",
+        task=policy["task"],
+    )
+    if suffix:
+        value["data_contract"] = INSTANCE_RLE_CONTRACT
+        value["evaluation"].update(
+            normalized_model_digest="a" * 64,
+            descriptor_digest="b" * 64,
+            weights_sha256=value["artifact"]["sha256"],
+        )
+    value["source_digest"] = digest(
+        {key: item for key, item in value.items() if key != "source_digest"}
+    )
+    assert validate_pin(value) == value
+    changed = copy.deepcopy(value)
+    changed["base_model"] = "yolo11n" if family != "yolo11" else "yolov8n"
+    with pytest.raises(ValueError):
+        validate_pin(changed)
+
+
 def test_pin_is_exact_and_requires_qualified_execution_capability():
     value = pin()
     assert validate_pin(value) == value
@@ -177,3 +210,85 @@ def test_resume_is_bound_to_its_original_pin_but_keeps_its_own_training_epoch():
     wrong["source_digest"] = "0" * 64
     with pytest.raises(ValueError):
         verify_evidence({"initialization": value}, wrong, resumed=True)
+
+
+def segmentation_pin():
+    from training_contract.initialization import SEGMENTATION_POLICY_DIGEST
+    from training_contract.dataset import INSTANCE_RLE_CONTRACT
+
+    value = pin()
+    value.update(
+        policy_digest=SEGMENTATION_POLICY_DIGEST,
+        task="segment",
+        base_model="yolo11n-seg",
+        data_contract=dict(INSTANCE_RLE_CONTRACT),
+    )
+    value["evaluation"].update(
+        normalized_model_digest="8" * 64,
+        descriptor_digest="9" * 64,
+        weights_sha256=value["artifact"]["sha256"],
+    )
+    value["source_digest"] = digest(
+        {key: item for key, item in value.items() if key != "source_digest"}
+    )
+    return value
+
+
+def test_segmentation_policy_is_separate_and_freezes_source_bridge_and_evaluator():
+    from training_contract.initialization import SEGMENTATION_POLICY_DIGEST
+    from training_contract.dataset import INSTANCE_RLE_CONTRACT, SEGMENTATION_CONTRACT
+
+    value = segmentation_pin()
+    assert validate_pin(value) == value
+    assert value["policy_digest"] != POLICY_DIGEST
+    config = {
+        "initialization": value,
+        "adapter_revision": 2,
+        "task": "segment",
+        "framework": "ultralytics",
+        "framework_version": "8.4.177",
+        "base_model": {"id": "yolo11n-seg"},
+        "classes": value["classes"],
+        "data_contract": dict(SEGMENTATION_CONTRACT),
+    }
+    runtime = {**value["runtime"], "initialization_policy_digest": POLICY_DIGEST}
+    assert not compatible_runtime(config, runtime)
+    assert compatible_runtime(
+        config,
+        {
+            **runtime,
+            "initialization_policy_digests": [
+                POLICY_DIGEST,
+                SEGMENTATION_POLICY_DIGEST,
+            ],
+        },
+    )
+    assert value["data_contract"] == INSTANCE_RLE_CONTRACT
+    wrong = copy.deepcopy(value)
+    wrong["data_contract"]["bridge"] = "ultralytics-simple-polygon-1"
+    wrong["source_digest"] = digest(
+        {key: item for key, item in wrong.items() if key != "source_digest"}
+    )
+    with pytest.raises(ValueError):
+        validate_pin(wrong)
+
+
+def test_segmentation_fresh_receipt_includes_exact_mask_head_state():
+    value = segmentation_pin()
+    receipt = {
+        **fresh(value),
+        "policy_digest": value["policy_digest"],
+        "mask_head_tensor_digest": "9" * 64,
+        "loaded_mask_head_tensor_digest": "9" * 64,
+        "mask_head_tensor_count": 93,
+    }
+    verify_evidence({"initialization": value}, receipt, resumed=False)
+    for change in (
+        {"loaded_mask_head_tensor_digest": "0" * 64},
+        {"mask_head_tensor_count": 0},
+        {"optimizer_state_count": 4},
+    ):
+        with pytest.raises(ValueError):
+            verify_evidence(
+                {"initialization": value}, {**receipt, **change}, resumed=False
+            )

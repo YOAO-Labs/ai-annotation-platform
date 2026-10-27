@@ -1,7 +1,7 @@
 """v0.9.3 · 超管 ML 集成总览。
 
 聚合返回：
-- storage：复用 storage.summarize_bucket 的两个 bucket 概览（仅 super_admin 走该端点）
+- storage：读取平台桶的持久成功快照（仅 super_admin 走该端点）
 - projects：跨所有项目的 ml_backends 列表，按 project 分组（保留 backend.url 但不返回 auth_token）
 
 v0.9.6 · 加 /probe (无 DB 副作用的 health check) + /runtime-hints (前端 modal placeholder).
@@ -65,7 +65,8 @@ from app.schemas.ml_routing import (
     RuntimeSnapshotResponse,
     TopologyResponse,
 )
-from app.schemas.storage import BucketSummary
+from app.schemas.storage import BucketsResponse
+from app.services.storage_usage import read_usage, require_admin
 from app.services.audit import AuditService
 from app.services.identity_commands import IdentityCommandService
 from app.services.identity_contracts import IdentityActorFacts
@@ -85,7 +86,6 @@ from app.services.ml_backend import (
     MLBackendService,
     MLBackendURLConflict,
 )
-from app.services.storage import storage_service
 from app.services.workspace_read_relations import project_rows
 
 router = APIRouter()
@@ -131,10 +131,8 @@ class ProjectMLBackendsGroup(BaseModel):
     backends: list[MLBackendOut]
 
 
-class StorageOverview(BaseModel):
-    items: list[BucketSummary]
-    total_object_count: int
-    total_size_bytes: int
+class StorageOverview(BucketsResponse):
+    pass
 
 
 class MLIntegrationsOverview(BaseModel):
@@ -146,36 +144,16 @@ class MLIntegrationsOverview(BaseModel):
 
 @router.get("/overview", response_model=MLIntegrationsOverview)
 async def get_overview(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    bucket_roles = {
-        storage_service.bucket: "annotations",
-        storage_service.datasets_bucket: "datasets",
-        storage_service.bug_reports_bucket: "bug-reports",
-        storage_service.media_cache_bucket: "media-cache",
-        storage_service.audit_archive_bucket: "audit-archive",
-    }
-    items: list[BucketSummary] = []
-    for b, role in bucket_roles.items():
-        try:
-            summary = storage_service.summarize_bucket(b)
-            items.append(BucketSummary(role=role, **summary))
-        except Exception as e:
-            items.append(
-                BucketSummary(
-                    name=b,
-                    status="error",
-                    object_count=0,
-                    total_size_bytes=0,
-                    error=str(e)[:200],
-                    role=role,
-                )
-            )
-    storage_overview = StorageOverview(
-        items=items,
-        total_object_count=sum(i.object_count for i in items),
-        total_size_bytes=sum(i.total_size_bytes for i in items),
+    from app.deps import assert_request_scopes
+
+    assert_request_scopes(request, "*")
+    await require_admin(db, _admin.id)
+    storage_overview = StorageOverview.model_validate(
+        (await read_usage(db)).model_dump()
     )
 
     # v0.19.0 ADR-0044 · backend 全局化; 「按项目分组」改为按项目「已启用」关联分组
@@ -356,6 +334,7 @@ class RuntimeHints(BaseModel):
     """v0.9.6 · 前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint."""
 
     ml_backend_default_url: str | None = None
+    managed_backend_urls: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/runtime-hints", response_model=RuntimeHints)
@@ -366,10 +345,207 @@ async def runtime_hints(
 ):
     return RuntimeHints(
         ml_backend_default_url=settings.ml_backend_default_url or None,
+        managed_backend_urls=settings.ml_managed_backend_urls,
     )
 
 
 # ─── v0.9.7 · 全局 backend 列表 ────────────────────────────────────────
+
+
+ManagedProvider = Literal["gsam2", "sam3", "yolo", "onnxtools", "rapidocr"]
+
+
+class ManagedAuthRegistry(BaseModel):
+    id: UUID
+    name: str
+    auth_method: str
+    state: str
+
+
+class ManagedAuthItem(BaseModel):
+    provider: ManagedProvider
+    service_name: str
+    url: str
+    credential_state: Literal["missing", "ready", "invalid"]
+    registries: list[ManagedAuthRegistry] = Field(default_factory=list)
+    outcome: (
+        Literal["synced", "initialized", "unavailable", "manual_preserved", "error"]
+        | None
+    ) = None
+    message: str | None = None
+
+
+class ManagedAuthStatus(BaseModel):
+    items: list[ManagedAuthItem]
+
+
+class ManagedAuthInitialize(BaseModel):
+    model_config = {"extra": "forbid"}
+    providers: list[ManagedProvider] | None = Field(
+        default=None, min_length=1, max_length=5
+    )
+
+
+async def _managed_auth_status(db: AsyncSession) -> ManagedAuthStatus:
+    from aap_protocol_v2.backend_auth import BACKEND_SERVICES
+    from aap_protocol_v2.managed_credential import CredentialFileError, read_credential
+    from app.services.managed_inference_auth import (
+        configured_backends,
+        credential_directory,
+        provider_for_url,
+    )
+
+    catalog = await InferenceTopologyData(db).registry_catalog()
+    items = []
+    for provider, url in configured_backends().items():
+        directory = credential_directory(provider)
+        try:
+            if not (directory / "token").exists():
+                state = "missing"
+            else:
+                read_credential(directory)
+                state = "ready"
+        except (OSError, CredentialFileError):
+            state = "invalid"
+        items.append(
+            ManagedAuthItem(
+                provider=provider,
+                service_name=BACKEND_SERVICES[provider],
+                url=url,
+                credential_state=state,
+                registries=[
+                    ManagedAuthRegistry(
+                        id=row.id,
+                        name=row.name,
+                        auth_method=row.auth_method,
+                        state=row.state,
+                    )
+                    for row in catalog
+                    if provider_for_url(row.url) == provider
+                ],
+            )
+        )
+    return ManagedAuthStatus(items=items)
+
+
+@router.get("/managed-auth", response_model=ManagedAuthStatus)
+async def managed_auth_status(
+    db: AsyncSession = Depends(get_db),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Inspect private local defaults without revealing or sending credentials."""
+    return await _managed_auth_status(db)
+
+
+@router.post("/managed-auth/initialize", response_model=ManagedAuthStatus)
+async def initialize_managed_backends(
+    payload: ManagedAuthInitialize,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    from aap_protocol_v2.backend_auth import managed_provider
+    from aap_protocol_v2.managed_credential import (
+        CredentialFileError,
+        ensure_credential,
+    )
+    from app.services.managed_inference_auth import (
+        configured_backends,
+        credential_directory,
+    )
+
+    status = await _managed_auth_status(db)
+    selected = set(
+        payload.providers if payload.providers is not None else configured_backends()
+    )
+    if selected - configured_backends().keys():
+        raise HTTPException(422, "所选内置服务未在当前部署的可信地址映射中配置。")
+    for item in status.items:
+        if item.provider not in selected:
+            continue
+        try:
+            ensure_credential(credential_directory(item.provider))
+            item.credential_state = "ready"
+        except (OSError, CredentialFileError):
+            item.outcome = "error"
+            item.message = "本地凭据目录不可用，请检查归属、私有权限和文件完整性。"
+            continue
+        if not item.registries:
+            item.outcome = "initialized"
+            item.message = "默认凭据已初始化；尚未注册此服务，没有实例需要同步。"
+            continue
+        synced = 0
+        preserved = 0
+        failures: list[str] = []
+        for registry in item.registries:
+            if (
+                registry.auth_method != "none"
+                and managed_provider(registry.auth_method) is None
+            ):
+                preserved += 1
+                continue
+            try:
+                async with db.begin_nested():
+                    updated = await MLBackendService(db).update(
+                        registry.id,
+                        preserve_manual_auth=True,
+                        auth_method=f"managed:{item.provider}",
+                    )
+                    if updated is None:
+                        raise HTTPException(409, "实例已删除，请刷新后重试。")
+                    await AuditService.log(
+                        db,
+                        actor=admin,
+                        action="ml_registry.managed_auth_synced",
+                        target_type="ml_backend",
+                        target_id=str(registry.id),
+                        request=request,
+                        status_code=200,
+                        detail={"provider": item.provider},
+                    )
+                    registry.auth_method = updated.auth_method
+                    registry.state = updated.state
+                await db.commit()
+                synced += 1
+            except HTTPException as exc:
+                manual = (
+                    isinstance(exc.detail, dict)
+                    and exc.detail.get("error_code") == "manual_auth_preserved"
+                )
+                if manual:
+                    preserved += 1
+                else:
+                    failures.append(str(exc.detail))
+        if failures:
+            item.outcome = "unavailable"
+            item.message = (
+                f"已同步 {synced} 个实例，保留 {preserved} 个手动认证实例；"
+                f"{len(failures)} 个实例未完成同步：{failures[0]}"
+            )
+        elif preserved:
+            item.outcome = "manual_preserved"
+            item.message = (
+                f"已同步 {synced} 个实例，保留 {preserved} 个手动认证实例；"
+                "如需改用系统托管，请在实例编辑中明确切换。"
+            )
+        else:
+            item.outcome = "synced"
+            item.message = (
+                f"已验证并同步 {synced} 个实例的认证；"
+                "请执行实例健康检查以更新服务状态。"
+            )
+    await AuditService.log(
+        db,
+        actor=admin,
+        action="ml_registry.managed_auth_initialized",
+        target_type="ml_backend",
+        target_id="managed",
+        request=request,
+        status_code=200,
+        detail={"providers": sorted(selected)},
+    )
+    await db.commit()
+    return status
 
 
 class GlobalBackendItem(BaseModel):
@@ -778,7 +954,11 @@ async def create_registry(
             url=data.url,
             source="manual",
             is_interactive=data.is_interactive,
-            auth_method=data.auth_method,
+            **(
+                {"auth_method": data.auth_method}
+                if "auth_method" in data.model_fields_set
+                else {}
+            ),
             auth_token=data.auth_token,
             extra_params=data.extra_params,
             gpu_resource_id=data.gpu_resource_id,
@@ -1003,8 +1183,8 @@ async def unload_registry_backend(
 # ─── v0.10.26 · 容器直连观测 (与项目注册解耦) ──────────────────────────────
 #
 # 即使没有任何项目注册 backend, 运维也能直连 env 配的 ML_BACKEND_OBSERVE_URLS
-# 看健康度 / 变体目录 / 试启动。观测 URL 假定免鉴权 (内网 / dev); 带 token 的
-# backend 仍走项目注册路径。
+# Read-only discovery uses registered authentication when present. Only deployment-
+# pinned, unregistered first-party targets may use an existing local credential.
 
 
 def _observe_urls() -> list[str]:

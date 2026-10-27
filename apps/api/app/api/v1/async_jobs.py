@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.async_job_contracts import (
@@ -18,6 +18,7 @@ from app.application.async_job_contracts import (
     AsyncJobReadPort,
     JobCancellationPort,
     PredictionRetryPort,
+    RetryCredentialAuthority,
 )
 from app.deps import (
     get_async_job_read_port,
@@ -114,10 +115,15 @@ async def cancel_async_job(
 )
 async def retry_failed_async_job_items(
     job_id: uuid.UUID,
+    request: Request,
     actor_id: uuid.UUID = Depends(get_current_user_id),
     retry_port: PredictionRetryPort = Depends(get_prediction_retry_port),
 ) -> AsyncJobRetryFailedResponse:
     try:
-        return await retry_port.retry_job_items(job_id=job_id, actor_id=actor_id)
+        return await retry_port.retry_job_items(
+            job_id=job_id,
+            actor_id=actor_id,
+            credential=RetryCredentialAuthority.from_request(actor_id, request),
+        )
     except AsyncJobOperationFailure as exc:
         _raise_operation_failure(exc)

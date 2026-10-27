@@ -240,17 +240,13 @@ async def test_restored_deletion_receipt_replays_and_populated_downgrade_refuses
         assert epoch.value.code == "operation_conflict"
         assert epoch.value.status_code == 409
 
-        refused = _alembic(owner_url, "downgrade", "0246")
+        refused = _alembic(owner_url, "downgrade", "bo0246")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Identity deletion ownership while receipts exist"
             in refused.stdout + refused.stderr
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             await db.execute(
                 text(
                     "DELETE FROM public.identity_deletion_operation_receipts "
@@ -258,12 +254,12 @@ async def test_restored_deletion_receipt_replays_and_populated_downgrade_refuses
                 ),
                 {"operation_id": operation_id},
             )
-        empty = _alembic(owner_url, "downgrade", "0246")
+        empty = _alembic(owner_url, "downgrade", "bo0246")
         assert empty.returncode == 0, "Owned empty deletion downgrade failed"
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0246"
+                == "bo0246"
             )
             assert await db.scalar(
                 text("SELECT to_regnamespace('aap_identity_deletions_v1') IS NULL")

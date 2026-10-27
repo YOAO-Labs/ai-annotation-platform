@@ -1,6 +1,8 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingRunsApi } from "@/api/trainingRuns";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
 const statusLabels = {
   editable: "支持编辑",
@@ -39,7 +41,7 @@ export function TrainingParameterInventory({
   if (schema.isError)
     return (
       <p role="alert" className="text-xs text-status-danger">
-        {schema.error.message}
+        <CopyableError message={schema.error.message} />
       </p>
     );
   const definition = schema.data;
@@ -57,7 +59,7 @@ export function TrainingParameterInventory({
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-muted-foreground">
         {definition.framework} {definition.framework_version} · {definition.model_family} 检测 · 共{" "}
-        {definition.fields.length} 个原生字段。
+        {definition.fields.length} 项参数（含平台选项）。
         平台管理、不适用和未验证的参数不能通过自定义配置覆盖。
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
@@ -135,8 +137,9 @@ export function TrainingParameterInventory({
       {!fields.length && <p className="py-3 text-xs text-muted-foreground">没有匹配的参数。</p>}
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer">定义与原生来源</summary>
-        <p className="mt-2 break-all">
-          {definition.schema_id} · {definition.schema_digest}
+        <p className="mt-2 flex flex-wrap items-center gap-1">
+          <span>{definition.schema_id} · 摘要</span>
+          <CopyValueButton value={definition.schema_digest} label="复制参数目录摘要" />
         </p>
         <a
           className="mt-1 inline-block text-primary underline"

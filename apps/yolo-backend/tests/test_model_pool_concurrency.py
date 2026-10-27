@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import threading
 import time
 import weakref
-from unittest.mock import MagicMock
 
 import pytest
-
-sys.modules.setdefault(
-    "torch",
-    MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False))),
-)
 
 
 class _FakeModel:

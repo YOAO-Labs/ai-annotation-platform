@@ -61,6 +61,7 @@ def project_facts():
         column("due_date", Date),
         column("created_at", DateTime(timezone=True)),
         column("updated_at", DateTime(timezone=True)),
+        column("guide_assets_revision", Integer),
         schema="aap_workspace_v1",
     ).alias("workspace_project_facts")
 

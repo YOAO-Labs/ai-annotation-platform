@@ -1,0 +1,1041 @@
+{
+  "ultralytics": {
+    "version": "8.4.183",
+    "source": "https://github.com/ultralytics/ultralytics/blob/v8.4.183/ultralytics/cfg/default.yaml",
+    "source_sha256": "13b58f3804fef762813cb78baa2a95dd5b3c5741723ebfdea6c7a99a54d314b1",
+    "fields": {
+      "task": {
+        "default": "detect",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "mode": {
+        "default": "train",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "model": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "data": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "epochs": {
+        "default": 100,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "time": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "patience": {
+        "default": 100,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "batch": {
+        "default": 16,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "imgsz": {
+        "default": 640,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "save": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "save_period": {
+        "default": -1,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "cache": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "device": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "workers": {
+        "default": 8,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "project": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "name": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "exist_ok": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "pretrained": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "cls_remap": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "optimizer": {
+        "default": "auto",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "verbose": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "seed": {
+        "default": 0,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "deterministic": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "single_cls": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "rect": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "cos_lr": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "close_mosaic": {
+        "default": 10,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "resume": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "amp": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "fraction": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "profile": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "freeze": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "multi_scale": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "compile": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "channels_last": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "overlap_mask": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "mask_ratio": {
+        "default": 4,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "dropout": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "val": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "split": {
+        "default": "val",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "save_json": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "conf": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "iou": {
+        "default": 0.7,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "max_det": {
+        "default": 300,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "quantize": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "dnn": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "plots": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "nms": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "source": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "vid_stride": {
+        "default": 1,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "stream_buffer": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "visualize": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "augment": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "agnostic_nms": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "classes": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "retina_masks": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "embed": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "show": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "save_frames": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "save_txt": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "save_conf": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "save_crop": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "show_labels": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "show_conf": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "show_boxes": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "line_width": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "format": {
+        "default": "torchscript",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "optimize": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "dynamic": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "simplify": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "default.yaml"
+      },
+      "opset": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "workspace": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "lr0": {
+        "default": 0.01,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "lrf": {
+        "default": 0.01,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "momentum": {
+        "default": 0.937,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "weight_decay": {
+        "default": 0.0005,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "warmup_epochs": {
+        "default": 3.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "warmup_momentum": {
+        "default": 0.8,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "warmup_bias_lr": {
+        "default": 0.1,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "distill_model": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "dis": {
+        "default": 6.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "box": {
+        "default": 7.5,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "cls": {
+        "default": 0.5,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "cls_pw": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "dfl": {
+        "default": 1.5,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "pose": {
+        "default": 12.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "kobj": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "rle": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "angle": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "dlog": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "dgrad": {
+        "default": 0.5,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "dlam": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "nbs": {
+        "default": 64,
+        "native_type": "int",
+        "defined_in": "default.yaml"
+      },
+      "hsv_h": {
+        "default": 0.015,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "hsv_s": {
+        "default": 0.7,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "hsv_v": {
+        "default": 0.4,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "degrees": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "translate": {
+        "default": 0.1,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "scale": {
+        "default": 0.5,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "shear": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "perspective": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "flipud": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "fliplr": {
+        "default": 0.5,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "bgr": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "mosaic": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "mixup": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "cutmix": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "copy_paste": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "copy_paste_mode": {
+        "default": "flip",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "auto_augment": {
+        "default": "randaugment",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      },
+      "erasing": {
+        "default": 0.4,
+        "native_type": "float",
+        "defined_in": "default.yaml"
+      },
+      "cfg": {
+        "default": null,
+        "native_type": "NoneType",
+        "defined_in": "default.yaml"
+      },
+      "tracker": {
+        "default": "tracktrack.yaml",
+        "native_type": "str",
+        "defined_in": "default.yaml"
+      }
+    }
+  },
+  "libreyolo": {
+    "version": "1.6.0",
+    "source": "https://github.com/LibreYOLO/libreyolo/blob/v1.6.0/libreyolo/training/config.py",
+    "source_sha256": "5a472f435eb4ddde0179a66c4789b803853b010c0f6a6e3295a3adc19d2fe1b8",
+    "fields": {
+      "size": {
+        "default": "s",
+        "native_type": "str",
+        "defined_in": "TrainConfig"
+      },
+      "num_classes": {
+        "default": 80,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "data": {
+        "default": null,
+        "native_type": "Optional[str]",
+        "defined_in": "TrainConfig"
+      },
+      "data_dir": {
+        "default": null,
+        "native_type": "Optional[str]",
+        "defined_in": "TrainConfig"
+      },
+      "imgsz": {
+        "default": 640,
+        "native_type": "Union[int, Tuple[int, int], List[int], str]",
+        "defined_in": "TrainConfig"
+      },
+      "single_cls": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "classes": {
+        "default": null,
+        "native_type": "Optional[Union[List[int], str]]",
+        "defined_in": "TrainConfig"
+      },
+      "epochs": {
+        "default": 300,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "batch": {
+        "default": 16,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "device": {
+        "default": "auto",
+        "native_type": "Union[str, int, List[int]]",
+        "defined_in": "TrainConfig"
+      },
+      "sync_bn": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "YOLO9Config"
+      },
+      "optimizer": {
+        "default": "sgd",
+        "native_type": "str",
+        "defined_in": "TrainConfig"
+      },
+      "lr0": {
+        "default": 0.01,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "momentum": {
+        "default": 0.937,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "weight_decay": {
+        "default": 0.0005,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "nesterov": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "scheduler": {
+        "default": "linear",
+        "native_type": "str",
+        "defined_in": "YOLO9Config"
+      },
+      "warmup_epochs": {
+        "default": 3,
+        "native_type": "int",
+        "defined_in": "YOLO9Config"
+      },
+      "warmup_lr_start": {
+        "default": 0.0001,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "no_aug_epochs": {
+        "default": 15,
+        "native_type": "int",
+        "defined_in": "YOLO9Config"
+      },
+      "min_lr_ratio": {
+        "default": 0.01,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "mosaic_prob": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "mixup_prob": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "hsv_prob": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "flip_prob": {
+        "default": 0.5,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "degrees": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "translate": {
+        "default": 0.1,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "mosaic_scale": {
+        "default": [0.5, 1.5],
+        "native_type": "Tuple[float, float]",
+        "defined_in": "YOLO9Config"
+      },
+      "mixup_scale": {
+        "default": [0.5, 1.5],
+        "native_type": "Tuple[float, float]",
+        "defined_in": "TrainConfig"
+      },
+      "shear": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "perspective": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "flipud": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "auto_augment": {
+        "default": null,
+        "native_type": "Optional[str]",
+        "defined_in": "TrainConfig"
+      },
+      "erasing": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "mixup": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "cutmix": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "scale": {
+        "default": [0.5, 1.0],
+        "native_type": "Union[float, Tuple[float, float]]",
+        "defined_in": "TrainConfig"
+      },
+      "crop_pct": {
+        "default": null,
+        "native_type": "Optional[float]",
+        "defined_in": "TrainConfig"
+      },
+      "ema": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "ema_decay": {
+        "default": 0.9999,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "amp": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "amp_dtype": {
+        "default": "float16",
+        "native_type": "str",
+        "defined_in": "TrainConfig"
+      },
+      "cuda_graph": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "compile": {
+        "default": false,
+        "native_type": "Union[bool, str]",
+        "defined_in": "TrainConfig"
+      },
+      "freeze": {
+        "default": null,
+        "native_type": "Optional[Union[int, str, List[Union[int, str]]]]",
+        "defined_in": "TrainConfig"
+      },
+      "lora": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "nbs": {
+        "default": null,
+        "native_type": "Optional[int]",
+        "defined_in": "TrainConfig"
+      },
+      "distill_model": {
+        "default": null,
+        "native_type": "Optional[str]",
+        "defined_in": "TrainConfig"
+      },
+      "dis": {
+        "default": null,
+        "native_type": "Optional[float]",
+        "defined_in": "TrainConfig"
+      },
+      "distill_loss_type": {
+        "default": "mgd",
+        "native_type": "str",
+        "defined_in": "TrainConfig"
+      },
+      "distill_mask_ratio": {
+        "default": 0.65,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "distill_tau": {
+        "default": 1.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "distill_normalize": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "project": {
+        "default": "runs/train",
+        "native_type": "str",
+        "defined_in": "TrainConfig"
+      },
+      "name": {
+        "default": "yolo9_exp",
+        "native_type": "str",
+        "defined_in": "YOLO9Config"
+      },
+      "exist_ok": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "save_period": {
+        "default": 10,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "eval_interval": {
+        "default": 10,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "max_det": {
+        "default": 300,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "eval_max_det": {
+        "default": null,
+        "native_type": "Optional[int]",
+        "defined_in": "TrainConfig"
+      },
+      "faster_coco_eval": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "save_plots": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "plot_samples": {
+        "default": 8,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "val_loss": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "workers": {
+        "default": 8,
+        "native_type": "int",
+        "defined_in": "YOLO9Config"
+      },
+      "cache": {
+        "default": false,
+        "native_type": "Union[bool, str]",
+        "defined_in": "TrainConfig"
+      },
+      "min_samples": {
+        "default": 0,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "class_balanced": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "cls_pw": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "TrainConfig"
+      },
+      "class_weights": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "average_best": {
+        "default": 0,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "export_check": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "precise_bn": {
+        "default": 0,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "patience": {
+        "default": 50,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "resume": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "log_interval": {
+        "default": 10,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "seed": {
+        "default": 0,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "allow_download_scripts": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "profile": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "profile_then_stop": {
+        "default": false,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "profile_warmup": {
+        "default": 5,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "profile_steps": {
+        "default": 20,
+        "native_type": "int",
+        "defined_in": "TrainConfig"
+      },
+      "profile_trace": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "profile_open": {
+        "default": true,
+        "native_type": "bool",
+        "defined_in": "TrainConfig"
+      },
+      "mask_downsample_ratio": {
+        "default": 4,
+        "native_type": "int",
+        "defined_in": "YOLO9Config"
+      },
+      "max_labels": {
+        "default": 300,
+        "native_type": "int",
+        "defined_in": "YOLO9Config"
+      },
+      "aux_weight": {
+        "default": 0.25,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "warmup_momentum": {
+        "default": 0.8,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "letterbox_pad": {
+        "default": null,
+        "native_type": "Optional[str]",
+        "defined_in": "YOLO9Config"
+      },
+      "copy_paste": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      },
+      "copy_paste_mode": {
+        "default": "flip",
+        "native_type": "str",
+        "defined_in": "YOLO9Config"
+      },
+      "rot90": {
+        "default": 0.0,
+        "native_type": "float",
+        "defined_in": "YOLO9Config"
+      }
+    }
+  }
+}

@@ -454,7 +454,7 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
         source_key = next(
             key
             for key in keys_after_rollback
-            if "/_nuscenes/source/samples/LIDAR_TOP/lidar.pcd.bin" in key
+            if "__aap_auxiliary_originals__/" in key and key.endswith("/payload")
         )
         assert (
             _get_object(owner_s3, bucket, source_key)

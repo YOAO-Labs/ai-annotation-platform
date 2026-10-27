@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-22
 ---
 
 # CI 服务依赖踩坑
@@ -24,16 +23,26 @@ Bitnami 撤了该镜像的 manifest；Quay 的社区镜像也已停止分发，�
 
 使用 [IBM 公告提供的镜像](https://www.ibm.com/support/pages/node/7289585)，保留原 digest。`ci.yml`、`e2e-run.yml` 与 `docker-compose.yml` 使用相同镜像；更新时先验证 manifest digest 与运行平台，再同步三个入口，不能改为浮动 `latest`。
 
+若 `Start MinIO` 报 `Client.Timeout exceeded while awaiting headers`，失败发生在镜像注册表连接阶段。
+CI 对同一固定摘要最多拉取三次，失败后分别等待 5 秒和 10 秒；第三次仍失败则终止，不启动容器。
+容器启动后的健康检查和测试断言保留各自的失败条件。
+
 GitHub Actions 的 `services:` 块**不接受 image 的 args**（没法给 MinIO 镜像传 `server` 子命令）。直接在 step 里 `docker run` 最干净：
 
 ```yaml
 - name: Start MinIO
   run: |
+    minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    for attempt in 1 2 3; do
+      if docker pull "$minio_image"; then break; fi
+      if [ "$attempt" -eq 3 ]; then exit 1; fi
+      sleep "$((attempt * 5))"
+    done
     docker run -d --name minio \
       -p 9000:9000 \
       -e MINIO_ROOT_USER=minioadmin \
       -e MINIO_ROOT_PASSWORD=minioadmin \
-      icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+      "$minio_image" server /data
 
     # 轮询 health 端点直到就绪
     for i in $(seq 1 30); do

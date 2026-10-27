@@ -21,6 +21,7 @@ from app.services import (
 )
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.training_dataset_bridge import TrainingDatasetError
 
 
 async def resume_run(
@@ -157,9 +158,14 @@ async def delete_run(
         raise HTTPException(
             status_code=409, detail="训练产物已被模型版本引用，不能删除"
         )
-    intent = training_storage_cleanup.stage_deletion(
-        db, f"projects/{project_id}/runs/{run.id}/"
-    )
+    try:
+        intent = training_storage_cleanup.stage_deletion(
+            db, run, f"projects/{project_id}/runs/{run.id}/"
+        )
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from None
     await training_runs.stage_run_deletion(db, run)
     await db.commit()
     await training_storage_cleanup.purge_committed(db, intent.id)

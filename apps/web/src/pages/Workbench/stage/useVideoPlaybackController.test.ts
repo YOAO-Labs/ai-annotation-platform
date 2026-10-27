@@ -2,9 +2,14 @@
 // 播放浮层 show/2s 自动隐藏(v0.16.x 回归修复)、loopRegion 规范化/清除、书签开合、派生 maxFrame。
 // Source/draw admission uses explicit child-hook receipts; actual pixels remain a browser gate.
 import { act, renderHook } from "@testing-library/react";
+import { useState } from "react";
+import type { TaskVideoManifestResponse, TaskVideoFrameTimetableResponse } from "@/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const videoHookMocks = vi.hoisted(() => ({
+  clockOptions: vi.fn(),
+  bitmapOptions: vi.fn(),
+  preciseOptions: vi.fn(),
   activeBitmap: null as {
     frameIndex: number;
     bitmap: ImageBitmap;
@@ -30,6 +35,7 @@ const videoHookMocks = vi.hoisted(() => ({
 
 vi.mock("./useFrameClock", () => ({
   useFrameClock: (options: { onFrameChange: (frame: number) => void }) => {
+    videoHookMocks.clockOptions(options);
     videoHookMocks.onFrameChange = options.onFrameChange;
     return {
       seekToAsync: videoHookMocks.seekToAsync,
@@ -40,68 +46,74 @@ vi.mock("./useFrameClock", () => ({
   },
 }));
 vi.mock("./useVideoBitmapCache", () => ({
-  useVideoBitmapCache: () => ({
-    activeBitmap: videoHookMocks.activeBitmap,
-    cachedRanges: [],
-    capture: videoHookMocks.capture,
-    showFrame: videoHookMocks.showFrame,
-  }),
+  useVideoBitmapCache: (options: unknown) => (
+    videoHookMocks.bitmapOptions(options),
+    {
+      activeBitmap: videoHookMocks.activeBitmap,
+      cachedRanges: [],
+      capture: videoHookMocks.capture,
+      showFrame: videoHookMocks.showFrame,
+    }
+  ),
 }));
 vi.mock("./useVideoPreciseFrame", () => ({
-  useVideoPreciseFrame: () => ({
-    active: false,
-    bitmap: videoHookMocks.preciseBitmap,
-    sourceState: "disabled",
-    fallbackReason: null,
-    diagnostics: {
-      supported: false,
-      webcodecsEnabled: false,
-      decoderActive: false,
-      chunkId: null,
-      datasetItemId: null,
-      chunkSizeFrames: null,
-      decodeRequests: 0,
-      decoderErrors: 0,
-      urlRefreshed: false,
-    },
-    performance: {
-      manifestCacheHits: 0,
-      samplesCacheHits: 0,
-      chunkByteCacheHits: 0,
-      bitmapCacheHits: 0,
-      bytesFetched: 0,
-      bitmapBytes: 0,
-      bitmapBudgetBytes: 0,
-      activeDecoders: 0,
-      liveVideoFrames: 0,
-      chunkBytes: 0,
-      chunkBudgetBytes: 0,
-      sessionCreates: 0,
-      sessionResets: 0,
-      sessionDisposals: 0,
-      encodedChunksSubmitted: 0,
-      staleResults: 0,
-      prefetchRequests: 0,
-      prefetchHits: 0,
-      evictions: 0,
-      lastManifestMs: null,
-      lastSamplesMs: null,
-      lastChunkFetchMs: null,
-      lastDemuxMs: null,
-      lastQueueMs: null,
-      lastCodecMs: null,
-      lastDecodeMs: null,
-      lastBitmapMs: null,
-      lastDecodeMode: null,
-      lastPaintMs: null,
-      lastVisibleMs: null,
-      paintedFrameIndex: null,
-      gopStartDecodeIndex: null,
-      targetTimestampUs: null,
-      codec: null,
-    },
-    markFramePainted: vi.fn(),
-  }),
+  useVideoPreciseFrame: (options: unknown) => (
+    videoHookMocks.preciseOptions(options),
+    {
+      active: false,
+      bitmap: videoHookMocks.preciseBitmap,
+      sourceState: "disabled",
+      fallbackReason: null,
+      diagnostics: {
+        supported: false,
+        webcodecsEnabled: false,
+        decoderActive: false,
+        chunkId: null,
+        datasetItemId: null,
+        chunkSizeFrames: null,
+        decodeRequests: 0,
+        decoderErrors: 0,
+        urlRefreshed: false,
+      },
+      performance: {
+        manifestCacheHits: 0,
+        samplesCacheHits: 0,
+        chunkByteCacheHits: 0,
+        bitmapCacheHits: 0,
+        bytesFetched: 0,
+        bitmapBytes: 0,
+        bitmapBudgetBytes: 0,
+        activeDecoders: 0,
+        liveVideoFrames: 0,
+        chunkBytes: 0,
+        chunkBudgetBytes: 0,
+        sessionCreates: 0,
+        sessionResets: 0,
+        sessionDisposals: 0,
+        encodedChunksSubmitted: 0,
+        staleResults: 0,
+        prefetchRequests: 0,
+        prefetchHits: 0,
+        evictions: 0,
+        lastManifestMs: null,
+        lastSamplesMs: null,
+        lastChunkFetchMs: null,
+        lastDemuxMs: null,
+        lastQueueMs: null,
+        lastCodecMs: null,
+        lastDecodeMs: null,
+        lastBitmapMs: null,
+        lastDecodeMode: null,
+        lastPaintMs: null,
+        lastVisibleMs: null,
+        paintedFrameIndex: null,
+        gopStartDecodeIndex: null,
+        targetTimestampUs: null,
+        codec: null,
+      },
+      markFramePainted: vi.fn(),
+    }
+  ),
 }));
 vi.mock("./useVideoFramePreview", () => ({
   useVideoFramePreview: () => ({ preview: null, previewFor: vi.fn(), prefetch: vi.fn() }),
@@ -131,7 +143,7 @@ const MANIFEST = {
   task_id: "T1",
   video_url: "http://x/v.mp4",
   metadata: { fps: 30, frame_count: 100 },
-} as never;
+} as TaskVideoManifestResponse;
 
 /** 最小可用的 <video> 替身:满足 hook 各 effect 挂监听 / 读 readyState / 调 load()。 */
 function mockVideo(readyState = 0) {
@@ -178,6 +190,9 @@ function setup(
 describe("useVideoPlaybackController", () => {
   beforeEach(() => {
     localStorage.clear();
+    videoHookMocks.clockOptions.mockClear();
+    videoHookMocks.bitmapOptions.mockClear();
+    videoHookMocks.preciseOptions.mockClear();
     videoHookMocks.activeBitmap = null;
     videoHookMocks.preciseBitmap = null;
     videoHookMocks.seekToAsync.mockReset().mockImplementation(async (frameIndex: number) => {
@@ -198,11 +213,314 @@ describe("useVideoPlaybackController", () => {
     localStorage.clear();
   });
 
+  it("preserves a selection made before the first manifest, but clears it on a real task change", () => {
+    const videoRef = { current: null };
+    const { result, rerender } = renderHook(
+      ({ manifest }: { manifest: TaskVideoManifestResponse | undefined }) => {
+        const [selection, select] = useState<string | null>(null);
+        useVideoPlaybackController({
+          manifest,
+          videoRef,
+          annotations: [],
+          selectedId: selection,
+          selectedTrack: null,
+          hiddenTrackIds: new Set<string>(),
+          lockedTrackIds: new Set<string>(),
+          readOnly: false,
+          drag: null,
+          currentFrameEntries: [],
+          onUpdate: vi.fn(),
+          onSelect: select,
+        });
+        return { selection, select };
+      },
+      { initialProps: { manifest: undefined as TaskVideoManifestResponse | undefined } },
+    );
+    act(() => result.current.select("pred-T1"));
+    rerender({ manifest: MANIFEST });
+    expect(result.current.selection).toBe("pred-T1");
+    rerender({ manifest: { ...MANIFEST, task_id: "T2" } });
+    expect(result.current.selection).toBeNull();
+  });
+
   it("派生 maxFrame = frame_count - 1", () => {
     const { result } = setup();
     expect(result.current.maxFrame).toBe(99);
     expect(result.current.fps).toBe(30);
   });
+
+  it("partitions precise/native caches by main generation without resetting the frame or original source", () => {
+    const oldGeneration = "10000000-0000-4000-8000-000000000001";
+    const nextGeneration = "10000000-0000-4000-8000-000000000002";
+    const overrides = {
+      manifest: { ...MANIFEST, metadata_generation_id: oldGeneration },
+      controlledFrameIndex: 5,
+    };
+    const { result, rerender } = setup(undefined, overrides);
+    const sourceKey = videoHookMocks.clockOptions.mock.lastCall?.[0].sourceKey;
+    const oldCacheKey = videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey;
+    expect(videoHookMocks.preciseOptions.mock.lastCall?.[0].metadataGenerationId).toBe(
+      oldGeneration,
+    );
+    overrides.manifest = { ...MANIFEST, metadata_generation_id: nextGeneration };
+    rerender();
+    expect(result.current.frameIndex).toBe(5);
+    expect(videoHookMocks.clockOptions.mock.lastCall?.[0].sourceKey).toBe(sourceKey);
+    expect(videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey).not.toBe(oldCacheKey);
+    expect(videoHookMocks.preciseOptions.mock.lastCall?.[0].metadataGenerationId).toBe(
+      nextGeneration,
+    );
+  });
+
+  it("ignores an old timetable and recaptures when this generation's PTS table arrives", () => {
+    const generation = "10000000-0000-4000-8000-000000000002";
+    const oldGeneration = "10000000-0000-4000-8000-000000000001";
+    const overrides = {
+      manifest: { ...MANIFEST, metadata_generation_id: generation },
+      controlledFrameIndex: 5,
+      frameTimetable: {
+        metadata_generation_id: oldGeneration,
+        task_id: "T1",
+        fps: 30,
+        frame_count: 100,
+        source: "ffprobe",
+        frames: Array.from({ length: 100 }, (_, i) => ({
+          frame_index: i,
+          pts_ms: i * 37,
+          pict_type: i === 0 ? "I" : "P",
+          byte_offset: null,
+          is_keyframe: i === 0,
+        })),
+      } as TaskVideoFrameTimetableResponse,
+    };
+    const { result, rerender } = setup(undefined, overrides);
+    expect(videoHookMocks.clockOptions.mock.lastCall?.[0].timebase.ptsMs).toBeNull();
+    const oldCacheKey = videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey;
+    overrides.frameTimetable = { ...overrides.frameTimetable, metadata_generation_id: generation };
+    rerender();
+    expect(videoHookMocks.clockOptions.mock.lastCall?.[0].timebase.ptsMs).toEqual(
+      overrides.frameTimetable.frames.map((frame) => frame.pts_ms),
+    );
+    expect(videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey).not.toBe(oldCacheKey);
+    expect(result.current.frameIndex).toBe(5);
+  });
+
+  it("原件源未就绪时不交付缓存JPEG或QC定位成功", async () => {
+    videoHookMocks.preciseBitmap = {
+      frameIndex: 0,
+      bitmap: { close: vi.fn(), width: 4, height: 4 } as unknown as ImageBitmap,
+      width: 4,
+      height: 4,
+    };
+    const ready = vi.fn(() => false);
+    const { result } = setup(undefined, { isSourceReady: ready });
+    expect(result.current.controls.isSourceReady?.()).toBe(false);
+    await expect(result.current.controls.captureCurrentFrameJpeg()).resolves.toBeNull();
+    let pending!: Promise<VideoFrameSeekResult>;
+    act(() => {
+      pending = result.current.controls.seekToFrameReady(5);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VIDEO_FRAME_READY_TIMEOUT_MS);
+    });
+    expect(await pending).toMatchObject({ status: "timeout", frameIndex: 5 });
+  });
+
+  it("原生错误交由租约HEAD恢复处理，不预先判为编码错误", () => {
+    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    const recover = vi.fn();
+    const { result } = setup({ current: video }, { onSourceRecover: recover });
+    const listener = video.addEventListener.mock.calls.find(
+      ([event]) => event === "error",
+    )?.[1] as () => void;
+    act(() => listener());
+    expect(recover).toHaveBeenCalledOnce();
+    expect(result.current.playbackError).toBeNull();
+  });
+
+  it("显式暂停取消续租后的自动播放意图", () => {
+    const cancelResume = vi.fn();
+    const { result } = setup(undefined, { onPauseIntent: cancelResume });
+    act(() => result.current.controls.pausePlayback({ snapToGrid: false }));
+    expect(cancelResume).toHaveBeenCalledOnce();
+  });
+
+  it("估算时间表在普通定位完成后可续播，不伪造精确QC回执", async () => {
+    videoHookMocks.seekToAsync.mockResolvedValue({
+      status: "timeout",
+      frameIndex: 0,
+      source: "timeout",
+    });
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      seeking: false,
+      currentTime: 0.25 / 30,
+    };
+    const primed = vi.fn();
+    setup({ current: video }, { onSourcePrimed: primed });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(primed).toHaveBeenCalledOnce();
+    expect(videoHookMocks.getFrameEvidence()).toBeNull();
+  });
+
+  it("JPEG编码完成时原件租约已失效，不返回晚到字节", async () => {
+    let finish!: (blob: Blob) => void;
+    videoHookMocks.imageBitmapToJpeg.mockReturnValueOnce(
+      new Promise<Blob>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    videoHookMocks.preciseBitmap = {
+      frameIndex: 0,
+      bitmap: { close: vi.fn(), width: 4, height: 4 } as unknown as ImageBitmap,
+      width: 4,
+      height: 4,
+    };
+    let ready = true;
+    const { result } = setup(undefined, { isSourceReady: () => ready });
+    const capture = result.current.controls.captureCurrentFrameJpeg();
+    ready = false;
+    finish(new Blob(["old frame"]));
+    await expect(capture).resolves.toBeNull();
+  });
+
+  it.each([
+    { seeking: true, currentTime: 0 },
+    { seeking: false, currentTime: 17 / 30 },
+  ])("原生像素未与逻辑帧对齐时不开始JPEG编码: %j", async (position) => {
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      ...position,
+    };
+    const { result } = setup({ current: video }, { isSourceReady: () => true });
+    await expect(result.current.controls.captureCurrentFrameJpeg()).resolves.toBeNull();
+    expect(videoHookMocks.videoElementToJpeg).not.toHaveBeenCalled();
+  });
+
+  it("原生JPEG编码期间节点跳帧时丢弃字节", async () => {
+    let finish!: (blob: Blob) => void;
+    videoHookMocks.videoElementToJpeg.mockReturnValueOnce(
+      new Promise<Blob>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      seeking: false,
+    };
+    const { result } = setup({ current: video });
+    const capture = result.current.controls.captureCurrentFrameJpeg();
+    video.currentTime = 17 / 30;
+    finish(new Blob(["old frame"]));
+    await expect(capture).resolves.toBeNull();
+  });
+
+  it("租约失效后的晚到精确像素不能结算QC呈现", async () => {
+    videoHookMocks.preciseBitmap = {
+      frameIndex: 0,
+      bitmap: { close: vi.fn(), width: 4, height: 4 } as unknown as ImageBitmap,
+      width: 4,
+      height: 4,
+    };
+    let ready = true;
+    const { result } = setup(undefined, { isSourceReady: () => ready });
+    let pending!: Promise<import("./videoStageControls").VideoFrameSeekResult>;
+    act(() => {
+      pending = result.current.controls.seekToFrameReady(0);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const presentation = result.current.framePresentation!;
+    expect(presentation).not.toBeNull();
+    ready = false;
+    expect(presentation.isCurrent()).toBe(false);
+    act(() => {
+      result.current.markFramePresented(presentation);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    await expect(pending).resolves.toMatchObject({ status: "timeout" });
+  });
+
+  it.each(["lease", "timetable"] as const)(
+    "旧源的首帧晚到不会恢复新来源的播放: %s",
+    async (change) => {
+      let resolveFirst!: (result: import("./useFrameClock").FrameSeekResult) => void;
+      let resolveSecond!: (result: import("./useFrameClock").FrameSeekResult) => void;
+      const first = new Promise<import("./useFrameClock").FrameSeekResult>((resolve) => {
+        resolveFirst = resolve;
+      });
+      const second = new Promise<import("./useFrameClock").FrameSeekResult>((resolve) => {
+        resolveSecond = resolve;
+      });
+      videoHookMocks.seekToAsync.mockReset().mockReturnValueOnce(first).mockReturnValueOnce(second);
+      const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+      const videoRef = { current: video };
+      const primed = vi.fn();
+      const { rerender } = renderHook(
+        ({ manifest, frameTimetable }) =>
+          useVideoPlaybackController({
+            manifest,
+            frameTimetable,
+            videoRef: videoRef as never,
+            onSourcePrimed: primed,
+            annotations: [],
+            selectedId: null,
+            selectedTrack: null,
+            hiddenTrackIds: new Set<string>(),
+            lockedTrackIds: new Set<string>(),
+            readOnly: false,
+            drag: null,
+            currentFrameEntries: [],
+            onUpdate: vi.fn(),
+          }),
+        {
+          initialProps: {
+            manifest: MANIFEST,
+            frameTimetable: undefined as TaskVideoFrameTimetableResponse | undefined,
+          },
+        },
+      );
+      rerender({
+        manifest:
+          change === "lease"
+            ? { ...MANIFEST, video_url: "/api/v1/media/original-playback/new" }
+            : MANIFEST,
+        frameTimetable:
+          change === "timetable"
+            ? {
+                task_id: "T1",
+                fps: 30,
+                frame_count: 100,
+                source: "ffprobe",
+                frames: [
+                  {
+                    frame_index: 0,
+                    pts_ms: 0,
+                    is_keyframe: true,
+                    pict_type: null,
+                    byte_offset: null,
+                  },
+                ],
+              }
+            : undefined,
+      });
+      await act(async () => resolveFirst({ status: "ready", frameIndex: 0, source: "rvfc" }));
+      expect(primed).not.toHaveBeenCalled();
+      await act(async () => resolveSecond({ status: "ready", frameIndex: 0, source: "rvfc" }));
+      expect(primed).toHaveBeenCalledOnce();
+    },
+  );
 
   it("暂停态仅显示当前帧 bitmap，不复用上一帧缓存", () => {
     videoHookMocks.activeBitmap = {
@@ -251,7 +569,12 @@ describe("useVideoPlaybackController", () => {
       width: 4,
       height: 4,
     };
-    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      seeking: false,
+    };
     const { result } = setup({ current: video });
     expect(result.current.frameSource).toBe("video-bitmap");
 
@@ -395,6 +718,32 @@ describe("useVideoPlaybackController", () => {
       await second;
     });
     expect(await second).toEqual({ status: "ready", frameIndex: 17, source: "webcodecs" });
+  });
+
+  it("keeps an unprimed current source pending until an authorized media draw arrives", async () => {
+    videoHookMocks.preciseBitmap = bitmapFrame(17);
+    let ready = false;
+    const { result, rerender } = setup(undefined, { isSourceReady: () => ready });
+    let pending!: Promise<VideoFrameSeekResult>;
+    let settled = false;
+    act(() => {
+      pending = result.current.controls.seekToFrameReady(17).then((value) => {
+        settled = true;
+        return value;
+      });
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    if (result.current.framePresentation) {
+      act(() => result.current.markFramePresented(result.current.framePresentation!));
+    }
+    expect(settled).toBe(false);
+    ready = true;
+    rerender();
+    await act(async () => {
+      result.current.markFramePresented(result.current.framePresentation!);
+      await pending;
+    });
+    expect(await pending).toEqual({ status: "ready", frameIndex: 17, source: "webcodecs" });
   });
 
   it("accepts a verified native bitmap after its own media draw", async () => {

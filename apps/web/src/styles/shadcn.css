@@ -10,6 +10,7 @@
 
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./scrollbars.css";
 
 /* 暗色走 data-theme，而非 shadcn 默认的 .dark class */
 @custom-variant dark ([data-theme="dark"] &);
@@ -321,6 +322,22 @@
     outline: 2px solid var(--sc-ring);
     outline-offset: 2px;
   }
+}
+
+/* Native select prompts are display-only options. Keep this outside layers so
+   field text utilities and CSS modules cannot make a selected prompt look like
+   a real value. Empty business values (all/none/reset) remain ordinary options. */
+select:has(> option[disabled][hidden]:checked) {
+  color: var(--sc-muted-foreground);
+}
+
+select:has(> option[disabled][hidden]) > option {
+  color: var(--sc-foreground);
+  background-color: var(--sc-background);
+}
+
+select:has(> option[disabled][hidden]) > option:disabled {
+  color: var(--sc-muted-foreground);
 }
 
 @layer utilities {

@@ -1,6 +1,8 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { Icon } from "@/components/ui/Icon";
 import type {
@@ -213,6 +215,22 @@ export function MaskQcPanel({
     trackerCandidates.find((candidate) => candidate.key === trackerCandidateKey) ??
     trackerCandidates[0] ??
     null;
+  const comparedTracker = compare?.baseline_kind === "tracker_candidate" ? compare.baseline : null;
+  const historicalTracker =
+    comparedTracker &&
+    !trackerCandidates.some(
+      (candidate) =>
+        candidate.jobId === comparedTracker.candidate_job_id &&
+        candidate.digest === comparedTracker.candidate_digest &&
+        candidate.instanceId === comparedTracker.candidate_instance_id &&
+        candidate.frameIndex === comparedTracker.frame_index,
+    );
+  const trackerDigest = comparedTracker
+    ? comparedTracker.candidate_digest
+    : selectedTrackerCandidate?.digest;
+  const trackerInstanceId = comparedTracker
+    ? comparedTracker.candidate_instance_id
+    : selectedTrackerCandidate?.instanceId;
   const canDecideTrackerRegion = Boolean(
     !stale &&
     activeIssue?.effective_status === "open" &&
@@ -597,7 +615,9 @@ export function MaskQcPanel({
           {busy && <div className="text-xs text-muted-foreground">{PHASE_LABELS[phase]}</div>}
           {error && (
             <div className="flex items-center justify-between gap-2 text-xs text-status-danger">
-              <span>{error}</span>
+              <span>
+                <CopyableError message={error} />
+              </span>
               <Button variant="ghost" size="sm" onClick={onRetryNavigation}>
                 重试
               </Button>
@@ -626,23 +646,46 @@ export function MaskQcPanel({
             </option>
             <option value="neighbor_keyframe">邻近关键帧</option>
           </select>
-          {baseline === "tracker_candidate" && trackerCandidates.length > 0 && (
-            <select
-              aria-label="Tracker 候选"
-              value={trackerCandidateKey ?? trackerCandidates[0].key}
-              disabled={busy}
-              onChange={(event) => {
-                const candidate = trackerCandidates.find((item) => item.key === event.target.value);
-                if (candidate) onSetTrackerCandidate(candidate);
-              }}
-              className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
-            >
-              {trackerCandidates.map((candidate) => (
-                <option key={candidate.key} value={candidate.key}>
-                  {candidate.label} · F{candidate.frameIndex} · {candidate.digest.slice(0, 8)}
-                </option>
-              ))}
-            </select>
+          {baseline === "tracker_candidate" && (selectedTrackerCandidate || comparedTracker) && (
+            <div className="flex items-center gap-1">
+              {trackerCandidates.length > 0 ? (
+                <select
+                  aria-label="Tracker 候选"
+                  value={
+                    historicalTracker
+                      ? "historical"
+                      : (trackerCandidateKey ?? trackerCandidates[0].key)
+                  }
+                  disabled={busy}
+                  onChange={(event) => {
+                    const candidate = trackerCandidates.find(
+                      (item) => item.key === event.target.value,
+                    );
+                    if (candidate) onSetTrackerCandidate(candidate);
+                  }}
+                  className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+                >
+                  {historicalTracker && (
+                    <option value="historical" disabled>
+                      历史候选 · F{comparedTracker.frame_index}
+                    </option>
+                  )}
+                  {trackerCandidates.map((candidate, index) => (
+                    <option key={candidate.key} value={candidate.key}>
+                      候选 {index + 1} · {candidate.label} · F{candidate.frameIndex}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  历史候选 · F{comparedTracker?.frame_index}
+                </span>
+              )}
+              <CopyValueButton value={trackerDigest} label="复制 Tracker 候选哈希" />
+              {trackerInstanceId && (
+                <CopyValueButton value={trackerInstanceId} kind="id" label="复制 Tracker 实例 ID" />
+              )}
+            </div>
           )}
           {compare && (
             <>
@@ -736,7 +779,9 @@ export function MaskQcPanel({
                 </Button>
               </div>
               {regionDecisionError && (
-                <span className="text-2xs text-status-danger">{regionDecisionError}</span>
+                <span className="text-2xs text-status-danger">
+                  <CopyableError message={regionDecisionError} />
+                </span>
               )}
             </div>
           )}
@@ -802,6 +847,18 @@ export function MaskQcPanel({
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <span>{feedback.author_name ?? "未知用户"}</span>
                   {feedback.anchor_position?.boundary_digest && <span>· 边界</span>}
+                  {feedback.anchor_position?.boundary_digest ||
+                  feedback.anchor_position?.region_digest ? (
+                    <CopyValueButton
+                      value={
+                        feedback.anchor_position.boundary_digest ||
+                        feedback.anchor_position.region_digest
+                      }
+                      label="复制反馈区域哈希"
+                    />
+                  ) : (
+                    <span>· 无摘要</span>
+                  )}
                   <button
                     type="button"
                     className="ml-auto cursor-pointer border-0 bg-transparent text-brand"
@@ -815,13 +872,6 @@ export function MaskQcPanel({
                   </button>
                 </div>
                 <div className="mt-0.5 whitespace-pre-wrap text-foreground">{feedback.body}</div>
-                <div className="mt-0.5 font-mono text-muted-foreground">
-                  {(
-                    feedback.anchor_position?.boundary_digest ??
-                    feedback.anchor_position?.region_digest ??
-                    "无摘要"
-                  ).slice(0, 12)}
-                </div>
               </div>
             ))}
             {feedbackQuery.hasNextPage && (

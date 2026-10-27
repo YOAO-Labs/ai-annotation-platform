@@ -10,6 +10,34 @@ import type { GlobalBackendItem } from "@/api/adminMlIntegrations";
 import type { TopologyPoolEntry, TopologyMemberInstance } from "@/api/generated/types.gen";
 import type { MemberViewModel, PoolViewModel } from "../runtimeTopology";
 
+export interface DuplicateNameOrdinal {
+  index: number;
+  total: number;
+}
+
+export function duplicateNameOrdinals<T>(
+  items: readonly T[],
+  getId: (item: T) => string,
+  getName: (item: T) => string,
+): Map<string, DuplicateNameOrdinal> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const name = getName(item).trim();
+    const group = groups.get(name);
+    if (group) group.push(item);
+    else groups.set(name, [item]);
+  }
+  const ordinals = new Map<string, DuplicateNameOrdinal>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort((left, right) => getId(left).localeCompare(getId(right)));
+    sorted.forEach((item, index) => {
+      ordinals.set(getId(item), { index: index + 1, total: sorted.length });
+    });
+  }
+  return ordinals;
+}
+
 /**
  * Compact display form of a stable id (plan §4.3: 名称 + 短 ID 优先，完整值靠
  * tooltip / 复制 / 详情)。≤12 字符原样显示；更长的取前 8 字符 + 省略号。
@@ -40,31 +68,6 @@ export function formatTime(iso: string | null | undefined): string {
     });
   } catch {
     return iso;
-  }
-}
-
-/** Copy text to the clipboard and resolve to whether the write succeeded. */
-export async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* fall through to legacy path */
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
   }
 }
 

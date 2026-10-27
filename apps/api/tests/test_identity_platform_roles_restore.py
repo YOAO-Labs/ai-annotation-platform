@@ -212,17 +212,13 @@ async def test_restored_platform_role_receipt_replays_frozen_result(
                 changed_request
             )
 
-        refused = _alembic(owner_url, "downgrade", "0244")
+        refused = _alembic(owner_url, "downgrade", "bo0244")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Identity platform-role ownership while receipts exist"
             in refused.stdout + refused.stderr
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             await db.execute(
                 text(
                     "DELETE FROM public.identity_platform_role_operation_receipts "
@@ -230,11 +226,11 @@ async def test_restored_platform_role_receipt_replays_frozen_result(
                 ),
                 {"operation_id": operation_id},
             )
-        assert _alembic(owner_url, "downgrade", "0244").returncode == 0
+        assert _alembic(owner_url, "downgrade", "bo0244").returncode == 0
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0244"
+                == "bo0244"
             )
         record_property(
             "platform_role_restore",

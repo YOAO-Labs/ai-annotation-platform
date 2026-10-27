@@ -46,6 +46,15 @@ vi.mock("@/api/rasterMasks", () => ({
     annotationRasterMaskContent: (...args: unknown[]) => state.maskContent(...args),
   },
 }));
+vi.mock("@/hooks/useOriginalImage", () => ({
+  useOriginalImage: (resource: unknown) => ({
+    url: resource ? (state.task?.file_url ?? null) : null,
+    ready: Boolean(resource && state.task?.file_url),
+    error: resource && !state.task?.file_url ? "原件读取失败，请重试" : null,
+    version: 1,
+    retry: vi.fn(),
+  }),
+}));
 
 vi.mock("@/pages/Workbench/stage/shared/useRasterMaskRecords", async (importOriginal) => {
   const actual =
@@ -729,7 +738,7 @@ describe("DataManagerAnnotationPreview", () => {
 
     renderPreview();
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("图片加载失败");
+    expect(alert).toHaveTextContent("原件读取失败");
     // The retry refetches task metadata for a fresh signed URL.
     fireEvent.click(screen.getByRole("button", { name: "重新加载预览" }));
     await waitFor(() => expect(state.getTask.mock.calls.length).toBeGreaterThanOrEqual(2));

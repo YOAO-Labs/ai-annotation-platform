@@ -1,3 +1,6 @@
+import { listStyles } from "@/components/ui/listStyles";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import { Badge } from "@/components/ui/Badge";
@@ -76,76 +79,95 @@ export function ReviewBatchCardGrid({ batches, onSelect }: Props) {
     return arr;
   }, [batches]);
 
+  const pagination = useListPagination(
+    groups.flatMap((group) => group.items),
+    batches.map((batch) => batch.batch_id).join(","),
+  );
+  const visibleIds = new Set(pagination.items.map((batch) => batch.batch_id));
   return (
-    <div className={styles.root}>
-      {groups.map((g) => (
-        <div key={g.project_id} className={styles.projectSection}>
-          <div className={styles.projectHeader}>
-            <span className={styles.projectName}>{g.project_name}</span>
-            {g.pending > 0 && (
-              <span className={styles.remainingBadge}>
-                <Badge variant="warning">待审 {g.pending}</Badge>
-              </span>
-            )}
-          </div>
-          <div className={styles.grid}>
-            {g.items.map((b) => {
-              const total = b.total_tasks;
-              const pctOf = (n: number) => (total ? Math.round((n / total) * 1000) / 10 : 0);
-              return (
-                <button
-                  key={b.batch_id}
-                  type="button"
-                  className={styles.card}
-                  onClick={() => onSelect(b)}
-                >
-                  <div className={styles.cover}>
-                    <Thumbnail
-                      src={b.thumbnail_url ?? undefined}
-                      blurhash={b.cover_blurhash ?? undefined}
-                      width={88}
-                      height={88}
-                    />
-                  </div>
-                  <div className={styles.body}>
-                    <div className={styles.cardTop}>
-                      <span className={`mono ${styles.cardId}`}>{b.batch_display_id}</span>
-                      <span className={styles.cardStatus}>
-                        <Badge variant="warning" dot>
-                          审核中
-                        </Badge>
-                      </span>
-                    </div>
-                    <div className={styles.cardName}>{b.batch_name}</div>
-                    {b.annotator && (
-                      <div className={styles.annotatorRow}>
-                        <span>标注员</span>
-                        <span className={styles.annotatorName}>{b.annotator.name}</span>
-                      </div>
-                    )}
-                    <div className={styles.progress}>
-                      <ProgressRow
-                        label="待审"
-                        count={b.review_tasks}
-                        total={total}
-                        pct={pctOf(b.review_tasks)}
-                        color="var(--sc-caution)"
-                      />
-                      <ProgressRow
-                        label="通过"
-                        count={b.completed_tasks}
-                        total={total}
-                        pct={pctOf(b.completed_tasks)}
-                        color="var(--sc-positive)"
-                      />
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
+    <section aria-label="审核批次列表" className={listStyles.surface}>
+      <div className={`${styles.root} p-4`}>
+        {groups
+          .filter((group) => group.items.some((batch) => visibleIds.has(batch.batch_id)))
+          .map((g) => (
+            <div key={g.project_id} className={styles.projectSection}>
+              <div className={styles.projectHeader}>
+                <span className={styles.projectName}>{g.project_name}</span>
+                {g.pending > 0 && (
+                  <span className={styles.remainingBadge}>
+                    <Badge variant="warning">待审 {g.pending}</Badge>
+                  </span>
+                )}
+              </div>
+              <div className={styles.grid}>
+                {g.items
+                  .filter((batch) => visibleIds.has(batch.batch_id))
+                  .map((b) => {
+                    const total = b.total_tasks;
+                    const pctOf = (n: number) => (total ? Math.round((n / total) * 1000) / 10 : 0);
+                    return (
+                      <button
+                        key={b.batch_id}
+                        type="button"
+                        className={styles.card}
+                        onClick={() => onSelect(b)}
+                      >
+                        <div className={styles.cover}>
+                          <Thumbnail
+                            src={b.thumbnail_url ?? undefined}
+                            blurhash={b.cover_blurhash ?? undefined}
+                            width={88}
+                            height={88}
+                          />
+                        </div>
+                        <div className={styles.body}>
+                          <div className={styles.cardTop}>
+                            <span className={`mono ${styles.cardId}`}>{b.batch_display_id}</span>
+                            <span className={styles.cardStatus}>
+                              <Badge variant="warning" dot>
+                                审核中
+                              </Badge>
+                            </span>
+                          </div>
+                          <div className={styles.cardName}>{b.batch_name}</div>
+                          {b.annotator && (
+                            <div className={styles.annotatorRow}>
+                              <span>标注员</span>
+                              <span className={styles.annotatorName}>{b.annotator.name}</span>
+                            </div>
+                          )}
+                          <div className={styles.progress}>
+                            <ProgressRow
+                              label="待审"
+                              count={b.review_tasks}
+                              total={total}
+                              pct={pctOf(b.review_tasks)}
+                              color="var(--sc-caution)"
+                            />
+                            <ProgressRow
+                              label="通过"
+                              count={b.completed_tasks}
+                              total={total}
+                              pct={pctOf(b.completed_tasks)}
+                              color="var(--sc-positive)"
+                            />
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          ))}
+      </div>
+      <ListPagination
+        label="批次"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
+    </section>
   );
 }

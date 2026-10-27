@@ -160,9 +160,13 @@ describe("AnnotatorDashboard", () => {
       fetchStatus: "paused",
     });
     renderUI();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "网络连接已断开，项目列表会在恢复后自动继续",
-    );
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((element) =>
+          element.textContent?.includes("网络连接已断开，项目列表会在恢复后自动继续"),
+        ),
+    ).toBe(true);
     expect(screen.queryByText("暂无分配项目")).not.toBeInTheDocument();
   });
 

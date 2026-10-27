@@ -225,3 +225,33 @@
 - [0157 — 视频执行代次与原子路由绑定](0157-video-execution-claims-and-route-binding.md)
 - [0158 — 视频窗口账本与会话重放](0158-video-window-journals-and-replay.md)
 - [0159 — Labeling 视频 worker 最终写入 owner](0159-independent-labeling-video-writer.md)
+
+- [0088](archive/0088-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
+
+- [0089](archive/0089-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
+
+- [0090](archive/0090-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
+
+- [0091](archive/0091-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
+
+- [0092](archive/0092-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证
+
+- [0093](archive/0093-resumable-directory-inventory.md) — 目录观测按完整目录提交并以执行代次恢复
+
+- [0094](archive/0094-verified-request-content-snapshots.md) — 可变原图通过有界请求快照核验后交付
+
+- [0095](0095-immutable-directory-reference-tasks.md) — 目录样本固定内容身份并在任务锁内复核写入
+- [0096](0096-durable-directory-registration.md) — 目录批量登记使用独立的两阶段持久账本
+- [0097](0097-directory-ownership-previews-and-lifecycle.md) — 目录原图所有权、鉴权派生预览与来源生命周期分离
+- [0098](0098-strict-external-s3-references.md) — 外部 S3 引用保存精确定位并逐次验证条件读取
+- [0099](0099-qualified-sftp-references.md) — SFTP 持续引用以部署核验的只读 jail 和固定主机公钥为准入边界
+- [0100](0100-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复
+- [0101](0101-periodic-source-coordination.md) — 周期来源协调沿用领域运行和人工接纳
+- [0102](0102-explicit-directory-content-revisions.md) — 内容修订追加业务身份并推进来源路径头
+- [0103](0103-explicit-same-content-revalidation.md) — 同内容重新核验追加读取凭据并保留业务身份
+- [0104](0104-explicit-source-relocations.md) — 来源内移动通过明确接纳的新定位保留原业务身份
+
+- [0105](0105-opt-in-pure-addition-sync.md) — 周期计划按明确策略自动接纳纯新增轮次
+
+- [0106](0106-reviewed-source-selection-changes.md) — 扫描选择规则通过影响预览变更，保留旧业务读取
+- [0107](0107-scoped-native-video-stages.md) — 原生视频通过路径 Cookie 读取有界完整核验暂存

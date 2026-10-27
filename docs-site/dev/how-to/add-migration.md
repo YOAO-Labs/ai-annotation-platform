@@ -1,9 +1,9 @@
 ---
+title: 新增数据库迁移
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # How-to：Alembic 迁移
@@ -47,7 +47,7 @@ uv run alembic history             # 查看版本历史
 4. `restore`：把转换前的 `pg_dump` 快照恢复到独立数据库，证明恢复路径真实可用。
 
 ```yaml
-# ci.yml（pytest job，Postgres service 已就绪）
+# backend-test.yml（后端分片 job，Postgres service 已就绪）
 - name: Migration validation (fresh / reversible / forward / restore)
   working-directory: apps/api
   env:

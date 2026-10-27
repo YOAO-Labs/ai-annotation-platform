@@ -1,5 +1,7 @@
 import { apiClient } from "./client";
 import type {
+  TrainingDatasetFrozenMask,
+  TrainingDatasetInstanceMask,
   TrainingDatasetCreate,
   TrainingDatasetOut,
   TrainingDatasetPage,
@@ -18,15 +20,17 @@ import type {
 } from "./generated/types.gen";
 
 export type {
+  TrainingDatasetCreate,
+  TrainingDatasetSelection,
+  TrainingDatasetSampleDetail,
+  TrainingDatasetInstanceMask,
   TrainingDatasetOut,
   TrainingDatasetPreflight,
-  TrainingDatasetSelection,
   TrainingDatasetSummary,
   TrainingDatasetInsightOverview,
   TrainingDatasetInsightComparison,
   TrainingDatasetClassPage,
   TrainingDatasetSamplePage,
-  TrainingDatasetSampleDetail,
   TrainingDatasetAnalyzedSampleOut,
 };
 
@@ -40,7 +44,10 @@ export type DatasetSampleChange =
   | "task_ids_changed"
   | "reintroduced"
   | "unchanged"
-  | "unknown";
+  | "unknown"
+  | "source_relation_changed"
+  | "source_evidence_updated"
+  | "source_unknown";
 export type DatasetSampleFilters = {
   limit?: number;
   offset?: number;
@@ -55,6 +62,10 @@ export type DatasetSampleFilters = {
 export type DatasetVersionFilters = {
   task?: ProjectTaskDatasetOut["task"];
   task_dataset_id?: string;
+  q?: string;
+  status?: string;
+  created_from?: string;
+  created_to?: string;
 };
 
 const queryString = (values: Record<string, string | number | undefined>) => {
@@ -70,9 +81,9 @@ const base = (projectId: string) => `/projects/${projectId}/training-datasets`;
 export const trainingDatasetsApi = {
   taskDatasets: (projectId: string, options?: RequestInit) =>
     apiClient.get<ProjectTaskDatasetPage>(`/projects/${projectId}/task-datasets`, options),
-  unrecognizedVersions: (projectId: string, offset = 0, options?: RequestInit) =>
+  unrecognizedVersions: (projectId: string, offset = 0, options?: RequestInit, limit = 20) =>
     apiClient.get<UnrecognizedTrainingDatasetVersionPage>(
-      `/projects/${projectId}/task-datasets/unrecognized-versions?${queryString({ limit: 20, offset })}`,
+      `/projects/${projectId}/task-datasets/unrecognized-versions?${queryString({ limit, offset })}`,
       options,
     ),
   list: (
@@ -81,9 +92,10 @@ export const trainingDatasetsApi = {
     status?: "ready",
     options?: RequestInit,
     filters: DatasetVersionFilters = {},
+    limit = 20,
   ) =>
     apiClient.get<TrainingDatasetPage>(
-      `${base(projectId)}?${queryString({ limit: 20, offset, status, ...filters })}`,
+      `${base(projectId)}?${queryString({ limit, offset, status, ...filters })}`,
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>
@@ -115,9 +127,27 @@ export const trainingDatasetsApi = {
       `${base(projectId)}/${id}/insights/samples?${queryString(filters)}`,
       options,
     ),
-  sample: (projectId: string, id: string, taskId: string, offset = 0, options?: RequestInit) =>
+  sample: (
+    projectId: string,
+    id: string,
+    taskId: string,
+    offset = 0,
+    options?: RequestInit,
+    limit = 500,
+  ) =>
     apiClient.get<TrainingDatasetSampleDetail>(
-      `${base(projectId)}/${id}/insights/samples/${taskId}?limit=500&offset=${offset}`,
+      `${base(projectId)}/${id}/insights/samples/${taskId}?limit=${limit}&offset=${offset}`,
+      options,
+    ),
+  sampleMask: (
+    projectId: string,
+    id: string,
+    taskId: string,
+    annotationId: string,
+    options?: RequestInit,
+  ) =>
+    apiClient.get<TrainingDatasetFrozenMask>(
+      `${base(projectId)}/${id}/insights/samples/${taskId}/masks/${annotationId}`,
       options,
     ),
   sampleMedia: (projectId: string, id: string, taskId: string, options?: RequestInit) =>

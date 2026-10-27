@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
@@ -603,11 +604,11 @@ export function DashboardPage() {
                         <span className="text-xs text-muted-foreground">
                           {it.target_type}
                           {it.target_id && (
-                            <span className="mono ml-1">
-                              {it.target_id.length > 24
-                                ? it.target_id.slice(0, 8) + "…"
-                                : it.target_id}
-                            </span>
+                            <CopyValueButton
+                              value={it.target_id}
+                              kind="id"
+                              label={`复制${it.target_type} ID`}
+                            />
                           )}
                         </span>
                       )}

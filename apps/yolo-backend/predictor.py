@@ -36,7 +36,12 @@ from model_registry import (
 )
 from observability import record_inference
 from schemas import Context, model_key_for_context
-from sample_evaluations import FIXED_OPTIONS, observed_inference
+from sample_evaluations import (
+    observed_inference,
+    receipt_base_model,
+    model_options,
+    verify_inference_branch,
+)
 
 logger = logging.getLogger("yolo-backend.predictor")
 
@@ -286,12 +291,77 @@ class YoloPredictor:
         options = (
             {
                 key: value
-                for key, value in FIXED_OPTIONS.items()
+                for key, value in ctx._evaluation_profile["options"].items()
                 if key not in {"max_det", "classes", "verbose"}
             }
             if ctx.sample_evaluation
             else {}
         )
+        controlled_segment = task == "segment" and ctx.frozen_model_ref is not None
+        if ctx.frozen_model_ref and ctx._managed_receipt:
+            base_model = receipt_base_model(ctx._managed_receipt)
+            if base_model is not None:
+                options["nms"] = model_options(base_model)["nms"]
+        if controlled_segment:
+            from managed_segmentation import (
+                FIXED_OPTIONS as SEGMENT_OPTIONS,
+                validate_budget,
+                validate_receipt,
+            )
+
+            if ctx._managed_receipt is None:
+                raise ValueError("Controlled segmentation requires a verified receipt")
+            validate_receipt(ctx._managed_receipt)
+            validate_budget(img_w, img_h, params.max_det)
+            options = (
+                {
+                    key: value
+                    for key, value in ctx._evaluation_profile["options"].items()
+                    if key not in {"max_det", "classes", "verbose"}
+                }
+                if ctx.sample_evaluation
+                else {
+                    **SEGMENT_OPTIONS,
+                    **(
+                        {"nms": model_options(base_model)["nms"]}
+                        if base_model is not None
+                        else {}
+                    ),
+                }
+            )
+        if ctx.builtin_model_ref:
+            from fastapi import HTTPException
+
+            observed = getattr(model, "_aap_class_metadata", None)
+            if not isinstance(observed, dict) or any(
+                observed.get(key) != value
+                for key, value in ctx.builtin_model_ref.model_dump().items()
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "reason": "builtin_model_identity_changed",
+                        "message": "实际权重或类别身份已变更，请重新选择模型并提交",
+                    },
+                )
+        if task == "detect" and not ctx.frozen_model_ref and ctx.classes:
+            from class_names import COCO80
+            from fastapi import HTTPException
+
+            names = getattr(model, "names", None)
+            if (
+                not isinstance(names, dict)
+                or set(names) != set(range(len(COCO80)))
+                or any(type(index) is not int for index in names)
+                or [names[index] for index in range(len(COCO80))] != list(COCO80)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "reason": "model_class_metadata_mismatch",
+                        "message": "权重类别与预置声明不一致，不能使用旧类别索引过滤",
+                    },
+                )
         results = model.predict(
             img,
             conf=params.conf,
@@ -303,11 +373,17 @@ class YoloPredictor:
             **options,
         )
         elapsed = time.monotonic() - started
+        if ctx.frozen_model_ref and ctx._managed_receipt:
+            verify_inference_branch(model, ctx._managed_receipt)
         _, series, size = model_key_for_context(ctx)
         record_inference(task, series, size, elapsed)
         inference_ms = int(elapsed * 1000)
         if ctx.sample_evaluation:
             ctx._evaluation_meta = observed_inference(model, ctx, img_w, img_h)
+        if controlled_segment and len(results) != 1:
+            raise ValueError(
+                "Controlled segmentation requires exactly one native result"
+            )
         if not results:
             return [], inference_ms
 
@@ -322,7 +398,14 @@ class YoloPredictor:
         if task == "detect":
             items = _emit_detection(result, names, img_w, img_h)
         elif task == "segment":
-            items = _emit_segmentation(result, names, img_w, img_h)
+            if controlled_segment:
+                from managed_segmentation import emit_instances
+
+                items, ctx._segmentation_meta = emit_instances(
+                    result, ctx._managed_receipt, img_w, img_h, params.max_det
+                )
+            else:
+                items = _emit_segmentation(result, names, img_w, img_h)
         elif task == "pose":
             items = _emit_keypoint(result, names, img_w, img_h)
         elif task == "obb":

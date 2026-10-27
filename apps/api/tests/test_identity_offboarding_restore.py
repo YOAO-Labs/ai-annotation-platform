@@ -272,17 +272,13 @@ async def test_restored_offboarding_receipt_replays_and_populated_downgrade_refu
             )
         assert getattr(epoch.value, "code", None) == "operation_conflict"
 
-        refused = _alembic(owner_url, "downgrade", "0247")
+        refused = _alembic(owner_url, "downgrade", "bo0247")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Identity offboarding ownership while receipts exist"
             in refused.stdout + refused.stderr
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             await db.execute(
                 text(
                     "DELETE FROM public.identity_offboarding_operation_receipts "
@@ -290,12 +286,12 @@ async def test_restored_offboarding_receipt_replays_and_populated_downgrade_refu
                 ),
                 {"operation_id": operation_id},
             )
-        empty = _alembic(owner_url, "downgrade", "0247")
+        empty = _alembic(owner_url, "downgrade", "bo0247")
         assert empty.returncode == 0, "Owned empty offboarding downgrade failed"
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0247"
+                == "bo0247"
             )
             assert await db.scalar(
                 text("SELECT to_regnamespace('aap_identity_offboarding_v1') IS NULL")

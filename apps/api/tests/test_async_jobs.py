@@ -520,8 +520,9 @@ class TestAsyncJobsAPI:
         project = Project(
             display_id="PROJ-AJ-RETRY",
             name="Retry Project",
-            type_label="Image Classification",
-            type_key="image_classification",
+            type_label="Point Cloud",
+            type_key="point-cloud",
+            data_type="point_cloud",
             owner_id=user.id,
         )
         db_session.add(project)
@@ -589,6 +590,7 @@ class TestAsyncJobsAPI:
     async def test_retry_publish_uncertainty_keeps_all_durable_claims(
         self, db_session, project_admin, monkeypatch, fail_at
     ):
+        from app.application.async_job_contracts import RetryCredentialAuthority
         from app.application.prediction_retry import SqlPredictionRetry
         from app.workers.prediction_retry_dispatch import (
             CeleryPredictionRetryDispatcher,
@@ -597,6 +599,7 @@ class TestAsyncJobsAPI:
 
         user, _ = project_admin
         project = await create_project(db_session, owner_id=user.id)
+        project.data_type = "point_cloud"
         context = {"type": "text", "text": "car"}
         failures = [
             FailedPrediction(
@@ -632,7 +635,13 @@ class TestAsyncJobsAPI:
         )
         result = await SqlPredictionRetry(
             db_session, dispatcher=CeleryPredictionRetryDispatcher()
-        ).retry_job_items(job_id=job.id, actor_id=user.id)
+        ).retry_job_items(
+            job_id=job.id,
+            actor_id=user.id,
+            credential=RetryCredentialAuthority(
+                actor_id=user.id, authorization="Bearer test"
+            ),
+        )
         assert result.queued == 3
 
         for row in failures:

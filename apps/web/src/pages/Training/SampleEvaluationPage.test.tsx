@@ -293,10 +293,10 @@ beforeEach(() => {
       report_sha256: hash,
       total: 13,
       offset: filters.offset ?? 0,
-      limit: 12,
+      limit: filters.limit ?? 20,
       items: report(value, attemptId).samples.slice(
         filters.offset ?? 0,
-        (filters.offset ?? 0) + 12,
+        (filters.offset ?? 0) + (filters.limit ?? 20),
       ),
     }),
   );
@@ -314,6 +314,73 @@ afterEach(() => {
 });
 
 describe("frozen evaluation evidence navigation", () => {
+  it("shows original-pixel mask metrics, matched Dice and area groups separately from FN", async () => {
+    const pixel = {
+      index: 0,
+      class_index: 0,
+      rle: { encoding: "coco_rle" as const, size: [3, 3] as [number, number], counts: [0, 9] },
+      area_pixels: 9,
+      mask_sha256: hash,
+    };
+    const maskSample: EvaluationSampleResult = {
+      ...sample(),
+      width: 3,
+      height: 3,
+      truth: [
+        { ...pixel, annotation_id: id(101), annotation_version: 1, rasterizer: "native-rle-1" },
+      ],
+      predictions: [{ ...pixel, native_class_index: 0, score: 0.9 }],
+      matching: {
+        ...sample().matching!,
+        diagnostics: [],
+        matches: [{ prediction_index: 0, truth_index: 0, iou: 1, dice: 1 }],
+      },
+    };
+    const maskAggregate = {
+      ...aggregate,
+      matched_mean_iou: 1,
+      matched_mean_dice: 1,
+      area_groups: ["small", "medium", "large"].map((group) => ({
+        group: group as "small" | "medium" | "large",
+        tp: group === "small" ? 1 : 0,
+        fp: 0,
+        fn: 0,
+        precision: group === "small" ? 1 : null,
+        recall: group === "small" ? 1 : null,
+        f1: group === "small" ? 1 : null,
+      })),
+    };
+    const maskRun = run();
+    maskRun.spec.schema = 2;
+    maskRun.spec.model_ref.task = "segment";
+    vi.mocked(sampleEvaluationsApi.get).mockResolvedValue(maskRun);
+    vi.mocked(sampleEvaluationsApi.report).mockResolvedValue({
+      ...report(),
+      schema: 2,
+      samples: [maskSample],
+      aggregate: maskAggregate,
+    });
+    vi.mocked(sampleEvaluationsApi.samples).mockResolvedValue({
+      evaluation_id: evaluation,
+      attempt_id: attempt,
+      spec_digest: hash,
+      report_sha256: hash,
+      total: 1,
+      offset: 0,
+      limit: 12,
+      items: [maskSample],
+    });
+    vi.mocked(sampleEvaluationsApi.image).mockReturnValue(new Promise(() => {}));
+    mount();
+    expect(
+      await screen.findByRole("table", { name: "按原图掩码像素面积统计" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("已匹配 Dice")).toBeInTheDocument();
+    expect(screen.getByText(/TP → 真值 #0，Mask IoU 1.000，Dice 1.000/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "真值掩码，蓝色" })).toBeInTheDocument();
+    expect(screen.getAllByText(/漏检另计 FN/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/不是 AP\/mAP/).length).toBeGreaterThan(0);
+  });
   it("rejects malformed, duplicate and reversed URL filters without silently replacing them", () => {
     for (const query of [
       "attempt=bad",
@@ -332,7 +399,7 @@ describe("frozen evaluation evidence navigation", () => {
       attemptId: attempt,
       page: 1,
       error: "",
-      filters: { offset: 12, error: "false_negative" },
+      filters: { offset: 20, limit: 20, error: "false_negative" },
     });
     expect(
       sourceWorkbenchUrl(
@@ -352,16 +419,16 @@ describe("frozen evaluation evidence navigation", () => {
   });
 
   it("puts the first member of a filtered page in the URL and aligns the second candidate to that member", async () => {
-    mount(`attempt=${attempt}&page=1&second=${second}`);
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("sample=12"));
-    expect(await screen.findByRole("heading", { name: "样本 13" })).toBeInTheDocument();
+    mount(`attempt=${attempt}&page=1&page_size=10&second=${second}`);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("sample=10"));
+    expect(await screen.findByRole("heading", { name: "样本 11" })).toBeInTheDocument();
     const aligned = await screen.findByRole("link", { name: /同一冻结成员/ });
-    expect(aligned.getAttribute("href")).toContain("sample=0");
+    expect(aligned.getAttribute("href")).toContain("sample=2");
     expect(sampleEvaluationsApi.samples).toHaveBeenCalledWith(
       project,
       evaluation,
       attempt,
-      expect.objectContaining({ offset: 12 }),
+      expect.objectContaining({ offset: 10, limit: 10 }),
       { signal: expect.any(AbortSignal) },
     );
     fireEvent.click(screen.getByRole("checkbox", { name: "预测，虚线" }));
@@ -497,10 +564,29 @@ describe("frozen evaluation evidence navigation", () => {
     expect(screen.queryByRole("columnheader", { name: "第二减当前" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /同一冻结成员/ })).not.toBeInTheDocument();
   });
+  it("cancels candidate comparison without changing the current attempt or sample", async () => {
+    mount(`attempt=${attempt}&sample=0&second=${second}`);
+    expect(await screen.findByRole("columnheader", { name: "第二减当前" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消评估比较" }));
+    expect(screen.getByLabelText("第二个明确评估")).toHaveValue("");
+    const query = new URLSearchParams(screen.getByTestId("location").textContent!.split("?")[1]);
+    expect(query.get("second")).toBeNull();
+    expect(query.get("attempt")).toBe(attempt);
+    expect(query.get("sample")).toBe("0");
+    expect(screen.queryByRole("columnheader", { name: "第二减当前" })).not.toBeInTheDocument();
+  });
+  it("keeps an invalid self comparison visible as the requested selection", async () => {
+    mount(`attempt=${attempt}&second=${evaluation}`);
+    await screen.findByText("须选择两个不同的评估。");
+    expect(screen.getByLabelText("第二个明确评估")).toHaveValue(evaluation);
+    expect(screen.getByLabelText("第二个明确评估")).toHaveDisplayValue(
+      "冻结路口评估（不能与自身比较）",
+    );
+  });
   it("returns to the exact lineage route after opening a sample report", async () => {
     const target = `/projects/${project}/learning/lineage/evaluation/${evaluation}?relation=evaluations&cursor=owned`;
     mount(`attempt=${attempt}&returnTo=${encodeURIComponent(target)}`);
-    expect(await screen.findByRole("link", { name: "返回模型谱系" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "返回来源与使用记录" })).toHaveAttribute(
       "href",
       target,
     );

@@ -1,7 +1,7 @@
 """Add Learning and Labeling source-deletion guards.
 
-Revision ID: 0206
-Revises: 0205
+Revision ID: bo0206
+Revises: bo0205
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0206"
-down_revision = "0205"
+revision = "bo0206"
+down_revision = "bo0205"
 branch_labels = depends_on = None
 
 _ARTIFACT = Path(__file__).resolve().parents[1] / "sql/0206_dataset_source_guards.sql"

@@ -58,7 +58,7 @@ vi.mock("@/api/trainingRecipes", async (original) => ({
 const field = (
   key: string,
   label: string,
-  value: number,
+  value: number | boolean,
   rules: Record<string, number | string>,
 ): TrainingParameterField => ({
   key,
@@ -69,7 +69,7 @@ const field = (
   status: "editable",
   group: "basic",
   aliases: [],
-  native_type: "number",
+  native_type: typeof value === "boolean" ? "bool" : "number",
   defined_in: "native",
   reason: "",
 });
@@ -330,7 +330,7 @@ describe("immutable recipe and clone reuse", () => {
       }),
     );
     expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
   });
   it("loads the current URL clone after an obsolete in-flight preview releases its lock", async () => {
     const candidate = {
@@ -356,7 +356,7 @@ describe("immutable recipe and clone reuse", () => {
     await act(async () => late.resolve(candidate));
     await screen.findByText("第二来源不存在");
     expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
   });
   it("allows explicit clone retry after editing invalidates a pending source response", async () => {
     const candidate = {
@@ -384,7 +384,7 @@ describe("immutable recipe and clone reuse", () => {
       expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument(),
     );
     expect(screen.getByLabelText("实验名称")).toHaveValue("保留我的名称");
-    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n");
   });
   it("rejects the first A response after URL intent changes A to B to A", async () => {
     const late = deferred<Awaited<ReturnType<typeof trainingRecipesApi.clone>>>();
@@ -408,44 +408,207 @@ describe("immutable recipe and clone reuse", () => {
       }),
     );
     expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
   });
 });
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 async function prepare(review = true) {
   const user = userEvent.setup();
   const view = mount();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+  await user.clear(screen.getByLabelText("实验名称"));
   await user.type(screen.getByLabelText("实验名称"), "车辆实验");
   await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
   await waitFor(() =>
     expect(screen.getByRole("option", { name: /^yolo11n ·/ })).toBeInTheDocument(),
   );
-  await user.selectOptions(screen.getByLabelText("基础权重"), "yolo11n");
+  await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n");
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "下一步" }));
   if (review) await user.click(screen.getByRole("button", { name: "下一步" }));
   return { user, view };
 }
+
+it.each([true, false])(
+  "blocks an unprepared current model and explains node readiness (online=%s)",
+  async (online) => {
+    vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+      ...catalog,
+      online,
+      items: [
+        {
+          ...catalog.items[0],
+          version: "8.4.183",
+          base_models: [
+            {
+              ...catalog.items[0].base_models[0],
+              compatible: online ? false : null,
+              unavailable_reason: online ? "该节点尚未准备此基础模型权重" : "训练节点离线",
+            },
+          ],
+        },
+      ],
+    });
+    vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue({
+      ...schema,
+      framework_version: "8.4.183",
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+    await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
+    await screen.findByRole("option", { name: /^yolo11n ·/ });
+    await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n");
+    await screen.findByText(online ? "该节点尚未准备此基础模型权重" : "训练节点离线");
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+    if (!online) expect(screen.getByText(/须在线确认所选模型权重就绪/)).toBeVisible();
+  },
+);
+
+it("persists scratch initialization and sends optional training evaluation in the frozen request", async () => {
+  vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue({
+    ...schema,
+    fields: [
+      ...schema.fields,
+      field("pretrained", "使用预训练权重", true, { type: "boolean" }),
+      field("evaluate_train", "逐轮评估训练集", false, { type: "boolean" }),
+    ],
+  });
+  const { user, view } = await prepare(false);
+  await user.click(screen.getByRole("button", { name: "上一步" }));
+  await user.selectOptions(screen.getByLabelText("初始化权重"), "scratch");
+  await user.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByLabelText("逐轮评估训练集")).not.toBeChecked();
+  await user.click(screen.getByLabelText("逐轮评估训练集"));
+  await user.click(screen.getByRole("button", { name: "下一步" }));
+  await user.click(screen.getByRole("button", { name: "检查训练配置" }));
+  await waitFor(() => expect(trainingRunsApi.preflight).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(trainingRunsApi.preflight).mock.calls[0][1].configuration?.values).toMatchObject(
+    {
+      pretrained: false,
+      evaluate_train: true,
+    },
+  );
+  view.unmount();
+  mount();
+  await waitFor(() => expect(screen.getByLabelText("初始化权重")).toHaveValue("scratch"));
+});
 async function check() {
   await userEvent.click(screen.getByRole("button", { name: "检查训练配置" }));
   await screen.findByText("训练检查通过 · 请核对最终配置");
 }
 
+it("selects the task first, filters compatible options and updates only generated names", async () => {
+  const segmented = { ...dataset, id: "segment-data", name: "分割数据", task: "segment" as const };
+  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+    ...catalog,
+    items: [
+      {
+        ...catalog.items[0],
+        base_models: [
+          ...catalog.items[0].base_models,
+          {
+            id: "yolo11n-seg",
+            filename: "yolo11n-seg.pt",
+            sha256: "c".repeat(64),
+            task: "segment",
+          },
+        ],
+      },
+      {
+        ...catalog.items[0],
+        framework: "libreyolo",
+        base_models: [
+          { id: "LibreYOLO9t", filename: "LibreYOLO9t.pt", sha256: "d".repeat(64), task: "detect" },
+        ],
+      },
+    ],
+  } as never);
+  vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+    items: [dataset, segmented],
+    total: 2,
+  } as never);
+  vi.mocked(trainingDatasetsApi.get).mockImplementation(async (_p, id) =>
+    id === segmented.id ? (segmented as never) : (dataset as never),
+  );
+  vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(async (_p, _f, base) =>
+    base.endsWith("-seg") ? { ...schema, task: "segment" } : schema,
+  );
+  const user = userEvent.setup();
+  const view = mount();
+  expect(screen.getByLabelText("实验任务")).toHaveValue("");
+  expect(screen.getByLabelText("训练数据")).toBeDisabled();
+  expect(screen.getByLabelText("基础模型")).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "segment");
+  expect((screen.getByLabelText("实验名称") as HTMLInputElement).value).toMatch(
+    /^segment-\d{8}-\d{6}$/,
+  );
+  await screen.findByRole("option", { name: /^分割数据/ });
+  expect(screen.queryByRole("option", { name: /^审核数据/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /^libreyolo/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /^yolo11n ·/ })).not.toBeInTheDocument();
+  expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+    "project-1",
+    0,
+    "ready",
+    expect.any(Object),
+    { task: "segment" },
+  );
+  await user.selectOptions(screen.getByLabelText("训练数据"), segmented.id);
+  await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n-seg");
+  await waitFor(() => expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n-seg"));
+  await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+  expect((screen.getByLabelText("实验名称") as HTMLInputElement).value).toMatch(/^detect-/);
+  expect(screen.getByLabelText("训练数据")).toHaveValue("");
+  expect(screen.getByLabelText("基础模型")).toHaveValue("");
+  await user.clear(screen.getByLabelText("实验名称"));
+  await user.type(screen.getByLabelText("实验名称"), "自定义名称");
+  await user.selectOptions(screen.getByLabelText("实验任务"), "segment");
+  expect(screen.getByLabelText("实验名称")).toHaveValue("自定义名称");
+  view.unmount();
+  mount();
+  expect(screen.getByLabelText("实验任务")).toHaveValue("segment");
+  expect(screen.getByLabelText("实验名称")).toHaveValue("自定义名称");
+});
+
 describe("training creation modal", () => {
-  it("distinguishes the dataset prompt from selectable ready versions", async () => {
+  it("preflights a training draft on plain HTTP without randomUUID", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    await prepare();
+    await check();
+    expect(trainingRunsApi.preflight).toHaveBeenCalledOnce();
+    const draft = JSON.parse(localStorage.getItem(trainingDraftKey("user-1:project-1"))!);
+    expect(draft.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("distinguishes required dataset and weight prompts from selectable options", async () => {
     const user = userEvent.setup();
     mount();
     const select = (await screen.findByLabelText("训练数据")) as HTMLSelectElement;
     expect(select).toHaveClass("text-muted-foreground");
     expect(select.options[0]).toBeDisabled();
     expect(select.options[0].hidden).toBe(true);
+    const weights = screen.getByLabelText("基础模型") as HTMLSelectElement;
+    expect(weights).toHaveClass("text-muted-foreground");
+    expect(weights.options[0]).toBeDisabled();
+    expect(weights.options[0].hidden).toBe(true);
+    await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+    await user.type(screen.getByLabelText("实验名称"), "权重选择检查");
     await screen.findByRole("option", { name: /^审核数据/ });
     await user.selectOptions(select, "dataset-1");
     expect(select).not.toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
+    await user.selectOptions(weights, "yolo11n");
+    expect(weights).not.toHaveClass("text-muted-foreground");
+    await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   });
 
   it.each(["close button", "Escape"])(
@@ -510,7 +673,7 @@ describe("exact frozen-version experiment handoff", () => {
       expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument(),
     );
     expect(screen.getByLabelText("训练数据")).toHaveValue(targetId);
-    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n");
     expect(
       new URL(`http://test${screen.getByTestId("location").textContent}`).searchParams.has(
         "dataset",
@@ -796,60 +959,76 @@ describe("exact frozen-version experiment handoff", () => {
   });
 });
 
-it("filters segmentation weights by dataset task and preserves an incompatible selection until explicitly replaced", async () => {
-  const task = "segment" as const;
-  const segmented = {
-    ...dataset,
-    task,
-    contract_profile: {
-      ...dataset.contract_profile,
+it.each(["ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"])(
+  "filters segmentation weights for %s and preserves an incompatible selection until explicitly replaced",
+  async (bridge) => {
+    const task = "segment" as const;
+    const segmented = {
+      ...dataset,
       task,
-      geometry: "normalized-simple-polygon",
-      bridge: "ultralytics-simple-polygon-1",
-    },
-  };
-  vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [segmented], total: 1 } as never);
-  vi.mocked(trainingDatasetsApi.get).mockResolvedValue(segmented as never);
-  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
-    ...catalog,
-    items: [
-      {
-        ...catalog.items[0],
-        base_models: [
-          ...catalog.items[0].base_models,
-          { id: "yolo11n-seg", filename: "yolo11n-seg.pt", sha256: "a".repeat(64), task },
-        ],
+      contract_profile: {
+        ...dataset.contract_profile,
+        task,
+        schema: bridge === "ultralytics-instance-rle-1" ? 4 : 3,
+        format: bridge === "ultralytics-instance-rle-1" ? "aap-instance-rle" : "ultralytics-yolo",
+        geometry:
+          bridge === "ultralytics-instance-rle-1" ? "instance-mask" : "normalized-simple-polygon",
+        bridge,
       },
-    ],
-  });
-  vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(async (_p, _f, base) =>
-    base === "yolo11n-seg" ? { ...schema, task, schema_id: "seg-2" } : schema,
-  );
-  const initial = {
-    ...emptyTrainingDraft(trainingDraftOwner("user-1", "project-1")),
-    datasetId: dataset.id,
-    name: "分割实验",
-    baseModel: "yolo11n",
-    schemaId: schema.schema_id,
-    schemaDigest: schema.schema_digest,
-  };
-  saveTrainingDraft(initial);
-  mount();
-  await screen.findByRole("alert");
-  expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
-  expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
-  expect(
-    screen.getByRole("option", { name: /yolo11n（目录不可用或与数据任务不匹配）/ }),
-  ).toBeDisabled();
-  const candidateReads = vi.mocked(trainedModelsApi.list).mock.calls.length;
-  await userEvent.selectOptions(screen.getByLabelText("基础权重"), "yolo11n-seg");
-  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
-  expect(screen.getByText(/实例分割支持单多边形原生训练/)).toBeVisible();
-  expect(screen.getByLabelText("初始化权重").querySelectorAll("option")).toHaveLength(1);
-  expect(screen.getByText(/分割的项目模型权重初始化尚未通过资格验证/)).toBeVisible();
-  expect(trainedModelsApi.list).toHaveBeenCalledTimes(candidateReads);
-  expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
-});
+    };
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+      items: [segmented],
+      total: 1,
+    } as never);
+    vi.mocked(trainingDatasetsApi.get).mockResolvedValue(segmented as never);
+    vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: [
+            ...catalog.items[0].base_models,
+            { id: "yolo11n-seg", filename: "yolo11n-seg.pt", sha256: "a".repeat(64), task },
+          ],
+        },
+      ],
+    });
+    vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(async (_p, _f, base) =>
+      base === "yolo11n-seg" ? { ...schema, task, schema_id: "seg-2" } : schema,
+    );
+    const initial = {
+      ...emptyTrainingDraft(trainingDraftOwner("user-1", "project-1")),
+      datasetId: dataset.id,
+      name: "分割实验",
+      baseModel: "yolo11n",
+      schemaId: schema.schema_id,
+      schemaDigest: schema.schema_digest,
+    };
+    saveTrainingDraft(initial);
+    mount();
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n");
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: /yolo11n（目录不可用或与数据任务不匹配）/ }),
+    ).toBeDisabled();
+    const candidateReads = vi.mocked(trainedModelsApi.list).mock.calls.length;
+    await userEvent.selectOptions(screen.getByLabelText("基础模型"), "yolo11n-seg");
+    await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+    expect(screen.getByText(/实例分割支持已资格验证的训练桥接/)).toBeVisible();
+    expect(screen.getByLabelText("初始化权重").querySelectorAll("option")).toHaveLength(1);
+    expect(screen.queryByText(/尚未取得项目权重初始化资格/)).not.toBeInTheDocument();
+    await waitFor(() => expect(trainedModelsApi.list).toHaveBeenCalledTimes(candidateReads + 1));
+    expect(trainedModelsApi.list).toHaveBeenLastCalledWith(
+      "project-1",
+      0,
+      expect.any(Object),
+      "include",
+      { task: "segment", framework: "ultralytics" },
+    );
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+  },
+);
 
 const initializationId = "99999999-9999-4999-8999-999999999999";
 const initializationPin = {
@@ -865,6 +1044,40 @@ const initializationPin = {
   attempt_id: "source-attempt",
   artifact: { sha256: "8".repeat(64), size_bytes: 1234 },
 };
+
+it.each([true, false])(
+  "keeps the initialization summary readable when the source pin is available: %s",
+  async (eligible) => {
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({
+      total: 1,
+      items: [{ id: initializationId, name: "项目初始模型", framework: "ultralytics" }],
+    } as never);
+    vi.mocked(trainingRunsApi.initializationSource).mockResolvedValue({
+      model_version_id: initializationId,
+      eligible,
+      reasons: eligible ? [] : ["来源信息不完整"],
+      pin: eligible ? initializationPin : null,
+    } as never);
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    mount();
+    await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+    await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
+    await screen.findByRole("option", { name: /^yolo11n ·/ });
+    await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n");
+    await screen.findByRole("option", { name: "项目初始模型 · ultralytics" });
+    await user.selectOptions(screen.getByLabelText("初始化权重"), initializationId);
+    const summary = screen.getByRole("complementary", { name: "实验摘要" });
+    expect(
+      await within(summary).findByText(eligible ? "项目初始模型" : "所选候选模型"),
+    ).toBeVisible();
+    expect(summary).not.toHaveTextContent(initializationId);
+    await user.click(within(summary).getByRole("button", { name: "复制初始化模型版本 ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(initializationId));
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+  },
+);
 
 it("pins an explicitly selected candidate, invalidates review and retries its exact source after refresh", async () => {
   vi.mocked(trainedModelsApi.list).mockResolvedValue({
@@ -902,9 +1115,11 @@ it("pins an explicitly selected candidate, invalidates review and retries its ex
     model_version_id: initializationId,
     source_digest: initializationPin.source_digest,
   });
-  expect(screen.getByRole("region", { name: "冻结的初始化权重" })).toHaveTextContent(
-    initializationPin.artifact.sha256,
-  );
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  const frozen = screen.getByRole("region", { name: "冻结的初始化权重" });
+  expect(frozen).not.toHaveTextContent(initializationPin.artifact.sha256);
+  await user.click(within(frozen).getByRole("button", { name: "复制初始化权重哈希" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(initializationPin.artifact.sha256));
   vi.mocked(trainingRunsApi.create).mockRejectedValueOnce(new Error("初始化创建响应丢失"));
   await user.click(screen.getByRole("button", { name: "开始训练" }));
   await screen.findByText("初始化创建响应丢失");
@@ -1128,8 +1343,8 @@ describe("configuration import and recovery", () => {
     await user.type(screen.getByLabelText("初始学习率"), "1e-6");
     await user.click(screen.getByRole("button", { name: /数据与模型/ }));
     await user.selectOptions(screen.getByLabelText("训练器"), "libreyolo");
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
-    await user.selectOptions(screen.getByLabelText("基础权重"), "LibreYOLO9t");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("基础模型"), "LibreYOLO9t");
     await screen.findByRole("dialog", { name: "核对参数切换" });
     expect(screen.getByText("移除 1 项：optimizer")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "接受切换" }));
@@ -1207,7 +1422,13 @@ describe("configuration import and recovery", () => {
     expect(screen.getByLabelText("训练数据")).toHaveValue(dataset.id);
     await user.click(screen.getByRole("button", { name: "加载更早的数据版本" }));
     await waitFor(() =>
-      expect(trainingDatasetsApi.list).toHaveBeenCalledWith("project-1", 20, "ready"),
+      expect(trainingDatasetsApi.list).toHaveBeenCalledWith(
+        "project-1",
+        20,
+        "ready",
+        expect.any(Object),
+        { task: "detect" },
+      ),
     );
   });
   it("requires explicit migration acceptance and retains only compatible fields", async () => {
@@ -1232,4 +1453,82 @@ describe("configuration import and recovery", () => {
     expect(localStorage.getItem(trainingDraftKey(owner))).not.toContain('"removed"');
     expect(localStorage.getItem(trainingDraftKey(owner))).toContain("1e-6");
   });
+});
+
+it("filters catalog models by task, family and native scale and restores the selected family", async () => {
+  const base = (
+    id: string,
+    family: string,
+    size: string,
+    task: "detect" | "segment" = "detect",
+  ) => ({
+    id,
+    filename: `${id}.pt`,
+    sha256: "f".repeat(64),
+    model_family: family,
+    model_size: size,
+    task,
+  });
+  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+    ...catalog,
+    items: [
+      {
+        ...catalog.items[0],
+        version: "8.4.183",
+        base_models: [
+          base("yolo11n", "yolo11", "n"),
+          base("yolov8n", "yolov8", "n"),
+          base("yolov8x", "yolov8", "x"),
+          base("yolo26s", "yolo26", "s"),
+          base("yolo26m-seg", "yolo26", "m", "segment"),
+        ],
+      },
+    ],
+  });
+  vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(
+    async (_project, _framework, id) => ({
+      ...schema,
+      framework_version: "8.4.183",
+      schema_id: `schema-${id}`,
+      model_family: id.startsWith("yolov8")
+        ? "yolov8"
+        : id.startsWith("yolo26")
+          ? "yolo26"
+          : "yolo11",
+      task: id.endsWith("-seg") ? "segment" : "detect",
+    }),
+  );
+  const user = userEvent.setup();
+  const view = mount();
+  expect(screen.getByLabelText("模型家族")).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+  await screen.findByRole("option", { name: "YOLOv8" });
+  await user.selectOptions(screen.getByLabelText("模型家族"), "yolov8");
+  const models = screen.getByLabelText("基础模型");
+  expect(within(models).getByRole("option", { name: /^yolov8n · Nano/ })).toBeVisible();
+  expect(within(models).getByRole("option", { name: /^yolov8x · Extra large/ })).toBeVisible();
+  expect(within(models).queryByRole("option", { name: /^yolo11/ })).not.toBeInTheDocument();
+  expect(within(models).queryByRole("option", { name: /^yolo26/ })).not.toBeInTheDocument();
+  await user.selectOptions(models, "yolov8x");
+  await waitFor(() => expect(models).toHaveValue("yolov8x"));
+  view.unmount();
+  mount();
+  await waitFor(() => expect(screen.getByLabelText("模型家族")).toHaveValue("yolov8"));
+  expect(screen.getByLabelText("基础模型")).toHaveValue("yolov8x");
+  await user.selectOptions(screen.getByLabelText("模型家族"), "yolo26");
+  expect(screen.getByLabelText("基础模型")).toHaveValue("");
+  expect(
+    within(screen.getByLabelText("基础模型")).getByRole("option", { name: /^yolo26s · Small/ }),
+  ).toBeVisible();
+  const stored = JSON.parse(localStorage.getItem(trainingDraftKey("user-1:project-1"))!);
+  expect(stored.baseModel).toBe("");
+  expect(stored.initialization).toBeUndefined();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "segment");
+  expect(screen.getByLabelText("模型家族")).toHaveValue("yolo26");
+  expect(screen.queryByRole("option", { name: "YOLOv8" })).not.toBeInTheDocument();
+  expect(
+    within(screen.getByLabelText("基础模型")).getByRole("option", {
+      name: /^yolo26m-seg · Medium/,
+    }),
+  ).toBeVisible();
 });

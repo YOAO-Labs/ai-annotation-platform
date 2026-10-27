@@ -1,9 +1,10 @@
 ---
+title: 安全模型
 audience: [ops]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-26
 ---
 
 # 安全模型
@@ -301,7 +302,7 @@ Mask 格式 staged upload 只能使用服务端为当前项目和用户生成的
 
 MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/services/storage.py`）。下载签名会把过期时刻对齐到 10 分钟网格，让同一对象在一个窗口内签出完全相同的 URL——浏览器据此缓存缩略图与原图，避免列表刷新后整批重下。代价是实际有效期在 1 小时到 1 小时 10 分之间浮动。presigned PUT / upload URL 仍使用调用方传入的原始 `expires_in`，不做网格对齐。每个 URL 只授权单文件，不含目录列表能力。
 
-**已签发 URL 是撤销的已知边界**：撤销成员 / 角色后不再签发新 URL，也不允许新的结果交付，但**已签发的直接存储 URL 在到期前仍可使用**。当前默认有效期保持不变——下载 1 小时（含 10 分钟对齐）、评论附件 5 分钟（无对齐）、导出 7 天（同样受调用方的 10 分钟对齐约束）。立即失效旧 URL 需要单独的存储 / 代理改造，不在本次角色迁移范围内；运维侧的完整边界与演练见[员工项目角色迁移与回滚 runbook](../runbooks/project-role-migration.md)。
+**已签发 URL 是撤销的已知边界**：撤销成员 / 角色后不再签发新 URL，也不允许新的结果交付，但**已签发的直接存储 URL 在到期前仍可使用**。当前直接存储链接默认下载 1 小时（含 10 分钟对齐）、导出 7 天（同样受调用方的 10 分钟对齐约束）。评论附件使用认证API完整读取，返回前重核当前讨论权限与原凭证，不再签发新匿名URL；升级前已签发的旧5分钟链接仍按原期限有效。其他已签发直接存储URL仍受原有效期约束；运维侧的完整边界与演练见[员工项目角色迁移与回滚 runbook](../runbooks/project-role-migration.md)。
 
 ### 7.3 Sentry 数据脱敏
 
@@ -320,6 +321,18 @@ Identity offboarding 的 `preview_version` 是精确保留旧 Python snapshot �
 UserBrief 只供已经通过授权检查的 task、project、result 等调用方补全显示摘要；该 helper 没有 actor 参数，不是任意用户资料目录 API，也不复用 Directory 的 manager-only scope。调用方必须先授权自己的业务行，再传关联 user IDs。私有 Identity endpoint 使用内部 control Bearer；caller transaction 路径继续使用当前受限应用连接，专用 LOGIN 只可执行两项 briefs 函数。
 
 返回值仅有 `id/name/email/role/avatar_initial/avatar_ref` 六字段，不含 credential hash、generation、API key 或管理状态；对已授权关联用户保留 inactive／历史角色的既有显示语义。ProjectMember role 从 Workspace 窄投影读取，Identity/API 不获其原表权限；没有 audit、receipt、缓存或逐用户 RPC。该 owner 的最新 union 通过 64 个 selected cases（59 DB/process、5 pure/static），零跳过；精确镜像、Restore、Compose 边界和 legacy baseline 见 [Identity UserBrief ADR](/dev/adr/0129-identity-batched-user-brief-reads)。本地资格不代表生产容量、SLO 或完整 Identity。
+
+---
+
+## 存储访问、保留与站点 Agent 安全边界
+
+数据集与存储体系在应用层强制执行以下纵深防御边界（详见[受控存储位置 API](/api/guides/storage-locations)、[内容核验与严格读取](/api/guides/verified-content)与[只读站点 Agent](/ops/deploy/site-agents)）：
+
+- **受控只读根与无越界打开**：本地/网络挂载位置仅接受部署配置的 `STORAGE_FILESYSTEM_ROOTS` 句柄与相对路径，底层通过 Linux `openat2`（禁止符号链接穿越、`..` 跳转与跨子挂载）执行只读打开；SFTP 引用强制匹配 `STORAGE_SFTP_ROOTS` 固定主机公钥与 root 拥有的 `ChrootDirectory` 只读 jail。API 响应与公开 DTO 从不暴露宿主机绝对路径或明文连接凭据。
+- **请求内完整核验与授权复核**：严格图片/点云/视频读取在交付字节或签发短期地址前，完整核对已保存的 SHA-256、字节数、固定位置/版本与维护门禁，并在 I/O 前后复查当前账号、项目/数据集权限与原始 API Key 状态（撤销、轮换或缩权立即阻断）。
+- **五分钟预览确认令牌（`impact_token`）**：存储位置变更、访问维护切换、数据集归档/恢复、九用途新分配绑定切换、保留策略/Hold 变更及原件准确版本回收均采用“只读预览 → 签发 5 分钟绑定令牌 → 锁内复核提交”。令牌绑定操作者、原 API Key、目标修订与关系快照指纹，跨人、跨用途或状态漂移立即返回 `409`。
+- **保留锁与物理操作未收尾保护**：托管原件回收受活跃业务引用、冻结版本、保留期限、备份/迁移 Hold 及迁移窗口共同阻断；物理读取、上传或删除遇到超时、取消或进程中断时，`storage_operations` 与回收 tombstone 持久保留责任，绝不按 TTL 自动清零或跳过关闭证明。
+- **只读站点 Agent 出站隔离**：Agent 仅发起出站 HTTPS 连接（强制校验证书、拒绝重定向与环境变量代理），不监听入站端口、不开放远程命令执行或源端写删。一次性配对码 10 分钟有效、单次消费，中心仅存 SHA-256 摘要；Agent Bearer 凭据最长 30 天有效，且不能替代平台用户 JWT/API Key。撤销或过期凭据仅允许向已有命令提交 `closed` 关闭回执，不能领取新任务或上传文件分块。
 
 ---
 

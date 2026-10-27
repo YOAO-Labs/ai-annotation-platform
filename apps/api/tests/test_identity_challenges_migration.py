@@ -119,10 +119,6 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
             body=snapshot.read_bytes(),
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0254"
-            )
             # This task owns the restored database. Clear only its copied recovery
             # state so the migration begins from a known empty 0239 image.
             for table in (
@@ -144,12 +140,12 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
                     await db.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
                 )
 
-        downgraded = _alembic(owner_url, "downgrade", "0238")
+        downgraded = _alembic(owner_url, "downgrade", "bo0238")
         assert downgraded.returncode == 0, "Owned empty recovery downgrade failed"
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0238"
+                == "bo0238"
             )
             await db.execute(
                 text(

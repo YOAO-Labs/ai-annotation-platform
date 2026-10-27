@@ -1,9 +1,23 @@
+import { randomId } from "@/utils/id";
 import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useTrainingSessionRevision } from "./trainingViewOwner";
-import { activeLearningApi, type ActiveRound } from "@/api/activeLearning";
+import { activeLearningApi, type ActiveRound, type SelectionTask } from "@/api/activeLearning";
 import type { AssertTrainingOwner } from "./trainingViewOwner";
+import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
+
+export function activeLearningTask(task?: unknown): SelectionTask | null {
+  const value = normalizeTask(String(task ?? "detect"));
+  return value === "detect" || value === "segment" ? value : null;
+}
+
+export function activeLearningReason(reason: string, task: SelectionTask) {
+  if (reason === "overlapping_classes" && task === "segment") return "跨类别实例掩码重叠";
+  if (reason === "low_confidence" && task === "segment") return "实例置信度较低";
+  if (reason === "random_fallback" && task === "segment") return "零实例信号随机补位";
+  return reasonLabel[reason] ?? reason;
+}
 
 export const roundStatus: Record<ActiveRound["status"], string> = {
   queued: "等待执行",
@@ -29,7 +43,7 @@ export function useActiveLearningScope(projectId: string, roundId?: string) {
   const revision = useTrainingSessionRevision();
   const { key } = useLocation();
   return useMemo(
-    () => ({ value: crypto.randomUUID(), projectId, roundId, userId, token, revision, key }),
+    () => ({ value: randomId(), projectId, roundId, userId, token, revision, key }),
     [projectId, roundId, userId, token, revision, key],
   ).value;
 }

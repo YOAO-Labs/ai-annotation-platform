@@ -65,6 +65,17 @@ class ApplyPredictionResultRequest:
     accepted_input_job_id: uuid.UUID | None = None
     accepted_video_input: VideoInputEvidence | None = None
     batch_result_identity: BatchResultPredictionIdentity | None = None
+    # Issuer-bound evidence from the input owner. Receipts are transaction
+    # bound, so callers must attach them only to the writing transaction.
+    original_receipt: Any | None = None
+    reference_receipt: Any | None = None
+    background_native_reference_receipt: Any | None = None
+    native_reference_receipt: Any | None = None
+    native_original_receipt: Any | None = None
+    repair_reference_receipt: Any | None = None
+    repair_original_receipt: Any | None = None
+    video_input_receipt: Any | None = None
+    video_result_receipt: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)

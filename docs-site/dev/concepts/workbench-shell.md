@@ -1,16 +1,13 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.21
 status: stable
-last_reviewed: 2026-09-05
+last_reviewed: 2026-10-19
 ---
 
 # 工作台 Shell 架构
 
-视频的帧范围由 `annotationFrameScope` 和 `aiBoxFrames` 识别单帧与轨迹几何，画布和轨迹清单共用 `videoFrameViews.visibleInReviewMode` 的复审来源规则。标注持久化的 `is_hidden` 与会话内的隐藏轨迹集合共同约束渲染、预览和参考虚影；隐藏不删除列表条目，也不改变对象身份。图片原生 Mask 和点云邻帧参考输入同样排除隐藏标注。
-
-Workbench 是图片标注、视频追踪、审核流共用的页面壳。它的边界不是按角色复制页面，而是把「模式」和「Stage」拆成两条正交轴：
+Workbench 是图片标注、视频追踪、3D 点云与审核流共用的页面壳。它的核心边界不是按角色或模态复制页面，而是把「模式（Mode）」和「画布舞台（Stage）」拆成两条正交轴：
 
 ```
 WorkbenchShell
@@ -83,21 +80,21 @@ type StageKind = "image" | "video" | "3d";
 
 ## 3D 约束
 
-3D Stage 只复用外围壳：任务流、模式策略、右栏、状态栏、全局 overlay 和快捷键入口。
+3D Stage 只复用外围壳（任务流、模式策略、停靠面板、状态栏、全局 overlay 和快捷键入口），不在 2D / 视频 / 3D 之间强抽统一的内部 geometry 或 editor 接口：
 
-不要在 3D 接入前抽统一 geometry 或统一 editor 接口。图片 bbox / polygon 是平面 shape；视频 track 是 keyframe 派生的时间序列；3D 可能是 cuboid、点云选择、相机视锥或多视角联动。当前只统一 `StageKind`、`StageCapabilities` 和 `WorkbenchStageHost` 这一层边界。
+- 图片 bbox / polygon 是平面 shape；
+- 视频 track 是 keyframe 派生的时间序列；
+- 3D 包含 cuboid（`box_3d`）、点级分割（`point_mask_3d`）、相机视锥与多视角联动。
+
+因此跨模态只统一 `StageKind`、`StageCapabilities` 和 `WorkbenchStageHost` 这一层外壳边界。
 
 ### 3D 共享渲染 surface
 
-`ThreeDWorkbench` / `usePointCloudScene` 保持唯一 Scene、renderer、geometry、草稿及回退 owner。`WorkbenchDockWorkspace` 提供覆盖整个工作区的 GPU canvas 宿主和稳定的三视图、相机内容宿主；`Workbench3DLayoutContext` 只传递宿主、可见区域及布局动作，不复制业务 session。三视图移到主画布之外也使用同一 renderer。
-
-渲染 surface 与主画布交互宿主分离。主相机宽高比、OrbitControls、TransformControls、拾取及选点使用主画布的完整内容矩形；三视图各使用自己的完整行矩形。遮挡后的可见矩形只用于 scissor，不能用剩余面积重新计算投影或命中坐标。每次提交先清理共享 surface，再按可见区域绘制主 pass 和三视图 pass，移动或隐藏后不保留旧位置像素。
-
-共享 canvas 位于 Dockview DOM 后方，结构背景与当前 GPU 面板内容透明。`workbenchViewportRegions` 按浮窗实际层级做矩形相减，将互不重叠的可见区域同时用于 DOM 裁剪和 GPU scissor。裁剪覆盖较低 group 的背景、标题、边框及独立 `dv-render-overlay`，不裁剪含上层浮窗的公共祖先；独立 CSS 变量承载应用遮罩，避免与 Dockview 自己写入的 `clipPath` 冲突。几何与层级变化合帧测量，纯位置移动及原生 overlay 延迟定位也会触发更新，结束后停止调度并清理旧遮罩。
-
-可见性取原生 group 的活动标签、panel/group visibility 和 parking 状态；不能使用表示全局焦点的 `panel.api.isActive`，也不以延迟更新的 React `aria-hidden` 作为渲染真值。隐藏三视图停止正交 pass，隐藏相机图库暂停投影与深度覆盖层工作。相机编辑模态层和桌宠关联的 PSR 面板通过 portal 避开工作区内容裁剪，保留其坐标和编辑行为。
-
-三视图管线预热、geometry generation、单帧调度及 device-lost 回退仍由现有渲染 owner 管理。布局移动不重建 Scene、不重复下载点云、不增加 renderer 或 GPU context。决策见 [ADR-0073](../adr/archive/0073-shared-surface-for-3d-docking)。
+- **唯一渲染与业务 Owner**：`ThreeDWorkbench` / `usePointCloudScene` 保持唯一 Scene、renderer、geometry、草稿及回退 owner。`WorkbenchDockWorkspace` 提供覆盖整个工作区的 GPU canvas 宿主和稳定的三视图、相机内容宿主；`Workbench3DLayoutContext` 只传递宿主、可见区域及布局动作，不复制业务 session。三视图移到主画布之外也使用同一 renderer。
+- **交互矩形与 Scissor 分离**：渲染 surface 与主画布交互宿主分离。主相机宽高比、OrbitControls、TransformControls、拾取及选点使用主画布的完整内容矩形；三视图各使用自己的完整行矩形。遮挡后的可见矩形只用于 scissor，不能用剩余面积重新计算投影或命中坐标。每次提交先清理共享 surface，再按可见区域绘制主 pass 和三视图 pass，移动或隐藏后不保留旧位置像素。
+- **浮窗层级与 DOM 裁剪**：共享 canvas 位于 Dockview DOM 后方，结构背景与当前 GPU 面板内容透明。`workbenchViewportRegions` 按浮窗实际层级做矩形相减，将互不重叠的可见区域同时用于 DOM 裁剪和 GPU scissor。裁剪覆盖较低 group 的背景、标题、边框及独立 `dv-render-overlay`，不裁剪含上层浮窗的公共祖先；独立 CSS 变量承载应用遮罩，避免与 Dockview 自己写入的 `clipPath` 冲突。几何与层级变化合帧测量，纯位置移动及原生 overlay 延迟定位也会触发更新，结束后停止调度并清理旧遮罩。
+- **面板可见性与生命周期**：可见性取原生 group 的活动标签、panel/group visibility 和 parking 状态；不能使用表示全局焦点的 `panel.api.isActive`，也不以延迟更新的 React `aria-hidden` 作为渲染真值。隐藏三视图停止正交 pass，隐藏相机图库暂停投影与深度覆盖层工作。相机编辑模态层和桌宠关联的 PSR 面板通过 portal 避开工作区内容裁剪，保留其坐标和编辑行为。
+- **零重建移动**：三视图管线预热、geometry generation、单帧调度及 device-lost 回退仍由现有渲染 owner 管理。布局移动不重建 Scene、不重复下载点云、不增加 renderer 或 GPU context。决策见 [ADR-0073](../adr/archive/0073-shared-surface-for-3d-docking)。
 
 ### Scene 连续浏览
 
@@ -123,7 +120,7 @@ Shell 持有当前会话的 `scenePlaybackActive`，将预览状态接到 `useTa
 
 这个边界保证视频 bbox / track 新建时也能显示 class picker，不再依赖 `ImageStage.overlay`。
 
-视频候选审阅条仍使用 `WorkbenchLayout.stageOverlay`，相对中间 Stage 定位。当前题 AI 与视频追踪是独立 Dockview panel，视频标注中可以同时显示；打开入口会显示或聚焦已有实例，不创建第二份业务 session。
+视频候选审阅条仍使用 `WorkbenchLayout.stageOverlay`，相对中间 Stage 定位。单图／单帧 AI 与视频追踪是独立 Dockview panel，视频标注中可以同时显示；打开入口会显示或聚焦已有实例，不创建第二份业务 session。
 
 ## 交互 AI 顶栏与状态来源
 
@@ -135,29 +132,25 @@ Shell 持有当前会话的 `scenePlaybackActive`，将预览状态接到 `useTa
 
 ## 当前视频轨迹上下文
 
-`VideoKonvaStage` 从完整 `annotations` 与 `selectedId` 获取 bbox、polygon、polyline 或 Mask 轨迹身份；当前帧的可见几何、ghost、隐藏或 outside 过滤不决定轨迹是否存在。`videoTrackContext` 复用现有几何解析与可见关键帧导航，派生关键帧、插值、保持、outside 和本帧无几何。`VideoTrackContextBar` 在画布面板的正常布局流中占据上方一行，不持有第二份选择、播放或持久化状态，也不依赖详细时间轴的显隐。视频的公共工具浮层与 `stageOverlay` 一起传入下方的画布容器，与原绘制节点互为兄弟；它们使用相同画布坐标，不覆盖轨迹条，也不把工具事件冒泡到绘制节点。
+- **帧范围与显隐规则**：视频的帧范围由 `annotationFrameScope` 和 `aiBoxFrames` 识别单帧与轨迹几何，画布和轨迹清单共用 `videoFrameViews.visibleInReviewMode` 的复审来源规则。标注持久化的 `is_hidden` 与会话内的隐藏轨迹集合共同约束渲染、预览和参考虚影；隐藏不删除列表条目，也不改变对象身份。图片原生 Mask 和点云邻帧参考输入同样排除隐藏标注。
+- **轨迹身份与上下文条**：`VideoKonvaStage` 从完整 `annotations` 与 `selectedId` 获取 bbox、polygon、polyline 或 Mask 轨迹身份；当前帧的可见几何、ghost、隐藏或 outside 过滤不决定轨迹是否存在。`videoTrackContext` 复用现有几何解析与可见关键帧导航，派生关键帧、插值、保持、outside 和本帧无几何。`VideoTrackContextBar` 在画布面板的正常布局流中占据上方一行，不持有第二份选择、播放或持久化状态，也不依赖详细时间轴的显隐。视频的公共工具浮层与 `stageOverlay` 一起传入下方的画布容器，与原绘制节点互为兄弟；它们使用相同画布坐标，不覆盖轨迹条，也不把工具事件冒泡到绘制节点。
+- **关键帧解析与写守卫**：来源读取原始关键帧字段；Mask 保持使用实际解析锚点，缺字段不采用 renderer 的人工兜底。`AnnotationOut` 的 JSON 序列化保留旧关键帧来源缺失，写入 schema 默认值和存量数据不变。补关键帧走既有几何 upsert 与 `onUpdate`；Mask outside 继续走版本校验和历史 owner。入口共同检查任务只读、标注锁、会话轨迹锁、工作帧范围及绘制/播放状态；条内事件通过 `data-workbench-track-context` 让后台快捷键退让，条仅可见时不屏蔽画布按键。
 
-来源读取原始关键帧字段；Mask 保持使用实际解析锚点，缺字段不采用 renderer 的人工兜底。`AnnotationOut` 的 JSON 序列化保留旧关键帧来源缺失，写入 schema 默认值和存量数据不变。补关键帧走既有几何 upsert 与 `onUpdate`；Mask outside 继续走版本校验和历史 owner。入口共同检查任务只读、标注锁、会话轨迹锁、工作帧范围及绘制/播放状态；条内事件通过 `data-workbench-track-context` 让后台快捷键退让，条仅可见时不屏蔽画布按键。
-
-## 当前题 AI 请求与 Inspector 阶段
+## 单图／单帧 AI 请求与 Inspector 阶段
 
 `AIPredictionPopover` 从当前题请求及现有候选数量派生 idle / running / review / error 展示；`useWorkbenchAiRequest` 只持有普通预测的请求归属，不接管 SAM 或 tracker 执行器。图片与项目编排仍调用 `useTriggerPreannotation`，视频仍调用 `mlBackendsApi.predictFrame`。
 
-提交时深复制并冻结任务、视频帧、后端、模型及输入，视频在首次异步抓帧之前占用请求，重试复用捕获的 JPEG。当前请求在 project / task / frame 变化或卸载时失效；迟到响应不能修改新视图。图片返回的 Celery ID 通过 `async_jobs.celery_task_id` 精确匹配，再使用 `useAsyncJob` 查询进度和终态。项目 WebSocket 继续服务项目进度，不能作为当前请求身份。
-
-图片只在匹配到支持取消的作业后开放取消，等待服务端终态；视频使用 AbortSignal。查询失败保留原作业，重试只恢复查询；候选刷新失败只重试刷新，执行失败才重放原输入。候选刷新完成后进入审阅，移动或隐藏 Dockview 面板不会改变请求归属。
-
-Inspector 的候选属性按候选自身的工具单位读取 schema，由原候选选择持有；输入立即更新本地草稿，主接受按钮、面板内 A 与列表采纳共用 `acceptWithReviewEdits`。本地 A/D 让出输入、菜单、修饰键、IME、重复事件，并使用 `aiBoxOnFrame` 保留视频当前帧范围；全局监听通过 `data-workbench-ai-toolbar` 让出，避免重复执行或绕过草稿。高级表单保持同一挂载实例；未引入新的候选列表、Dockview grammar 或业务面板实例。
+- **输入冻结与身份匹配**：提交时深复制并冻结任务、视频帧、后端、模型及输入，视频在首次异步抓帧之前占用请求，重试复用捕获的 JPEG。当前请求在 project / task / frame 变化或卸载时失效；迟到响应不能修改新视图。图片返回的 Celery ID 通过 `async_jobs.celery_task_id` 精确匹配，再使用 `useAsyncJob` 查询进度和终态。项目 WebSocket 继续服务项目进度，不能作为当前请求身份。
+- **取消与重试语义**：图片只在匹配到支持取消的作业后开放取消，等待服务端终态；视频使用 AbortSignal。查询失败保留原作业，重试只恢复查询；候选刷新失败只重试刷新，执行失败才重放原输入。候选刷新完成后进入审阅，移动或隐藏 Dockview 面板不会改变请求归属。
+- **Inspector 候选属性编辑**：Inspector 的候选属性按候选自身的工具单位读取 schema，由原候选选择持有；输入立即更新本地草稿，主接受按钮、面板内 A 与列表采纳共用 `acceptWithReviewEdits`。本地 A/D 让出输入、菜单、修饰键、IME、重复事件，并使用 `aiBoxOnFrame` 保留视频当前帧范围；全局监听通过 `data-workbench-ai-toolbar` 让出，避免重复执行或绕过草稿。高级表单保持同一挂载实例；未引入新的候选列表、Dockview grammar 或业务面板实例。
 
 ## 可停靠工作区
 
 ### 设置窗口与工具菜单的输入隔离
 
-设置窗口内容与遮罩带 `data-workbench-settings`，工具溢出菜单带 `data-workbench-tool-menu`，入口单独标记为 `data-workbench-tool-menu-trigger`，打开时 `data-state="open"`。独立的背景键盘和全局滚轮监听先调用 `workbenchInteractionGuards.ts` 的 `isWorkbenchInteractionBlocked(event)`；有打开的标记，或事件的 `composedPath()` 包含标记时直接返回，不阻止传播，让浮层自身的键盘、焦点与滚动行为继续工作。事件路径判断保留已卸载的标记，防止关闭菜单的同一次事件落到背景。类别选择器的外部点击也遵循此边界，打开工具菜单不取消待选类别的草稿。关闭后的入口只接管 Enter、Space、向下方向键等打开菜单的输入，其余画布快捷键恢复；菜单的 React portal 冒泡事件不触发布局保存。
-
-主快捷键还通过 `disabled` 暂停，开窗时清空空格平移与视频按住状态，并提交此前已有的方向键微移。`keyup`、`pointerup`、`mouseup` 中的释放和拖拽收尾继续执行。视频入口调用 `pausePlayback({ snapToGrid: false })`，暂停但不对齐采样网格、不切换帧；关闭设置后保持暂停。这一边界只负责设置窗口，不改变其它弹窗或后台任务的生命周期。
-
-快捷键面板（`HotkeyCheatSheet`）遵循同一契约：内容与遮罩带 `data-workbench-hotkeys` 并进入共享事件卫兵，主快捷键 dispatch 在面板打开期间整体 `disabled`（与设置窗口同款开窗清held-key语义）；Escape 在录制改绑时先取消录制、面板保持打开，外部点击先取消未确认录制再关闭。
+- **事件守卫标记**：设置窗口内容与遮罩带 `data-workbench-settings`，工具溢出菜单带 `data-workbench-tool-menu`，入口单独标记为 `data-workbench-tool-menu-trigger`，打开时 `data-state="open"`。独立的背景键盘和全局滚轮监听先调用 `workbenchInteractionGuards.ts` 的 `isWorkbenchInteractionBlocked(event)`；有打开的标记，或事件的 `composedPath()` 包含标记时直接返回，不阻止传播，让浮层自身的键盘、焦点与滚动行为继续工作。事件路径判断保留已卸载的标记，防止关闭菜单的同一次事件落到背景。类别选择器的外部点击也遵循此边界，打开工具菜单不取消待选类别的草稿。关闭后的入口只接管 Enter、Space、向下方向键等打开菜单的输入，其余画布快捷键恢复；菜单的 React portal 冒泡事件不触发布局保存。
+- **开窗时状态收尾**：主快捷键还通过 `disabled` 暂停，开窗时清空空格平移与视频按住状态，并提交此前已有的方向键微移。`keyup`、`pointerup`、`mouseup` 中的释放和拖拽收尾继续执行。视频入口调用 `pausePlayback({ snapToGrid: false })`，暂停但不对齐采样网格、不切换帧；关闭设置后保持暂停。这一边界只负责设置窗口，不改变其它弹窗或后台任务的生命周期。
+- **快捷键面板（`HotkeyCheatSheet`）**：遵循同一契约，内容与遮罩带 `data-workbench-hotkeys` 并进入共享事件卫兵，主快捷键 dispatch 在面板打开期间整体 `disabled`（与设置窗口同款开窗清 held-key 语义）；Escape 在录制改绑时先取消录制、面板保持打开，外部点击先取消未确认录制再关闭。
 
 ### 工具坞容量
 
@@ -165,41 +158,26 @@ Inspector 的候选属性按候选自身的工具单位读取 schema，由原候
 
 ### 视频工具作用范围
 
-`useWorkbenchState` 以一个会话状态保存 `VideoTool` 与 `frame / track` 范围。`videoToolUnits` 从现有能力映射派生范围，只对矩形框、多边形、折线、Mask 做同几何配对；`select` 保留最近范围。工具坞按能力和范围投影，不保存第二份工具状态，也不把范围加入布局偏好。
-
-`useVideoToolCommands` 为工具坞、明确目标的快捷键和实际对象选中事件提供统一准入。四类轨迹只在新的选中事件中映射对应工具，不通过选中状态 effect 覆盖后来的单帧命令。Shift 多选仍保留集合；移除一个成员不会把较早选中的轨迹重新解释为新命令。不可用目标保留选择工具、请求范围和说明。
-
-准入直接查询 `VideoStageControls.getDrawingDraft`，丢弃时调用 `discardDrawingDraft`，不复制 Stage 的顶点、关键点或拖拽状态。已完成几何仍使用 `pendingDrawing.kind / frameIndex`；确认期间松开拖框所形成的类别待选稿按原工具和源帧识别，同属草稿一并丢弃，替换稿件则保留并撤销旧命令。Mask 使用原 `maskNavigationGuardRef`，待选类别的 Mask 保存仍由原 writer 的 resolver 持有。确认或保存返回后校验任务、分段、源帧、路由、请求代次和待选稿件，过期决定不得应用到新上下文。追踪种子采集通过同一准入临时借用 AI 工具，使用追踪后端能力；确认期间面板关闭、替换或种子模式变化则不再开始旧采集，退出时恢复原工具与范围。
-
-列表通过 `VideoSelectionCommand` 一次传入对象、可选源帧和获准回调，不在准入前调用跳帧；轨迹侧栏原有的批量选择集合也等到获准后才更新。范围按钮、对象行和种子入口共用外部点击边界，避免待选类别在确认前自动保存。
-
-已有矩形框轨迹的续画直接由原更新入口在松手时落关键帧。此类拖拽携带 `continuingTrack`，鼠标未松开前拒绝切换命令并说明原因；松手先结束拖拽所有权再提交，保留原续画自动前进，不把内部的下一轨迹选择误判为仍在绘制。
-
-视频工具命令带 `data-workbench-video-tool-command`，类别弹窗在外部点击捕获阶段让位，避免确认前保存未知类别；标记只接管原生激活和导航键，普通工具字母仍可使用。绘制确认框使用 `data-workbench-video-tool-confirm`，打开时所有背景监听让位。
+- **范围派生与状态归属**：`useWorkbenchState` 以一个会话状态保存 `VideoTool` 与 `frame / track` 范围。`videoToolUnits` 从现有能力映射派生范围，只对矩形框、多边形、折线、Mask 做同几何配对；`select` 保留最近范围。工具坞按能力和范围投影，不保存第二份工具状态，也不把范围加入布局偏好。
+- **统一准入（`useVideoToolCommands`）**：为工具坞、明确目标的快捷键和实际对象选中事件提供统一准入。四类轨迹只在新的选中事件中映射对应工具，不通过选中状态 effect 覆盖后来的单帧命令。Shift 多选仍保留集合；移除一个成员不会把较早选中的轨迹重新解释为新命令。不可用目标保留选择工具、请求范围和说明。
+- **草稿保护与异步复核**：准入直接查询 `VideoStageControls.getDrawingDraft`，丢弃时调用 `discardDrawingDraft`，不复制 Stage 的顶点、关键点或拖拽状态。已完成几何仍使用 `pendingDrawing.kind / frameIndex`；确认期间松开拖框所形成的类别待选稿按原工具和源帧识别，同属草稿一并丢弃，替换稿件则保留并撤销旧命令。Mask 使用原 `maskNavigationGuardRef`，待选类别的 Mask 保存仍由原 writer 的 resolver 持有。确认或保存返回后校验任务、分段、源帧、路由、请求代次和待选稿件，过期决定不得应用到新上下文。追踪种子采集通过同一准入临时借用 AI 工具，使用追踪后端能力；确认期间面板关闭、替换或种子模式变化则不再开始旧采集，退出时恢复原工具与范围。
+- **列表选中与续画关键帧**：列表通过 `VideoSelectionCommand` 一次传入对象、可选源帧和获准回调，不在准入前调用跳帧；轨迹侧栏原有的批量选择集合也等到获准后才更新。范围按钮、对象行和种子入口共用外部点击边界，避免待选类别在确认前自动保存。已有矩形框轨迹的续画直接由原更新入口在松手时落关键帧，携带 `continuingTrack` 并在鼠标未松开前拒绝切换命令；松手先结束拖拽所有权再提交，保留原续画自动前进。
+- **事件属性隔离**：视频工具命令带 `data-workbench-video-tool-command`，类别弹窗在外部点击捕获阶段让位，避免确认前保存未知类别；标记只接管原生激活和导航键，普通工具字母仍可使用。绘制确认框使用 `data-workbench-video-tool-confirm`，打开时所有背景监听让位。
 
 ### 视频追踪审阅范围
 
-`TrackerJobStore` 在原有 jobs、candidates 和提交生命周期内保存当前审阅作业，以及每个作业的目标 ID、源帧窗口和意图代次。`videoTrackerReviewScope` 只派生可用目标、选区内候选、未决计数和真实剩余帧区间，不持有另一份候选数据。Shell 将同一个 projection 传给审阅条、当前轨迹条和时间轴，bbox 与 Mask 画布预览先按这个选区过滤，再按当前源帧过滤。
-
-新候选只在没有当前审阅作业时选择默认作业；后续到达或刷新不能抢走已选作业。切换作业保留各自范围，revision 更新只与仍合法的目标求交，不添加未选目标或扩大窗口。选区为空时保留零未决状态，剩余区间入口只导航，不隐式改变选区。参考轨迹通过候选的 source / target annotation ID 映射，只有明确加入或替换命令才更新目标。
-
-任务 epoch、作业 generation 与请求所有权保护恢复、预览及决定后的异步写入；旧任务的响应不得复活候选，新 preview 不被旧 revision 覆盖。同一任务内旧作业已经落库的结果仍可更新其缓存，但不能重选该作业或覆盖当前范围。人工帧覆盖重试绑定点击时的任务、作业、范围意图和候选 revision，确认前后均检查是否仍有效。Mask QC 保留独立区域 selector 与原决定入口。
-
-剩余区间导航经 `useVideoToolCommands.requestFrame` 使用原 Stage 和 Mask 草稿保护，并在等待后复核审阅意图；它保留工具范围与参考对象多选。审阅控件使用 `data-workbench-tracker-review` 让背景键盘监听让位，非模态审阅打开时仍可操作背景画布。
+- **审阅投影（`videoTrackerReviewScope`）**：`TrackerJobStore` 在原有 jobs、candidates 和提交生命周期内保存当前审阅作业，以及每个作业的目标 ID、源帧窗口和意图代次。`videoTrackerReviewScope` 只派生可用目标、选区内候选、未决计数和真实剩余帧区间，不持有另一份候选数据。Shell 将同一个 projection 传给审阅条、当前轨迹条和时间轴，bbox 与 Mask 画布预览先按这个选区过滤，再按当前源帧过滤。
+- **作业选择与范围交集**：新候选只在没有当前审阅作业时选择默认作业；后续到达或刷新不能抢走已选作业。切换作业保留各自范围，revision 更新只与仍合法的目标求交，不添加未选目标或扩大窗口。选区为空时保留零未决状态，剩余区间入口只导航，不隐式改变选区。参考轨迹通过候选的 source / target annotation ID 映射，只有明确加入或替换命令才更新目标。
+- **并发与过期防护**：任务 epoch、作业 generation 与请求所有权保护恢复、预览及决定后的异步写入；旧任务的响应不得复活候选，新 preview 不被旧 revision 覆盖。同一任务内旧作业已经落库的结果仍可更新其缓存，但不能重选该作业或覆盖当前范围。人工帧覆盖重试绑定点击时的任务、作业、范围意图和候选 revision，确认前后均检查是否仍有效。Mask QC 保留独立区域 selector 与原决定入口。
+- **导航与键盘让位**：剩余区间导航经 `useVideoToolCommands.requestFrame` 使用原 Stage 和 Mask 草稿保护，并在等待后复核审阅意图；它保留工具范围与参考对象多选。审阅控件使用 `data-workbench-tracker-review` 让背景键盘监听让位，非模态审阅打开时仍可操作背景画布。
 
 ### 图片手工创建事务
 
-图片 Polygon 的点集仍由 `useWorkbenchAnnotationActions` 管理；`usePolygonDraftPoints` 同步发布点集引用，使撤销、取消和任务切换能立即使旧批次失效。`usePolygonAutoPoints` 只保存本次 Shift 拖动的采样余量和待刷新的点，按累计 8 CSS px 距离重采样，一帧批量追加；追加时检查原点集引用、图像身份、视口和编辑许可。松手或释放 Shift 保留终点，Enter / Backspace 通过原快捷键所有者先完成当前批次再操作最新草稿。20,000 点预算只暂停自动采样，已有点保留；超过 500 个草稿顶点时使用一个 Konva Shape 绘制全部顶点，避免逐顶点创建 React 节点。手工单击、吸附、闭合与创建事务保持原入口。
-
-`usePolygonBoundaryTrace` 只持有沿边界追踪的预览：冻结来源 ID、version、完整 geometry、起止点和待追加草稿引用。`polygonBoundaryTrace` 按屏幕坐标投影并枚举顺逆两条弧，不改变来源的绕序、孔洞或外环结构；复杂几何在选择时拒绝。确认通过现有 annotations GET 核验来源，网络失败保留可重试预览，来源变化使预览失效。追加仍由 `useWorkbenchAnnotationActions` 一次更新原草稿；任务、工具、锁、待保存状态和点集引用共同阻止过期操作。取消、卸载及上下文切换中止核验并检查迟到结果；`useWorkbenchHotkeys` 的 `beforeInput` 桥接让 Esc 先退出预览，Enter 先确认路径，Backspace 退出预览后逐点撤销。
-
-普通矩形框的 `bboxCreationMode` 保存在 `useWorkbenchState` 会话中；`BboxTool` 在按下时锁存中心选项或 Alt，`ImageStage` 的预览与提交共用 `imageBoxFromDrag`。中心创建按两侧最近图像边界限制半径，松手读取最终指针坐标，避免最后一次 move 尚未渲染时丢失终点。几何随后仍进入原创建事务，过小、零面积和属性校验由已有漏斗处理；起点选项不写入用户偏好或标注合同。
-
-`useWorkbenchState` 保存会话级连续创建意图 `(projectId, tool_unit_id, class_name, tool)`，只允许矩形框、旋转框、多边形、折线和模板关键点；区域单元恢复 Polygon。`useWorkbenchAnnotationActions` 仍是几何创建 owner。完成的几何附带唯一草稿 ID、任务、工具单元、类别、独立属性和 `class / attributes / saving / error` 阶段，类别和属性均从该单元读取，不使用展示层的跨单元兜底。默认值逐对象复制，缺失必填项复用 `AttributeForm.getMissingRequired`，草稿表单同步更新以支持输入后立即 Enter；旧草稿 ID 的更新无效。
-
-同步 ref 防止一次完成动作触发重复请求。在线成功或 `enqueueDurably` 确认 IndexedDB 事务提交后才释放草稿，失败保留同一几何重试。任务代次保护选择、history 和弹层；切题清空原题草稿，同项目保留仍合法的意图。底层 `useCreateAnnotation` 将任务与视频分段放进每次调用的内部变量，缓存与请求都使用调用时的归属，避免等待 `onMutate` 或网络时切题把写入转移到新题。公开 mutation 调用仍接收普通 annotation payload。
-
-离线队列沿用已有存储键。入队、出队和 ID 替换通过同一个原子读改写事务执行；网络 handler 在事务锁外运行，防止重入死锁或覆盖期间新增的操作。旧 `enqueue` 保留尽力写入的兼容接口，要求保存确认的流程必须等待 `enqueueDurably`。这保证本机接收语义，不新增远端幂等协议；远端成功后本机提交失败、跨标签页并行 drain 等既有边界仍不能保证远端只执行一次。
+- **Polygon 采样与顶点绘制**：图片 Polygon 的点集由 `useWorkbenchAnnotationActions` 管理；`usePolygonDraftPoints` 同步发布点集引用，使撤销、取消和任务切换能立即使旧批次失效。`usePolygonAutoPoints` 只保存本次 Shift 拖动的采样余量和待刷新的点，按累计 8 CSS px 距离重采样，一帧批量追加；追加时检查原点集引用、图像身份、视口和编辑许可。松手或释放 Shift 保留终点，Enter / Backspace 通过原快捷键所有者先完成当前批次再操作最新草稿。20,000 点预算只暂停自动采样，已有点保留；超过 500 个草稿顶点时使用一个 Konva Shape 绘制全部顶点，避免逐顶点创建 React 节点。
+- **沿边界追踪（`usePolygonBoundaryTrace`）**：只持有沿边界追踪的预览（冻结来源 ID、version、完整 geometry、起止点和待追加草稿引用）。`polygonBoundaryTrace` 按屏幕坐标投影并枚举顺逆两条弧，不改变来源的绕序、孔洞或外环结构；复杂几何在选择时拒绝。确认通过现有 annotations GET 核验来源，网络失败保留可重试预览，来源变化使预览失效。追加仍由 `useWorkbenchAnnotationActions` 一次更新原草稿；`useWorkbenchHotkeys` 的 `beforeInput` 桥接让 Esc 先退出预览，Enter 先确认路径，Backspace 退出预览后逐点撤销。
+- **矩形框创建模式（`bboxCreationMode`）**：保存在 `useWorkbenchState` 会话中；`BboxTool` 在按下时锁存中心选项或 Alt，`ImageStage` 的预览与提交共用 `imageBoxFromDrag`。中心创建按两侧最近图像边界限制半径，松手读取最终指针坐标，避免最后一次 move 尚未渲染时丢失终点。起点选项不写入用户偏好或标注合同。
+- **连续创建意图与草稿阶段机**：`useWorkbenchState` 保存会话级连续创建意图 `(projectId, tool_unit_id, class_name, tool)`，只允许矩形框、旋转框、多边形、折线和模板关键点；区域单元恢复 Polygon。完成的几何附带唯一草稿 ID、任务、工具单元、类别、独立属性和 `class / attributes / saving / error` 阶段，类别和属性均从该单元读取，不使用展示层的跨单元兜底。默认值逐对象复制，缺失必填项复用 `AttributeForm.getMissingRequired`，草稿表单同步更新以支持输入后立即 Enter；旧草稿 ID 的更新无效。
+- **单飞提交与离线队列（`enqueueDurably`）**：同步 ref 防止一次完成动作触发重复请求。在线成功或 `enqueueDurably` 确认 IndexedDB 事务提交后才释放草稿，失败保留同一几何重试。任务代次保护选择、history 和弹层；切题清空原题草稿，同项目保留仍合法的意图。底层 `useCreateAnnotation` 将任务与视频分段放进每次调用的内部变量，缓存与请求都使用调用时的归属，避免等待 `onMutate` 或网络时切题把写入转移到新题。离线队列的入队、出队和 ID 替换通过同一个原子读改写事务执行，网络 handler 在事务锁外运行。
 
 ## 右栏：AI 检查器 + 讨论面板
 
@@ -214,16 +192,10 @@ Inspector 的候选属性按候选自身的工具单位读取 schema，由原候
 | `class-palette` | 类别面板                        | `onlyWhenVisible`；允许停靠、标签、浮动与隐藏                          |
 | `inspector`     | 标注详情、人工标注与 AI 候选    | `always`；隐藏时保留未完成的属性编辑                                   |
 | `discussion`    | 评论、历史、Issue               | `always`；隐藏时保留未发送输入                                         |
-| `ai-task`       | 当前题 AI 运行与候选审阅        | `always`；仅图片、视频标注 context 提供入口                            |
+| `ai-task`       | 单图／单帧 AI 运行与候选审阅    | `always`；仅图片、视频标注 context 提供入口                            |
 | `video-tracker` | 视频追踪配置与运行              | `always`；仅视频标注 context 提供入口                                  |
 | `tri-view`      | 俯视、侧视、正视三行精修        | `always`；仅 3D context 提供入口，作为一个面板移动与隐藏               |
 | `camera-view`   | 相机停靠图库                    | `always`；仅 3D context 提供入口，禁止原生图库浮窗，模式由整组命令切换 |
-
-- **上段 `.rightSplitTop`**：`AIInspectorPanel`，与下段之间有一个上下拖拽 handle。上段高度持久化到 localStorage `workbench.rightSplit.topHeight`（默认 360px，范围 160–720px）。
-- **下段 `.rightSplitBottom`**：`DiscussionPanel`，承载评论 / 历史 / issue 的统一讨论入口。
-- **列宽拖拽 handle** 提升到 `.rightSplit` 全高层级，覆盖两段，不再只贴在 AI 检查器一侧。
-- **布局偏好**：左右栏开合、左右栏宽度、任务队列 / 类别面板 / 标注详情 / 讨论面板浮窗、3D 三视图浮层、2D 相机面板布局和点云主视角快照写入 `user.preferences.workbench.layout`；前端提交全量 `workbench` 子树，后端递归合并偏好字典，列表覆盖；`workbench.layout.cameraPanels` 按原子 map 替换，`workbench.layout.workspace.namedPresets` 还使用独立 revision 防止陈旧整图覆盖。
-- **侧栏区块分离**：`TaskQueuePanel` 内的任务队列和类别面板、`AIInspectorPanel`、`DiscussionPanel` 都可由 `WorkbenchLayout` 改用 `FloatingPanelShell` 渲染。分离操作默认收起对应侧栏；后续展开只显示仍嵌入的区块，不会自动合并浮窗。合并回侧栏只恢复嵌入状态，不主动展开侧栏。若一侧两个区块都已分离，侧栏 toggle 是可见 no-op。
 
 外围面板可放到画布左、右或底部，也可与其他外围面板组成标签。同窗口浮窗可以包含标签，但浮窗内部不支持再次切分网格。画布换位命令将同一个 `canvas` group 放到整棵可见树的左、右、上、下边缘；画布继续隐藏 header 并锁住原生拖放。`parking` 不显示 header，也不接收用户拖放。适配层不提供 popout，不调用 `addPopoutGroup`，快照清洗也不保留外部窗口描述。
 
@@ -352,9 +324,9 @@ context 是 `annotate|review × image|video|3d` 的六项闭集，按账号分�
 
 ## 图片切割与原子历史
 
-`ImageStage / usePolygonSlice` 持有切线、来源版本、两块预览与不可变提交请求。开始时清除当前选择以收起遮挡画布的对象浮窗，靠近来源边界时复用边界吸附；取消只销毁预览。切题、切工具和只读状态变化使旧会话失效，迟到请求不能清空新预览。提交失败仍保留同一 payload 和幂等键，来源刷新也不能改写已发送请求。
-
-Shell 通过 `annotationSlicesApi` 提交，在原任务记录一条受限 `slice` history 命令。命令不允许嵌入 create / delete 叶批次，只保存原操作 ID、完整结果版本、恢复期限与待重试请求键。undo / redo 成功后才移动栈，失败保留位置；任务切换期间每个异步操作只结算原任务历史并刷新原任务缓存。恢复响应先更新历史，缓存刷新异步进行，避免用户立即刷新时丢失已成功撤销的历史位置。
+- **Polygon 切割（`ImageStage / usePolygonSlice`）**：持有切线、来源版本、两块预览与不可变提交请求。开始时清除当前选择以收起遮挡画布的对象浮窗，靠近来源边界时复用边界吸附；取消只销毁预览。切题、切工具和只读状态变化使旧会话失效，迟到请求不能清空新预览。提交失败仍保留同一 payload 和幂等键，来源刷新也不能改写已发送请求。
+- **原子历史命令（`slice`）**：Shell 通过 `annotationSlicesApi` 提交，在原任务记录一条受限 `slice` history 命令。命令不允许嵌入 create / delete 叶批次，只保存原操作 ID、完整结果版本、恢复期限与待重试请求键。undo / redo 成功后才移动栈，失败保留位置；任务切换期间每个异步操作只结算原任务历史并刷新原任务缓存。恢复响应先更新历史，缓存刷新异步进行，避免用户立即刷新时丢失已成功撤销的历史位置。
+- **Mask 切割与回滚**：Mask 切割复用 `MaskToolbar`、`useMaskEditor` 的实例预览和 D 的主动作解析器。画布只持有两点直线的拖动状态；切题、来源 / 工具 / buffer 变化或取消时清理。`slice_mask` 预览计算只分区本地 alpha；确认才沿 `mask-mutations:commit` 上传两个结果并提交固定请求。收到 `slice_restore` 即向原任务入栈同一种受限 slice 命令；客户端不创建独立的 Mask 回滚栈。服务端恢复通过 `MaskAnnotationRevision` 解析前后版本，先锁定并校验内容，再锁对象，并在触发器捕获旧版本后保护引用期限，保持现有 GC 合同。
 
 服务端快照、幂等、版本保护与不可收窄的账本迁移见 [ADR-0074](/dev/adr/archive/0074-atomic-annotation-slice-restore)。
 
@@ -373,7 +345,7 @@ workbench
 ```
 
 - **后端**：`apps/api/app/schemas/user.py` 四个子树 Model 均 `extra="forbid"`；存量 JSONB 由 alembic `0103` 数据迁移就地改写（up/down 可逆、幂等）。`update_preferences` 入口保留一层 legacy 平铺键提升器兼容旧 tab。
-- **`ProjectRenderingConfig` 保持平铺**：项目侧不迁移；`useWorkbenchConfig.applyProjectOverride` 把平铺的项目覆盖映射到 `image.*` 子树字段,`lockedFields` 语义不变。
+- **`ProjectRenderingConfig` 保持平铺**：项目侧不迁移；`useWorkbenchConfig.applyProjectOverride` 把平铺的项目覆盖映射到 `image.*` 子树字段，`lockedFields` 语义不变。
 - **字段注册表**：`state/workbenchSettingsFields.ts` 是设置 UI 的单一来源（key / 分类 / section 分组 / 控件类型 / 是否可锁定）。Settings 页「标注偏好」与工作台设置窗口共用它 + `components/SettingsFieldControl` 渲染，**新增设置项 = 后端子树加字段 → `auth.ts` 类型同步 → 注册表加一行 → 消费点读配置**。
 - **设置窗口**：`shell/WorkbenchSettingsDialog.tsx` 复用 Radix Dialog / Tabs。桌面居中双栏，窄屏全屏；固定显示界面布局、标注显示、编辑与辅助、画布与视角、播放与轨迹、性能与实验六类，搜索匹配名称、说明、分组与选项，并保留命中子项的父开关。`WORKBENCH_SETTING_GROUPS` / `WORKBENCH_SETTING_SECTIONS` 和 `groupWorkbenchSettings()` 统一窗口、搜索与个人页的展示顺序，`category` 仍只表示原有偏好子树。窗口不接收 Stage 类型，不做模态可见性过滤。`SettingsFieldControl` 的 `settings` 布局显示说明，个人页保留默认 `compact` 布局。
 - **关闭与焦点**：`DialogContent.overlayProps` 为当前窗口配置遮罩层级和事件。仅从遮罩开始的完整点击触发关闭，避免滑块拖出窗口误关闭；关闭与切换分类前 blur 活跃字段。Dialog 接管焦点陷阱与恢复，组合输入期间不响应 Esc，背景输入按上文统一隔离。
@@ -395,14 +367,10 @@ dispatchKey(ctx.matchCommand) → 既有 action 处理器
 ```
 
 - **稳定命令 ID**：`HOTKEYS` 每条目带 `id`（如 `image.tool.box`、`video.frame.next`），另带用途分类（`category`）、工作台类型（`stages`）、生效条件（`applies`）与精选标记（`common`）。`dispatchKey` 中可编辑命令的按键匹配改经 `matchCommand`（按生效绑定表），Fixed 命令保留显式分支；两条路径都要求修饰键完全一致，Shift/Alt 变体不再顺延命中已记录的组合。IME 组合期与 AltGr 字符不参与任何 Workbench 命令。
-- **可编辑范围**：本增量只开放图片 / 视频工具选择、通用切题、图片选中态锁定 / 隐藏、视频选中轨迹状态与书签、视频帧 / 网格 / 源帧微调 / 关键帧导航。其余全部是 Fixed：`hotkeyBindings.ts` 的 `FIXED_SHORTCUTS` 登记 Fixed 命令的默认键与生效上下文（含项目类别数字键、3D 本地键、播放手势、剪贴板 / 历史键），参与冲突检查但不可改绑。审核 A/R、方向键微调、视频首尾帧和 SAM/Mask 的修饰键变体同样登记；固定动作按互斥上下文判断，保留明确的默认工具重叠。派发显式接收图片、视频或 3D 类型，并在原有编辑保护通过后按生效命令匹配，不再依赖默认物理键分支。启用和恢复默认先验证整份目标组合。Backquote / Enter / Esc / Tab 等物理键位例外不可录制。
+- **可编辑范围**：当前开放图片 / 视频工具选择、通用切题、图片选中态锁定 / 隐藏、视频选中轨迹状态与书签、视频帧 / 网格 / 源帧微调 / 关键帧导航。其余全部是 Fixed：`hotkeyBindings.ts` 的 `FIXED_SHORTCUTS` 登记 Fixed 命令的默认键与生效上下文（含项目类别数字键、3D 本地键、播放手势、剪贴板 / 历史键），参与冲突检查但不可改绑。审核 A/R、方向键微调、视频首尾帧和 SAM/Mask 的修饰键变体同样登记；固定动作按互斥上下文判断，保留明确的默认工具重叠。派发显式接收图片、视频或 3D 类型，并在原有编辑保护通过后按生效命令匹配，不再依赖默认物理键分支。启用和恢复默认先验证整份目标组合。Backquote / Enter / Esc / Tab 等物理键位例外不可录制。
 - **冲突模型**：域（common ∩ image/video/threed）与谓词（选中态、预测态、轨迹态、采样态）可证明互斥时允许共用按键（如 L 键的「锁定选中」与「折线工具」互补共存）；否则按绑定 token 精确相等判定冲突。改绑在面板内即时预览冲突并拒绝确认，给出对方名称、生效上下文和跳转入口；不提供自动「顶掉对方」。加载与项目 / 上下文变化时复查全部生效组合，互相争用的覆盖成对停用（保留存量值供修正，运行期都不执行）。
 - **项目类别数字键**：类别直选只有十个数字槽 1-9 加 0，按工具绑定单元的配置顺序取前十个；槽位不随搜索、选择或最近使用重排。字母不再切类别（画布字母全部是工具 / 动作键），类别弹层的直选同步收窄到数字槽，并新增 ↑/↓ 移动高亮、Enter 确认高亮项（查询为空时维持默认类别）、组合输入不确认。视频 `0`（实际尺寸）与 3D 三视图 `0`（聚焦视图缩放重置）让位改绑为 `Shift+物理 Digit0`；`Mod+0` 视图重置要求修饰键完全一致。图片属性数字键只在选中卡「属性快捷键」区域显式聚焦后生效（`AttributeForm.shortcutRegion`，仅图片选中卡两个消费者 opt-in），区域失焦立即交还画布类别键。
 - **偏好契约**：`useWorkbenchShortcutPreferences` 以账号为 key 读写共享 preferences query；同命令重复编辑按命令串行合并（旧完成不覆盖新值），面板通过 `previewEffective` 合并待保存编辑并预检冲突，画布仅使用 `effective` 中的已确认值。成功响应只回填对应命令，避免覆盖其他偏好；失败保留待写编辑供重试 / 放弃。每次派发和完成均检查账号与挂载归属，退出工作台后取消尚未发送的请求；旧请求不能删除新请求的队列。偏好加载失败禁止写入默认值。工具坞角标与 tooltip 按生效组合展示（`toolHotkeys`），停用命令清空角标。
-
-<!-- history: DiscussionPanel and the split right rail shipped through the v0.11 workbench slices. FloatingPanelShell + layout preferences shipped in v0.13.10. The four-subtree preferences split + settings window shipped in v0.15.3. The shortcut reference dialog + account-level customization shipped in v0.24. -->
-
-Mask 切割复用 `MaskToolbar`、`useMaskEditor` 的实例预览和 D 的主动作解析器。画布只持有两点直线的拖动状态；切题、来源 / 工具 / buffer 变化或取消时清理。`slice_mask` 预览计算只分区本地 alpha；确认才沿 `mask-mutations:commit` 上传两个结果并提交固定请求。收到 `slice_restore` 即向原任务入栈同一种受限 slice 命令；客户端不创建独立的 Mask 回滚栈。服务端恢复通过 `MaskAnnotationRevision` 解析前后版本，先锁定并校验内容，再锁对象，并在触发器捕获旧版本后保护引用期限，保持现有 GC 合同。
 
 ## 可复用的上下文工具栏
 
@@ -422,16 +390,8 @@ Mask 切割复用 `MaskToolbar`、`useMaskEditor` 的实例预览和 D 的主动
 </ContextToolbar>
 ```
 
-参数、草稿、保存、撤销和异步任务仍由工具原有 owner 持有。收起只改变显示；完整栏内容在关闭动画结束后卸载，因此需要保留的状态应放在容器外。`id` 在同时挂载的实例之间保持唯一；切换到不同 owner 时按原有生命周期卸载或使用对应的 React key。
-
-容器使用通用 `data-workbench-context-*` 标记接入事件守卫，允许点击画布关闭并开始绘制；关闭后恢复焦点到胶囊，点击外部时不抢回焦点。动画在挂载后测量真实起终点，关闭前重新测量以适应缩放与窗口大小变化；快速反向切换沿用当前变换，组件卸载时取消待执行帧，系统开启减少动态效果时跳过明显位移过程。
-
-完整面板按实际画布宿主限制宽高；胶囊保持统一高度，收起宽度按摘要内容测量；快捷操作在同一表面向右、向下同步展开，窄空间内换行；必填输入与候选操作仅在胶囊展开后可见，默认只保留头部；展开区与头部共享背景、边框和圆角，不绘制独立卡片。关闭动画以当前胶囊头部为目标，退场中的完整面板不接受焦点或输入。组合输入期间不处理 Esc。
-
-`workbenchContextToolbar` 只从现有状态派生呈现资格：活动 Mask／交互式 AI 优先，种子采集期间不显示竞争工具栏；无待处理编辑时显示追踪审阅，其次是适用的二次推理和能力恢复。后台追踪结果不能自动抢占编辑。临时抑制仅卸载工具栏呈现，保留组件内的参数、配置展开状态和请求保护。
-
-二次推理的 mutation variables 固定来源任务与标注，成功结果只更新来源任务缓存；每个任务／标注有同步提交保护，旧对象的完成通知不会套用到当前选择。交互式 AI 在任务、工具、视频帧或精修来源变化时重置呈现，修改模型与参数仍留在当前设置面板。追踪审阅按任务／作业重置呈现，不按范围 revision 重建；待提交 intent 和人工帧覆盖确认继续由原审阅组件管理，呈现被其他编辑工具隐藏后不弹迟到确认。
-
-交互 AI 的摘要按五种工具的有效能力派生：点与笔迹可显示正负状态，示例框遵守 `negative_box` / `text_combination` 门控；普通框提示与魔法收紧不使用残留极性。摘要只读取现有 owner 的文本、几何与候选状态，不新增会话状态。`ContextToolbar.panelSize` 允许交互 AI 与二次推理使用紧凑设置宽度，其他消费者保留原有宽度；必填字段和候选动作在主区，后端、模型、档位和诊断在“模型与参数”折叠区。
-
-AI 示例框的置信度控件同时用于胶囊快捷区与完整参数区，由原有会话回调统一更新。二次推理快捷区按模型参数的 `x-platform-role: confidence` 筛选可编辑数值字段，兼容已有置信度键；它与完整表单共用按模型保存的参数，更新单个置信度时保留其他参数。二次推理采用与交互 AI 相同的紧凑完整面板和图标关闭按钮，收起摘要显示能力与当前文本。
+- **状态所有权与卸载生命周期**：参数、草稿、保存、撤销和异步任务仍由工具原有 owner 持有。收起只改变显示；完整栏内容在关闭动画结束后卸载，因此需要保留的状态应放在容器外。`id` 在同时挂载的实例之间保持唯一；切换到不同 owner 时按原有生命周期卸载或使用对应的 React key。
+- **事件守卫与动画测量**：容器使用通用 `data-workbench-context-*` 标记接入事件守卫，允许点击画布关闭并开始绘制；关闭后恢复焦点到胶囊，点击外部时不抢回焦点。动画在挂载后测量真实起终点，关闭前重新测量以适应缩放与窗口大小变化；快速反向切换沿用当前变换，组件卸载时取消待执行帧，系统开启减少动态效果时跳过明显位移过程。
+- **胶囊与展开面板布局**：完整面板按实际画布宿主限制宽高；胶囊保持统一高度，收起宽度按摘要内容测量；快捷操作在同一表面向右、向下同步展开，窄空间内换行；必填输入与候选操作仅在胶囊展开后可见，默认只保留头部；展开区与头部共享背景、边框和圆角，不绘制独立卡片。关闭动画以当前胶囊头部为目标，退场中的完整面板不接受焦点或输入。组合输入期间不处理 Esc。
+- **呈现优先级（`workbenchContextToolbar`）**：只从现有状态派生呈现资格：活动 Mask／交互式 AI 优先，种子采集期间不显示竞争工具栏；无待处理编辑时显示追踪审阅，其次是适用的二次推理和能力恢复。后台追踪结果不能自动抢占编辑。临时抑制仅卸载工具栏呈现，保留组件内的参数、配置展开状态和请求保护。
+- **各工具消费者绑定**：二次推理的 mutation variables 固定来源任务与标注，成功结果只更新来源任务缓存；交互式 AI 在任务、工具、视频帧或精修来源变化时重置呈现，修改模型与参数仍留在当前设置面板；追踪审阅按任务／作业重置呈现，不按范围 revision 重建。AI 示例框的置信度控件同时用于胶囊快捷区与完整参数区，二次推理快捷区按模型参数的 `x-platform-role: confidence` 筛选可编辑数值字段。

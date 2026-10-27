@@ -14,6 +14,7 @@ DECLARE
     v_consumer name := current_setting('aap.identity_consumer_role');
     v_identity name := current_setting('aap.identity_owner');
     v_allowed oid[] := ARRAY[
+        'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
         'aap_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
@@ -48,7 +49,7 @@ BEGIN
     END IF;
     IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
-        WHERE p.oid=ANY(v_allowed) AND owner.rolname=v_identity) <> 5 THEN
+        WHERE p.oid=ANY(v_allowed) AND owner.rolname=v_identity) <> cardinality(v_allowed) THEN
         RAISE EXCEPTION 'Identity consumer capabilities have unexpected ownership';
     END IF;
     FOR v_relation IN
@@ -125,6 +126,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1 TO :"consumer_role";
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"consumer_role";
 GRANT EXECUTE ON FUNCTION
+    aap_identity_v1.read_accepted_api_key_facts(uuid,uuid),
     aap_identity_v1.read_actor_facts(uuid),
     aap_identity_v1.lock_accounts_share(uuid[],boolean),
     aap_identity_v1.lock_accounts_update(uuid[],boolean),
@@ -136,6 +138,7 @@ DO $verify$
 DECLARE
     v_consumer name := current_setting('aap.identity_consumer_role');
     v_allowed oid[] := ARRAY[
+        'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
         'aap_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,

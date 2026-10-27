@@ -106,7 +106,8 @@ export function TrackOperationsPanel({
   const commandRequest = useMemo<SceneTrackCommandRequest | null>(() => {
     if (!selectedTrackId) return null;
     if (operation === "merge") {
-      return secondaryTrackId
+      return secondaryTrackId &&
+        candidates.some((candidate) => candidate.track_id === secondaryTrackId)
         ? {
             kind: "merge",
             track_id: selectedTrackId,
@@ -138,6 +139,7 @@ export function TrackOperationsPanel({
       frame_index: currentFrame,
     };
   }, [
+    candidates,
     currentFrame,
     operation,
     resumeAfterAbsence,
@@ -318,13 +320,19 @@ export function TrackOperationsPanel({
                   }}
                   className="h-9 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground"
                 >
-                  <option value="">
+                  <option value="" disabled hidden>
                     {candidatesQuery.isLoading
                       ? "正在查找候选…"
                       : candidates.length === 0
                         ? "没有可安全合并的同类轨迹"
                         : "选择同类、无重叠轨迹"}
                   </option>
+                  {secondaryTrackId &&
+                    !candidates.some((candidate) => candidate.track_id === secondaryTrackId) && (
+                      <option value={secondaryTrackId} disabled hidden>
+                        已选轨迹（已不在合并候选中）
+                      </option>
+                    )}
                   {candidates.map((candidate) => (
                     <option key={candidate.track_id} value={candidate.track_id}>
                       {candidate.class_name} · F{candidate.first_frame}–F{candidate.last_frame} ·{" "}

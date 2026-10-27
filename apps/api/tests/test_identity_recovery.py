@@ -88,7 +88,7 @@ def _postgres_tool(test_engine, command, *, body=None):
 def _refuse_downgrade(
     url,
     *,
-    revision="0234",
+    revision="bo0234",
     message=b"Cannot remove credential generation or durable revocation authority",
 ):
     result = _alembic(url, "downgrade", revision)
@@ -805,14 +805,10 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
 
         _refuse_downgrade(
             owner_url,
-            revision="0240",
+            revision="bo0240",
             message=b"Cannot remove Identity deactivation while retained results or delivery state exists",
         )
         async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0241"
-            )
             for table in (
                 "notification_delivery_outbox",
                 "identity_deactivation_operation_receipts",
@@ -820,19 +816,19 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 "identity_deactivation_requests",
             ):
                 await db.execute(text(f"DELETE FROM public.{table}"))
-        removed_deactivation = _alembic(owner_url, "downgrade", "0240")
+        removed_deactivation = _alembic(owner_url, "downgrade", "bo0240")
         assert removed_deactivation.returncode == 0, (
             "Owned empty deactivation downgrade failed"
         )
         _refuse_downgrade(
             owner_url,
-            revision="0239",
+            revision="bo0239",
             message=b"Cannot remove Identity group operation receipts",
         )
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0240"
+                == "bo0240"
             )
             await db.execute(
                 text(
@@ -848,17 +844,17 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 )
                 == 0
             )
-        removed_groups = _alembic(owner_url, "downgrade", "0239")
+        removed_groups = _alembic(owner_url, "downgrade", "bo0239")
         assert removed_groups.returncode == 0, "Owned empty group downgrade failed"
         _refuse_downgrade(
             owner_url,
-            revision="0238",
+            revision="bo0238",
             message=b"Cannot remove Identity recovery while challenges or retained state exist",
         )
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0239"
+                == "bo0239"
             )
             await db.execute(
                 text(
@@ -899,12 +895,12 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 assert (
                     await db.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
                 )
-        downgraded = _alembic(owner_url, "downgrade", "0238")
+        downgraded = _alembic(owner_url, "downgrade", "bo0238")
         assert downgraded.returncode == 0, "Owned empty recovery downgrade failed"
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0238"
+                == "bo0238"
             )
 
         _refuse_downgrade(
@@ -913,7 +909,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0238"
+                == "bo0238"
             )
             assert (
                 await db.scalar(
@@ -934,7 +930,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0238"
+                == "bo0238"
             )
             await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await db.execute(delete(User).where(User.id == actor))
@@ -943,7 +939,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0238"
+                == "bo0238"
             )
             assert (
                 await db.scalar(

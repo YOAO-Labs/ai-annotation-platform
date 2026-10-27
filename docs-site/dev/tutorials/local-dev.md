@@ -1,134 +1,143 @@
 ---
+title: 本地开发环境搭建
 audience: [dev]
 type: tutorial
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-19
 ---
 
 # 本地开发
 
+本教程引导你在本机搭建完整的平台开发环境，包括前端（Vite/React）、后端（FastAPI + Celery）、基础设施容器（PostgreSQL / Redis / MinIO / Mailpit）以及在线学习独立训练执行器（`training-executor`）。
+
 ## 前置依赖
 
-- Node.js >= 22
-- pnpm >= 10
-- Python >= 3.11
-- [uv](https://docs.astral.sh/uv/)
-- Docker & Docker Compose
-- 可选：[pre-commit](https://pre-commit.com/)（推荐装上）
+- **Node.js** `>= 22`（仓库 `.nvmrc` 指定 Node 22，`.npmrc` 开启 `engine-strict`）
+- **pnpm** `>= 10`
+- **Python** `>= 3.11` 与 **[uv](https://docs.astral.sh/uv/)**
+- **Docker** 与 **Docker Compose**
+- 可选：**[pre-commit](https://pre-commit.com/)**（推荐安装以在提交前自动运行门禁）
 
-仓库提供 `.nvmrc`（Node 22）；`.npmrc` 开启了 `engine-strict`，低于基线的
-运行时会在 `pnpm install` 阶段直接失败（Node 20 已于 2026-04-30 EOL）。
-
-## 一次性 setup
+## 一次性初始化（Setup）
 
 ```bash
-# 仓库根
+# 1. 安装前端与工作区依赖
 pnpm install
-# pnpm install 会运行 prepare；若提示缺 pre-commit，再安装后执行 pre-commit install
+# pnpm install 会自动运行 prepare；若本机安装了 pre-commit，可执行 pre-commit install
 
-# 后端
+# 2. 安装后端 Python 环境（含测试依赖）
 cd apps/api
-uv sync --extra test       # 安装 + dev 依赖
+uv sync --extra test
 
-# 起基础设施
+# 3. 启动基础服务与后台队列容器
 cd ../..
-docker compose up -d       # postgres / redis / minio / mailpit / workers / beat
+docker compose up -d       # postgres / redis / minio / mailpit / celery workers / beat
 ```
 
-## Orca 工作树初始化
+---
 
-仓库根目录的 `orca.yaml` 调用 `scripts/orca-worktree-setup.sh`，并等待 setup
-成功后启动 Agent。配置文件和脚本需要包含在新工作树使用的基准分支中。
-也可以在 Orca 的 **Settings → Repository → Hooks** 中，将本机 Setup 命令设为
-`bash "$ORCA_ROOT_PATH/scripts/orca-worktree-setup.sh"`，让尚未包含配置的分支复用主目录脚本。
-使用本机 Setup 命令时，同时将 Agent 启动策略设为等待 setup 完成。
+## Orca 多工作树初始化（Worktree）
 
-- `.env` 软链接到主目录；主目录缺少该文件时创建只含说明的空配置，保留应用默认值。
-  主目录已有 `.env.local` 时也会链接。修改共享文件会影响所有链接它的工作树。
-- pnpm 锁文件、工作区清单和三个 `package.json` 一致，主目录依赖存在，
-  且已安装的 `node_modules/.pnpm/lock.yaml` 与主目录锁文件一致时，
-  `node_modules`、`apps/web/node_modules`、`docs-site/node_modules` 使用软链接。
-  不满足条件时在工作树内运行 `pnpm install --frozen-lockfile`。
-- `apps/api/.venv` 由 `uv sync --project apps/api --locked --extra test` 单独建立：
-  Python editable 包包含绝对源码路径，共享虚拟环境会误用主目录代码。
-- `pnpm codegen` 根据当前工作树的快照生成本地 API 类型，生成目录不共享。
+仓库根目录的 `orca.yaml` 会在新建工作树时调用 `scripts/orca-worktree-setup.sh`，完成依赖软链接与独立虚拟环境初始化：
 
-已有文件和目录不会被覆盖。工作树修改依赖后，先移除上述三个 `node_modules`
-软链接，再执行 `pnpm install --frozen-lockfile`；不要通过共享链接安装或更新依赖。
-无需另外配置 Orca 的 Worktree Shared Paths 或 `.worktreeinclude`。
-
-setup 只准备依赖和生成文件，不自动运行 Docker、数据库迁移或开发服务器。
-主目录已有本机 PostgreSQL/MinIO 后，在每个工作树运行 `pnpm dev:worktree`：
-启动器会创建独立数据库、Redis、bucket 和本地状态，再迁移并启动 API/Web。
-后台任务使用 `pnpm dev:worktree -- up --with-worker`，不复用主目录 worker。
-测试、诊断和重建流程见[独立工作树开发环境](../how-to/worktree-environments)。
+- **环境变量与依赖共享**：`.env`（及 `.env.local`）软链接至主工作树；当锁文件与 `package.json` 未变更时，`node_modules`、`apps/web/node_modules` 与 `docs-site/node_modules` 自动建立软链接，否则回退至 `pnpm install --frozen-lockfile`。
+- **Python 虚拟环境与生成类型隔离**：`apps/api/.venv` 由 `uv sync --project apps/api --locked --extra test` 独立创建（避免 editable 包路径串回主目录）；`pnpm codegen` 根据当前工作树的 `openapi.snapshot.json` 在本地生成 `apps/web/src/api/generated/`。
+- **一键启动隔离开发栈**：主目录已有本机 PostgreSQL / MinIO 后，在工作树内运行 `pnpm dev:worktree` 即可自动创建隔离的数据库、Redis DB、9 个 MinIO 存储桶并启动 API 与 Web（需后台任务时使用 `pnpm dev:worktree -- up --with-worker`）。详见[独立工作树开发环境](../how-to/worktree-environments)。
 
 ```bash
-# 显式运行仓库 setup，创建后再启动 Agent
+# 显式运行仓库 setup 创建工作树
 orca worktree create --name my-task --agent codex --setup run --json
 
-# 验证 hook 的软链接、幂等性和依赖隔离逻辑
+# 验证工作树 setup 脚本的软链接与隔离逻辑
 python3 scripts/test-orca-worktree-setup.py
 ```
 
-参考：[Orca Hooks](https://www.onorca.dev/docs/agents/hooks-memory)、
-[工作树共享路径](https://www.onorca.dev/docs/model/worktrees)。
+---
 
-## 日常启动
+## 日常启动流
 
 ```bash
-# 1. 基础设施（如未运行）
+# 1. 确保基础设施容器在线
 docker compose up -d
 
-# 2. 后端（终端 1）
-pnpm dev:api               # 等价于 cd apps/api && uvicorn app.main:app --reload --port 8000
+# 2. 启动后端 API（终端 1，支持热重载）
+pnpm dev:api               # 等价于 cd apps/api && uv run uvicorn app.main:app --reload --port 8000
 
-# 3. 前端（终端 2）
+# 3. 启动前端开发服（终端 2）
 pnpm dev:web               # http://localhost:3000
 
-# 4. worker 已由 compose 拉起；按需查看队列消费者
-docker compose ps celery-worker celery-worker-gpu celery-worker-cpu celery-worker-export celery-beat
+# 4. 查看 Compose 中的 Celery Worker 与 Beat 状态
+docker compose ps celery-worker celery-worker-gpu celery-worker-cpu celery-worker-export celery-worker-image-pyramid celery-worker-gpu-control celery-worker-maintenance celery-beat
 ```
 
-API 文档：
+> **提示**：Celery 不会热重载挂载的 Python 代码。修改 `apps/api/app/workers/` 或相关服务后，请执行 `docker compose restart celery-worker ...` 刷新对应队列的消费者。
 
-- 实时 Swagger UI：http://localhost:8000/docs
-- 静态化文档：[/api/](/api/)（来自 openapi.snapshot.json）
+API 文档预览入口：
 
-## 常用脚本
+- **实时 Swagger UI**：`http://localhost:8000/docs`
+- **静态化文档站 API 参考**：[/api/](/api/)（源自 `apps/api/openapi.snapshot.json`）
 
-```bash
-# 测试
-pnpm test                  # 前端 vitest
-pnpm test:e2e              # 前端 Playwright
-cd apps/api && uv run pytest
+---
 
-# 代码生成
-pnpm codegen               # 从 snapshot 生成 TS 类型
-pnpm openapi:export        # 重新生成 snapshot（改了 API 后必须）
-pnpm openapi:check         # 校验 snapshot 与运行时一致
+## 在线学习与训练执行器联调（可选）
 
-# Lint / Typecheck
-pnpm format:check
-pnpm lint
-pnpm typecheck
+当开发或验证「在线学习与模型训练闭环」（[架构文档](../concepts/training-datasets)）时，需要额外启动独立训练执行器 `apps/training-executor`：
 
-# 自动修复全仓格式
-pnpm format
+### 1. 准备训练执行器
 
-# 文档
-pnpm docs:dev              # VitePress 本地预览 :5173
-pnpm docs:build
-```
+执行器需要与 API 一致的训练目录、独立凭据、节点身份、单张物理 GPU UUID、固定镜像摘要和已校验的基础权重。仅填写 Token 或安装 Python 包不能完成部署。
 
-## 数据库迁移
+按 [DEV.md 的受控训练执行器说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#训练执行器配置)准备配置，再按[在线训练执行器部署](/ops/deploy/docker-compose#_8-5-受控训练执行器-training-executor)启动。`TRAINING_API_URL` 指向目标 API 的 `/api/v1/internal/training`，避免将执行器接到另一工作树。
+
+### 2. 准备 COCO8 检测夹具
+
+同一入口同时准备实例分割夹具。
+
+在已经确认的开发数据库和对象存储中运行：
 
 ```bash
 cd apps/api
-uv run alembic upgrade head                          # 升到最新
-uv run alembic revision --autogenerate -m "..."      # 生成新迁移
-uv run alembic downgrade -1                          # 回滚 1 步
+PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 ```
 
-详见 [How-to / Alembic 迁移](../how-to/add-migration)。
+这个显式 profile 创建 8 张已审核图片、30 个检测框和 30 个实例掩膜，保留原始 4 张训练图与 4 张验证图，并同步构建检测与原生 RLE 分割两个初始数据版本。旧检测夹具只有在任务未被人工修改、没有锁或草稿时才能增补分割；已有分割夹具重跑保留人工修改。它不会自动创建训练实验、开启自动策略或发布模型。失败、取消或中断后可重跑同一命令；仍在执行或清理时按提示稍后重试。缓存和离线参数见 [COCO8 夹具说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#coco8-在线训练夹具)。
+
+进入界面后依次创建实验、确认成功执行记录、添加模型、加载试用并人工发布，参见[在线学习用户指南](/user-guide/online-learning/)和[模型回流链路排查](../how-to/debug-model-return)。实例分割的逐项操作和目标 GPU 独立验收见[实例分割在线学习验收](../how-to/validate-segmentation-online-learning)。
+
+---
+
+## 常用开发脚本速查
+
+```bash
+# 单元测试与端到端测试
+pnpm test                  # 前端 Vitest 单元测试
+pnpm test:e2e              # 前端 Playwright E2E 测试
+cd apps/api && uv run pytest
+cd apps/training-executor && uv run pytest
+
+# OpenAPI 契约与前端类型生成
+pnpm codegen               # 从 openapi.snapshot.json 生成前端 TS 类型
+pnpm openapi:export        # 修改后端路由/Schema 后重新导出快照
+pnpm openapi:check         # 校验快照与当前后端运行时零漂移
+
+# 代码质量与格式门禁
+pnpm format:check          # 只读检查全仓 Prettier + Ruff 格式
+pnpm format                # 自动修复全仓格式
+pnpm lint                  # 前端 ESLint + CSS 设计令牌门禁
+pnpm typecheck             # 前端 TypeScript 类型检查
+
+# 文档站开发与构建
+pnpm docs:dev              # 启动 VitePress 本地预览（默认 http://localhost:5173）
+pnpm docs:build            # 构建生产文档站并校验死链
+```
+
+## 数据库迁移（Alembic）
+
+```bash
+cd apps/api
+uv run alembic upgrade head                          # 升级至最新迁移版本
+uv run alembic revision --autogenerate -m "..."      # 基于模型变更自动生成迁移脚本
+uv run alembic downgrade -1                          # 回滚最近一步迁移
+```
+
+详细操作规范请参见 [新增数据库迁移](../how-to/add-migration)。

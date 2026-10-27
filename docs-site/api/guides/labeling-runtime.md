@@ -88,18 +88,23 @@ ORM 缓存；owner 不提交／回滚，也不把未提交数据和锁转交给�
 序列、角色成员、CREATE、TEMP 和其他模块函数权限。公开用户仍只能经过原 API 授权。
 未迁移的批次与标注内容调用保留现有权限，不能据此宣称完整 Labeling 已独立。
 
-## 旧文件上传的任务写入
+## 独立任务上传的任务写入
 
-`create_uploading_task(uuid,uuid,text,text,text)` 接收 Task／项目 UUID、文件名、路径和
-类型，保留原 Task 默认值及展示编号分配，返回相同 Task UUID。
-`complete_uploading_task(uuid,uuid,uuid,text,text)` 接收 Task／项目／可空批次 UUID、
-捕获的路径和类型；锁定当前 Task 后依次核对 uploading 状态及目标，返回 `pending`、
-`task_not_found`、`task_not_uploading` 或 `task_target_changed`。
-两项能力均位于 `aap_labeling_v1`，合同随 Labeling 工件的 `upload-tasks.schema.json` 分发。
+`create_uploading_task(uuid,uuid,text,text,text,text,uuid)` 接收 Task／项目／展示编号、
+文件名、受管对象键、固定类型（`image`／`video`／`other`）和当前 actor。它在调用方事务
+内重新核验当前项目管理权，只创建 `uploading` Task 的固定列，返回是否成功。
+`publish_task_original(uuid,uuid,uuid,uuid,uuid,text)` 在 Assets 已封存独立原件后核对
+创建回执与捕获的 Task 上下文，按原状态 CAS 绑定 `original_id`；不匹配时不返回行。
+两项能力均位于 `aap_labeling_v1`，合同随 Labeling 工件的 `upload-tasks.schema.json`
+分发。
 
-原 API 继续执行当前项目管理权检查，存储 I/O 后重新取得身份、项目和 Task 围栏。
-创建仍先提交任务再生成上传 URL；完成状态和图片准入共用原调用方事务，准入失败共同
-回滚。owner 不提交，API 缓存按回执同步，后续 flush 不再重复写入 Task 状态。
+旧 `create_uploading_task(uuid,uuid,text,text,text)` 与
+`complete_uploading_task(uuid,uuid,uuid,text,text)` 已由 `bo0380` 移除，不再分发或授权。
+
+API 初始化先分配并验证独立原件，再创建 uploading Task，提交后才签名 staging URL。
+完成先由 Assets 验证并封存原件，再发布 Task 指针；上传截止时间、密钥、项目或来源在
+任何提交点变化都会拒绝，且不会发布未验证来源。图片任务完成后继续派发既有缩略图
+作业；项目缩略图回填直接接受 Image owner 的持久回填作业，不经过裸 Celery UUID 派发。
 
 ## 视频分段状态
 

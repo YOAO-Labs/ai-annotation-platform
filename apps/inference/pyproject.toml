@@ -7,7 +7,7 @@ name = "aap-inference"
 version = "0.1.0"
 description = "Portable inference values, pipeline ownership and standalone runtime"
 requires-python = ">=3.11"
-dependencies = ["aap-inference-contract", "aap-task-contract", "aap-protocol-v2", "aap-owner-data", "aap-workspace-contract", "pydantic>=2.10.0"]
+dependencies = ["aap-inference-contract", "aap-task-contract", "aap-protocol-v2", "aap-owner-data", "aap-workspace-contract", "aap-assets-mask-content", "pydantic>=2.10.0"]
 
 [project.scripts]
 aap-video-restore = "aap_inference.restore_cli:main"
@@ -26,6 +26,7 @@ aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 aap-owner-data = { path = "../_shared/owner_data", editable = true }
 aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
 
 [tool.uv]
 cache-keys = [

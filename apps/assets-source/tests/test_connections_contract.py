@@ -34,6 +34,7 @@ from aap_assets_source.connections_contract import (
 def _facts(connection_id=None):
     return NativeConnectionFacts(
         id=connection_id or uuid4(),
+        revision=1,
         name="connection",
         kind="s3",
         config={"endpoint": "http://8.8.8.8", "bucket": "data"},
@@ -67,7 +68,7 @@ def test_connection_contract_freezes_nine_native_and_six_public_operations():
     assert json.loads(package.read_text()) == expected
     native = (
         Path(__file__).resolve().parents[3]
-        / "apps/api/alembic/sql/0217_assets_connections.schema.json"
+        / "apps/api/alembic/sql/0371_assets_owner_main_integration.schema.json"
     )
     if native.exists():
         assert json.loads(native.read_text()) == expected

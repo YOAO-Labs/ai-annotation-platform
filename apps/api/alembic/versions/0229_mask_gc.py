@@ -1,7 +1,7 @@
 """Add native fencing and durable operations for Raster Mask content GC.
 
-Revision ID: 0229
-Revises: 0228
+Revision ID: bo0229
+Revises: bo0228
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0229"
-down_revision = "0228"
+revision = "bo0229"
+down_revision = "bo0228"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

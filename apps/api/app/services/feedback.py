@@ -234,15 +234,9 @@ class FeedbackService:
                 )
             # annotation_version is the captured version, not an optimistic-lock precondition.
 
-        from app.services.video_frame_service import AssetsVideoContextReader
+        from app.services.video_frame_service import build_context_from_task
 
-        media = await AssetsVideoContextReader(self.db).from_task(
-            actor_id=actor_id,
-            task_id=task.id,
-            project_id=task.project_id,
-            file_type=task.file_type,
-            dataset_item_id=task.dataset_item_id,
-        )
+        media = await build_context_from_task(self.db, task)
         frame_count = media.metadata.frame_count
         if frame_count is None or frame_count < 1:
             raise HTTPException(status_code=503, detail="Video metadata not ready")

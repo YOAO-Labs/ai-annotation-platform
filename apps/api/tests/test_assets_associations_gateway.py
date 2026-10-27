@@ -82,6 +82,7 @@ def _project(project_id: uuid.UUID) -> LinkedProjectSnapshot:
         preannotate_pipeline=None,
         annotation_guide=None,
         guide_assets=[],
+        guide_assets_revision=1,
         model_version=None,
         task_lock_ttl_seconds=300,
         due_date=None,

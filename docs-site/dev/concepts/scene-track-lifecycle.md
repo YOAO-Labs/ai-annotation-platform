@@ -79,12 +79,18 @@ Track 同时记录存在模式：
 
 ## 代码入口
 
-| 位置                                                      | 作用                            |
-| --------------------------------------------------------- | ------------------------------- |
-| `app/db/models/scene_track.py`                            | Track、区间和操作账本模型       |
-| `app/services/scene_track_domain.py`                      | 双写、revision、区间扩展与诊断  |
-| `app/services/scene_track_command.py`                     | 预览、执行、幂等 journal 与撤销 |
-| `app/api/v1/tasks/track_operations.py`                    | 详情、诊断和生命周期 API        |
-| `pages/Workbench/stages/three-d/TrackOperationsPanel.tsx` | 跨帧任务中心生命周期界面        |
+| 位置                                                                   | 作用                            |
+| ---------------------------------------------------------------------- | ------------------------------- |
+| `apps/api/app/db/models/scene_track.py`                                | Track、区间和操作账本模型       |
+| `apps/api/app/services/scene_track_domain.py`                          | 双写、revision、区间扩展与诊断  |
+| `apps/api/app/services/scene_track_command.py`                         | 预览、执行、幂等 journal 与撤销 |
+| `apps/api/app/api/v1/tasks/track_operations.py`                        | 详情、诊断和生命周期 API        |
+| `apps/web/src/pages/Workbench/stages/three-d/TrackOperationsPanel.tsx` | 跨帧任务中心生命周期界面        |
 
 架构决策与跨平台依据分别记录在仓库的 `docs/adr/archive/0069-scene-track-domain-and-lifecycle.md` 和 `docs/research/24-3d-temporal-object-lifecycle.md`。
+
+## 相关文档
+
+- [Scene 与帧索引](./scene-and-frame-index)
+- [标注模块 · 跨帧 propagate 与插值](./annotation-module#跨帧-propagate-与插值3d-时序)
+- [点云数据模型与多模态校准](../reference/point-cloud-data-model)

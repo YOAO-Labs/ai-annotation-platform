@@ -1,10 +1,10 @@
 ---
 title: 更新文档截图
 description: 如何新增场景、更新现有截图、维护视觉回归基线
-audience: [developer]
+audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-22
 ---
 
 # 更新文档截图
@@ -87,6 +87,32 @@ Mac 可用 `--profile docs --validate-only` 预演已注册的远程 Linux 模�
 大图场景另需大图夹具。旧命令不传范围时仍完整校验。`--list` 外的复杂编排、追踪流程继续使用原入口；
 新增场景须先在 `apps/web/e2e/screenshots/recording-plan.mjs` 声明依赖，不能把 mock 推理流程归类为真实 AI 证据。
 `--validate-only` 不产视频，但仍准备和修改隔离夹具。
+
+### 检测在线训练的私有演示
+
+`detection-online-training` 展示数据冻结、YOLO11n 真实训练、训练／验证四张指标图、模型回流、
+加载试用、默认模型预标、人工采纳与微调，以及用新数据版本和项目权重开始第二轮训练。
+它需要专用数据库、队列、存储桶、训练执行器和 YOLO 推理实例；不要将执行器接到日常开发库。
+专用 worker 必须消费 `export`（数据构建）、`ml`／`ml.cpu`（推理）、`default` 和 GPU 控制队列，
+并运行同一隔离 Redis 上的 Celery beat，使推理实例的健康记录持续更新。
+先完成 screenshots seed，再在同一隔离环境运行 `seed.py --profile online-training --offline`，
+注册并为 COCO8 在线训练项目启用独立 YOLO 实例，准备对应训练目录和基础权重。
+随后运行 `apps/api/scripts/screenshot_detection_training_fixture.py`，从截图目录解析真实 CC0 道路图片，
+新增一张无标注、无预测的待标图片。该图片不参与首轮训练，由视频中的真实回流模型产生候选。
+数据及容器由本次录制环境统一管理，录制完成后删除本次专用环境和存储桶，保留母版及来源记录。
+
+显式选择此流程录制，避免全量预演意外启动训练：
+
+```bash
+pnpm --filter @anno/web screenshots:record -- --flow detection-online-training --headless-display
+
+# 私有交付：同一合格母版派生 1080p MP4 和封面，不修改公共素材或其清单。
+pnpm docs:media:derive -- --run <run-id> --asset detection-online-training \
+  --format video --private-output .artifacts/demos/detection-online-training
+```
+
+COCO8 仅用于此处的私有开发演示，不自动发布到公共文档站。真实训练和推理成功只证明该演示流程，
+不代表业务精度提升，也不代替目标 GPU 部署的容量、故障和生命周期验收。
 
 审核退回录制使用正式的两步原因／补充说明对话框与真实退回 API。截图 seed 会为完整受管标注记录作者、
 提交者和当前审核轮次的贡献者证据；清理退回结果时恢复该夹具的审核快照，不绕过「未知贡献者」或自审校验。
@@ -449,6 +475,10 @@ pnpm screenshots --grep "my-new-scene"
 ```
 
 ### 4. 发布完整矩阵和 manifest
+
+图片覆盖与孤儿检查同时识别 Markdown 图片、`<AutoImage>` 和文档主题 Vue / TypeScript
+组件中的静态图片导入。仅供首页使用的截图仍需保留 manifest 与生成来源；没有任何已发布
+页面或主题组件引用的图片会被孤儿检查拦截。
 
 ```bash
 cd apps/web

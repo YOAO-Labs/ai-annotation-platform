@@ -11,6 +11,16 @@ from aap_media_probe.client import (
     MediaProbeError,
     httpx as httpx,
 )
+from aap_media_probe.probe import (
+    FFPROBE_TIMEOUT_SECONDS as FFPROBE_TIMEOUT_SECONDS,
+    FFProbeError as FFProbeError,
+    _parse_frame_time_ms as _parse_frame_time_ms,
+    _parse_int as _parse_int,
+    _parse_ratio as _parse_ratio,
+    parse_ffprobe_frame_timetable as parse_ffprobe_frame_timetable,
+    parse_ffprobe_packet_samples as parse_ffprobe_packet_samples,
+    parse_ffprobe_video_metadata as parse_ffprobe_video_metadata,
+)
 
 from app.config import settings
 
@@ -61,22 +71,26 @@ def configured_probe_client() -> MediaProbeClient | None:
     return _remote_client()
 
 
-def probe_video_file(path: str | Path) -> dict:
+def probe_video_file(path: str | Path, *, pass_fds: tuple[int, ...] = ()) -> dict:
     client = _remote_client()
     if client is None:
-        return local_probe.probe_video_file(path)
+        return local_probe.probe_video_file(path, pass_fds=pass_fds)
     return client.probe_video_file(path)
 
 
-def probe_video_frame_timetable(path: str | Path) -> list[dict]:
+def probe_video_frame_timetable(
+    path: str | Path, *, pass_fds: tuple[int, ...] = ()
+) -> list[dict]:
     client = _remote_client()
     if client is None:
-        return local_probe.probe_video_frame_timetable(path)
+        return local_probe.probe_video_frame_timetable(path, pass_fds=pass_fds)
     return client.probe_video_frame_timetable(path)
 
 
-def probe_chunk_samples(path: str | Path, start_frame: int) -> list[dict]:
+def probe_chunk_samples(
+    path: str | Path, start_frame: int, *, pass_fds: tuple[int, ...] = ()
+) -> list[dict]:
     client = _remote_client()
     if client is None:
-        return local_probe.probe_chunk_samples(path, start_frame)
+        return local_probe.probe_chunk_samples(path, start_frame, pass_fds=pass_fds)
     return client.probe_chunk_samples(path, start_frame)

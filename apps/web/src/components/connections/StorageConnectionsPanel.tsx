@@ -1,4 +1,8 @@
-import { useState, type FormEvent } from "react";
+import { storageAccessDenied } from "./storageQueryState";
+import { verifiedContentError } from "@/hooks/useVerifiedImage";
+import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
+import { CopyableError } from "@/components/ui/CopyableError";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
@@ -71,6 +75,21 @@ function roleLabel(scope: StorageConnectionScope) {
   return scope === "global" ? "全局" : "个人";
 }
 
+function sameConfig(a: Record<string, unknown>, b: Record<string, unknown>) {
+  // Optional defaults are serialized by the form even for historical connections.
+  const normalized = (value: Record<string, unknown>) =>
+    Object.entries(value)
+      .filter(
+        ([key, item]) =>
+          item !== "" &&
+          item != null &&
+          !(key === "use_ssl" && item === false) &&
+          !(key === "auth_type" && item === "password"),
+      )
+      .sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(normalized(a)) === JSON.stringify(normalized(b));
+}
+
 export function StorageConnectionForm({
   connection,
   initialValues,
@@ -78,6 +97,7 @@ export function StorageConnectionForm({
   compact = false,
   submitLabel,
   submitting = false,
+  saveError,
   onSubmit,
   onCancel,
 }: {
@@ -87,11 +107,13 @@ export function StorageConnectionForm({
   compact?: boolean;
   submitLabel?: string;
   submitting?: boolean;
+  saveError?: string | null;
   onSubmit: (values: StorageConnectionFormValues) => Promise<void> | void;
   onCancel?: () => void;
 }) {
   const cfg = connection?.config ?? initialValues?.config ?? {};
   const isEditing = !!connection;
+  const validationHintId = useId();
   const [name, setName] = useState(connection?.name ?? initialValues?.name ?? "");
   const [kind, setKind] = useState<StorageConnectionKind>(
     connection?.kind ?? initialValues?.kind ?? "s3",
@@ -197,237 +219,275 @@ export function StorageConnectionForm({
   };
 
   return (
-    <form className={cx(styles.form, compact && styles.formCompact)} onSubmit={handleSubmit}>
-      <div className={styles.formGrid}>
-        <label className={styles.field}>
-          <span>
-            名称<span className={styles.required}>*</span>
-          </span>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className={styles.input}
-            placeholder="external-data"
-          />
-        </label>
-        <label className={styles.field}>
-          <span>类型</span>
-          <select
-            value={kind}
-            onChange={(event) => setKind(event.target.value as StorageConnectionKind)}
-            disabled={isEditing}
-            className={styles.input}
-          >
-            <option value="s3">S3 / OSS</option>
-            <option value="sftp">SFTP</option>
-          </select>
-        </label>
-        <label className={styles.field}>
-          <span>范围</span>
-          <select
-            value={effectiveScope}
-            onChange={(event) => setScope(event.target.value as StorageConnectionScope)}
-            disabled={!isSuper || isEditing}
-            className={styles.input}
-          >
-            <option value="owner">个人</option>
-            {isSuper && <option value="global">全局</option>}
-          </select>
-        </label>
-      </div>
-
-      {kind === "s3" ? (
+    <form
+      className={cx(styles.form, compact && styles.formCompact)}
+      onSubmit={handleSubmit}
+      aria-describedby={isEditing ? validationHintId : undefined}
+    >
+      <fieldset disabled={submitting} className="contents">
         <div className={styles.formGrid}>
-          <label className={styles.fieldWide}>
-            <span>
-              Endpoint<span className={styles.required}>*</span>
-            </span>
-            <input
-              value={endpoint}
-              onChange={(event) => setEndpoint(event.target.value)}
-              className={styles.input}
-              placeholder="http://minio.example:9000"
-            />
-          </label>
           <label className={styles.field}>
             <span>
-              Bucket<span className={styles.required}>*</span>
+              名称<span className={styles.required}>*</span>
             </span>
             <input
-              value={bucket}
-              onChange={(event) => setBucket(event.target.value)}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
               className={styles.input}
-              placeholder="datasets"
+              placeholder="external-data"
             />
           </label>
           <label className={styles.field}>
-            <span>Region</span>
-            <input
-              value={region}
-              onChange={(event) => setRegion(event.target.value)}
-              className={styles.input}
-              placeholder="auto"
-            />
-          </label>
-          <label className={styles.fieldWide}>
-            <span>Base prefix</span>
-            <input
-              value={basePrefix}
-              onChange={(event) => setBasePrefix(event.target.value)}
-              className={styles.input}
-              placeholder="imports/"
-            />
-          </label>
-          <label className={styles.checkField}>
-            <input
-              type="checkbox"
-              checked={useSsl}
-              onChange={(event) => setUseSsl(event.target.checked)}
-            />
-            <span>HTTPS</span>
-          </label>
-          <label className={styles.field}>
-            <span>Access key{!isEditing && <span className={styles.required}>*</span>}</span>
-            <input
-              value={accessKey}
-              onChange={(event) => setAccessKey(event.target.value)}
-              className={styles.input}
-              placeholder={isEditing ? "不修改" : "AK"}
-            />
-          </label>
-          <label className={styles.field}>
-            <span>Secret key{!isEditing && <span className={styles.required}>*</span>}</span>
-            <input
-              value={secretKey}
-              onChange={(event) => setSecretKey(event.target.value)}
-              className={styles.input}
-              type="password"
-              placeholder={isEditing ? "不修改" : "SK"}
-            />
-          </label>
-        </div>
-      ) : (
-        <div className={styles.formGrid}>
-          <label className={styles.fieldWide}>
-            <span>
-              Host<span className={styles.required}>*</span>
-            </span>
-            <input
-              value={host}
-              onChange={(event) => setHost(event.target.value)}
-              className={styles.input}
-              placeholder="sftp.example.local"
-            />
-          </label>
-          <label className={styles.field}>
-            <span>Port</span>
-            <input
-              value={port}
-              onChange={(event) => setPort(event.target.value)}
-              className={styles.input}
-              inputMode="numeric"
-              placeholder="22"
-            />
-          </label>
-          <label className={styles.field}>
-            <span>
-              Username<span className={styles.required}>*</span>
-            </span>
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              className={styles.input}
-              placeholder="annotator"
-            />
-          </label>
-          <label className={styles.fieldWide}>
-            <span>Base path</span>
-            <input
-              value={basePath}
-              onChange={(event) => setBasePath(event.target.value)}
-              className={styles.input}
-              placeholder="/incoming"
-            />
-          </label>
-          <label className={styles.field}>
-            <span>Auth</span>
+            <span>类型</span>
             <select
-              value={authType}
-              onChange={(event) => setAuthType(event.target.value as "password" | "key")}
+              value={kind}
+              onChange={(event) => setKind(event.target.value as StorageConnectionKind)}
+              disabled={isEditing}
               className={styles.input}
             >
-              <option value="password">Password</option>
-              <option value="key">Private key</option>
+              <option value="s3">S3 / OSS</option>
+              <option value="sftp">SFTP</option>
             </select>
           </label>
-          {authType === "password" ? (
-            <label className={styles.field}>
-              <span>Password{!isEditing && <span className={styles.required}>*</span>}</span>
+          <label className={styles.field}>
+            <span>范围</span>
+            <select
+              value={effectiveScope}
+              onChange={(event) => setScope(event.target.value as StorageConnectionScope)}
+              disabled={!isSuper || isEditing}
+              className={styles.input}
+            >
+              <option value="owner">个人</option>
+              {isSuper && <option value="global">全局</option>}
+            </select>
+          </label>
+        </div>
+
+        {kind === "s3" ? (
+          <div className={styles.formGrid}>
+            <label className={styles.fieldWide}>
+              <span>
+                Endpoint<span className={styles.required}>*</span>
+              </span>
               <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                value={endpoint}
+                onChange={(event) => setEndpoint(event.target.value)}
                 className={styles.input}
-                type="password"
-                placeholder={isEditing ? "不修改" : "password"}
+                placeholder="http://minio.example:9000"
               />
             </label>
-          ) : (
-            <>
-              <label className={styles.fieldWide}>
-                <span>Private key{!isEditing && <span className={styles.required}>*</span>}</span>
-                <textarea
-                  value={privateKey}
-                  onChange={(event) => setPrivateKey(event.target.value)}
-                  className={styles.textarea}
-                  rows={compact ? 3 : 4}
-                  placeholder={isEditing ? "不修改" : "-----BEGIN RSA PRIVATE KEY-----"}
-                />
-              </label>
+            <label className={styles.field}>
+              <span>
+                Bucket<span className={styles.required}>*</span>
+              </span>
+              <input
+                value={bucket}
+                onChange={(event) => setBucket(event.target.value)}
+                className={styles.input}
+                placeholder="datasets"
+              />
+            </label>
+            <label className={styles.field}>
+              <span>Region</span>
+              <input
+                value={region}
+                onChange={(event) => setRegion(event.target.value)}
+                className={styles.input}
+                placeholder="auto"
+              />
+            </label>
+            <label className={styles.fieldWide}>
+              <span>Base prefix</span>
+              <input
+                value={basePrefix}
+                onChange={(event) => setBasePrefix(event.target.value)}
+                className={styles.input}
+                placeholder="imports/"
+              />
+            </label>
+            <label className={styles.checkField}>
+              <input
+                type="checkbox"
+                checked={useSsl}
+                onChange={(event) => setUseSsl(event.target.checked)}
+              />
+              <span>HTTPS</span>
+            </label>
+            <label className={styles.field}>
+              <span>Access key{!isEditing && <span className={styles.required}>*</span>}</span>
+              <input
+                value={accessKey}
+                onChange={(event) => setAccessKey(event.target.value)}
+                className={styles.input}
+                placeholder={isEditing ? "不修改" : "AK"}
+              />
+            </label>
+            <label className={styles.field}>
+              <span>Secret key{!isEditing && <span className={styles.required}>*</span>}</span>
+              <input
+                value={secretKey}
+                onChange={(event) => setSecretKey(event.target.value)}
+                className={styles.input}
+                type="password"
+                placeholder={isEditing ? "不修改" : "SK"}
+              />
+            </label>
+          </div>
+        ) : (
+          <div className={styles.formGrid}>
+            <label className={styles.fieldWide}>
+              <span>
+                Host<span className={styles.required}>*</span>
+              </span>
+              <input
+                value={host}
+                onChange={(event) => setHost(event.target.value)}
+                className={styles.input}
+                placeholder="sftp.example.local"
+              />
+            </label>
+            <label className={styles.field}>
+              <span>Port</span>
+              <input
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                className={styles.input}
+                inputMode="numeric"
+                placeholder="22"
+              />
+            </label>
+            <label className={styles.field}>
+              <span>
+                Username<span className={styles.required}>*</span>
+              </span>
+              <input
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                className={styles.input}
+                placeholder="annotator"
+              />
+            </label>
+            <label className={styles.fieldWide}>
+              <span>Base path</span>
+              <input
+                value={basePath}
+                onChange={(event) => setBasePath(event.target.value)}
+                className={styles.input}
+                placeholder="/incoming"
+              />
+            </label>
+            <label className={styles.field}>
+              <span>Auth</span>
+              <select
+                value={authType}
+                onChange={(event) => setAuthType(event.target.value as "password" | "key")}
+                className={styles.input}
+              >
+                <option value="password">Password</option>
+                <option value="key">Private key</option>
+              </select>
+            </label>
+            {authType === "password" ? (
               <label className={styles.field}>
-                <span>Passphrase</span>
+                <span>Password{!isEditing && <span className={styles.required}>*</span>}</span>
                 <input
-                  value={passphrase}
-                  onChange={(event) => setPassphrase(event.target.value)}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
                   className={styles.input}
                   type="password"
+                  placeholder={isEditing ? "不修改" : "password"}
                 />
               </label>
-            </>
-          )}
-        </div>
-      )}
-
-      {error && <div className={styles.formError}>{error}</div>}
-
-      <div className={styles.formActions}>
-        {onCancel && (
-          <Button type="button" onClick={onCancel}>
-            取消
-          </Button>
+            ) : (
+              <>
+                <label className={styles.fieldWide}>
+                  <span>Private key{!isEditing && <span className={styles.required}>*</span>}</span>
+                  <textarea
+                    value={privateKey}
+                    onChange={(event) => setPrivateKey(event.target.value)}
+                    className={styles.textarea}
+                    rows={compact ? 3 : 4}
+                    placeholder={isEditing ? "不修改" : "-----BEGIN RSA PRIVATE KEY-----"}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span>Passphrase</span>
+                  <input
+                    value={passphrase}
+                    onChange={(event) => setPassphrase(event.target.value)}
+                    className={styles.input}
+                    type="password"
+                  />
+                </label>
+              </>
+            )}
+          </div>
         )}
-        <Button type="submit" variant="primary" disabled={submitting}>
-          <Icon name={isEditing ? "save" : "plus"} size={13} />
-          {submitting ? "保存中..." : (submitLabel ?? (isEditing ? "保存" : "新建连接器"))}
-        </Button>
-      </div>
+
+        {isEditing && (
+          <p id={validationHintId} className="text-xs leading-relaxed text-muted-foreground">
+            修改连接参数或填写新密钥后，会先验证认证与目录列举，再保存。验证失败保留原配置；密钥留空则沿用。
+          </p>
+        )}
+        {(error || saveError) && (
+          <div role="alert" className={styles.formError}>
+            {error || saveError}
+          </div>
+        )}
+
+        <div className={styles.formActions}>
+          {onCancel && (
+            <Button type="button" onClick={onCancel} disabled={submitting}>
+              取消
+            </Button>
+          )}
+          <Button type="submit" variant="primary" disabled={submitting}>
+            <Icon name={isEditing ? "save" : "plus"} size={13} />
+            {submitting ? "验证并保存中..." : (submitLabel ?? (isEditing ? "保存" : "新建连接器"))}
+          </Button>
+        </div>
+      </fieldset>
     </form>
   );
 }
 
-export function StorageConnectionsPanel({
-  showForm: showFormProp,
-  onShowFormChange,
-  hideHeaderAction = false,
-}: {
+interface StorageConnectionsPanelProps {
   showForm?: boolean;
   onShowFormChange?: (open: boolean) => void;
   hideHeaderAction?: boolean;
-} = {}) {
+  connectionId?: string;
+  hideList?: boolean;
+  allowManage?: boolean;
+  onCreated?: (connection: StorageConnection) => void;
+}
+
+export function StorageConnectionsPanel(props: StorageConnectionsPanelProps = {}) {
+  const revision = useSessionRevision();
+  const { role } = usePermissions();
+  return (
+    <StorageConnectionsPanelOwner
+      key={`${revision}/${role}/${props.connectionId ?? "new"}`}
+      {...props}
+    />
+  );
+}
+
+function StorageConnectionsPanelOwner({
+  showForm: showFormProp,
+  onShowFormChange,
+  hideHeaderAction = false,
+  connectionId,
+  hideList = false,
+  allowManage = true,
+  onCreated,
+}: StorageConnectionsPanelProps) {
+  const capture = useSessionGuard();
   const { role } = usePermissions();
   const isSuper = role === "super_admin";
-  const canManage = isSuper || role === "project_admin";
+  const canManage = allowManage && (isSuper || role === "project_admin");
   const pushToast = useToastStore((s) => s.push);
-  const { data: connections = [], isLoading } = useStorageConnections();
+  const { data: connectionData = [], isLoading, error: connectionsError } = useStorageConnections();
+  const connections = storageAccessDenied(connectionsError) ? [] : connectionData;
   const deploymentPreset = useDeploymentSftpPreset(isSuper);
   const createMutation = useCreateStorageConnection();
   const updateMutation = useUpdateStorageConnection();
@@ -442,33 +502,43 @@ export function StorageConnectionsPanel({
   );
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, StorageConnectionTestResult>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const dialogTrigger = useRef<HTMLButtonElement | null>(null);
 
   const submitConnection = async (values: StorageConnectionFormValues) => {
+    const current = capture();
+    setSaveError(null);
     try {
       if (editing) {
         await updateMutation.mutateAsync({
           id: editing.id,
           payload: {
+            expected_revision: editing.revision,
             name: values.name,
-            config: values.config,
+            ...(sameConfig(editing.config, values.config) ? {} : { config: values.config }),
             ...(values.secret ? { secret: values.secret } : {}),
           },
         });
+        if (!current()) return;
         pushToast({ msg: "连接器已更新", kind: "success" });
       } else {
-        await createMutation.mutateAsync({
+        const connection = await createMutation.mutateAsync({
           name: values.name,
           kind: values.kind,
           scope: values.scope,
           config: values.config,
           secret: values.secret ?? {},
         });
+        if (!current()) return;
+        onCreated?.(connection);
         pushToast({ msg: "连接器已创建", kind: "success" });
       }
       setEditing(null);
       setInitialValues(null);
       setShowForm(false);
     } catch (error) {
+      if (!current()) return;
+      setSaveError((error as Error).message);
       pushToast({
         msg: editing ? "连接器更新失败" : "连接器创建失败",
         sub: (error as Error).message,
@@ -477,11 +547,14 @@ export function StorageConnectionsPanel({
     }
   };
 
-  const runTest = (id: string) => {
+  const runTest = (conn: StorageConnection) => {
+    const { id, revision } = conn;
+    const current = capture();
     setTestingId(id);
     testMutation.mutate(id, {
       onSuccess: (result) => {
-        setTestResults((prev) => ({ ...prev, [id]: result }));
+        if (!current()) return;
+        setTestResults((prev) => ({ ...prev, [`${id}/${revision}`]: result }));
         pushToast({
           msg: result.ok ? "连接成功" : "连接失败",
           sub: result.message,
@@ -489,13 +562,17 @@ export function StorageConnectionsPanel({
         });
       },
       onError: (error) => {
+        if (!current()) return;
         pushToast({ msg: "连接测试失败", sub: (error as Error).message, kind: "warning" });
       },
-      onSettled: () => setTestingId(null),
+      onSettled: () => {
+        if (current()) setTestingId(null);
+      },
     });
   };
 
   const removeConnection = async (conn: StorageConnection) => {
+    const current = capture();
     if (
       !(await confirmDialog({
         tone: "danger",
@@ -505,9 +582,13 @@ export function StorageConnectionsPanel({
       }))
     )
       return;
+    if (!current()) return;
     deleteMutation.mutate(conn.id, {
-      onSuccess: () => pushToast({ msg: "连接器已删除", kind: "success" }),
+      onSuccess: () => {
+        if (current()) pushToast({ msg: "连接器已删除", kind: "success" });
+      },
       onError: (error) =>
+        current() &&
         pushToast({ msg: "连接器删除失败", sub: (error as Error).message, kind: "warning" }),
     });
   };
@@ -515,6 +596,7 @@ export function StorageConnectionsPanel({
   const openDeploymentPreset = () => {
     const preset = deploymentPreset.data;
     if (!preset?.enabled || !preset.host) return;
+    setSaveError(null);
     setEditing(null);
     setInitialValues({
       name: "部署主机",
@@ -537,17 +619,29 @@ export function StorageConnectionsPanel({
           <div className={styles.subtitle}>S3 / OSS / SFTP</div>
         </div>
         <div className={styles.headerActions}>
-          {isSuper && deploymentPreset.data?.enabled && deploymentPreset.data.host && (
-            <Button size="sm" onClick={openDeploymentPreset}>
-              <Icon name="folderOpen" size={12} />
-              添加部署主机
-            </Button>
-          )}
+          {canManage &&
+            isSuper &&
+            !connectionId &&
+            deploymentPreset.data?.enabled &&
+            deploymentPreset.data.host && (
+              <Button
+                size="sm"
+                onClick={(event) => {
+                  dialogTrigger.current = event.currentTarget;
+                  openDeploymentPreset();
+                }}
+              >
+                <Icon name="folderOpen" size={12} />
+                添加部署主机
+              </Button>
+            )}
           {canManage && !hideHeaderAction && (
             <Button
               size="sm"
               variant="primary"
-              onClick={() => {
+              onClick={(event) => {
+                dialogTrigger.current = event.currentTarget;
+                setSaveError(null);
                 setEditing(null);
                 setInitialValues(null);
                 setShowForm(true);
@@ -560,16 +654,19 @@ export function StorageConnectionsPanel({
         </div>
       </div>
 
-      {canManage && (
+      {canManage && !storageAccessDenied(connectionsError) && (
         <Modal
           open={showForm}
           onClose={() => {
+            if (createMutation.isPending || updateMutation.isPending) return;
             setEditing(null);
             setInitialValues(null);
             setShowForm(false);
           }}
           title={editing ? "编辑数据源" : initialValues ? "添加部署主机" : "新建数据源"}
           width={640}
+          stopEscapePropagation
+          returnFocusRef={dialogTrigger}
         >
           <StorageConnectionForm
             key={editing?.id ?? (initialValues ? "deployment-preset" : "new")}
@@ -578,6 +675,7 @@ export function StorageConnectionsPanel({
             isSuper={isSuper}
             submitLabel={editing ? "保存" : "新建数据源"}
             submitting={createMutation.isPending || updateMutation.isPending}
+            saveError={saveError}
             onSubmit={submitConnection}
             onCancel={() => {
               setEditing(null);
@@ -588,77 +686,91 @@ export function StorageConnectionsPanel({
         </Modal>
       )}
 
-      <div className={styles.list}>
-        {isLoading && <div className={styles.empty}>加载中...</div>}
-        {!isLoading && connections.length === 0 && <div className={styles.empty}>暂无连接器</div>}
-        {!isLoading &&
-          connections.map((conn) => {
-            const result = testResults[conn.id];
-            const canEditConn = canManage && (isSuper || conn.scope === "owner");
-            return (
-              <div key={conn.id} className={styles.connectionRow}>
-                <div className={styles.connectionIcon}>
-                  <Icon name={conn.kind === "s3" ? "db" : "folderOpen"} size={15} />
-                </div>
-                <div className={styles.connectionMain}>
-                  <div className={styles.connectionTop}>
-                    <span className={styles.connectionName}>{conn.name}</span>
-                    <span className={styles.badge}>{conn.kind.toUpperCase()}</span>
-                    <span className={styles.badge}>{roleLabel(conn.scope)}</span>
-                    <span className={conn.secret_set ? styles.secretOk : styles.secretMissing}>
-                      {conn.secret_set ? "已加密" : "未配置密钥"}
-                    </span>
-                  </div>
-                  <div className={styles.connectionMeta}>
-                    {connectionSummary(conn) || "未配置目标路径"}
-                  </div>
-                  {result && (
-                    <div
-                      className={cx(styles.testResult, result.ok ? styles.testOk : styles.testFail)}
-                    >
-                      {result.message}
-                      {result.sample_count !== null && ` · 样本 ${result.sample_count}`}
+      {connectionsError && (
+        <p role="alert" className="mb-2 text-xs text-status-danger">
+          读取连接配置失败：{verifiedContentError(connectionsError)}
+        </p>
+      )}
+      {!hideList && (
+        <div className={styles.list}>
+          {isLoading && <div className={styles.empty}>加载中...</div>}
+          {!isLoading && connections.length === 0 && <div className={styles.empty}>暂无连接器</div>}
+          {!isLoading &&
+            connections
+              .filter((conn) => !connectionId || conn.id === connectionId)
+              .map((conn) => {
+                const result = testResults[`${conn.id}/${conn.revision}`];
+                const canEditConn = canManage && (isSuper || conn.scope === "owner");
+                return (
+                  <div key={conn.id} className={styles.connectionRow}>
+                    <div className={styles.connectionIcon}>
+                      <Icon name={conn.kind === "s3" ? "db" : "folderOpen"} size={15} />
                     </div>
-                  )}
-                </div>
-                <div className={styles.rowActions}>
-                  <Button
-                    size="sm"
-                    onClick={() => runTest(conn.id)}
-                    disabled={testingId === conn.id}
-                  >
-                    <Icon name="activity" size={12} />
-                    {testingId === conn.id ? "测试中" : "测试"}
-                  </Button>
-                  {canEditConn && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setEditing(conn);
-                        setInitialValues(null);
-                        setShowForm(true);
-                      }}
-                    >
-                      <Icon name="edit" size={12} />
-                      编辑
-                    </Button>
-                  )}
-                  {canEditConn && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => removeConnection(conn)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Icon name="trash" size={12} />
-                      删除
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-      </div>
+                    <div className={styles.connectionMain}>
+                      <div className={styles.connectionTop}>
+                        <span className={styles.connectionName}>{conn.name}</span>
+                        <span className={styles.badge}>{conn.kind.toUpperCase()}</span>
+                        <span className={styles.badge}>{roleLabel(conn.scope)}</span>
+                        <span className={conn.secret_set ? styles.secretOk : styles.secretMissing}>
+                          {conn.secret_set ? "已加密" : "未配置密钥"}
+                        </span>
+                      </div>
+                      <div className={styles.connectionMeta}>
+                        {connectionSummary(conn) || "未配置目标路径"}
+                      </div>
+                      {result && (
+                        <div
+                          className={cx(
+                            styles.testResult,
+                            result.ok ? styles.testOk : styles.testFail,
+                          )}
+                        >
+                          {result.ok ? result.message : <CopyableError message={result.message} />}
+                          {result.sample_count !== null && ` · 样本 ${result.sample_count}`}
+                        </div>
+                      )}
+                    </div>
+                    <div className={styles.rowActions}>
+                      <Button
+                        size="sm"
+                        onClick={() => runTest(conn)}
+                        disabled={testingId === conn.id}
+                      >
+                        <Icon name="activity" size={12} />
+                        {testingId === conn.id ? "测试中" : "测试"}
+                      </Button>
+                      {canEditConn && (
+                        <Button
+                          size="sm"
+                          onClick={(event) => {
+                            dialogTrigger.current = event.currentTarget;
+                            setSaveError(null);
+                            setEditing(conn);
+                            setInitialValues(null);
+                            setShowForm(true);
+                          }}
+                        >
+                          <Icon name="edit" size={12} />
+                          编辑
+                        </Button>
+                      )}
+                      {canEditConn && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => removeConnection(conn)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Icon name="trash" size={12} />
+                          删除
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+      )}
     </section>
   );
 }

@@ -20,6 +20,8 @@ from app.services.raster_mask_storage import (
     lock_raster_mask_references,
     store_coco_rle,
 )
+from app.services.raster_object_storage import RasterObjectStorageError
+from tests.test_raster_mask_storage import owned_mask_storage as owned_mask_storage
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
 EXPECTED_ERROR_REASONS = {
@@ -39,15 +41,6 @@ def _counter_value(counter, **labels: str) -> float:
     return float(counter.labels(**labels)._value.get())
 
 
-def _storage(*, get_error: Exception | None = None):
-    storage = MagicMock()
-    storage.bucket = "annotation-data"
-    storage.verify_upload.return_value = None
-    if get_error is not None:
-        storage.client.get_object.side_effect = get_error
-    return storage
-
-
 @pytest.mark.parametrize(
     ("exc", "reason"),
     [
@@ -63,6 +56,10 @@ def _storage(*, get_error: Exception | None = None):
             "storage_unavailable",
         ),
         (RuntimeError("unexpected"), "unknown"),
+        (RasterObjectStorageError("missing"), "missing_object"),
+        (RasterObjectStorageError("integrity_mismatch"), "digest_mismatch"),
+        (RasterObjectStorageError("unavailable"), "storage_unavailable"),
+        (RasterObjectStorageError("unpinned"), "invalid_payload"),
     ],
 )
 def test_raster_mask_content_error_classification_is_fixed(exc, reason):
@@ -71,13 +68,16 @@ def test_raster_mask_content_error_classification_is_fixed(exc, reason):
 
 
 @pytest.mark.asyncio
-async def test_content_operation_success_and_error_counter_deltas():
+async def test_content_operation_success_and_error_counter_deltas(
+    db_session, owned_mask_storage
+):
     store_before = _counter_value(
         RASTER_MASK_CONTENT_OPERATIONS_TOTAL,
         operation="store",
         outcome="success",
     )
-    await store_coco_rle(RLE, storage=_storage())
+    storage = owned_mask_storage()
+    reference = await store_coco_rle(RLE, storage=storage, db=db_session)
     assert (
         _counter_value(
             RASTER_MASK_CONTENT_OPERATIONS_TOTAL,
@@ -91,7 +91,7 @@ async def test_content_operation_success_and_error_counter_deltas():
         {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
         "GetObject",
     )
-    storage = _storage(get_error=missing)
+    storage.client.get_object.side_effect = missing
     load_before = _counter_value(
         RASTER_MASK_CONTENT_OPERATIONS_TOTAL,
         operation="load",
@@ -103,8 +103,9 @@ async def test_content_operation_success_and_error_counter_deltas():
         reason="missing_object",
     )
 
-    with pytest.raises(ValueError, match="missing"):
-        await load_coco_rle(build_rle_reference(RLE), storage=storage)
+    with pytest.raises(RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_missing"
 
     assert (
         _counter_value(
@@ -130,14 +131,19 @@ async def test_verify_counts_once_without_nested_load(monkeypatch):
 
     reference = build_rle_reference(RLE)
 
-    async def nested_observed_load(_reference):
+    async def nested_observed_load(_reference, **kwargs):
         return await storage_module._observe_content_operation(
             "load",
             asyncio.sleep(0, result=RLE),
         )
 
     monkeypatch.setattr(storage_module, "load_coco_rle", nested_observed_load)
-    db = SimpleNamespace(execute=AsyncMock())
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: True))
+    )
+    monkeypatch.setattr(
+        "app.services.raster_mask_objects.bind_publications", AsyncMock()
+    )
     verify_before = _counter_value(
         RASTER_MASK_CONTENT_OPERATIONS_TOTAL,
         operation="verify",

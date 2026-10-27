@@ -1,7 +1,7 @@
 """Add the workspace project-reference transaction capability.
 
-Revision ID: 0190
-Revises: 0189
+Revision ID: bo0190
+Revises: 0267
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0190"
-down_revision = "0189"
+revision = "bo0190"
+down_revision = "0267"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0190_workspace_data_contract.sql"

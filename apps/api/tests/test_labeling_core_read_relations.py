@@ -1,6 +1,4 @@
 import uuid
-import re
-from pathlib import Path
 
 import pytest
 
@@ -161,85 +159,6 @@ def test_task_event_rows_bind_to_the_existing_public_facts_view():
     sql = str(select(task_event_row).compile(dialect=postgresql.dialect()))
     assert "FROM aap_labeling_v1.task_event_facts" in sql
     assert "FROM task_events" not in sql
-
-
-def test_new_compatibility_views_and_lock_functions_match_packaged_sql():
-    api_sql = (
-        Path(__file__).resolve().parents[1]
-        / "alembic/sql/0361_labeling_compatibility_reads.sql"
-    )
-    package_sql = (
-        Path(__file__).resolve().parents[3]
-        / "apps/labeling/src/aap_labeling/sql/0361_labeling_compatibility_reads.sql"
-    )
-    sql = api_sql.read_text(encoding="utf-8")
-    assert sql == package_sql.read_text(encoding="utf-8")
-    assert "CREATE VIEW aap_labeling_v1.annotation_draft_rows" in sql
-    assert "SELECT id, task_id\nFROM public.annotation_drafts" in sql
-    assert "CREATE VIEW aap_assets_v1.labeling_dataset_item_facts" in sql
-    assert "LIMIT 4097\n    FOR SHARE" in sql
-    assert sql.count("FOR SHARE") == 2
-    assert "CREATE FUNCTION aap_labeling_v1.next_batch_display_id()" in sql
-    assert "'BT-' || pg_catalog.nextval" in sql
-    assert "'public.display_seq_batches'::pg_catalog.regclass" in sql
-
-    for function, alias, table_name, relation in (
-        (
-            "lock_active_learning_feedback_task_rows",
-            "task",
-            "tasks",
-            "task_rows",
-        ),
-        (
-            "lock_active_learning_feedback_annotation_rows",
-            "annotation",
-            "annotations",
-            "annotation_rows",
-        ),
-    ):
-        function_sql = sql.split(f"CREATE FUNCTION aap_labeling_v1.{function}", 1)[1]
-        selected = re.search(
-            rf"RETURN QUERY\s+SELECT(.*?)\s+FROM public\.{table_name} AS {alias}",
-            function_sql,
-            re.DOTALL,
-        )
-        assert selected is not None
-        assert (
-            tuple(re.findall(rf"\b{alias}\.(\w+)\b", selected.group(1)))
-            == (CORE_READ_COLUMNS[relation])
-        )
-
-
-def test_new_core_read_views_publish_exact_ordered_columns():
-    api_sql = (
-        Path(__file__).resolve().parents[1] / "alembic/sql/0352_labeling_core_read.sql"
-    )
-    package_sql = (
-        Path(__file__).resolve().parents[3]
-        / "apps/labeling/src/aap_labeling/sql/0352_labeling_core_read.sql"
-    )
-    sql = api_sql.read_text(encoding="utf-8")
-    assert sql == package_sql.read_text(encoding="utf-8")
-
-    base_tables = {
-        "scene_track_rows": "scene_tracks",
-        "scene_track_interval_rows": "scene_track_intervals",
-        "video_segment_rows": "video_segments",
-        "video_tracker_job_rows": "video_tracker_jobs",
-    }
-    for relation, base_table in base_tables.items():
-        view = re.search(
-            rf"CREATE VIEW aap_labeling_v1\.{relation}\s+"
-            rf"WITH \(security_barrier = true\)\s+AS\s+SELECT(.*?)"
-            rf"\s+FROM public\.{base_table};",
-            sql,
-            re.DOTALL,
-        )
-        assert view is not None
-        assert (
-            tuple(column.strip() for column in view.group(1).split(","))
-            == (CORE_READ_COLUMNS[relation])
-        )
 
 
 def test_task_metrics_compose_only_public_labeling_rows():

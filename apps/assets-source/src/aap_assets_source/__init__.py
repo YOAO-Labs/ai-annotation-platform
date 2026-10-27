@@ -35,6 +35,19 @@ from .import_contract import (
     ImportState,
     decode_import_reply,
 )
+from .managed_original import (
+    Prepared,
+    Source,
+    Verified,
+    WriteReceipt,
+    WriterError,
+)
+from .managed_original_contract import (
+    ManagedOriginalAuthority,
+    ManagedOriginalFailure,
+    ManagedOriginalMaterial,
+    ManagedOriginalProof,
+)
 from .upload_contract import (
     DatasetUploadAcceptance,
     DatasetUploadCompletedResult,
@@ -71,6 +84,15 @@ __all__ = [
     "ImportContext",
     "ImportEntry",
     "ImportEntryCompletion",
+    "ManagedOriginalAuthority",
+    "ManagedOriginalFailure",
+    "ManagedOriginalMaterial",
+    "ManagedOriginalProof",
+    "Prepared",
+    "Source",
+    "Verified",
+    "WriteReceipt",
+    "WriterError",
     "ImportFailure",
     "ImportFailureCode",
     "ImportLimits",

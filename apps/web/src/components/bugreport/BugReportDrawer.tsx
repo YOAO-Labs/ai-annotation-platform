@@ -1,4 +1,12 @@
-import { lazy, Suspense, useState, useEffect, useRef, type ClipboardEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ClipboardEvent,
+} from "react";
 import { Icon } from "@/components/ui/Icon";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
@@ -37,6 +45,12 @@ import {
   rasterResourceDiagnosticsConsoleEntry,
 } from "@/utils/rasterResourceDiagnostics";
 import { readWorkbenchPerfSnapshot } from "@/pages/Workbench/stage/shared/useWorkbenchPerf";
+import {
+  captureBugReportOwner,
+  isCurrentBugReportOwner,
+  useBugAttachmentDownload,
+} from "@/hooks/useBugAttachmentDownload";
+import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { ScreenshotEditor } from "./ScreenshotEditor";
 import { MarkdownBlock } from "./MarkdownBlock";
 import type { MarkdownEditorProps } from "@/components/markdown/MarkdownEditor";
@@ -128,14 +142,55 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   // v0.7.0：上传失败 retry 状态
   const [screenshotUploadFail, setScreenshotUploadFail] = useState<string | null>(null);
+  const revision = useSessionRevision();
+  const captureSession = useSessionGuard();
+  const drawerGeneration = useRef(0);
+  const submitPending = useRef(false);
+  const uploadReceipts = useRef(new Map<string, BugAttachment>());
+  const previousRevision = useRef(revision);
+  const downloads = useBugAttachmentDownload(
+    open && view === "detail" ? (detail?.id ?? null) : null,
+    focusBugId,
+  );
 
   const pushToast = useToastStore((s) => s.push);
+
+  useLayoutEffect(() => {
+    const receipts = uploadReceipts.current;
+    drawerGeneration.current += 1;
+    submitPending.current = false;
+    uploadReceipts.current.clear();
+    setSubmitting(false);
+    setScreenshotUploadFail(null);
+    if (previousRevision.current !== revision) {
+      previousRevision.current = revision;
+      detailRequestRef.current += 1;
+      commentRequestRef.current += 1;
+      activeDetailIdRef.current = null;
+      setReports([]);
+      setDetail(null);
+      setView("list");
+      setTitle("");
+      setDesc("");
+      setSeverity("medium");
+      setPendingAttachments([]);
+      setScreenshotBlob(null);
+      setScreenshotEditing(false);
+      setCommentBody("");
+      setPostingComment(false);
+    }
+    return () => {
+      drawerGeneration.current += 1;
+      submitPending.current = false;
+      receipts.clear();
+    };
+  }, [open, focusBugId, revision]);
 
   useEffect(() => {
     if (open && view === "list") {
       loadMine();
     }
-  }, [open, view]);
+  }, [open, view, revision]);
 
   // v0.7.0：从通知中心点击「我的反馈」类通知跳转时，自动定位到该条详情
   useEffect(() => {
@@ -146,18 +201,28 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   }, [open, focusBugId]);
 
   const loadMine = async () => {
+    const owner = captureBugReportOwner();
+    const generation = drawerGeneration.current;
+    const current = () => generation === drawerGeneration.current && isCurrentBugReportOwner(owner);
+    if (!current()) return;
     setLoading(true);
     try {
       const data = await bugReportsApi.listMine(20);
+      if (!current()) return;
       setReports(data.items);
     } catch {
       // ignore
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
   const invalidateDetailScope = () => {
+    drawerGeneration.current += 1;
+    submitPending.current = false;
+    uploadReceipts.current.clear();
+    setSubmitting(false);
+    downloads.invalidate();
     detailRequestRef.current += 1;
     commentRequestRef.current += 1;
     activeDetailIdRef.current = null;
@@ -165,24 +230,31 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   };
 
   const loadDetail = async (id: string) => {
+    const owner = captureBugReportOwner();
+    if (!isCurrentBugReportOwner(owner)) return;
+    const previousDetailId = activeDetailIdRef.current;
+    invalidateDetailScope();
+    const generation = drawerGeneration.current;
+    const current = () => generation === drawerGeneration.current && isCurrentBugReportOwner(owner);
     const requestId = ++detailRequestRef.current;
     commentRequestRef.current += 1;
-    if (activeDetailIdRef.current !== id) setCommentBody("");
+    if (previousDetailId !== id) setCommentBody("");
     activeDetailIdRef.current = id;
     setPostingComment(false);
     setLoading(true);
     setDetail(null);
     try {
       const data = await bugReportsApi.get(id);
-      if (requestId !== detailRequestRef.current || activeDetailIdRef.current !== id) return;
+      if (!current() || requestId !== detailRequestRef.current || activeDetailIdRef.current !== id)
+        return;
       setDetail(data);
       setView("detail");
     } catch {
-      if (requestId === detailRequestRef.current && activeDetailIdRef.current === id) {
+      if (current() && requestId === detailRequestRef.current && activeDetailIdRef.current === id) {
         pushToast({ msg: "加载失败", kind: "error" });
       }
     } finally {
-      if (requestId === detailRequestRef.current && activeDetailIdRef.current === id) {
+      if (current() && requestId === detailRequestRef.current && activeDetailIdRef.current === id) {
         setLoading(false);
       }
     }
@@ -256,6 +328,12 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   };
 
   const handleSubmit = async (skipScreenshot = false) => {
+    const owner = captureBugReportOwner();
+    if (!open || submitPending.current || !isCurrentBugReportOwner(owner)) return;
+    const sessionCurrent = captureSession();
+    const generation = drawerGeneration.current;
+    const current = () =>
+      generation === drawerGeneration.current && sessionCurrent() && isCurrentBugReportOwner(owner);
     const trimmedTitle = title.trim();
     const trimmedDescription = desc.trim();
     if (!trimmedTitle || !trimmedDescription) return;
@@ -288,20 +366,28 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
       return;
     }
 
+    submitPending.current = true;
     setSubmitting(true);
     try {
-      let uploadedAttachments: BugAttachment[] = [];
+      const uploadedAttachments: BugAttachment[] = [];
       if (!skipScreenshot && pendingAttachments.length > 0) {
         try {
-          uploadedAttachments = await Promise.all(
-            pendingAttachments.map((item) => uploadBugAttachment(item.blob, item.fileName)),
-          );
+          for (const item of pendingAttachments) {
+            let receipt = uploadReceipts.current.get(item.id);
+            if (!receipt) {
+              receipt = await uploadBugAttachment(item.blob, item.fileName);
+              if (!current()) return;
+              uploadReceipts.current.set(item.id, receipt);
+            }
+            uploadedAttachments.push(receipt);
+          }
+          if (!current()) return;
           setScreenshotUploadFail(null);
         } catch (e) {
+          if (!current()) return;
           // v0.7.0：失败不再静默降级，停在表单让用户选 retry / skip / cancel
           console.error("Bug screenshot upload failed", e);
           setScreenshotUploadFail("请稍后重试，或跳过截图继续提交。");
-          setSubmitting(false);
           return;
         }
       }
@@ -323,6 +409,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
           stack: JSON.stringify(perf, null, 2),
         });
       }
+      if (!current()) return;
       await bugReportsApi.create({
         title: trimmedTitle,
         description,
@@ -336,28 +423,39 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
         screenshot_url: uploadedAttachments[0]?.storageKey ?? null,
         attachments: uploadedAttachments,
       });
+      if (!current()) return;
       pushToast({ msg: "反馈已提交", kind: "success" });
       setTitle("");
       setDesc("");
       setSeverity("medium");
       setScreenshotBlob(null);
       setPendingAttachments([]);
+      uploadReceipts.current.clear();
       setView("list");
     } catch {
-      pushToast({ msg: "提交失败，请稍后重试", kind: "error" });
+      if (current()) pushToast({ msg: "提交失败，请稍后重试", kind: "error" });
     } finally {
-      setSubmitting(false);
+      if (current()) {
+        submitPending.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
   const handleCaptureScreenshot = async () => {
+    const owner = captureBugReportOwner();
+    const generation = drawerGeneration.current;
+    const current = () => generation === drawerGeneration.current && isCurrentBugReportOwner(owner);
+    if (!current()) return;
     pushToast({ msg: "正在截图…" });
     try {
       // 关闭 drawer 短暂时间让 html2canvas 截到完整页面（可选简化：用 ignoreElements）
       const blob = await captureScreenshot();
+      if (!current()) return;
       setScreenshotBlob(blob);
       setScreenshotEditing(true);
     } catch (e) {
+      if (!current()) return;
       pushToast({
         msg: "截图失败",
         sub: e instanceof Error ? e.message : String(e),
@@ -515,7 +613,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
                 返回
               </button>
             )}
-            <button onClick={handleClose} className={styles.closeButton}>
+            <button aria-label="关闭反馈" onClick={handleClose} className={styles.closeButton}>
               <Icon name="x" size={16} />
             </button>
           </div>
@@ -797,19 +895,27 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
                   <div className={styles.sectionTitle}>截图附件 ({detail.attachments.length})</div>
                   <div className={styles.attachmentGrid}>
                     {detail.attachments.map((att) => (
-                      <a
-                        key={att.storageKey}
-                        href={bugReportsApi.attachmentDownloadUrl(detail.id, att.storageKey)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.attachmentItem}
-                      >
-                        <Icon name="image" size={12} />
-                        <span className={styles.truncate}>{att.fileName}</span>
-                        <span className={styles.attachmentSize}>
-                          {Math.round(att.size / 1024)} KB
-                        </span>
-                      </a>
+                      <div key={att.storageKey}>
+                        <button
+                          type="button"
+                          onClick={() => void downloads.download(att)}
+                          disabled={downloads.pendingKeys.has(att.storageKey)}
+                          className={cx(styles.attachmentItem, styles.attachmentDownload)}
+                        >
+                          <Icon name="image" size={12} />
+                          <span className={styles.truncate}>{att.fileName}</span>
+                          <span className={styles.attachmentSize}>
+                            {downloads.pendingKeys.has(att.storageKey)
+                              ? "下载中…"
+                              : `${Math.round(att.size / 1024)} KB`}
+                          </span>
+                        </button>
+                        {downloads.errors[att.storageKey] && (
+                          <div role="alert" className={styles.attachmentError}>
+                            {downloads.errors[att.storageKey]}，可点击附件重试。
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

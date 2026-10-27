@@ -171,7 +171,7 @@ describe("native augmentation preview ownership", () => {
       new Set([...overlay.querySelectorAll("rect")].map((box) => box.getAttribute("stroke"))).size,
     ).toBe(2);
     expect(
-      screen.getByRole("img", { name: "原始来源 source-1矩形框" }).querySelectorAll("rect"),
+      screen.getByRole("img", { name: "原始来源 1矩形框" }).querySelectorAll("rect"),
     ).toHaveLength(2);
     const signal = vi.mocked(trainingPreviewsApi.image).mock.calls[0][3]!.signal!;
     view.unmount();
@@ -246,7 +246,7 @@ describe("native augmentation preview ownership", () => {
     vi.mocked(trainingPreviewsApi.image).mockReturnValueOnce(late.promise);
     const view = mount();
     await generate();
-    await screen.findByAltText("原始来源 source-1");
+    await screen.findByAltText("原始来源 1");
     view.rerender(view.tree({ ...props, binding: "dataset-changed" }));
     await act(async () => late.resolve(new Blob(["old output"])));
     expect(createUrl).toHaveBeenCalledTimes(1);

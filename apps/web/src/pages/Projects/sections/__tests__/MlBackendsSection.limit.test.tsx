@@ -149,7 +149,7 @@ describe("MlBackendsSection 启用清单", () => {
 
     // 已无「保存 AI 设置」按钮; 下拉选中即时提交。
     expect(screen.queryByRole("button", { name: /保存 AI 设置/ })).toBeNull();
-    fireEvent.change(screen.getByDisplayValue(/未设项目主后端/), {
+    fireEvent.change(screen.getByDisplayValue("不设置项目主后端"), {
       target: { value: "b1" },
     });
 
@@ -207,7 +207,7 @@ describe("MlBackendsSection 启用清单", () => {
         <MlBackendsSection project={base as ProjectResponse} />
       </QueryClientProvider>,
     );
-    expect(screen.getByDisplayValue(/未设项目主后端/)).toBeTruthy();
+    expect(screen.getByDisplayValue("不设置项目主后端")).toBeTruthy();
 
     // 行内「设为主后端」(onBind) 落库后服务端值变化 → 重渲染携带新 ml_backend_id。
     rerender(

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
-import inspect
-from typing import TYPE_CHECKING, BinaryIO, TypeVar
+from typing import BinaryIO, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from .config import GuideOnlyConfig, SourceConfig
+from .config import SourceConfig
 from aap_assets_source.connections_contract import (
     CONNECTION_OPERATIONS,
     CONNECTIONS_SCHEMA,
@@ -45,11 +44,6 @@ from .ingest_storage import IngestStorage
 from .ingest_workflow import IngestWorkflow
 from .image_admission import ImageAdmission
 
-if TYPE_CHECKING:
-    from aap_assets_source.guide_object_contract import GuideObjectRequest
-
-    from .guide_storage import GuideStorage
-
 _Result = TypeVar("_Result", bound=BaseModel)
 _SOURCE_SCHEMA = "aap-assets-source/v1"
 
@@ -62,39 +56,21 @@ class _ExpectedFailure(Exception):
 class SourceRuntime:
     def __init__(
         self,
-        config: SourceConfig | GuideOnlyConfig,
+        config: SourceConfig,
         database: SourceDatabase | None,
         storage: SourceStorage | None,
-        guide_storage: GuideStorage | None = None,
     ) -> None:
         self._config = config
         self._database = database
         self._storage = storage
-        self._guide_storage = guide_storage
-        self._guide_in_flight = 0
 
     @classmethod
-    async def start(cls, config: SourceConfig | GuideOnlyConfig) -> SourceRuntime:
-        if isinstance(config, GuideOnlyConfig):
-            from .guide_storage import GuideStorage
-
-            return cls(config, None, None, GuideStorage(config.guide))
-
+    async def start(cls, config: SourceConfig) -> SourceRuntime:
         database = await SourceDatabase.connect(config)
-        guide_storage = None
         try:
-            if config.guide is not None:
-                from .guide_storage import GuideStorage
-
-                guide_storage = GuideStorage(config.guide)
-            storage = SourceStorage(config)
-            return cls(config, database, storage, guide_storage)
+            return cls(config, database, SourceStorage(config))
         except Exception:
-            try:
-                if guide_storage is not None:
-                    await guide_storage.close()
-            finally:
-                await database.close()
+            await database.close()
             raise
 
     async def init_upload(self, request: UploadInitRequest) -> bytes:
@@ -162,135 +138,11 @@ class SourceRuntime:
         except _ExpectedFailure as exc:
             return exc.body
 
-    async def guide_object(self, request: GuideObjectRequest) -> bytes:
-        from aap_assets_source.guide_object_contract import (
-            GuideObjectFailure,
-            decode_guide_object_reply,
-            decode_guide_object_request,
-            guide_object_success_reply,
-        )
-
-        request = decode_guide_object_request(request)
-        if self._guide_storage is None:
-            return self._encode_guide_failure(request, "unavailable")
-        if self._guide_in_flight >= self._config.guide_max_in_flight:
-            return self._encode_guide_failure(request, "busy")
-
-        self._guide_in_flight += 1
-        try:
-            try:
-                result = await self._run_guide_storage(request)
-            except GuideObjectFailure as exc:
-                return self._encode_guide_failure(request, exc.code)
-
-            try:
-                reply = guide_object_success_reply(request, result)
-                decoded = decode_guide_object_reply(
-                    request, reply.model_dump(mode="json", by_alias=True)
-                )
-                if decoded != reply:
-                    raise ValueError("Guide object reply changed during validation")
-                payload = reply.model_dump(mode="json", by_alias=True)
-            except (TypeError, ValueError):
-                return self._encode_guide_failure(request, "unavailable")
-            try:
-                return self._serialize_guide_reply(request, payload)
-            except (TypeError, ValueError):
-                return self._encode_guide_failure(request, "unavailable")
-        finally:
-            self._guide_in_flight -= 1
-
-    async def _run_guide_storage(self, request: GuideObjectRequest) -> dict:
-        if self._guide_storage is None:
-            raise RuntimeError("Guide object storage is unavailable")
-        if request.operation == "presign_put":
-            return {
-                "url": await self._guide_storage.generate_upload_url(
-                    request.key, content_type=request.content_type
-                ),
-                "expires_in": 900,
-            }
-        if request.operation == "head":
-            return {
-                "content_length": await self._guide_storage.verify_upload(request.key)
-            }
-        if request.operation == "delete":
-            await self._guide_storage.delete_object(request.key)
-            return {"deleted": True}
-        if request.operation == "presign_get":
-            return {
-                "url": await self._guide_storage.generate_download_url(request.key),
-                "expires_in": 3600,
-            }
-        raise RuntimeError("Unsupported Guide object operation")
-
-    def _encode_guide_failure(self, request, code: str) -> bytes:
-        from aap_assets_source.guide_object_contract import (
-            GuideObjectFailure,
-            decode_guide_object_reply,
-            guide_object_failure_reply,
-        )
-
-        reply = guide_object_failure_reply(request, code)
-        payload = reply.model_dump(mode="json", by_alias=True)
-        try:
-            decode_guide_object_reply(request, payload)
-        except GuideObjectFailure as decoded:
-            if decoded.code != code:
-                raise ValueError("Guide failure changed during validation") from None
-        else:
-            raise ValueError("Guide failure decoded as success")
-        return self._serialize_guide_reply(request, payload)
-
-    def _serialize_guide_reply(self, request, payload: dict) -> bytes:
-        try:
-            body = json.dumps(
-                payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        except (TypeError, ValueError):
-            raise ValueError("Guide object reply is not serializable") from None
-        if len(body) > self._config.max_response_bytes:
-            from aap_assets_source.guide_object_contract import (
-                GuideObjectFailure,
-                decode_guide_object_reply,
-                guide_object_failure_reply,
-            )
-
-            unavailable = guide_object_failure_reply(request, "unavailable")
-            try:
-                decode_guide_object_reply(request, unavailable)
-            except GuideObjectFailure as exc:
-                if exc.code != "unavailable":
-                    raise ValueError(
-                        "Guide budget failure changed during validation"
-                    ) from None
-            else:
-                raise ValueError("Guide budget failure decoded as success")
-            body = json.dumps(
-                unavailable.model_dump(mode="json", by_alias=True),
-                ensure_ascii=False,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        return body
-
     async def ready(self) -> bool:
-        if self._database is None:
-            return True
         return await self._database.ready()
 
     async def close(self) -> None:
-        try:
-            if self._guide_storage is not None:
-                closed = self._guide_storage.close()
-                if inspect.isawaitable(closed):
-                    await closed
-        finally:
-            if self._database is not None:
-                await self._database.close()
+        await self._database.close()
 
     def _workflow(self, ports: SourceDataPorts) -> UploadWorkflow:
         return UploadWorkflow(
@@ -305,7 +157,11 @@ class SourceRuntime:
     def _ingest_workflow(self, ports: SourceDataPorts) -> IngestWorkflow:
         return IngestWorkflow(
             data=ports.ingest,
-            storage=IngestStorage(self._storage.client, self._storage.datasets_bucket),
+            storage=IngestStorage(
+                self._storage.client,
+                self._storage.datasets_bucket,
+                managed=self._storage.managed,
+            ),
             image_admission=ImageAdmission(ports.images, self._config.image_policy),
         )
 

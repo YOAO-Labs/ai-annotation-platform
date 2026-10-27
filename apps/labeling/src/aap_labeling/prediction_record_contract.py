@@ -76,6 +76,7 @@ class CreateFailedPrediction(_ClosedModel):
     error_type: StrictStr
     message: StrictStr
     extra: dict[str, object]
+    execution_snapshot_id: uuid.UUID | None = None
 
 
 class DismissFailedPrediction(_ClosedModel):

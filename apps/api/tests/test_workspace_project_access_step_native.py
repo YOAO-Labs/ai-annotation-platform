@@ -266,7 +266,7 @@ async def test_inference_role_gets_only_bound_phase_facts_and_no_raw_reads(test_
                 project["row_json"], target_id=world["project_id"]
             )
             assert decoded_project["id"] == str(world["project_id"])
-            assert len(json.loads(project["row_json"])) == 43
+            assert len(json.loads(project["row_json"])) == 44
 
             member = await _step(
                 connection,

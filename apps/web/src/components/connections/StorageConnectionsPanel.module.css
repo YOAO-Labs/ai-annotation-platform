@@ -17,14 +17,14 @@
 .title {
   margin: 0;
   color: var(--sc-foreground);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
 .subtitle {
   margin-top: 2px;
   color: var(--sc-muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .headerActions {
@@ -63,7 +63,7 @@
   gap: 4px;
   min-width: 0;
   color: var(--sc-muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .fieldWide {
@@ -81,7 +81,7 @@
   padding: 7px 9px;
   color: var(--sc-foreground);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   background: var(--sc-card);
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-md);
@@ -98,7 +98,7 @@
   gap: 6px;
   min-height: 32px;
   color: var(--sc-muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .formActions {
@@ -109,7 +109,7 @@
 
 .formError {
   color: var(--sc-destructive);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .list {
@@ -120,7 +120,7 @@
 .empty {
   padding: 18px 16px;
   color: var(--sc-muted-foreground);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   text-align: center;
 }
 
@@ -154,6 +154,7 @@
 
 .connectionTop {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -162,7 +163,7 @@
 .connectionName {
   overflow: hidden;
   color: var(--sc-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -173,7 +174,7 @@
 .secretMissing {
   flex: 0 0 auto;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-sm);
 }
@@ -199,14 +200,14 @@
   margin-top: 3px;
   overflow: hidden;
   color: var(--sc-muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .testResult {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .testOk {

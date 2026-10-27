@@ -1,7 +1,7 @@
 """Install immutable bulk image input membership and preparation barriers.
 
-Revision ID: 0222
-Revises: 0221
+Revision ID: bo0222
+Revises: bo0221
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0222"
-down_revision = "0221"
+revision = "bo0222"
+down_revision = "bo0221"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

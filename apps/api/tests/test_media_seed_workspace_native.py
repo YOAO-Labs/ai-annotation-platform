@@ -18,7 +18,10 @@ from app.db.models.dataset import Dataset
 from app.db.models.project import Project
 from scripts import seed_coco8, seed_ocr, seed_video
 from tests.factory import create_user
-from tests.test_import_nuscenes_lite import _patch_storage_clients
+from tests.test_datasets_upload_zip import (
+    _FakeDatasetSourceStorage,
+    _patch_storage_clients,
+)
 from tests.test_workspace_consumer_profile_native import _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -139,7 +142,8 @@ async def test_fresh_media_seed_original_fields_and_resume(
     dataset_id = "D-" + uuid.uuid4().hex[:12]
     monkeypatch.setattr(module, "PROJECT_DISPLAY_ID", display_id)
     monkeypatch.setattr(module, "DATASET_DISPLAY_ID", dataset_id)
-    fake = _patch_storage_clients(monkeypatch)
+    fake = _FakeDatasetSourceStorage()
+    _patch_storage_clients(monkeypatch, fake)
     async with owner.begin() as db:
         actor = await create_user(
             db, "super_admin", f"media-{uuid.uuid4()}@seed.test", "Media owner"

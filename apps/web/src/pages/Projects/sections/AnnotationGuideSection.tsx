@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -150,7 +151,9 @@ function AnnotationGuideProjectBody({
   const pushToast = useToastStore((state) => state.push);
   const update = useUpdateProject(project.id);
   const updateMutateAsync = update.mutateAsync;
-  const { uploadAsset, deleteAsset, resolveImage } = useGuideAssets(project.id);
+  const { uploadAsset, deleteAsset, resolveImage, imageScope, isCurrent } = useGuideAssets(
+    project.id,
+  );
 
   const initialMarkdown =
     (project as unknown as { annotation_guide?: string | null }).annotation_guide ?? "";
@@ -571,22 +574,18 @@ function AnnotationGuideProjectBody({
       const epoch = projectEpochRef.current;
       const projectId = project.id;
       const result = await uploadAsset(file);
-      if (epoch !== projectEpochRef.current || projectId !== projectIdRef.current) {
+      if (
+        !ownerActiveRef.current ||
+        !isCurrent() ||
+        epoch !== projectEpochRef.current ||
+        projectId !== projectIdRef.current
+      ) {
         throw new Error("项目已切换，上传结果已丢弃");
       }
-      setAssets((previous) => [
-        ...previous,
-        {
-          key: result.src.replace(/^guide-asset:/, ""),
-          original_name: file.name,
-          content_type: file.type,
-          size: file.size,
-          uploaded_at: new Date().toISOString(),
-        },
-      ]);
+      setAssets((previous) => [...previous, result.asset]);
       return result;
     },
-    [project.id, uploadAsset],
+    [isCurrent, project.id, uploadAsset],
   );
 
   const handleDeleteAsset = useCallback(
@@ -594,14 +593,15 @@ function AnnotationGuideProjectBody({
       const epoch = projectEpochRef.current;
       try {
         await deleteAsset(key);
-        if (epoch !== projectEpochRef.current) return;
+        if (!ownerActiveRef.current || !isCurrent() || epoch !== projectEpochRef.current) return;
         setAssets((previous) => previous.filter((asset) => asset.key !== key));
         pushToast({ msg: "已删除指引图片", kind: "success" });
       } catch (error: unknown) {
+        if (!ownerActiveRef.current || !isCurrent() || epoch !== projectEpochRef.current) return;
         pushToast({ msg: getSaveErrorMessage(error), kind: "warning" });
       }
     },
-    [deleteAsset, pushToast],
+    [deleteAsset, isCurrent, pushToast],
   );
 
   const handleStarter = useCallback(() => {
@@ -632,7 +632,7 @@ function AnnotationGuideProjectBody({
             label="标注指引编辑器"
             variant="document"
             resolveImage={resolveImage}
-            imageScope={project.id}
+            imageScope={imageScope}
             placeholder="输入类别定义、易混淆边界和典型反例…"
           />
         </Suspense>
@@ -682,13 +682,15 @@ function AnnotationGuideProjectBody({
             aria-live="polite"
             data-testid="guide-save-status"
           >
-            {saveStatus === "saving"
-              ? "保存中…"
-              : saveStatus === "pending"
-                ? "等待自动保存"
-                : saveStatus === "failed"
-                  ? `保存失败：${saveError ?? "请重试"}`
-                  : "已保存"}
+            {saveStatus === "saving" ? (
+              "保存中…"
+            ) : saveStatus === "pending" ? (
+              "等待自动保存"
+            ) : saveStatus === "failed" ? (
+              <CopyableError message={`保存失败：${saveError ?? "请重试"}`} />
+            ) : (
+              "已保存"
+            )}
           </span>
           <Button
             size="sm"

@@ -23,7 +23,13 @@ PROJECT_COUNTER_COLUMNS = (
     "batch_summary",
 )
 PROJECT_FACT_COLUMNS = tuple(
-    name for name in PROJECT_ROW_COLUMNS if name not in PROJECT_COUNTER_COLUMNS
+    name
+    for name in PROJECT_ROW_COLUMNS
+    if name not in PROJECT_COUNTER_COLUMNS and name != "guide_assets_revision"
+) + (
+    # The security-barrier view grows append-only so CREATE OR REPLACE keeps
+    # its owner and ACL; this new Workspace column stays last in the relation.
+    "guide_assets_revision",
 )
 PROJECT_COUNTER_FACT_COLUMNS = ("project_id", *PROJECT_COUNTER_COLUMNS)
 
@@ -56,6 +62,7 @@ PROJECT_FACT_COLUMN_TYPES: dict[str, dict[str, str | bool]] = {
     "rendering_config": {"type": "jsonb", "nullable": False},
     "annotation_guide": {"type": "text", "nullable": True},
     "guide_assets": {"type": "jsonb", "nullable": False},
+    "guide_assets_revision": {"type": "integer", "nullable": False},
     "model_version": {"type": "character varying(100)", "nullable": True},
     "task_lock_ttl_seconds": {"type": "integer", "nullable": False},
     "video_sampling": {"type": "jsonb", "nullable": False},

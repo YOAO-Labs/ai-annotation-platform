@@ -1,3 +1,7 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -65,6 +69,7 @@ function expiryToDays(mode: ExpiryMode, customDays: number): number | null | und
  */
 export function ApiKeysPanel({ active }: { active: boolean }) {
   const { data: keys = [], isLoading } = useApiKeys(active);
+  const pagination = useListPagination(keys, String(active));
   const createKey = useCreateApiKey();
   const updateKey = useUpdateApiKey();
   const rotateKey = useRotateApiKey();
@@ -312,7 +317,11 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
               预测读等部分端点在路由层强制；未覆盖的端点（含多数写操作）仍遵从你的账号角色——所选
               scope 不等于只读隔离。需要真正受限的程序化访问，请改用低权限账号创建 key。
             </div>
-            {formError && <div className={styles.errorText}>{formError ?? "提交失败"}</div>}
+            {formError && (
+              <div className={styles.errorText}>
+                <CopyableError message={formError ?? "提交失败"} />
+              </div>
+            )}
             <div className={styles.actions}>
               <Button type="button" onClick={resetForm} disabled={pending}>
                 取消
@@ -332,7 +341,7 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
       </Modal>
 
       <div className={styles.tableShell}>
-        <table className={styles.table}>
+        <table className={`${styles.table} ${listStyles.table}`}>
           <thead>
             <tr>
               {["名称", "前缀", "权限", "有效期", "最后使用", "创建", ""].map((h, i) => (
@@ -357,7 +366,7 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
                 </td>
               </tr>
             )}
-            {keys.map((k) => {
+            {pagination.items.map((k) => {
               const revoked = !!k.revoked_at;
               const expired = !revoked && isExpired(k.expires_at);
               return (
@@ -442,6 +451,14 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
           </tbody>
         </table>
       </div>
+      <ListPagination
+        label="API 密钥"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </div>
   );
 }

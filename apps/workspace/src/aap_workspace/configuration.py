@@ -38,15 +38,7 @@ from .configuration_contract import (
     decode_configuration_reply,
     decode_configuration_step_reply,
 )
-from .guide_asset_policy import (
-    MAX_GUIDE_ASSET_SIZE_BYTES,
-    assert_guide_asset_upload_target,
-    assert_registered_guide_asset_key,
-    new_guide_asset_key,
-    record_guide_asset_upload,
-    remove_guide_asset,
-)
-from .guide_assets import GuideAssetObjectPort, guide_assets_ascii
+from .guide_assets import guide_assets_ascii
 from .configuration_policy import (
     CLONEABLE_PROJECT_FIELDS,
     TEMPLATE_PAYLOAD_FIELDS,
@@ -114,7 +106,6 @@ _PROJECT_CREATE_COLUMNS = frozenset(
         "text_threshold",
         "rendering_config",
         "annotation_guide",
-        "guide_assets",
         "due_date",
         "ai_interactive_enabled",
         "raster_mask_native_editing_enabled",
@@ -156,13 +147,6 @@ class ConfigurationCommandFailure(Exception):
         super().__init__("Configuration operation rejected")
 
 
-class ConfigurationPostCommitFailure(RuntimeError):
-    """A Project refresh failed after a guide mutation already committed."""
-
-    def __init__(self):
-        super().__init__("Guide asset mutation committed but Project refresh failed")
-
-
 class ConfigurationTransaction(Protocol):
     autoflush: bool
 
@@ -173,6 +157,13 @@ class ConfigurationTransaction(Protocol):
         args: dict[str, Any],
         columns: list[str],
         values: list[str | None],
+    ) -> Any: ...
+
+    async def guide_step(
+        self,
+        request_json: dict[str, Any],
+        action: str,
+        args: dict[str, Any],
     ) -> Any: ...
 
     async def before_project_insert(self) -> None: ...
@@ -208,7 +199,6 @@ class ConfigurationManager:
         data: ConfigurationData,
         *,
         noop_projection: NoOpProjection | None = None,
-        guide_objects: GuideAssetObjectPort | None = None,
         backend_probe: BackendProbe | None = None,
         capability_limits: CapabilityLimits = CapabilityLimits(),
         video_segment_size_frames: int = 18_000,
@@ -216,7 +206,6 @@ class ConfigurationManager:
     ) -> None:
         self.data = data
         self.noop_projection = noop_projection
-        self.guide_objects = guide_objects
         self.backend_probe = backend_probe
         self.capability_limits = capability_limits
         self.video_segment_size_frames = video_segment_size_frames
@@ -251,405 +240,91 @@ class ConfigurationManager:
         independent = getattr(self.data, "independent", None)
         if type(independent) is not bool:
             raise ConfigurationUnavailable()
-
+        payload = configuration_guide_payload(request)
         request_json = request.model_dump(mode="json", by_alias=True)
         async with self.data.transaction(write=True) as transaction:
-            if request.operation == "guide_asset_upload_init":
-                data = await self._guide_upload_init(request, request_json, transaction)
-            elif request.operation == "guide_asset_upload_complete":
-                data = await self._guide_upload_complete(
-                    request, request_json, transaction
+            if request.operation == "guide_asset_publish":
+                entry = payload["entry"]
+                if type(entry) is not dict:
+                    raise ConfigurationUnavailable()
+                try:
+                    entry_ascii = guide_assets_ascii(entry)
+                except (TypeError, ValueError, RecursionError):
+                    raise ConfigurationUnavailable() from None
+                facts = await self._guide_step(
+                    transaction,
+                    request,
+                    request_json,
+                    "guide_publish",
+                    {
+                        "receipt": {
+                            key: payload[key]
+                            for key in (
+                                "upload_id",
+                                "sha256",
+                                "size_bytes",
+                                "maintenance_revision",
+                                "storage_ref",
+                            )
+                        },
+                        "entry_ascii": entry_ascii,
+                    },
                 )
-            elif request.operation == "guide_asset_delete":
-                data = await self._guide_delete(request, request_json, transaction)
-            elif request.operation == "guide_asset_sign":
-                data = await self._guide_sign(request, request_json, transaction)
+                data = facts.get("entry")
             else:
-                raise ConfigurationUnavailable()
-
+                facts = await self._guide_step(
+                    transaction,
+                    request,
+                    request_json,
+                    "guide_unlink",
+                    {"key": payload["key"]},
+                )
+                data = {"deleted": facts.get("deleted")}
             reply = configuration_guide_success_reply(
                 request,
                 resource_id=request.target_id,
                 data=data,
                 refreshed=False,
             )
-            if independent and request.operation in {
-                "guide_asset_upload_init",
-                "guide_asset_sign",
-            }:
-                rollback_on_exit = getattr(transaction, "rollback_on_exit", None)
-                if type(rollback_on_exit) is not bool:
-                    raise ConfigurationUnavailable()
-                transaction.rollback_on_exit = True
-
-        if independent and request.operation in {
-            "guide_asset_upload_complete",
-            "guide_asset_delete",
-        }:
-            await self.refresh_guide(request)
-            reply = configuration_guide_success_reply(
-                request,
-                resource_id=request.target_id,
-                data=data,
-                refreshed=True,
-            )
         return decode_configuration_reply(request, reply)
 
-    async def _guide_upload_init(self, request, request_json, transaction):
-        actor, project, _access = await self._guide_shared_authority(
-            request, request_json, transaction, manager_required=True
-        )
-        del actor
-        payload = configuration_guide_payload(request)
-        key = new_guide_asset_key(
-            request.target_id,
-            filename=payload["filename"],
-            content_type=payload["content_type"],
-            size=payload["size"],
-        )
-        objects = self._guide_object_port()
-        upload_url = await objects.generate_upload_url(
-            request.target_id,
-            key,
-            content_type=payload["content_type"],
-        )
-        return {"key": key, "upload_url": upload_url, "expires_in": 900}
-
-    async def _guide_upload_complete(self, request, request_json, transaction):
-        account = await self._step(
-            transaction, request, request_json, "guide_account_exists", {}
-        )
-        if type(account) is not dict or set(account) != {"exists"}:
-            raise ConfigurationUnavailable()
-        if type(account["exists"]) is not bool:
-            raise ConfigurationUnavailable()
-        if not account["exists"]:
-            raise self._guide_inactive_account()
-
-        first_project_facts = await self._step(
-            transaction, request, request_json, "guide_read_project", {}
-        )
-        self._decode_guide_project(first_project_facts, request.target_id)
-
-        actor_facts = await self._step(
-            transaction, request, request_json, "guide_actor_status", {}
-        )
-        actor = self._decode_guide_actor_status(
-            actor_facts, expected_actor_id=request.actor_id
-        )
-
-        project_facts = await self._step(
-            transaction, request, request_json, "guide_read_project", {}
-        )
-        project = self._decode_guide_project(project_facts, request.target_id)
-        await self._guide_check_manager(
-            request,
-            request_json,
-            transaction,
-            actor,
-            project,
-            member_action="guide_read_member",
-        )
-
-        payload = configuration_guide_payload(request)
-        key = payload["key"]
-        content_type = payload["content_type"]
-        assert_guide_asset_upload_target(request.target_id, key, content_type)
-
-        objects = self._guide_object_port()
-        size = await objects.verify_upload(request.target_id, key)
-        if size is None:
-            raise ConfigurationPolicyError(400, "File not found in storage")
-
-        actor, _project, _access = await self._guide_shared_authority(
-            request, request_json, transaction, manager_required=True
-        )
-        locked_facts = await self._step(
-            transaction, request, request_json, "guide_lock", {}
-        )
-        locked_project = self._decode_guide_project(locked_facts, request.target_id)
-
-        if size <= 0 or size > MAX_GUIDE_ASSET_SIZE_BYTES:
-            await objects.delete_object(request.target_id, key)
-            raise ConfigurationPolicyError(400, "Invalid upload size")
-
-        _entry, guide_assets = record_guide_asset_upload(
-            request.target_id,
-            project_json_value(locked_project, "guide_assets"),
-            key=key,
-            original_name=payload["original_name"],
-            content_type=content_type,
-            size=size,
-        )
-        await self._guide_apply(transaction, request, request_json, guide_assets)
-        return _entry
-
-    async def _guide_delete(self, request, request_json, transaction):
-        _actor, _project, _access = await self._guide_shared_authority(
-            request, request_json, transaction, manager_required=True
-        )
-        payload = configuration_guide_payload(request)
-        key = payload["key"]
-        locked_facts = await self._step(
-            transaction, request, request_json, "guide_lock", {}
-        )
-        locked_project = self._decode_guide_project(locked_facts, request.target_id)
-        result, guide_assets = remove_guide_asset(
-            request.target_id,
-            project_json_value(locked_project, "guide_assets"),
-            key,
-        )
-        objects = self._guide_object_port()
-        try:
-            await objects.delete_object(request.target_id, key)
-        except Exception:  # noqa: BLE001 - preserve legacy best-effort byte deletion
-            pass
-        await self._guide_apply(transaction, request, request_json, guide_assets)
-        return result
-
-    async def _guide_sign(self, request, request_json, transaction):
-        _actor, project, _access = await self._guide_shared_authority(
-            request, request_json, transaction, manager_required=False
-        )
-        payload = configuration_guide_payload(request)
-        key = payload["key"]
-        assert_registered_guide_asset_key(
-            request.target_id, project_json_value(project, "guide_assets"), key
-        )
-        objects = self._guide_object_port()
-        url = await objects.generate_download_url(request.target_id, key)
-        return {"url": url, "expires_in": 3600}
-
-    async def _guide_shared_authority(
+    async def run_guide_action(
         self,
-        request,
-        request_json,
-        transaction,
-        *,
-        manager_required: bool,
-    ):
-        facts = await self._step(transaction, request, request_json, "guide_shared", {})
-        actor, project = self._decode_guide_shared(
-            facts, request.target_id, expected_actor_id=request.actor_id
-        )
-        manager = self._guide_manager_access(actor, project, request.target_id)
-        if manager is not None:
-            return actor, project, manager
-
-        member_action = await self._step(
-            transaction, request, request_json, "guide_member", {}
-        )
-        member = self._decode_guide_member(
-            member_action, request.target_id, request.actor_id
-        )
-        access = self._guide_member_access(actor, request.target_id, member)
-        if manager_required and not access.is_manager:
-            raise ConfigurationPolicyError(403, "仅项目负责人或超级管理员可执行")
-        return actor, project, access
-
-    async def _guide_check_manager(
-        self,
-        request,
-        request_json,
-        transaction,
-        actor,
-        project,
-        *,
-        member_action: str,
-    ):
-        manager = self._guide_manager_access(actor, project, request.target_id)
-        if manager is not None:
-            return manager
-        member_facts = await self._step(
-            transaction, request, request_json, member_action, {}
-        )
-        member = self._decode_guide_member(
-            member_facts, request.target_id, request.actor_id
-        )
-        access = self._guide_member_access(actor, request.target_id, member)
-        if not access.is_manager:
-            raise ConfigurationPolicyError(403, "仅项目负责人或超级管理员可执行")
-        return access
-
-    async def _guide_apply(self, transaction, request, request_json, guide_assets):
-        facts = await self._step(
-            transaction,
-            request,
-            request_json,
-            "guide_apply",
-            {"guide_assets_ascii": guide_assets_ascii(guide_assets)},
-        )
-        if facts:
-            raise ConfigurationUnavailable()
-
-    def _guide_object_port(self) -> GuideAssetObjectPort:
-        if self.guide_objects is None:
-            raise ConfigurationUnavailable()
-        return self.guide_objects
-
-    @staticmethod
-    def _guide_inactive_account() -> ConfigurationPolicyError:
-        return ConfigurationPolicyError(
-            401,
-            "账号已停用或不存在",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    @classmethod
-    def _decode_guide_actor_status(cls, facts, *, expected_actor_id):
-        if type(facts) is not dict or set(facts) != {"actor"}:
-            raise ConfigurationUnavailable()
-        if facts["actor"] is None:
-            raise cls._guide_inactive_account()
-        actor = cls._decode_guide_actor(facts["actor"])
-        if actor["actor_id"] != expected_actor_id:
-            raise ConfigurationUnavailable()
-        return actor
-
-    @classmethod
-    def _decode_guide_shared(cls, facts, project_id, *, expected_actor_id):
-        if type(facts) is not dict or set(facts) != {"actor", "row_json"}:
-            raise ConfigurationUnavailable()
-        actor = cls._decode_guide_actor(facts["actor"])
-        if actor["actor_id"] != expected_actor_id:
-            raise ConfigurationUnavailable()
-        project = cls._decode_guide_project({"row_json": facts["row_json"]}, project_id)
-        return actor, project
-
-    @staticmethod
-    def _decode_guide_actor(value):
-        if value is None:
-            raise ConfigurationPolicyError(
-                401,
-                "账号已停用或不存在",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        if type(value) is not dict or set(value) != {
-            "actor_id",
-            "platform_role",
-            "is_active",
-        }:
-            raise ConfigurationUnavailable()
-        if (
-            type(value["actor_id"]) is not str
-            or type(value["platform_role"]) is not str
-            or type(value["is_active"]) is not bool
-        ):
-            raise ConfigurationUnavailable()
-        try:
-            actor_id = UUID(value["actor_id"])
-        except ValueError:
-            raise ConfigurationUnavailable() from None
-        if not value["is_active"]:
-            raise ConfigurationPolicyError(
-                401,
-                "账号已停用或不存在",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return {
-            "actor_id": actor_id,
-            "platform_role": value["platform_role"],
-            "is_active": True,
-        }
-
-    @staticmethod
-    def _decode_guide_project(facts, project_id):
-        if type(facts) is not dict or set(facts) != {"row_json"}:
-            raise ConfigurationUnavailable()
-        if facts["row_json"] is not None and type(facts["row_json"]) is not str:
-            raise ConfigurationUnavailable()
-        try:
-            project = decode_project_row(facts["row_json"], target_id=project_id)
-        except ProjectQueryUnavailable:
-            raise ConfigurationUnavailable() from None
-        if project is None:
-            raise ConfigurationPolicyError(404, "项目不存在")
-        return project
-
-    @staticmethod
-    def _decode_guide_member(facts, project_id, actor_id):
-        if type(facts) is not dict or set(facts) != {"rows_json"}:
-            raise ConfigurationUnavailable()
-        try:
-            rows = decode_project_member_rows(
-                facts["rows_json"],
-                target_id=project_id,
-                user_id=actor_id,
-                max_rows=1,
-            )
-        except ProjectMemberRowsUnavailable:
-            raise ConfigurationUnavailable() from None
-        return rows[0] if rows else None
-
-    @staticmethod
-    def _guide_manager_access(actor, project, project_id):
-        try:
-            return project_manager_access(
-                actor_id=actor["actor_id"],
-                platform_role=actor["platform_role"],
-                project_id=project_id,
-                owner_id=(
-                    UUID(project["owner_id"])
-                    if project["owner_id"] is not None
-                    else None
-                ),
-            )
-        except ProjectAccessPolicyFailure as error:
-            raise ConfigurationPolicyError(error.status_code, error.detail) from None
-
-    @staticmethod
-    def _guide_member_access(actor, project_id, member):
-        try:
-            return project_member_access(
-                actor_id=actor["actor_id"],
-                platform_role=actor["platform_role"],
-                project_id=project_id,
-                membership_id=member.id if member is not None else None,
-                project_role=member.role if member is not None else None,
-                membership_version=member.version if member is not None else None,
-            )
-        except ProjectAccessPolicyFailure as error:
-            raise ConfigurationPolicyError(error.status_code, error.detail) from None
-
-    async def refresh_guide(self, request: ConfigurationRequest) -> dict[str, Any]:
-        """Read the committed Project after complete/delete without rechecking authority."""
+        request: ConfigurationRequest | dict | bytes | str,
+        action: str,
+        args: dict[str, Any],
+    ) -> Mapping[str, Any]:
+        """Run one owner guide action for callers that already hold a Project."""
         request = decode_configuration_request(request)
-        if (
-            request.operation
-            not in {"guide_asset_upload_complete", "guide_asset_delete"}
-            or request.target_id is None
-        ):
-            raise ConfigurationPostCommitFailure()
-        try:
-            async with self.data.transaction(write=True) as transaction:
-                facts = await self._step(
-                    transaction,
-                    request,
-                    request.model_dump(mode="json", by_alias=True),
-                    "guide_refresh",
-                    {},
+        if request.operation not in {"update_project", "create_project"}:
+            raise ConfigurationUnavailable()
+        request_json = request.model_dump(mode="json", by_alias=True)
+        async with self.data.transaction(write=True) as transaction:
+            return await self._guide_step(
+                transaction, request, request_json, action, args
+            )
+
+    async def _guide_step(
+        self,
+        transaction: ConfigurationTransaction,
+        request: ConfigurationRequest,
+        request_json: dict[str, Any],
+        action: str,
+        args: dict[str, Any],
+    ) -> Mapping[str, Any]:
+        raw = await transaction.guide_step(request_json, action, args)
+        native = decode_configuration_step_reply(request, action, raw)
+        if isinstance(native, ConfigurationStepFailure):
+            error = native.error
+            raise ConfigurationCommandFailure(
+                ConfigurationError(
+                    status_code=error.status_code,
+                    detail=error.detail,
+                    headers=error.headers,
+                    rollback=error.rollback,
                 )
-                project = self._decode_guide_project(facts, request.target_id)
-                independent = getattr(self.data, "independent", None)
-                if type(independent) is not bool:
-                    raise ConfigurationUnavailable()
-                if independent:
-                    rollback_on_exit = getattr(transaction, "rollback_on_exit", None)
-                    if type(rollback_on_exit) is not bool:
-                        raise ConfigurationUnavailable()
-                    transaction.rollback_on_exit = True
-                return project
-        except (
-            ConfigurationUnavailable,
-            ConfigurationCommandFailure,
-            ConfigurationPolicyError,
-            ProjectQueryUnavailable,
-            ValueError,
-            TypeError,
-            OverflowError,
-            RecursionError,
-        ):
-            raise ConfigurationPostCommitFailure() from None
+            )
+        return native.facts
 
     async def _execute_class_rename(self, request: ConfigurationRequest):
         old_name, new_name, tool_unit_id = configuration_rename_payload(request)
@@ -1032,6 +707,9 @@ class ConfigurationManager:
         self._assert_project_creator(actor)
         payload = dict(payload)
         copy_guide = payload.pop("copy_annotation_guide", False)
+        guide_snapshot = payload.pop("source_guide_snapshot", None)
+        if type(copy_guide) is not bool:
+            raise ConfigurationPolicyError(422, "copy_annotation_guide 必须为布尔值")
         payload.pop("template_id", None)
         payload.pop("source_project_id", None)
 
@@ -1085,13 +763,15 @@ class ConfigurationManager:
             }
             merge_from_source(payload, source_fields)
             if copy_guide:
-                if source_project.get("annotation_guide") is not None:
-                    payload.setdefault(
-                        "annotation_guide", source_project["annotation_guide"]
-                    )
-                if source_project.get("guide_assets"):
-                    payload.setdefault(
-                        "guide_assets", copy.deepcopy(source_project["guide_assets"])
+                if type(guide_snapshot) is not dict or (
+                    source_project.get("owner_id") != guide_snapshot.get("owner_id")
+                    or source_project.get("annotation_guide")
+                    != guide_snapshot.get("annotation_guide")
+                    or (source_project.get("guide_assets") or [])
+                    != guide_snapshot.get("guide_assets")
+                ):
+                    raise ConfigurationPolicyError(
+                        409, {"code": "guide_asset_source_changed"}
                     )
             if (
                 source_backend is None
@@ -1208,6 +888,22 @@ class ConfigurationManager:
                 "binding",
                 {"pool_id": None if pool_id is None else str(pool_id)},
             )
+        if copy_guide:
+            if type(guide_snapshot) is not dict:
+                raise ConfigurationPolicyError(
+                    409, {"code": "guide_asset_source_changed"}
+                )
+            await self._guide_step(
+                transaction,
+                request,
+                request_json,
+                "guide_assets_copy",
+                {
+                    "source_project_id": str(selectors.source_project_id),
+                    "target_project_id": str(project_id),
+                    "source_snapshot": guide_snapshot,
+                },
+            )
         return UUID(str(project_id))
 
     async def _update_project(
@@ -1222,6 +918,21 @@ class ConfigurationManager:
         project = begin["project"]
         self._assert_project_manager(begin)
         payload = dict(payload)
+        guide_requested = "guide_assets" in payload
+        guide_revision_present = "guide_assets_revision" in payload
+        guide_assets = payload.pop("guide_assets", None)
+        guide_revision = payload.pop("guide_assets_revision", None)
+        if guide_requested != guide_revision_present:
+            raise ConfigurationPolicyError(422, "指南图片修订号须与清单一同提交")
+        if guide_requested:
+            if type(guide_assets) is not list:
+                raise ConfigurationPolicyError(422, "指南图片清单必须为数组")
+            if type(guide_revision) is not int or guide_revision < 1:
+                raise ConfigurationPolicyError(422, "指南图片修订号必须为正整数")
+            try:
+                guide_assets_ascii_value = guide_assets_ascii(guide_assets)
+            except (TypeError, ValueError, RecursionError):
+                raise ConfigurationPolicyError(422, "指南图片清单不合法") from None
 
         if any(
             field in payload
@@ -1352,6 +1063,18 @@ class ConfigurationManager:
         )
         project = authority["project"]
         self._assert_project_manager(authority)
+
+        if guide_requested:
+            await self._guide_step(
+                transaction,
+                request,
+                request_json,
+                "guide_assets_apply",
+                {
+                    "expected_revision": guide_revision,
+                    "guide_assets_ascii": guide_assets_ascii_value,
+                },
+            )
 
         if main_binding_requested:
             if requested_main_backend_id:

@@ -420,5 +420,5 @@ def test_dataset_unlink_jobs_audit_artifact_and_migration_are_closed():
     assert "p_deleted_batch_ids" in sql
     assert "array_ndims(p_deleted_batch_ids) IS DISTINCT FROM 1" in sql
     assert "p_event" not in sql and "p_action" not in sql
-    assert 'down_revision = "0203"' in migration
+
     assert migration.count(" RESTRICT") == 3

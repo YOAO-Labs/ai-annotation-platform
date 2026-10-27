@@ -4,7 +4,7 @@
  *
  * 与 check-image-manifest.mjs **反向**：那个查「文档引用的图是否产出」，这个查
  * 「产出的图是否被文档引用」。扫描 docs-site/user-guide/images/ 下所有图片文件，
- * 找出**没有任何 Markdown 页面 `![]()` / <img> 引用**的孤儿图（产出了却忘记回填），
+ * 找出**没有任何 Markdown 页面或主题组件引用**的孤儿图（产出了却忘记回填），
  * 并按文件内容 hash 检查由不同路径保存的重复图片。
  *
  * 背景：截图/GIF 自动落到 images/ 并登记 maintainers/image-checklist.md，但嵌入文档页是独立一步，
@@ -20,7 +20,8 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import { fileURLToPath } from "url";
-import { collectMarkdownImageReferences, walkFiles } from "../../scripts/image-reference-utils.mjs";
+import { walkFiles } from "../../scripts/image-reference-utils.mjs";
+import { collectPublishedMedia } from "./media-review-lib.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -66,12 +67,8 @@ for (const [hash, files] of filesByHash) {
 duplicateGroups.sort((a, b) => a.files[0].localeCompare(b.files[0]));
 allowedDuplicateGroups.sort((a, b) => a.files[0].localeCompare(b.files[0]));
 
-// ── 收集所有 Markdown / img / AutoImage 引用─────────────────────
-const referenceRecords = collectMarkdownImageReferences({
-  scanRoot: DOCS_ROOT,
-  repoRoot: REPO_ROOT,
-  docsRoot: DOCS_ROOT,
-});
+// ── 收集 Markdown / img / AutoImage 与主题组件的真实媒体引用──────
+const referenceRecords = collectPublishedMedia({ scanRoot: DOCS_ROOT });
 const referenced = new Map(
   [...referenceRecords.values()].map((record) => [record.absolute, [...record.sources].sort()[0]]),
 );

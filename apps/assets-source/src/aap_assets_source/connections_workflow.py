@@ -11,7 +11,12 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from .connections_contract import (
+    BeginConnectionProbeRequest,
+    ConnectionProbeFinish,
+    ConnectionProbeLease,
+    FinishConnectionProbeRequest,
     CONNECTION_NATIVE_OPERATIONS,
+    RUNTIME_NATIVE_OPERATIONS,
     CONNECTION_OPERATIONS,
     CaptureConnectionRequest,
     ConnectionCapture,
@@ -40,7 +45,7 @@ from .connections_contract import (
     RecordConnectionTestRequest,
     TestConnectionRequest,
     UpdateConnectionIntent,
-    UpdateConnectionNativeRequest,
+    UpdateConnectionAuthorizedRequest,
     UpdateConnectionRequest,
     require_connection_scope,
 )
@@ -93,8 +98,8 @@ class ConnectionsNativePort(Protocol):
     async def create_storage_connection(
         self, request: CreateConnectionNativeRequest
     ) -> NativeConnectionMutation: ...
-    async def update_storage_connection(
-        self, request: UpdateConnectionNativeRequest
+    async def update_storage_connection_authorized(
+        self, request: UpdateConnectionAuthorizedRequest
     ) -> NativeConnectionMutation: ...
     async def delete_storage_connection(
         self, request: DeleteConnectionRequest
@@ -102,6 +107,12 @@ class ConnectionsNativePort(Protocol):
     async def record_storage_connection_test(
         self, request: RecordConnectionTestRequest
     ) -> ConnectionProbeReceipt: ...
+    async def begin_connection_probe(
+        self, request: BeginConnectionProbeRequest
+    ) -> ConnectionProbeLease: ...
+    async def finish_connection_probe(
+        self, request: FinishConnectionProbeRequest
+    ) -> ConnectionProbeFinish: ...
 
 
 def _public_record(record: NativeConnectionFacts) -> ConnectionRecord:
@@ -162,16 +173,20 @@ class ConnectionsWorkflow:
             ) from None
 
     async def _call(self, operation: str, request: BaseModel):
-        request_type, result_type = CONNECTION_NATIVE_OPERATIONS[operation]
+        request_type, result_type = (
+            CONNECTION_NATIVE_OPERATIONS.get(operation)
+            or RUNTIME_NATIVE_OPERATIONS[operation]
+        )
         if type(request) is not request_type:
             raise TypeError("invalid connection native request model")
         result = await getattr(self._native, operation)(request)
         if not isinstance(result, result_type):
             raise ConnectionFailure("invalid_response")
-        try:
-            require_connection_scope(request, result)
-        except (ValueError, TypeError, AttributeError):
-            raise ConnectionFailure("invalid_response") from None
+        if operation in CONNECTION_NATIVE_OPERATIONS:
+            try:
+                require_connection_scope(request, result)
+            except (ValueError, TypeError, AttributeError):
+                raise ConnectionFailure("invalid_response") from None
         return result
 
     async def _receipt(self, request: BaseModel, action: str, intent: BaseModel):
@@ -301,15 +316,21 @@ class ConnectionsWorkflow:
         if saved is not None:
             return _public_mutation(saved)
         capture = await self._capture(request, "admin")
+        if capture.platform_role not in {"super_admin", "project_admin"}:
+            raise ConnectionFailure("manager_required")
+        if capture.connection.revision != request.expected_revision:
+            raise ConnectionFailure("connection_revision_conflict")
+        current_config = dict(capture.connection.config)
         config = (
             validate_config(capture.connection.kind, request.config)
             if request.config is not None
-            else dict(capture.connection.config)
+            else dict(current_config)
         )
+        config_changed = request.config is not None and config != current_config
         candidate_secret = request.secret
         if (
             candidate_secret is None
-            and request.config is not None
+            and config_changed
             and capture.secret_enc is not None
         ):
             candidate_secret = self._decrypt(capture)
@@ -320,6 +341,8 @@ class ConnectionsWorkflow:
             if inferred is not None and config.get("auth_type") is None:
                 config["auth_type"] = inferred
         policy_digest = None
+        policy = None
+        entries: list[str] | None = None
         if request.config is not None:
             policy = await self._call(
                 "read_storage_connection_policy",
@@ -328,16 +351,69 @@ class ConnectionsWorkflow:
                     fallback_allowlist=list(self._options.fallback_allowlist),
                 ),
             )
-            await self._check_host(capture.connection.kind, config, policy)
+            entries = await self._check_host(capture.connection.kind, config, policy)
+            # The owner accepts a config candidate only when the digest it
+            # re-verifies at publication accompanies it. That fence applies to
+            # an identical config too: it is not a candidate change (no probe,
+            # no location revision), but the accepted edit still advances the
+            # connection revision.
             policy_digest = policy.policy_digest
+        needs_validation = config_changed or request.secret is not None
+        if needs_validation:
+            if policy is None:
+                policy = await self._call(
+                    "read_storage_connection_policy",
+                    ConnectionPolicyRequest(
+                        actor_id=request.actor_id,
+                        fallback_allowlist=list(self._options.fallback_allowlist),
+                    ),
+                )
+                entries = await self._check_host(
+                    capture.connection.kind, config, policy
+                )
+            assert entries is not None
+            ok, message, _count = await probe_connection(
+                capture.connection.kind,
+                config,
+                candidate_secret
+                if candidate_secret is not None
+                else self._decrypt(capture),
+                allowlist=entries,
+                known_hosts_file=self._options.known_hosts_file,
+            )
+            if not ok:
+                raise ConnectionFailure("validation_failed", message)
+            fresh = await self._call(
+                "read_storage_connection_policy",
+                ConnectionPolicyRequest(
+                    actor_id=request.actor_id,
+                    fallback_allowlist=list(self._options.fallback_allowlist),
+                ),
+            )
+            if fresh.policy_digest != policy.policy_digest:
+                raise ConnectionFailure("policy_changed")
+        if needs_validation:
+            # Re-read the actor and publication snapshot after the probe. No row
+            # lock is held while network I/O runs, so a concurrent rename,
+            # delete, deactivation or demotion must still fence this candidate.
+            fresh_capture = await self._capture(request, "admin")
+            if fresh_capture.platform_role not in {"super_admin", "project_admin"}:
+                raise ConnectionFailure("manager_required")
+            if fresh_capture.source_snapshot != capture.source_snapshot:
+                raise ConnectionFailure("connection_revision_conflict")
+            capture = fresh_capture
+        # A nonempty accepted key must bind its full current scopes/expiry and
+        # stored verifier revision; a caller cannot omit the proof.
+        if request.api_key_id is not None and request.accepted_api_key_proof is None:
+            raise ConnectionFailure("invalid_request")
         encrypted = (
             encrypt_secret(request.secret, self._options.encryption_key)
             if request.secret is not None
             else None
         )
         result = await self._call(
-            "update_storage_connection",
-            UpdateConnectionNativeRequest(
+            "update_storage_connection_authorized",
+            UpdateConnectionAuthorizedRequest(
                 operation_id=request.operation_id,
                 actor_id=request.actor_id,
                 connection_id=request.connection_id,
@@ -350,6 +426,11 @@ class ConnectionsWorkflow:
                 policy_digest=policy_digest,
                 fallback_allowlist=list(self._options.fallback_allowlist),
                 audit_context=request.audit_context,
+                api_key_id=request.api_key_id,
+                required_scopes=["datasets:write"]
+                if request.api_key_id is not None
+                else [],
+                expected_proof=request.accepted_api_key_proof,
             ),
         )
         for name in ("id", "kind", "scope", "project_id", "created_by", "created_at"):
@@ -362,7 +443,45 @@ class ConnectionsWorkflow:
     async def delete_connection(
         self, request: DeleteConnectionRequest
     ) -> ConnectionMutation:
+        capture = await self._capture(request, "admin")
+        if capture.platform_role not in {"super_admin", "project_admin"}:
+            raise ConnectionFailure("manager_required")
         return _public_mutation(await self._call("delete_storage_connection", request))
+
+    @staticmethod
+    async def _run_probe(awaitable):
+        """Keep responsibility for the blocking transport until it settles."""
+        task = asyncio.create_task(awaitable)
+        try:
+            return await asyncio.shield(task)
+        except BaseException:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except BaseException:
+                    continue
+            raise
+
+    async def _finish_probe(self, request, lease, *, settled):
+        try:
+            await self._call(
+                "finish_connection_probe",
+                FinishConnectionProbeRequest(
+                    operation_id=lease.operation_id,
+                    connection_id=lease.connection_id,
+                    actor_id=request.actor_id,
+                    api_key_id=getattr(request, "api_key_id", None),
+                    required_scopes=["datasets:read"]
+                    if getattr(request, "api_key_id", None) is not None
+                    else [],
+                    expected_proof=lease.proof,
+                    settled=settled,
+                ),
+            )
+        except ConnectionFailure:
+            # The ledger row is retained when the transport did not settle.
+            if settled:
+                raise
 
     async def test_connection(
         self, request: TestConnectionRequest
@@ -382,13 +501,35 @@ class ConnectionsWorkflow:
             capture.connection.kind, capture.connection.config, policy
         )
         secret = self._decrypt(capture)
-        ok, message, count = await probe_connection(
-            capture.connection.kind,
-            capture.connection.config,
-            secret,
-            allowlist=entries,
-            known_hosts_file=self._options.known_hosts_file,
+        api_key_id = getattr(request, "api_key_id", None)
+        required = ["datasets:read"] if api_key_id is not None else []
+        lease = await self._call(
+            "begin_connection_probe",
+            BeginConnectionProbeRequest(
+                connection_id=request.connection_id,
+                actor_id=request.actor_id,
+                api_key_id=api_key_id,
+                required_scopes=required,
+            ),
         )
+        try:
+            ok, message, count = await self._run_probe(
+                probe_connection(
+                    capture.connection.kind,
+                    capture.connection.config,
+                    secret,
+                    allowlist=entries,
+                    known_hosts_file=self._options.known_hosts_file,
+                )
+            )
+        except BaseException as exc:
+            await self._finish_probe(
+                request,
+                lease,
+                settled=not getattr(exc, "storage_operation_unsettled", False),
+            )
+            raise
+        await self._finish_probe(request, lease, settled=True)
         return await self._call(
             "record_storage_connection_test",
             RecordConnectionTestRequest(

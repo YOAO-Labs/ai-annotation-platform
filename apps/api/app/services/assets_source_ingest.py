@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
+from app.services import managed_original_native as native_lifecycle
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+)
 from aap_assets_source.ingest_contract import (
     IngestBatchPlan,
     IngestBatchResult,
@@ -30,6 +34,45 @@ class DatasetSourceIngestData:
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+
+    async def allocate(self, request: dict) -> ManagedOriginalMaterial:
+        try:
+            return await native_lifecycle.begin_admitted(self._db, request)
+        except ValueError:
+            raise IngestFailure("invalid_response") from None
+
+    async def open_operation(self, creation_id):
+        try:
+            return await native_lifecycle.open_operation(self._db, creation_id)
+        except ValueError:
+            raise IngestFailure("invalid_response") from None
+
+    async def close_operation(
+        self, creation_id, operation_id, physical_settled
+    ) -> None:
+        try:
+            await native_lifecycle.close_operation(
+                self._db, creation_id, operation_id, physical_settled
+            )
+        except ValueError:
+            raise IngestFailure("invalid_response") from None
+
+    async def original_prepared(self, creation_id, prepared) -> None:
+        await native_lifecycle.prepared(self._db, creation_id, prepared)
+
+    async def original_writing(self, creation_id) -> None:
+        await native_lifecycle.writing(self._db, creation_id)
+
+    async def original_written(self, creation_id, receipt) -> None:
+        await native_lifecycle.written(self._db, creation_id, receipt)
+
+    async def original_verified(self, creation_id, verification) -> None:
+        await native_lifecycle.verified(self._db, creation_id, verification)
+
+    async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
+        await native_lifecycle.fail(
+            self._db, creation_id, outcome, error_code, evidence
+        )
 
     async def begin(
         self, command: IngestCommand, descriptor: IngestDescriptor

@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Iterable
 
+import re
+
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +21,7 @@ from aap_identity.account_lock_contract import (
 )
 from aap_identity.contract import IdentityUnavailable
 from app.services.identity_contracts import (
+    AcceptedApiKeyFacts,
     IdentityActorFacts,
     IdentityActorStatus,
 )
@@ -105,6 +108,38 @@ class IdentityAccountLockData:
         return {
             record.id: IdentityActorFacts(**record.model_dump()) for record in records
         }
+
+    async def read_accepted_api_key_facts(
+        self, actor_id: uuid.UUID, api_key_id: uuid.UUID
+    ) -> AcceptedApiKeyFacts | None:
+        """Current non-secret facts of one accepted key, under its SHARE fence."""
+        if self.db.autoflush:
+            await self.db.flush()
+        result = await self.db.execute(
+            text(
+                "SELECT scopes, expires_at, revision "
+                "FROM aap_identity_v1.read_accepted_api_key_facts("
+                "CAST(:actor_id AS uuid), CAST(:api_key_id AS uuid))"
+            ),
+            {"actor_id": actor_id, "api_key_id": api_key_id},
+        )
+        row = result.mappings().one_or_none()
+        if row is None:
+            return None
+        scopes, expires_at, revision = (
+            row["scopes"],
+            row["expires_at"],
+            row["revision"],
+        )
+        if (
+            not isinstance(scopes, list)
+            or any(not isinstance(scope, str) for scope in scopes)
+            or not isinstance(revision, str)
+            or re.fullmatch(r"[0-9a-f]{64}", revision) is None
+            or (expires_at is not None and expires_at.utcoffset() is None)
+        ):
+            raise _unavailable()
+        return AcceptedApiKeyFacts(tuple(scopes), expires_at, revision)
 
     async def read_actor_status(
         self, actor_id: uuid.UUID

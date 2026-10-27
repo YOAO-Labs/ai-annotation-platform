@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 _APP_DIR = Path(__file__).resolve().parents[3]
@@ -15,7 +16,7 @@ _SCRIPTS_DIR = _REPO_ROOT / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from sqlalchemy import text  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
 from worktree_runtime import WorktreeError, require_owner  # noqa: E402
 
@@ -100,8 +101,9 @@ async def main():
         resources = json.loads(manifest.read_text())["resources"]
     from app.workers._db import task_session
     from app.services.storage import storage_service
-    from app.services.raster_mask_storage import store_coco_rle
-    from app.application.raster_mask_retention import RasterMaskRetentionWorkflow
+    from app.services import raster_mask_objects, raster_object_storage
+    from app.services.raster_mask_storage import load_coco_rle, store_coco_rle
+    from app.workers.cleanup import _purge_unreferenced_raster_masks_async
 
     assert storage_service.bucket == bucket
     assert_owned_disposable_bucket(
@@ -158,11 +160,16 @@ async def main():
             .scalars()
             .all()
         )
-        protected = [
-            row["mask"]["object_key"]
-            for row in rows
-            if row.get("type") == "raster_mask"
-        ]
+        references = [row["mask"] for row in rows if row.get("type") == "raster_mask"]
+        protected = [reference["object_key"] for reference in references]
+        before = [await load_coco_rle(reference) for reference in references]
+        gc_time = datetime.now(timezone.utc) + timedelta(days=2)
+        assert (
+            datetime.fromisoformat(
+                operation["response_json"]["slice_restore"]["restore_expires_at"]
+            )
+            > gc_time
+        )
 
     # Add an actual unreferenced object to show that GC deletes eligible content.
     length = 128
@@ -177,28 +184,43 @@ async def main():
     orphan = await store_coco_rle(
         {"encoding": "coco_rle", "size": [1, length], "counts": counts}
     )
-    original_list = storage_service.list_objects
-    # Explicit age fixture bypasses the 24-hour grace while running the real GC.
-    storage_service.list_objects = lambda *args, **kwargs: [
-        {**item, "last_modified": datetime.now(timezone.utc) - timedelta(days=2)}
-        for item in original_list(*args, **kwargs)
-    ]
-    try:
+    async with task_session() as db:
+        owner = await db.scalar(
+            select(raster_mask_objects.Object).where(
+                raster_mask_objects.Object.logical_key == orphan["object_key"]
+            )
+        )
+        receipt = raster_object_storage.snapshot(owner)
+        assert raster_object_storage.resolve(receipt).bucket == bucket
+        target = await raster_object_storage.io_target(db, receipt)
+    # Exercise the real grace and two-phase collector without rewriting owner facts
+    # or treating a logical RLE key as its separately saved physical location.
+    with patch.object(raster_mask_objects, "now", return_value=gc_time):
+        retired = await _purge_unreferenced_raster_masks_async(dry_run=False)
         async with task_session() as db:
-            result = await RasterMaskRetentionWorkflow(
-                db
-            ).purge_unreferenced_raster_masks(dry_run=False)
-    finally:
-        storage_service.list_objects = original_list
-    remaining = {row["key"] for row in original_list("raster-masks/sha256/")}
-    assert set(protected) <= remaining
-    assert orphan["object_key"] not in remaining
-    assert result["errors"] == 0 and result["deleted"] >= 1
+            owner = await db.get(raster_mask_objects.Object, receipt.id)
+            assert owner.state == "retired"
+        result = await _purge_unreferenced_raster_masks_async(dry_run=False)
+    assert [await load_coco_rle(reference) for reference in references] == before
+    assert (
+        await asyncio.to_thread(
+            raster_object_storage.run_io,
+            target,
+            storage_service.client,
+            "read",
+            receipt,
+            missing_ok=True,
+        )
+        is None
+    )
+    assert retired["errors"] == result["errors"] == 0
+    assert result["deleted"] >= 1
     print(
         json.dumps(
             {
                 "action": action,
                 "result": result,
+                "retirement": retired,
                 "protected": protected,
                 "orphan_deleted": True,
             }

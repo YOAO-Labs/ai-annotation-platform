@@ -2,14 +2,15 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
-from aap_assets_media.contract import ReadSourceRequest
 from app.deps import (
     get_db,
     require_roles,
 )
 from app.db.models.user import User
 from app.db.models.dataset import DatasetItem
-from app.services.storage import storage_service
+from app.db.models.task_batch import TaskBatch
+from app.db.models.project import Project
+from app.db.models.task import Task
 from app.services.scheduler import batch_visibility_clause
 from aap_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import (
@@ -26,7 +27,6 @@ from app.schemas.dashboard import (
     ReviewerMiniStats,
 )
 from app.services.user_brief import resolve_briefs_with_project_role
-from app.services.video_poster_references import video_poster_urls
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_search_scope
 
@@ -84,6 +84,139 @@ def _reviewable_claim_clause(user: User | IdentityActorFacts, workspace_projects
             task_row.reviewer_id == user.id,
         ),
     )
+
+
+async def _reviewing_batches(
+    db: AsyncSession,
+    current_user: IdentityActorFacts,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[ReviewingBatchItem]:
+    workspace_projects = project_search_scope(current_user)
+    project_scope = _visible_project_clause(
+        current_user, workspace_projects.c.project_id
+    )
+    claim_scope = _reviewable_claim_clause(current_user, workspace_projects)
+    # v0.7.0：批次级聚合 — 列出处于 reviewing 状态的批次（reviewer 跨批次审核）。
+    # v0.7.1 B-18：扩展为「reviewing 批次 ∪ 任意 review_tasks > 0 的批次」，让单任务级提交质检
+    # 也能在 ReviewPage 的批次树里看到，避免 reviewer 找不到入口。
+    actionable_review = select(Task.id).where(
+        Task.batch_id == TaskBatch.id,
+        Task.status == TaskStatus.REVIEW,
+        claim_scope if claim_scope is not None else True,
+    )
+    batch_rows = (
+        await db.execute(
+            select(TaskBatch, Project.name)
+            .join(Project, TaskBatch.project_id == Project.id)
+            .where(
+                or_(
+                    TaskBatch.status == "reviewing",
+                    TaskBatch.review_tasks > 0,
+                ),
+                TaskBatch.status.in_(["active", "annotating", "reviewing"]),
+                project_scope if project_scope is not None else True,
+                actionable_review.exists(),
+            )
+            .order_by(Project.name, TaskBatch.updated_at.desc(), TaskBatch.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    # v0.7.2 · 单值语义 — 一 batch 一标注员，直接 IN 查询 user
+    project_user_map: dict = {}
+    for b, _ in batch_rows:
+        if b.annotator_id is not None:
+            project_user_map.setdefault(b.project_id, set()).add(b.annotator_id)
+    briefs_by_project: dict = {}
+    for pid, uids in project_user_map.items():
+        briefs_by_project[pid] = await resolve_briefs_with_project_role(db, pid, uids)
+
+    # 批次封面缩略图：每个 batch 取最早一张「有缩略图」的任务作封面（DISTINCT ON）。
+    # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
+    # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE。
+    cover_map: dict = {}
+    cover_batch_ids = [b.id for b, _ in batch_rows]
+    if cover_batch_ids:
+        from app.services.directory_policy import legacy_media_column
+
+        eff_thumb = legacy_media_column(
+            func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path).label(
+                "thumbnail_path"
+            )
+        )
+        eff_blur = legacy_media_column(
+            func.coalesce(DatasetItem.blurhash, Task.blurhash).label("blurhash")
+        )
+        cover_rows = await db.execute(
+            select(Task.batch_id, eff_thumb, eff_blur, Task.id, Task.file_type)
+            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+            .where(
+                Task.batch_id.in_(cover_batch_ids),
+                eff_thumb.is_not(None),
+            )
+            .order_by(Task.batch_id, Task.created_at.asc())
+            .distinct(Task.batch_id)
+        )
+        cover_map = {
+            row[0]: (row[1], row[2], row[3], row[4]) for row in cover_rows.all()
+        }
+
+    reviewing_batches = []
+    for b, pname in batch_rows:
+        per_proj = briefs_by_project.get(b.project_id, {})
+        annotator = per_proj.get(str(b.annotator_id)) if b.annotator_id else None
+        cover_path, cover_blurhash, cover_task_id, cover_file_type = cover_map.get(
+            b.id, (None, None, None, None)
+        )
+        thumbnail_url: str | None = None
+        if cover_file_type == "video":
+            from app.services import video_derivatives
+
+            checked = await video_derivatives.thumbnail(db, task_id=cover_task_id)
+            if checked is not None and checked[0] == cover_path:
+                thumbnail_url = checked[1]
+            cover_blurhash = None
+        elif cover_path:
+            from app.services import image_pyramid_objects, thumbnail_outputs
+
+            thumbnail_url = await image_pyramid_objects.thumbnail_url(
+                db, "task", cover_task_id, cover_path
+            )
+            if thumbnail_url is None:
+                thumbnail_url = await thumbnail_outputs.thumbnail_url(
+                    db, "task", cover_task_id, cover_path
+                )
+        reviewing_batches.append(
+            ReviewingBatchItem(
+                batch_id=str(b.id),
+                batch_display_id=b.display_id,
+                batch_name=b.name,
+                project_id=str(b.project_id),
+                project_name=pname,
+                total_tasks=b.total_tasks,
+                review_tasks=b.review_tasks,
+                completed_tasks=b.completed_tasks,
+                thumbnail_url=thumbnail_url,
+                cover_blurhash=cover_blurhash,
+                annotator=annotator,
+            )
+        )
+
+    return reviewing_batches
+
+
+@router.get("/reviewer/batches", response_model=list[ReviewingBatchItem])
+async def reviewer_batches(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
+):
+    return await _reviewing_batches(db, current_user, limit=limit, offset=offset)
 
 
 @router.get("/reviewer", response_model=ReviewerDashboardStats)
@@ -220,146 +353,7 @@ async def reviewer_dashboard(
         for t, pname in pending_tasks_result.all()
     ]
 
-    # v0.7.0：批次级聚合 — 列出处于 reviewing 状态的批次（reviewer 跨批次审核）。
-    # v0.7.1 B-18：扩展为「reviewing 批次 ∪ 任意 review_tasks > 0 的批次」，让单任务级提交质检
-    # 也能在 ReviewPage 的批次树里看到，避免 reviewer 找不到入口。
-    actionable_review = (
-        select(task_row.id)
-        .where(
-            task_row.batch_id == batch_row.id,
-            task_row.status == TaskStatus.REVIEW,
-            claim_scope if claim_scope is not None else True,
-        )
-        .correlate(batch_row, workspace_projects)
-    )
-    batch_rows = (
-        await db.execute(
-            select(batch_row, workspace_projects.c.project_name)
-            .join(
-                workspace_projects,
-                batch_row.project_id == workspace_projects.c.project_id,
-            )
-            .where(
-                or_(
-                    batch_row.status == "reviewing",
-                    batch_row.review_tasks > 0,
-                ),
-                batch_row.status.in_(["active", "annotating", "reviewing"]),
-                project_scope if project_scope is not None else True,
-                actionable_review.exists(),
-            )
-            .order_by(workspace_projects.c.project_name, batch_row.updated_at.desc())
-            .limit(100)
-        )
-    ).all()
-    # v0.7.2 · 单值语义 — 一 batch 一标注员，直接 IN 查询 user
-    project_user_map: dict = {}
-    for b, _ in batch_rows:
-        if b.annotator_id is not None:
-            project_user_map.setdefault(b.project_id, set()).add(b.annotator_id)
-    briefs_by_project: dict = {}
-    for pid, uids in project_user_map.items():
-        briefs_by_project[pid] = await resolve_briefs_with_project_role(db, pid, uids)
-
-    # 批次封面缩略图：每个 batch 取最早一张「有缩略图」的任务作封面（DISTINCT ON）。
-    # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
-    # task_row.thumbnail_path 为空，故需 LEFT JOIN + COALESCE。
-    cover_map: dict = {}
-    video_cover_requests: list[ReadSourceRequest] = []
-    cover_batch_ids = [b.id for b, _ in batch_rows]
-    if cover_batch_ids:
-        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path)
-        eff_blur = func.coalesce(DatasetItem.blurhash, task_row.blurhash)
-        cover_rows = await db.execute(
-            select(
-                task_row.batch_id,
-                task_row.id,
-                task_row.dataset_item_id,
-                task_row.file_type,
-                DatasetItem.file_type,
-                eff_thumb,
-                eff_blur,
-            )
-            .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
-            .where(
-                task_row.batch_id.in_(cover_batch_ids),
-                eff_thumb.is_not(None),
-            )
-            .order_by(task_row.batch_id, task_row.created_at.asc())
-            .distinct(task_row.batch_id)
-        )
-        for (
-            batch_id,
-            task_id,
-            item_id,
-            task_type,
-            item_type,
-            path,
-            blurhash,
-        ) in cover_rows.all():
-            cover_map[batch_id] = (
-                task_id,
-                item_id,
-                task_type,
-                item_type,
-                path,
-                blurhash,
-            )
-            if item_id is not None and (task_type == "video" or item_type == "video"):
-                video_cover_requests.append(
-                    ReadSourceRequest(
-                        actor_id=current_user.id,
-                        dataset_item_id=item_id,
-                        task_id=task_id,
-                    )
-                )
-    video_posters = await video_poster_urls(db, video_cover_requests)
-    video_posters_by_task = {
-        request.task_id: poster_url
-        for request, poster_url in zip(video_cover_requests, video_posters, strict=True)
-    }
-
-    reviewing_batches = []
-    for b, pname in batch_rows:
-        per_proj = briefs_by_project.get(b.project_id, {})
-        annotator = per_proj.get(str(b.annotator_id)) if b.annotator_id else None
-        cover = cover_map.get(b.id)
-        thumbnail_url: str | None = None
-        cover_blurhash: str | None = None
-        if cover is not None:
-            task_id, item_id, task_type, item_type, cover_path, cover_blurhash = cover
-        else:
-            task_id = item_id = None
-            task_type = item_type = None
-            cover_path = None
-        if item_id is not None and (task_type == "video" or item_type == "video"):
-            thumbnail_url = video_posters_by_task.get(task_id)
-            cover_blurhash = None
-        elif cover_path:
-            thumb_bucket = storage_service.bucket_for_cache_key(
-                cover_path, default=storage_service.bucket
-            )
-            try:
-                thumbnail_url = storage_service.generate_download_url(
-                    cover_path, bucket=thumb_bucket
-                )
-            except Exception:
-                thumbnail_url = None
-        reviewing_batches.append(
-            ReviewingBatchItem(
-                batch_id=str(b.id),
-                batch_display_id=b.display_id,
-                batch_name=b.name,
-                project_id=str(b.project_id),
-                project_name=pname,
-                total_tasks=b.total_tasks,
-                review_tasks=b.review_tasks,
-                completed_tasks=b.completed_tasks,
-                thumbnail_url=thumbnail_url,
-                cover_blurhash=cover_blurhash,
-                annotator=annotator,
-            )
-        )
+    reviewing_batches = await _reviewing_batches(db, current_user)
 
     # v0.8.4 · 效率看板 L2 扩展
     # 平均审核耗时（中位） = reviewed_at - reviewer_claimed_at（自己审过的任务）

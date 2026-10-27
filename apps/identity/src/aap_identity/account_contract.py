@@ -46,7 +46,17 @@ AccountOperation = Literal[
     "set_avatar_ref",
 ]
 AccountFailureCode: TypeAlias = (
-    FailureCode | Literal["account_busy", "operation_conflict", "policy_rejected"]
+    FailureCode
+    | Literal[
+        "account_busy",
+        "operation_conflict",
+        "policy_rejected",
+        "avatar_reference_changed",
+        "avatar_receipt_invalid",
+        "storage_maintenance",
+        "storage_maintenance_changed",
+        "storage_maintenance_busy",
+    ]
 )
 
 
@@ -115,23 +125,169 @@ class ChangePasswordPayload(ClosedModel):
     new_password: str = Field(min_length=8, max_length=128, strict=True, repr=False)
 
 
+_AVATAR_STORAGE_REF_FIELDS = frozenset(
+    {
+        "schema",
+        "purpose",
+        "location_id",
+        "config_revision",
+        "binding_generation",
+        "endpoint_url",
+        "bucket",
+        "object_key",
+        "storage_identity",
+    }
+)
+_LEGACY_AVATAR_LOCATION = "4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"
+_AVATAR_STORAGE_IDENTITY = re.compile(r"^[0-9a-f]{64}$")
+_AVATAR_LOCATION = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+_AVATAR_ENDPOINT = re.compile(r"^https?://[^\s/?#@\\]+$")
+
+
+def _avatar_ref_shape(value: str | None) -> bool:
+    return value is None or (
+        re.fullmatch(_UPLOAD_REF, value) is not None
+        or re.fullmatch(_PRESET_REF, value) is not None
+    )
+
+
+class AvatarUploadReceipt(ClosedModel):
+    """Provider-confirmed facts for one pending normalized avatar object.
+
+    The Identity owner compares this receipt with its own pending row before it
+    publishes the account reference. The API cannot mint a ready receipt for a
+    token it does not own, and cannot publish bytes it never read back.
+    """
+
+    token: str = Field(pattern=r"^[0-9a-f]{32}$", strict=True, repr=False)
+    sha256: str = Field(pattern=_HEX_64, strict=True, repr=False)
+    size_bytes: int = Field(ge=1, le=2097152, strict=True)
+    object_version_id: str | None = Field(
+        default=None, min_length=1, max_length=1024, strict=True, repr=False
+    )
+    maintenance_revision: int = Field(ge=1, le=2**63 - 1, strict=True, repr=False)
+    storage_ref: dict[str, Any] = Field(repr=False)
+
+    @field_validator("object_version_id")
+    @classmethod
+    def printable_version(cls, value: str | None) -> str | None:
+        if value is not None and any(
+            ord(char) < 32 or ord(char) == 127 for char in value
+        ):
+            raise ValueError("Avatar provider version must be printable")
+        return value
+
+    @model_validator(mode="after")
+    def exact_storage_identity(self) -> AvatarUploadReceipt:
+        ref = self.storage_ref
+        if (
+            type(ref) is not dict
+            or set(ref) != _AVATAR_STORAGE_REF_FIELDS
+            or type(ref["schema"]) is not int
+            or ref["schema"] not in {1, 2}
+            or ref["purpose"] != "avatars"
+            or not isinstance(ref["location_id"], str)
+            or _AVATAR_LOCATION.fullmatch(ref["location_id"]) is None
+            or type(ref["config_revision"]) is not int
+            or ref["config_revision"] < 1
+            or type(ref["binding_generation"]) is not int
+            or ref["binding_generation"] < 1
+            or not isinstance(ref["endpoint_url"], str)
+            or _AVATAR_ENDPOINT.fullmatch(ref["endpoint_url"]) is None
+            or not isinstance(ref["bucket"], str)
+            or not 0 < len(ref["bucket"]) <= 255
+            or any(char in ref["bucket"] for char in "/\\?#@ ")
+            or not isinstance(ref["object_key"], str)
+            or not ref["object_key"]
+            or len(ref["object_key"]) > 1024
+            or any(ord(char) < 32 or ord(char) == 127 for char in ref["object_key"])
+            or not isinstance(ref["storage_identity"], str)
+            or _AVATAR_STORAGE_IDENTITY.fullmatch(ref["storage_identity"]) is None
+        ):
+            raise ValueError("Avatar storage receipt is not canonical")
+        key = ref["object_key"]
+        basename = key.rsplit("/", 1)[-1]
+        if basename != self.token + ".webp":
+            raise ValueError("Avatar object key does not match its token")
+        if ref["schema"] == 1:
+            if (
+                ref["location_id"] != _LEGACY_AVATAR_LOCATION
+                or ref["config_revision"] != 1
+                or ref["binding_generation"] != 1
+                or key != basename
+            ):
+                raise ValueError("Legacy avatar receipt has a non-legacy shape")
+        else:
+            if ref["binding_generation"] < 2:
+                raise ValueError("Avatar binding generation must advance")
+            if ref["location_id"] == _LEGACY_AVATAR_LOCATION:
+                if ref["config_revision"] != 1 or key != basename:
+                    raise ValueError("Legacy location keeps the root object key")
+            elif not key.endswith("_aap_managed/avatars/" + basename):
+                raise ValueError("Managed avatar object key has no managed prefix")
+        return self
+
+
+class AvatarAcceptedKeyProof(ClosedModel):
+    """Exact frozen facts of the accepted API key that authorized publication.
+
+    The Identity owner compares this proof with the key's current non-secret
+    facts inside its own publication transaction. ``revision`` is a digest of
+    the stored verifier, never the verifier itself, and ``scopes`` is the whole
+    ordered snapshot so a rewritten key cannot inherit this operation.
+    """
+
+    scopes: list[Annotated[str, Field(strict=True, min_length=1, max_length=128)]]
+    expires_at: datetime | None
+    revision: str = Field(pattern=_HEX_64, strict=True, repr=False)
+
+    @field_validator("expires_at")
+    @classmethod
+    def aware_expiry(cls, value: datetime | None) -> datetime | None:
+        if value is not None:
+            if value.utcoffset() is None:
+                raise ValueError("Accepted key expiry must include a timezone")
+            return value.astimezone(UTC)
+        return None
+
+
 class SetAvatarRefPayload(ClosedModel):
     avatar_ref: str | None = Field(default=None, max_length=80, strict=True)
     kind: Literal["upload", "preset_or_clear"]
     bytes: int | None = Field(default=None, ge=0, strict=True)
+    expected_previous_avatar_ref: str | None = Field(
+        default=None, max_length=80, strict=True
+    )
+    receipt: AvatarUploadReceipt | None = Field(default=None, repr=False)
+    accepted_api_key_proof: AvatarAcceptedKeyProof | None = Field(
+        default=None, repr=False
+    )
 
     @model_validator(mode="after")
     def avatar_shape(self) -> SetAvatarRefPayload:
+        if not _avatar_ref_shape(self.expected_previous_avatar_ref):
+            raise ValueError("Expected previous avatar reference is malformed")
         if self.kind == "upload":
             if (
                 self.avatar_ref is None
                 or re.fullmatch(_UPLOAD_REF, self.avatar_ref) is None
                 or type(self.bytes) is not int
+                or "expected_previous_avatar_ref" not in self.model_fields_set
+                or self.receipt is None
+                or self.receipt.token != self.avatar_ref[len("upload:") :]
+                or self.receipt.size_bytes != self.bytes
+                or self.expected_previous_avatar_ref == self.avatar_ref
             ):
-                raise ValueError("Upload avatar needs its owned ref and byte count")
-        elif self.bytes is not None or (
-            self.avatar_ref is not None
-            and re.fullmatch(_PRESET_REF, self.avatar_ref) is None
+                raise ValueError("Upload avatar needs its verified owned receipt")
+        elif (
+            self.bytes is not None
+            or self.receipt is not None
+            or (
+                self.avatar_ref is not None
+                and re.fullmatch(_PRESET_REF, self.avatar_ref) is None
+            )
         ):
             raise ValueError("Preset avatar accepts only a preset ref or clear")
         return self

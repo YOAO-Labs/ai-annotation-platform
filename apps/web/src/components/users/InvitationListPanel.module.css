@@ -35,7 +35,7 @@
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-md);
   background: var(--sc-card);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .tableScroller {
@@ -80,7 +80,7 @@
   display: inline-block;
   max-width: 220px;
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   vertical-align: bottom;
   white-space: nowrap;

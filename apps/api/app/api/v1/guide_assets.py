@@ -1,196 +1,156 @@
-"""Annotation guide image resource endpoints."""
+"""Authenticated guide-image bytes and independent project references."""
 
-from __future__ import annotations
+from urllib.parse import quote
+import uuid
 
-from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_workspace.configuration_contract import (
-    ConfigurationUnavailable,
-    configuration_guide_data,
+from app.db.models.project import Project
+from app.deps import (
+    get_current_user,
+    get_db,
+    require_project_owner,
+    require_project_visible,
 )
-from app.deps import get_current_user, get_db
+from aap_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
 from app.schemas.guide_asset import (
     GuideAssetEntry,
-    GuideAssetSignedUrlResponse,
     GuideAssetUploadInitRequest,
     GuideAssetUploadInitResponse,
+    GuideAssetSignedUrlResponse,
 )
+from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
 from app.services.identity_contracts import IdentityActorFacts
-from app.services.workspace_configuration import (
-    ConfigurationExecution,
-    configuration_manager,
-    execute_configuration,
-)
-from app.services.workspace_configuration_data import WorkspaceConfigurationData
-from app.services.workspace_project_query import execute_project_query
 
 router = APIRouter()
 
 
-async def _require_project_manager(
-    project_id: UUID,
+def _upgrade(project_id):
+    raise HTTPException(
+        409,
+        {
+            "code": "guide_asset_authenticated_transfer_required",
+            "upload_path": f"/api/v1/projects/{project_id}/guide-assets/upload",
+            "content_path": f"/api/v1/projects/{project_id}/guide-assets/content",
+        },
+    )
+
+
+@router.post(
+    "/{project_id}/guide-assets/upload",
+    response_model=GuideAssetEntry,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                mime: {"schema": {"type": "string", "format": "binary"}}
+                for mime in sorted(ALLOWED_GUIDE_ASSET_TYPES)
+            },
+        }
+    },
+)
+async def guide_asset_upload(
+    project_id: uuid.UUID,
+    request: Request,
+    file_name: str = Query(..., min_length=1, max_length=255),
     db: AsyncSession = Depends(get_db),
-    current_user: IdentityActorFacts = Depends(get_current_user),
-) -> UUID:
-    access = await execute_project_query(
-        db,
-        operation="require_project_manager",
-        actor=current_user,
-        target_id=project_id,
-    )
-    return access["project_id"]
-
-
-async def _require_project_visible(
-    project_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: IdentityActorFacts = Depends(get_current_user),
-) -> UUID:
-    access = await execute_project_query(
-        db,
-        operation="require_project_visible",
-        actor=current_user,
-        target_id=project_id,
-    )
-    return access["project_id"]
-
-
-async def _execute_guide_operation(
-    db: AsyncSession,
-    *,
-    operation: str,
-    actor: IdentityActorFacts,
-    project_id: UUID,
-    payload: dict,
-) -> ConfigurationExecution:
-    execution = await execute_configuration(
-        db,
-        operation=operation,
-        actor_id=actor.id,
-        target_id=project_id,
-        payload=payload,
-    )
-    if execution.guide_result is None or execution.guide_request is None:
-        raise HTTPException(status_code=503, detail="项目配置服务暂不可用")
-    return execution
-
-
-def _guide_public_data(execution: ConfigurationExecution) -> dict:
-    if execution.guide_result is None:
-        raise HTTPException(status_code=503, detail="项目配置服务暂不可用")
+    actor: IdentityActorFacts = Depends(get_current_user),
+):
+    if request.headers.get("content-encoding", "identity").lower() not in {
+        "",
+        "identity",
+    }:
+        raise HTTPException(415, {"code": "guide_asset_content_encoding"})
     try:
-        return configuration_guide_data(execution.guide_result).model_dump(
-            mode="python"
-        )
-    except ConfigurationUnavailable:
-        raise HTTPException(status_code=503, detail="项目配置服务暂不可用") from None
+        file_name = storage.safe_file_name(file_name)
+        mime_type = storage.normalize_mime_type(request.headers.get("content-type"))
+    except storage.GuideAssetStorageError as exc:
+        raise uploads.http_error(exc) from None
+    proof = await uploads.capture_upload(db, actor, request, project_id)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > storage.MAX_BYTES:
+            raise HTTPException(413, {"code": "guide_asset_too_large"})
+        data.extend(chunk)
+    return await uploads.upload(
+        db, proof, project_id, bytes(data), mime_type, file_name
+    )
 
 
-async def _commit_and_refresh_if_needed(
-    db: AsyncSession, execution: ConfigurationExecution
-) -> None:
-    if execution.guide_result is None or execution.guide_request is None:
-        raise HTTPException(status_code=503, detail="项目配置服务暂不可用")
-    await db.commit()
-    if not execution.guide_result.result.refreshed:
-        await configuration_manager(
-            WorkspaceConfigurationData(db), db=db
-        ).refresh_guide(execution.guide_request)
+@router.get("/{project_id}/guide-assets/content", response_class=Response)
+async def guide_asset_content(
+    project_id: uuid.UUID,
+    key: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: IdentityActorFacts = Depends(get_current_user),
+):
+    receipt, data = await uploads.read(db, actor, request, project_id, key)
+    return Response(
+        data,
+        media_type=receipt.mime_type,
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(receipt.file_name, safe=""),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/{project_id}/guide-assets")
+async def guide_asset_delete(
+    project_id: uuid.UUID,
+    key: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: IdentityActorFacts = Depends(get_current_user),
+):
+    return await uploads.unlink(db, actor, request, project_id, key)
 
 
 @router.post(
     "/{project_id}/guide-assets/upload-init",
     response_model=GuideAssetUploadInitResponse,
+    deprecated=True,
 )
 async def guide_asset_upload_init(
     data: GuideAssetUploadInitRequest,
-    project_id: UUID = Depends(_require_project_manager),
-    db: AsyncSession = Depends(get_db),
-    current_user: IdentityActorFacts = Depends(get_current_user),
+    project: Project = Depends(require_project_owner),
 ):
-    execution = await _execute_guide_operation(
-        db,
-        operation="guide_asset_upload_init",
-        actor=current_user,
-        project_id=project_id,
-        payload={
-            "filename": data.filename,
-            "content_type": data.content_type,
-            "size": data.size,
-        },
-    )
-    return GuideAssetUploadInitResponse(**_guide_public_data(execution))
+    if data.content_type not in ALLOWED_GUIDE_ASSET_TYPES:
+        raise HTTPException(400, "Unsupported content type")
+    _upgrade(project.id)
 
 
 @router.post(
     "/{project_id}/guide-assets/upload-complete",
     response_model=GuideAssetEntry,
+    deprecated=True,
 )
 async def guide_asset_upload_complete(
     payload: dict,
-    project_id: UUID = Depends(_require_project_manager),
-    db: AsyncSession = Depends(get_db),
-    current_user: IdentityActorFacts = Depends(get_current_user),
+    project: Project = Depends(require_project_owner),
 ):
-    key = payload.get("key")
-    original_name = payload.get("original_name")
-    content_type = payload.get("content_type")
-    if not key or not original_name or not content_type:
-        raise HTTPException(status_code=400, detail="Missing required fields")
-
-    execution = await _execute_guide_operation(
-        db,
-        operation="guide_asset_upload_complete",
-        actor=current_user,
-        project_id=project_id,
-        payload={
-            "key": key,
-            "original_name": original_name,
-            "content_type": content_type,
-        },
-    )
-    public_data = _guide_public_data(execution)
-    await _commit_and_refresh_if_needed(db, execution)
-    return GuideAssetEntry(**public_data)
-
-
-@router.delete("/{project_id}/guide-assets")
-async def guide_asset_delete(
-    key: str,
-    project_id: UUID = Depends(_require_project_manager),
-    db: AsyncSession = Depends(get_db),
-    current_user: IdentityActorFacts = Depends(get_current_user),
-):
-    execution = await _execute_guide_operation(
-        db,
-        operation="guide_asset_delete",
-        actor=current_user,
-        project_id=project_id,
-        payload={"key": key},
-    )
-    public_data = _guide_public_data(execution)
-    await _commit_and_refresh_if_needed(db, execution)
-    return public_data
+    if any(
+        not payload.get(field) for field in ("key", "original_name", "content_type")
+    ):
+        raise HTTPException(400, "Missing required fields")
+    if payload["content_type"] not in ALLOWED_GUIDE_ASSET_TYPES:
+        raise HTTPException(400, "Unsupported content type")
+    _upgrade(project.id)
 
 
 @router.get(
     "/{project_id}/guide-assets/sign-url",
     response_model=GuideAssetSignedUrlResponse,
+    deprecated=True,
 )
 async def guide_asset_sign_url(
     key: str,
-    project_id: UUID = Depends(_require_project_visible),
-    db: AsyncSession = Depends(get_db),
-    current_user: IdentityActorFacts = Depends(get_current_user),
+    project: Project = Depends(require_project_visible),
 ):
-    execution = await _execute_guide_operation(
-        db,
-        operation="guide_asset_sign",
-        actor=current_user,
-        project_id=project_id,
-        payload={"key": key},
-    )
-    return GuideAssetSignedUrlResponse(**_guide_public_data(execution))
+    if key not in {entry.get("key") for entry in (project.guide_assets or [])}:
+        raise HTTPException(404, "Asset not found")
+    _upgrade(project.id)

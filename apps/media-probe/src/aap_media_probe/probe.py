@@ -13,6 +13,17 @@ class FFProbeError(RuntimeError):
     """ffprobe exited unsuccessfully; the media could not be probed."""
 
 
+def _run_ffprobe(args: list[str], pass_fds: tuple[int, ...] = ()):
+    return subprocess.run(
+        args,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=FFPROBE_TIMEOUT_SECONDS,
+        **({"pass_fds": pass_fds} if pass_fds else {}),
+    )
+
+
 def _parse_ratio(value: str | None) -> float | None:
     if not value:
         return None
@@ -159,8 +170,10 @@ def parse_ffprobe_packet_samples(
     return valid
 
 
-def probe_video_file(path: str | Path) -> dict[str, Any]:
-    proc = subprocess.run(
+def probe_video_file(
+    path: str | Path, *, pass_fds: tuple[int, ...] = ()
+) -> dict[str, Any]:
+    proc = _run_ffprobe(
         [
             "ffprobe",
             "-protocol_whitelist",
@@ -177,18 +190,17 @@ def probe_video_file(path: str | Path) -> dict[str, Any]:
             "json",
             str(path),
         ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=FFPROBE_TIMEOUT_SECONDS,
+        pass_fds,
     )
     if proc.returncode != 0:
         raise FFProbeError(proc.stderr.strip() or "ffprobe failed")
     return parse_ffprobe_video_metadata(json.loads(proc.stdout or "{}"))
 
 
-def probe_video_frame_timetable(path: str | Path) -> list[dict[str, Any]]:
-    proc = subprocess.run(
+def probe_video_frame_timetable(
+    path: str | Path, *, pass_fds: tuple[int, ...] = ()
+) -> list[dict[str, Any]]:
+    proc = _run_ffprobe(
         [
             "ffprobe",
             "-protocol_whitelist",
@@ -204,18 +216,17 @@ def probe_video_frame_timetable(path: str | Path) -> list[dict[str, Any]]:
             "json",
             str(path),
         ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=FFPROBE_TIMEOUT_SECONDS,
+        pass_fds,
     )
     if proc.returncode != 0:
         raise FFProbeError(proc.stderr.strip() or "ffprobe frame timetable failed")
     return parse_ffprobe_frame_timetable(json.loads(proc.stdout or "{}"))
 
 
-def probe_chunk_samples(path: str | Path, start_frame: int) -> list[dict[str, Any]]:
-    proc = subprocess.run(
+def probe_chunk_samples(
+    path: str | Path, start_frame: int, *, pass_fds: tuple[int, ...] = ()
+) -> list[dict[str, Any]]:
+    proc = _run_ffprobe(
         [
             "ffprobe",
             "-protocol_whitelist",
@@ -231,10 +242,7 @@ def probe_chunk_samples(path: str | Path, start_frame: int) -> list[dict[str, An
             "json",
             str(path),
         ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=FFPROBE_TIMEOUT_SECONDS,
+        pass_fds,
     )
     if proc.returncode != 0:
         raise FFProbeError(proc.stderr.strip() or "ffprobe packet probe failed")

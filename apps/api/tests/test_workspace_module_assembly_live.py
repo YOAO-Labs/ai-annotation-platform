@@ -33,10 +33,8 @@ from tests.test_identity_recovery import _postgres_tool
 from tests.test_module_data_roles import _role_url
 from tests.project_guide_asset_owner_helpers import (
     GUIDE_FILE,
-    _put_through_presigned_url,
-    assert_workspace_identity,
-    create_guide_storage_scope,
     _cleanup_objects,
+    assert_workspace_identity,
 )
 from tests.workspace_module_assembly_helpers import WorkspaceModuleStack
 from tests.workspace_module_quality_helpers import qualify_point_quality_promotion
@@ -450,21 +448,15 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
-    resources, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    _, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     await _assert_restricted_api_consumer(test_engine)
     maker, actors = await _seed_users(test_engine)
     api_secret = secrets.token_urlsafe(32)
-    control_token, probe_token, guide_token = [
-        secrets.token_urlsafe(32) for _ in range(3)
-    ]
+    control_token, probe_token = [secrets.token_urlsafe(32) for _ in range(2)]
     backend_id = uuid.uuid4()
     project_id = native_project_id = dataset_id = unlink_operation_id = None
-    guide_scope = guide_destroy = guide_key = None
+    guide_key = None
     stack = None
-    denied_key = f"outside-guide/{uuid.uuid4()}.png"
-    guide_scope, guide_destroy = create_guide_storage_scope(
-        resources, owner_s3, guide_bucket, denied_key
-    )
     try:
         with _backend_endpoint() as (backend_origin, probe_calls):
             await _seed_backend(
@@ -478,10 +470,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 api_secret=api_secret,
                 control_token=control_token,
                 inference_token=probe_token,
-                guide_token=guide_token,
-                guide_bucket=guide_bucket,
-                guide_access_key=guide_scope["access_key"],
-                guide_secret_key=guide_scope["secret_key"],
             )
             await stack.start()
             record_property("workspace_module_services", stack.inspection_evidence)
@@ -758,45 +746,28 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 assert native_project.status_code == 200, native_project.text
                 native_project_id = uuid.UUID(native_project.json()["id"])
 
-                # Public Guide operations traverse Config -> the actual Guide
-                # byte owner -> the Project Query owner, with scoped S3 credentials.
-                upload_init = await client.post(
-                    f"/api/v1/projects/{project_id}/guide-assets/upload-init",
-                    headers=headers["successor"],
-                    json={
-                        "filename": "assembly-guide.png",
-                        "content_type": "image/png",
-                        "size": len(GUIDE_FILE),
-                    },
+                # Canonical authenticated Guide transfer: bytes traverse the
+                # API storage owner, while publication/CAS stays in Workspace.
+                guide_upload = await client.post(
+                    f"/api/v1/projects/{project_id}/guide-assets/upload",
+                    params={"file_name": "assembly-guide.png"},
+                    headers={**headers["successor"], "Content-Type": "image/png"},
+                    content=GUIDE_FILE,
                 )
-                assert upload_init.status_code == 200, upload_init.text
-                upload_data = upload_init.json()
-                guide_key = upload_data["key"]
-                assert upload_data["key"].startswith(f"projects/{project_id}/guide/")
-                assert await _put_through_presigned_url(
-                    upload_data["upload_url"], GUIDE_FILE
-                ) in {200, 204}
-                upload_complete = await client.post(
-                    f"/api/v1/projects/{project_id}/guide-assets/upload-complete",
-                    headers=headers["successor"],
-                    json={
-                        "key": upload_data["key"],
-                        "original_name": "assembly-guide.png",
-                        "content_type": "image/png",
-                    },
-                )
-                assert upload_complete.status_code == 200, upload_complete.text
-                assert upload_complete.json()["size"] == len(GUIDE_FILE)
-                guide_sign = await client.get(
-                    f"/api/v1/projects/{project_id}/guide-assets/sign-url",
-                    params={"key": upload_data["key"]},
+                assert guide_upload.status_code == 200, guide_upload.text
+                guide_key = guide_upload.json()["key"]
+                assert guide_key.startswith(f"projects/{project_id}/guide/")
+                assert guide_upload.json()["size"] == len(GUIDE_FILE)
+                guide_content = await client.get(
+                    f"/api/v1/projects/{project_id}/guide-assets/content",
+                    params={"key": guide_key},
                     headers=headers["successor"],
                 )
-                assert guide_sign.status_code == 200, guide_sign.text
-                assert guide_sign.json()["url"]
+                assert guide_content.status_code == 200, guide_content.text
+                assert guide_content.content == GUIDE_FILE
                 guide_delete = await client.delete(
                     f"/api/v1/projects/{project_id}/guide-assets",
-                    params={"key": upload_data["key"]},
+                    params={"key": guide_key},
                     headers=headers["successor"],
                 )
                 assert guide_delete.status_code == 200, guide_delete.text
@@ -1202,12 +1173,8 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
     finally:
         if stack is not None:
             await stack.stop()
-        if guide_scope is not None and guide_destroy is not None:
-            try:
-                if guide_key:
-                    _cleanup_objects(owner_s3, guide_bucket, [guide_key])
-            finally:
-                guide_destroy(guide_scope)
+        if guide_key:
+            _cleanup_objects(owner_s3, guide_bucket, [guide_key])
 
 
 _WORKSPACE_STOP_ORDER = (

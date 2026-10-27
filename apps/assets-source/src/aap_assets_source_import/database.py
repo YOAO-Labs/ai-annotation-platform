@@ -11,6 +11,12 @@ import asyncpg
 from pydantic import BaseModel
 from aap_assets_images.policy import ImagePolicy
 
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+    ManagedOriginalOperation,
+    decode_managed_original_reply,
+    require_managed_original_ok,
+)
 from aap_assets_source.import_contract import (
     ImportConnection,
     ImportEntry,
@@ -39,6 +45,14 @@ EXPECTED_IMPORT_FUNCTIONS = frozenset(
         "finish_dataset_import(uuid,uuid,text)",
         "resolve_internal_image_source(text,uuid,text,jsonb)",
         "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
+        "begin_operator_auxiliary(jsonb)",
+        "open_operator_storage_operation(uuid)",
+        "record_operator_original_prepared(uuid,jsonb)",
+        "mark_operator_original_writing(uuid)",
+        "record_operator_original_written(uuid,jsonb)",
+        "record_operator_original_verified(uuid,jsonb)",
+        "fail_operator_original(uuid,text,text,jsonb)",
+        "close_operator_storage_operation(uuid,uuid,boolean)",
     }
 )
 
@@ -53,7 +67,15 @@ WITH expected(signature) AS (
         ('complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)'::text),
         ('finish_dataset_import(uuid,uuid,text)'::text),
         ('resolve_internal_image_source(text,uuid,text,jsonb)'::text),
-        ('schedule_image_media(uuid,text,uuid,jsonb,boolean)'::text)
+        ('schedule_image_media(uuid,text,uuid,jsonb,boolean)'::text),
+        ('begin_operator_auxiliary(jsonb)'::text),
+        ('open_operator_storage_operation(uuid)'::text),
+        ('record_operator_original_prepared(uuid,jsonb)'::text),
+        ('mark_operator_original_writing(uuid)'::text),
+        ('record_operator_original_written(uuid,jsonb)'::text),
+        ('record_operator_original_verified(uuid,jsonb)'::text),
+        ('fail_operator_original(uuid,text,text,jsonb)'::text),
+        ('close_operator_storage_operation(uuid,uuid,boolean)'::text)
 ),
 expected_oids AS (
     SELECT
@@ -190,6 +212,39 @@ FROM pg_catalog.pg_roles AS login_role
 CROSS JOIN runtime_privileges
 WHERE login_role.rolname = current_user
 """
+
+
+_MAX_ORIGINAL_REPLY_BYTES = 16 * 1024 * 1024
+
+
+def _parse_json_reply(raw: Any, max_bytes: int = _MAX_ORIGINAL_REPLY_BYTES) -> object:
+    """Bound every native reply and reject non-finite JSON constants."""
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ImportFailure("invalid_response") from None
+    if isinstance(raw, str):
+        if len(raw.encode("utf-8")) > max_bytes:
+            raise ImportFailure("invalid_response")
+        try:
+            return json.loads(raw, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, ValueError):
+            raise ImportFailure("invalid_response") from None
+    try:
+        encoded_size = len(
+            json.dumps(
+                raw,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        )
+    except (TypeError, ValueError):
+        raise ImportFailure("invalid_response") from None
+    if encoded_size > max_bytes:
+        raise ImportFailure("invalid_response")
+    return raw
 
 
 class DataContractError(RuntimeError):
@@ -361,32 +416,7 @@ class ImportData:
             raise ImportFailure("invalid_response") from exc
 
     def _parse_payload(self, raw: Any) -> object:
-        if isinstance(raw, bytes):
-            try:
-                raw = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                raise ImportFailure("invalid_response") from None
-        if isinstance(raw, str):
-            if len(raw.encode("utf-8")) > self._max_reply_bytes:
-                raise ImportFailure("invalid_response")
-            try:
-                return json.loads(raw, parse_constant=_reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                raise ImportFailure("invalid_response") from None
-        try:
-            encoded_size = len(
-                json.dumps(
-                    raw,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode("utf-8")
-            )
-        except (TypeError, ValueError):
-            raise ImportFailure("invalid_response") from None
-        if encoded_size > self._max_reply_bytes:
-            raise ImportFailure("invalid_response")
-        return raw
+        return _parse_json_reply(raw, self._max_reply_bytes)
 
 
 class ImportDatabase:
@@ -426,6 +456,89 @@ class ImportDatabase:
                     max_reply_bytes=16 * 1024 * 1024,
                     image_policy=self._config.image_policy,
                 )
+
+    async def _original_ok(self, statement: str, arguments: tuple[Any, ...]) -> Any:
+        raw = await self._original_reply(statement, arguments)
+        require_managed_original_ok(raw)
+        return raw
+
+    async def allocate(self, request: dict[str, Any]) -> ManagedOriginalMaterial:
+        """Allocate independently and durably before any physical I/O."""
+        payload = dict(request)
+        payload.setdefault("kind", "role_media")
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.begin_operator_auxiliary($1::jsonb)",
+            (payload,),
+        )
+        return decode_managed_original_reply(raw, ManagedOriginalMaterial)
+
+    async def open_operation(self, creation_id: UUID) -> ManagedOriginalOperation:
+        """Acquire this creation's one permit; verified reuse stays read-only."""
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.open_operator_storage_operation($1::uuid)",
+            (creation_id,),
+        )
+        return decode_managed_original_reply(raw, ManagedOriginalOperation)
+
+    async def original_prepared(
+        self, creation_id: UUID, prepared: dict[str, Any]
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
+            (creation_id, prepared),
+        )
+
+    async def original_writing(self, creation_id: UUID) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.mark_operator_original_writing($1::uuid)",
+            (creation_id,),
+        )
+
+    async def original_written(
+        self, creation_id: UUID, receipt: dict[str, Any]
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
+            (creation_id, receipt),
+        )
+
+    async def original_verified(
+        self, creation_id: UUID, verification: dict[str, Any]
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.record_operator_original_verified($1::uuid,$2::jsonb)",
+            (creation_id, verification),
+        )
+
+    async def fail_original(
+        self,
+        creation_id: UUID,
+        outcome: str,
+        error_code: str,
+        evidence: dict[str, Any],
+    ) -> None:
+        await self._original_ok(
+            "SELECT aap_assets_v1.fail_operator_original("
+            "$1::uuid,$2::text,$3::text,$4::jsonb)",
+            (creation_id, outcome, error_code, evidence),
+        )
+
+    async def close_operation(
+        self, creation_id: UUID, operation_id: UUID, physical_settled: bool
+    ) -> None:
+        """Settle only this creation's own read permit after a proven drain."""
+        await self._original_ok(
+            "SELECT aap_assets_v1.close_operator_storage_operation("
+            "$1::uuid,$2::uuid,$3::boolean)",
+            (creation_id, operation_id, physical_settled),
+        )
+
+    async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:
+        async with self._pool.acquire(
+            timeout=self._config.pool_timeout_seconds
+        ) as connection:
+            raw = await connection.fetchval(statement, *arguments)
+        return _parse_json_reply(raw)
 
     async def ready(self) -> bool:
         async with self._pool.acquire(

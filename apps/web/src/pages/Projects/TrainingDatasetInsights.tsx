@@ -1,3 +1,7 @@
+import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,12 +15,14 @@ import {
 } from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { TrainingDatasetSamplePreview } from "./TrainingDatasetSamplePreview";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 import { TrainingDatasetClassChart, TrainingDatasetSplitChart } from "./TrainingDatasetCharts";
 import { TrainingDatasetDetectionCharts } from "./TrainingDatasetDetectionCharts";
 import { TrainingDatasetSampleComparison } from "./TrainingDatasetSampleComparison";
 import { datasetComparisonReason, datasetParentReason } from "./datasetCompatibility";
+import { instanceMaskBridge } from "../Training/trainingDatasetBridges";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
 const inputClass =
@@ -32,6 +38,9 @@ const changes: Record<DatasetSampleChange, string> = {
   reintroduced: "祖先内容重新纳入",
   unchanged: "训练语义未变化",
   unknown: "训练语义变化无法确认",
+  source_relation_changed: "来源关系变化",
+  source_evidence_updated: "来源证据更新",
+  source_unknown: "来源证据不足",
 };
 const exclusionReasons: Record<string, string> = {
   unsupported_media: "不是图片任务",
@@ -42,37 +51,40 @@ const exclusionReasons: Record<string, string> = {
   not_in_package: "未出现在保留的训练包中",
 };
 
+function listPage(raw: string | null) {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 0 && Number.isSafeInteger(value * 100) ? value : 0;
+}
+
 function Pages({
   page,
   total,
-  size = 25,
+  size,
   loading = false,
   label,
   onChange,
+  onSizeChange,
 }: {
   page: number;
   total: number;
-  size?: number;
+  size: number;
   loading?: boolean;
   label: string;
   onChange: (page: number) => void;
+  onSizeChange: (size: number) => void;
 }) {
   return (
-    <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-xs">
-      <span className="mr-auto text-foreground">
-        共 {total} 项 · 第 {page + 1} 页
-      </span>
-      <Button size="sm" disabled={!page || loading} onClick={() => onChange(page - 1)}>
-        上一页{label}
-      </Button>
-      <Button
-        size="sm"
-        disabled={(page + 1) * size >= total || loading}
-        onClick={() => onChange(page + 1)}
-      >
-        下一页{label}
-      </Button>
-    </div>
+    <ListPagination
+      label={label}
+      page={page}
+      pageSize={size}
+      total={total}
+      loading={loading}
+      previousLabel={`上一页${label}`}
+      nextLabel={`下一页${label}`}
+      onPageChange={onChange}
+      onPageSizeChange={onSizeChange}
+    />
   );
 }
 
@@ -86,7 +98,7 @@ function Distribution({
   return (
     <section className="rounded-lg border border-border p-4">
       <h3 className="mb-2 text-xs font-semibold">{title}</h3>
-      <table className="w-full text-left text-xs">
+      <table className={listStyles.table}>
         <thead className="text-muted-foreground">
           <tr>
             <th className="py-2 font-medium">分布范围</th>
@@ -123,7 +135,7 @@ export function TrainingDatasetInsights(props: {
       revision,
       projectId: props.projectId,
       versionId: props.version.id,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [userId, token, revision, props.projectId, props.version.id],
   );
@@ -151,19 +163,26 @@ function InsightsContent({
   const classIndex = /^\d+$/.test(rawClass) ? Number(rawClass) : undefined;
   const rawPage = params.get("data_page") ?? "0";
   const page = /^\d+$/.test(rawPage) ? Number(rawPage) : 0;
+  const pageSize = listPageSize(params.get("data_page_size"));
+  const classPageSize = listPageSize(params.get("data_class_page_size"));
+  const filterPageSize = listPageSize(params.get("data_filter_page_size"));
+  const baselinePageSize = listPageSize(params.get("data_baseline_page_size"));
   const invalidFilters =
     (rawClass !== "" && classIndex === undefined) ||
     !/^\d+$/.test(rawPage) ||
     !Number.isSafeInteger(page) ||
-    !Number.isSafeInteger(page * 25) ||
+    !Number.isSafeInteger(page * pageSize) ||
     (classIndex !== undefined && !Number.isSafeInteger(classIndex));
   const kind = (params.get("data_kind") ?? "all") as DatasetSampleFilters["kind"];
   const split = (params.get("data_split") || undefined) as DatasetSampleFilters["split"];
   const [classSearch, setClassSearch] = useState("");
-  const [classPage, setClassPage] = useState(0);
+  const classPage = listPage(params.get("data_class_page"));
+  const setClassPage = (value: number) => update({ data_class_page: String(value) });
   const [filterSearch, setFilterSearch] = useState("");
-  const [filterPage, setFilterPage] = useState(0);
-  const [baselinePage, setBaselinePage] = useState(0);
+  const filterPage = listPage(params.get("data_filter_page"));
+  const setFilterPage = (value: number) => update({ data_filter_page: String(value) });
+  const baselinePage = listPage(params.get("data_baseline_page"));
+  const setBaselinePage = (value: number) => update({ data_baseline_page: String(value) });
   const [preview, setPreview] = useState<{
     sample: TrainingDatasetAnalyzedSampleOut;
     scope: string;
@@ -192,12 +211,12 @@ function InsightsContent({
     retry: false,
   });
   const classes = useQuery({
-    queryKey: [...key, "classes", classSearch, classPage],
+    queryKey: [...key, "classes", classSearch, classPage, classPageSize],
     queryFn: ({ signal }) =>
       trainingDatasetsApi.classes(
         projectId,
         version.id,
-        { search: classSearch, offset: classPage * 25 },
+        { search: classSearch, offset: classPage * classPageSize, limit: classPageSize },
         { signal },
       ),
     enabled: ready && view === "overview",
@@ -214,14 +233,21 @@ function InsightsContent({
     retry: false,
   });
   const baselineChoices = useQuery({
-    queryKey: [...key, "baseline-choices", version.task ?? "detect", baselinePage],
+    queryKey: [
+      ...key,
+      "baseline-choices",
+      version.task ?? "detect",
+      baselinePage,
+      baselinePageSize,
+    ],
     queryFn: ({ signal }) =>
       trainingDatasetsApi.list(
         projectId,
-        baselinePage * 20,
+        baselinePage * baselinePageSize,
         "ready",
         { signal },
         { task: version.task ?? "detect" },
+        baselinePageSize,
       ),
     enabled: ready && view === "compare",
   });
@@ -251,12 +277,12 @@ function InsightsContent({
   const sampleVersionId = change === "removed" ? baselineId : version.id;
   const baselineCompatible = !baselineId || (baseline.isSuccess && !baseline.isError);
   const filterClasses = useQuery({
-    queryKey: [...key, "filter-classes", sampleVersionId, filterSearch, filterPage],
+    queryKey: [...key, "filter-classes", sampleVersionId, filterSearch, filterPage, filterPageSize],
     queryFn: ({ signal }) =>
       trainingDatasetsApi.classes(
         projectId,
         sampleVersionId,
-        { search: filterSearch, offset: filterPage * 25 },
+        { search: filterSearch, offset: filterPage * filterPageSize, limit: filterPageSize },
         { signal },
       ),
     enabled: ready && view === "samples" && !!sampleVersionId && baselineCompatible,
@@ -279,8 +305,8 @@ function InsightsContent({
       baselineCompatible,
   });
   const filters: DatasetSampleFilters = {
-    limit: 25,
-    offset: page * 25,
+    limit: pageSize,
+    offset: page * pageSize,
     kind,
     split,
     class_index: classIndex,
@@ -299,6 +325,42 @@ function InsightsContent({
     enabled: ready && view === "samples" && !invalidFilters && baselineCompatible,
     retry: false,
   });
+  useEffect(() => {
+    const pages = [
+      ["data_class_page", classPage, classPageSize, classes.data?.total],
+      ["data_filter_page", filterPage, filterPageSize, filterClasses.data?.total],
+      ["data_baseline_page", baselinePage, baselinePageSize, baselineChoices.data?.total],
+      ["data_page", page, pageSize, samples.data?.total],
+    ] as const;
+    const changed = pages.filter(
+      ([, current, size, total]) =>
+        total != null && current > Math.max(0, Math.ceil(total / size) - 1),
+    );
+    if (changed.length)
+      setParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          for (const [name, , size, total] of changed)
+            next.set(name, String(Math.max(0, Math.ceil(total! / size) - 1)));
+          return next;
+        },
+        { replace: true },
+      );
+  }, [
+    classPage,
+    classPageSize,
+    classes.data?.total,
+    filterPage,
+    filterPageSize,
+    filterClasses.data?.total,
+    baselinePage,
+    baselinePageSize,
+    baselineChoices.data?.total,
+    page,
+    pageSize,
+    samples.data?.total,
+    setParams,
+  ]);
   const raw = useQuery({
     queryKey: [...key, "raw-manifest"],
     queryFn: ({ signal }) => trainingDatasetsApi.get(projectId, version.id, { signal }),
@@ -359,7 +421,10 @@ function InsightsContent({
               <span>
                 {version.contract_profile.source_media_type ?? "未知来源"} →{" "}
                 {version.contract_profile.media_type ?? "未知输出"} ·{" "}
-                {version.contract_profile.geometry}
+                {version.contract_profile.geometry} ·{" "}
+                {version.contract_profile.bridge === instanceMaskBridge
+                  ? "原生实例掩码训练"
+                  : "原生训练桥接"}
               </span>
             )}
             {version.completed_at && (
@@ -371,7 +436,10 @@ function InsightsContent({
               <span>训练包 {(version.size_bytes / 1024 / 1024).toFixed(2)} MiB</span>
             )}
             {version.parent_id && (
-              <span title={version.parent_id}>继承自 {version.parent_id.slice(0, 8)}</span>
+              <span className="inline-flex items-center gap-1">
+                继承自
+                <CopyValueButton value={version.parent_id} kind="id" label="复制父数据版本 ID" />
+              </span>
             )}
           </p>
         </div>
@@ -403,8 +471,10 @@ function InsightsContent({
       )}
       {ready && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-2xs text-muted-foreground">
-            冻结版本 {version.id.slice(0, 8)} · 后续项目编辑不改变此版本
+          <p className="flex items-center gap-1 text-2xs text-muted-foreground">
+            冻结版本
+            <CopyValueButton value={version.id} kind="id" label="复制冻结数据版本 ID" />·
+            后续项目编辑不改变此版本
           </p>
           {!datasetParentReason(version, version.task ?? "detect") ? (
             <Link
@@ -446,7 +516,8 @@ function InsightsContent({
       </nav>
       {!ready && (
         <p className="mt-4 text-sm text-muted-foreground">
-          版本构建完成后可查看冻结数据洞察。{version.error_message}
+          版本构建完成后可查看冻结数据洞察。
+          <CopyableError message={version.error_message} />
         </p>
       )}
       {ready && overview.isLoading && (
@@ -459,7 +530,11 @@ function InsightsContent({
           role="alert"
           className="mt-4 rounded-md bg-status-caution-soft p-3 text-sm text-status-caution"
         >
-          <p>数据洞察暂不可用：{overview.error.message}。训练包下载入口仍独立可用。</p>
+          <p>
+            数据洞察暂不可用：
+            <CopyableError message={overview.error.message} />
+            。训练包下载入口仍独立可用。
+          </p>
           <Button size="sm" className="mt-2" onClick={() => void overview.refetch()}>
             重试数据洞察
           </Button>
@@ -477,7 +552,7 @@ function InsightsContent({
       )}
       {error && (
         <p role="alert" className="mt-4 text-sm text-status-danger">
-          {error.message}
+          <CopyableError message={error.message} />
         </p>
       )}
       {ready && view === "overview" && data && (
@@ -541,68 +616,70 @@ function InsightsContent({
               )}
               <details className="mt-3 text-xs">
                 <summary className="cursor-pointer text-muted-foreground">完整类别明细</summary>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-md text-left text-xs">
-                    <thead className="text-muted-foreground">
-                      <tr>
-                        <th className="py-2 font-medium">冻结类别</th>
-                        <th className="py-2 text-right font-medium">训练图片</th>
-                        <th className="py-2 text-right font-medium">验证图片</th>
-                        <th className="py-2 text-right font-medium">训练实例</th>
-                        <th className="py-2 text-right font-medium">验证实例</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {classes.data?.items.map((row) => (
-                        <tr key={row.index} className="border-t border-border">
-                          <td className="py-3 pr-3">
-                            <button
-                              className="cursor-pointer text-left hover:underline"
-                              onClick={() =>
-                                showSamples({ data_class: String(row.index), data_change: "all" })
-                              }
-                            >
-                              {row.name}
-                            </button>
-                          </td>
-                          <td className="py-3 text-right tabular-nums">
-                            <button
-                              className="cursor-pointer hover:underline disabled:cursor-default"
-                              aria-label={`查看 ${row.name} 训练图片`}
-                              disabled={!row.train_images}
-                              onClick={() =>
-                                showSamples({
-                                  data_class: String(row.index),
-                                  data_split: "train",
-                                  data_change: "all",
-                                })
-                              }
-                            >
-                              {row.train_images}
-                            </button>
-                          </td>
-                          <td className="py-3 text-right tabular-nums">
-                            <button
-                              className="cursor-pointer hover:underline disabled:cursor-default"
-                              aria-label={`查看 ${row.name} 验证图片`}
-                              disabled={!row.val_images}
-                              onClick={() =>
-                                showSamples({
-                                  data_class: String(row.index),
-                                  data_split: "val",
-                                  data_change: "all",
-                                })
-                              }
-                            >
-                              {row.val_images}
-                            </button>
-                          </td>
-                          <td className="py-3 text-right tabular-nums">{row.train_instances}</td>
-                          <td className="py-3 text-right tabular-nums">{row.val_instances}</td>
+                <div className={listStyles.surface}>
+                  <div className={listStyles.scroll}>
+                    <table className={listStyles.table}>
+                      <thead className="text-muted-foreground">
+                        <tr>
+                          <th className="py-2 font-medium">冻结类别</th>
+                          <th className="py-2 text-right font-medium">训练图片</th>
+                          <th className="py-2 text-right font-medium">验证图片</th>
+                          <th className="py-2 text-right font-medium">训练实例</th>
+                          <th className="py-2 text-right font-medium">验证实例</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {classes.data?.items.map((row) => (
+                          <tr key={row.index} className="border-t border-border">
+                            <td className="py-3 pr-3">
+                              <button
+                                className="cursor-pointer text-left hover:underline"
+                                onClick={() =>
+                                  showSamples({ data_class: String(row.index), data_change: "all" })
+                                }
+                              >
+                                {row.name}
+                              </button>
+                            </td>
+                            <td className="py-3 text-right tabular-nums">
+                              <button
+                                className="cursor-pointer hover:underline disabled:cursor-default"
+                                aria-label={`查看 ${row.name} 训练图片`}
+                                disabled={!row.train_images}
+                                onClick={() =>
+                                  showSamples({
+                                    data_class: String(row.index),
+                                    data_split: "train",
+                                    data_change: "all",
+                                  })
+                                }
+                              >
+                                {row.train_images}
+                              </button>
+                            </td>
+                            <td className="py-3 text-right tabular-nums">
+                              <button
+                                className="cursor-pointer hover:underline disabled:cursor-default"
+                                aria-label={`查看 ${row.name} 验证图片`}
+                                disabled={!row.val_images}
+                                onClick={() =>
+                                  showSamples({
+                                    data_class: String(row.index),
+                                    data_split: "val",
+                                    data_change: "all",
+                                  })
+                                }
+                              >
+                                {row.val_images}
+                              </button>
+                            </td>
+                            <td className="py-3 text-right tabular-nums">{row.train_instances}</td>
+                            <td className="py-3 text-right tabular-nums">{row.val_instances}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </details>
               {classes.data?.items.length === 0 && (
@@ -610,6 +687,10 @@ function InsightsContent({
               )}
               <Pages
                 label="类别"
+                size={classPageSize}
+                onSizeChange={(value) =>
+                  update({ data_class_page_size: String(value), data_class_page: "0" })
+                }
                 page={classPage}
                 total={classes.data?.total ?? 0}
                 loading={classes.isFetching}
@@ -668,7 +749,9 @@ function InsightsContent({
               <Distribution
                 title={
                   version.task === segmentationTask
-                    ? "归一化多边形面积分布（实例）"
+                    ? version.contract_profile?.bridge === instanceMaskBridge
+                      ? "归一化实例掩码面积分布（实例）"
+                      : "归一化多边形面积分布（实例）"
                     : "归一化矩形框面积分布（实例）"
                 }
                 rows={data.box_area_bins}
@@ -685,51 +768,89 @@ function InsightsContent({
       {ready && view === "compare" && (
         <div className="mt-4 space-y-4">
           <div className="rounded-lg bg-muted p-4">
-            <label className="grid gap-2 text-xs font-medium">
-              选择比较基线
-              <select
-                className={inputClass}
-                value={baselineId}
-                onChange={(event) =>
-                  update({
-                    data_baseline: event.target.value,
-                    data_class: "",
-                    data_page: "0",
-                    data_change: "all",
-                  })
-                }
-              >
-                <option value="">选择已就绪版本</option>
-                {baselineId &&
-                  !baselineChoices.data?.items.some((item) => item.id === baselineId) && (
-                    <option value={baselineId}>
-                      {baseline.data?.name ?? `当前基线 ${baselineId.slice(0, 8)}`}
-                    </option>
-                  )}
-                {baselineChoices.data?.items
-                  .filter(
-                    (item) =>
-                      item.id !== version.id &&
-                      (item.task ?? "detect") === (version.task ?? "detect"),
-                  )
-                  .map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                      disabled={!!datasetComparisonReason(version, item)}
-                    >
-                      {item.name}
-                      {datasetComparisonReason(version, item)
-                        ? ` · ${datasetComparisonReason(version, item)}`
-                        : ""}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <div className="flex items-end gap-2">
+              <label className="grid min-w-0 flex-1 gap-2 text-xs font-medium">
+                选择比较基线
+                <select
+                  className={inputClass}
+                  value={baselineId}
+                  onChange={(event) =>
+                    update({
+                      data_baseline: event.target.value,
+                      data_class: "",
+                      data_page: "0",
+                      data_change: "all",
+                    })
+                  }
+                >
+                  <option value="" disabled hidden>
+                    选择已就绪版本
+                  </option>
+                  {baselineId &&
+                    !baselineChoices.data?.items.some(
+                      (item) =>
+                        item.id === baselineId &&
+                        item.id !== version.id &&
+                        (item.task ?? "detect") === (version.task ?? "detect"),
+                    ) && (
+                      <option
+                        value={baselineId}
+                        disabled={baselineId === version.id}
+                        hidden={baselineId === version.id}
+                      >
+                        {baselineId === version.id
+                          ? `${version.name}（不能作为自身基线）`
+                          : (baseline.data?.name ?? "当前基线")}
+                      </option>
+                    )}
+                  {baselineChoices.data?.items
+                    .filter(
+                      (item) =>
+                        item.id !== version.id &&
+                        (item.task ?? "detect") === (version.task ?? "detect"),
+                    )
+                    .map((item) => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                        disabled={!!datasetComparisonReason(version, item)}
+                      >
+                        {item.name}
+                        {datasetComparisonReason(version, item)
+                          ? ` · ${datasetComparisonReason(version, item)}`
+                          : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {baselineId && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() =>
+                    update({
+                      data_baseline: "",
+                      data_class: "",
+                      data_page: "0",
+                      data_change: "all",
+                    })
+                  }
+                >
+                  清除比较基线
+                </Button>
+              )}
+              {baselineId && (
+                <CopyValueButton value={baselineId} kind="id" label="复制比较基线数据版本 ID" />
+              )}
+            </div>
             <Pages
               label="基线"
+              size={baselinePageSize}
+              onSizeChange={(value) =>
+                update({ data_baseline_page_size: String(value), data_baseline_page: "0" })
+              }
               page={baselinePage}
-              size={20}
               total={baselineChoices.data?.total ?? 0}
               loading={baselineChoices.isFetching}
               onChange={setBaselinePage}
@@ -755,7 +876,7 @@ function InsightsContent({
           {compared.data && (
             <>
               <p className="text-xs text-muted-foreground">
-                按已知 SHA 的唯一图片内容集合比较，忽略路径及任务 ID 噪声；变化类别可重叠。
+                按已知 SHA 的唯一图片内容集合比较，训练语义和冻结来源分别列出；变化类别可重叠。
                 基线实际成员 {compared.data.baseline_members} 项 → 当前{" "}
                 {compared.data.target_members} 项，下面各类变化不能相加。
                 {compared.data.status !== "complete" &&
@@ -770,7 +891,7 @@ function InsightsContent({
               )}
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 {Object.entries(changes)
-                  .filter(([key]) => key !== "all")
+                  .filter(([key]) => key !== "all" && !key.startsWith("source_"))
                   .map(([key, label]) => (
                     <button
                       key={key}
@@ -790,6 +911,26 @@ function InsightsContent({
                     </button>
                   ))}
               </div>
+              <section aria-label="冻结来源比较" className="rounded-lg border border-border p-4">
+                <h3 className="text-md font-semibold">冻结来源</h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {compared.data.source_comparison_status === "complete"
+                    ? "共同内容的来源证据完整。"
+                    : compared.data.source_comparison_status === "partial"
+                      ? "部分共同内容缺少完整来源证据，无法确认其来源关系。"
+                      : "没有可比较的共同内容来源证据。"}
+                  来源变化可以与训练语义未变化同时成立；记录来自各版本已保存的冻结事实。来源身份变化不能单独证明文件发生了物理搬迁，也不表示当前来源在线。
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {Object.entries(changes)
+                    .filter(([key]) => key.startsWith("source_"))
+                    .map(([key, label]) => (
+                      <Button key={key} size="sm" onClick={() => showSamples({ data_change: key })}>
+                        {label} · {compared.data!.counts[key] ?? 0}
+                      </Button>
+                    ))}
+                </div>
+              </section>
               <p className="text-xs text-muted-foreground">
                 类别名称新增 {compared.data.classes_added} · 移除 {compared.data.classes_removed} ·{" "}
                 {compared.data.class_order_changed
@@ -915,6 +1056,10 @@ function InsightsContent({
             </label>
             <Pages
               label="筛选类别"
+              size={filterPageSize}
+              onSizeChange={(value) =>
+                update({ data_filter_page_size: String(value), data_filter_page: "0" })
+              }
               page={filterPage}
               total={filterClasses.data?.total ?? 0}
               loading={filterClasses.isFetching}
@@ -923,8 +1068,7 @@ function InsightsContent({
           </details>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              筛选在服务端分页前执行。变化计数按唯一内容，列表展示实际图片项。每页最多 25
-              项；图片只在打开预览时读取。
+              筛选在服务端分页前执行。变化计数按唯一内容，列表展示实际图片项。图片只在打开预览时读取。
             </p>
             <Button
               size="sm"
@@ -952,82 +1096,94 @@ function InsightsContent({
               正在加载冻结样本…
             </p>
           )}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-md text-left text-xs">
-              <thead className="text-muted-foreground">
-                <tr>
-                  <th className="py-2 font-medium">冻结样本</th>
-                  <th className="py-2 font-medium">分区与尺寸</th>
-                  <th className="py-2 font-medium">标注</th>
-                  <th className="py-2 text-right font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {samples.data?.items.map((item) => (
-                  <tr key={`${item.version_id}:${item.task_id}`} className="border-t border-border">
-                    <td className="py-3 pr-3 font-mono">{item.task_id.slice(0, 8)}</td>
-                    <td className="py-3 pr-3 tabular-nums">
-                      {item.split === "val"
-                        ? "验证"
-                        : item.split === "train"
-                          ? "训练"
-                          : item.included
-                            ? "划分未知"
-                            : "未入包"}
-                      <span className="mt-1 block text-muted-foreground">
-                        {item.width ?? "未知"} × {item.height ?? "未知"}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-3">
-                      {!item.included
-                        ? (exclusionReasons[item.exclusion_reason ?? ""] ?? "冻结排除")
-                        : item.issue
-                          ? "冻结标注不可用"
-                          : item.instances === 0
-                            ? item.explicit_negative
-                              ? "明确无目标"
-                              : "空标注，确认历史未知"
-                            : `${item.instances} 个实例`}
-                      {item.media_state === "unavailable" && (
-                        <span className="mt-1 block text-status-caution">最近读取图片不可用</span>
-                      )}
-                    </td>
-                    <td className="py-3 text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={!item.included}
-                        onClick={(event) =>
-                          setPreview({
-                            sample: item,
-                            scope: sampleScope,
-                            opener: event.currentTarget,
-                          })
-                        }
-                      >
-                        <ImageIcon className="size-3.5" />
-                        预览冻结样本
-                      </Button>
-                      {baselineId && baselineCompatible && item.included && item.sha256 && (
+          <div className={listStyles.surface}>
+            <div className={listStyles.scroll}>
+              <table className={listStyles.table}>
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="py-2 font-medium">冻结样本</th>
+                    <th className="py-2 font-medium">分区与尺寸</th>
+                    <th className="py-2 font-medium">标注</th>
+                    <th className="py-2 text-right font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {samples.data?.items.map((item, index) => (
+                    <tr
+                      key={`${item.version_id}:${item.task_id}`}
+                      className="border-t border-border"
+                    >
+                      <td className="py-3 pr-3">
+                        <span>样本 {page * pageSize + index + 1}</span>
+                        <CopyValueButton
+                          value={item.task_id}
+                          kind="id"
+                          label="复制冻结样本任务 ID"
+                        />
+                      </td>
+                      <td className="py-3 pr-3 tabular-nums">
+                        {item.split === "val"
+                          ? "验证"
+                          : item.split === "train"
+                            ? "训练"
+                            : item.included
+                              ? "划分未知"
+                              : "未入包"}
+                        <span className="mt-1 block text-muted-foreground">
+                          {item.width ?? "未知"} × {item.height ?? "未知"}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-3">
+                        {!item.included
+                          ? (exclusionReasons[item.exclusion_reason ?? ""] ?? "冻结排除")
+                          : item.issue
+                            ? "冻结标注不可用"
+                            : item.instances === 0
+                              ? item.explicit_negative
+                                ? "明确无目标"
+                                : "空标注，确认历史未知"
+                              : `${item.instances} 个实例`}
+                        {item.media_state === "unavailable" && (
+                          <span className="mt-1 block text-status-caution">最近读取图片不可用</span>
+                        )}
+                      </td>
+                      <td className="py-3 text-right">
                         <Button
                           size="sm"
                           variant="ghost"
+                          disabled={!item.included}
                           onClick={(event) =>
-                            setComparisonPreview({
-                              sha: item.sha256!,
+                            setPreview({
+                              sample: item,
                               scope: sampleScope,
                               opener: event.currentTarget,
                             })
                           }
                         >
-                          前后对照
+                          <ImageIcon className="size-3.5" />
+                          预览冻结样本
                         </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        {baselineId && baselineCompatible && item.included && item.sha256 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(event) =>
+                              setComparisonPreview({
+                                sha: item.sha256!,
+                                scope: sampleScope,
+                                opener: event.currentTarget,
+                              })
+                            }
+                          >
+                            前后对照
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           {samples.data?.items.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
@@ -1036,6 +1192,8 @@ function InsightsContent({
           )}
           <Pages
             label="样本"
+            size={pageSize}
+            onSizeChange={(value) => update({ data_page_size: String(value), data_page: "0" })}
             page={page}
             total={samples.data?.total ?? 0}
             loading={samples.isFetching}
@@ -1048,14 +1206,17 @@ function InsightsContent({
         onToggle={(event) => setRawOpen(event.currentTarget.open)}
       >
         <summary className="cursor-pointer">查看原始训练与验证清单</summary>
-        <p className="mt-3 break-all font-mono">快照摘要：{version.snapshot_digest}</p>
+        <p className="mt-3 flex items-center gap-1">
+          快照摘要：
+          <CopyValueButton value={version.snapshot_digest} label="复制数据快照摘要哈希" />
+        </p>
         {version.size_bytes != null && (
           <p className="mt-2">训练包大小：{(version.size_bytes / 1024 / 1024).toFixed(2)} MiB</p>
         )}
         {raw.isLoading && <p className="mt-2">正在加载原始清单…</p>}
         {raw.error && (
           <p role="alert" className="mt-2 text-status-danger">
-            {raw.error.message}
+            <CopyableError message={raw.error.message} />
           </p>
         )}
         {raw.data && (

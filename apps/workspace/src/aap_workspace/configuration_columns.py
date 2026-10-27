@@ -32,7 +32,6 @@ PROJECT_CONFIG_COLUMNS = frozenset(
         "point_cloud_quality_config",
         "rendering_config",
         "annotation_guide",
-        "guide_assets",
         "video_sampling",
         "video_collaboration",
         "scene_mode",
@@ -100,7 +99,6 @@ _PROJECT_JSON_COLUMNS = frozenset(
     {
         "mask_qc_config",
         "point_cloud_quality_config",
-        "guide_assets",
         "video_sampling",
         "video_collaboration",
         "default_variants",

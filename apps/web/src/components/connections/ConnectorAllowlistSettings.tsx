@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -135,7 +136,7 @@ export function ConnectorAllowlistSettings() {
             <Icon name="warning" />
             <AlertTitle>无法读取白名单</AlertTitle>
             <AlertDescription>
-              {(query.error as Error | null)?.message ?? "请刷新后重试"}
+              <CopyableError message={(query.error as Error | null)?.message ?? "请刷新后重试"} />
             </AlertDescription>
           </Alert>
           <Button className="self-start" onClick={() => void query.refetch()}>
@@ -251,7 +252,9 @@ export function ConnectorAllowlistSettings() {
             <Alert variant="destructive">
               <Icon name="warning" />
               <AlertTitle>操作未完成</AlertTitle>
-              <AlertDescription>{(mutationError as Error).message}</AlertDescription>
+              <AlertDescription>
+                <CopyableError message={(mutationError as Error).message} />
+              </AlertDescription>
             </Alert>
           )}
 

@@ -50,6 +50,9 @@ class AnnotationCommentWorkflow:
         data: AnnotationCommentCreate,
         *,
         origin: AuditOriginContext,
+        attachment_authority=None,
+        attachment_rows=(),
+        attachment_payload: list[dict] | None = None,
     ) -> tuple[AnnotationComment, IdentityActorFacts]:
         actor = await IdentityAccountLockData(self.db).read_actor_status(actor_id)
         if actor is None:
@@ -85,10 +88,14 @@ class AnnotationCommentWorkflow:
                 mention.model_dump(by_alias=True, mode="json")
                 for mention in data.mentions
             ],
-            attachments=[
-                attachment.model_dump(by_alias=True, mode="json")
-                for attachment in data.attachments
-            ],
+            attachments=(
+                attachment_payload
+                if attachment_payload is not None
+                else [
+                    attachment.model_dump(by_alias=True, mode="json")
+                    for attachment in data.attachments
+                ]
+            ),
             canvas_drawing=(
                 data.canvas_drawing.model_dump(by_alias=True, mode="json")
                 if data.canvas_drawing
@@ -117,7 +124,11 @@ class AnnotationCommentWorkflow:
                 "comment_id": str(comment.id),
                 "preview": data.body[:120],
                 "mention_count": len(data.mentions),
-                "attachment_count": len(data.attachments),
+                "attachment_count": len(
+                    attachment_payload
+                    if attachment_payload is not None
+                    else data.attachments
+                ),
                 "has_canvas_drawing": data.canvas_drawing is not None,
                 "has_anchor": data.anchor is not None,
             },
@@ -129,9 +140,26 @@ class AnnotationCommentWorkflow:
             actor=actor,
             mentioned_user_ids=[mention.user_id for mention in data.mentions],
         )
+        attachment_expiries: tuple = ()
+        if attachment_authority is not None:
+            from app.services import comment_attachment_uploads as attachment_uploads
+
+            rows = list(attachment_rows)
+            await attachment_uploads.bind(self.db, rows, comment.id)
+            await attachment_uploads.reauthorize(self.db, attachment_authority)
+            attachment_uploads.validate_bound(rows, comment.id)
+            attachment_expiries = tuple(row.expires_at for row in rows)
         await self.db.commit()
+        if attachment_authority is not None:
+            attachment_uploads.check_deadlines(
+                attachment_authority, attachment_expiries
+            )
         await NotificationService(self.db).publish_committed(pending_notifications)
         comment = await self.comments.refresh(comment)
+        if attachment_authority is not None:
+            attachment_uploads.check_deadlines(
+                attachment_authority, attachment_expiries
+            )
         return comment, actor
 
     async def update(
@@ -177,6 +205,9 @@ class AnnotationCommentWorkflow:
             operation="delete",
         )
         await self.comments.soft_delete(comment)
+        from app.services import comment_attachment_uploads as attachment_uploads
+
+        await attachment_uploads.retire_for_comments(self.db, [comment_id])
         await AuditService.log(
             self.db,
             actor=actor,

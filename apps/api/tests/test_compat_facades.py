@@ -59,25 +59,6 @@ FACADE_SPECS: tuple[FacadeSpec, ...] = ()
 # verify every removed module is truly gone.
 REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     FacadeSpec(
-        facade_module="app.services.sources",
-        public_module="aap_assets_source.connectors",
-        exports=(
-            _exports(
-                "aap_assets_source.connectors",
-                "SourceAdapter",
-                "SourceObject",
-                "SourcePathError",
-            ),
-        ),
-        consumer_modules=("app.api.v1.datasets",),
-    ),
-    FacadeSpec(
-        facade_module="app.workers.dataset_import",
-        public_module="aap_assets_source_import.workflow",
-        exports=(_exports("aap_assets_source_import.workflow", "ImportWorkflow"),),
-        consumer_modules=("app.api.v1.datasets", "app.workers.dataset_import_delivery"),
-    ),
-    FacadeSpec(
         facade_module="app.services.data_manager",
         public_module="app.services.data_management.service",
         exports=(
@@ -754,25 +735,6 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         ),
         consumer_modules=("app.api.v1.datasets", "app.services.assets_spatial"),
     ),
-    FacadeSpec(
-        facade_module="app.services.storage_connection",
-        public_module="app.services.assets_connections",
-        exports=(
-            _exports("app.services.assets_connections", "AssetsConnectionsGateway"),
-            _exports(
-                "aap_assets_source.connectors.management",
-                "ConnectorValidationError",
-                "public_config",
-                "validate_config",
-                "validate_secret",
-            ),
-            _exports("aap_assets_source.connectors.probe", "probe_connection"),
-        ),
-        consumer_modules=(
-            "app.api.v1.storage_connections",
-            "app.services.assets_connections",
-        ),
-    ),
 )
 
 _EXPECTED_FACADES: set[str] = set()
@@ -806,7 +768,7 @@ def test_all_compatibility_facades_are_registered() -> None:
     """The data-driven suite must not silently omit a landed legacy facade."""
     assert {spec.facade_module for spec in FACADE_SPECS} == _EXPECTED_FACADES
     all_names = [name for spec in FACADE_SPECS for name in spec.expected_names]
-    assert len(all_names) == 0  # FACADE_SPECS empty; all 24 modules deleted
+    assert len(all_names) == 0  # FACADE_SPECS empty; remaining retired modules deleted
     for spec in FACADE_SPECS:
         assert len(spec.expected_names) == len(set(spec.expected_names)), (
             f"frozen manifest duplicates a name for {spec.facade_module}"

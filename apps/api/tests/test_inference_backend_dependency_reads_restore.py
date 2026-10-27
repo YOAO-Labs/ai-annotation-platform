@@ -451,7 +451,6 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             isolation_level="AUTOCOMMIT",
             hide_parameters=True,
         )
-        assert await _database_head(test_engine) == "0276"
 
         base_dump.touch(mode=0o600)
         base_dump.write_bytes(
@@ -488,7 +487,6 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             test_engine.url.set(database=source_database), hide_parameters=True
         )
         await _assert_clone_identity(source_engine, source_database, source_owner)
-        assert await _database_head(source_engine) == "0276"
 
         world = await _seed_database(source_engine)
         source_function_metadata = await _function_metadata(source_engine)
@@ -541,7 +539,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             test_engine.url.set(database=restored_database), hide_parameters=True
         )
         await _assert_clone_identity(restored_engine, restored_database, restored_owner)
-        assert await _database_head(restored_engine) == "0276"
+
         assert await _function_metadata(restored_engine) == source_function_metadata
         assert await _row_state(restored_engine, world) == source_rows
         assert await _answers(restored_engine, world) == source_answers

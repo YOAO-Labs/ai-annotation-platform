@@ -14,6 +14,29 @@ function deferred<T>() {
 }
 
 describe("MarkdownView", () => {
+  it("explains that an unverified legacy image needs to be uploaded again", async () => {
+    const resolveImage = vi.fn().mockRejectedValue(
+      Object.assign(new Error("unknown"), {
+        status: 409,
+        detailRaw: { code: "guide_asset_storage_unpinned" },
+      }),
+    );
+    render(<MarkdownView content="![旧图](guide-asset:legacy)" resolveImage={resolveImage} />);
+    expect(await screen.findByText("图片无法核验，请重新上传")).toBeVisible();
+    expect(screen.getByTestId("markdown-image-retry")).toBeVisible();
+  });
+
+  it("keeps a busy storage conflict retryable without asking for a replacement upload", async () => {
+    const resolveImage = vi.fn().mockRejectedValue(
+      Object.assign(new Error("busy"), {
+        status: 409,
+        detailRaw: { code: "guide_asset_busy" },
+      }),
+    );
+    render(<MarkdownView content="![图片](guide-asset:key)" resolveImage={resolveImage} />);
+    expect(await screen.findByText("图片暂时不可用")).toBeVisible();
+    expect(screen.queryByText(/重新上传/)).not.toBeInTheDocument();
+  });
   it("renders GFM tables, task lists, ordered-list starts, and safe links", () => {
     render(
       <MarkdownView

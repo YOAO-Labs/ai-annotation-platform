@@ -187,6 +187,91 @@ def _one_result(results, task_id):
     return first
 
 
+async def _retry_job_payload(db, attempt):
+    from app.services import async_job as jobs
+
+    job = await jobs.get_job(db, uuid.UUID(str(attempt.job_id)), populate_existing=True)
+    payload = job.payload if job is not None and isinstance(job.payload, dict) else {}
+    return job, payload
+
+
+def _reference_retry_owner(db, attempt, proof, task):
+    from app.services.prediction_references import ReferencePredictionJob
+    from app.services.storage_location import api_node_id
+
+    return ReferencePredictionJob(
+        db,
+        attempt.job_id,
+        proof,
+        project_id=attempt.project_id,
+        actor_id=attempt.actor_id,
+        task_ids=[task.id],
+        batch_id=task.batch_id,
+        scope=proof["execution_scope"],
+        predict_mode="append",
+        snapshot_id=uuid.UUID(str(proof["snapshot_id"])),
+        snapshot_digest=proof["snapshot_digest"],
+        node_id=api_node_id(),
+        execution_unit=proof.get("execution_unit"),
+        job_kind="prediction_retry",
+    )
+
+
+def _video_retry_owner(db, attempt, proof, task):
+    from app.services.storage_location import api_node_id
+    from app.services.video_prediction_references import VideoPredictionJob
+
+    return VideoPredictionJob(
+        db,
+        attempt.job_id,
+        proof,
+        project_id=attempt.project_id,
+        actor_id=attempt.actor_id,
+        task_ids=[task.id],
+        batch_id=task.batch_id,
+        scope=proof["execution_scope"],
+        predict_mode="append",
+        snapshot_id=uuid.UUID(str(proof["snapshot_id"])),
+        snapshot_digest=proof["snapshot_digest"],
+        node_id=api_node_id(),
+        celery_task_id=str(attempt.job_id),
+        execution_unit=proof.get("execution_unit"),
+        job_kind="prediction_retry",
+    )
+
+
+async def _video_pipeline_hooks(owner, task, db):
+    async def before_dispatch(stage_number, dispatch):
+        await db.commit()
+        await owner.before_dispatch(task, dispatch, stage_id=stage_number)
+        await db.commit()
+
+    async def validate_results(stage_number, operation, context):
+        from app.services.video_prediction_results import adapt_results
+
+        await owner.check_execution(task.id, stage_number, operation)
+        context = context or {}
+        window = (
+            (context.get("from_frame"), context.get("to_frame"))
+            if "from_frame" in context or "to_frame" in context
+            else None
+        )
+        direction = context.get("direction") or "forward"
+        qualified = await adapt_results(
+            operation.results,
+            task.id,
+            owner.video_probe(task.id),
+            window=window,
+            direction=direction,
+        )
+        await owner.register_results(
+            task.id, stage_number, qualified, window=window, direction=direction
+        )
+        return qualified.results
+
+    return before_dispatch, validate_results
+
+
 async def _infer(execution, attempt, prepared, session_factory):
     from app.services.inference_topology_data import InferenceTopologyData
     from app.services.prediction import remap_prediction_track_ids
@@ -201,94 +286,212 @@ async def _infer(execution, attempt, prepared, session_factory):
     requested_backend_id = uuid.UUID(str(attempt.ml_backend_id))
     context = attempt.source_extra.get("request_context")
     context = context if isinstance(context, dict) else None
-    async with session_factory() as db:
-        task = await get_core_row(db, task_row, task_id)
-        registry_reference = await InferenceTopologyData(db).registry_reference(
-            requested_backend_id
-        )
-        if task is None or registry_reference is None:
-            raise ValueError("missing_task_or_backend")
-        input_url = (
-            prepared.reference.url
-            if prepared.reference is not None
-            else resolve_task_url(
-                SimpleNamespace(
-                    file_path=attempt.write_scope.source_file_path,
-                    dataset_item_id=attempt.write_scope.source_dataset_item_id,
+    owner = None
+    try:
+        async with session_factory() as db:
+            task = await get_core_row(db, task_row, task_id)
+            registry_reference = await InferenceTopologyData(db).registry_reference(
+                requested_backend_id
+            )
+            if task is None or registry_reference is None:
+                raise ValueError("missing_task_or_backend")
+            _job, payload = await _retry_job_payload(db, attempt)
+            image_proof = payload.get("prediction_authority")
+            video_proof = payload.get("video_prediction_authority")
+            if image_proof is not None and video_proof is not None:
+                raise ValueError("retry authority is ambiguous")
+            input_url = (
+                prepared.reference.url
+                if prepared.reference is not None
+                else resolve_task_url(
+                    SimpleNamespace(
+                        file_path=attempt.write_scope.source_file_path,
+                        dataset_item_id=attempt.write_scope.source_dataset_item_id,
+                    )
                 )
             )
-        )
-        stages = (
-            freeze_json(
-                {
-                    "stage": 0,
-                    "parent_stage": None,
-                    "ml_backend_id": str(requested_backend_id),
-                    "model_id": (context or {}).get("model_id"),
-                    "write": None,
+            retained_inputs = None
+            pipeline_kwargs = {}
+            if image_proof is not None:
+                owner = _reference_retry_owner(db, attempt, image_proof, task)
+                await owner.authorize(db)
+                # Source admission and snapshot transfer are independent I/O;
+                # no business lock is held while the backend fetches the input.
+                retained_inputs = await owner.open_inputs(task, session_factory)
+                input_url = owner.resolve_url(task)
+            elif video_proof is not None:
+                owner = _video_retry_owner(db, attempt, video_proof, task)
+                await owner.authorize(db)
+                retained_inputs = await owner.open_inputs(task, session_factory)
+                before_dispatch, validate_results = await _video_pipeline_hooks(
+                    owner, task, db
+                )
+                pipeline_kwargs = {
+                    "before_dispatch": before_dispatch,
+                    "validate_results": validate_results,
+                    "max_response_bytes": 64 * 1024**2,
                 }
-            ),
-        )
-        accepted_input_facts = (
-            {
-                key: str(value) if isinstance(value, uuid.UUID) else value
-                for key, value in prepared.accepted_input.items()
-            }
-            if prepared.accepted_input is not None
-            else None
-        )
-        model_port = _model_execution_port(db)
-        output = await execute_task_pipeline(
-            str(task_id),
-            stages,
-            (model_port,),
-            (freeze_json(context) if context is not None else None,),
-            source_url=input_url,
-            project_id=project_id,
-            owner_prefix=f"retry:{attempt.job_id}",
-            route_operation="prediction_retry",
-            correlation={
-                "job_id": str(attempt.job_id),
-                "failed_prediction_id": str(attempt.failed_prediction_id),
-            },
-            input_provenance=(
-                {"accepted_input": accepted_input_facts}
-                if accepted_input_facts is not None
-                else None
-            ),
-        )
-        first = _one_result(output.results, task_id)
-        request = ApplyPredictionResultRequest(
-            task_id=task_id,
-            project_id=project_id,
-            ml_backend_id=output.provenance.instance_id,
-            ml_backend_pool_id=output.provenance.pool_id,
-            result=remap_prediction_track_ids(thaw_json(first.result)),
-            score=first.score,
-            model_version=first.model_version,
-            inference_time_ms=first.inference_time_ms,
-            token_meta=thaw_json(first.meta) if first.meta is not None else None,
-            write_scope=restore_write_scope(attempt.write_scope),
-            pipeline_extra=(
-                {
-                    **(thaw_json(output.extra) if output.extra is not None else {}),
-                    **(
+            snapshot_id = getattr(_job, "execution_snapshot_id", None)
+            if snapshot_id is None:
+                proof = image_proof or video_proof
+                snapshot_id = proof.get("snapshot_id") if proof is not None else None
+            if snapshot_id is None:
+                stored = attempt.source_extra.get("execution_snapshot")
+                snapshot_id = stored.get("id") if isinstance(stored, dict) else None
+            snapshot_payload = None
+            snapshot_digest = None
+            if snapshot_id is not None:
+                from app.services.prediction_execution import load_snapshot
+
+                snapshot_payload, snapshot_digest = await load_snapshot(
+                    db, snapshot_id, project_id
+                )
+                proof = image_proof or video_proof
+                if (
+                    proof is not None
+                    and proof.get("snapshot_digest") is not None
+                    and proof["snapshot_digest"] != snapshot_digest
+                ):
+                    raise ValueError("retry execution snapshot changed")
+            if snapshot_payload is not None:
+                from aap_inference.execution_pipeline import resolve_input_mode
+                from app.services.prediction_execution import (
+                    build_stage_context,
+                    execution_summary,
+                )
+
+                ordered = sorted(
+                    snapshot_payload["stages"], key=lambda item: int(item["stage"])
+                )
+                stage_modes = tuple(
+                    "crop"
+                    if stage.get("parent_stage") is None
+                    else resolve_input_mode(stage)
+                    for stage in ordered
+                )
+                stages = tuple(freeze_json(stage) for stage in ordered)
+                stage_contexts = tuple(
+                    None if built is None else freeze_json(built)
+                    for built in (
+                        build_stage_context(stage, snapshot_payload)
+                        for stage in ordered
+                    )
+                )
+                pipeline_kwargs["execution_snapshot_id"] = uuid.UUID(str(snapshot_id))
+                pipeline_kwargs["stage_modes"] = stage_modes
+            else:
+                stages = (
+                    freeze_json(
                         {
-                            "accepted_input": {
-                                key: value
-                                for key, value in accepted_input_facts.items()
-                                if key != "project_id"
-                            }
+                            "stage": 0,
+                            "parent_stage": None,
+                            "ml_backend_id": str(requested_backend_id),
+                            "model_id": (context or {}).get("model_id"),
+                            "write": None,
                         }
-                        if accepted_input_facts is not None
-                        else {}
                     ),
+                )
+                stage_contexts = (
+                    freeze_json(context) if context is not None else None,
+                )
+                stage_modes = ("crop",)
+            source_image = None
+            if len(stages) > 1 and any(mode == "crop" for mode in stage_modes[1:]):
+                if retained_inputs is not None and image_proof is not None:
+                    load_image = getattr(retained_inputs, "load_image", None)
+                    if load_image is not None:
+                        source_image = load_image(task)
+                if source_image is not None:
+                    pipeline_kwargs["source_image"] = source_image
+                if retained_inputs is not None and image_proof is not None:
+                    upload_crop = getattr(retained_inputs, "upload_crop", None)
+                    if upload_crop is not None:
+
+                        class _RetainedCropPublisher:
+                            def publish(self, _task_key, box_index, jpeg_bytes):
+                                return upload_crop(task, box_index, jpeg_bytes)
+
+                        pipeline_kwargs["crop_publisher"] = _RetainedCropPublisher()
+            accepted_input_facts = (
+                {
+                    key: str(value) if isinstance(value, uuid.UUID) else value
+                    for key, value in prepared.accepted_input.items()
                 }
-                or None
-            ),
-            accepted_video_input=prepared.accepted_video_input,
-            model_provenance=(context or {}).get("frozen_model_ref"),
-        )
+                if prepared.accepted_input is not None
+                else None
+            )
+            model_port = _model_execution_port(db)
+            try:
+                output = await execute_task_pipeline(
+                    str(task_id),
+                    stages,
+                    (model_port,) * len(stages),
+                    stage_contexts,
+                    source_url=input_url,
+                    project_id=project_id,
+                    owner_prefix=f"retry:{attempt.job_id}",
+                    route_operation="prediction_retry",
+                    correlation={
+                        "job_id": str(attempt.job_id),
+                        "failed_prediction_id": str(attempt.failed_prediction_id),
+                    },
+                    input_provenance=(
+                        {"accepted_input": accepted_input_facts}
+                        if accepted_input_facts is not None
+                        else None
+                    ),
+                    **pipeline_kwargs,
+                )
+            finally:
+                if source_image is not None:
+                    source_image.close()
+            if owner is not None and video_proof is not None:
+                await owner.finish_source(task.id)
+            if owner is not None and video_proof is None:
+                # Recheck the retained source/credentials after inference and
+                # before sealing the raw snapshot. The writer session re-opens
+                # the same owner and issues the receipt it can actually apply.
+                await owner.validate(task)
+            first = _one_result(output.results, task_id)
+            extra = dict(thaw_json(output.extra) if output.extra is not None else {})
+            if snapshot_payload is not None:
+                extra["execution_snapshot"] = {
+                    "id": str(snapshot_id),
+                    "digest": snapshot_digest,
+                    "stages": thaw_json(execution_summary(stages)),
+                }
+            if accepted_input_facts is not None:
+                extra["accepted_input"] = {
+                    key: value
+                    for key, value in accepted_input_facts.items()
+                    if key != "project_id"
+                }
+            pipeline_errors = extra.get("pipeline", {}).get("stage_errors")
+            if extra.get("pipeline", {}).get("partial"):
+                error = ValueError("管线阶段仍有失败，已保留原失败记录和原候选结果")
+                error.pipeline_errors = pipeline_errors or []
+                raise error
+            model_provenance = stages[0].get("frozen_model_ref") or (context or {}).get(
+                "frozen_model_ref"
+            )
+            request = ApplyPredictionResultRequest(
+                task_id=task_id,
+                project_id=project_id,
+                ml_backend_id=output.provenance.instance_id,
+                ml_backend_pool_id=output.provenance.pool_id,
+                result=remap_prediction_track_ids(thaw_json(first.result)),
+                score=first.score,
+                model_version=first.model_version,
+                inference_time_ms=first.inference_time_ms,
+                token_meta=thaw_json(first.meta) if first.meta is not None else None,
+                write_scope=restore_write_scope(attempt.write_scope),
+                pipeline_extra=extra or None,
+                accepted_video_input=prepared.accepted_video_input,
+                model_provenance=thaw_json(model_provenance),
+            )
+    finally:
+        if owner is not None:
+            await owner.close_inputs(task_id)
     raw_context = {
         "task_id": str(task_id),
         "total_cost": format(
@@ -299,6 +502,8 @@ async def _infer(execution, attempt, prepared, session_factory):
     }
     await execution.capture(1, (request,), stage="raw", context=raw_context)
     # Temporary source verification failure cannot discard the completed model output.
+    if owner is not None:
+        return
     if prepared.accepted_video_failure is not None:
         await _verify_video_retry_source(
             prepared.gateway, prepared.request, expected_plan=prepared.reference.plan
@@ -337,15 +542,118 @@ async def _prepare_snapshot(execution, session_factory):
     return await execution.load(1, stage="prepared")
 
 
+async def _revalidate_retry_job(db, attempt):
+    """Re-read the admitted Job and its accepted authority in the writer session."""
+    from app.services import async_job as jobs
+
+    job = await jobs.get_job(db, uuid.UUID(str(attempt.job_id)), populate_existing=True)
+    payload = job.payload if job is not None and isinstance(job.payload, dict) else {}
+    if (
+        job is None
+        or job.kind != "prediction_retry"
+        or job.user_id != attempt.actor_id
+        or job.status not in {"pending", "running"}
+        or payload.get("cancel_requested")
+        or payload.get("prediction_retry_request_digest") != attempt.request_digest
+    ):
+        raise ValueError("retry_job_not_writable")
+    return job, payload
+
+
+def _video_write_facts(request):
+    return dict(
+        task_id=request.task_id,
+        project_id=request.project_id,
+        ml_backend_id=request.ml_backend_id,
+        result=request.result,
+        score=request.score,
+        model_version=request.model_version,
+        inference_time_ms=request.inference_time_ms,
+        token_meta=request.token_meta,
+        source=request.source,
+        pipeline_extra=request.pipeline_extra,
+        ml_backend_pool_id=request.ml_backend_pool_id,
+        model_provenance=request.model_provenance,
+    )
+
+
+async def _attach_input_receipts(db, attempt, payload, session_factory, requests):
+    """Open the owner input and issue its receipt in this writer transaction.
+
+    The receipt is issuer/session bound, so it is created here and never
+    serialized into the batch-result snapshot or carried across a retry.
+    """
+    from dataclasses import replace
+
+    image_proof = payload.get("prediction_authority")
+    video_proof = payload.get("video_prediction_authority")
+    if image_proof is None and video_proof is None:
+        return requests, None, None
+    if image_proof is not None and video_proof is not None:
+        raise ValueError("retry authority is ambiguous")
+    task_id = uuid.UUID(str(attempt.task_id))
+    task = await get_core_row(db, task_row, task_id)
+    if task is None:
+        raise ValueError("retry_authority_task_unavailable")
+    if image_proof is not None:
+        owner = _reference_retry_owner(db, attempt, image_proof, task)
+        await owner.authorize(db)
+        await owner.open_inputs(task, session_factory)
+        try:
+            receipt = await owner.final_receipt(task)
+        except BaseException:
+            await owner.close_inputs(task_id)
+            raise
+        key = "original_receipt" if owner.is_managed(task_id) else "reference_receipt"
+        return (
+            tuple(replace(request, **{key: receipt}) for request in requests),
+            owner,
+            task_id,
+        )
+    owner = _video_retry_owner(db, attempt, video_proof, task)
+    await owner.authorize(db)
+    await owner.open_inputs(task, session_factory)
+    try:
+        input_receipt = await owner.final_receipt(task)
+        result_receipts = await owner.qualify_native_results(
+            task,
+            input_receipt,
+            [_video_write_facts(request) for request in requests],
+        )
+        prepared = tuple(
+            replace(
+                request,
+                video_input_receipt=input_receipt,
+                video_result_receipt=result_receipt,
+            )
+            for request, result_receipt in zip(requests, result_receipts, strict=True)
+        )
+    except BaseException:
+        await owner.close_inputs(task_id)
+        raise
+    return prepared, owner, task_id
+
+
 async def _apply_snapshot(execution, attempt, data, session_factory, result, requests):
     from app.services.prediction import PredictionService
 
     for index in range(3):
         async with session_factory() as db:
+            owner = None
+            task_id = None
             try:
-                await PredictionService(db).apply_prediction_result_bundle(
-                    deepcopy(requests)
+                execution.ensure_owned()
+                _job, payload = await _revalidate_retry_job(db, attempt)
+                writes, owner, task_id = await _attach_input_receipts(
+                    db, attempt, payload, session_factory, requests
                 )
+                await PredictionService(db).apply_prediction_result_bundle(
+                    deepcopy(writes)
+                )
+                if owner is not None and payload.get("video_prediction_authority"):
+                    # The video owner's credentials outlive inference; recheck
+                    # them in the transaction that publishes the result.
+                    await owner.recheck_credentials()
                 finished = await call_retry(
                     SqlAlchemyPredictionRetryData(db, writer=True),
                     "finish_prediction_retry_write",
@@ -371,6 +679,9 @@ async def _apply_snapshot(execution, attempt, data, session_factory, result, req
                 if not _transient(error):
                     raise
                 raise PreannotationResultDeferred("storage_unavailable") from None
+            finally:
+                if owner is not None:
+                    await owner.close_inputs(task_id)
 
 
 async def _finish_failure(
@@ -436,6 +747,20 @@ async def _finish_failure(
                 gpu_arbiter_error=gpu_error,
                 context=context,
             )
+            pipeline_errors = getattr(error, "pipeline_errors", None)
+            if pipeline_errors:
+                from app.db.models.prediction import FailedPrediction
+
+                failed = await db.get(
+                    FailedPrediction,
+                    attempt.failed_prediction_id,
+                    populate_existing=True,
+                )
+                if failed is not None:
+                    failed.extra = {
+                        **(failed.extra or {}),
+                        "last_pipeline_errors": pipeline_errors,
+                    }
             await _notify_terminal(db, attempt.job_id)
             await db.commit()
             return finished.outcome
@@ -531,7 +856,33 @@ def _invalidated(error):
         "prediction_video_manifest_origin_mismatch",
         "accepted_input_unavailable",
         "accepted_video_input_unavailable",
+        "content_binding_changed",
+        "reference_retry_requires_original_binding",
+        "prediction_original_requires_new_request",
+        "prediction_video_requires_new_request",
+        "prediction_reference_receipt_invalid",
+        "prediction_original_receipt_invalid",
+        "prediction_credentials_invalid",
+        "prediction_authority_revoked",
+        "api_key_authority_revoked",
+        "retry_authority_task_unavailable",
+        "retry_job_not_writable",
     }
+
+
+async def _mark_retry_running(attempt, session_factory):
+    """Move an admitted Job to running before any owner call reads its status."""
+    from app.services import async_job as jobs
+
+    async with session_factory() as db:
+        job = await jobs.get_job(
+            db, uuid.UUID(str(attempt.job_id)), populate_existing=True
+        )
+        if job is None:
+            raise ValueError("retry_job_missing")
+        if job.status == "pending":
+            await jobs.mark_running(db, job.id, celery_task_id=job.celery_task_id)
+            await db.commit()
 
 
 async def run_durable_prediction_retry(
@@ -562,6 +913,7 @@ async def run_durable_prediction_retry(
                 return outcome
             raise
         try:
+            await _mark_retry_running(attempt, session_factory)
             saved = (
                 (await execution.read_result(1)).result
                 if attempt.task_id is not None

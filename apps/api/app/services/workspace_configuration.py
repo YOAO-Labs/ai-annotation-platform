@@ -46,26 +46,41 @@ class ConfigurationExecution:
     guide_request: ConfigurationRequest | None = None
 
 
-def configuration_manager(data, *, db=None, noop_projection=None, guide_objects=None):
+def configuration_manager(data, *, db=None, noop_projection=None):
     from app.services.inference_backend_probe import backend_probe
 
-    options = {"noop_projection": noop_projection}
-    if guide_objects is not None:
-        options["guide_objects"] = guide_objects
     return ConfigurationManager(
         data,
         capability_limits=capability_limits_from_settings(),
         video_segment_size_frames=settings.video_segment_size_frames,
         setup_timeout=settings.ml_health_timeout,
         backend_probe=backend_probe(),
-        **options,
+        noop_projection=noop_projection,
     )
 
 
-def _guide_objects():
-    from app.services.workspace_guide_objects import guide_asset_objects
-
-    return guide_asset_objects()
+async def execute_guide_action(
+    db,
+    *,
+    operation,
+    actor_id,
+    target_id,
+    payload,
+    action,
+    args,
+):
+    """Run one native guide action in the caller-owned transaction."""
+    request = configuration_request(
+        operation=operation,
+        actor_id=actor_id,
+        target_id=target_id,
+        payload={} if payload is None else payload,
+    )
+    manager = configuration_manager(WorkspaceConfigurationData(db), db=db)
+    try:
+        return await manager.run_guide_action(request, action, args)
+    except ConfigurationUnavailable:
+        raise HTTPException(status_code=503, detail="项目配置服务暂不可用") from None
 
 
 async def execute_configuration(
@@ -91,12 +106,7 @@ async def execute_configuration(
         if not url and not dsn:
             # Retain the existing blocking pool lock for borrowed transactions.
             data = WorkspaceConfigurationData(db)
-            manager = (
-                configuration_manager(data, db=db, guide_objects=_guide_objects())
-                if request.operation in GUIDE_OPERATIONS
-                else configuration_manager(data, db=db)
-            )
-            reply = await manager.execute(request)
+            reply = await configuration_manager(data, db=db).execute(request)
         else:
             timeout = settings.workspace_configuration_timeout_seconds
             async with asyncio.timeout(timeout):
@@ -144,11 +154,7 @@ async def execute_configuration(
                         return await _select_project_query_reply(db, project_request)
 
                     data = ConfigurationPostgresData(dsn, command_timeout=timeout)
-                    if request.operation in GUIDE_OPERATIONS:
-                        manager = configuration_manager(
-                            data, db=db, guide_objects=_guide_objects()
-                        )
-                    elif request.operation == "rename_project_class":
+                    if request.operation == "rename_project_class":
                         manager = configuration_manager(
                             data, db=db, noop_projection=noop_projection
                         )
@@ -177,10 +183,7 @@ async def execute_configuration(
                 rename_result=reply.result,
             )
         if isinstance(reply, ConfigurationGuideSuccess):
-            if request.operation in {
-                "guide_asset_upload_complete",
-                "guide_asset_delete",
-            } and reply.result.refreshed is not bool(url or dsn):
+            if reply.result.refreshed:
                 raise ConfigurationUnavailable()
             return ConfigurationExecution(
                 resource_id=reply.result.resource_id,

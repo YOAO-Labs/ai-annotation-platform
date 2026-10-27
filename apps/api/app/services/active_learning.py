@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import time
 import uuid
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.db.models.active_learning import (
@@ -26,6 +26,8 @@ from app.services import (
     active_learning_references as source_references,
     active_learning_engine as engine,
     active_learning_pool as pool,
+    active_learning_storage as owners,
+    active_learning_originals as originals,
     async_job as jobs,
     managed_inference as managed,
     sample_evaluation_engine as detection,
@@ -42,13 +44,19 @@ from app.services.assets_active_learning_fence_contract import (
 from app.services.labeling_active_learning_source_contract import (
     CandidateEditFence,
     CandidateSourceError,
-    CandidateSourcesRead,
     LabelingActiveLearningSources,
 )
-from app.services.training_dataset_bridge import content_digest, sample_identities
+from app.services.training_dataset_bridge import (
+    TrainingDatasetError,
+    content_digest,
+    sample_identities,
+)
 from app.services.training_authority_contract import TrainingAuthorityPort
 from app.services.annotation_evidence import lock_tasks_for_evidence
 from app.services.labeling_core_read_relations import lock_batch_rows_for_core_read
+from app.services import training_storage_io as storage_io
+from app.services import training_write_accounting as write_accounting
+from contextlib import nullcontext
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -57,6 +65,30 @@ reject = managed.reject
 
 def now():
     return datetime.now(timezone.utc)
+
+
+async def authority(db, round, *, training_authority: TrainingAuthorityPort):
+    if round.spec.get("original_contract") == 1:
+        try:
+            await originals.delegated(db, round, commit=False)
+        except HTTPException as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            code = (
+                exc.detail.get("code", "authority_revoked")
+                if isinstance(exc.detail, dict)
+                else "authority_revoked"
+            )
+            raise TrainingDatasetError(
+                code, "选样创建者或原密钥权限已撤销", status_code=exc.status_code
+            ) from None
+        return
+    await training_authority.assert_authority(
+        project_id=round.project_id,
+        actor_id=round.creator_id,
+        api_key_id=round.authorization.get("api_key_id"),
+        required_scopes=pool.SCOPES,
+    )
 
 
 async def load_round(db, project_id, round_id, *, lock=False):
@@ -104,6 +136,7 @@ def validate_spec(round):
             }
         )
         ref, profile = spec["model_ref"], spec["profile"]
+        segment = engine.strategy_for(ref) == engine.MASK_STRATEGY
         prepared = {
             key: value
             for key, value in spec.items()
@@ -114,7 +147,11 @@ def validate_spec(round):
         )
         samples = engine.partition(samples, checked.seed, checked.batch_size)
         if (
-            spec["schema"] != 1
+            spec["schema"] != (2 if segment else 1)
+            or (
+                segment
+                and (spec.get("task") != "segment" or spec.get("schema_version") != 2)
+            )
             or content_digest(spec) != round.spec_digest
             or spec["round_id"] != str(round.id)
             or spec["preview_digest"] != content_digest(prepared)
@@ -149,7 +186,7 @@ def validate_spec(round):
                 mode="json", by_alias=True
             )
             != profile
-            or spec["strategy"] != engine.STRATEGY
+            or spec["strategy"] != engine.strategy_for(ref)
             or spec["preprocessing"] != detection.PREPROCESSING
             or type(spec["issued_at"]) is not int
             or spec["issued_at"] <= 0
@@ -160,6 +197,18 @@ def validate_spec(round):
         ):
             raise ValueError("Frozen round differs")
         for sample in spec["pool"]:
+            if "original_contract" in spec:
+                if (
+                    type(spec["original_contract"]) is not int
+                    or spec["original_contract"] != 1
+                ):
+                    raise ValueError("Unknown original input contract")
+                frozen = originals.validate_receipt(sample["snapshot"].get("original"))
+                if (
+                    frozen["sha256"] != sample["sha256"]
+                    or frozen["size_bytes"] != sample["size_bytes"]
+                ):
+                    raise ValueError("Frozen original identity differs")
             if (
                 not 0 < sample["size_bytes"] <= detection.MAX_RAW_BYTES
                 or sample["width"] * sample["height"] > detection.MAX_PIXELS
@@ -167,6 +216,16 @@ def validate_spec(round):
                 or sample["preprocessing"]["derived_sha256"] != sample["derived_sha256"]
             ):
                 raise ValueError("Frozen source differs")
+            if segment:
+                from app.services import sample_evaluation_masks as masks
+
+                if (
+                    sample["width"] * sample["height"] > masks.MAX_PIXELS
+                    or max(sample["width"], sample["height"]) > masks.MAX_DIMENSION
+                ):
+                    raise ValueError(
+                        "Frozen segmentation source exceeds its profile budget"
+                    )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise reject("spec_corrupt", "冻结选样规格未通过身份与预算检查") from exc
     return spec
@@ -184,6 +243,7 @@ async def create_round(
     assets_fence: AssetsActiveLearningFence,
     training_authority: TrainingAuthorityPort,
 ):
+    context = prepared["_authority"]
     digest = content_digest(body.model_dump(mode="json"))
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
@@ -249,20 +309,19 @@ async def create_round(
         )
     except CandidateSourceError as exc:
         raise reject(exc.code, str(exc), exc.status_code) from exc
-    try:
-        sources = await candidate_sources.read_candidate_sources(
-            CandidateSourcesRead(project.id, tuple(ids))
-        )
-    except CandidateSourceError as exc:
-        raise reject(exc.code, str(exc), exc.status_code) from exc
+    sources = await pool.current_sources(
+        db, project.id, ids, candidate_sources=candidate_sources
+    )
     if (
         sources != [sample["snapshot"] for sample in prepared["pool"]]
         or await pool.exclusions(db, project.id, lock=True) != prepared["exclusions"]
     ):
         raise reject("pool_stale", "创建前候选资格或历史排除成员已变化，请重新预览")
     identity, issued = uuid.uuid4(), int(time.time())
+    for source in prepared["_live_sources"]:
+        await originals.recheck(db, context, source, commit=False)
     spec = {
-        **prepared,
+        **{key: value for key, value in prepared.items() if not key.startswith("_")},
         "round_id": str(identity),
         "issued_at": issued,
         "expires_at": issued + 86400,
@@ -278,7 +337,11 @@ async def create_round(
         name=body.name.strip(),
         spec=spec,
         spec_digest=content_digest(spec),
-        authorization={"api_key_id": api_key_id},
+        authorization={
+            "api_key_id": api_key_id,
+            "original_contract": 1,
+            "api_key_fingerprint": originals.key_fingerprint(context.key),
+        },
         generation=0,
         inference_dispatches=0,
         accepted_tasks=0,
@@ -286,6 +349,7 @@ async def create_round(
     validate_spec(round)
     db.add(round)
     await db.flush()
+    await owners.allocate(db, round)
     for sample in spec["pool"]:
         db.add(
             Member(
@@ -312,6 +376,7 @@ async def create_round(
         db, round, spec["exclusions"]["references"]
     )
     await new_attempt(db, round)
+    await originals.check(db, context, commit=False)
     return round
 
 
@@ -325,6 +390,7 @@ async def retry_round(db, round, previous, candidates):
 
 
 async def new_attempt(db, round):
+    owners.resolve(round)
     validate_spec(round)
     round.generation += 1
     ordinal = (
@@ -401,23 +467,26 @@ def record_maintenance(attempt, at):
 
 def media_descriptor(round, sample):
     return {
-        "key": f"projects/{round.project_id}/active-learning/{round.id}/media/{sample['ordinal']}.png",
+        "key": owners.resolve(round).key(f"media/{sample['ordinal']}.png"),
         "sha256": sample["derived_sha256"],
     }
 
 
-def read_retained_png(round, sample):
+def read_retained_png(round, sample, *, transport=None, observation=None):
+    transport = storage if transport is None else transport
+    owner = owners.resolve(round)
     artifact = media_descriptor(round, sample)
-    params = {"Bucket": storage.training_bucket, "Key": artifact["key"]}
-    head = storage.client.head_object(**params)
+    owners.expect_media(owner, sample["ordinal"], artifact["key"])
+    params = {"Bucket": owner.bucket, "Key": artifact["key"]}
+    head = transport.client.head_object(**params)
     size = head.get("ContentLength")
     if type(size) is not int or not 0 < size <= detection.MAX_PNG_BYTES:
         raise ValueError("Retained source exceeds image budget")
-    response = storage.client.get_object(**params, IfMatch=head["ETag"])
+    response = transport.client.get_object(**params, IfMatch=head["ETag"])
     try:
         png = response["Body"].read(size + 1)
     finally:
-        response["Body"].close()
+        originals.storage_access.close_registered(response["Body"])
     if (
         len(png) != size
         or hashlib.sha256(png).hexdigest() != artifact["sha256"]
@@ -430,46 +499,154 @@ def read_retained_png(round, sample):
         }
     ):
         raise ValueError("Retained source identity differs")
+    if observation is not None:
+        observation.readback(response)
     return png
 
 
-def prepare_image(round, sample):
-    try:
-        return read_retained_png(round, sample)
-    except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") not in {
-            "404",
-            "NoSuchKey",
-            "NotFound",
-        }:
-            raise
-    png, media = pool.read_input(sample["snapshot"])
-    if any(
-        media[key] != sample[key]
-        for key in (
-            "sha256",
-            "width",
-            "height",
-            "size_bytes",
-            "derived_sha256",
-            "preprocessing",
-        )
-    ):
-        raise ValueError("Current source differs from the frozen round")
+async def prepare_image(db, round, sample, *, guard=None):
+    owner = owners.resolve(round)
+    context = await originals.delegated(db, round)
     artifact = media_descriptor(round, sample)
-    storage.client.put_object(
-        Bucket=storage.training_bucket,
-        Key=artifact["key"],
-        Body=png,
-        ContentType="image/png",
-        Metadata={
-            "round-id": str(round.id),
-            "ordinal": str(sample["ordinal"]),
-            "source-sha256": sample["sha256"],
-            "sha256": artifact["sha256"],
-        },
+    route = await storage_io.artifact_reads.resolve(
+        db, owner.ref, artifact["key"], artifact["sha256"]
     )
+    if route is not None:
+        await originals.check(db, context, guard=guard)
+        png = await storage_io.read(
+            db,
+            owner,
+            "active_learning_media",
+            lambda transport: read_retained_png(round, sample, transport=transport),
+            object_key=artifact["key"],
+            sha256=artifact["sha256"],
+        )
+        await originals.check(db, context, commit=False, guard=guard)
+        if owners.resolve(round) != owner:
+            raise originals.ContentError("content_binding_changed")
+        await storage_io.artifact_reads.publications.recheck(db, route)
+        await db.commit()
+        originals.access.check_clock(context.proof, context.key)
+        return png
+    target = await storage_io.prepare(db, owner)
+    location_id = uuid.UUID(owner.ref["location_id"])
+    permit = await originals.storage_access.acquire(
+        db, location_id, "active_learning_media"
+    )
+    accounting, failure = None, None
+    try:
+        async with permit:
+            await originals.check(db, context, guard=guard)
+
+            def retained_or_missing(transport):
+                # Classify the exact provider result before S3Access translates it.
+                # A failed client close still raises before any fallback can begin.
+                try:
+                    return read_retained_png(round, sample, transport=transport)
+                except ClientError as exc:
+                    if exc.response.get("Error", {}).get("Code") in {
+                        "404",
+                        "NoSuchKey",
+                        "NotFound",
+                    }:
+                        return None
+                    raise
+
+            png = await originals.bounded_thread(
+                storage_io.physical,
+                target,
+                retained_or_missing,
+            )
+            if png is None:
+                if round.spec.get("original_contract") != 1:
+                    raise originals.ContentError("original_input_unrecorded") from None
+                async with originals.input_image(
+                    db, context, sample["snapshot"], guard=guard
+                ) as (png, media, _source):
+                    if any(
+                        media[key] != sample[key]
+                        for key in (
+                            "sha256",
+                            "width",
+                            "height",
+                            "size_bytes",
+                            "derived_sha256",
+                            "preprocessing",
+                        )
+                    ):
+                        raise ValueError("Current source differs from the frozen round")
+                    await originals.check(db, context, guard=guard)
+                    accounting = write_accounting.recorder(
+                        db,
+                        owner,
+                        round.id,
+                        producer="active_learning_media",
+                        purpose="other_platform",
+                    )
+                    await originals.bounded_thread(
+                        storage_io.physical,
+                        target,
+                        lambda transport: _store_png(
+                            round, sample, owner, png, transport=transport
+                        ),
+                        accounting=accounting,
+                    )
+            await originals.check(db, context, commit=False, guard=guard)
+            if owners.resolve(round) != owner:
+                raise originals.ContentError("content_binding_changed")
+            await originals.storage_access.check(
+                db, location_id, expected_revision=permit.revision, lock=True
+            )
+            await db.commit()
+            originals.access.check_clock(context.proof, context.key)
+    except BaseException as exc:
+        failure = exc
+    if accounting is not None:
+        failure = await write_accounting.finish(
+            accounting,
+            failure,
+            settled=getattr(permit, "_settled", False) is True,
+        )
+    if failure is not None:
+        raise failure
     return png
+
+
+def _store_png(round, sample, owner, png, *, transport=None):
+    transport = storage if transport is None else transport
+    artifact = media_descriptor(round, sample)
+    owners.expect_media(owner, sample["ordinal"], artifact["key"])
+    accounting = getattr(transport, "_write_accounting", None)
+    observation = (
+        write_accounting.Observation(
+            accounting,
+            transport.client,
+            artifact["key"],
+            {"sha256": artifact["sha256"], "size_bytes": len(png)},
+        )
+        if accounting is not None
+        else None
+    )
+    with observation.hooks() if observation is not None else nullcontext():
+        transport.client.put_object(
+            Bucket=owner.bucket,
+            Key=artifact["key"],
+            Body=png,
+            ContentType="image/png",
+            Metadata={
+                "round-id": str(round.id),
+                "ordinal": str(sample["ordinal"]),
+                "source-sha256": sample["sha256"],
+                "sha256": artifact["sha256"],
+            },
+        )
+    if (
+        read_retained_png(round, sample, transport=transport, observation=observation)
+        != png
+    ):
+        raise ValueError("Published PNG differs from the frozen input")
+    if observation is not None:
+        observation.complete()
 
 
 def successful_evidence(round, attempt, row, result):
@@ -481,6 +658,7 @@ def successful_evidence(round, attempt, row, result):
         or row.request != managed.request_identity(spec, row, sample["preprocessing"])
     ):
         raise ValueError("Candidate request differs from the frozen round")
+    trained_models.validate_result_runtime(result.meta, spec["model_ref"])
     inference = (result.meta or {}).get("sample_evaluation")
     managed.verify_inference(spec, row, inference)
     identity = {
@@ -492,9 +670,23 @@ def successful_evidence(round, attempt, row, result):
         or (result.meta or {}).get("trained_model") != identity
     ):
         raise ValueError("Prediction task or native model differs")
-    predictions = detection.predictions_from_wire(
-        result.result, list(range(len(spec["model_ref"]["classes"])))
-    )
+    if engine.strategy_for(spec["model_ref"]) == engine.MASK_STRATEGY:
+        from app.services.sample_evaluation_masks import normalize_predictions
+        from app.services.controlled_segmentation import runtime_for_reference
+
+        predictions = normalize_predictions(
+            {"result": result.result, "meta": result.meta},
+            list(range(len(spec["model_ref"]["classes"]))),
+            width=sample["width"],
+            height=sample["height"],
+            runtime_qualification=runtime_for_reference(
+                spec["model_ref"], spec["profile"]["ultralytics_version"]
+            ),
+        )
+    else:
+        predictions = detection.predictions_from_wire(
+            result.result, list(range(len(spec["model_ref"]["classes"])))
+        )
     evidence = {
         "ordinal": row.ordinal,
         "task_id": sample["task_id"],
@@ -504,7 +696,7 @@ def successful_evidence(round, attempt, row, result):
         "binding_digest": row.request["evaluation"]["binding_digest"],
         "produced_attempt_id": str(attempt.id),
         "predictions": predictions,
-        "features": engine.features(predictions),
+        "features": engine.prediction_features(predictions, spec["model_ref"]),
         "inference": inference,
     }
     return {**evidence, "evidence_digest": content_digest(evidence)}
@@ -519,10 +711,24 @@ def verified_evidence(round, row):
         or row.request != managed.request_identity(spec, row, sample["preprocessing"])
     ):
         raise reject("evidence_unavailable", "候选尚无已核验的成功证据")
-    predictions = [
-        DetectionPrediction.model_validate(prediction).model_dump(mode="json")
-        for prediction in evidence["predictions"]
-    ]
+    if engine.strategy_for(spec["model_ref"]) == engine.MASK_STRATEGY:
+        from app.services.sample_evaluation_masks import checked_predictions
+
+        predictions = checked_predictions(
+            evidence["predictions"],
+            class_count=len(spec["model_ref"]["classes"]),
+            native_to_benchmark=list(range(len(spec["model_ref"]["classes"]))),
+        )
+        if any(
+            row["rle"]["size"] != [sample["height"], sample["width"]]
+            for row in predictions
+        ):
+            raise reject("evidence_corrupt", "掩码证据尺寸与冻结原图不同")
+    else:
+        predictions = [
+            DetectionPrediction.model_validate(prediction).model_dump(mode="json")
+            for prediction in evidence["predictions"]
+        ]
     expected = {
         "ordinal": row.ordinal,
         "task_id": sample["task_id"],
@@ -532,7 +738,7 @@ def verified_evidence(round, row):
         "binding_digest": row.request["evaluation"]["binding_digest"],
         "produced_attempt_id": str(row.produced_attempt_id),
         "predictions": predictions,
-        "features": engine.features(predictions),
+        "features": engine.prediction_features(predictions, spec["model_ref"]),
         "inference": evidence["inference"],
     }
     if (
@@ -560,11 +766,11 @@ async def build_report(db, round, attempt):
     if any(row.produced_attempt_id not in attempts for row in rows):
         raise reject("evidence_corrupt", "候选证据不属于本轮次的执行尝试")
     report = {
-        "schema": 1,
+        "schema": round.spec["schema"],
         "round_id": str(round.id),
         "attempt_id": str(attempt.id),
         "spec_digest": round.spec_digest,
-        "strategy": engine.STRATEGY,
+        "strategy": engine.strategy_for(round.spec["model_ref"]),
         "ranking": engine.ranking(round.spec, evidence),
         "missing_signal_count": sum(
             not item["predictions"] for item in evidence.values()
@@ -718,10 +924,12 @@ async def decide(
     body,
     api_key_id=None,
     *,
+    request,
     candidate_sources: LabelingActiveLearningSources,
     assets_fence: AssetsActiveLearningFence,
     training_authority: TrainingAuthorityPort,
 ):
+    context = await originals.authorize(db, project.id, user.id, request, api_key_id)
     digest = content_digest(body.model_dump(mode="json"))
     round = await load_round(db, project.id, round_id)
     existing = await db.scalar(
@@ -748,6 +956,8 @@ async def decide(
             "invalid_selection", "只能接纳本轮建议或随机对照中计划内的候选", 422
         )
     selected = [round.spec["samples"][ordinal] for ordinal in sorted(body.ordinals)]
+    if body.action == "accept" and round.spec.get("original_contract") != 1:
+        raise originals.ContentError("original_input_unrecorded")
     ids = [uuid.UUID(sample["task_id"]) for sample in selected]
     group_ids = sorted(
         {
@@ -766,18 +976,25 @@ async def decide(
     )
     before = None
     if body.action == "accept":
-        try:
-            before = await candidate_sources.read_candidate_sources(
-                CandidateSourcesRead(project.id, tuple(group_ids))
-            )
-        except CandidateSourceError as exc:
-            raise reject(exc.code, str(exc), exc.status_code) from exc
+        before = await pool.current_sources(
+            db, project.id, group_ids, candidate_sources=candidate_sources
+        )
     await db.commit()
+    live_sources = []
     if before:
         for sample, snapshot in zip(group_sources, before, strict=True):
+            if snapshot != sample["snapshot"]:
+                raise reject(
+                    "source_stale", "当前任务、分派或原件身份已变化，请重新选样"
+                )
             try:
-                _png, media = await asyncio.to_thread(pool.read_input, snapshot)
-            except Exception as exc:
+                _png, media, source = await originals.read_input(db, context, snapshot)
+                live_sources.append(source)
+            except originals.ContentError:
+                raise
+            except (ValueError, OSError) as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
                 raise reject("source_stale", "当前来源无法核验，请重新选样") from exc
             if (
                 snapshot != sample["snapshot"]
@@ -849,14 +1066,13 @@ async def decide(
             )
         except CandidateSourceError as exc:
             raise reject(exc.code, str(exc), exc.status_code) from exc
-        try:
-            after = await candidate_sources.read_candidate_sources(
-                CandidateSourcesRead(project.id, tuple(group_ids))
-            )
-        except CandidateSourceError as exc:
-            raise reject(exc.code, str(exc), exc.status_code) from exc
+        after = await pool.current_sources(
+            db, project.id, group_ids, candidate_sources=candidate_sources
+        )
         if before != after:
             raise reject("source_stale", "接纳前任务资格、分派或编辑锁已变化")
+        for source in live_sources:
+            await originals.recheck(db, context, source, commit=False)
         history = await pool.exclusions(db, project.id, lock=True)
         excluded = set(history["identities"])
         for sample in selected:
@@ -929,4 +1145,5 @@ async def decide(
             "accepted" if body.action == "accept" else "rejected"
         )
         rows[ordinal].decision_id = decision.id
+    await originals.check(db, context, commit=False)
     return decision

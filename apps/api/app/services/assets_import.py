@@ -42,6 +42,7 @@ _FAILURES: dict[str, tuple[int, object, dict[str, str] | None]] = {
     "import_cancelled": (409, {"reason": "import_cancelled"}, None),
     "invalid_response": (502, "Dataset import returned an invalid response", None),
     "storage_unavailable": (503, "Dataset import service is unavailable", None),
+    "storage_maintenance": (409, {"reason": "storage_maintenance"}, None),
     "source_changed": (409, {"reason": "source_changed"}, None),
 }
 

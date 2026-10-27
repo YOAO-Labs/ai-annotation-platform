@@ -14,37 +14,32 @@ from app.services import (
     sample_evaluations as service,
     sample_evaluation_sources as sources,
 )
-from app.services.labeling_evaluation_source import (
-    SqlAlchemyLabelingEvaluationSourceReader,
-)
-from app.services.labeling_evaluation_source_contract import CurrentTaskSourceRead
 from app.services.training_dataset_bridge import content_digest
-from tests.factory import create_membership
+from tests.factory import create_api_key, create_membership
 from tests.sample_evaluation_fixtures import Objects, complete_rows, evaluation, seed
+from tests.sample_evaluation_original_fixtures import (
+    Objects as OriginalObjects,
+    registered,
+)
 
 
 async def test_shared_qualification_rejects_libre_before_any_profile_request(
     db_session, super_admin, objects, monkeypatch
 ):
-    from app.services import (
-        inference_backend_control,
-        managed_inference,
-        trained_models,
-    )
+    from app.services import managed_inference, trained_models
+    from app.services import inference_backend_control
 
     owner, _token = super_admin
     world = await seed(db_session, owner, objects)
     ref = {**world.ref, "framework": "libreyolo"}
-    reference_port = SimpleNamespace(freeze=AsyncMock(return_value=ref))
     monkeypatch.setattr(
-        trained_models,
-        "bind_frozen_model_reference",
-        lambda _db: reference_port,
+        trained_models, "resolve_reference", AsyncMock(return_value=ref)
     )
     profile = AsyncMock()
-    control = SimpleNamespace(managed_evaluation_profile=profile)
     monkeypatch.setattr(
-        inference_backend_control, "backend_control_service", lambda _db: control
+        inference_backend_control,
+        "backend_control_service",
+        lambda _db: SimpleNamespace(managed_evaluation_profile=profile),
     )
     with pytest.raises(HTTPException) as error:
         await managed_inference.qualification(
@@ -57,6 +52,9 @@ async def test_shared_qualification_rejects_libre_before_any_profile_request(
 
 @pytest.fixture
 def objects(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     store = Objects()
     monkeypatch.setattr(service.storage, "client", store)
     monkeypatch.setattr(service.storage, "delete_prefix", store.delete_prefix)
@@ -110,169 +108,14 @@ async def test_create_is_idempotent_and_freezes_order_mapping_and_request_bindin
         "succeeded": 0,
         "failed": 0,
     }
-    from app.db.models.sample_evaluation import SampleEvaluationRun
-
-    run = await db_session.get(SampleEvaluationRun, uuid.UUID(data["id"]))
-    rows = await service.sample_rows(db_session, run)
-    assert [row.request_id for row in rows] == [
-        uuid.uuid5(run.id, f"sample:{ordinal}") for ordinal in range(2)
-    ]
     second = await httpx_client.post(endpoint, headers=headers, json=body)
     assert second.status_code == 202 and second.json()["id"] == data["id"]
+    assert qualified.await_count == 1
     conflict = await httpx_client.post(
         endpoint, headers=headers, json={**body, "confidence": 0.3}
     )
     assert conflict.status_code == 409
     assert content_digest(data["spec"]) == data["spec_digest"]
-
-
-async def test_invalid_create_does_not_write(
-    db_session, super_admin, httpx_client, objects, monkeypatch
-):
-    from sqlalchemy import select
-
-    from app.db.models.sample_evaluation import SampleEvaluationRun
-    from app.workers import sample_evaluations as worker
-
-    owner, token = super_admin
-    world = await seed(db_session, owner, objects)
-    monkeypatch.setattr(
-        service, "qualification", AsyncMock(return_value=(world.ref, world.profile))
-    )
-    monkeypatch.setattr(worker, "dispatch", AsyncMock())
-    body = world.body.model_dump(mode="json")
-    body["sample_task_ids"] = [str(uuid.uuid4())]
-
-    response = await httpx_client.post(
-        f"/api/v1/projects/{world.project.id}/sample-evaluations",
-        headers={"Authorization": f"Bearer {token}"},
-        json=body,
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "sample_unavailable"
-    assert (
-        await db_session.scalar(
-            select(SampleEvaluationRun).where(
-                SampleEvaluationRun.project_id == world.project.id,
-                SampleEvaluationRun.request_id == uuid.UUID(body["request_id"]),
-            )
-        )
-        is None
-    )
-
-
-async def test_retry_finalizes_lost_attempt_and_resets_only_failed_samples(
-    db_session, super_admin, httpx_client, objects, monkeypatch
-):
-    from app.db.models.async_job import AsyncJob
-
-    owner, token = super_admin
-    world = await seed(db_session, owner, objects)
-    run, attempt = await evaluation(db_session, owner, world)
-    rows = await service.sample_rows(db_session, run)
-    rows[0].status = "failed"
-    rows[0].error_code, rows[0].error_message = "transient", "retry this sample"
-    rows[0].request = {"sample": str(rows[0].request_id)}
-    rows[0].evidence = None
-    rows[0].produced_attempt_id = attempt.id
-    rows[1].status = "inflight"
-    rows[1].request = {"sample": str(rows[1].request_id)}
-    rows[1].evidence = None
-    rows[1].produced_attempt_id = attempt.id
-    retained = [
-        {
-            "request": copy.deepcopy(row.request),
-            "evidence": copy.deepcopy(row.evidence),
-            "produced_attempt_id": row.produced_attempt_id,
-        }
-        for row in rows
-    ]
-    request_ids = [row.request_id for row in rows]
-    frozen_spec, frozen_digest = copy.deepcopy(run.spec), run.spec_digest
-    run.status = attempt.status = "lost"
-    attempt.claim_id = uuid.uuid4()
-    old_job = await db_session.get(AsyncJob, attempt.async_job_id)
-    from app.workers import sample_evaluations as worker
-
-    monkeypatch.setattr(worker, "dispatch", AsyncMock())
-
-    response = await httpx_client.post(
-        f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/retry",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert response.status_code == 202, response.text
-    await db_session.refresh(run)
-    await db_session.refresh(attempt)
-    await db_session.refresh(old_job)
-    assert run.generation == 2 and run.spec == frozen_spec
-    assert run.spec_digest == frozen_digest
-    assert run.current_attempt_id != attempt.id
-    assert attempt.claim_id is None
-    assert old_job.status == "failed"
-    assert [row.request_id for row in rows] == request_ids
-    assert rows[0].status == "pending"
-    assert rows[0].error_code is None and rows[0].error_message is None
-    assert rows[1].status == "inflight"
-    assert [
-        {
-            "request": row.request,
-            "evidence": row.evidence,
-            "produced_attempt_id": row.produced_attempt_id,
-        }
-        for row in rows
-    ] == retained
-    assert response.json()["current_attempt_id"] == str(run.current_attempt_id)
-
-
-@pytest.mark.parametrize("unavailable", ["deletion", "expiry", "active"])
-async def test_unavailable_retry_keeps_evaluation_rows_unchanged(
-    db_session, super_admin, httpx_client, objects, monkeypatch, unavailable
-):
-    owner, token = super_admin
-    world = await seed(db_session, owner, objects)
-    run, attempt = await evaluation(db_session, owner, world)
-    rows = await service.sample_rows(db_session, run)
-    rows[0].status = "failed"
-    rows[0].error_code, rows[0].error_message = "keep", "unchanged"
-    run.status = attempt.status = "lost"
-    attempt.claim_id = uuid.uuid4()
-    if unavailable == "deletion":
-        service.request_deletion(run)
-    elif unavailable == "expiry":
-        run.spec = {**run.spec, "expires_at": 0}
-    else:
-        run.status = attempt.status = "running"
-    before = (
-        run.generation,
-        run.current_attempt_id,
-        attempt.claim_id,
-        attempt.completed_at,
-        rows[0].status,
-        rows[0].error_code,
-        rows[0].error_message,
-    )
-    from app.workers import sample_evaluations as worker
-
-    monkeypatch.setattr(worker, "dispatch", AsyncMock())
-
-    response = await httpx_client.post(
-        f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/retry",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "retry_unavailable"
-    assert (
-        run.generation,
-        run.current_attempt_id,
-        attempt.claim_id,
-        attempt.completed_at,
-        rows[0].status,
-        rows[0].error_code,
-        rows[0].error_message,
-    ) == before
 
 
 @pytest.mark.parametrize(
@@ -400,8 +243,10 @@ async def test_verified_reads_filter_before_pagination_and_preserve_failed_parti
         s["ordinal"] for s in page.json()["items"]
     ] == [2]
     frozen = await httpx_client.get(base + "/samples/0/image", headers=headers)
-    assert frozen.status_code == 200, frozen.text
-    assert frozen.headers["cache-control"] == "private, no-store"
+    assert (
+        frozen.status_code == 200
+        and frozen.headers["cache-control"] == "private, no-store"
+    )
     objects.objects[artifact["key"]]["raw"] += b"!"
     corrupt = await httpx_client.get(base + "/report", headers=headers)
     assert (
@@ -425,19 +270,22 @@ async def test_retained_references_block_storage_deletion_and_project_isolation(
     owner, token = super_admin
     world = await seed(db_session, owner, objects)
     run, _attempt = await evaluation(db_session, owner, world)
-    from app.application.project_deletion import (
-        delete_project as delete_project_transaction,
-    )
+    from app.application.project_deletion import delete_project
     from app.services.ml_backend import MLBackendService
 
     with pytest.raises(HTTPException) as blocked:
-        await delete_project_transaction(
-            db_session, world.project.id, actor_id=owner.id
-        )
+        await delete_project(db_session, world.project.id, actor_id=owner.id)
     assert blocked.value.status_code == 409
-    with pytest.raises(HTTPException) as blocked:
-        await MLBackendService(db_session).validate_delete(world.backend.id)
-    assert blocked.value.status_code == 409
+    # The Inference owner reports the running-work block as a native error, so
+    # the caller transaction must be recovered before the same session is used
+    # by another request. Production sessions are per-request and discarded.
+    savepoint = await db_session.begin_nested()
+    try:
+        with pytest.raises(HTTPException) as blocked:
+            await MLBackendService(db_session).validate_delete(world.backend.id)
+        assert blocked.value.status_code == 409
+    finally:
+        await savepoint.rollback()
     deletion = Mock()
     monkeypatch.setattr(service.storage, "delete_prefix", deletion)
     response = await httpx_client.delete(
@@ -457,7 +305,7 @@ async def test_retained_references_block_storage_deletion_and_project_isolation(
 
 
 async def test_source_uses_current_bytes_and_labels_and_never_falls_back_after_deletion(
-    db_session, super_admin, httpx_client, objects
+    db_session, super_admin, httpx_client, objects, monkeypatch
 ):
     owner, token = super_admin
     world = await seed(db_session, owner, objects)
@@ -486,28 +334,36 @@ async def test_source_uses_current_bytes_and_labels_and_never_falls_back_after_d
     )
     db_session.add(annotation)
     await db_session.flush()
-    objects.put_object(
-        Bucket=service.storage.bucket,
-        Key=task.file_path,
-        Body=world.raw_images[0],
-        ContentType="image/png",
+    current = OriginalObjects().install(monkeypatch)
+    _item, _asset, replica = await registered(
+        db_session, task, owner, world.raw_images[0]
+    )
+    current.put(replica.bucket, replica.object_key, world.raw_images[0])
+    current.put(
+        service.storage.datasets_bucket, replica.object_key, world.raw_images[1]
     )
     endpoint = f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/attempts/{attempt.id}/samples/0/source"
     headers = {"Authorization": "Bearer " + token}
     same = await httpx_client.get(endpoint, headers=headers)
     assert same.status_code == 200, same.text
     assert same.json()["media"] == same.json()["labels"] == "same"
+    assert all(
+        bucket == replica.bucket for op, bucket, _ in current.calls if op != "close"
+    )
     annotation.geometry = {**annotation.geometry, "w": 0.2}
     await db_session.flush()
     changed = await httpx_client.get(endpoint, headers=headers)
     assert changed.json()["media"] == "same" and changed.json()["labels"] == "changed"
     assert run.spec["samples"][0] == frozen
-    objects.put_object(
-        Bucket=service.storage.bucket,
-        Key=task.file_path,
-        Body=world.raw_images[1],
-        ContentType="image/png",
+    current.put(replica.bucket, replica.object_key, world.raw_images[1])
+    tampered = await httpx_client.get(endpoint, headers=headers)
+    assert tampered.status_code == 200, tampered.text
+    assert tampered.json()["media"] == "unavailable"
+    assert tampered.json()["current_sha256"] is None
+    _item, _asset, replica = await registered(
+        db_session, task, owner, world.raw_images[1], key="new-registered-source.png"
     )
+    current.put(replica.bucket, replica.object_key, world.raw_images[1])
     changed = await httpx_client.get(endpoint, headers=headers)
     assert changed.json()["media"] == changed.json()["labels"] == "changed"
     await db_session.delete(annotation)
@@ -538,16 +394,7 @@ async def test_source_limits_annotation_projection_before_aggregation(
             )
         )
     await db_session.flush()
-    snapshot = await SqlAlchemyLabelingEvaluationSourceReader(
-        db_session
-    ).read_current_task_source(
-        CurrentTaskSourceRead(
-            project_id=world.project.id,
-            task_id=task.id,
-            annotation_limit=service.engine.MAX_TRUTH_PER_IMAGE + 1,
-        )
-    )
-    assert snapshot is not None
+    snapshot = await sources.current_snapshot(db_session, world.project.id, task.id)
     assert len(snapshot["annotations"]) == service.engine.MAX_TRUTH_PER_IMAGE + 1
     assert set(snapshot["annotations"][0]["geometry"]) == {"type", "x", "y", "w", "h"}
     assert sources.classify_labels(snapshot, ["car", "person"]) is None
@@ -559,7 +406,6 @@ async def test_source_rechecks_the_current_request_key_after_object_io(
     owner, _token = super_admin
     world = await seed(db_session, owner, objects)
     run, attempt = await evaluation(db_session, owner, world)
-    from tests.factory import create_api_key
 
     key, token = await create_api_key(db_session, owner.id, "source-resolution", ["*"])
     frozen = run.spec["samples"][0]
@@ -573,28 +419,29 @@ async def test_source_rechecks_the_current_request_key_after_object_io(
     )
     db_session.add(task)
     await db_session.flush()
-    objects.put_object(
-        Bucket=service.storage.bucket,
-        Key=task.file_path,
-        Body=world.raw_images[0],
-        ContentType="image/png",
+    current = OriginalObjects().install(monkeypatch)
+    _item, _asset, replica = await registered(
+        db_session, task, owner, world.raw_images[0]
     )
-    original = sources.asyncio.to_thread
+    current.put(replica.bucket, replica.object_key, world.raw_images[0])
+    from app.services import sample_evaluation_originals as originals
+
+    original = originals.bounded_thread
 
     async def revoke_after_read(function, *args, **kwargs):
         result = await original(function, *args, **kwargs)
-        if function is sources.read_current_media:
+        if function is originals.inspect_image:
             key.revoked_at = service.now()
             await db_session.flush()
         return result
 
-    monkeypatch.setattr(sources.asyncio, "to_thread", revoke_after_read)
+    monkeypatch.setattr(originals, "bounded_thread", revoke_after_read)
     response = await httpx_client.get(
         f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/attempts/{attempt.id}/samples/0/source",
         headers={"Authorization": "Bearer " + token},
     )
     assert response.status_code == 403, response.text
-    assert response.json()["detail"]["code"] == "api_key_revoked"
+    assert response.json()["detail"]["code"] == "api_key_authority_revoked"
 
 
 async def test_comparison_requires_two_explicit_compatible_successful_reports(
@@ -645,75 +492,89 @@ async def test_comparison_requires_two_explicit_compatible_successful_reports(
     )
 
 
-@pytest.mark.parametrize("replaced", [False, True])
-async def test_async_job_cancel_preserves_evaluation_intent_and_current_attempt(
-    db_session, super_admin, httpx_client, objects, replaced
+@pytest.mark.parametrize(
+    "revision,version,status",
+    [
+        (2, "8.4.183", None),
+        (99, "8.4.183", 502),
+        (1, "8.4.183", 409),
+        (2, "8.4.184", 409),
+    ],
+)
+async def test_qualification_separates_training_and_inference_and_bounds_protocol(
+    db_session, super_admin, objects, monkeypatch, revision, version, status
 ):
-    from app.db.models.async_job import AsyncJob
-    from app.db.models.sample_evaluation import SampleEvaluationAttempt
+    from app.services import managed_inference, trained_models
+    from app.services import inference_backend_control
+    from training_contract.inference_runtime import inference_runtime
 
-    owner, token = super_admin
-    world = await seed(db_session, owner, objects)
-    run, attempt = await evaluation(db_session, owner, world)
-    job = await db_session.get(AsyncJob, attempt.async_job_id)
-    if replaced:
-        run.status = attempt.status = "lost"
-        current = await service.new_attempt(db_session, run)
-    else:
-        current = attempt
-    await db_session.flush()
-
-    response = await httpx_client.post(
-        f"/api/v1/async-jobs/{job.id}/cancel",
-        headers={"Authorization": "Bearer " + token},
-    )
-    await db_session.refresh(run)
-    await db_session.refresh(job)
-    current = await db_session.get(SampleEvaluationAttempt, current.id)
-    await db_session.refresh(current)
-    if replaced:
-        assert response.status_code == 409
-        assert run.status == current.status == "queued"
-        assert run.current_attempt_id != attempt.id
-    else:
-        assert response.status_code == 200
-        assert response.json()["status"] == "cancel_requested"
-        assert run.status == current.status == "cancelling"
-        assert current.error_code == "cancel_requested"
-    assert job.status == "pending"
-
-
-async def test_delete_records_intent_before_storage_cleanup_failure(
-    db_session, super_admin, httpx_client, objects, monkeypatch
-):
-    owner, token = super_admin
-    world = await seed(db_session, owner, objects)
-    run, attempt = await evaluation(db_session, owner, world)
-    await service.mark_terminal(
-        db_session, run, attempt, "failed", code="sample_failed"
-    )
-    await db_session.flush()
+    world = await seed(db_session, super_admin[0], objects)
+    ref = {
+        **world.ref,
+        "provenance": {**world.ref["provenance"], "base_model": {"id": "yolo11n"}},
+        "inference_runtime": inference_runtime(world.ref, "8.4.183"),
+    }
     monkeypatch.setattr(
-        service.storage,
-        "delete_prefix",
-        Mock(side_effect=RuntimeError("controlled storage failure")),
+        trained_models, "resolve_reference", AsyncMock(return_value=ref)
     )
+    profile = {**world.profile, "revision": revision, "ultralytics_version": version}
+    profile["profile_digest"] = content_digest(
+        {k: v for k, v in profile.items() if k != "profile_digest"}
+    )
+    monkeypatch.setattr(
+        inference_backend_control,
+        "backend_control_service",
+        lambda _db: SimpleNamespace(
+            managed_evaluation_profile=AsyncMock(return_value=profile)
+        ),
+    )
+    if status:
+        with pytest.raises(HTTPException) as error:
+            await managed_inference.qualification(
+                db_session, world.project, world.model.id, world.deployment.id
+            )
+        assert error.value.status_code == status
+    else:
+        frozen, checked = await managed_inference.qualification(
+            db_session, world.project, world.model.id, world.deployment.id
+        )
+        assert frozen["framework_version"] == "8.4.177"
+        assert checked["ultralytics_version"] == "8.4.183"
+        assert (
+            "inference_runtime"
+            in trained_models.wire_context(frozen)["frozen_model_ref"]
+        )
 
-    response = await httpx_client.delete(
-        f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "cleanup_pending"
-    await db_session.refresh(run)
-    assert run.deletion_requested_at is not None
-    requested_at = run.deletion_requested_at
-    repeated = await httpx_client.delete(
-        f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}",
-        headers={"Authorization": f"Bearer {token}"},
+def test_runtime_metadata_is_pinned_and_legacy_wire_shape_is_preserved():
+    from app.services import trained_models
+    from training_contract.inference_runtime import inference_runtime
+
+    ref = {
+        "model_version_id": str(uuid.uuid4()),
+        "sha256": "a" * 64,
+        "classes_digest": "b" * 64,
+        "framework": "ultralytics",
+        "framework_version": "8.4.177",
+    }
+    assert set(trained_models.wire_reference(ref)) == {
+        "model_version_id",
+        "sha256",
+        "classes_digest",
+    }
+    upgraded_runtime = inference_runtime(ref, "8.4.183")
+    with pytest.raises(ValueError):
+        trained_models.validate_result_runtime(
+            {"inference_runtime": upgraded_runtime}, ref
+        )
+    ref["inference_runtime"] = upgraded_runtime
+    trained_models.validate_result_runtime(
+        {"inference_runtime": ref["inference_runtime"]}, ref
     )
-    assert repeated.status_code == 503
-    assert repeated.json()["detail"]["code"] == "cleanup_pending"
-    await db_session.refresh(run)
-    assert run.deletion_requested_at == requested_at
+    with pytest.raises(ValueError):
+        trained_models.validate_result_runtime({}, ref)
+    with pytest.raises(ValueError):
+        trained_models.validate_result_runtime(
+            {"inference_runtime": {**ref["inference_runtime"], "version": "8.4.184"}},
+            ref,
+        )

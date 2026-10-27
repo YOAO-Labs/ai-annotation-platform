@@ -52,7 +52,6 @@ aap_assets_source = [
     "connections_contract.schema.json",
     "import_contract.schema.json",
     "ingest_contract.schema.json",
-    "guide_object_contract.schema.json",
     "protocol.schema.json",
 ]
 

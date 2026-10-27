@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -13,6 +13,8 @@ import { useAuthStore } from "@/stores/authStore";
 import { TrainingComparisonPage } from "./TrainingComparisonPage";
 import {
   comparisonPoints,
+  comparisonMetricRanking,
+  comparisonMetricValues,
   curveData,
   incompatibility,
   inputDifferences,
@@ -270,7 +272,7 @@ describe("comparison evidence and URL", () => {
 
 it("separates latest epoch from final best-weight metrics, exposes safe deltas and restores URL view choices", async () => {
   mount();
-  await screen.findByText("较参照 +10.00 个百分点");
+  await screen.findByText("较最优 -10.0 个百分点");
   expect(await screen.findAllByText("0.2000")).toHaveLength(2);
   expect(screen.queryByText("0.9900")).not.toBeInTheDocument();
   const user = userEvent.setup();
@@ -284,6 +286,149 @@ it("separates latest epoch from final best-weight metrics, exposes safe deltas a
   expect(await screen.findAllByText("0.2000")).toHaveLength(2);
   await user.click(screen.getByRole("button", { name: "测试返回" }));
   expect(screen.getByRole("checkbox", { name: "平滑曲线" })).not.toBeChecked();
+});
+
+it("highlights the optimum per metric independently for Best and Last, regardless of URL reference", async () => {
+  vi.mocked(trainingRunsApi.evaluation).mockImplementation(async (_p, runId, attemptId) => ({
+    ...report(runId, attemptId),
+    summary: {
+      "metrics/mAP50": runId === r1 ? 0.8 : 0.5,
+      "metrics/precision": runId === r1 ? 0.4 : 0.9,
+    },
+  }));
+  vi.mocked(trainingRunsApi.events).mockImplementation(async (_p, runId, attemptId) => ({
+    attempt_id: attemptId!,
+    items: [
+      {
+        sequence: 1,
+        kind: "epoch",
+        epoch: 3,
+        metrics: {
+          "metrics/mAP50(B)": runId === r1 ? 0.2 : 0.6,
+          "metrics/precision(B)": runId === r1 ? 0.9 : 0.4,
+        },
+      },
+    ],
+  }));
+  mount(`${both}&reference=${r2}`);
+  const best = await screen.findByRole("region", { name: "Best 指标表" });
+  const last = await screen.findByRole("region", { name: "Last 指标表" });
+  await within(best).findByText("较最优 -30.0 个百分点");
+  await within(last).findByText("较最优 -40.0 个百分点");
+  for (const [table, metric, winner, winningValue, gap] of [
+    [best, "mAP50", 0, "0.8000", "较最优 -30.0 个百分点"],
+    [best, "Precision", 1, "0.9000", "较最优 -50.0 个百分点"],
+    [last, "mAP50", 1, "0.6000", "较最优 -40.0 个百分点"],
+    [last, "Precision", 0, "0.9000", "较最优 -50.0 个百分点"],
+  ] as const) {
+    const row = within(table).getByRole("row", { name: new RegExp(`^${metric} `) });
+    const cells = within(row).getAllByRole("cell");
+    expect(within(cells[winner]).getByText(winningValue)).toHaveClass(
+      "font-semibold",
+      "text-primary",
+    );
+    expect(within(cells[winner]).getByText("最优")).toBeInTheDocument();
+    expect(within(cells[1 - winner]).getByText(gap)).toHaveClass("text-status-positive");
+  }
+  expect(within(last).getAllByText("Last · 第 3 轮")).toHaveLength(2);
+  expect(
+    within(best)
+      .getAllByRole("rowheader")
+      .map((row) => row.textContent),
+  ).toEqual(
+    within(last)
+      .getAllByRole("rowheader")
+      .map((row) => row.textContent),
+  );
+  expect(screen.queryByRole("combobox", { name: "参照实验" })).not.toBeInTheDocument();
+});
+
+it("highlights every tied optimum, keeps zero and missing values distinct, and never substitutes Best for Last", async () => {
+  vi.mocked(trainingRunsApi.evaluation).mockImplementation(async (_p, runId, attemptId) => ({
+    ...report(runId, attemptId),
+    summary: { "metrics/mAP50": 0, "metrics/precision": runId === r1 ? null : 0.5 },
+  }));
+  vi.mocked(trainingRunsApi.events).mockImplementation(async (_p, _runId, attemptId) => ({
+    attempt_id: attemptId!,
+    items: [],
+  }));
+  mount();
+  const best = await screen.findByRole("region", { name: "Best 指标表" });
+  await within(best).findAllByText("并列最优");
+  const tied = within(best).getByRole("row", { name: /^mAP50 / });
+  expect(within(tied).getAllByText("0.0000")).toHaveLength(2);
+  expect(within(tied).getAllByText("并列最优")).toHaveLength(2);
+  const missing = within(best).getByRole("row", { name: /^Precision / });
+  expect(within(missing).getByText("—")).toBeInTheDocument();
+  expect(within(missing).getByText("0.5000")).toBeInTheDocument();
+  expect(within(missing).queryByText(/最优/)).not.toBeInTheDocument();
+  const last = await screen.findByRole("region", { name: "Last 指标表" });
+  expect(within(last).getByText(/暂无 Last 轮次指标/)).toBeInTheDocument();
+  expect(within(last).queryByText("0.5000")).not.toBeInTheDocument();
+  expect(within(best).queryByText(/较最优 -0/)).not.toBeInTheDocument();
+});
+
+it("ranks compatible peers without letting an incompatible higher result become the baseline", () => {
+  const first = experiment(),
+    second = experiment(r2),
+    other = experiment(id(13));
+  other.report!.compatibility_digest = "other";
+  other.report!.descriptor!.evaluator.options = { conf: 0.2 };
+  other.report!.summary = { "metrics/mAP50": 0.99 };
+  const ranking = comparisonMetricRanking([first, second, other], "best", "metrics/mAP50");
+  expect(ranking[0]?.delta).toBeCloseTo(-0.1);
+  expect(ranking[0]?.grouped).toBe(true);
+  expect(ranking[1]?.best).toBe(true);
+  expect(ranking[2]).toBeUndefined();
+  second.run!.config.configuration = { effective_values: { imgsz: 640 } };
+  first.events = second.events = [
+    {
+      sequence: 1,
+      kind: "epoch",
+      epoch: 3,
+      metrics: { "metrics/mAP50(B)": 0.3 },
+    },
+  ];
+  expect(comparisonMetricRanking([first, second], "best", "metrics/mAP50")[1]?.best).toBe(true);
+  expect(comparisonMetricRanking([first, second], "last", "metrics/mAP50")).toEqual([
+    undefined,
+    undefined,
+  ]);
+});
+
+it("keeps Last tied to the selected execution's latest epoch without carrying missing metrics forward", () => {
+  const e = experiment();
+  e.events = [
+    {
+      sequence: 1,
+      kind: "epoch",
+      epoch: 1,
+      metrics: { "metrics/mAP50": 0.8, "metrics/recall": 0.4 },
+    },
+    {
+      sequence: 2,
+      kind: "epoch",
+      epoch: 2,
+      metrics: { "metrics/recall": 0, "metrics/precision": -1 },
+    },
+  ];
+  expect(comparisonMetricValues(e, "last")).toEqual({ "metrics/recall": 0 });
+  expect(comparisonMetricValues(e, "best")).toEqual({ "metrics/mAP50": 0.4 });
+  e.eventsError = "执行记录读取失败";
+  expect(comparisonMetricValues(e, "last")).toEqual({});
+});
+
+it("does not round a small nonzero deficit to negative zero", async () => {
+  vi.mocked(trainingRunsApi.evaluation).mockImplementation(async (_p, runId, attemptId) => ({
+    ...report(runId, attemptId),
+    summary: { "metrics/mAP50": runId === r1 ? 0.5002 : 0.5 },
+  }));
+  mount();
+  const best = await screen.findByRole("region", { name: "Best 指标表" });
+  expect(await within(best).findByText("较最优 -0.02 个百分点")).toHaveClass(
+    "text-status-positive",
+  );
+  expect(within(best).queryByText("较最优 -0.0 个百分点")).not.toBeInTheDocument();
 });
 
 it("retains fixed historical attempts and lets a missing attempt be explicitly replaced", async () => {
@@ -310,6 +455,7 @@ it("retains fixed historical attempts and lets a missing attempt be explicitly r
       a1,
       0,
       expect.anything(),
+      20,
     ),
   );
   expect(select).toHaveValue(a1);
@@ -325,7 +471,7 @@ it("keeps deleted or unreadable selections independent and disables unsafe delta
   mount();
   expect((await screen.findAllByText("实验已删除")).length).toBeGreaterThan(0);
   await screen.findByText("0.5000");
-  expect(screen.queryByText(/较参照/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/较(?:组内)?最优 -/)).not.toBeInTheDocument();
   expect(screen.getByTestId("location").textContent).toContain(a1);
 });
 
@@ -339,7 +485,7 @@ it("retains selections across picker pages and prevents duplicate/max-count choi
   await user.click(await screen.findByRole("button", { name: "加入比较：路口基线" }));
   await user.click(screen.getByRole("button", { name: "下一页实验" }));
   await user.click(await screen.findByRole("button", { name: "加入比较：学习率实验" }));
-  await screen.findByText("较参照 +10.00 个百分点");
+  await screen.findByText("较最优 -10.0 个百分点");
   expect(screen.getByRole("button", { name: "加入比较：学习率实验" })).toBeDisabled();
   expect(screen.getByTestId("location").textContent).toContain(a1);
   expect(screen.getByTestId("location").textContent).toContain(a2);

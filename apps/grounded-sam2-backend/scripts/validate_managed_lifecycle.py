@@ -22,6 +22,7 @@ import cv2
 import httpx
 import numpy as np
 from PIL import Image, ImageDraw
+from aap_backend_runtime.backend_auth import backend_auth_headers
 from aap_backend_runtime import (
     REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
@@ -342,6 +343,7 @@ async def _run() -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(
             transport=transport,
+            headers=backend_auth_headers("gsam2"),
             base_url="http://grounded-sam2-validation",
             timeout=600,
         ) as client:

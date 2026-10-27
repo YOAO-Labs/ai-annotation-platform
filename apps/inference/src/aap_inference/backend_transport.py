@@ -9,6 +9,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any, Callable, Protocol
 
 import httpx
+from aap_protocol_v2.backend_auth import managed_provider
 from aap_protocol_v2.predict import normalize_context_task
 from aap_task_contract import (
     TASK_ALIASES,
@@ -45,6 +46,11 @@ GPU_HEALTH_CHALLENGE_QUERY_PARAM = "aap_gpu_health_challenge"
 GPU_HEALTH_CHALLENGE_ECHO_MARKER = "_aap_gpu_health_challenge_echo"
 _GPU_HEALTH_CHALLENGE_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SEMAPHORE_CACHE_ATTR = "_aap_ml_backend_semaphores"
+_MANAGED_EVALUATION_RECEIPT_PATH = re.compile(
+    r"(?P<segment>segment/)?requests/"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"(?P<seal>/seal)?\Z"
+)
 
 
 _SAFE_BACKEND_DETAIL_KEYS = {
@@ -301,7 +307,9 @@ class BackendTransport:
 
     def _headers(self, grant: BackendDispatchGrant | None = None) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self.auth_method == "token" and self.auth_token:
+        # Credentials are resolved by the API owner before capture; a managed
+        # ``managed:<provider>`` method arrives here already materialized as a token.
+        if self.auth_method != "none" and self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         if grant is not None:
             headers[GPU_GENERATION_HEADER] = grant.generation
@@ -352,6 +360,10 @@ class BackendTransport:
         ):
             raise ValueError(
                 "gpu_health_challenge must be 64 lowercase hexadecimal characters"
+            )
+        if managed_provider(self.auth_method) is not None and not self.auth_token:
+            raise ValueError(
+                "managed backend credentials were not materialized before capture"
             )
         base_headers = self._headers()
         headers = dict(base_headers)
@@ -450,6 +462,16 @@ class BackendTransport:
         self, path: str, *, payload: dict | None = None, params: dict | None = None
     ) -> dict:
         """Read/seal a request without starting native work or GPU admission."""
+        receipt = _MANAGED_EVALUATION_RECEIPT_PATH.fullmatch(path)
+        if path in {"profile", "segment/profile"}:
+            if payload is not None:
+                raise ValueError("Evaluation profile only supports reading")
+        elif receipt is None or bool(receipt.group("seal")) != (payload is not None):
+            raise ValueError("Unknown evaluation receipt path or method")
+        # Sealing an already completed request also returns its frozen response.
+        max_bytes = (
+            17 * 1024 * 1024 if receipt and receipt.group("segment") else 256 * 1024
+        )
         async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             async with client.stream(
                 "POST" if payload is not None else "GET",
@@ -460,7 +482,7 @@ class BackendTransport:
             ) as streamed:
                 response = await self._bounded_stream_response(
                     streamed,
-                    max_bytes=256 * 1024,
+                    max_bytes=max_bytes,
                     reason="evaluation_response_too_large",
                 )
             self._raise_for_backend_status(response)
@@ -706,6 +728,26 @@ class BackendTransport:
             resp = await client.get(f"{self.base_url}/setup", headers=headers)
             resp.raise_for_status()
             return resp.json()
+
+    async def model_metadata(self) -> dict | None:
+        """Read bounded, cached observations without changing backend health."""
+        from aap_protocol_v2.model_metadata import ModelMetadataResponse
+
+        try:
+            async with self._http_client(
+                timeout=self.options.ml_health_timeout
+            ) as client:
+                resp = await client.get(
+                    f"{self.base_url}/models/metadata", headers=self._headers()
+                )
+                resp.raise_for_status()
+                if len(resp.content) > 2 * 1024 * 1024:
+                    return None
+                return ModelMetadataResponse.model_validate(resp.json()).model_dump(
+                    mode="json"
+                )
+        except (httpx.HTTPError, ValueError):
+            return None
 
     async def lifecycle_mode(
         self,

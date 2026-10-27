@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +11,7 @@ import {
 } from "@/api/sampleEvaluations";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { lineageReturn } from "@/api/modelLineage";
@@ -20,10 +23,13 @@ import {
   metricValue,
   parseEvaluationState,
 } from "./sampleEvaluation";
-import { evaluationReportOptions } from "./useSampleEvaluation";
+import { evaluationReportOptions, evaluationTask } from "./useSampleEvaluation";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { SampleEvaluationGallery } from "./SampleEvaluationGallery";
 import { PickerPage } from "./SampleEvaluationCreate";
+import { listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 
 export function SampleEvaluationPage() {
   const { id = "", evaluationId } = useParams();
@@ -31,7 +37,7 @@ export function SampleEvaluationPage() {
   const token = useAuthStore((s) => s.token);
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, evaluationId, userId, token, revision }),
+    () => ({ key: randomId(), id, evaluationId, userId, token, revision }),
     [id, evaluationId, userId, token, revision],
   );
   return (
@@ -55,10 +61,7 @@ function EvaluationContent({
 }) {
   const { assert } = useTrainingViewOwner(projectId, scope);
   const location = useLocation();
-  const view = useMemo(
-    () => ({ key: crypto.randomUUID(), locationKey: location.key }),
-    [location.key],
-  );
+  const view = useMemo(() => ({ key: randomId(), locationKey: location.key }), [location.key]);
   const currentView = useRef(view.key);
   currentView.current = view.key;
   const [params, setParams] = useSearchParams();
@@ -79,11 +82,17 @@ function EvaluationContent({
   const client = useQueryClient();
   const navigate = useNavigate();
   const listPage = evaluationId ? pickerPage : parsedState.page;
+  const pageSize = listPageSize(params.get("page_size"));
   const list = useQuery({
-    queryKey: ["sample-evaluations", projectId, scope, listPage],
+    queryKey: ["sample-evaluations", projectId, scope, listPage, pageSize],
     queryFn: async ({ signal }) => {
       assert(signal);
-      const result = await sampleEvaluationsApi.list(projectId, listPage * 20, { signal });
+      const result = await sampleEvaluationsApi.list(
+        projectId,
+        listPage * pageSize,
+        { signal },
+        pageSize,
+      );
       assert(signal);
       if (result.items.some((item) => item.project_id !== projectId))
         throw new Error("评估列表所属项目不符");
@@ -238,7 +247,7 @@ function EvaluationContent({
           to={lineageReturn(projectId, params.get("returnTo"))}
         >
           <ArrowLeft className="size-3.5" />
-          返回模型谱系
+          返回来源与使用记录
         </Link>
       )}
       <Link
@@ -285,7 +294,7 @@ function EvaluationContent({
           )}
           {list.error && (
             <p role="alert" className="text-sm text-status-danger">
-              {list.error.message}
+              <CopyableError message={list.error.message} />
             </p>
           )}
           {list.data && !list.error && (
@@ -318,6 +327,9 @@ function EvaluationContent({
                 page={state.page}
                 total={list.data.total}
                 label="评估历史"
+                pageSize={pageSize}
+                loading={list.isFetching}
+                onPageSizeChange={(size) => update({ page_size: String(size), page: undefined })}
                 onChange={(page) => update({ page: String(page) })}
               />
             </>
@@ -333,7 +345,9 @@ function EvaluationContent({
           )}
           {detail.error && (
             <div role="alert" className="space-y-2 text-sm text-status-danger">
-              <p>{detail.error.message}</p>
+              <p>
+                <CopyableError message={detail.error.message} />
+              </p>
               <Button size="sm" onClick={() => void detail.refetch()}>
                 重新加载
               </Button>
@@ -382,7 +396,9 @@ function EvaluationContent({
                   </p>
                 )}
                 {run.error_message && (
-                  <p className="mt-3 break-words text-xs text-status-danger">{run.error_message}</p>
+                  <p className="mt-3 break-words text-xs text-status-danger">
+                    <CopyableError message={run.error_message} />
+                  </p>
                 )}
                 {run.deletion_requested_at && (
                   <p role="status" className="mt-3 text-xs text-status-caution">
@@ -399,47 +415,69 @@ function EvaluationContent({
                   <div>
                     <dt className="text-muted-foreground">固定匹配设置</dt>
                     <dd className="mt-1">
-                      置信度 ≥ {run.spec.confidence} · 匹配 IoU ≥ {run.spec.matching_iou} · NMS IoU{" "}
-                      {run.spec.nms_iou}
+                      置信度 ≥ {run.spec.confidence} ·{" "}
+                      {evaluationTask(run.spec) === "segment" ? "匹配 Mask IoU" : "匹配 IoU"} ≥{" "}
+                      {run.spec.matching_iou} · NMS IoU {run.spec.nms_iou}
                     </dd>
                   </div>
-                  <div>
+                  <div className="flex items-center gap-1">
                     <dt className="text-muted-foreground">候选版本</dt>
-                    <dd className="mt-1 break-all font-mono">{run.model_version_id}</dd>
+                    <dd>
+                      <CopyValueButton
+                        value={run.model_version_id}
+                        kind="id"
+                        label="复制候选模型版本 ID"
+                      />
+                    </dd>
                   </div>
-                  <div>
+                  <div className="flex items-center gap-1">
                     <dt className="text-muted-foreground">冻结数据版本</dt>
-                    <dd className="mt-1 break-all font-mono">{run.dataset_id}</dd>
+                    <dd>
+                      <CopyValueButton
+                        value={run.dataset_id}
+                        kind="id"
+                        label="复制冻结数据版本 ID"
+                      />
+                    </dd>
                   </div>
                 </dl>
-                <label className="mt-4 block max-w-xl space-y-1 text-xs">
-                  查看执行尝试
-                  <select
-                    className={trainingInputClass}
-                    value={state.attemptId ?? ""}
-                    onChange={(e) =>
-                      update({ attempt: e.target.value, sample: undefined, page: undefined })
-                    }
-                  >
-                    <option value="" disabled>
-                      选择执行尝试
-                    </option>
-                    {state.attemptId && !attempt && (
-                      <option value={state.attemptId}>链接中的尝试不存在</option>
-                    )}
-                    {run.attempts.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        第 {item.ordinal} 次 · {evaluationStatus[item.status]} ·{" "}
-                        {item.id.slice(0, 8)}
-                        {item.id === run.current_attempt_id ? " · 当前" : ""}
+                <div className="mt-4 max-w-xl space-y-1 text-xs">
+                  <label htmlFor="evaluation-attempt">查看执行尝试</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="evaluation-attempt"
+                      className={`${trainingInputClass} min-w-0 flex-1`}
+                      value={state.attemptId ?? ""}
+                      onChange={(e) =>
+                        update({ attempt: e.target.value, sample: undefined, page: undefined })
+                      }
+                    >
+                      <option value="" disabled hidden>
+                        选择执行尝试
                       </option>
-                    ))}
-                  </select>
-                </label>
+                      {state.attemptId && !attempt && (
+                        <option value={state.attemptId}>链接中的尝试不存在</option>
+                      )}
+                      {run.attempts.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          第 {item.ordinal} 次 · {evaluationStatus[item.status]}
+                          {item.id === run.current_attempt_id ? " · 当前" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {state.attemptId && (
+                      <CopyValueButton
+                        value={state.attemptId}
+                        kind="id"
+                        label="复制所选执行尝试 ID"
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
               {mutation.error && mutation.error.name !== "AbortError" && (
                 <p role="alert" className="mt-3 text-sm text-status-danger">
-                  {mutation.error.message}
+                  <CopyableError message={mutation.error.message} />
                 </p>
               )}
               {!state.error && state.attemptId && !attempt && (
@@ -451,7 +489,8 @@ function EvaluationContent({
                 <>
                   {attempt.error_message && (
                     <p className="mt-4 break-words text-xs text-status-caution">
-                      所选尝试：{attempt.error_message}
+                      所选尝试：
+                      <CopyableError message={attempt.error_message} />
                     </p>
                   )}
                   {!attempt.report && (
@@ -472,7 +511,10 @@ function EvaluationContent({
                   )}
                   {report.error && (
                     <div role="alert" className="mt-4 space-y-2 text-sm text-status-danger">
-                      <p>报告不可用：{report.error.message}</p>
+                      <p>
+                        报告不可用：
+                        <CopyableError message={report.error.message} />
+                      </p>
                       <Button size="sm" onClick={() => void report.refetch()}>
                         重新校验报告
                       </Button>
@@ -517,36 +559,62 @@ function EvaluationContent({
                 <p className="mt-2 text-xs text-muted-foreground">
                   只在冻结基准、类别、用途、匹配设置和推理环境一致时显示差值。差值为第二候选减当前候选，不提供自动排名。
                 </p>
-                <label className="mt-3 block max-w-xl space-y-1 text-xs">
-                  第二个明确评估
-                  <select
-                    className={trainingInputClass}
-                    value={state.secondId ?? ""}
-                    onChange={(e) => update({ second: e.target.value || undefined })}
-                  >
-                    <option value="">选择第二个评估</option>
-                    {state.secondId &&
-                      !list.data?.items.some((item) => item.id === state.secondId) && (
-                        <option value={state.secondId}>{state.secondId}</option>
-                      )}
-                    {list.data?.items
-                      .filter((item) => item.id !== run.id)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {evaluationStatus[item.status]}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <div className="mt-3 flex max-w-xl items-end gap-2">
+                  <label className="min-w-0 flex-1 space-y-1 text-xs">
+                    第二个明确评估
+                    <select
+                      className={trainingInputClass}
+                      value={state.secondId ?? ""}
+                      onChange={(e) => update({ second: e.target.value || undefined })}
+                    >
+                      <option value="" disabled hidden>
+                        选择第二个评估
+                      </option>
+                      {state.secondId &&
+                        !list.data?.items.some(
+                          (item) => item.id === state.secondId && item.id !== run.id,
+                        ) && (
+                          <option
+                            value={state.secondId}
+                            disabled={state.secondId === run.id}
+                            hidden={state.secondId === run.id}
+                          >
+                            {state.secondId === run.id
+                              ? `${run.name}（不能与自身比较）`
+                              : state.secondId}
+                          </option>
+                        )}
+                      {list.data?.items
+                        .filter((item) => item.id !== run.id)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} · {evaluationStatus[item.status]}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {state.secondId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => update({ second: undefined })}
+                    >
+                      取消评估比较
+                    </Button>
+                  )}
+                </div>
                 <PickerPage
                   page={pickerPage}
                   total={list.data?.total ?? 0}
                   label="比较候选"
+                  pageSize={pageSize}
                   onChange={setPickerPage}
                 />
                 {list.error && (
                   <p role="alert" className="mt-2 text-xs text-status-danger">
-                    候选列表：{list.error.message}
+                    候选列表：
+                    <CopyableError message={list.error.message} />
                   </p>
                 )}
                 {state.secondId === run.id && (
@@ -566,7 +634,7 @@ function EvaluationContent({
                 )}
                 {comparison.error && (
                   <p role="alert" className="mt-3 text-xs text-status-danger">
-                    {comparison.error.message}
+                    <CopyableError message={comparison.error.message} />
                   </p>
                 )}
                 {comparison.data &&
@@ -586,15 +654,25 @@ function EvaluationContent({
               </section>
               <details className="mt-5 rounded-lg border border-border p-4 text-xs">
                 <summary className="cursor-pointer font-medium">冻结基准与评估身份</summary>
-                <dl className="mt-3 space-y-2 break-all text-muted-foreground">
+                <dl className="mt-3 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-2 text-muted-foreground">
                   <dt>权重 SHA256</dt>
-                  <dd>{String(run.spec.model_ref.sha256)}</dd>
+                  <dd>
+                    <CopyValueButton
+                      value={String(run.spec.model_ref.sha256 ?? "")}
+                      label="复制评估权重哈希"
+                    />
+                  </dd>
                   <dt>基准摘要</dt>
-                  <dd>{run.benchmark_digest}</dd>
+                  <dd>
+                    <CopyValueButton value={run.benchmark_digest} label="复制评估基准摘要" />
+                  </dd>
                   <dt>评估设置摘要</dt>
-                  <dd>{run.spec_digest}</dd>
+                  <dd>
+                    <CopyValueButton value={run.spec_digest} label="复制评估设置摘要" />
+                  </dd>
                   <dt>推理环境</dt>
                   <dd>
+                    训练版本 {String(run.spec.model_ref.framework_version ?? "未知")} · 推理版本
                     Ultralytics {run.spec.profile.ultralytics_version} ·{" "}
                     {run.spec.profile.effective_device}
                   </dd>
@@ -638,7 +716,8 @@ function EvaluationContent({
           )}
           {secondDetail.error && (
             <p role="alert" className="mt-3 text-xs text-status-danger">
-              第二候选不可用：{secondDetail.error.message}
+              第二候选不可用：
+              <CopyableError message={secondDetail.error.message} />
             </p>
           )}
         </>
@@ -655,7 +734,18 @@ const metrics = [
   ["recall", "召回率", true],
   ["f1", "F1", true],
 ] as const;
+const maskMetrics = [
+  ["matched_mean_iou", "已匹配 Mask IoU", true],
+  ["matched_mean_dice", "已匹配 Dice", true],
+] as const;
+type MetricKey = (typeof metrics)[number][0] | (typeof maskMetrics)[number][0];
+function aggregateValue(aggregate: EvaluationAggregate | null | undefined, key: MetricKey) {
+  if (key === "matched_mean_iou" || key === "matched_mean_dice")
+    return aggregate && "matched_mean_iou" in aggregate ? aggregate[key] : undefined;
+  return aggregate?.[key];
+}
 function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
+  const classes = useListPagination(aggregate.per_class);
   return (
     <section className="mt-5 rounded-lg border border-border bg-card p-4" aria-label="完整评估指标">
       <dl className="grid grid-cols-3 gap-4 sm:grid-cols-6">
@@ -668,10 +758,59 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
           </div>
         ))}
       </dl>
+      {"matched_mean_iou" in aggregate && (
+        <div className="mt-4 border-t border-border pt-4">
+          <dl className="grid grid-cols-2 gap-4">
+            {maskMetrics.map(([key, label]) => (
+              <div key={key}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">
+                  {metricValue(aggregate[key], true)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Mask IoU、Dice 均值仅统计已匹配实例，漏检另计 FN；固定阈值像素指标不是 AP/mAP。
+          </p>
+          <div className="overflow-auto">
+            <table className="mt-3 w-full text-xs" aria-label="按原图掩码像素面积统计">
+              <caption className="mb-2 text-left text-muted-foreground">
+                按原图前景像素面积分组：小 &lt; 1,024；中 1,024–9,215；大 ≥ 9,216。TP/FN
+                按真值面积，FP 按预测面积。
+              </caption>
+              <thead>
+                <tr>
+                  <th className="py-2 text-left font-normal">面积组</th>
+                  {metrics.map(([, label]) => (
+                    <th key={label} className="px-2 py-2 text-right font-normal">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {aggregate.area_groups.map((group) => (
+                  <tr key={group.group} className="border-t border-border">
+                    <th className="py-2 text-left font-normal">
+                      {{ small: "小", medium: "中", large: "大" }[group.group]}
+                    </th>
+                    {metrics.map(([key, , fraction]) => (
+                      <td key={key} className="px-2 py-2 text-right tabular-nums">
+                        {metricValue(group[key], fraction)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <details className="mt-4 text-xs">
         <summary className="cursor-pointer text-muted-foreground">按类别统计与诊断</summary>
-        <div className="mt-3 max-h-80 overflow-auto">
-          <table className="w-full text-xs">
+        <div className="mt-3 overflow-auto">
+          <table className={listStyles.table}>
             <thead>
               <tr className="text-muted-foreground">
                 <th className="py-2 text-left">类别</th>
@@ -683,7 +822,7 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
               </tr>
             </thead>
             <tbody>
-              {aggregate.per_class.map((item) => (
+              {classes.items.map((item) => (
                 <tr key={item.class_index} className="border-t border-border">
                   <td className="py-2">{item.name}</td>
                   {metrics.map(([key, , fraction]) => (
@@ -696,6 +835,14 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
             </tbody>
           </table>
         </div>
+        <PickerPage
+          label="评估类别"
+          page={classes.page}
+          pageSize={classes.pageSize}
+          total={classes.total}
+          onChange={classes.setPage}
+          onPageSizeChange={classes.setPageSize}
+        />
         <p className="mt-3 text-muted-foreground">
           混淆 {aggregate.diagnostics.confusion ?? 0} · 定位偏差{" "}
           {aggregate.diagnostics.localization ?? 0}。诊断不重复计数。
@@ -725,6 +872,11 @@ function ComparisonResults({
       ? undefined
       : data.sample_pairs.find((item) => item.left_ordinal === ordinal);
   const second = data.candidates[1];
+  const comparisonMetrics = data.candidates.some(
+    (item) => item.aggregate && "matched_mean_iou" in item.aggregate,
+  )
+    ? [...metrics, ...maskMetrics]
+    : metrics;
   return (
     <div className="mt-4">
       {!data.compatible && (
@@ -736,7 +888,7 @@ function ComparisonResults({
         </p>
       )}
       <div className="overflow-auto">
-        <table className="w-full text-xs">
+        <table className={listStyles.table}>
           <thead>
             <tr className="text-muted-foreground">
               <th className="py-2 text-left font-normal">指标</th>
@@ -755,12 +907,12 @@ function ComparisonResults({
             </tr>
           </thead>
           <tbody>
-            {metrics.map(([key, label, fraction]) => (
+            {comparisonMetrics.map(([key, label, fraction]) => (
               <tr key={key} className="border-t border-border">
                 <th className="py-2 text-left font-normal">{label}</th>
                 {data.candidates.map((item) => (
                   <td key={item.evaluation_id} className="px-3 py-2 text-right tabular-nums">
-                    {metricValue(item.aggregate?.[key], fraction)}
+                    {metricValue(aggregateValue(item.aggregate, key), fraction)}
                   </td>
                 ))}
                 {data.compatible && (

@@ -66,6 +66,7 @@
   padding: 12px;
   margin: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   color: var(--sc-muted-foreground);
   font-size: 11px;
   line-height: 1.4;

@@ -1,5 +1,7 @@
 """Manager-owned automatic training policy and paginated trigger history."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import func, select
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
@@ -8,7 +10,6 @@ from app.db.models.training_run import TrainingRun
 from app.deps import (
     get_current_user,
     get_db,
-    get_labeling_task_source_reader,
     get_training_dataset_dispatcher,
     get_training_authority,
     require_project_owner,
@@ -21,7 +22,6 @@ from app.schemas.learning_policy import (
     LearningTriggerPage,
 )
 from app.services import learning_policies as service
-from app.services.dataset_task_facts import ProjectTaskSourceReader
 
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.training_authority_contract import TrainingAuthorityPort
@@ -35,10 +35,14 @@ router = APIRouter(
 
 @router.get("")
 async def get_policy(
-    project: Project = Depends(require_project_owner), db=Depends(get_db)
+    project: Project = Depends(require_project_owner),
+    db=Depends(get_db),
+    task: Literal["detect", "segment"] = "detect",
 ) -> LearningPolicyOut | None:
     return await db.scalar(
-        select(LearningPolicy).where(LearningPolicy.project_id == project.id)
+        select(LearningPolicy).where(
+            LearningPolicy.project_id == project.id, LearningPolicy.task == task
+        )
     )
 
 
@@ -71,12 +75,13 @@ async def save_policy(
     dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def disable_policy(
+    task: Literal["detect", "segment"] = "detect",
     expected_revision: int = Query(ge=1),
     project: Project = Depends(require_project_owner),
     user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    policy = await service.disable(db, project.id, user, expected_revision)
+    policy = await service.disable(db, project.id, user, expected_revision, task=task)
     await db.commit()
     return policy
 
@@ -87,20 +92,20 @@ async def disable_policy(
     dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def check_policy(
+    task: Literal["detect", "segment"] = "detect",
     project: Project = Depends(require_project_owner),
     user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
     ),
-    source_reader: ProjectTaskSourceReader = Depends(get_labeling_task_source_reader),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     policy = await service.check_project(
         db,
         project,
         user,
-        source_reader=source_reader,
+        task=task,
         training_authority=training_authority,
     )
     await db.commit()
@@ -111,6 +116,7 @@ async def check_policy(
 
 @router.get("/triggers", response_model=LearningTriggerPage)
 async def list_triggers(
+    task: Literal["detect", "segment"] = "detect",
     project: Project = Depends(require_project_owner),
     db=Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
@@ -119,12 +125,27 @@ async def list_triggers(
     total = await db.scalar(
         select(func.count())
         .select_from(LearningTrigger)
-        .where(LearningTrigger.project_id == project.id)
+        .where(
+            LearningTrigger.project_id == project.id,
+            LearningTrigger.policy_id.in_(
+                select(LearningPolicy.id).where(
+                    LearningPolicy.project_id == project.id, LearningPolicy.task == task
+                )
+            ),
+        )
     )
     triggers = list(
         await db.scalars(
             select(LearningTrigger)
-            .where(LearningTrigger.project_id == project.id)
+            .where(
+                LearningTrigger.project_id == project.id,
+                LearningTrigger.policy_id.in_(
+                    select(LearningPolicy.id).where(
+                        LearningPolicy.project_id == project.id,
+                        LearningPolicy.task == task,
+                    )
+                ),
+            )
             .order_by(LearningTrigger.created_at.desc(), LearningTrigger.id.desc())
             .limit(limit)
             .offset(offset)
@@ -161,9 +182,10 @@ async def list_triggers(
     dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def delete_policy(
+    task: Literal["detect", "segment"] = "detect",
     project: Project = Depends(require_project_owner),
     user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    if await service.delete(db, project.id, user):
+    if await service.delete(db, project.id, user, task=task):
         await db.commit()

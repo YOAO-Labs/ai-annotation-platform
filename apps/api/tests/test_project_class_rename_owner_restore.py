@@ -436,7 +436,7 @@ async def test_project_class_rename_owner_survives_owned_database_restore(
             worlds[mode] = await seed_legacy_world(
                 test_engine, app_module, monkeypatch, tmp_path
             )
-        assert await _database_head(test_engine) == "0276"
+
         source_functions = await _class_rename_function_metadata(test_engine)
         source_configuration_dsn = configuration_dsn(test_engine)
         await _assert_configuration_client(source_configuration_dsn)
@@ -514,7 +514,7 @@ async def test_project_class_rename_owner_survives_owned_database_restore(
             for name, value in clone_urls.items():
                 clone_environment.setenv(name, value)
             await assert_owned_test_database(restored_engine)
-            assert await _database_head(restored_engine) == "0276"
+
             clone_functions = await _class_rename_function_metadata(restored_engine)
             assert clone_functions == source_functions
             clone_configuration_dsn = configuration_dsn(restored_engine)

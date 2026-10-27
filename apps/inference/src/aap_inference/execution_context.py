@@ -27,9 +27,12 @@ def build_predict_context(
     visual_task = semantic.get("task")
     prompt_type = semantic.get("prompt_type")
     if frozen_model_ref:
-        if visual_task not in {None, "detect"} or prompt or prompt_type:
+        controlled_task = normalize_task_fields(
+            {"task": frozen_model_ref.get("task", "detection")}
+        )["task"]
+        if visual_task not in {None, controlled_task} or prompt or prompt_type:
             raise ValueError(
-                "Controlled models require the detect task without prompts"
+                "Controlled models require their frozen task without prompts"
             )
         if class_filter and any(
             type(index) is not int or not 0 <= index < len(frozen_model_ref["classes"])
@@ -37,7 +40,7 @@ def build_predict_context(
         ):
             raise ValueError("Controlled class filter is outside native classes")
         context = {
-            "task": "detect",
+            "task": controlled_task,
             "model_id": f"trained:{frozen_model_ref['model_version_id']}",
             "model_variants": {},
             "params": params or {},

@@ -78,9 +78,6 @@ const navigation = (page: Page) => page.getByTestId("issue-frame-navigation");
 const modal = (page: Page) => page.getByRole("dialog").filter({ hasText: "标记问题 (Issue)" });
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 const pathOf = (url: string) => new URL(url).pathname;
-const isFixtureMedia = (url: URL, fixture: string) =>
-  url.pathname.includes(`/e2e/video/webcodecs/${fixture}/`) &&
-  /\/(?:source|chunk-\d+)\.mp4$/.test(url.pathname);
 
 /** Fixture-specific cancellations beyond the shared workbench policy. */
 function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
@@ -94,10 +91,8 @@ function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
       },
       {
         method: "GET",
-        path: new RegExp(
-          `/e2e/video/webcodecs/${fixture.fixtureName}/(?:source|chunk-\\d+)\\.mp4$`,
-        ),
-        reason: "retiring the task aborts in-flight fixture media fetches",
+        path: /^\/api\/v1\/media\/original-playback\/[0-9a-f-]{36}$/,
+        reason: "retiring the task aborts its held original-video response",
       },
     );
   }
@@ -243,8 +238,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     };
     const errors: RequestErrorSignal[] = [];
     const pending: Promise<void>[] = [];
-    const relevant = (url: string) =>
-      pathOf(url).startsWith("/api/v1/") || isFixtureMedia(new URL(url), videoFixture);
+    const relevant = (url: string) => pathOf(url).startsWith("/api/v1/");
     page.on("pageerror", (error) => errors.push({ kind: "page", message: error.message }));
     page.on("console", (message) => {
       if (message.type() === "error")
@@ -707,6 +701,7 @@ async function holdMedia(page: Page, fixture: IssueCase) {
   const fetched: Array<{ path: string; status: number; bytes: number }> = [];
   const deliveries: Promise<void>[] = [];
   const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
     const delivery = (async () => {
       const response = await route.fetch();
       const bytes = (await response.body()).byteLength;
@@ -720,7 +715,10 @@ async function holdMedia(page: Page, fixture: IssueCase) {
     deliveries.push(delivery);
     await delivery;
   };
-  const matcher = (url: URL) => isFixtureMedia(url, fixture.fixtureName);
+  const matcher = (url: URL) =>
+    /^\/api\/v1\/(?:media\/original-playback\/[0-9a-f-]{36}|videos\/[0-9a-f-]{36}\/chunks\/\d+)$/i.test(
+      url.pathname,
+    );
   await page.route(matcher, handler);
   return {
     release,
@@ -1039,6 +1037,10 @@ test.describe("video Issue persisted context", () => {
           issue.id,
         );
         await expect(stage(page)).toHaveAttribute("data-video-draft-point-count", "0");
+        await expect(stage(page)).toHaveAttribute("data-video-precise-state", "ready", {
+          timeout: 25_000,
+        });
+        await expectPaintSettled(page);
         expect(await annotations(request, fixture)).toEqual([]);
         return;
       }
@@ -1463,7 +1465,8 @@ test.describe("video Issue persisted context", () => {
     await page.getByTestId("issue-list-scope").selectOption("project");
     await page.getByTestId(`discussion-issue-locate-${issueB.id}`).click();
     await expect(page).toHaveURL(new RegExp(`task=${other.task_id}(?:&|$)`));
-    await expect(navigation(page)).toHaveAttribute("data-status", "timeout", { timeout: 12_000 });
+    // Cross-task Stage ownership already has a 15s deadline, separate from the 3s pixel wait.
+    await expect(navigation(page)).toHaveAttribute("data-status", "timeout", { timeout: 18_000 });
     await expect(navigation(page)).toHaveAttribute("data-frame-index", "143");
     await expect(modal(page)).toBeHidden();
     await timeoutMedia.finish();

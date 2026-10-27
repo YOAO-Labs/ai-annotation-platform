@@ -16,10 +16,12 @@ from __future__ import annotations
 
 from aap_task_contract import normalize_task
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from training_contract.assets import resolve_prepared_asset
 
 import asyncio
 import copy
 import logging
+import json
 import os
 import time
 import uuid
@@ -64,13 +66,16 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_admission_header_values,
     parse_gpu_control_token_header_values,
 )
+from aap_backend_runtime.backend_auth import install_backend_auth
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import ValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 import class_names
+from model_metadata import ModelMetadataStore, file_signature
 from managed_models import (
+    runtime_receipt,
     InstallRequest,
     ManagedModelStore,
     authenticate as authenticate_managed,
@@ -143,8 +148,13 @@ STRICT_OFFLINE = os.environ.get("YOLO_STRICT_OFFLINE", "0") not in (
     "False",
 )
 CHECKPOINTS_DIR = Path(os.environ.get("YOLO_CHECKPOINTS_DIR", "/app/checkpoints"))
+MODEL_ASSETS_DIR = Path("/model-assets")
 _managed_models = ManagedModelStore(CHECKPOINTS_DIR / "managed")
+_model_metadata = ModelMetadataStore(CHECKPOINTS_DIR, model_assets=MODEL_ASSETS_DIR)
 _evaluation_requests = EvaluationRequestStore(CHECKPOINTS_DIR / "managed-evaluations")
+_mask_evaluation_requests = EvaluationRequestStore(
+    CHECKPOINTS_DIR / "managed-mask-evaluations", response_bytes=17 * 1024 * 1024
+)
 # Code support and deployment verification are separate. The backend does not
 # advertise or enter enforce mode until real-card load/unload evidence exists.
 MANAGED_LIFECYCLE_VERIFIED = deployment_verified_flag("YOLO_MANAGED_LIFECYCLE_VERIFIED")
@@ -174,12 +184,15 @@ def _build_model(task: str, series: str, size: str):
     """
     task = normalize_task(task, allow_unknown=True)
     if series.startswith("trained:"):
-        if task != "detect":
-            raise ValueError("Controlled models support detection only")
+        if task not in {"detect", "segment"}:
+            raise ValueError("Controlled models support qualified image tasks only")
         sha, separator, receipt_digest = size.partition(":")
         path, receipt = _managed_models.resolve(series.removeprefix("trained:"), sha)
+        receipt = runtime_receipt(receipt)
         if not separator or digest(receipt) != receipt_digest:
             raise ValueError("Controlled model pool qualification differs")
+        if normalize_task(receipt["task"]) != task:
+            raise ValueError("Controlled model pool task differs from the receipt")
         model = _managed_models.inspect(path, receipt)
         if receipt["framework"] == "libreyolo":
             return model.to("cpu")
@@ -200,7 +213,11 @@ def _build_model(task: str, series: str, size: str):
     else:
         filename = resolve_weight_filename(task, series, size)
         model_cls = YOLO
-    weight_path = CHECKPOINTS_DIR / filename
+    # Controlled public assets are prepared before admission. A manifest entry
+    # must resolve on this node; it never falls back to an upstream download.
+    prepared = resolve_prepared_asset(MODEL_ASSETS_DIR, filename)
+    weight_path = prepared if prepared is not None else CHECKPOINTS_DIR / filename
+    before = file_signature(weight_path) if weight_path.exists() else None
     if not weight_path.exists():
         if STRICT_OFFLINE:
             raise FileNotFoundError(
@@ -216,6 +233,21 @@ def _build_model(task: str, series: str, size: str):
             os.chdir(cwd)
     else:
         model = model_cls(str(weight_path))
+
+    if task == "detect" and not is_openvocab_series(series) and weight_path.is_file():
+        from importlib.metadata import version
+
+        try:
+            _model_metadata.observe(
+                weight_path,
+                model,
+                series=series,
+                size=size,
+                loader_version=version("ultralytics"),
+                before=before,
+            )
+        except OSError as exc:
+            logger.warning("Cannot persist model class observation: %s", exc)
 
     return _move_model_to_effective_device(model)
 
@@ -313,6 +345,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="yolo-backend", version=BACKEND_VERSION, lifespan=lifespan)
 install_backend_routing_controller(app)
+
+install_backend_auth(app, "yolo")
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:
@@ -830,6 +864,13 @@ def _build_tracker_model_entry() -> dict[str, Any]:
     return entry
 
 
+@app.get("/models/metadata")
+def model_metadata():
+    from importlib.metadata import version
+
+    return _model_metadata.snapshot(loader_version=version("ultralytics"))
+
+
 @app.get("/setup")
 def setup() -> dict[str, Any]:
     """协议 v2 多模型目录. 详见 docs-site/dev/reference/ml-backend-protocol.md §4.1.6."""
@@ -853,6 +894,7 @@ def setup() -> dict[str, Any]:
         "supported_variants": [],  # 顶层留空, 由 models[].supported_variants 各自声明.
         "infra": "pytorch",
         "warmup_endpoint": True,  # 声明本 backend 支持 POST /warmup (协议 §4.4)
+        "model_metadata_endpoint": True,
         "params": _PARAMS_SCHEMA,
         "models": [
             _build_model_entry(
@@ -934,25 +976,30 @@ def versions() -> dict[str, Any]:
 @app.post("/managed-models")
 async def install_managed_model(body: InstallRequest, request: Request):
     authenticate_managed(request)
-    return await _managed_models.install(body)
+    return runtime_receipt(await _managed_models.install(body))
 
 
 @app.get("/managed-models/{version_id}")
 async def managed_model_receipt(version_id: str, request: Request):
     authenticate_managed(request)
     try:
-        return await asyncio.to_thread(_managed_models.receipt, version_id)
+        return runtime_receipt(
+            await asyncio.to_thread(_managed_models.receipt, version_id)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid model version") from exc
 
 
 @app.get("/managed-evaluation/profile")
-async def evaluation_profile(request: Request):
+async def evaluation_profile(
+    request: Request, base_model: str | None = Query(default=None, max_length=64)
+):
     authenticate_managed(request)
     return await asyncio.to_thread(
         qualification_profile,
         effective_device(DEVICE),
         _evaluation_requests.storage_identity,
+        *([base_model] if base_model is not None else []),
     )
 
 
@@ -977,6 +1024,42 @@ async def seal_evaluation_request(
     return _evaluation_requests.seal(request_id, body)
 
 
+@app.get("/managed-evaluation/segment/profile")
+async def mask_evaluation_profile(
+    request: Request, base_model: str | None = Query(default=None, max_length=64)
+):
+    from segmentation_evaluations import qualification_profile as mask_profile
+
+    authenticate_managed(request)
+    return await asyncio.to_thread(
+        mask_profile,
+        effective_device(DEVICE),
+        _mask_evaluation_requests.storage_identity,
+        *([base_model] if base_model is not None else []),
+    )
+
+
+@app.get("/managed-evaluation/segment/requests/{request_id}")
+async def mask_evaluation_receipt(
+    request_id: uuid.UUID,
+    request: Request,
+    binding_digest: str = Query(pattern=r"^[a-f0-9]{64}$"),
+    storage_identity: uuid.UUID = Query(),
+):
+    authenticate_managed(request)
+    return _mask_evaluation_requests.receipt(
+        request_id, binding_digest=binding_digest, storage_identity=storage_identity
+    )
+
+
+@app.post("/managed-evaluation/segment/requests/{request_id}/seal")
+async def seal_mask_evaluation_request(
+    request_id: uuid.UUID, body: EvaluationSeal, request: Request
+):
+    authenticate_managed(request)
+    return _mask_evaluation_requests.seal(request_id, body)
+
+
 async def _run_predict(
     req: BatchPredictRequest,
     *,
@@ -994,17 +1077,31 @@ async def _run_predict(
         controlled_identity = {
             k: receipt[k] for k in ("model_version_id", "sha256", "classes_digest")
         }
-        if controlled_identity != ctx.frozen_model_ref.model_dump(mode="json"):
+        receipt = runtime_receipt(receipt)
+        requested = ctx.frozen_model_ref.model_dump(mode="json", exclude_none=True)
+        pinned_runtime = requested.pop("inference_runtime", None)
+        if (
+            controlled_identity != requested
+            or pinned_runtime is not None
+            and pinned_runtime != receipt["inference_runtime"]
+            or pinned_runtime is None
+            and receipt["framework_version"] != receipt["inference_runtime"]["version"]
+        ):
             raise HTTPException(
                 status_code=409, detail="Controlled model identity differs"
             )
+        if normalize_task(receipt["task"]) != ctx.task:
+            raise HTTPException(status_code=409, detail="Controlled model task differs")
         ctx._managed_receipt_digest = digest(receipt)
+        ctx._managed_receipt = receipt
     key = model_key_for_context(ctx)
     if not _is_supported_combo(ctx):
         raise _unsupported_combo_error(ctx.task, ctx.variants.series, ctx.variants.size)
     results: list[PredictionResult] = []
+    segmentation_metadata_bytes = 0
     for t in req.tasks:
         try:
+            ctx._segmentation_meta = None
             result_items, cache_hit, load_ms, infer_ms = await _predictor.predict_one(
                 t.file_path, ctx
             )
@@ -1013,6 +1110,34 @@ async def _run_predict(
                     "Evaluation inference did not observe its effective settings"
                 )
             score = max((r.get("score", 0.0) for r in result_items), default=0.0)
+            meta = None
+            if controlled_identity:
+                meta = {
+                    "trained_model": controlled_identity,
+                    "inference_runtime": ctx._managed_receipt["inference_runtime"],
+                    **(
+                        {"sample_evaluation": ctx._evaluation_meta}
+                        if ctx.sample_evaluation
+                        else {}
+                    ),
+                    **(ctx._segmentation_meta or {}),
+                }
+                if ctx.task == "segment":
+                    from aap_protocol_v2.mask_interaction import MAX_MASK_RESPONSE_BYTES
+
+                    if ctx._segmentation_meta is None:
+                        raise ValueError(
+                            "Controlled segmentation did not produce mask evidence"
+                        )
+                    segmentation_metadata_bytes += len(
+                        json.dumps(
+                            meta, ensure_ascii=False, separators=(",", ":")
+                        ).encode()
+                    )
+                    if segmentation_metadata_bytes > MAX_MASK_RESPONSE_BYTES:
+                        raise ValueError(
+                            "Segmentation batch metadata exceeds the byte budget"
+                        )
             results.append(
                 PredictionResult(
                     task=t.id,
@@ -1021,16 +1146,7 @@ async def _run_predict(
                     model_version=ctx.model_id
                     if controlled_identity
                     else f"{ctx.variants.series}{ctx.variants.size}",
-                    meta={
-                        "trained_model": controlled_identity,
-                        **(
-                            {"sample_evaluation": ctx._evaluation_meta}
-                            if ctx.sample_evaluation
-                            else {}
-                        ),
-                    }
-                    if controlled_identity
-                    else None,
+                    meta=meta,
                     inference_time_ms=infer_ms,
                     cache_hit=cache_hit,
                     model_load_ms=load_ms,
@@ -1068,6 +1184,8 @@ async def _run_predict(
 
 
 async def _run_sample_evaluation(req, *, operation):
+    from sample_evaluations import receipt_base_model
+
     ctx = req.context
     request = ctx.sample_evaluation
     receipt = await asyncio.to_thread(
@@ -1079,10 +1197,20 @@ async def _run_sample_evaluation(req, *, operation):
             "evaluation_framework_unqualified",
             "This framework has not qualified for the shared sample evaluator",
         )
+    store, profile_function = _evaluation_requests, qualification_profile
+    if ctx.task == "segment":
+        from segmentation_evaluations import qualification_profile as mask_profile
+
+        store, profile_function = _mask_evaluation_requests, mask_profile
     profile = await asyncio.to_thread(
-        qualification_profile,
+        profile_function,
         effective_device(DEVICE),
-        _evaluation_requests.storage_identity,
+        store.storage_identity,
+        *(
+            [receipt_base_model(receipt)]
+            if receipt_base_model(receipt) is not None
+            else []
+        ),
     )
     if profile["profile_digest"] != request.profile_digest:
         raise evaluation_error(
@@ -1092,7 +1220,7 @@ async def _run_sample_evaluation(req, *, operation):
         )
     expected = request_binding(
         req.tasks[0].id,
-        ctx.frozen_model_ref.model_dump(mode="json"),
+        ctx.frozen_model_ref.model_dump(mode="json", exclude_none=True),
         {"conf": ctx.params.conf, "iou": ctx.params.iou, "max_det": ctx.params.max_det},
         request,
     )
@@ -1104,7 +1232,7 @@ async def _run_sample_evaluation(req, *, operation):
         )
     dimensions = await asyncio.to_thread(verify_input, req.tasks[0].file_path, request)
     ctx._evaluation_profile = profile
-    with _evaluation_requests.execution(request) as receipt:
+    with store.execution(request) as receipt:
         if receipt["state"] == "completed":
             return copy.deepcopy(receipt["response"])
         try:
@@ -1131,7 +1259,7 @@ async def _run_sample_evaluation(req, *, operation):
                 "Observed inference dimensions differ from verified input",
             )
         response = BatchPredictResponse(results=results).model_dump(exclude_none=True)
-        _evaluation_requests.publish(request, receipt, response)
+        store.publish(request, receipt, response)
         return response
 
 
@@ -1152,7 +1280,7 @@ async def predict(request: Request) -> dict[str, Any]:
         req = _validate_body(BatchPredictRequest, body)
         if req.context.frozen_model_ref:
             authenticate_managed(request)
-            if is_single:
+            if is_single and req.context.task != "segment":
                 raise HTTPException(
                     status_code=422,
                     detail="Controlled models support batch image detection only",
@@ -1174,10 +1302,12 @@ async def predict_interactive(request: Request) -> dict[str, Any]:
     try:
         req = _validate_body(InteractiveRequest, await _request_json(request))
         if req.context.frozen_model_ref:
-            raise HTTPException(
-                status_code=422,
-                detail="Controlled models do not support interactive prediction",
-            )
+            authenticate_managed(request)
+            if req.context.task != "segment":
+                raise HTTPException(
+                    status_code=422,
+                    detail="Controlled detection does not support interactive prediction",
+                )
         results = await _run_predict(
             BatchPredictRequest(tasks=[req.task], context=req.context),
             operation=operation,
@@ -1189,7 +1319,7 @@ async def predict_interactive(request: Request) -> dict[str, Any]:
 
 def _is_supported_combo(ctx: Context) -> bool:
     if ctx.frozen_model_ref:
-        return ctx.task == "detect"
+        return ctx.task in {"detect", "segment"}
     series = ctx.variants.series
     size = ctx.variants.size
     if ctx.type == "text" or is_openvocab_series(series):

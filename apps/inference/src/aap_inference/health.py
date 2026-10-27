@@ -253,6 +253,19 @@ class BackendHealthCoordinator:
                 )
             except Exception:
                 caps = None
+            # Model lineage consumers read the frozen metadata snapshot from
+            # health_meta; it stays inside the same /health+/setup evidence window.
+            if (
+                caps is not None
+                and isinstance(setup, dict)
+                and setup.get("model_metadata_endpoint") is True
+            ):
+                try:
+                    metadata = await client.model_metadata()
+                except Exception:
+                    metadata = None
+                if metadata is not None:
+                    meta = {**meta, "model_metadata": metadata}
 
         # The evidence timestamp must enclose both /health and /setup.
         observed_at = await self._data.clock_timestamp()

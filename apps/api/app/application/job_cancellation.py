@@ -20,6 +20,7 @@ from app.services import cross_frame_job, mask_repair, prediction, sample_evalua
 from app.services import training_datasets
 from app.services.async_job_notify import notify_job_terminal
 from app.services.job_execution_control import JobExecutionControl
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.mask_formats import service as mask_formats
 from app.services.project_write_guard import lock_project_manager
 from app.services.task_creation_contract import TaskCreationFailure
@@ -33,6 +34,7 @@ log = logging.getLogger(__name__)
 
 CANCELLABLE_KINDS = {
     "create_tasks",
+    "export",
     "sample_evaluation",
     "training_dataset",
     "batch_predict",
@@ -44,6 +46,16 @@ CANCELLABLE_KINDS = {
     "mask_format_import",
     "point_cloud_cross_frame",
     "point_cloud_quality",
+    "storage_usage",
+    "managed_original_verification",
+    "managed_original_reclaim",
+    "managed_reference_reconciliation",
+    "storage_migration_inventory",
+    "storage_migration_copy",
+    "dataset_scan",
+    "dataset_registration",
+    "dataset_quality",
+    "dataset_quality_review",
 }
 _REVOKE_KINDS = {
     "mask_qc",
@@ -105,6 +117,143 @@ class SqlJobCancellation(JobCancellationPort):
                     status_code=409,
                     detail=f"cannot cancel terminal job (status={job.status})",
                 )
+
+            if job.kind == "export":
+                job = await db.scalar(
+                    job_lock_statement(job.id, mode="update", populate_existing=True)
+                )
+                if job is None or job.status not in {"pending", "running"}:
+                    raise HTTPException(409, detail="export is no longer cancellable")
+                await jobs.mark_cancelled(db, job.id)
+                await notify_job_terminal(db, job_id=job.id)
+                return "cancelled"
+
+            if job.kind in {
+                "storage_migration_inventory",
+                "storage_migration_copy",
+            }:
+                from app.services import (
+                    storage_migration_copies,
+                    storage_migration_inventories,
+                    storage_maintenance,
+                )
+
+                actor_status = await IdentityAccountLockData(db).read_actor_status(
+                    actor_id
+                )
+                _, proof = await storage_maintenance.authority(
+                    db, actor_status, None, "*", lock=True
+                )
+                domain = (
+                    storage_migration_copies
+                    if job.kind == "storage_migration_copy"
+                    else storage_migration_inventories
+                )
+                status = await domain.cancel(db, job.id)
+                _, current_proof = await storage_maintenance.authority(
+                    db, actor_status, None, "*"
+                )
+                if current_proof != proof:
+                    raise HTTPException(
+                        403, detail={"code": "api_key_authority_revoked"}
+                    )
+                if status == "cancelled":
+                    await notify_job_terminal(db, job_id=job.id)
+                return status
+
+            if job.kind == "managed_original_reclaim":
+                from app.services import managed_original_reclaim, storage_maintenance
+
+                actor_status = await IdentityAccountLockData(db).read_actor_status(
+                    actor_id
+                )
+                _, proof = await storage_maintenance.authority(
+                    db, actor_status, None, "*", lock=True
+                )
+                status = await managed_original_reclaim.cancel(db, job.id)
+                if status == "cancelled":
+                    await notify_job_terminal(db, job_id=job.id)
+                return status
+
+            if job.kind == "managed_original_verification":
+                from app.services import (
+                    managed_original_verification,
+                    storage_maintenance,
+                )
+
+                actor_status = await IdentityAccountLockData(db).read_actor_status(
+                    actor_id
+                )
+                _, proof = await storage_maintenance.authority(
+                    db, actor_status, None, "*", lock=True
+                )
+                status = await managed_original_verification.cancel(db, job.id)
+                if status == "cancelled":
+                    await notify_job_terminal(db, job_id=job.id)
+                return status
+
+            if job.kind == "storage_usage":
+                from app.services import storage_usage
+                from app.services.dataset_content import key_authority
+
+                actor_status = await IdentityAccountLockData(db).read_actor_status(
+                    actor_id
+                )
+                proof = await key_authority(db, actor_status, None, "*")
+                await storage_usage.require_admin(db, actor_id)
+                await storage_usage.cancel(db, job.id)
+                await storage_usage.require_admin(db, actor_id)
+                if await key_authority(db, actor_status, None, "*") != proof:
+                    raise HTTPException(
+                        403, detail={"code": "api_key_authority_revoked"}
+                    )
+                return "cancelled"
+
+            if job.kind in {"dataset_quality", "dataset_quality_review"}:
+                from app.services import dataset_quality, dataset_quality_review
+                from app.services.dataset_content import key_authority
+
+                actor_status = await IdentityAccountLockData(db).read_actor_status(
+                    actor_id
+                )
+                proof = await key_authority(db, actor_status, None, "datasets:write")
+                await (
+                    dataset_quality_review
+                    if job.kind == "dataset_quality_review"
+                    else dataset_quality
+                ).cancel_job(db, job, actor_status)
+                if (
+                    await key_authority(db, actor_status, None, "datasets:write")
+                    != proof
+                ):
+                    raise HTTPException(
+                        403, detail={"code": "api_key_authority_revoked"}
+                    )
+                return "cancelled"
+
+            if job.kind in {"dataset_scan", "dataset_registration"}:
+                from app.services.dataset_content import key_authority
+
+                actor_status = await IdentityAccountLockData(db).read_actor_status(
+                    actor_id
+                )
+                key_proof = await key_authority(
+                    db, actor_status, None, "datasets:write"
+                )
+                if job.kind == "dataset_scan":
+                    from app.services.dataset_scans import cancel_job
+                else:
+                    from app.services.dataset_registration import cancel_job
+
+                await cancel_job(db, job.id, actor_status)
+                if (
+                    await key_authority(db, actor_status, None, "datasets:write")
+                    != key_proof
+                ):
+                    raise HTTPException(
+                        403, detail={"code": "api_key_authority_revoked"}
+                    )
+                return "cancelled"
 
             if job.kind == "create_tasks":
                 try:

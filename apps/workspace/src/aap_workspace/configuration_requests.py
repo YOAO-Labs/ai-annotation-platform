@@ -127,6 +127,30 @@ class ProjectUpdate(BaseModel):
     rendering_config: ProjectRenderingConfig | None = None
     annotation_guide: str | None = None
     guide_assets: list[dict] | None = None
+    guide_assets_revision: Annotated[int, Field(strict=True, ge=1)] | None = None
+
+    @field_validator("guide_assets", "guide_assets_revision")
+    @classmethod
+    def _guide_fields_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("指南图片清单和修订号不可为 null")
+        return value
+
+    @model_validator(mode="after")
+    def _guide_asset_revision_scope(self) -> ProjectUpdate:
+        if (
+            "guide_assets_revision" in self.model_fields_set
+            and "guide_assets" not in self.model_fields_set
+        ):
+            raise ValueError("指南图片修订号须与清单一同提交")
+        if self.guide_assets is not None:
+            keys = [entry.get("key") for entry in self.guide_assets]
+            if any(not isinstance(key, str) or not key for key in keys):
+                raise ValueError("指南图片缺少资源标识")
+            if len(set(keys)) != len(keys):
+                raise ValueError("指南图片清单不可包含重复资源")
+        return self
+
     video_sampling: VideoSamplingConfig | None = None
     video_collaboration: VideoCollaborationConfig | None = None
 

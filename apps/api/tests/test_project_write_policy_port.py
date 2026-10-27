@@ -10,7 +10,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.application import legacy_file_upload
+from app.application import project_thumbnail_backfill
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
@@ -61,7 +61,7 @@ async def _invoke_consumer(monkeypatch, consumer, resolver, *, manager_denial=No
         project_access, "bind_project_write_policy_resolver", lambda _db: resolver
     )
     monkeypatch.setattr(
-        legacy_file_upload,
+        project_thumbnail_backfill,
         "bind_project_write_policy_resolver",
         lambda _db: resolver,
     )
@@ -77,9 +77,7 @@ async def _invoke_consumer(monkeypatch, consumer, resolver, *, manager_denial=No
             object(), actor_id=uuid4(), project_id=uuid4()
         )
     else:
-        workflow = object.__new__(legacy_file_upload.LegacyFileUploadWorkflow)
-        workflow.db = object()
-        await workflow._manager_access(uuid4(), uuid4(), lock=True)
+        await project_thumbnail_backfill._manager_access(object(), uuid4(), uuid4())
 
 
 @pytest.mark.asyncio
@@ -183,7 +181,9 @@ async def test_sql_resolver_projects_expected_http_failures_to_pure_facts(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("consumer", ["manager", "prediction_import", "legacy_upload"])
+@pytest.mark.parametrize(
+    "consumer", ["manager", "prediction_import", "thumbnail_backfill"]
+)
 @pytest.mark.parametrize(
     ("status_code", "detail", "headers"),
     [
@@ -210,7 +210,7 @@ async def test_access_only_consumers_restore_http_failures_at_their_boundary(
     [
         ("manager", "custom manager denial"),
         ("prediction_import", "项目管理权限已变化"),
-        ("legacy_upload", "仅项目负责人或超级管理员可执行"),
+        ("thumbnail_backfill", "仅项目负责人或超级管理员可执行"),
     ],
 )
 async def test_manager_denial_details_remain_at_the_consuming_boundary(

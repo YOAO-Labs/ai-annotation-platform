@@ -20,6 +20,7 @@ import {
   workbenchImagePreviewUrl,
 } from "@/pages/Workbench/stage/useWorkbenchImageSource";
 import { useSessionStats } from "@/pages/Workbench/state/useSessionStats";
+import { useAbortableImage } from "@/pages/Workbench/stage/useAbortableImage";
 
 type DiffMode = "final" | "raw" | "diff";
 
@@ -55,11 +56,26 @@ export function ReviewWorkbench({
   onNext,
 }: ReviewWorkbenchProps) {
   const { data: task } = useTask(taskId);
-  const { source: imageSource, retry: retryImagePyramid } = useWorkbenchImageSource(
-    task,
-    task?.dataset_item_id ?? task?.id ?? null,
-  );
+  const {
+    source: imageSource,
+    retry: retryImagePyramid,
+    refresh: refreshImage,
+    contentBlockedReason,
+  } = useWorkbenchImageSource(task, task?.dataset_item_id ?? task?.id ?? null, taskId);
   const imagePreviewUrl = workbenchImagePreviewUrl(imageSource);
+  const [, previewStatus] = useAbortableImage(
+    imageSource?.kind === "single" ? imageSource.url : (imagePreviewUrl ?? ""),
+  );
+  const imageBlocked =
+    !task ||
+    (task.file_type === "image" &&
+      (!!contentBlockedReason ||
+        !imageSource ||
+        (imageSource.kind !== "single" && imageSource.kind !== "pyramid") ||
+        previewStatus !== "loaded"));
+  const imageError =
+    contentBlockedReason ??
+    (previewStatus === "failed" ? "浏览器无法显示此图片，请重新读取或下载原件" : null);
   const { data: project } = useProject(task?.project_id ?? "");
   const { data: annotationsData } = useAnnotations(taskId);
   const predictionsInfinite = usePredictions(taskId);
@@ -208,17 +224,43 @@ export function ReviewWorkbench({
                 <Icon name="chevRight" size={12} />
               </Button>
             )}
-            <Button variant="primary" size="sm" onClick={onApprove} data-testid="review-approve">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={imageBlocked}
+              onClick={() => {
+                if (!imageBlocked) onApprove();
+              }}
+              data-testid="review-approve"
+            >
               <Icon name="check" size={12} />
               通过
             </Button>
-            <Button variant="danger" size="sm" onClick={onReject} data-testid="review-reject">
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={imageBlocked}
+              onClick={() => {
+                if (!imageBlocked) onReject();
+              }}
+              data-testid="review-reject"
+            >
               <Icon name="x" size={12} />
               退回
             </Button>
           </div>
         </div>
 
+        {imageBlocked && (
+          <div role="status" className="text-xs text-muted-foreground">
+            {imageError ?? "正在读取任务图片，请稍候"}
+            {imageError && (
+              <Button size="sm" onClick={() => void refreshImage()}>
+                重试图片读取
+              </Button>
+            )}
+          </div>
+        )}
         <ImageStage
           fileUrl={task?.file_url ?? null}
           imageSource={imageSource}

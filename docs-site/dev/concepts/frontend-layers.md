@@ -1,94 +1,79 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-11
+last_reviewed: 2026-10-19
 ---
 
 # 前端分层
 
-## 路径别名
+前端应用位于 `apps/web/`（包名 `@anno/web`，路径别名 `@/*` → `apps/web/src/*`），采用 React 18 + TypeScript + Vite + React Router 构建。
 
-`@/*` → `apps/web/src/*`
+## 核心依赖方向
 
-## 分层
-
-```
-pages → components/ui + stores + api → generated types
-```
-
-## 页面（pages）
-
-- 一个路由一个目录
-- 复杂页面可拆 `state/` `stage/` `stages/` `modes/` `shell/`：
-  - `state/` — Zustand store + reducer-like actions
-  - `stage/` — 底层画布 / 播放器组件（标注工作台特有）
-  - `stages/` — image / video / 3D 的 Stage adapter 与 stage-specific action hooks
-  - `modes/` — annotate / review 的页面策略 hook
-  - `shell/` — 该页特有的布局、面板、overlay 与 Host 组件
-
-Workbench 的细分边界见 [工作台 Shell 架构](./workbench-shell)。
-
-## API 层（src/api）
-
-- `generated/` — `openapi-ts` 输出，**不手动改**
-- `users.ts` / `projects.ts` 等 — 手写包装：组合 axios/fetch、统一 baseURL、注入 token、错误归一化
-- 导出函数命名：`getXxx` / `createXxx` / `updateXxx` / `deleteXxx`
-
-## 状态管理
-
-- 全局：Zustand store
-- 服务端状态：TanStack Query（带缓存与失效）
-- 不要把服务端数据塞进 Zustand store —— 那是 React Query 的活
-
-## 组件分层
-
-- `components/ui/` — 应用兼容适配层（Button / Card / Badge ...）只允许接收 props，不调 API
-- `components/shadcn/ui/` — shadcn/ui 原语和底层交互组件
-- `components/shell/` — 应用框架（TopBar / Sidebar）
-- 页面内的局部组件 — 放在 `pages/<Page>/components/`
-
-## 样式
-
-- 主题变量定义在 `src/styles/shadcn.css`，当前 CSS 只读 `--sc-*`
-- 页面和组件优先使用 Tailwind 语义类与 shadcn/ui
-- 残留 CSS Module 只保留局部布局或画布叠加层样式，不再读取旧颜色变量
-
-## 共用 Markdown 编辑与阅读
-
-`components/markdown/MarkdownEditor` 提供可视化编辑、源码和预览；`MarkdownView` 负责只读排版。页面继续持有草稿、提交校验、保存请求和附件策略。标注指引、项目模板指引、BUG 描述和 BUG 评论复用这组组件，持久化格式仍是 Markdown 字符串。
-
-编辑器基于 MDXEditor，只在需要编辑时动态加载。只读视图使用 `react-markdown` 与 `remark-gfm`，不能从编辑器模块导入运行时代码。`GuideMarkdownView` 和 `MarkdownBlock` 保留为兼容适配层，共用渲染和样式。
-
-| 接口                             | 归属与用途                                                       |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `value` / `onChange`             | 页面拥有草稿；初始化或仅切换模式不把编辑器规范化输出当成人工修改 |
-| `documentId`                     | 切换文档时重建编辑上下文，隔离未完成上传与旧回调                 |
-| `label` / `variant` / `disabled` | 可访问名称、正文或紧凑工具栏、当前可编辑状态                     |
-| `onBlur`                         | 离开整个编辑区域时通知页面；工具栏和编辑器弹层属于同一操作范围   |
-| `onUploadImage`                  | 业务上传图片，返回要保存的稳定 `src` 和可选替代文字              |
-| `resolveImage` / `imageScope`    | 将内部图片标识解析为临时显示地址，并按文档隔离解析状态           |
-
-`types.ts` 中的 `MarkdownImageResolver` 接收完整图片 `src` 和可选的强制刷新选项，返回 `url` 及可选的 `expiresAt`（Unix 毫秒时间戳）。项目图片通过 `useGuideAssets` 解析 `guide-asset:KEY`；签名 URL 仅用于显示，不写回 Markdown。缓存与进行中的签名请求按项目隔离，过期或加载失败后可以重新获取地址。
-
-编辑器和阅读器支持同一组 Markdown/GFM 文本结构。阅读器保留默认 URL 过滤，仅在提供项目图片解析器时允许图片节点使用内部资源协议。可视化编辑不启用原始 HTML、JSX 执行和图片尺寸 HTML 输出。不能解析的原文保留在源码模式中供恢复。
-
-项目指引的自动保存由 `AnnotationGuideSection` 持有：停止输入后合并请求，串行保存并按响应内容推进已保存基线；离开设置区时向原项目提交最新草稿。编辑器通过 MDXEditor 的公开活动编辑器订阅与嵌套编辑器命令同步表格单元格，组合输入结束后才向页面发布 Markdown，避免保存中间候选文本。相关浏览器回归位于 `apps/web/e2e/tests/guide-autosave.spec.ts`。
-
-BUG 截图仍由反馈表单的附件队列拥有，文件粘贴不能同时被编辑器和表单消费。其描述限长须校验追加诊断后的完整载荷。工作台评论的字符偏移提及、画布批注和定位锚点仍由原组件处理，不能直接替换成普通 Markdown 输入。
-
-工作台顶栏的指引入口与阅读窗口共享一个阅读状态所有者，打开和关闭只影响界面状态；阅读确认按用户、项目及正文版本保存。阅读窗口沿用工作台设置的响应式尺寸和外部点击关闭方式，接入工作台交互隔离，关闭时归还入口焦点。图片放大弹窗挂在阅读弹窗的容器中，避免被父弹窗遮挡。
-
-回归检查应同时覆盖真实编辑器和表单保存。重点包括旧原文不被空操作改写、撤销回到初值、失败保稿、异步结果不跨文档、内部图片解析、反馈附件粘贴和中文输入。浏览器流程位于 `apps/web/e2e/tests/markdown-authoring.spec.ts`，占位提示、阅读窗口与工作台状态隔离由 `guide-experience.spec.ts` 覆盖；运行时使用独立测试数据库和对象存储桶。
-
-## OpenAPI 自动生成
-
-```
-后端改 schema → uv run python scripts/export_openapi.py
-            → apps/api/openapi.snapshot.json 更新
-            → pnpm codegen → src/api/generated/types.gen.ts 更新
-            → 手写 wrapper 引用新类型
+```text
+pages (路由页面与领域工作流)
+  ├── components/shell + components/ui + components/shadcn/ui (视图组件)
+  ├── stores (全局壳层 Zustand Store) + TanStack Query (服务端缓存)
+  └── api/*.ts (领域 API 封装) → api/generated/* (OpenAPI 与能力词表自动生成类型)
 ```
 
-snapshot 是契约的真值源头；CI 会校验它与运行时一致。
+## 1. 页面与工作台分层（`src/pages/`）
+
+普通管理页面按「一个路由模块一个目录」组织（如 `Projects/`、`Training/`、`ModelMarket/`、`AIPreAnnotate/`、`Review/`），通常拆分为：
+
+- 页面主组件与局部子组件（`components/`）
+- URL 查询参数纯函数解析器（`*UrlState.ts`，无网络副作用，配独立单测）
+
+复杂度最高的标注工作台（`src/pages/Workbench/`）进一步按职责划分为五层（详见[工作台 Shell 架构](./workbench-shell)）：
+
+- `shell/` — 顶栏、Dockview 面板工作区（`WorkbenchDockWorkspace`）、模态框与浮层宿主
+- `stages/` — `image`（Konva 2D）、`video`（Konva + WebCodecs）、`three-d`（Three.js / WebGPU 点云）三套 Stage 适配器与交互 Hook
+- `stage/` — 画布底层图元与播放器基础组件
+- `state/` — 工作台领域状态模型（`useWorkbenchShellModel`）、命令历史、任务切换守卫（`taskNavigation.ts`）与 Mask 变更工作流
+- `modes/` — 标注模式（`annotate`）与审核模式（`review`）的策略差异封装
+
+## 2. 状态管理边界：TanStack Query vs Zustand
+
+| 状态类型                 | 归属工具                                          | 位置与准则                                                                                                                        |
+| :----------------------- | :------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------- |
+| **服务端业务状态**       | TanStack Query (`useQuery` / `useMutation`)       | 项目、批次、任务、标注、训练实验等远端数据统一由 Query 缓存与失效机制管理，**禁止把服务端列表或详情镜像复制进全局 Zustand Store** |
+| **全局应用壳层状态**     | Zustand (`src/stores/`)                           | 仅保存认证会话（`authStore`）、主题与工作台偏好、全局快捷键与 UI 抽屉开关                                                         |
+| **工作台画布与编辑状态** | 领域 Hook + 局部 Store (`pages/Workbench/state/`) | 选中的框、工具激活态、撤销重做栈、乐观更新队列与任务级栅格资源协调器（按 `task.id` 生命周期隔离）                                 |
+
+## 3. API 客户端与代码生成（`src/api/`）
+
+```text
+后端修改 Pydantic Schema 或能力词表
+  → uv run python scripts/export_openapi.py / export_capability_registry.py
+  → 更新 apps/api/openapi.snapshot.json 与 capability-registry.snapshot.json（提交入库）
+  → pnpm codegen
+  → 生成 apps/web/src/api/generated/{types.gen.ts, capabilityVocab.gen.ts}（gitignored）
+```
+
+- `src/api/generated/`：由 `@hey-api/openapi-ts` 与 `gen-capability-vocab.mjs` 自动生成，**严禁手动编辑**，也不提交至 Git（本地首次启动或切换分支后通过 `pnpm codegen` 生成，`pnpm build` 会通过 `prebuild` 自动按需触发）。
+- `src/api/client.ts` 与各领域封装（`projects.ts`、`tasks.ts`、`training.ts` 等）：统一封装 `axios` / `fetch`、同源 `/api/v1` baseURL、JWT 自动刷新、幂等键注入与错误归一化；导出函数统一采用 `getXxx` / `createXxx` / `updateXxx` / `deleteXxx` 命名。
+
+## 4. 组件与样式体系（`src/components/` & `src/styles/`）
+
+- `components/shadcn/ui/`：本地拥有的 shadcn/Radix 无障碍原语组件。
+- `components/ui/`：应用层通用 UI 适配组件（`Button`、`Badge`、`Modal`、`Sparkline` 等），仅接收 props 渲染，不直接发起 API 请求。
+- `components/shell/`：应用级导航框架（`TopBar`、`Sidebar`、`BugReportDrawer`）。
+- **设计系统与令牌约束**（详见[设计系统](../reference/design-system)）：
+  - 主题变量唯一真源为 `src/styles/shadcn.css`，CSS Modules 仅读取 `--sc-*` 变量（严禁使用旧 `--color-*` 或硬编码裸色值）。
+  - 暗色模式通过 `[data-theme="dark"]` 与 Tailwind `dark:` 驱动；修改样式后运行 `pnpm --filter @anno/web lint:css-tokens` 校验。
+
+## 5. 共用 Markdown 编辑与阅读组件（`src/components/markdown/`）
+
+标注指引、项目模板指引、BUG 反馈描述与评论共用一套安全的 Markdown 组件（底层持久化仍为标准 Markdown 字符串）：
+
+- **按需加载与读写分离**：`MarkdownEditor` 基于 MDXEditor 构建，仅在进入编辑态时动态加载；只读视图 `MarkdownView`（及兼容包装 `GuideMarkdownView` / `MarkdownBlock`）使用轻量的 `react-markdown` + `remark-gfm`，不打包编辑器运行时。
+- **核心属性契约**：
+
+  | 属性                             | 职责说明                                                                                                                                            |
+  | :------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `value` / `onChange`             | 页面持有草稿状态；初始化或切换模式时的编辑器内部规范化不会误触发人工修改标记                                                                        |
+  | `documentId`                     | 切换文档时重建编辑上下文，隔离未完成的图片上传与过期回调                                                                                            |
+  | `onUploadImage` / `resolveImage` | 业务图片上传返回内部标识（如 `guide-asset:KEY`）；读取时由 `useGuideAssets` 按项目作用域解析为短期预签名 URL，绝不将临时签名 URL 写回 Markdown 原文 |
+
+- **安全与自动保存边界**：可视化编辑禁用原始 HTML 与 JSX 执行；项目指引自动保存由 `AnnotationGuideSection` 串行防抖提交，并在中文输入法（IME）组合输入结束后才发布变更（E2E 回归见 `guide-autosave.spec.ts` 与 `markdown-authoring.spec.ts`）。

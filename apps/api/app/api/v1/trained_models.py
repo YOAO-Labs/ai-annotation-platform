@@ -1,15 +1,16 @@
 """Owner-controlled registration, authenticated deployment, and release CAS."""
 
-import asyncio
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_claims import project_lock
 from app.db.models.project import Project
+from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.trained_model import (
     ModelDeployment,
     ModelRelease,
@@ -35,6 +36,12 @@ from app.application import trained_model_deployment
 from app.services import trained_models as service
 from app.services import model_lineage as lineage
 from app.schemas.model_lineage import ArchiveFilter
+from app.schemas._jsonb_types import CocoRleContent
+from app.services.training_list_filters import (
+    ISODate,
+    created_date_bounds,
+    literal_search_pattern,
+)
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
@@ -69,20 +76,39 @@ async def list_models(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     archive: ArchiveFilter = "exclude",
+    q: str = Query("", max_length=120),
+    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    task: Literal["detect", "segment"] | None = None,
+    created_from: ISODate | None = Query(
+        None, description="创建日期下界，UTC 日期（含）"
+    ),
+    created_to: ISODate | None = Query(
+        None, description="创建日期上界，UTC 日期（含整天）"
+    ),
 ) -> dict:
-    condition = lineage.archive_condition(project.id, archive)
+    start, end = created_date_bounds(created_from, created_to)
+    predicates = [
+        TrainedModelVersion.project_id == project.id,
+        lineage.archive_condition(project.id, archive),
+    ]
+    pattern = literal_search_pattern(q)
+    if pattern is not None:
+        predicates.append(TrainedModelVersion.name.ilike(pattern, escape="\\"))
+    if framework is not None:
+        predicates.append(TrainedModelVersion.framework == framework)
+    if task is not None:
+        predicates.append(service.model_task_expression() == task)
+    if start is not None:
+        predicates.append(TrainedModelVersion.created_at >= start)
+    if end is not None:
+        predicates.append(TrainedModelVersion.created_at <= end)
     total = await db.scalar(
-        select(func.count())
-        .select_from(TrainedModelVersion)
-        .where(TrainedModelVersion.project_id == project.id, condition)
+        select(func.count()).select_from(TrainedModelVersion).where(*predicates)
     )
     items = (
         await db.scalars(
             select(TrainedModelVersion)
-            .where(
-                TrainedModelVersion.project_id == project.id,
-                condition,
-            )
+            .where(*predicates)
             .order_by(
                 TrainedModelVersion.created_at.desc(), TrainedModelVersion.id.desc()
             )
@@ -120,18 +146,39 @@ async def model_detail(
         )
     ).all()
     rendered_deployments = []
+    dataset = None
     for item in deployments:
         rendered = ModelDeploymentOut.model_validate(item).model_dump(mode="json")
         if item.status == "ready" and item.trial.get("task_id"):
-            from app.services.storage import storage_service
-
-            key = f"projects/{project.id}/datasets/{version.provenance['dataset_id']}/media/{item.trial['task_id']}"
-            url = await asyncio.to_thread(
-                storage_service.generate_download_url,
-                key,
-                expires_in=600,
-                bucket=storage_service.training_bucket,
-                align=False,
+            if dataset is None:
+                dataset = await db.get(
+                    TrainingDatasetVersion,
+                    uuid.UUID(version.provenance["dataset_id"]),
+                )
+            owner, key = service.frozen_sample_location(
+                project.id, dataset, item.trial["task_id"]
+            )
+            sample = next(
+                (
+                    member
+                    for member in dataset.manifest.get("samples", [])
+                    if member.get("task_id") == item.trial["task_id"]
+                ),
+                {},
+            )
+            url = await service.storage_io.read(
+                db,
+                owner,
+                "training_model_url",
+                lambda transport: transport.generate_download_url(
+                    key,
+                    expires_in=600,
+                    bucket=owner.bucket,
+                    align=False,
+                ),
+                object_key=key,
+                sha256=sample.get("sha256"),
+                size_bytes=sample.get("size_bytes"),
             )
             rendered["trial"] = {**rendered["trial"], "sample_url": url}
         rendered_deployments.append(rendered)
@@ -143,6 +190,40 @@ async def model_detail(
         },
         "deployments": rendered_deployments,
     }
+
+
+@router.get(
+    "/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}",
+    response_model=CocoRleContent,
+)
+async def trial_mask_content(
+    version_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    shape_index: int,
+    project: Project = Depends(require_project_owner),
+    user: IdentityActorFacts = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.config import settings
+    from app.services.raster_mask_storage import load_coco_rle
+
+    await lock_project_manager(db, user.id, project.id)
+    await service.load_version(db, project.id, version_id)
+    deployment = await db.get(ModelDeployment, deployment_id)
+    if (
+        not settings.raster_mask_read_enabled
+        or not deployment
+        or deployment.model_version_id != version_id
+        or deployment.status != "ready"
+    ):
+        raise HTTPException(status_code=404, detail="分割试用掩码不存在或未开放读取")
+    shapes = deployment.trial.get("result", [])
+    if not 0 <= shape_index < len(shapes):
+        raise HTTPException(status_code=404, detail="分割试用实例不存在")
+    geometry = shapes[shape_index].get("geometry", {})
+    if geometry.get("type") != "raster_mask":
+        raise HTTPException(status_code=404, detail="分割试用实例不是掩码")
+    return await load_coco_rle(geometry["mask"])
 
 
 @router.post(
@@ -171,15 +252,21 @@ async def download_model(
 ) -> dict:
     await lock_project_manager(db, user.id, project.id)
     version = await service.load_version(db, project.id, version_id)
-    from app.services.storage import storage_service
-
-    url = await asyncio.to_thread(
-        storage_service.generate_download_url,
-        version.artifact["key"],
-        expires_in=600,
-        bucket=storage_service.training_bucket,
-        download_name="best.pt",
-        align=False,
+    owner = await service.owner_for_model(db, version)
+    url = await service.storage_io.read(
+        db,
+        owner,
+        "training_model_url",
+        lambda transport: transport.generate_download_url(
+            version.artifact["key"],
+            expires_in=600,
+            bucket=owner.bucket,
+            download_name="best.pt",
+            align=False,
+        ),
+        object_key=version.artifact["key"],
+        sha256=version.artifact["sha256"],
+        size_bytes=version.artifact["size_bytes"],
     )
     return {
         "url": url,
@@ -194,8 +281,9 @@ async def list_releases(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    task: Literal["detect", "segment"] = "detect",
 ) -> dict:
-    selection = await db.get(ProjectModelSelection, project.id)
+    selection = await db.get(ProjectModelSelection, (project.id, task))
     current = (
         await db.get(ModelRelease, selection.release_id)
         if selection and selection.release_id
@@ -204,18 +292,19 @@ async def list_releases(
     total = await db.scalar(
         select(func.count())
         .select_from(ModelRelease)
-        .where(ModelRelease.project_id == project.id)
+        .where(ModelRelease.project_id == project.id, ModelRelease.task == task)
     )
     items = (
         await db.scalars(
             select(ModelRelease)
-            .where(ModelRelease.project_id == project.id)
+            .where(ModelRelease.project_id == project.id, ModelRelease.task == task)
             .order_by(ModelRelease.generation.desc())
             .limit(limit)
             .offset(offset)
         )
     ).all()
     return {
+        "task": task,
         "current": ModelReleaseOut.model_validate(current).model_dump(mode="json")
         if current
         else None,

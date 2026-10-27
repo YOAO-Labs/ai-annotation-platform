@@ -22,6 +22,7 @@ from app.services.inference_pipelines import (
     get_pipeline_row,
     list_pipeline_rows,
 )
+from app.services.pipeline_model_scope import assert_model_reference_scope
 
 router = APIRouter()
 
@@ -51,6 +52,7 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
+    await assert_model_reference_scope(db, data.stages, data.scope, data.project_id)
     mutation = await execute_pipeline_command(
         db,
         operation="create_pipeline",
@@ -77,6 +79,14 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
+    current = await get_pipeline_row(db, actor=user, pipeline_id=pipeline_id)
+    changes = data.model_dump(exclude_unset=True)
+    await assert_model_reference_scope(
+        db,
+        changes.get("stages", current.stages),
+        changes.get("scope", current.scope),
+        changes.get("project_id", current.project_id),
+    )
     mutation = await execute_pipeline_command(
         db,
         operation="update_pipeline",

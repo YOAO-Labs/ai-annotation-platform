@@ -25,129 +25,74 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Backend validation runs through one reusable workflow, called four times
+  # with static shard inputs. Each call is a whole backend validation on its own
+  # runner (services, dependency sync, migration and OpenAPI checks, coverage);
+  # only the pytest items are partitioned, deterministically, by test file.
+  backend-tests-shard-zero:
+    name: Backend tests shard zero
+    uses: ./.github/workflows/backend-test.yml
+    with:
+      shard-index: 0
+      shard-count: 4
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  backend-tests-shard-one:
+    name: Backend tests shard one
+    uses: ./.github/workflows/backend-test.yml
+    with:
+      shard-index: 1
+      shard-count: 4
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  backend-tests-shard-two:
+    name: Backend tests shard two
+    uses: ./.github/workflows/backend-test.yml
+    with:
+      shard-index: 2
+      shard-count: 4
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  backend-tests-shard-three:
+    name: Backend tests shard three
+    uses: ./.github/workflows/backend-test.yml
+    with:
+      shard-index: 3
+      shard-count: 4
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # The stable required check keeps its id and name. It never runs tests itself;
+  # it fails closed unless every real shard job ended in success, so a skipped,
+  # cancelled or failed shard cannot be masked by an ordinary no-op success.
   pytest:
     name: Backend tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: pass
-          POSTGRES_DB: annotation_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-    env:
-      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
-      TEST_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
-      # Some pytest modules import the API router during collection. Enable the
-      # guarded test-only router before the first application import.
-      E2E_SEED_ENABLED: "true"
-      SECRET_KEY: ci-test-secret
-      REDIS_URL: redis://localhost:6379/0
-      MINIO_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: annotations
+    needs:
+      - backend-tests-shard-zero
+      - backend-tests-shard-one
+      - backend-tests-shard-two
+      - backend-tests-shard-three
+    if: always()
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install video fixture tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Install uv
-        run: pip install uv
-      - name: Sync deps
-        working-directory: apps/api
-        run: uv sync --extra test
-      - name: Worktree runtime and setup tests
-        working-directory: apps/api
-        run: |
-          uv run python -m unittest discover -s ../../scripts -p 'test_worktree*.py' -v
-          uv run python ../../scripts/test-orca-worktree-setup.py
-      - name: Local service maintenance tests
-        working-directory: apps/api
-        run: |
-          uv run python ../../scripts/test_production_health_recover.py
-          uv run python ../../scripts/test_development_restart.py
-      # IBM mirrors the removed Quay image with the same verified digest.
-      # https://www.ibm.com/support/pages/node/7289585
-      - name: Start MinIO
-        run: |
-          docker run -d --name minio \
-            -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:9000/minio/health/live; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs minio
-          exit 1
-      - name: Initialize MinIO buckets
-        working-directory: apps/api
-        run: uv run python -c "from app.services.storage import storage_service; storage_service.ensure_all_buckets()"
-      - name: Worktree resource isolation acceptance
-        working-directory: apps/api
-        run: uv run python ../../scripts/verify_worktree_isolation.py -v
-      - name: alembic upgrade head
-        working-directory: apps/api
-        run: uv run alembic upgrade head
-      - name: Migration validation (fresh / reversible / forward / restore)
-        working-directory: apps/api
+      - name: Require every backend test shard to pass
         env:
-          AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
-          MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: uv run python ../../scripts/validate_migrations.py
-      - name: OpenAPI snapshot drift check
-        working-directory: apps/api
+          SHARD_ZERO_RESULT: ${{ needs.backend-tests-shard-zero.result }}
+          SHARD_ONE_RESULT: ${{ needs.backend-tests-shard-one.result }}
+          SHARD_TWO_RESULT: ${{ needs.backend-tests-shard-two.result }}
+          SHARD_THREE_RESULT: ${{ needs.backend-tests-shard-three.result }}
         run: |
-          if ! uv run python ../../scripts/export_openapi.py --check; then
-            echo "::error::OpenAPI snapshot drift. 请在 apps/api 下运行 'uv run python ../../scripts/export_openapi.py' 重生 snapshot 并提交（建议本地装 pre-commit 让它自动跑）。"
-            exit 1
-          fi
-      - name: pytest with coverage
-        working-directory: apps/api
-        run: >-
-          uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
-          --durations=30 --junitxml=pytest-results.xml
-      # P6 交接：migration policy 纯规则测试（scripts/ 下不被 apps/api pytest
-      # 收集），在此以同一 venv 显式运行。
-      - name: Migration policy pure tests
-        working-directory: apps/api
-        run: uv run python ../../scripts/test_alembic_migration_policy.py
-      - name: Upload backend test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: backend-test-results
-          path: apps/api/pytest-results.xml
-          retention-days: 7
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: apps/api/coverage.xml
-          flags: backend
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          failed=0
+          for result in "$SHARD_ZERO_RESULT" "$SHARD_ONE_RESULT" "$SHARD_TWO_RESULT" "$SHARD_THREE_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::backend test shard did not succeed: $result"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
   # 示例 ML backend contract tests 保活：防 docs-site/dev/examples 与协议文档脱节。
   examples-pytest:
@@ -302,6 +247,7 @@ jobs:
         id: plan
         env:
           E2E_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          E2E_SHADOW_PATH: ${{ runner.temp }}/e2e-shadow.json
           E2E_DISPATCH_SCOPE: ${{ inputs.e2e_scope }}
           # Documented rollback: set the repository variable
           # E2E_SELECTION_MODE=legacy to restore the frozen pre-P8 selection
@@ -312,11 +258,11 @@ jobs:
       # the stable `Frontend E2E` name is preserved across the P9 switch.
       - name: Record shadow E2E selection
         env:
-          SHADOW: ${{ steps.plan.outputs.shadow }}
+          SHADOW_PATH: ${{ steps.plan.outputs.shadow_path }}
         run: |
           node --input-type=module <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          const shadow = JSON.parse(process.env.SHADOW);
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const shadow = JSON.parse(readFileSync(process.env.SHADOW_PATH, 'utf8'));
           const plannedSet = new Set(shadow.planned);
           const legacySet = new Set(shadow.legacy);
           const rows = [
@@ -347,6 +293,12 @@ jobs:
           ];
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'));
           NODE
+      - name: Upload complete E2E selection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-selection-report
+          path: ${{ steps.plan.outputs.shadow_path }}
+          if-no-files-found: error
 
   # P6 handoff wiring: the CPU contract suites (shared packages + five ML
   # backends, including the 12 CPU-torch files) execute through the dedicated
@@ -384,6 +336,8 @@ jobs:
       - name: Audit planned suites against actual results
         if: needs.e2e-plan.outputs.required != ''
         env:
+          # This manifest contains only the bounded suite IDs/policies, never
+          # changed paths or the shadow report; it is safe to transfer via env.
           E2E_REQUIRED: ${{ needs.e2e-plan.outputs.required }}
           E2E_RUN_SUITES: ${{ needs.e2e-plan.outputs.run-suites }}
         run: |

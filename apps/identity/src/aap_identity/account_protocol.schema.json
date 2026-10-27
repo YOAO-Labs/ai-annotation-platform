@@ -19,7 +19,16 @@
               "type": "string"
             },
             {
-              "enum": ["account_busy", "operation_conflict", "policy_rejected"],
+              "enum": [
+                "account_busy",
+                "operation_conflict",
+                "policy_rejected",
+                "avatar_reference_changed",
+                "avatar_receipt_invalid",
+                "storage_maintenance",
+                "storage_maintenance_changed",
+                "storage_maintenance_busy"
+              ],
               "type": "string"
             }
           ],
@@ -433,6 +442,91 @@
       },
       "required": ["type", "loc", "msg"],
       "title": "AccountValidationIssue",
+      "type": "object"
+    },
+    "AvatarAcceptedKeyProof": {
+      "additionalProperties": false,
+      "description": "Exact frozen facts of the accepted API key that authorized publication.\n\nThe Identity owner compares this proof with the key's current non-secret\nfacts inside its own publication transaction. ``revision`` is a digest of\nthe stored verifier, never the verifier itself, and ``scopes`` is the whole\nordered snapshot so a rewritten key cannot inherit this operation.",
+      "properties": {
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": ["scopes", "expires_at", "revision"],
+      "title": "AvatarAcceptedKeyProof",
+      "type": "object"
+    },
+    "AvatarUploadReceipt": {
+      "additionalProperties": false,
+      "description": "Provider-confirmed facts for one pending normalized avatar object.\n\nThe Identity owner compares this receipt with its own pending row before it\npublishes the account reference. The API cannot mint a ready receipt for a\ntoken it does not own, and cannot publish bytes it never read back.",
+      "properties": {
+        "maintenance_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Maintenance Revision",
+          "type": "integer"
+        },
+        "object_version_id": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Version Id"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 2097152,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "storage_ref": {
+          "additionalProperties": true,
+          "title": "Storage Ref",
+          "type": "object"
+        },
+        "token": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["token", "sha256", "size_bytes", "maintenance_revision", "storage_ref"],
+      "title": "AvatarUploadReceipt",
       "type": "object"
     },
     "ChangePasswordPayload": {
@@ -870,6 +964,17 @@
     "SetAvatarRefPayload": {
       "additionalProperties": false,
       "properties": {
+        "accepted_api_key_proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AvatarAcceptedKeyProof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "avatar_ref": {
           "anyOf": [
             {
@@ -896,10 +1001,34 @@
           "default": null,
           "title": "Bytes"
         },
+        "expected_previous_avatar_ref": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Previous Avatar Ref"
+        },
         "kind": {
           "enum": ["upload", "preset_or_clear"],
           "title": "Kind",
           "type": "string"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AvatarUploadReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": ["kind"],

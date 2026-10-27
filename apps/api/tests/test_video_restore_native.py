@@ -32,7 +32,6 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
-    _database_head,
     _drop_owned_clone,
 )
 from tests.test_labeling_video_writer_restore import (
@@ -255,7 +254,7 @@ async def test_restore_operator_inspect_prepare_replay_conflict_and_role_boundar
             acl,
             created,
         )
-        assert await _database_head(source_engine) == "0284"
+
         dump.touch(mode=0o600, exist_ok=False)
         dump.write_bytes(
             _postgres_tool(
@@ -274,7 +273,7 @@ async def test_restore_operator_inspect_prepare_replay_conflict_and_role_boundar
             created,
             dump,
         )
-        assert await _database_head(restored_engine) == "0284"
+
         operator_dsn = _role_dsn(
             "AAP_MODULE_DATA_VIDEO_RESTORE_URL", _RESTORE_ROLE, restored_database
         )

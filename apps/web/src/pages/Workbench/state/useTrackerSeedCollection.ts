@@ -62,6 +62,8 @@ export interface UseTrackerSeedCollectionParams {
     ReturnType<typeof useVideoTrackerJobs>,
     "propagate" | "track" | "candidates" | "jobs"
   >;
+  unavailableReason?: string;
+  onUnavailable?: (reason: string) => void;
 }
 
 export function useTrackerSeedCollection({
@@ -76,6 +78,8 @@ export function useTrackerSeedCollection({
   disarmChapterDraft,
   clearPropagateBrush,
   trackerJobs,
+  unavailableReason,
+  onUnavailable,
 }: UseTrackerSeedCollectionParams) {
   const [trackerSeeds, setTrackerSeeds] = useState<TrackerSeedPoint[]>([]);
   const [trackerSeedBoxes, setTrackerSeedBoxes] = useState<TrackerSeedBox[]>([]);
@@ -151,6 +155,12 @@ export function useTrackerSeedCollection({
 
   const openPropagateDialog = useCallback(
     (source: TrackerSourceAnnotation | TrackerSourceAnnotation[] | null) => {
+      if (unavailableReason) {
+        // An offline backend must not reset a parked/running session.
+        if (propagateDialogRef.current) panelCommandsRef.current?.show("video-tracker");
+        else onUnavailable?.(unavailableReason);
+        return;
+      }
       // 多选批量归一化: null=无源, 单条=单源延展, ≥2 条=多选批量 (单 job 多源)。
       const list = Array.isArray(source) ? source : source ? [source] : [];
       disarmChapterDraft();
@@ -169,7 +179,7 @@ export function useTrackerSeedCollection({
       seedPrevToolRef.current = null;
       panelCommandsRef.current?.show("video-tracker");
     },
-    [clearPropagateBrush, disarmChapterDraft, panelCommandsRef],
+    [clearPropagateBrush, disarmChapterDraft, panelCommandsRef, unavailableReason, onUnavailable],
   );
   const closePropagateDialog = useCallback(() => {
     setPropagateDialog(null);
@@ -203,6 +213,10 @@ export function useTrackerSeedCollection({
   const handlePropagateSubmit = useCallback(
     async (payload: Parameters<typeof trackerJobs.propagate>[2]) => {
       if (!propagateDialog || !taskId) return;
+      if (unavailableReason) {
+        onUnavailable?.(unavailableReason);
+        return;
+      }
       setPropagateDialog((prev) => (prev ? { ...prev, submitting: true } : prev));
       try {
         // 有落点则注入 prompt.seeds (obj → frame 双层分组; points 与 bbox 可同帧并存);
@@ -238,7 +252,16 @@ export function useTrackerSeedCollection({
         throw e;
       }
     },
-    [propagateDialog, taskId, trackerJobs, trackerSeeds, trackerSeedBoxes, enterTrackingProgress],
+    [
+      propagateDialog,
+      taskId,
+      trackerJobs,
+      trackerSeeds,
+      trackerSeedBoxes,
+      enterTrackingProgress,
+      unavailableReason,
+      onUnavailable,
+    ],
   );
 
   // 进行态收尾: 对话框挂着的 job 出候选 (结果就绪待审) → 关闭对话框, 让位顶部

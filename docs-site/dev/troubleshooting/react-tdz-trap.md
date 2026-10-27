@@ -1,16 +1,15 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # React useState 初始化器的 TDZ 陷阱
 
 ## 症状
 
-打开某页（v0.9.5 时是 `SamTextPanel`），整页白屏 + console：
+打开某页（早期 `SamTextPanel` 曾触发），整页白屏 + console：
 
 ```
 ReferenceError: Cannot access 'projectQ' before initialization
@@ -62,5 +61,5 @@ useEffect(() => {
 
 ## 相关
 
-- commit: `8949455` fix(v0.9.5): SamTextPanel TDZ
+- commit: `8949455` SamTextPanel TDZ 修复
 - 代码：`apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx`（当时的 `SamTextPanel` 组件内嵌于此文件；该组件现已移除）

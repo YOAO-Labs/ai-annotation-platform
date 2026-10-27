@@ -222,6 +222,11 @@ requires-dist = [
 provides-extras = ["test"]
 
 [[package]]
+name = "aap-filesystem-read"
+version = "0.1.0"
+source = { editable = "../_shared/filesystem_read" }
+
+[[package]]
 name = "aap-identity"
 version = "0.1.0"
 source = { editable = "../identity" }
@@ -285,6 +290,7 @@ name = "aap-inference"
 version = "0.1.0"
 source = { editable = "../inference" }
 dependencies = [
+    { name = "aap-assets-mask-content" },
     { name = "aap-inference-contract" },
     { name = "aap-owner-data" },
     { name = "aap-protocol-v2" },
@@ -295,6 +301,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-mask-content", editable = "../assets-mask-content" },
     { name = "aap-inference-contract", editable = "../_shared/inference_contract" },
     { name = "aap-owner-data", editable = "../_shared/owner_data" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
@@ -568,6 +575,11 @@ requires-dist = [
 provides-extras = ["test"]
 
 [[package]]
+name = "aap-site-agent-contract"
+version = "0.1.0"
+source = { editable = "../_shared/site_agent_contract" }
+
+[[package]]
 name = "aap-task-contract"
 version = "0.1.0"
 source = { editable = "../_shared/task_contract" }
@@ -679,6 +691,7 @@ dependencies = [
     { name = "aap-assets-source" },
     { name = "aap-audit", extra = ["postgres"] },
     { name = "aap-audit-contract" },
+    { name = "aap-filesystem-read" },
     { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-identity-admission", extra = ["http"] },
     { name = "aap-inference" },
@@ -691,6 +704,7 @@ dependencies = [
     { name = "aap-notifications", extra = ["postgres", "publication-client"] },
     { name = "aap-preannotation-results" },
     { name = "aap-protocol-v2" },
+    { name = "aap-site-agent-contract" },
     { name = "aap-task-contract" },
     { name = "aap-training-contract" },
     { name = "aap-workspace", extra = ["postgres"] },
@@ -744,6 +758,7 @@ requires-dist = [
     { name = "aap-assets-source", editable = "../assets-source" },
     { name = "aap-audit", extras = ["postgres"], editable = "../audit" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
+    { name = "aap-filesystem-read", editable = "../_shared/filesystem_read" },
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-identity-admission", extras = ["http"], editable = "../_shared/identity_admission" },
     { name = "aap-inference", editable = "../inference" },
@@ -756,6 +771,7 @@ requires-dist = [
     { name = "aap-notifications", extras = ["postgres", "publication-client"], editable = "../notifications" },
     { name = "aap-preannotation-results", editable = "../preannotation-results" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
+    { name = "aap-site-agent-contract", editable = "../_shared/site_agent_contract" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "aap-training-contract", editable = "../_shared/training_contract" },
     { name = "aap-workspace", extras = ["postgres"], editable = "../workspace" },
@@ -2843,7 +2859,7 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "numpy", marker = "python_full_version < '3.12'" },
+    { name = "numpy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7a/97/5a3609c4f8d58b039179648e62dd220f89864f56f7357f5d4f45c29eb2cc/scipy-1.17.1.tar.gz", hash = "sha256:95d8e012d8cb8816c226aef832200b1d45109ed4464303e997c5b13122b297c0", size = 30573822, upload-time = "2026-02-23T00:26:24.851Z" }
 wheels = [
@@ -2917,7 +2933,7 @@ resolution-markers = [
     "python_full_version >= '3.12'",
 ]
 dependencies = [
-    { name = "numpy", marker = "python_full_version >= '3.12'" },
+    { name = "numpy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a7/25/c2700dfaf6442b4effaa91af24ebce5dc9d31bb4a69706313aae70d72cd0/scipy-1.18.0.tar.gz", hash = "sha256:67b2ad2ad54c72ca6d04975a9b2df8c3638c34ddd5b28738e94fc2b57929d378", size = 30774447, upload-time = "2026-06-19T15:01:43.456Z" }
 wheels = [

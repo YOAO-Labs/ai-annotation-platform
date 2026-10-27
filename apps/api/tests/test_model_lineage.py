@@ -12,10 +12,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.api.v1.model_lineage import create_decision
 from app.api.v1.trained_models import publish_model
 from app.db.models.model_decision import ModelDecision
+from app.db.models.ml_backend_pool import MLBackendServicePool
+from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.sample_evaluation import SampleEvaluationRun
 from app.db.models.trained_model import (
+    ModelDeployment,
     ModelRelease,
     ProjectModelSelection,
     TrainedModelVersion,
@@ -291,19 +294,36 @@ async def test_keyset_pagination_ties_inserts_cursor_binding_and_deep_parent(
     )
     assert len(second["items"]) == 3 and second["next_cursor"] is None
     assert not ({i["id"] for i in first["items"]} & {i["id"] for i in second["items"]})
+    for limit, expected_count, has_more in (
+        (1, 1, True),
+        (21, 21, True),
+        (100, 24, False),
+    ):
+        page = await get(
+            httpx_client,
+            token,
+            project,
+            "dataset",
+            parent.id,
+            relation="child_datasets",
+            limit=limit,
+        )
+        assert len(page["items"]) == expected_count
+        assert bool(page["next_cursor"]) is has_more
     for params in (
         {"relation": "runs", "cursor": first["next_cursor"]},
         {"cursor": first["next_cursor"]},
         {"relation": "bad"},
         {"relation": "child_datasets", "cursor": "%%%"},
-        {"limit": 21},
+        {"limit": 0},
+        {"limit": 101},
     ):
         r = await httpx_client.get(
             url(project, "dataset", parent.id),
             headers={"Authorization": f"Bearer {token}"},
             params=params,
         )
-        assert r.status_code == 422
+        assert r.status_code == 422, params
     current = parent
     for index in range(45):
         child = TrainingDatasetVersion(
@@ -468,7 +488,7 @@ async def test_append_decisions_idempotency_pagination_archive_and_current_relea
     assert conflict.status_code == 409
     default = (await httpx_client.get(base, headers=headers)).json()
     assert default["items"][0]["archived"] and default["items"][0]["is_current_release"]
-    selection = await db_session.get(ProjectModelSelection, project.id)
+    selection = await db_session.get(ProjectModelSelection, (project.id, "detect"))
     assert selection.generation == 1 and selection.release_id == release.id
     selection.release_id = None
     await db_session.flush()
@@ -503,6 +523,22 @@ async def test_append_decisions_idempotency_pagination_archive_and_current_relea
         )
     ).json()
     assert [i["sequence"] for i in older["items"]] == [3, 2, 1]
+    for limit, expected_count, next_before in (
+        (1, 1, 23),
+        (21, 21, 3),
+        (100, 23, None),
+    ):
+        page = await httpx_client.get(
+            f"{base}/{model.id}/decisions", headers=headers, params={"limit": limit}
+        )
+        assert page.status_code == 200, page.text
+        assert len(page.json()["items"]) == expected_count
+        assert page.json()["next_before"] == next_before
+    for limit in (0, 101):
+        rejected = await httpx_client.get(
+            f"{base}/{model.id}/decisions", headers=headers, params={"limit": limit}
+        )
+        assert rejected.status_code == 422, limit
     assert (await httpx_client.get(base, headers=headers)).json()["total"] == 1
     bad = await httpx_client.post(
         f"{base}/{model.id}/decisions",
@@ -627,7 +663,7 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
 ):
     """Separate committed connections prove the shared advisory/model locks."""
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    project_id = user_id = None
+    project_id = user_id = registry_id = pool_id = None
     try:
         async with maker() as db:
             assert (await db.scalar(text("SELECT current_database()"))).endswith(
@@ -641,6 +677,19 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
             )
             project, _, _, model = await seed(db, owner)
             project_id, user_id, model_id = project.id, owner.id, model.id
+            registry, deployment = await ready_deployment(db, project, model)
+            registry_id = registry.id
+            pool_id = await db.scalar(
+                select(MLBackendServicePool.id).where(
+                    MLBackendServicePool.legacy_instance_id == registry.id
+                )
+            )
+            release = await release_row(db, project, model, deployment, 1)
+            db.add(
+                ProjectModelSelection(
+                    project_id=project.id, release_id=release.id, generation=1
+                )
+            )
             await db.commit()
 
         async def decision(note):
@@ -666,7 +715,7 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
                     await db.get(User, user_id),
                 )
                 return await publish_model(
-                    ModelReleaseCreate(request_id=uuid.uuid4(), expected_generation=0),
+                    ModelReleaseCreate(request_id=uuid.uuid4(), expected_generation=1),
                     project,
                     user,
                     db,
@@ -677,8 +726,8 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
         )
         assert {first.sequence, second.sequence} == {1, 2}
         async with maker() as db:
-            selection = await db.get(ProjectModelSelection, project_id)
-            assert selection.generation == 1 and selection.release_id == published.id
+            selection = await db.get(ProjectModelSelection, (project_id, "detect"))
+            assert selection.generation == 2 and selection.release_id == published.id
             notes = (
                 await db.scalars(
                     select(ModelDecision).where(ModelDecision.project_id == project_id)
@@ -700,6 +749,11 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
                     delete(ModelDecision).where(ModelDecision.project_id == project_id)
                 )
                 await db.execute(
+                    delete(ModelDeployment).where(
+                        ModelDeployment.model_version_id == model_id
+                    )
+                )
+                await db.execute(
                     delete(TrainedModelVersion).where(
                         TrainedModelVersion.project_id == project_id
                     )
@@ -713,5 +767,17 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
                     )
                 )
                 await db.execute(delete(Project).where(Project.id == project_id))
+                if pool_id:
+                    await db.execute(
+                        delete(MLBackendServicePool).where(
+                            MLBackendServicePool.id == pool_id
+                        )
+                    )
+                if registry_id:
+                    await db.execute(
+                        delete(MLBackendRegistry).where(
+                            MLBackendRegistry.id == registry_id
+                        )
+                    )
                 await db.execute(delete(User).where(User.id == user_id))
                 await db.commit()

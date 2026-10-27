@@ -34,12 +34,14 @@
   /* ReviewWorkbench is a compact, bounded caller outside the dock fill layout. */
   max-height: 240px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .fill {
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .entry,

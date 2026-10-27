@@ -1,78 +1,92 @@
 import uuid
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_current_user
-from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
-from app.application.legacy_file_upload import (
-    LegacyFileUploadWorkflow,
-    UploadObjectMissingError,
-    UploadTaskNotFoundError,
-    UploadTaskNotUploadingError,
+from app.deps import get_db, get_current_user, require_scopes
+from app.schemas.task import (
+    UploadInitRequest,
+    UploadInitResponse,
+    TaskFileUrlResponse,
+    TaskContentIdentity,
 )
-from app.application.task_workflow_errors import TaskWorkflowError
 from app.services import task_access
-from app.services.storage import storage_service
 from app.schemas.task import TaskImageBackfillResponse
-from app.services.assets_media import browser_media_url, media_gateway, media_http_error
-from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.content_snapshot import VERIFIED_IMAGE_RESPONSES
+from app.db.models.user import User
 
 from app.services.labeling_core_read_relations import get_core_row, task_row
 
 router = APIRouter()
 
 
-@router.post("/upload-init", response_model=UploadInitResponse)
+@router.post(
+    "/upload-init",
+    response_model=UploadInitResponse,
+    dependencies=[Depends(require_scopes("tasks:write"))],
+)
 async def upload_init(
     data: UploadInitRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
+    from app.services import task_uploads
+
     try:
-        result = await LegacyFileUploadWorkflow(
-            db, storage=storage_service
-        ).initialize_upload(
-            actor_id=current_user.id,
-            project_id=data.project_id,
-            file_name=data.file_name,
-            content_type=data.content_type,
-            file_type=_infer_file_type(data.content_type),
+        task_id, upload_url = await task_uploads.initialize(
+            db, current_user, request, data, _infer_file_type(data.content_type)
         )
-    except TaskWorkflowError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        expires_in = int(
+            (upload_url.deadline - datetime.now(timezone.utc)).total_seconds()
+        )
+        if expires_in <= 0:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("import_storage_expired", 409)
+    except Exception as exc:
+        raise task_uploads.http_error(exc) from None
     return UploadInitResponse(
-        task_id=result.scope.task_id,
-        upload_url=result.upload_url,
-        expires_in=result.expires_in,
+        task_id=task_id,
+        upload_url=upload_url,
+        expires_in=expires_in,
     )
 
 
-@router.post("/upload-complete/{task_id}")
+@router.post(
+    "/upload-complete/{task_id}",
+    dependencies=[Depends(require_scopes("tasks:write"))],
+)
 async def upload_complete(
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    workflow = LegacyFileUploadWorkflow(db, storage=storage_service)
+    from app.services import task_uploads
+
     try:
-        result = await workflow.complete_upload(
-            actor_id=current_user.id,
-            task_id=task_id,
-        )
-    except UploadTaskNotFoundError:
-        raise HTTPException(status_code=404, detail="Task not found")
-    except UploadTaskNotUploadingError:
-        raise HTTPException(status_code=400, detail="Task is not in uploading state")
-    except UploadObjectMissingError:
-        raise HTTPException(status_code=400, detail="File not found in storage")
-    except TaskWorkflowError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        file_type = await task_uploads.complete(db, current_user, request, task_id)
+    except Exception as exc:
+        raise task_uploads.http_error(exc) from None
 
-    return {"status": "ok", "task_id": str(result.scope.task_id)}
+    if file_type == "image":
+        from app.workers.media import generate_task_thumbnail
+
+        generate_task_thumbnail.delay(str(task_id))
+
+    return {"status": "ok", "task_id": str(task_id)}
 
 
-@router.get("/tasks/{task_id}/file-url", response_model=TaskFileUrlResponse)
+@router.get(
+    "/tasks/{task_id}/file-url",
+    response_model=TaskFileUrlResponse,
+    deprecated=True,
+    summary="旧原件签名入口（请使用认证下载）",
+    dependencies=[Depends(require_scopes("tasks:read"))],
+)
 async def get_file_url(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -83,29 +97,69 @@ async def get_file_url(
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id)
 
-    if task.dataset_item_id is not None:
-        try:
-            async with media_gateway(db) as gateway:
-                reference = await gateway.raw_source_reference(
-                    ReadSourceRequest(
-                        actor_id=current_user.id,
-                        dataset_item_id=task.dataset_item_id,
-                        task_id=task.id,
-                    )
-                )
-        except MediaFailure as exc:
-            raise media_http_error(exc) from None
-        if reference.source.source_drifted:
-            raise HTTPException(
-                status_code=409, detail="Source changed; refresh the task."
-            )
-        return TaskFileUrlResponse(
-            url=browser_media_url(reference.original_url),
-            expires_in=reference.expires_in,
-        )
+    raise HTTPException(
+        409, detail={"code": "original_requires_authenticated_download"}
+    )
 
-    url = storage_service.generate_download_url(task.file_path)
-    return TaskFileUrlResponse(url=url, expires_in=3600)
+
+@router.get(
+    "/tasks/{task_id}/content",
+    dependencies=[Depends(require_scopes("tasks:read"))],
+    response_class=Response,
+    responses=VERIFIED_IMAGE_RESPONSES,
+)
+async def get_verified_task_content(
+    task_id: uuid.UUID,
+    request: Request,
+    sha256: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.dataset_content import task_snapshot, content_http_error
+    from app.services.content_snapshot import SnapshotResponse
+
+    try:
+        snapshot = await task_snapshot(
+            db,
+            task_id,
+            current_user,
+            sha256,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+            require_range_support=request.headers.get("range") is not None,
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(
+        snapshot,
+        range_header=request.headers.get("range"),
+        if_range=request.headers.get("if-range"),
+    )
+
+
+@router.get(
+    "/tasks/{task_id}/content-identity",
+    response_model=TaskContentIdentity,
+    dependencies=[Depends(require_scopes("tasks:read"))],
+)
+async def get_task_content_identity(
+    task_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.dataset_content import public_task_identity, content_http_error
+
+    try:
+        return await public_task_identity(
+            db,
+            task_id,
+            current_user,
+            request=request,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
 
 
 @router.post(
@@ -130,14 +184,19 @@ async def backfill_project_thumbnails(
     current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    from app.application import project_thumbnail_backfill
+    from app.application.task_workflow_errors import TaskWorkflowError
+
     operation_id = idempotency_key or uuid.uuid4()
-    accepted = await LegacyFileUploadWorkflow(
-        db, storage=storage_service
-    ).accept_thumbnail_backfill(
-        actor_id=current_user.id,
-        project_id=project_id,
-        operation_id=operation_id,
-    )
+    try:
+        accepted = await project_thumbnail_backfill.accept_thumbnail_backfill(
+            db,
+            actor_id=current_user.id,
+            project_id=project_id,
+            operation_id=operation_id,
+        )
+    except TaskWorkflowError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     if accepted.spec.selection.accepted_before is None:
         raise HTTPException(status_code=502, detail="Invalid image backfill receipt")
     response.headers["Idempotency-Key"] = str(operation_id)

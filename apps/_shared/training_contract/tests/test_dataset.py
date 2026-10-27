@@ -164,10 +164,16 @@ def test_detection_schema_digests_are_unchanged_and_segmentation_has_no_legacy_a
     )
     schema = definition("ultralytics", "yolo11n-seg")
     assert schema["task"] == SEGMENTATION
-    identities = [i for i in supported_identities() if i["task"] == SEGMENTATION]
-    assert len(identities) == 1 and identities[0]["adapter_revision"] == 2
+    identities = [
+        i
+        for i in supported_identities({"ultralytics": "8.4.177"})
+        if i["task"] == SEGMENTATION
+    ]
+    assert len(identities) == 2 and all(
+        identity["adapter_revision"] == 2 for identity in identities
+    )
     with pytest.raises(ValueError):
-        definition("ultralytics", "yolo11s-seg")
+        definition("ultralytics", "yolo11s-seg", version="8.4.177")
     request = {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],

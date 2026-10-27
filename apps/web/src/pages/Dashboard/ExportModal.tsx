@@ -598,7 +598,14 @@ function ExportForm({
                   onChange={(event) => setKittiCameraRole(event.target.value)}
                   className="rounded-sm border border-border bg-card px-3 py-2 text-xs text-foreground"
                 >
-                  <option value="">请选择相机通道</option>
+                  <option value="" disabled hidden>
+                    请选择相机通道
+                  </option>
+                  {kittiCameraRole && !lidarPreflight?.camera_roles.includes(kittiCameraRole) && (
+                    <option value={kittiCameraRole} disabled hidden>
+                      已选相机通道（正在核对可用状态）
+                    </option>
+                  )}
                   {(lidarPreflight?.camera_roles ?? []).map((role) => (
                     <option key={role} value={role}>
                       {role.replace(/^camera_/, "")}
@@ -678,7 +685,11 @@ function ExportForm({
                 className="rounded-sm border border-border bg-card px-3 py-2 text-xs text-foreground"
                 disabled={videoTasks.length === 0}
               >
-                {videoTasks.length === 0 && <option value="">暂无视频任务</option>}
+                {videoTasks.length === 0 && (
+                  <option value="" disabled hidden>
+                    暂无视频任务
+                  </option>
+                )}
                 {videoTasks.map((task) => (
                   <option key={task.id} value={task.id}>
                     {task.display_id} · {task.file_name}

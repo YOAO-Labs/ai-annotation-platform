@@ -28,6 +28,15 @@ from worktree_env import (
 )
 
 
+def worker_queues_match(node: str, configured: str, active: list[dict]) -> bool:
+    from celery.utils.nodenames import worker_direct
+
+    expected = set(configured.split(","))
+    actual = {queue["name"] for queue in active}
+    # worker_direct adds the node's own inbox; unknown queues still fail closed.
+    return actual in (expected, expected | {worker_direct(node).name})
+
+
 def require_owner(name: str, observed: dict | None, expected: str) -> bool:
     if observed is None:
         return False
@@ -532,9 +541,11 @@ def run_processes(backend, options) -> int:
                         )
                         registered = inspector.registered() or {}
                         active = inspector.active_queues() or {}
-                        if required_task in registered.get(worker_name, []) and {
-                            queue["name"] for queue in active.get(worker_name, [])
-                        } == set(queues.split(",")):
+                        if required_task in registered.get(
+                            worker_name, []
+                        ) and worker_queues_match(
+                            worker_name, queues, active.get(worker_name, [])
+                        ):
                             ready = True
                             break
                     if not ready:

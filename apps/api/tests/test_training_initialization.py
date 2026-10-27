@@ -28,13 +28,13 @@ from app.schemas.training_recipe import TrainingRecipeWrite
 from app.services import (
     trained_models,
     training_initialization as source,
+    training_run_storage,
     training_runs as runs,
 )
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
-from app.services.training_datasets import bind_training_authority
 from tests.test_training_parameters import configuration
-from tests.test_training_runs import TOKEN, ready_dataset, executor_claim, fence
+from tests.test_training_runs import ready_dataset, executor_claim, fence
 from tests.conftest import _create_user
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
 from tests.test_learning_policies import build_candidate
@@ -48,7 +48,7 @@ def objects(monkeypatch):
     values = {}
 
     def get_object(*, Bucket, Key):
-        raw, attempt_id = values[Key]
+        raw, attempt_id = values[Bucket, Key]
         return {
             "ContentLength": len(raw),
             "Metadata": {"attempt-id": str(attempt_id)},
@@ -89,6 +89,7 @@ async def seed(db, owner, objects, classes=None):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     attempt = TrainingAttempt(
         run_id=run.id,
         ordinal=1,
@@ -114,7 +115,7 @@ async def seed(db, owner, objects, classes=None):
         ("metrics.json", "metrics", json.dumps(report).encode()),
     ):
         key = f"projects/{project.id}/runs/{run.id}/attempts/{attempt.id}/{name}"
-        objects[key] = raw, attempt.id
+        objects[run.storage_ref["bucket"], key] = raw, attempt.id
         artifacts[name] = {
             "name": name,
             "role": role,
@@ -239,7 +240,7 @@ async def test_exact_source_frozen_preflight_archive_and_accepted_replay(
         if item["relation"] == "weights_initialization"
     )
     assert edge["target"]["id"] == str(model.id)
-    del objects[model.artifact["key"]]
+    del objects[original.storage_ref["bucket"], model.artifact["key"]]
     replay = await httpx_client.post(
         path(project), headers=headers(token), json=payload
     )
@@ -314,9 +315,12 @@ async def test_source_problems_never_fall_back_to_catalog(
     pin, _ = await source.source_pin(db_session, project.id, model.id)
     payload = body(dataset, pin)
     if problem == "corrupt":
-        objects[model.artifact["key"]] = b"changed native source", attempt.id
+        objects[run.storage_ref["bucket"], model.artifact["key"]] = (
+            b"changed native source",
+            attempt.id,
+        )
     elif problem == "missing":
-        del objects[model.artifact["key"]]
+        del objects[run.storage_ref["bucket"], model.artifact["key"]]
     elif problem == "oversized":
         model.artifact = {**model.artifact, "size_bytes": 2 * 1024**3 + 1}
         attempt.artifacts = {**attempt.artifacts, "best.pt": model.artifact}
@@ -341,26 +345,12 @@ async def test_claim_requires_capability_and_verifies_source_before_gpu_assignme
     created = await create(httpx_client, token, project, body(dataset, pin))
     old = claim()
     old.runtime.pop("initialization_policy_digest")
-    assert (
-        await runs.claim(
-            db_session, old, training_authority=bind_training_authority(db_session)
-        )
-        is None
-    )
+    assert await runs.claim(db_session, old) is None
     current = claim()
-    response = await httpx_client.post(
-        "/api/v1/internal/training/claim",
-        headers={"x-training-executor-token": TOKEN},
-        json=current.model_dump(mode="json"),
-    )
-    assert response.status_code == 200, response.text
-    assignment = response.json()["assignment"]
+    assignment = await runs.claim(db_session, current)
     assert assignment["run_id"] == created["id"]
     assert assignment["initialization"]["sha256"] == model.artifact["sha256"]
     assert assignment["initialization"]["source_digest"] == pin["source_digest"]
-    assert assignment["initialization"]["url"] == (
-        "http://owned-storage/" + model.artifact["key"]
-    )
     assert assignment["resume"] is None
 
 
@@ -368,18 +358,13 @@ async def test_source_lost_after_acceptance_fails_initial_claim_but_resume_uses_
     db_session, project_admin, httpx_client, objects
 ):
     owner, token = project_admin
-    project, dataset, _, _, model = await seed(db_session, owner, objects)
+    project, dataset, source_run, _, model = await seed(db_session, owner, objects)
     pin, _ = await source.source_pin(db_session, project.id, model.id)
     created = await create(httpx_client, token, project, body(dataset, pin))
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     first = await db_session.get(TrainingAttempt, run.current_attempt_id)
-    del objects[model.artifact["key"]]
-    assert (
-        await runs.claim(
-            db_session, claim(), training_authority=bind_training_authority(db_session)
-        )
-        is None
-    )
+    del objects[source_run.storage_ref["bucket"], model.artifact["key"]]
+    assert await runs.claim(db_session, claim()) is None
     assert run.status == "failed" and first.failure["code"] == "input_mismatch"
     first.artifacts = {
         "checkpoint-0001.pt": {
@@ -391,9 +376,7 @@ async def test_source_lost_after_acceptance_fails_initial_claim_but_resume_uses_
         }
     }
     following = await runs.new_attempt(db_session, run, resume_from=first.id)
-    assignment = await runs.claim(
-        db_session, claim(), training_authority=bind_training_authority(db_session)
-    )
+    assignment = await runs.claim(db_session, claim())
     assert assignment["attempt_id"] == str(following.id)
     assert assignment["resume"]["key"].endswith("checkpoint-0001.pt")
     assert "initialization" not in assignment
@@ -528,9 +511,7 @@ async def test_success_receipt_must_prove_fresh_loading(
     pin, _ = await source.source_pin(db_session, project.id, model.id)
     created = await create(httpx_client, token, project, body(dataset, pin))
     executor = claim()
-    assignment = await runs.claim(
-        db_session, executor, training_authority=bind_training_authority(db_session)
-    )
+    assignment = await runs.claim(db_session, executor)
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     evidence = {
@@ -577,7 +558,7 @@ async def test_success_receipt_must_prove_fresh_loading(
             ("native-config.json", "config", json.dumps(observation).encode()),
         ]:
             key = f"projects/{project.id}/runs/{run.id}/attempts/{attempt.id}/{name}"
-            objects[key] = raw, attempt.id
+            objects[run.storage_ref["bucket"], key] = raw, attempt.id
             values[name] = {
                 "name": name,
                 "role": role,
@@ -597,23 +578,11 @@ async def test_success_receipt_must_prove_fresh_loading(
     ]:
         inventory({**receipt, "evidence": {"initialization": invalid}})
         with pytest.raises(HTTPException) as caught:
-            await runs.finish(
-                db_session,
-                attempt.id,
-                completion,
-                training_authority=bind_training_authority(db_session),
-            )
+            await runs.finish(db_session, attempt.id, completion)
         assert caught.value.status_code == 422 and run.status == "preparing"
         assert (await runs.lock_resource(db_session)).attempt_id == attempt.id
     inventory(receipt)
-    assert (
-        await runs.finish(
-            db_session,
-            attempt.id,
-            completion,
-            training_authority=bind_training_authority(db_session),
-        )
-    ).status == "succeeded"
+    assert (await runs.finish(db_session, attempt.id, completion)).status == "succeeded"
     assert (await runs.lock_resource(db_session)).attempt_id is None
 
 
@@ -626,12 +595,7 @@ async def test_withdrawn_actor_cannot_start_accepted_initialized_run(
     created = await create(httpx_client, token, project, body(dataset, pin))
     owner.is_active = False
     await db_session.flush()
-    assert (
-        await runs.claim(
-            db_session, claim(), training_authority=bind_training_authority(db_session)
-        )
-        is None
-    )
+    assert await runs.claim(db_session, claim()) is None
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     assert run.status == "failed" and "权限" in run.error_message
     assert (await runs.lock_resource(db_session)).attempt_id is None
@@ -674,20 +638,20 @@ async def test_concurrent_source_acceptance_retains_model_before_delete(
                 config = await runs.frozen_config(
                     db, project_id, TrainingRunCreate(**body(dataset, pin))
                 )
-                db.add(
-                    TrainingRun(
-                        project_id=project_id,
-                        creator_id=user_id,
-                        dataset_id=dataset_id,
-                        initialization_model_id=source_id,
-                        request_id=uuid.uuid4(),
-                        request_digest="a" * 64,
-                        name="Concurrent accepted source",
-                        config=config,
-                        config_digest=content_digest(config),
-                    )
+                run = TrainingRun(
+                    project_id=project_id,
+                    creator_id=user_id,
+                    dataset_id=dataset_id,
+                    initialization_model_id=source_id,
+                    request_id=uuid.uuid4(),
+                    request_digest="a" * 64,
+                    name="Concurrent accepted source",
+                    config=config,
+                    config_digest=content_digest(config),
                 )
+                db.add(run)
                 await db.flush()
+                await training_run_storage.allocate(db, run)
                 accepted.set()
                 await release.wait()
                 await db.commit()

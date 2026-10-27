@@ -5,8 +5,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0347"
-down_revision = "0346"
+revision = "bo0347"
+down_revision = "bo0346"
 branch_labels = depends_on = None
 
 _SQL_PATH = Path(__file__).resolve().parents[1] / "sql" / "0347_labeling_discussion.sql"

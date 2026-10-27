@@ -32,11 +32,14 @@ COPY apps/labeling /labeling
 COPY apps/preannotation-results /preannotation-results
 COPY apps/assets-cleanup /assets-cleanup
 COPY apps/assets-source /assets-source
+COPY apps/_shared/filesystem_read /_shared/filesystem_read
+COPY apps/_shared/site_agent_contract /_shared/site_agent_contract
 COPY apps/api/pyproject.toml apps/api/uv.lock ./
 # Keep dependencies outside /app: development workers bind-mount the source there.
 RUN uv venv /opt/venv \
   && uv export --frozen --no-dev --no-emit-project \
-       --no-emit-package aap-inference-contract --no-emit-package aap-owner-data --no-emit-package aap-identity-admission --no-emit-package aap-labeling --no-emit-package aap-identity --no-emit-package aap-inference --no-emit-package aap-workspace --no-emit-package aap-mail-transport --no-emit-package aap-notifications --no-emit-package aap-jobs --no-emit-package aap-task-contract --no-emit-package aap-protocol-v2 --no-emit-package aap-training-contract --no-emit-package aap-workspace-contract --no-emit-package aap-audit-contract --no-emit-package aap-audit --no-emit-package aap-media-probe --no-emit-package aap-assets-cleanup --no-emit-package aap-assets-source --no-emit-package aap-assets-catalog --no-emit-package aap-assets-media --no-emit-package aap-assets-mask-content --no-emit-package aap-labeling-mask-gc --no-emit-package aap-preannotation-results --output-file /tmp/requirements.txt \
+       --no-emit-package aap-inference-contract --no-emit-package aap-owner-data --no-emit-package aap-identity-admission --no-emit-package aap-labeling --no-emit-package aap-identity --no-emit-package aap-inference --no-emit-package aap-workspace --no-emit-package aap-mail-transport --no-emit-package aap-notifications --no-emit-package aap-jobs --no-emit-package aap-task-contract --no-emit-package aap-protocol-v2 --no-emit-package aap-training-contract --no-emit-package aap-workspace-contract --no-emit-package aap-audit-contract --no-emit-package aap-audit --no-emit-package aap-media-probe --no-emit-package aap-assets-cleanup --no-emit-package aap-assets-source --no-emit-package aap-assets-catalog --no-emit-package aap-assets-media --no-emit-package aap-assets-mask-content --no-emit-package aap-labeling-mask-gc --no-emit-package aap-preannotation-results \
+       --no-emit-package aap-filesystem-read --no-emit-package aap-site-agent-contract --output-file /tmp/requirements.txt \
   && uv pip install --python /opt/venv/bin/python --require-hashes \
        -r /tmp/requirements.txt \
   && uv pip install --python /opt/venv/bin/python --no-deps /_shared/inference_contract \
@@ -63,6 +66,8 @@ RUN uv venv /opt/venv \
   && uv pip install --python /opt/venv/bin/python --no-deps /preannotation-results \
   && uv pip install --python /opt/venv/bin/python --no-deps /assets-cleanup \
   && uv pip install --python /opt/venv/bin/python --no-deps /assets-source \
+  && uv pip install --python /opt/venv/bin/python --no-deps /_shared/filesystem_read \
+  && uv pip install --python /opt/venv/bin/python --no-deps /_shared/site_agent_contract \
   && rm /tmp/requirements.txt
 COPY apps/api/ .
 COPY docs-site/public/home/sam-tools/smart-point.webm /app/fixture-media/smart-point.webm

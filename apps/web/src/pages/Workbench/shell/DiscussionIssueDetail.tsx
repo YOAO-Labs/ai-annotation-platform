@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   hasPixelAnchor,
@@ -341,7 +342,10 @@ export function DiscussionIssueDetail({
       )}
       {sequenceError && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-status-danger/40 bg-status-danger-soft px-3 py-1.5 text-xs text-status-danger">
-          <span>问题序列加载失败：{errorMessage(sequenceError, "请重试")}</span>
+          <span>
+            问题序列加载失败：
+            <CopyableError message={errorMessage(sequenceError, "请重试")} />
+          </span>
           <Button
             size="sm"
             variant="ghost"
@@ -361,7 +365,9 @@ export function DiscussionIssueDetail({
           role="alert"
           data-testid="discussion-issue-detail-error"
         >
-          <span>{mutationError}</span>
+          <span>
+            <CopyableError message={mutationError} />
+          </span>
           <Button size="sm" variant="ghost" onClick={() => setMutationError(null)}>
             关闭
           </Button>
@@ -399,9 +405,13 @@ export function DiscussionIssueDetail({
             data-testid="discussion-issue-thread-error"
           >
             <span>
-              {thread.paginationError
-                ? `无法加载更早回复：${errorMessage(thread.paginationError, "请重试")}`
-                : `无法加载问题：${errorMessage(thread.error, "请重试")}`}
+              <CopyableError
+                message={
+                  thread.paginationError
+                    ? `无法加载更早回复：${errorMessage(thread.paginationError, "请重试")}`
+                    : `无法加载问题：${errorMessage(thread.error, "请重试")}`
+                }
+              />
             </span>
             <Button
               size="sm"

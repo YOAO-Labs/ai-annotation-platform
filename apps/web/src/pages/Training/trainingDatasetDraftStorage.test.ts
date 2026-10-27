@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TrainingDatasetCreate } from "@/api/generated/types.gen";
+import type { TrainingDatasetCreate } from "@/api/trainingDatasets";
+import { instanceMaskBridge } from "./trainingDatasetBridges";
 import {
   readTrainingDatasetDraft,
   removeMatchingTrainingDatasetDraft,
@@ -33,6 +34,14 @@ afterEach(() => {
 });
 
 describe("training dataset pending request storage", () => {
+  it("retains an explicit dataset restriction in an idempotent pending request", () => {
+    const scoped = { ...body, dataset_id: "11111111-2222-4333-8444-555555555555" };
+    expect(saveTrainingDatasetDraft(owner, scoped)).toBeNull();
+    expect(readTrainingDatasetDraft(owner)).toEqual({ body: scoped, error: null });
+    expect(saveTrainingDatasetDraft(owner, { ...scoped, dataset_id: null })).toContain(
+      "另一个页面",
+    );
+  });
   it("keeps the original body, rejects another pending request and only removes a matching request", () => {
     expect(saveTrainingDatasetDraft(owner, body)).toBeNull();
     expect(readTrainingDatasetDraft(owner)).toEqual({ body, error: null });
@@ -126,4 +135,42 @@ describe("training dataset pending request storage", () => {
     ).toContain("无法清理");
     expect(readTrainingDatasetDraft(owner).body).toEqual(body);
   });
+});
+
+it("keeps native mask and polygon requests separate without changing the legacy key", () => {
+  const polygonOwner = { ...owner, task: "segment" as const };
+  const maskOwner = { ...polygonOwner, bridge: instanceMaskBridge } as const;
+  const polygon = { ...body, task: "segment" as const };
+  const mask: TrainingDatasetCreate = {
+    ...polygon,
+    bridge: instanceMaskBridge,
+    request_id: "22222222-2222-4222-8222-222222222222",
+  };
+  expect(trainingDatasetDraftKey(polygonOwner)).not.toBe(trainingDatasetDraftKey(maskOwner));
+  expect(saveTrainingDatasetDraft(polygonOwner, polygon)).toBeNull();
+  expect(readTrainingDatasetDraft(maskOwner).body).toBeNull();
+  expect(saveTrainingDatasetDraft(maskOwner, mask)).toBeNull();
+  expect(readTrainingDatasetDraft(polygonOwner).body).toEqual(polygon);
+  expect(readTrainingDatasetDraft(maskOwner).body).toEqual(mask);
+  expect(removeMatchingTrainingDatasetDraft(maskOwner, mask)).toBeNull();
+  expect(readTrainingDatasetDraft(polygonOwner).body).toEqual(polygon);
+});
+
+it("preserves the original filtered request and rejects corrupt filter restoration", () => {
+  const scoped = {
+    ...body,
+    dataset_id: "11111111-2222-4333-8444-555555555555",
+    dataset_filter: { extension: "png", min_width: 100 },
+  };
+  expect(saveTrainingDatasetDraft(owner, scoped)).toBeNull();
+  expect(readTrainingDatasetDraft(owner)).toEqual({ body: scoped, error: null });
+  expect(
+    saveTrainingDatasetDraft(owner, { ...scoped, dataset_filter: { extension: "jpg" } }),
+  ).toContain("另一个页面");
+  const key = trainingDatasetDraftKey(owner);
+  localStorage.setItem(
+    key,
+    JSON.stringify({ version: 1, ownerKey: key, body: { ...scoped, dataset_filter: { page: 9 } } }),
+  );
+  expect(readTrainingDatasetDraft(owner).error).toBeTruthy();
 });

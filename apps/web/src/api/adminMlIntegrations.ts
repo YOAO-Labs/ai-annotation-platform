@@ -43,20 +43,11 @@ export type {
   ServicePoolMemberPutRequest,
 } from "./generated/types.gen";
 
-export interface BucketSummary {
-  name: string;
-  status: "ok" | "error";
-  object_count: number;
-  total_size_bytes: number;
-  error: string | null;
-  role: "annotations" | "datasets" | "bug-reports" | "media-cache" | "audit-archive";
-}
-
-export interface StorageOverview {
-  items: BucketSummary[];
-  total_object_count: number;
-  total_size_bytes: number;
-}
+export type { BucketSummary } from "./storage";
+export type StorageOverview = Pick<
+  import("./storage").BucketsResponse,
+  "items" | "total_object_count" | "total_size_bytes"
+>;
 
 // v0.10.26 · 单变体 cache 桶 (来自 backend /cache/stats，key="sam/dino")。
 export interface CacheBucketStat {
@@ -198,6 +189,7 @@ export interface ProbeResponse {
 
 export interface RuntimeHints {
   ml_backend_default_url: string | null;
+  managed_backend_urls?: Record<string, string>;
 }
 
 // v0.9.7 · /all 全局 backend 列表 (Wizard step 4 复用 backend 配置).
@@ -244,11 +236,16 @@ export interface MLBackendOut {
   updated_at: string;
 }
 
+export type MLBackendAuthMethod =
+  | "none"
+  | "token"
+  | `managed:${"gsam2" | "sam3" | "yolo" | "onnxtools" | "rapidocr"}`;
+
 export interface MLBackendRegistryCreatePayload {
   name: string;
   url: string;
   is_interactive?: boolean;
-  auth_method?: "none" | "token";
+  auth_method?: MLBackendAuthMethod;
   auth_token?: string | null;
   extra_params?: Record<string, unknown>;
   gpu_resource_id?: string | null;

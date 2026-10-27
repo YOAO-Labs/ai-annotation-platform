@@ -38,6 +38,13 @@ async def get_job(
     )
 
 
+async def execution_snapshot_id(
+    db: AsyncSession, job_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Read the immutable binding after the Job row was read or locked."""
+    return await JobsLifecyclePostgresData(db).read_execution_snapshot_id(job_id)
+
+
 async def create_job(
     db: AsyncSession,
     *,
@@ -47,7 +54,11 @@ async def create_job(
     payload: dict | None = None,
     celery_task_id: str | None = None,
 ) -> AsyncJob:
-    """v0.10.16 · 创建 async_jobs 行。调用方负责 commit。"""
+    """v0.10.16 · 创建 async_jobs 行。调用方负责 commit。
+
+    The execution snapshot is not a creation field: the closed creation view
+    omits it. Call ``bind_execution_snapshot`` after the pending row exists.
+    """
     return await _manager(db).create_job(
         kind=kind,
         user_id=user_id,
@@ -131,6 +142,39 @@ async def mark_running(
 def bind_execution_id(job: AsyncJob, execution_id: str | None) -> None:
     """Set or clear the execution ID; the caller owns lookup, commit, and ordering."""
     _manager(None).bind_execution_id(job, execution_id)
+
+
+async def bind_execution_snapshot(
+    db: AsyncSession,
+    job: AsyncJob,
+    *,
+    actor_id: uuid.UUID,
+    snapshot_id: uuid.UUID,
+) -> None:
+    """Bind the immutable execution snapshot through the Jobs owner capability.
+
+    ``execution_snapshot_id`` is deliberately absent from the generic lifecycle
+    command surface, so this narrow CAS is the only writer. It validates the
+    current owner, project and pending state, binds once and stays idempotent
+    for a redelivery of the same admitted Job.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.orm import attributes
+
+    if job is None:
+        raise ValueError("execution snapshot binding requires a Job row")
+    bound = await db.scalar(
+        text(
+            "SELECT aap_jobs_v1.bind_prediction_execution_snapshot("
+            "CAST(:job_id AS pg_catalog.uuid), "
+            "CAST(:actor_id AS pg_catalog.uuid), "
+            "CAST(:snapshot_id AS pg_catalog.uuid))"
+        ),
+        {"job_id": job.id, "actor_id": actor_id, "snapshot_id": snapshot_id},
+    )
+    if bound is not True:
+        raise ValueError("execution snapshot binding rejected")
+    attributes.set_committed_value(job, "execution_snapshot_id", snapshot_id)
 
 
 async def update_payload(db: AsyncSession, job_id: uuid.UUID, updates: dict) -> None:

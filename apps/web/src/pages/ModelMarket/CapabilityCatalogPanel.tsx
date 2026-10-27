@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 // v0.14.9 · 模型市场「能力目录」面板 — 能力声明协议 v2 的消费视图.
 // 与「项目级 ML Backend」表格不同, 这里按 *model 条目* 展开:
 //   - 枚举所有项目已注册 backend (admin overview), 对每个 backend 拉 /capabilities 拿 models[];
@@ -569,7 +570,8 @@ export function CapabilityCatalogPanel() {
           <div className={NOTE_CLASS}>加载 backend 列表…</div>
         ) : overviewError ? (
           <div className="flex items-center gap-2 px-4 py-3 text-xs text-status-danger">
-            加载失败：{(overviewErr as Error)?.message ?? "未知错误"}
+            加载失败：
+            <CopyableError message={(overviewErr as Error)?.message ?? "未知错误"} />
             <button className={RETRY_BTN_CLASS} onClick={() => refetchOverview()}>
               重试
             </button>

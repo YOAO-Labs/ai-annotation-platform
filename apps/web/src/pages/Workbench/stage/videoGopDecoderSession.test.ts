@@ -258,6 +258,34 @@ describe("VideoGopDecoderSession", () => {
     expect(lastDecoder().configure).toHaveBeenCalledWith(fallbackConfig);
   });
 
+  it.each(["initial", "hardware-fallback", "rejected"] as const)(
+    "dispose during %s config support await cannot reopen the session",
+    async (phase) => {
+      const plan = gopPlan(10);
+      let resolveSupport!: (value: VideoDecoderSupport) => void;
+      let rejectSupport!: (reason: Error) => void;
+      const deferred = new Promise<VideoDecoderSupport>((resolve, reject) => {
+        resolveSupport = resolve;
+        rejectSupport = reject;
+      });
+      const support = vi.mocked(VideoDecoder.isConfigSupported);
+      if (phase === "hardware-fallback") support.mockResolvedValueOnce({ supported: false });
+      support.mockReturnValueOnce(deferred);
+      const session = newSession(plan);
+      const pending = session.decode(req(plan, 0));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(support).toHaveBeenCalledTimes(phase === "hardware-fallback" ? 2 : 1);
+      session.dispose();
+      if (phase === "rejected") rejectSupport(new Error("late failure"));
+      else resolveSupport({ supported: true });
+      expect((await pending).ok).toBe(false);
+      expect(session.getStats().state).toBe("closed");
+      expect(session.getStats().activeDecoders).toBe(0);
+      expect(decoders).toHaveLength(0);
+    },
+  );
+
   it("首目标从 GOP key sample 提交到目标(提交 0..target 共 target+1 个 chunk)", async () => {
     const plan = gopPlan(30);
     const session = newSession(plan);

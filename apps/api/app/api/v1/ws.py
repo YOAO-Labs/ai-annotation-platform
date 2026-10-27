@@ -88,7 +88,12 @@ async def _revalidate_project_stream(token: str, project_id: uuid.UUID) -> bool:
 
 
 async def _notification_authenticate(token: str):
-    return await _authenticate_socket_token(token, allow_api_key=False)
+    return await _authenticate_socket_token(token, allow_api_key=True)
+
+
+def _notification_inventory_visible(principal) -> bool:
+    scopes = getattr(principal, "scopes", None)
+    return scopes is None or "*" in scopes
 
 
 async def _notification_message_allowed(token: str, data) -> bool:
@@ -100,6 +105,8 @@ async def _notification_message_allowed(token: str, data) -> bool:
         authenticate=_notification_authenticate,
         open_delivery=_open_notification_delivery,
         retry_seconds=_NOTIFICATION_GATE_RETRY_SECONDS,
+        allow_api_keys=True,
+        include_migration_inventory=_notification_inventory_visible,
     )
 
 

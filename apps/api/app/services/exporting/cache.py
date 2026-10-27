@@ -1,12 +1,4 @@
-"""导出产物缓存服务（2026-05-20 计划 §3，阶段 2）。
-
-- compute_cache_key：双字段指纹（max(updated_at) + count(active)），删除标注会让
-  count 变化，单 max 不变也能让 key 失效。
-- lookup：查未过期行；命中后对桶内对象探活（lifecycle 可能已清理）。
-- record：插入一行。
-
-调用方负责 commit（与 async_job 服务层一致）。
-"""
+"""Index independently owned exports without extending their fixed retention."""
 
 from __future__ import annotations
 
@@ -18,10 +10,12 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.export_artifact import ExportArtifact
-from app.services.storage import storage_service
+from app.db.models.export_output import ExportOutput
+from app.services import export_outputs
 
 
 def compute_cache_key(
@@ -66,54 +60,64 @@ def compute_cache_key(
     return hashlib.sha256(raw).hexdigest()
 
 
-async def lookup(
-    db: AsyncSession, cache_key: str, *, bucket: str | None = None
-) -> ExportArtifact | None:
-    """查未过期的缓存行；命中后探活桶内对象，被 lifecycle 清掉则删行回退。
-
-    bucket 为产物所在桶（阶段 1 引入 export 桶后由调用方传入）。
-    """
-    res = await db.execute(
-        select(ExportArtifact).where(
+async def lookup(db: AsyncSession, cache_key: str):
+    """A hit is independently verified at its saved location, never a current bucket."""
+    artifact = await db.scalar(
+        select(ExportArtifact)
+        .where(
             ExportArtifact.cache_key == cache_key,
             ExportArtifact.expires_at > datetime.now(timezone.utc),
         )
+        .execution_options(populate_existing=True)
     )
-    artifact = res.scalar_one_or_none()
     if artifact is None:
         return None
-
-    # 探活：storage 无独立 stat_object，复用 verify_upload（head_object，miss 返回 None）。
-    meta = storage_service.verify_upload(artifact.object_key, bucket=bucket)
-    if meta is None:
-        await db.delete(artifact)
-        return None
-    return artifact
+    return await export_outputs.verify_cache(db, artifact)
 
 
-async def record(
-    db: AsyncSession,
-    *,
-    cache_key: str,
-    project_id: uuid.UUID,
-    batch_id: uuid.UUID | None,
-    format: str,
-    object_key: str,
-    file_count: int,
-    size_bytes: int,
-    expires_at: datetime,
-) -> ExportArtifact:
-    """插入一条缓存行。调用方负责 commit。"""
-    artifact = ExportArtifact(
-        cache_key=cache_key,
-        project_id=project_id,
-        batch_id=batch_id,
-        format=format,
-        object_key=object_key,
-        file_count=file_count,
-        size_bytes=size_bytes,
-        expires_at=expires_at,
+async def record(db: AsyncSession, *, cache_key: str, output, batch_id):
+    """Publish a replaceable index without discarding another live candidate."""
+    if output.state != "ready":
+        export_outputs.reject("export_output_changed")
+    receipt = export_outputs.snapshot(output)
+    if receipt.expires_at <= datetime.now(timezone.utc):
+        export_outputs.reject("export_storage_expired")
+    values = {
+        "project_id": receipt.project_id,
+        "batch_id": batch_id,
+        "format": receipt.format,
+        "object_key": export_outputs.object_key(receipt),
+        "file_count": receipt.file_count,
+        "size_bytes": receipt.size_bytes,
+        "expires_at": receipt.expires_at,
+        "output_id": receipt.id,
+    }
+    # A lost/expired Redis single-flight lease can leave two legitimate writers.
+    # Both own separate objects; retain the first still-valid cache index.
+    await db.execute(
+        insert(ExportArtifact)
+        .values(id=uuid.uuid4(), cache_key=cache_key, **values)
+        .on_conflict_do_nothing(index_elements=[ExportArtifact.cache_key])
     )
-    db.add(artifact)
+    artifact = await db.scalar(
+        select(ExportArtifact)
+        .where(ExportArtifact.cache_key == cache_key)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if artifact.project_id != receipt.project_id:
+        export_outputs.reject("export_cache_output_mismatch")
+    if artifact.output_id is not None and artifact.expires_at > datetime.now(
+        timezone.utc
+    ):
+        existing = await db.get(
+            ExportOutput, artifact.output_id, populate_existing=True
+        )
+        if existing is None or existing.state != "ready":
+            export_outputs.reject("export_cache_output_mismatch")
+        export_outputs.couple(artifact, existing)
+        return artifact
+    for name, value in values.items():
+        setattr(artifact, name, value)
     await db.flush()
     return artifact

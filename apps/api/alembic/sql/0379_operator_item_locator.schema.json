@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:operator-item-locator:v1",
+  "title": "aap_assets_v1.publish_operator_item_original",
+  "schema": "aap-managed-original/v1",
+  "native": [
+    "publish_operator_item_original(jsonb)",
+    "operator_item_original_facts(uuid,uuid)",
+    "operator_item_original_material(uuid,uuid)",
+    "operator_auxiliary_pointer(uuid,uuid,uuid)",
+    "begin_operator_auxiliary(jsonb)",
+    "publish_operator_auxiliary(uuid)",
+    "operator_auxiliary_owner(uuid,text,jsonb,uuid)",
+    "operator_auxiliary_material(uuid,uuid)",
+    "bind_operator_auxiliary_item(uuid,uuid,uuid)",
+    "bind_operator_auxiliary_scene(uuid,uuid,uuid)"
+  ],
+  "owner_lifecycle": {
+    "functions": [
+      "begin_operator_auxiliary(jsonb)",
+      "open_operator_storage_operation(uuid)",
+      "record_operator_original_prepared(uuid,jsonb)",
+      "mark_operator_original_writing(uuid)",
+      "record_operator_original_written(uuid,jsonb)",
+      "record_operator_original_verified(uuid,jsonb)",
+      "fail_operator_original(uuid,text,text,jsonb)",
+      "close_operator_storage_operation(uuid,uuid,boolean)"
+    ],
+    "allocation": "Allocation is independent and FK-free: dataset_id is an opaque scope, so a caller may allocate before its Dataset is published. Publication and item/scene binding validate the business scope in the caller's unit of work. Allocation never claims.",
+    "claim": "open_operator_storage_operation(uuid) atomically acquires the write permit and claims an allocated creation (status preparing, operation_id, claimed_at); for an already verified creation it issues a distinct creation-bound read permit and leaves the creation untouched. Reply carries operation_id and mode write|read. There is no separate claim capability.",
+    "staging": "origin=direct persists the caller-reserved staging locator (staging_bucket, staging_key) plus the caller's observed etag/version_id in source; the staging bucket is independently proven from the validated import binding. staging_ref stays NULL, which the staging-ref constraint explicitly allows. A different staging key for the same authority never silently retargets.",
+    "mode": "A connection-backed datasets binding always forces mode write; only the legacy platform binding may adopt an existing source key.",
+    "prepared": "Prepared evidence is frozen only when it matches the reserved bucket/object_key and the bounded byte budget.",
+    "writing": "The writing transition atomically creates the Main storage_usage_mutations intent (producer managed_original_creation, purpose managed_original, kind create, state pending, physical_outcome unknown) with Main's exact idempotency and scope recipes.",
+    "verified": "Verification requires explicit physical_settled=true and readback equal to the frozen sha256/md5/size and the written receipt etag/version_id; it settles only this creation's write permit and finalizes the accounting intent (confirmed only with a version-pinned current-head match, otherwise unknown).",
+    "failure": "Failures carry physical_settled and physical_outcome not_written|written|unknown. A proven-drained failure settles only the matching permit and finalizes accounting (delta 0 only for not_written); an unknown drain keeps both the permit and the pending accounting window.",
+    "close": "close_operator_storage_operation(creation_id, operation_id, physical_settled) settles only a creation-bound read permit; missing/foreign permits and write permits are rejected, and an unsettled close returns operation_unsettled while retaining the permit.",
+    "accounting": "No compensating trigger exists: the native owner writes and finishes storage_usage_mutations exactly as Main's _change(record_mutation=True)/accounting does. No table or sequence privilege is granted to consumers."
+  },
+  "auxiliary": {
+    "kinds": ["raw_lidar", "map", "item_media"],
+    "reuse": "published owner or verified creation for the same dataset/kind/contract or item",
+    "material": "owner-issued bucket/object_key/etag/version/storage_ref plus connection destination when bound",
+    "binding": "item/runtime metadata receipt must match owner key, sha256 and size before the pointer is set"
+  },
+  "request": {
+    "dataset_id": "uuid",
+    "item_id": "uuid",
+    "creation_id": "uuid",
+    "expected_file_path": "text",
+    "expected_file_size": "bigint|null",
+    "expected_content_hash": "sha256|md5|null"
+  },
+  "invariants": [
+    "the creation must be dataset-owned, verified and authoritative for the exact item",
+    "the current item locator/size/content hash must equal the caller-observed values before replacement",
+    "an existing verified asset with different content is never overwritten",
+    "the item locator and managed-original receipt advance together; prior unverified/replaced locators are retired from the receipt while their object is retained",
+    "Labeling-owned task rows are not modified; linked tasks continue to resolve through dataset_item_id"
+  ]
+}

@@ -1,6 +1,8 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQueryClient, useIsFetching } from "@tanstack/react-query";
 import { clsx } from "clsx";
+import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -190,7 +192,12 @@ export function TopBar({
             <NotificationsPopover />
           </Suspense>
 
-          <div className="flex cursor-pointer items-center gap-2 rounded-lg py-1 pl-1 pr-2.5 transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-accent active:translate-y-0 active:scale-[0.98]">
+          <Link
+            to="/settings?section=profile"
+            aria-label="个人资料设置"
+            title="个人资料设置"
+            className="flex cursor-pointer items-center gap-2 rounded-lg py-1 pl-1 pr-2.5 text-foreground no-underline transition-[background-color,transform] duration-200 hover:-translate-y-px hover:bg-accent active:translate-y-0 active:scale-[0.98] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <UserAvatar user={user ?? { name: "?" }} size="sm" />
             <div
               className={clsx(
@@ -201,7 +208,7 @@ export function TopBar({
               <span className="text-xs font-medium">{user?.name ?? "—"}</span>
               <span className="text-2xs text-muted-foreground">{user?.role ?? "—"}</span>
             </div>
-          </div>
+          </Link>
           <button
             type="button"
             title="退出登录"
@@ -236,7 +243,7 @@ export function TopBar({
               data-testid="logout-sync-error"
               className="rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-sm text-status-danger"
             >
-              {logout.syncError}
+              <CopyableError message={logout.syncError} />
             </div>
           )}
           <AlertDialogFooter>

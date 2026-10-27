@@ -4,10 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_assets_media.contract import MediaFailure, TimetableRequest
-from aap_jobs.dispatch_contract import DispatchLease
 
-from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
     get_quality_job_dispatcher,
     get_video_tracker_job_dispatcher,
@@ -15,18 +12,33 @@ from app.deps import (
     get_current_user,
     require_scopes,
 )
-from app.db.models.user import User
+from app.services.identity_contracts import IdentityActorFacts
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import (
+    lock_task_for_core_read,
+    video_segment_row,
+)
 from app.db.models.video_track_quality import (
     VideoTrackQualityIssue,
     VideoTrackQualityRun,
 )
+from aap_jobs.dispatch_contract import DispatchLease
+from app.application.task_workflow_errors import TaskWorkflowError
+from app.services.quality_job_dispatch import QualityJobDispatcher
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
+from app.services.annotation_evidence import task_contributor_snapshot
+from app.services.labeling_spatial_quality import (
+    quality_row,
+    quality_rows,
+    spatial_quality_data,
+)
+from app.services import task_access
 from app.schemas.annotation import AnnotationOut
 from app.schemas.task import (
+    PointCloudCameraOut,
     TaskPointCloudManifestResponse,
     TaskVideoFrameTimetableResponse,
     TaskVideoManifestResponse,
-    VideoFrameTimetableEntry,
 )
 from app.schemas.video_frame_service import (
     VideoChunkOut,
@@ -52,23 +64,13 @@ from app.schemas.video_tracker_job import (
     VideoTrackerPropagateRequest,
 )
 from app.services.audit import AuditAction, AuditService
-from app.services.project_access import (
-    get_workspace_project,
-    is_privileged_for_project,
-)
-from app.services.storage import storage_service
-from app.application.point_cloud_manifest import (
-    PointCloudManifestFileUnavailable,
-    build_point_cloud_manifest,
-)
-from app.services.assets_point_cloud_manifest import (
-    SqlAlchemyPointCloudManifestAssetsReader,
-)
-from app.services.labeling_point_cloud_manifest import (
-    SqlAlchemyTaskDatasetItemLinksReader,
-)
+from app.services.task_dataset_link import get_linked_items
+from app.services.project_access import get_workspace_project, is_privileged_for_project
 from app.services.video_frame_service import (
-    AssetsVideoContextReader,
+    build_context_from_task,
+    authorize_context,
+    frame_timetable as build_frame_timetable,
+    legacy_manifest as build_legacy_manifest,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -94,11 +96,6 @@ from app.services.video_track_quality import (
     mark_boundary_runs_stale,
     refresh_staleness,
 )
-from app.services.labeling_spatial_quality import (
-    quality_row,
-    quality_rows,
-    spatial_quality_data,
-)
 from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
     create_tracker_job,
@@ -110,30 +107,22 @@ from app.services.video_tracking.jobs import (
     save_video_mask_keyframe,
 )
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
-from app.application.task_workflow_errors import TaskWorkflowError
-from app.services.annotation_evidence import (
-    task_contributor_snapshot,
-)
-from app.services.assets_media import media_gateway, media_http_error
-from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 
 
-from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
     require_task_annotation_write,
     require_task_review_write,
-    VIDEO_MANIFEST_URL_EXPIRES_IN,
+    logger,
 )
 from aap_workspace_contract.access import ProjectAccess
-from app.services.identity_contracts import IdentityActorFacts
-from app.services.labeling_core_read_relations import (
-    lock_task_for_core_read,
-    video_segment_row,
-)
 
 router = APIRouter()
+
+
+def _raise_task_workflow_error(exc: TaskWorkflowError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.get(
@@ -173,6 +162,7 @@ async def get_active_video_tracker_jobs(
 @router.get("/{task_id}/video/manifest", response_model=TaskVideoManifestResponse)
 async def get_video_manifest(
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
@@ -180,31 +170,8 @@ async def get_video_manifest(
     await task_access.assert_task_visible(db, task, current_user.id)
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
-
-    if not task.dataset_item_id:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
-    metadata = ctx.metadata
-    if not metadata.fps or not metadata.frame_count:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-    reference = ctx.source_reference
-    if reference is None:
-        raise HTTPException(status_code=503, detail="Video source unavailable")
-
-    return TaskVideoManifestResponse(
-        task_id=task.id,
-        dataset_item_id=task.dataset_item_id,
-        video_url=reference.video_url,
-        poster_url=reference.poster_url,
-        metadata=metadata,
-        expires_in=reference.expires_in,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
+    return await build_legacy_manifest(db, ctx)
 
 
 @router.get(
@@ -216,33 +183,126 @@ async def get_point_cloud_manifest(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
+    from aap_assets_catalog.spatial_contract import SpatialFailure
+    from app.services import media_item_reads
+    from app.services.assets_spatial import AssetsSpatialGateway
+    from app.services.project_access import get_workspace_project
+
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
 
-    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if project is None or project.data_type != "lidar":
         raise HTTPException(status_code=409, detail="Task is not a point-cloud task")
 
-    def _presign(key: str) -> str:
-        return storage_service.generate_download_url(
-            key,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-            bucket=storage_service.datasets_bucket,
+    links = await get_linked_items(db, task_id)
+
+    # One public Assets projection covers every linked item; no core ORM read.
+    items_by_id = await media_item_reads.read_items(
+        db, [link.dataset_item_id for link in links]
+    )
+
+    primary_link = next((link for link in links if link.role == "primary_lidar"), None)
+    gateway = AssetsSpatialGateway(db)
+
+    cameras: list[PointCloudCameraOut] = []
+    for link in links:
+        if not link.role.startswith("camera_"):
+            continue
+        item = items_by_id.get(link.dataset_item_id)
+        if item is None:
+            continue
+        calibration = None
+        calibration_revision = None
+        calibration_digest = None
+        try:
+            state = await gateway.read_calibration_state(item.id)
+            calibration = state.calibration
+            calibration_revision = state.revision
+            calibration_digest = state.digest
+        except SpatialFailure:
+            # 无标定相机仍可展示原图；投影与人工成员写入按显式空值降级。
+            logger.warning(
+                "task %s %s: stored calibration unavailable, returning null",
+                task_id,
+                link.role,
+            )
+        cameras.append(
+            PointCloudCameraOut(
+                name=link.role[len("camera_") :],
+                role=link.role,
+                dataset_item_id=item.id,
+                link_id=link.id,
+                original_identity_path=(
+                    f"/api/v1/files/tasks/{task.id}/links/{link.id}/original-identity"
+                ),
+                width=item.width,
+                height=item.height,
+                calibration=calibration,
+                calibration_revision=calibration_revision,
+                calibration_digest=calibration_digest,
+            )
         )
 
-    try:
-        return await build_point_cloud_manifest(
-            task.id,
-            task.file_path,
-            link_reader=SqlAlchemyTaskDatasetItemLinksReader(db),
-            assets_reader=SqlAlchemyPointCloudManifestAssetsReader(db),
-            presign=_presign,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-        )
-    except PointCloudManifestFileUnavailable as exc:
-        raise HTTPException(
-            status_code=404, detail="Point cloud file not available"
-        ) from exc
+    cameras.sort(key=lambda c: c.name)
+
+    # v0.13.11 · 取主点云所在 Dataset 的 axis_convention,前端用它把 PCD positions 与各相机
+    # extrinsic 旋转归一化到 ISO 8855。无 primary_lidar item / 无 metadata key → None,
+    # 前端按 "iso_8855" (= identity) 处理,保持向后兼容。
+    axis_convention = None
+    if primary_link is not None:
+        primary_item = items_by_id.get(primary_link.dataset_item_id)
+        if primary_item is not None:
+            axis_convention = primary_item.axis_convention
+
+    # v0.14.0 · scene 字段透出:仅当 primary_lidar item 有 scene_id 时挂上,
+    # 前端用做跨帧导航的合法 backing(本期不消费 UX,仅显示在调试面板)。
+    scene_id_out: uuid.UUID | None = None
+    scene_name_out: str | None = None
+    frame_index_out: int | None = None
+    scene_total_frames_out: int | None = None
+    ego_pose_out = None
+    if primary_link is not None:
+        primary_item = items_by_id.get(primary_link.dataset_item_id)
+        if primary_item is not None and primary_item.scene_id is not None:
+            from aap_assets_catalog.spatial_contract import GetSceneRequest
+            from app.services import scene_pose as scene_pose_svc
+
+            scene = await gateway.get_scene(
+                GetSceneRequest(actor_id=None, scene_id=primary_item.scene_id)
+            )
+            scene_id_out = scene.scene_id
+            scene_name_out = scene.scene.name
+            frame_index_out = primary_item.frame_index
+            scene_total_frames_out = len(
+                {
+                    row.frame_index
+                    for row in await media_item_reads.read_dataset_items(
+                        db, primary_item.dataset_id
+                    )
+                    if row.scene_id == scene.scene_id and row.frame_index is not None
+                }
+            )
+            # v0.15.0 · 本帧 ego pose 透出;无位姿行(历史/非 nuScenes) → None
+            if primary_item.frame_index is not None:
+                ego_pose_out = await scene_pose_svc.get_frame_pose(
+                    db,
+                    scene_id=scene.scene_id,
+                    frame_index=primary_item.frame_index,
+                )
+
+    return TaskPointCloudManifestResponse(
+        task_id=task.id,
+        original_identity_path=f"/api/v1/files/tasks/{task.id}/original-identity",
+        cameras=cameras,
+        expires_in=0,
+        axis_convention=axis_convention,
+        scene_id=scene_id_out,
+        scene_name=scene_name_out,
+        frame_index=frame_index_out,
+        scene_total_frames=scene_total_frames_out,
+        ego_pose=ego_pose_out,
+    )
 
 
 @router.get(
@@ -251,65 +311,27 @@ async def get_point_cloud_manifest(
 )
 async def get_video_frame_timetable(
     task_id: uuid.UUID,
+    request: Request,
     response: Response,
     from_frame: int | None = Query(default=None, ge=0, alias="from"),
     to_frame: int | None = Query(default=None, ge=0, alias="to"),
+    expected_metadata_generation_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    if task.file_type != "video":
-        raise HTTPException(status_code=400, detail="Task is not a video task")
+    ctx = await authorize_context(db, task, current_user, request)
+    body = await build_frame_timetable(
+        db,
+        ctx,
+        from_frame,
+        to_frame,
+        expected_metadata_generation_id=expected_metadata_generation_id,
+    )
     response.headers["Cache-Control"] = "private, max-age=3600"
-
-    if not task.dataset_item_id:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
-    metadata = ctx.metadata
-    if not metadata.fps or not metadata.frame_count:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-
-    try:
-        async with media_gateway(db) as gateway:
-            frames = await gateway.read_all_timetable(
-                TimetableRequest(
-                    actor_id=current_user.id,
-                    dataset_item_id=task.dataset_item_id,
-                    task_id=task.id,
-                    from_frame=from_frame,
-                    to_frame=to_frame,
-                )
-            )
-    except MediaFailure as exc:
-        raise media_http_error(exc) from None
-    has_timetable = bool(metadata.frame_timetable_frame_count) or bool(frames)
-
-    body = TaskVideoFrameTimetableResponse(
-        task_id=task.id,
-        fps=metadata.fps,
-        frame_count=metadata.frame_count,
-        source="ffprobe" if has_timetable else "estimated",
-        frames=[
-            VideoFrameTimetableEntry(
-                frame_index=frame.frame_index,
-                pts_ms=frame.pts_ms,
-                is_keyframe=frame.is_keyframe,
-                pict_type=frame.pict_type,
-                byte_offset=frame.byte_offset,
-            )
-            for frame in frames
-        ],
-    )
     response.headers["ETag"] = (
-        f'"video-timetable:{task.dataset_item_id}:{metadata.frame_count}:'
-        f'{len(body.frames)}:{from_frame or 0}:{to_frame or ""}"'
+        f'"video-timetable:{body.metadata_generation_id}:{from_frame}:{to_frame}"'
     )
     return body
 
@@ -323,14 +345,8 @@ async def get_video_manifest_v2(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
-    return await build_video_manifest_v2(db, ctx, str(request.base_url), task=task)
+    ctx = await authorize_context(db, task, current_user, request)
+    return await build_video_manifest_v2(db, ctx, str(request.base_url))
 
 
 @router.get("/{task_id}/video/segments", response_model=VideoSegmentsResponse)
@@ -341,13 +357,7 @@ async def get_video_segments(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     return await list_video_segments(db, ctx, task=task)
 
 
@@ -365,13 +375,7 @@ async def claim_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await claim_segment(
@@ -405,13 +409,7 @@ async def heartbeat_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await heartbeat_segment(
@@ -445,13 +443,7 @@ async def release_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await release_segment(
@@ -472,7 +464,7 @@ async def release_video_segment(
 
 
 async def _segment_privileged(
-    db: AsyncSession, task: Task, user: User | IdentityActorFacts
+    db: AsyncSession, task: Task, user: IdentityActorFacts | IdentityActorFacts
 ) -> bool:
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     return bool(
@@ -482,10 +474,6 @@ async def _segment_privileged(
 
 
 def _raise_quality_error(exc: VideoTrackQualityError) -> None:
-    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-
-def _raise_task_workflow_error(exc: TaskWorkflowError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
@@ -504,13 +492,7 @@ async def submit_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     was_in_review = task.status == "review"
     try:
         body = await submit_segment(
@@ -632,13 +614,7 @@ async def reopen_video_segment(
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     try:
         body = await reopen_segment(
             db, ctx, segment_id, task=task, actor_id=current_user.id
@@ -665,13 +641,7 @@ async def unassign_video_segment(
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     body = await unassign_segment(
         db, ctx, segment_id, task=task, actor_id=current_user.id
     )
@@ -808,6 +778,7 @@ async def accept_video_track_quality(
 @router.get("/{task_id}/video/chunks", response_model=VideoChunksResponse)
 async def get_video_chunks(
     task_id: uuid.UUID,
+    request: Request,
     from_frame: int | None = Query(default=None, ge=0),
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -815,13 +786,7 @@ async def get_video_chunks(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
     return await list_video_chunks(db, ctx, from_frame, to_frame)
 
 
@@ -838,6 +803,7 @@ async def get_video_chunks(
 )
 async def get_video_chunk(
     task_id: uuid.UUID,
+    request: Request,
     chunk_id: int,
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -845,13 +811,7 @@ async def get_video_chunk(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
     body = await get_video_chunk_asset(db, ctx, chunk_id)
     if body.status == "pending":
         response.status_code = 202
@@ -872,6 +832,7 @@ async def get_video_chunk(
 )
 async def get_video_frame(
     task_id: uuid.UUID,
+    request: Request,
     frame_index: int,
     response: Response,
     format: Literal["webp", "jpeg"] = Query(default="webp"),
@@ -881,13 +842,7 @@ async def get_video_frame(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
     body = await get_video_frame_asset(db, ctx, frame_index, w, format)
     if body.status == "pending":
         response.status_code = 202
@@ -904,25 +859,16 @@ async def get_video_frame(
 )
 async def prefetch_video_frame_assets(
     task_id: uuid.UUID,
+    request: Request,
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
     return await prefetch_video_frames(
-        db,
-        ctx,
-        payload.frame_indices,
-        payload.width,
-        payload.format,
+        db, ctx, payload.frame_indices, payload.width, payload.format
     )
 
 
@@ -932,6 +878,7 @@ async def prefetch_video_frame_assets(
 )
 async def retry_video_frame_assets(
     task_id: uuid.UUID,
+    request: Request,
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
@@ -939,13 +886,7 @@ async def retry_video_frame_assets(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await AssetsVideoContextReader(db).from_task_summary(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
     return await retry_video_frames(
         db,
         ctx,
@@ -953,7 +894,6 @@ async def retry_video_frame_assets(
         payload.width,
         payload.format,
         force=payload.force,
-        task_annotation_retry=True,
     )
 
 
@@ -985,13 +925,7 @@ async def save_video_mask_correction_keyframe(
         expected_version = int(raw_if_match.removeprefix('W/"').removesuffix('"'))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid If-Match format") from exc
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     annotation, audit_detail = await save_video_mask_keyframe(
         db,
         task=task,
@@ -1046,13 +980,7 @@ async def operate_video_mask_correction_keyframe(
         expected_version = int(raw_if_match.removeprefix('W/"').removesuffix('"'))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid If-Match format") from exc
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     annotation, audit_detail = await operate_video_mask_keyframe(
         db,
         task=task,
@@ -1107,13 +1035,7 @@ async def create_video_mask_correction(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     commit_started = time.monotonic()
     try:
         body = await create_video_mask_correction_job(
@@ -1251,13 +1173,7 @@ async def propagate_video_track(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     body = await create_tracker_job(
         db,
         task=task,
@@ -1312,13 +1228,7 @@ async def track_video(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    ctx = await AssetsVideoContextReader(db).from_task(
-        actor_id=current_user.id,
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task, actor_id=current_user.id)
     body = await create_tracker_job(
         db,
         task=task,

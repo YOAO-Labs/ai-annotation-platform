@@ -1,8 +1,9 @@
 ---
-audience: [developer]
+title: Data Manager 查询与聚合
+audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # Data Manager 查询与聚合
@@ -62,11 +63,9 @@ annotation.attribute.<tool_unit_id>.<attribute_key>
 annotation.attribute_origin.<tool_unit_id>.<attribute_key>
 ```
 
-attribute key 可以包含点号；解析时只分离 tool unit，剩余字符串完整作为 key。字段必须存在于当前项目启用工具的 attribute schema 中。不同类型允许的操作符由 schema 返回，不能开放任意 JSONB key 或 raw SQL。
-
-task grain 中，同一 AND group 的 annotation rule 编译为一个 correlated `EXISTS`，确保类别、来源、轨迹和属性由同一个 active、非 cancelled annotation 满足；不能为每个 rule 分别生成 `EXISTS`，否则会产生跨对象误命中。object / track grain 则把条件直接绑定到当前 annotation/member；不能先分页 tasks 再展开实体。
-
-结构校验在 SQL 编译前执行：根节点计为第 1 层和第 1 个节点，最多 32 层、4096 个节点；`in` 最多 200 项。非对象子节点、错误的值类型、无效日期或 UUID、非有限数字统一返回 422。日期按 ISO 格式解析，无时区值按 UTC 处理；可空任务字段的 `eq: null` / `ne: null` 保留 `IS NULL` / `IS NOT NULL` 语义。已有视图超出结构限制时保留记录，并以 `invalid_fields: ["__filter__"]` 标记，不能静默删除条件。
+- **属性路径解析**：attribute key 可以包含点号；解析时只分离 tool unit，剩余字符串完整作为 key。字段必须存在于当前项目启用工具的 attribute schema 中。不同类型允许的操作符由 schema 返回，不开放任意 JSONB key 或 raw SQL。
+- **同对象关联语义**：task grain 中，同一 `AND` group 的 annotation rule 编译为一个 correlated `EXISTS`，确保类别、来源、轨迹和属性由同一个 active、非 cancelled annotation 满足；不能为每个 rule 分别生成 `EXISTS`，否则会产生跨对象误命中。object / track grain 则把条件直接绑定到当前 annotation/member。
+- **结构配额与类型校验**：结构校验在 SQL 编译前执行（根节点计为第 1 层和第 1 个节点，最多 32 层、4,096 个节点；`in` 最多 200 项）。非对象子节点、错误值类型、无效日期或 UUID、非有限数字统一返回 `422`。已有视图超出结构限制时保留记录并以 `invalid_fields: ["__filter__"]` 标记，不静默删除条件。
 
 ## 三种 grain 与分页
 
@@ -82,32 +81,29 @@ summary 同时返回：
 
 - `scope.visible_task_total`：当前用户的项目可见任务总量；
 - `scope.matched_task_total`：当前过滤树匹配的任务量；
-- 任务状态；
-- active annotation 总量及 source/class/tool unit/geometry 分布；
-- single-frame、tracked annotation 与 distinct track；
+- 任务状态分布；
+- active annotation 总量及 source / class / tool unit / geometry 分布；
+- single-frame、tracked annotation 与 distinct track 计数；
 - AI 检测候选待审、低置信候选待审、AI 追踪结果待审；
 - 当前待审检测候选的模型版本与置信度区间分布；
 - 未解决问题（有效、开放的问题主题，对齐工作台问题口径；兼容字段名 `unresolved_feedback`）；
-- 项目 schema 中属性的 eligible/present/missing 与有限枚举值分布。
+- 项目 schema 中属性的 `eligible / present / missing` 与有限枚举值分布；
 - capability 驱动的 image 分辨率、video 时长/帧/关键帧、lidar 相机/标定与 Scene 摘要。
 
-属性 `eligible` 不等同于同工具单位的全部对象：服务会同时应用字段的 `applies_to` 类别范围和 `visible_if` 依赖条件，再计算 present/missing。属性字段循环受项目 schema 数量约束，不随 task 或 annotation 行数增长为应用层 N+1。
+### 属性与匹配对象解释规则
 
-task-centric summary 聚合的是“匹配任务中的全部对象”。object / track query 的 `facets` 则只聚合该 grain 的完整匹配集合，并为可视化图表提供 class、source、tool/type 与 track quality 分布；不能用当前页 rows 在浏览器抽样。
-
-任务的“匹配对象”抽屉先确认完整筛选和任务权限，再按真实命中分支收集解释：OR 只贡献成立的分支；一个 AND 内的直接 annotation 条件共享同一对象，不同嵌套组保留独立见证对象。单纯任务条件保留 active、非取消对象作为上下文；它在已经由实体解释的 AND 中不会扩大对象范围。空分组（`rules: []`）无论 `op` 为 and 还是 or 都与编译器一致地编译为恒真：命中按任务上下文解释，返回全部 active、非取消对象而不是空见证集，位于已由实体解释的 AND 中时同样不扩大对象范围。历史模型条件属于任务追溯，不会冒充当前待审候选。
-
-命中项固定按 annotation、prediction shape、tracker job 排列，三个来源共用一个 offset/limit 窗口。总数和候选页都从 SQL 的完整匹配范围派生，仅转换当前页的预测几何；低置信条件使用与指标相同的剩余 shape 和 `< 0.5` 阈值。零候选计数可以命中任务而没有候选明细。OR 分支真值用单个布尔数组列返回，宽条件树不会因逐节点增加结果列而触发 PostgreSQL 列数上限。
+- **属性 `eligible` 判定**：服务同时应用字段的 `applies_to` 类别范围和 `visible_if` 依赖条件，再计算 `present / missing`。属性字段循环受项目 schema 数量约束，不随 task 或 annotation 行数增长为应用层 N+1。
+- **Grain 聚合边界**：task-centric summary 聚合的是“匹配任务中的全部对象”；object / track query 的 `facets` 则只聚合该 grain 的完整匹配集合，不能用当前页 rows 在浏览器抽样。
+- **“匹配对象”抽屉见证集（Matches）**：
+  - 先确认完整筛选和任务权限，再按真实命中分支收集解释：`OR` 只贡献成立的分支；同一个 `AND` 内的直接 annotation 条件共享同一对象，不同嵌套组保留独立见证对象。
+  - 空分组（`rules: []`）无论 `op` 为 `and` 还是 `or` 都编译为恒真，按任务上下文返回全部 active、非取消对象。
+  - 命中项固定按 `annotation`、`prediction shape`、`tracker job` 排列并共用一个 `offset / limit` 窗口；`OR` 分支真值用单个布尔数组列返回，避免宽条件树触发 PostgreSQL 列数上限。
 
 ## Saved view 与 URL
 
-`project_task_views.entity_scope` 为 `tasks | objects | tracks`，旧记录迁移为 `tasks`。私有名称唯一键与项目共享名称唯一键都包含 scope，因此三个粒度可以使用同名视图。创建和更新必须使用对应 schema 的 filter/sort/column 白名单；不兼容字段在列表中以 `invalid_fields` 返回，不静默改写。
-
-前端 URL 保存 `section/lens/view/q/filter/sort/columns/selected/layout/selected_tasks`。`section` 为 `overview | data | members`，缺省仍打开 `data`；`lens` 仅表示数据区域的 grain。filter、sort 与 columns 使用带版本号的 JSON envelope；解析失败时回退当前视图，不执行未校验输入。切换 grain 时清空不兼容状态，存在未保存修改时先要求确认。成员筛选使用独立的 `members_*` 参数，不继承 Data Manager 的对象条件。
-
-三个 grain 共享值编辑控件和保留结构的表达式操作。分组不能展平：即使普通布尔代数等价，也可能改变同对象约束。关键词只从独立 `contains` 规则或直接 AND 中的无歧义规则提取；OR 内关键词保留在树中。外部 q 作为额外 AND 条件，数字和范围草稿不进入查询。页面读取实时 URL，首次请求等待视图和字段恢复；后续条件变化使过期页码和实体 cursor 失效。
-
-一级区域为概览、数据、成员，grain tabs 位于数据区域内。数据区域使用单视口布局，结果表和详情抽屉独立滚动；概览和成员内容允许纵向滚动。桌面端保存视图使用可收起的分组侧栏，窄屏使用下拉。任务、对象与轨迹共用可搜索字段选择器和条件芯片，字段分组及编辑控件完全由各自 `schema.filter_fields` 驱动。这些布局差异不改变 Filter DSL、URL envelope 或保存视图契约。
+- **视图作用域（`entity_scope`）**：`project_task_views.entity_scope` 为 `tasks | objects | tracks`（私有名称唯一键与项目共享名称唯一键均包含 scope，三个粒度可使用同名视图）。创建和更新必须使用对应 schema 的 filter/sort/column 白名单；不兼容字段以 `invalid_fields` 返回，不静默改写。
+- **URL 参数与状态切换**：前端 URL 保存 `section/lens/view/q/filter/sort/columns/selected/layout/selected_tasks`（`section` 为 `overview | data | members`，`lens` 表示数据区域的 grain）。`filter`、`sort` 与 `columns` 使用带版本号的 JSON envelope；切换 grain 时清空不兼容状态，存在未保存修改时先提示确认。
+- **表达式保结构原则**：三个 grain 共享值编辑控件和保留结构的表达式操作，分组绝不展平（避免破坏同对象 `EXISTS` 约束）。关键词仅从独立 `contains` 规则或顶层 `AND` 中的无歧义规则提取；`OR` 内关键词保留在原树中。
 
 ## AI 待审
 

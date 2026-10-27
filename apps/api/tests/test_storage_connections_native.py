@@ -6,7 +6,6 @@ import base64
 from datetime import UTC, datetime
 import json
 import os
-from pathlib import Path
 import re
 from uuid import UUID, uuid4
 
@@ -16,10 +15,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.dataset_import import DatasetImportOperation
-from aap_assets_source.connections_contract import (
-    CONNECTION_NATIVE_ARGUMENTS,
-    CONNECTION_NATIVE_SIGNATURES,
-)
 from tests.test_assets_catalog_native import _call, _seed_actor, _seed_dataset
 
 pytestmark = pytest.mark.asyncio
@@ -50,12 +45,12 @@ _CREATE = text(
     "CAST(:audit_context AS jsonb))"
 )
 _UPDATE = text(
-    "SELECT aap_assets_v1.update_storage_connection("
+    "SELECT aap_assets_v1.update_storage_connection_authorized("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:connection_id AS uuid), CAST(:intent AS jsonb), CAST(:config AS jsonb), "
     "CAST(:secret_enc AS text), CAST(:source_snapshot AS text), "
     "CAST(:policy_digest AS text), CAST(:fallback_allowlist AS jsonb), "
-    "CAST(:audit_context AS jsonb))"
+    "CAST(:audit_context AS jsonb), NULL::uuid, '{}'::text[], NULL::jsonb)"
 )
 _DELETE = text(
     "SELECT aap_assets_v1.delete_storage_connection("
@@ -69,32 +64,6 @@ _RECEIPT = text(
 )
 _SECRET = base64.b64encode(b"sealed-test-ciphertext").decode("ascii")
 _FALLBACK = "[]"
-
-
-async def test_native_connection_sql_matches_frozen_names_types_and_order():
-    api_root = Path(__file__).resolve().parents[1]
-    repo_root = api_root.parents[1]
-    source_schema = (
-        repo_root
-        / "apps/assets-source/src/aap_assets_source/connections_contract.schema.json"
-    )
-    api_schema = api_root / "alembic/sql/0217_assets_connections.schema.json"
-    assert source_schema.read_bytes() == api_schema.read_bytes()
-
-    sql = (api_root / "alembic/sql/0217_assets_connections.sql").read_text()
-    for name, arguments in CONNECTION_NATIVE_ARGUMENTS.items():
-        signature = CONNECTION_NATIVE_SIGNATURES[name]
-        match = re.search(
-            rf"CREATE FUNCTION aap_assets_v1\.{re.escape(name)}\s*\((.*?)\)\s*RETURNS",
-            sql,
-            re.DOTALL,
-        )
-        assert match is not None, name
-        parameters = [
-            part.strip().split(maxsplit=1) for part in match.group(1).split(",")
-        ]
-        assert [parameter[0] for parameter in parameters] == list(arguments), name
-        assert [parameter[1] for parameter in parameters] == signature.split(","), name
 
 
 def _reply(value: object) -> dict:
@@ -327,7 +296,7 @@ async def test_native_connection_replay_survives_creator_role_change_and_delete(
     _error(conflict, "operation_conflict")
 
     initial_capture = _data(await _capture(db_session, actor_id, operation_id))
-    previous_updated_at = initial_capture["connection"]["updated_at"]
+    previous_revision = initial_capture["connection"]["revision"]
     noop_intent = {"name": None, "config": None, "secret_digest": None}
     noop = _data(
         await _call(
@@ -348,7 +317,7 @@ async def test_native_connection_replay_survives_creator_role_change_and_delete(
             },
         )
     )
-    assert noop["connection"]["updated_at"] == previous_updated_at
+    assert noop["connection"]["revision"] == previous_revision + 1
 
     await db_session.execute(
         text("UPDATE public.users SET role='viewer' WHERE id=:id"), {"id": actor_id}

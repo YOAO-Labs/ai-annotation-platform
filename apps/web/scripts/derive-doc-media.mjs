@@ -198,8 +198,19 @@ const { values } = parseArgs({
     "poster-at": { type: "string" },
     "gif-target": { type: "string" },
     article: { type: "string" },
+    "private-output": { type: "string" },
   },
 });
+if (
+  values["private-output"] !== undefined &&
+  (values.asset?.length !== 1 ||
+    values.format !== "video" ||
+    values.article ||
+    !/^\.artifacts\/demos\/[a-z0-9-]+$/.test(values["private-output"]))
+)
+  throw new Error(
+    "--private-output requires one --asset, --format video and .artifacts/demos/<name>",
+  );
 if (!["standard", "marketing"].includes(values.quality))
   throw new Error("--quality must be standard or marketing");
 if (!["all", "video", "gif"].includes(values.format))
@@ -263,7 +274,22 @@ deriveMedia({
   assets,
   clip: parseClip(values.clip),
   posterAt: values["poster-at"] === undefined ? undefined : Number(values["poster-at"]),
+  privateOutputDirectory: values["private-output"],
   outputs(assetId, item) {
+    if (values["private-output"]) {
+      const stem = `${values["private-output"]}/${assetId.replaceAll("/", "-")}`;
+      return [
+        {
+          target: `${stem}.mp4`,
+          kind: "mp4",
+          role: "docs-video",
+          width: 1920,
+          height: 1080,
+          fps: 30,
+        },
+        { target: `${stem}-poster.webp`, kind: "webp", role: "poster", width: 1920, height: 1080 },
+      ];
+    }
     const outputs = [];
     const privacyMasks = NORMALIZED_PRIVACY_MASKS.get(assetId);
     if (

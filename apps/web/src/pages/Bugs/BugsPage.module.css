@@ -2,6 +2,7 @@
   height: 100%;
   padding: 24px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .title {
@@ -54,7 +55,7 @@
 }
 
 .layoutWithDetail {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
 }
 
 .emptyState {
@@ -64,21 +65,8 @@
   text-align: center;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-
 .headerRow {
   border-bottom: 1px solid var(--sc-border);
-}
-
-.th {
-  padding: 8px 6px;
-  color: var(--sc-muted-foreground);
-  font-weight: 500;
-  text-align: left;
 }
 
 .itemRow {
@@ -90,25 +78,21 @@
   background: var(--sc-muted);
 }
 
-.td,
-.idCell,
-.titleCell,
-.dateCell {
-  padding: 8px 6px;
-}
-
 .idCell {
   font-family: monospace;
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .titleCell {
+  min-width: 12rem;
   color: var(--sc-foreground);
 }
 
 .dateCell {
   color: var(--sc-muted-foreground);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .severity {
@@ -155,6 +139,7 @@
   max-height: calc(100vh - 140px);
   padding: 14px;
   overflow: auto;
+  scrollbar-gutter: stable;
   border-radius: var(--radius-md);
   background: var(--sc-muted);
   font-size: 12.5px;
@@ -220,6 +205,22 @@
   background: var(--sc-card);
   color: var(--sc-muted-foreground);
   text-decoration: none;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attachmentLink:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.attachmentError {
+  margin-top: 4px;
+  color: var(--sc-status-danger);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .attachmentName {

@@ -84,6 +84,7 @@ services:
       TEST_DATABASE_URL: ""
       PLAYWRIGHT_E2E_DATABASE_URL: ""
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
@@ -121,14 +122,22 @@ services:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       MIGRATION_DATABASE_URL: ""
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
+      TRAINING_ENABLED: ${TRAINING_ENABLED:-false}
+      TRAINING_EXECUTOR_TOKEN: ${TRAINING_EXECUTOR_TOKEN:-}
+      TRAINING_NODE_ID: ${TRAINING_NODE_ID:-local}
+      TRAINING_GPU_UUID: ${TRAINING_GPU_UUID:-}
+      TRAINING_CATALOG_JSON: ${TRAINING_CATALOG_JSON:-{}}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       CONNECTOR_ENCRYPTION_KEY: ${CONNECTOR_ENCRYPTION_KEY:-}
       CONNECTOR_HOST_ALLOWLIST: ${CONNECTOR_HOST_ALLOWLIST:-}
+      STORAGE_FILESYSTEM_ROOTS: "${STORAGE_FILESYSTEM_ROOTS:-{}}"
+      STORAGE_SFTP_ROOTS: "${STORAGE_SFTP_ROOTS:-{}}"
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}
@@ -190,6 +199,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
@@ -243,6 +253,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
@@ -296,6 +307,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
@@ -350,6 +362,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
@@ -393,6 +406,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
@@ -443,6 +457,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}

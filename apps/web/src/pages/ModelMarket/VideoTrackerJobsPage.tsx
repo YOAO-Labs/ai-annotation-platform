@@ -1,3 +1,6 @@
+import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -20,14 +23,9 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 const FIELD_CLASS =
   "appearance-none rounded-sm border border-border bg-muted px-2.5 py-1 text-xs text-foreground outline-none";
-const TABLE_CLASS =
-  "w-full border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_td]:px-2.5 [&_td]:py-2";
-const TH_CLASS =
-  "select-none border-b border-border px-2.5 py-1.5 text-left font-medium whitespace-nowrap text-muted-foreground";
 
 type StatusFilter = "" | VideoTrackerJobStatus;
 
-const PAGE_SIZE = 20;
 const STATUS_ORDER: VideoTrackerJobStatus[] = [
   "queued",
   "running",
@@ -79,6 +77,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
   const token = useAuthStore((state) => state.token);
   const authOwnerKey = `${userId ?? "anonymous"}:${token ?? "none"}`;
   const selectedProjectId = searchParams.get("project_id") ?? projectId ?? "";
+  const pageSize = listPageSize(searchParams.get("video_page_size"));
   const rawStatus = searchParams.get("video_status");
   const statusFilter = STATUS_ORDER.includes(rawStatus as VideoTrackerJobStatus)
     ? (rawStatus as VideoTrackerJobStatus)
@@ -91,7 +90,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
   const debouncedModelKey = useDebouncedValue(modelDraft, 250);
   const [cursor, setCursor] = useState<string | null>(null);
   const [previousCursors, setPreviousCursors] = useState<Array<string | null>>([]);
-  const filterKey = `${authOwnerKey}|${selectedProjectId}|${statusFilter}|${modelKey}`;
+  const filterKey = `${authOwnerKey}|${selectedProjectId}|${statusFilter}|${modelKey}|${pageSize}`;
   const previousFilterKey = useRef(filterKey);
   const effectiveCursor = previousFilterKey.current === filterKey ? cursor : null;
 
@@ -164,6 +163,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
       statusFilter,
       modelKey,
       effectiveCursor,
+      pageSize,
     ],
     queryFn: ({ signal }) =>
       videoTrackerJobsApi.list(
@@ -172,7 +172,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
           status: statusFilter || undefined,
           model_key: modelKey || undefined,
           cursor: effectiveCursor || undefined,
-          limit: PAGE_SIZE,
+          limit: pageSize,
         },
         { signal },
       ),
@@ -219,7 +219,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-4 px-7 py-5 text-foreground">
+    <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div>
@@ -320,76 +320,73 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
           ) : items.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className="overflow-x-auto">
-              <table className={TABLE_CLASS}>
-                <thead>
-                  <tr className="bg-muted">
-                    <th className={TH_CLASS}>项目</th>
-                    <th className={TH_CLASS}>状态</th>
-                    <th className={TH_CLASS}>模型</th>
-                    <th className={TH_CLASS}>帧范围</th>
-                    <th className={TH_CLASS}>方向</th>
-                    <th className={TH_CLASS}>开始</th>
-                    <th className={TH_CLASS}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((job) => (
-                    <JobRow
-                      key={job.id}
-                      job={job}
-                      onOpenWorkbench={() =>
-                        navigate(
-                          buildWorkbenchUrl(job.project_id, {
-                            taskId: job.task_id,
-                            trackId: job.annotation_id,
-                            frameIndex: job.from_frame,
-                            returnTo: currentWorkbenchReturnTo(location),
-                          }),
-                        )
-                      }
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {(previousCursors.length > 0 || nextCursor) && (
-            <div className="flex items-center justify-between pt-1.5">
-              <span className="text-xs text-muted-foreground">
-                第 {previousCursors.length + 1} 页 · 当前 {items.length} 条
-              </span>
-              <div className="inline-flex gap-1.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={previousCursors.length === 0}
-                  onClick={() => {
-                    setPreviousCursors((history) => {
-                      const next = [...history];
-                      setCursor(next.pop() ?? null);
-                      return next;
-                    });
-                  }}
-                >
-                  <Icon name="chevLeft" size={11} /> 上一页
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!nextCursor}
-                  onClick={() => {
-                    if (!nextCursor) return;
-                    setPreviousCursors((history) => [...history, cursor]);
-                    setCursor(nextCursor);
-                  }}
-                >
-                  下一页 <Icon name="chevRight" size={11} />
-                </Button>
+            <div className={listStyles.surface}>
+              <div className={listStyles.scroll}>
+                <table className={listStyles.table}>
+                  <thead>
+                    <tr>
+                      <th>项目</th>
+                      <th>状态</th>
+                      <th>模型</th>
+                      <th>帧范围</th>
+                      <th>方向</th>
+                      <th>开始</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((job) => (
+                      <JobRow
+                        key={job.id}
+                        job={job}
+                        onOpenWorkbench={() =>
+                          navigate(
+                            buildWorkbenchUrl(job.project_id, {
+                              taskId: job.task_id,
+                              trackId: job.annotation_id,
+                              frameIndex: job.from_frame,
+                              returnTo: currentWorkbenchReturnTo(location),
+                            }),
+                          )
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
+
+          <ListPagination
+            label="视频追踪任务"
+            page={previousCursors.length}
+            pageSize={pageSize}
+            count={items.length}
+            hasNext={!!nextCursor}
+            loading={jobsQ.isFetching}
+            onPageSizeChange={(size) => {
+              resetPagination();
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  if (size !== 20) next.set("video_page_size", String(size));
+                  else next.delete("video_page_size");
+                  return next;
+                },
+                { replace: false },
+              );
+            }}
+            onPageChange={(next) => {
+              if (next < previousCursors.length) {
+                const history = [...previousCursors];
+                setCursor(history.pop() ?? null);
+                setPreviousCursors(history);
+              } else if (nextCursor) {
+                setPreviousCursors((history) => [...history, cursor]);
+                setCursor(nextCursor);
+              }
+            }}
+          />
         </div>
       </Card>
     </div>
@@ -437,7 +434,9 @@ function JobRow({
       {job.status === "failed" && job.error_message && (
         <tr>
           <td colSpan={7}>
-            <div className="break-words text-xs text-status-danger">{job.error_message}</div>
+            <div className="break-words text-xs text-status-danger">
+              <CopyableError message={job.error_message} />
+            </div>
           </td>
         </tr>
       )}

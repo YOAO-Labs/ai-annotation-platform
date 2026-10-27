@@ -61,6 +61,8 @@ class PreannotateQueueResponse(BaseModel):
 @router.get("/admin/preannotate-queue", response_model=PreannotateQueueResponse)
 async def list_preannotate_queue(
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     admin: IdentityActorFacts = Depends(
         require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
@@ -72,6 +74,8 @@ async def list_preannotate_queue(
     """
     # 1. 拉所有 pre_annotated 批次 (limit 前)
     stmt = select(batch_row).where(batch_row.status == BatchStatus.PRE_ANNOTATED)
+    if project_id is not None:
+        stmt = stmt.where(batch_row.project_id == project_id)
     if admin.role != UserRole.SUPER_ADMIN:
         owner_facts = project_facts()
         stmt = stmt.where(
@@ -79,7 +83,11 @@ async def list_preannotate_queue(
                 select(owner_facts.c.id).where(owner_facts.c.owner_id == admin.id)
             )
         )
-    bres = await db.execute(stmt.order_by(batch_row.updated_at.desc()).limit(limit))
+    bres = await db.execute(
+        stmt.order_by(batch_row.updated_at.desc(), batch_row.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     batches = list(bres.scalars().all())
     if not batches:
         return PreannotateQueueResponse(items=[])

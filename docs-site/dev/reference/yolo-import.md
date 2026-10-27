@@ -1,9 +1,9 @@
 ---
+title: YOLO 导入适配
 audience: [dev]
 type: reference
-since: v0.10.56
 status: stable
-last_reviewed: 2026-05-24
+last_reviewed: 2026-10-20
 ---
 
 # YOLO 导入适配
@@ -43,3 +43,9 @@ YOLO label 文件没有 task id，所以按 label 文件 stem 匹配 task 的图
 ## 写入粒度
 
 每个非空 label 文件写一条 Prediction，文件内多行合并到该行的 `result[]`。空 label 文件是 no-op，用于兼容平台导出的空标签文件。
+
+## 与受控实例分割回流的区别
+
+本页的 `yolo_variant=seg` 导入的是 YOLO 文本多边形，每行转换为内部 `polygon`，不提供原始逐像素掩码。它不能替代受控 `yolo11n-seg` 的实例掩码输出，也不能用于无损保存孔洞和同一实例的断连部件。
+
+平台训练模型回流走 `/managed-models` 安装与固定身份推理，分割权威结果为原图逐实例 canonical COCO RLE，内部使用 `raster_mask` 内容引用。正式逐样本评估直接比较冻结掩码像素；旧多边形真值则显式按固定规则栅格化。接口、运行时收据和任务隔离约束见 [ML Backend 协议契约](./ml-backend-protocol)，人工采纳、修正、审核和下一轮冻结见[模型回流与默认预标](/user-guide/online-learning/models)。

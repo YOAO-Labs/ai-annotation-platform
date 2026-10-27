@@ -1,4 +1,7 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
+import { ListPagination } from "@/components/ui/ListPagination";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Plus } from "lucide-react";
@@ -7,6 +10,8 @@ import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
+import { useMLBackends } from "@/hooks/useMLBackends";
 import { useAuthStore } from "@/stores/authStore";
 import { trainingInputClass } from "./TrainingParameterField";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
@@ -17,7 +22,7 @@ export function SampleEvaluationCreatePage() {
   const token = useAuthStore((s) => s.token);
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, userId, token, revision }),
+    () => ({ key: randomId(), id, userId, token, revision }),
     [id, userId, token, revision],
   );
   return <CreateContent key={scope.key} projectId={id} scope={scope.key} />;
@@ -65,6 +70,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     enabled: !!modelId,
     retry: false,
   });
+  const backends = useMLBackends(projectId);
+  const task = model.data?.model.task === "segment" ? "segment" : "detect";
   const datasets = useQuery({
     queryKey: ["evaluation-datasets", projectId, scope, datasetPage],
     queryFn: ({ signal }) =>
@@ -74,18 +81,17 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     retry: false,
   });
   const dataset = useQuery({
-    queryKey: ["evaluation-dataset", projectId, scope, datasetId],
+    queryKey: ["evaluation-dataset", projectId, scope, datasetId, task],
     queryFn: async ({ signal }) => {
       const data = await guarded(signal, () =>
         trainingDatasetsApi.getSummary(projectId, datasetId, { signal }),
       );
       if (data.id !== datasetId || data.project_id !== projectId)
         throw new Error("冻结数据版本身份不符");
-      if ((data.task ?? "detect") !== "detect")
-        throw new Error("样本评估目前仅支持图片检测数据版本");
+      if ((data.task ?? "detect") !== task) throw new Error("冻结数据版本须与候选模型属于同一任务");
       return data;
     },
-    enabled: !!datasetId,
+    enabled: !!datasetId && !!model.data,
     retry: false,
   });
   const samples = useQuery({
@@ -135,7 +141,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     nms_iou: Number(nmsIou),
   };
   const identity = JSON.stringify(body);
-  const request = useMemo(() => ({ id: crypto.randomUUID(), identity }), [identity]);
+  const request = useMemo(() => ({ id: randomId(), identity }), [identity]);
   const requestId = request.id;
   const create = useMutation({
     mutationFn: async () => {
@@ -166,13 +172,42 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     !!qualification.data &&
     !qualification.error &&
     !model.error &&
+    model.data?.deployments.some((item) => item.id === deploymentId && item.status === "ready") &&
     !dataset.error &&
     dataset.data?.status === "ready" &&
+    (dataset.data.task ?? "detect") === task &&
     selected.length > 0 &&
     selected.length <= 32 &&
     numericValid &&
     (role !== "held_out_test" || confirmed);
   const error = models.error ?? model.error ?? datasets.error ?? dataset.error ?? samples.error;
+  const deploymentOptions = useMemo(() => {
+    const ready = (model.data?.deployments ?? [])
+      .filter((item) => item.status === "ready")
+      .sort(
+        (left, right) =>
+          left.registry_id.localeCompare(right.registry_id) || left.id.localeCompare(right.id),
+      );
+    const backendNames = new Map(
+      (backends.data ?? []).map(({ id: backendId, name }) => [backendId, name.trim()] as const),
+    );
+    return ready.map((item, index) => {
+      const name = backendNames.get(item.registry_id);
+      const checkedAt = item.checked_at ?? item.created_at;
+      return {
+        item,
+        label: [
+          `部署 ${index + 1}`,
+          name,
+          "就绪",
+          `${item.checked_at ? "检查于" : "创建于"} ${checkedAt.slice(0, 10)}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    });
+  }, [backends.data, model.data?.deployments]);
+  const selectedDeployment = model.data?.deployments.find((item) => item.id === deploymentId);
   return (
     <PageContainer>
       <Link
@@ -201,32 +236,45 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               <h2 id="evaluation-candidate" className="mb-4 text-sm font-semibold">
                 1. 候选与运行环境
               </h2>
-              <label className="block space-y-1 text-xs">
-                已注册模型
-                <select
-                  className={trainingInputClass}
-                  value={modelId}
-                  onChange={(e) => {
-                    setModelId(e.target.value);
-                    setDeploymentId("");
-                  }}
-                >
-                  <option value="">选择候选模型</option>
-                  {modelId && !models.data?.items.some((item) => item.id === modelId) && (
-                    <option value={modelId}>{model.data?.model.name ?? modelId}</option>
-                  )}
-                  {models.data?.items.map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                      disabled={item.framework !== "ultralytics"}
-                    >
-                      {item.name} · {item.framework}
-                      {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
+              <div className="space-y-1 text-xs">
+                <label htmlFor="evaluation-model">已注册模型</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="evaluation-model"
+                    className={`${trainingInputClass} min-w-0 flex-1`}
+                    value={modelId}
+                    onChange={(e) => {
+                      setModelId(e.target.value);
+                      setDeploymentId("");
+                      setDatasetId("");
+                      setSelected([]);
+                      setSamplePage(0);
+                    }}
+                  >
+                    <option value="" disabled hidden>
+                      选择候选模型
                     </option>
-                  ))}
-                </select>
-              </label>
+                    {modelId && !models.data?.items.some((item) => item.id === modelId) && (
+                      <option value={modelId}>
+                        {model.data?.model.name ?? "已选候选模型（暂不可用）"}
+                      </option>
+                    )}
+                    {models.data?.items.map((item) => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                        disabled={item.framework !== "ultralytics"}
+                      >
+                        {item.name} · {item.framework}
+                        {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {modelId && (
+                    <CopyValueButton value={modelId} kind="id" label="复制候选模型版本 ID" />
+                  )}
+                </div>
+              </div>
               <p className="mt-2 text-xs text-muted-foreground">
                 共享样本评估当前仅支持 Ultralytics。LibreYOLO 可在模型面板试用、人工发布与回滚。
               </p>
@@ -236,29 +284,48 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 onChange={setModelPage}
                 label="模型"
               />
-              <label className="mt-4 block space-y-1 text-xs">
-                已安装部署
-                <select
-                  className={trainingInputClass}
-                  value={deploymentId}
-                  onChange={(e) => setDeploymentId(e.target.value)}
-                  disabled={
-                    !model.data ||
-                    model.data.model.framework !== "ultralytics" ||
-                    !!model.error ||
-                    create.isPending
-                  }
-                >
-                  <option value="">选择就绪部署</option>
-                  {model.data?.deployments
-                    .filter((item) => item.status === "ready")
-                    .map((item) => (
+              <div className="mt-4 space-y-1 text-xs">
+                <label htmlFor="evaluation-deployment">已安装部署</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="evaluation-deployment"
+                    className={`${trainingInputClass} min-w-0 flex-1`}
+                    value={deploymentId}
+                    onChange={(e) => setDeploymentId(e.target.value)}
+                    disabled={
+                      !model.data ||
+                      model.data.model.framework !== "ultralytics" ||
+                      !!model.error ||
+                      create.isPending
+                    }
+                  >
+                    <option value="" disabled hidden>
+                      选择就绪部署
+                    </option>
+                    {deploymentId &&
+                      !deploymentOptions.some(({ item }) => item.id === deploymentId) && (
+                        <option value={deploymentId} disabled hidden>
+                          已选部署（暂不可用，请重新选择）
+                        </option>
+                      )}
+                    {deploymentOptions.map(({ item, label }) => (
                       <option key={item.id} value={item.id}>
-                        {item.id.slice(0, 8)} · 后端 {item.registry_id.slice(0, 8)}
+                        {label}
                       </option>
                     ))}
-                </select>
-              </label>
+                  </select>
+                  {deploymentId && (
+                    <CopyValueButton value={deploymentId} kind="id" label="复制已选部署 ID" />
+                  )}
+                  {selectedDeployment?.registry_id && (
+                    <CopyValueButton
+                      value={selectedDeployment.registry_id}
+                      kind="id"
+                      label="复制推理后端 ID"
+                    />
+                  )}
+                </div>
+              </div>
               {model.data && !model.data.deployments.some((item) => item.status === "ready") && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   请先在项目模型面板安装并试用这个候选。
@@ -271,7 +338,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               )}
               {qualification.error && (
                 <p role="alert" className="mt-3 text-xs text-status-danger">
-                  当前部署不具备评估资格：{qualification.error.message}
+                  当前部署不具备评估资格：
+                  <CopyableError message={qualification.error.message} />
                 </p>
               )}
               {qualification.data && !qualification.error && (
@@ -281,7 +349,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     部署已通过资格核对
                   </p>
                   <p className="mt-1">
-                    Ultralytics {qualification.data.profile.ultralytics_version} ·{" "}
+                    训练版本 {String(qualification.data.model_ref.framework_version ?? "未知")} ·
+                    推理版本 Ultralytics {qualification.data.profile.ultralytics_version} ·{" "}
                     {qualification.data.profile.effective_device} · 640 像素 · 每图最多 100 个预测
                   </p>
                 </div>
@@ -309,15 +378,21 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 <select
                   className={trainingInputClass}
                   value={role}
+                  aria-describedby="evaluation-purpose-help"
                   onChange={(e) => {
                     setRole(e.target.value as typeof role);
                     setConfirmed(false);
                   }}
                 >
-                  <option value="validation_selection">验证集，用于模型选择</option>
-                  <option value="held_out_test">独立测试，未参与候选训练或选择</option>
+                  <option value="validation_selection">验证集</option>
+                  <option value="held_out_test">独立测试</option>
                 </select>
               </label>
+              <p id="evaluation-purpose-help" className="mt-1 text-xs text-muted-foreground">
+                {role === "held_out_test"
+                  ? "使用未参与候选训练或模型选择的数据进行独立测试。"
+                  : "使用验证集评估结果进行模型选择。"}
+              </p>
               {role === "held_out_test" && (
                 <label className="mt-3 flex items-start gap-2 text-xs">
                   <input
@@ -332,7 +407,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 {[
                   ["预测置信度", confidence, setConfidence],
-                  ["匹配 IoU", matchingIou, setMatchingIou],
+                  [task === "segment" ? "匹配 Mask IoU" : "匹配 IoU", matchingIou, setMatchingIou],
                   ["NMS IoU", nmsIou, setNmsIou],
                 ].map(([label, value, setter]) => (
                   <label key={label as string} className="space-y-1 text-xs">
@@ -353,6 +428,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                 按置信度排序后进行同类一对一匹配，使用包含等号的阈值。报告 TP、FP、FN
                 和精确率、召回率、F1，不报告 AP/mAP。
+                {task === "segment" &&
+                  "分割按原图掩码像素匹配；平均 Mask IoU、Dice 仅统计已匹配实例，漏检另计 FN。"}
               </p>
             </section>
           </div>
@@ -368,30 +445,41 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 已选 {selected.length} / 32
               </span>
             </div>
-            <label className="block max-w-xl space-y-1 text-xs">
-              就绪数据版本
-              <select
-                className={trainingInputClass}
-                value={datasetId}
-                onChange={(e) => {
-                  setDatasetId(e.target.value);
-                  setSelected([]);
-                  setSamplePage(0);
-                }}
-              >
-                <option value="">选择冻结数据版本</option>
-                {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
-                  <option value={datasetId}>{dataset.data?.name ?? datasetId}</option>
-                )}
-                {datasets.data?.items
-                  .filter((item) => (item.task ?? "detect") === "detect")
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
+            <div className="max-w-xl space-y-1 text-xs">
+              <label htmlFor="evaluation-dataset">就绪数据版本</label>
+              <div className="flex items-center gap-2">
+                <select
+                  id="evaluation-dataset"
+                  className={`${trainingInputClass} min-w-0 flex-1`}
+                  value={datasetId}
+                  disabled={!model.data || !!model.error}
+                  onChange={(e) => {
+                    setDatasetId(e.target.value);
+                    setSelected([]);
+                    setSamplePage(0);
+                  }}
+                >
+                  <option value="" disabled hidden>
+                    选择冻结数据版本
+                  </option>
+                  {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
+                    <option value={datasetId}>
+                      {dataset.data?.name ?? "已选数据版本（暂不可用）"}
                     </option>
-                  ))}
-              </select>
-            </label>
+                  )}
+                  {datasets.data?.items
+                    .filter((item) => (item.task ?? "detect") === task)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+                {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
+                  <CopyValueButton value={datasetId} kind="id" label="复制已选数据版本 ID" />
+                )}
+              </div>
+            </div>
             <PickerPage
               page={datasetPage}
               total={datasets.data?.total ?? 0}
@@ -406,7 +494,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
             {samples.data && !samples.error && (
               <>
                 <div className="mt-4 divide-y divide-border">
-                  {samples.data.items.map((item) => {
+                  {samples.data.items.map((item, index) => {
                     const checked = selected.includes(item.task_id);
                     const unsupported =
                       !item.included ||
@@ -417,35 +505,50 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                       !item.height ||
                       (item.instances ?? 201) > 200 ||
                       (item.size_bytes ?? Infinity) > 16 * 1024 * 1024 ||
-                      (item.width ?? Infinity) * (item.height ?? Infinity) > 16000000;
+                      (item.width ?? Infinity) * (item.height ?? Infinity) >
+                        (qualification.data?.limits?.pixels ??
+                          (task === "segment" ? 1_280_000 : 16_000_000)) ||
+                      (task === "segment" &&
+                        Math.max(item.width ?? Infinity, item.height ?? Infinity) >
+                          (qualification.data?.limits?.max_dimension ?? 4096));
                     return (
-                      <label key={item.task_id} className="flex items-start gap-3 py-3 text-xs">
-                        <input
-                          type="checkbox"
-                          className="mt-0.5"
-                          checked={checked}
-                          disabled={
-                            unsupported || (!checked && selected.length >= 32) || create.isPending
-                          }
-                          onChange={() =>
-                            setSelected((old) =>
-                              checked
-                                ? old.filter((id) => id !== item.task_id)
-                                : [...old, item.task_id],
-                            )
-                          }
-                        />
-                        <span className="min-w-0">
-                          <span className="block break-all font-mono">{item.task_id}</span>
-                          <span className="mt-1 block text-muted-foreground">
-                            {item.width ?? "?"} × {item.height ?? "?"} · {item.instances ?? "?"}{" "}
-                            个真值{item.is_negative ? " · 冻结负样本" : ""}
-                            {unsupported
-                              ? ` · 不支持：${item.issue ?? "成员或预算不符合要求"}`
-                              : ""}
+                      <div key={item.task_id} className="flex items-start gap-3 py-3 text-xs">
+                        <label className="flex min-w-0 flex-1 items-start gap-3">
+                          <input
+                            aria-label={`选择验证成员 ${samplePage * 12 + index + 1}（${item.width ?? "?"} × ${item.height ?? "?"}）`}
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={checked}
+                            disabled={
+                              unsupported || (!checked && selected.length >= 32) || create.isPending
+                            }
+                            onChange={() =>
+                              setSelected((old) =>
+                                checked
+                                  ? old.filter((id) => id !== item.task_id)
+                                  : [...old, item.task_id],
+                              )
+                            }
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-medium">
+                              样本 {samplePage * 12 + index + 1}
+                            </span>
+                            <span className="block text-muted-foreground">
+                              {item.width ?? "?"} × {item.height ?? "?"} · {item.instances ?? "?"}{" "}
+                              个真值{item.is_negative ? " · 冻结负样本" : ""}
+                              {unsupported
+                                ? ` · 不支持：${item.issue ?? "成员或预算不符合要求"}`
+                                : ""}
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </label>
+                        <CopyValueButton
+                          value={item.task_id}
+                          kind="id"
+                          label="复制验证成员任务 ID"
+                        />
+                      </div>
                     );
                   })}
                 </div>
@@ -468,12 +571,12 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
           </section>
           {error && (
             <p role="alert" className="text-sm text-status-danger">
-              {error.message}
+              <CopyableError message={error.message} />
             </p>
           )}
           {create.error && create.error.name !== "AbortError" && (
             <p role="alert" className="text-sm text-status-danger">
-              {create.error.message}
+              <CopyableError message={create.error.message} />
               。网络响应不确定时，可保持设置再次提交同一请求，或先查看评估历史。
             </p>
           )}
@@ -496,13 +599,32 @@ export function PickerPage({
   pageSize = 20,
   onChange,
   label,
+  onPageSizeChange,
+  loading,
 }: {
   page: number;
   total: number;
   pageSize?: number;
   onChange: (page: number) => void;
   label: string;
+  onPageSizeChange?: (size: number) => void;
+  loading?: boolean;
 }) {
+  if (onPageSizeChange) {
+    return (
+      <ListPagination
+        label={label}
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        loading={loading}
+        onPageChange={onChange}
+        onPageSizeChange={onPageSizeChange}
+        previousLabel={`${label}上一页`}
+        nextLabel={`${label}下一页`}
+      />
+    );
+  }
   if (total <= pageSize && page === 0) return null;
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

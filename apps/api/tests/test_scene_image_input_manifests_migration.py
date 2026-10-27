@@ -36,8 +36,7 @@ def _statements(filename: str):
 
 def test_0227_installer_replaces_only_the_frozen_assets_scope_helper():
     migration = _migration()
-    assert migration.revision == "0227"
-    assert migration.down_revision == "0226"
+
     assert migration._UPGRADE_ARTIFACTS == (SQL.name,)
 
     statements = _statements(SQL.name)

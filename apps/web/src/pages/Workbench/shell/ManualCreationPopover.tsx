@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { AttributeSchema } from "@/api/projects";
@@ -211,7 +212,7 @@ export function ManualCreationPopover({
       </div>
       {phase === "error" && (
         <div role="alert" className="break-words text-xs text-status-danger">
-          {error || "保存失败，请重试。"}
+          <CopyableError message={error || "保存失败，请重试。"} />
         </div>
       )}
       <AttributeForm

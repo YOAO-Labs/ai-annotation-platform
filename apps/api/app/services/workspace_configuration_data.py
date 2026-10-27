@@ -17,6 +17,17 @@ from aap_workspace.configuration_contract import (
 from aap_workspace.configuration_postgres import configuration_busy_error
 
 
+def _guide_patch(request_json):
+    """Guide-bearing Project updates keep the fast busy response for any lock."""
+    if (request_json or {}).get("operation") != "update_project":
+        return False
+    try:
+        payload = json.loads(request_json.get("payload_ascii", "{}"))
+    except (TypeError, ValueError):
+        return False
+    return isinstance(payload, dict) and "guide_assets" in payload
+
+
 def _diagnostic(error):
     state, hint = None, ""
     seen = set()
@@ -47,6 +58,33 @@ class WorkspaceConfigurationData:
             raise ConfigurationUnavailable()
         # No commit, rollback or nested transaction: the request/caller owns it.
         yield self
+
+    async def guide_step(self, request_json, action, args):
+        try:
+            with self.db.no_autoflush:
+                return await self.db.scalar(
+                    text(
+                        "SELECT aap_workspace_configuration_v1.guide_assets_step("
+                        "CAST(:command AS jsonb), CAST(:action AS text), "
+                        "CAST(:args AS jsonb))"
+                    ),
+                    {
+                        "command": json.dumps(
+                            request_json, ensure_ascii=True, allow_nan=False
+                        ),
+                        "action": action,
+                        "args": json.dumps(args, ensure_ascii=True, allow_nan=False),
+                    },
+                )
+        except DBAPIError as error:
+            state = _diagnostic(error)[0]
+            if state in {"55P03", "40001", "40P01"}:
+                raise ConfigurationCommandFailure(
+                    ConfigurationError(
+                        status_code=409, detail={"code": "guide_asset_busy"}
+                    )
+                ) from error
+            raise
 
     async def before_project_insert(self):
         await self.db.flush()
@@ -112,7 +150,14 @@ class WorkspaceConfigurationData:
         except DBAPIError as error:
             if action == "backend" and _diagnostic(error)[0] == "55000":
                 raise ConfigurationUnavailable() from None
-            mapped = configuration_busy_error(*_diagnostic(error))
+            state, hint = _diagnostic(error)
+            mapped = configuration_busy_error(state, hint)
             if mapped is not None:
                 raise ConfigurationCommandFailure(mapped) from error
+            if _guide_patch(request_json) and state in {"55P03", "40001", "40P01"}:
+                raise ConfigurationCommandFailure(
+                    ConfigurationError(
+                        status_code=409, detail={"code": "guide_asset_busy"}
+                    )
+                ) from error
             raise

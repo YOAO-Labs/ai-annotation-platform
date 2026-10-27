@@ -1,7 +1,7 @@
 """Coordinate transactional project deletion through module owner capabilities.
 
-Revision ID: 0199
-Revises: 0198
+Revision ID: bo0199
+Revises: bo0198
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0199"
-down_revision = "0198"
+revision = "bo0199"
+down_revision = "bo0198"
 branch_labels = depends_on = None
 
 

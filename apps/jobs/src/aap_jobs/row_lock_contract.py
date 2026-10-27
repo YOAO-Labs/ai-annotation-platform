@@ -16,6 +16,29 @@ JOBS_ROW_LOCK_FUNCTIONS = {
     "update": "aap_jobs_v1.read_job_for_update",
     "share_nowait": "aap_jobs_v1.read_job_for_share_nowait",
 }
+JOBS_EXECUTION_SNAPSHOT_PROTOCOL = "aap-jobs-execution-snapshot/v1"
+JOBS_EXECUTION_SNAPSHOT_FUNCTION = "aap_jobs_v1.read_job_execution_snapshot"
+
+
+def jobs_execution_snapshot_schema():
+    """Immutable binding read that follows the caller's existing Job row read."""
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": JOBS_EXECUTION_SNAPSHOT_PROTOCOL,
+        "x-postgresql-functions": [JOBS_EXECUTION_SNAPSHOT_FUNCTION + "(uuid)"],
+        "x-postgresql-result": {"type": ["string", "null"], "format": "uuid"},
+        "x-transactions": {
+            "commit": False,
+            "rollback": False,
+            "lock_lifetime": "caller transaction",
+            "missing_row": "null",
+        },
+        "x-security": {
+            "functions": "security_definer; fixed search_path; PUBLIC revoked",
+            "private_table_rights": "none required by the consumer",
+            "caller_contract": "read or lock the Job row first through the Jobs capability",
+        },
+    }
 
 
 def jobs_row_lock_schema():

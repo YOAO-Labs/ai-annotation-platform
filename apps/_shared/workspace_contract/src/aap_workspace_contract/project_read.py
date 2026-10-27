@@ -52,6 +52,7 @@ class WorkspaceProjectSnapshot(BaseModel):
     preannotate_pipeline: list[Any] | None
     annotation_guide: StrictStr | None
     guide_assets: list[Any]
+    guide_assets_revision: StrictInt = Field(ge=1)
     model_version: StrictStr | None
     task_lock_ttl_seconds: StrictInt
     due_date: date | None = Field(strict=False)

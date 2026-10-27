@@ -16,11 +16,22 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.training_dataset import TRAINING_STORAGE_REF_CHECK
+
+_STORAGE_REF_CHECK = TRAINING_STORAGE_REF_CHECK.replace(
+    "'training-dataset'", "'training-preview'"
+).replace("/datasets/", "/previews/")
 
 
 class TrainingPreview(Base):
     __tablename__ = "training_previews"
     __table_args__ = (
+        CheckConstraint(_STORAGE_REF_CHECK, name="ck_training_preview_storage_ref"),
+        CheckConstraint(
+            "storage_ref IS NULL OR storage_ref->>'prefix' = COALESCE(storage_ref->>'key_prefix','') || "
+            "'projects/' || project_id::text || '/previews/' || id::text || '/'",
+            name="ck_training_preview_storage_prefix",
+        ),
         UniqueConstraint(
             "project_id", "request_id", name="uq_training_preview_request"
         ),
@@ -56,6 +67,7 @@ class TrainingPreview(Base):
     request: Mapped[dict] = mapped_column(JSONB, nullable=False)
     input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     spec: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     authorization: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
     resource_id: Mapped[str] = mapped_column(String(200), nullable=False)

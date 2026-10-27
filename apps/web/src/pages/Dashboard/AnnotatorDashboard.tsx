@@ -1,3 +1,7 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, type MouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
@@ -70,7 +74,7 @@ function QueryErrorState({
     <div role="alert" className="rounded-lg border border-border bg-card p-6">
       <h1 className="text-lg font-semibold">无法加载{resource}</h1>
       <p className="mb-4 mt-2 text-sm text-muted-foreground">
-        {queryErrorMessage(error, resource)}
+        <CopyableError message={queryErrorMessage(error, resource)} />
       </p>
       <Button onClick={onRetry}>重新加载</Button>
     </div>
@@ -94,7 +98,7 @@ function RefreshNotice({
       <p className="m-0 text-sm">
         <strong className="mr-2 text-status-caution">{resource}更新失败</strong>
         <span className="text-muted-foreground">
-          {queryErrorMessage(error, resource)} 当前内容已保留。
+          <CopyableError message={queryErrorMessage(error, resource)} /> 当前内容已保留。
         </span>
       </p>
       <Button size="sm" onClick={onRetry}>
@@ -137,6 +141,7 @@ export function AnnotatorDashboard() {
       }),
     [myProjects],
   );
+  const projectPagination = useListPagination(sortedProjects);
   const myBatches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
   const checklistProject = useMemo(
     () =>
@@ -400,7 +405,7 @@ export function AnnotatorDashboard() {
             </div>
           ) : (
             <div className="w-full overflow-x-auto [overscroll-behavior-x:contain]">
-              <table className={TABLE_CLASS}>
+              <table className={`${listStyles.table} ${TABLE_CLASS}`}>
                 <thead>
                   <tr>
                     {["项目", "类型", "进度", "待标", ""].map((h, i) => (
@@ -409,7 +414,7 @@ export function AnnotatorDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects.map((p) => {
+                  {projectPagination.items.map((p) => {
                     const remaining = Math.max(0, (p.total_tasks ?? 0) - (p.completed_tasks ?? 0));
                     const pct = p.total_tasks
                       ? Math.round(((p.completed_tasks ?? 0) / p.total_tasks) * 100)
@@ -458,6 +463,14 @@ export function AnnotatorDashboard() {
               </table>
             </div>
           )}
+          <ListPagination
+            label="我的项目"
+            page={projectPagination.page}
+            pageSize={projectPagination.pageSize}
+            total={projectPagination.total}
+            onPageChange={projectPagination.setPage}
+            onPageSizeChange={projectPagination.setPageSize}
+          />
         </Card>
       </div>
     </PageContainer>

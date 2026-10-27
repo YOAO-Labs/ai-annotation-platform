@@ -201,7 +201,7 @@ def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
         in artifact
     )
     assert "aap_identity_v1.retire_account_credentials" not in artifact
-    assert 'revision = "0239"' in migration and 'down_revision = "0238"' in migration
+
     assert (
         "password_reset_tokens" in migration
         and "email_verification_tokens" in migration

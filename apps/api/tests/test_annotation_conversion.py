@@ -147,7 +147,7 @@ async def _seed_annotation(
 
 
 def _mock_mask_storage(monkeypatch, *, loaded_rle: dict = MASK_RLE) -> None:
-    async def store(rle: dict):
+    async def store(rle: dict, *, db):
         return build_rle_reference(rle)
 
     monkeypatch.setattr(

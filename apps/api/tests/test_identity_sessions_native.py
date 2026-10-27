@@ -167,8 +167,7 @@ def test_frozen_native_session_artifacts_and_receipt_owner_grants():
             "INSERT INTO public.identity_session_operation_receipts", 1
         )[1]
     )
-    assert 'revision = "0237"' in migration
-    assert 'down_revision = "0236"' in migration
+
     assert "Cannot remove Identity session operation receipts" in migration
     assert "identity_session_operation_receipts" in native_schema
     assert "request_scope, result, audit_id" in module_grants

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { StorageConnection } from "@/api/storageConnections";
+import { Modal } from "@/components/ui/Modal";
 import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 
 const mocks = vi.hoisted(() => ({
@@ -36,6 +37,7 @@ import { StorageConnectionsPanel } from "./StorageConnectionsPanel";
 
 const existingConnection: StorageConnection = {
   id: "conn-1",
+  revision: 7,
   name: "ext-oss",
   kind: "s3",
   config: {
@@ -176,5 +178,110 @@ describe("StorageConnectionsPanel", () => {
         kind: "warning",
       }),
     );
+  });
+});
+
+describe("revision-fenced editing", () => {
+  beforeEach(() => {
+    mocks.role = "super_admin";
+    mocks.connections = [existingConnection];
+    mocks.create = { mutateAsync: vi.fn().mockResolvedValue({}), isPending: false };
+    mocks.update = { mutateAsync: vi.fn().mockResolvedValue({}), isPending: false };
+    mocks.remove = { mutate: vi.fn(), isPending: false };
+    mocks.test = { mutate: vi.fn(), isPending: false };
+  });
+
+  it("keeps the opened revision after refresh and omits unchanged config for a rename", async () => {
+    const view = render(<StorageConnectionsPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /编辑/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/名称/), { target: { value: "my-draft" } });
+    mocks.connections = [{ ...existingConnection, revision: 8, name: "other-editor" }];
+    view.rerender(<StorageConnectionsPanel />);
+    mocks.update.mutateAsync.mockRejectedValueOnce(
+      new Error("连接配置已被其他操作更新，请取消编辑并重新打开后再保存"),
+    );
+    fireEvent.submit(dialog.querySelector("form")!);
+    await waitFor(() =>
+      expect(mocks.update.mutateAsync).toHaveBeenCalledWith({
+        id: "conn-1",
+        payload: { expected_revision: 7, name: "my-draft" },
+      }),
+    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("请取消编辑并重新打开");
+    expect(within(dialog).getByLabelText(/名称/)).toHaveValue("my-draft");
+  });
+
+  it("keeps Escape inside the nested editor and returns focus to its edit trigger", async () => {
+    const ownerClose = vi.fn();
+    render(
+      <Modal open title="位置详情" onClose={ownerClose}>
+        <StorageConnectionsPanel />
+      </Modal>,
+    );
+    const edit = screen.getByRole("button", { name: "编辑" });
+    fireEvent.click(edit);
+    expect(await screen.findByRole("heading", { name: "编辑数据源" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "编辑数据源" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("heading", { name: "位置详情" })).toBeInTheDocument();
+    expect(ownerClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(edit).toHaveFocus());
+  });
+
+  it("treats historical SFTP defaults as unchanged when only renaming", async () => {
+    mocks.connections = [
+      { ...existingConnection, kind: "sftp", config: { host: "sftp.test", username: "reader" } },
+    ];
+    render(<StorageConnectionsPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /编辑/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/名称/), { target: { value: "new-name" } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    await waitFor(() =>
+      expect(mocks.update.mutateAsync).toHaveBeenCalledWith({
+        id: "conn-1",
+        payload: { expected_revision: 7, name: "new-name" },
+      }),
+    );
+  });
+
+  it("sends candidate credentials with the captured revision, then preserves them on rejection", async () => {
+    mocks.update.mutateAsync.mockRejectedValueOnce(
+      new Error("连接验证失败：认证失败；原配置未修改"),
+    );
+    render(<StorageConnectionsPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /编辑/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/Access key/), { target: { value: "new-ak" } });
+    fireEvent.change(within(dialog).getByLabelText(/Secret key/), { target: { value: "new-sk" } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    await waitFor(() =>
+      expect(mocks.update.mutateAsync).toHaveBeenCalledWith({
+        id: "conn-1",
+        payload: {
+          expected_revision: 7,
+          name: "ext-oss",
+          secret: { access_key: "new-ak", secret_key: "new-sk" },
+        },
+      }),
+    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("原配置未修改");
+    expect(within(dialog).getByLabelText(/Secret key/)).toHaveValue("new-sk");
+  });
+
+  it("does not show a late successful test against a newer connection revision", async () => {
+    let done!: (result: unknown) => void;
+    mocks.test.mutate.mockImplementation((_id: string, options: any) => {
+      done = options.onSuccess;
+    });
+    const view = render(<StorageConnectionsPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "测试" }));
+    mocks.connections = [{ ...existingConnection, revision: 8 }];
+    view.rerender(<StorageConnectionsPanel />);
+    done({ ok: true, message: "old revision proof", sample_count: 1 });
+    expect(screen.queryByText(/old revision proof/)).not.toBeInTheDocument();
   });
 });

@@ -1,9 +1,11 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HistoryIcon, PencilIcon, RotateCcwIcon, SaveIcon, TriangleAlertIcon } from "lucide-react";
 
 import type { SensorCalibrationRevisionOut } from "@/api/generated";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { useToastStore } from "@/components/ui/Toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shadcn/ui/alert";
 import { Badge } from "@/components/shadcn/ui/badge";
@@ -41,10 +43,6 @@ const PART_LABELS = {
   extrinsic: "外参 extrinsic",
   rect: "矫正矩阵 rect",
 } as const;
-
-function digestSummary(digest: string): string {
-  return digest.length > 14 ? `${digest.slice(0, 14)}…` : digest;
-}
 
 function formatTimestamp(value?: string | null): string {
   if (!value) return "导入基线";
@@ -119,13 +117,18 @@ function RevisionRow({
     <div className="flex min-h-14 items-center justify-between gap-3 py-2">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium tabular-nums">Revision {revision.revision}</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="text-sm font-medium tabular-nums">Revision {revision.revision}</span>
+            <CopyValueButton
+              value={revision.digest}
+              label={`复制 Revision ${revision.revision} 标定哈希`}
+            />
+          </span>
           {current && <Badge variant="secondary">当前</Badge>}
           {!revision.created_at && <Badge variant="outline">虚拟基线</Badge>}
         </div>
         <span className="text-xs text-muted-foreground">
-          {formatTimestamp(revision.created_at)} ·{" "}
-          <span title={revision.digest}>{digestSummary(revision.digest)}</span>
+          {formatTimestamp(revision.created_at)}
         </span>
       </div>
       {canManage && !current && (
@@ -298,9 +301,7 @@ export function SensorCalibrationSheet({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">Revision {currentRevision}</Badge>
-              <Badge variant="outline" title={currentDigest}>
-                {digestSummary(currentDigest)}
-              </Badge>
+              <CopyValueButton value={currentDigest} label="复制当前标定哈希" />
             </div>
           </div>
         </SheetHeader>
@@ -419,9 +420,13 @@ export function SensorCalibrationSheet({
                   <TriangleAlertIcon />
                   <AlertTitle>无法读取标定历史</AlertTitle>
                   <AlertDescription>
-                    {sensorCalibration.query.error instanceof Error
-                      ? sensorCalibration.query.error.message
-                      : "请稍后重试"}
+                    <CopyableError
+                      message={
+                        sensorCalibration.query.error instanceof Error
+                          ? sensorCalibration.query.error.message
+                          : "请稍后重试"
+                      }
+                    />
                   </AlertDescription>
                 </Alert>
               )}

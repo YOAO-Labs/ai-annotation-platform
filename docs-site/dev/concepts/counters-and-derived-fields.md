@@ -1,9 +1,9 @@
 ---
+title: 计数与派生字段
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-26
 ---
 
 # 计数与派生字段
@@ -26,7 +26,7 @@ last_reviewed: 2026-07-29
 最常见的几类：
 
 - task 级：`total_annotations`、`total_predictions`、`is_labeled`
-- batch 级：`total_tasks`、`completed_tasks`、`review_tasks`
+- batch 级：`total_tasks`、`completed_tasks`、`review_tasks`、`approved_tasks`、`rejected_tasks`
 - project 级：`total_tasks`、`completed_tasks`、`review_tasks`、`in_progress_tasks`
 - dashboard 级：由上面这些字段再拼出的 UI 摘要
 
@@ -114,12 +114,15 @@ last_reviewed: 2026-07-29
 - `total_tasks`
 - `completed_tasks`
 - `review_tasks`
+- `approved_tasks`
+- `rejected_tasks`
 
 统计口径直接看 `tasks` 表：
 
 - `count(*)`
-- `count(filter status == completed)`
+- `count(filter status == completed)`（同时写入 `completed_tasks` 与 `approved_tasks`）
 - `count(filter status == review)`
+- `count(filter status == rejected)`
 
 注意：
 
@@ -191,6 +194,13 @@ last_reviewed: 2026-07-29
 - `application/project_task_cleanup.delete_source_less_tasks()` 调用 `LabelingTaskService.recalculate_source_less_task_counters()`；项目另重算 in-progress，批次仍保持原字段集。
 
 两条清理用例都保留调用方事务；不统一原本不同的计数口径、清理子集和提交时点。项目整体删除另由应用工作流组合各领域所有者，不能通过删一个 ORM 项目对象替代完整保留检查和引用处理。
+
+### 5. 数据集工作台的关联项目可见任务统计（即时聚合）
+
+除了持久化在 `Project` 行上的全局计数（`total_tasks / completed_tasks / review_tasks / in_progress_tasks`），数据集工作台（`GET /api/v1/datasets/{id}/workbench`，实现于 `services/dataset_workbench.py::workbench`）还会返回该数据集在各关联项目中的任务进度（`total_tasks`、`labeled_tasks`、`completed_tasks`、`review_tasks`）：
+
+- **按调用者可见性即时聚合**：该统计**不直接读取** `Project` 表上的缓存列，而是按当前用户在每个关联项目中的实际访问身份（特权管理者或 `annotator` / `reviewer` / `viewer` 成员角色）分组，复用 Data Manager 的 `apply_task_visibility` 与 `dataset.dataset_id` 过滤，在单条 `UNION ALL` SQL 中即时计算**当前用户在该数据集下可见的任务进度**。
+- 因此，同一数据集关联的同一项目，在管理员与普通标注员视角下看到的 `total_tasks` / `completed_tasks` 可能不同——这是遵守任务级可见性边界的预期行为，而非缓存未同步。
 
 ## Dashboard 为什么依赖这些字段
 
@@ -270,7 +280,7 @@ dashboard 和列表页有两种取数方式：
 ## 绩效派生聚合（即时计算，不持久化）
 
 上面那些是「持久化的缓存字段」。绩效页（`/me/performance`、`/admin/people/{user_id}`）还有一类
-**查询时即时聚合、不落库**的派生值，当前三项均可按 `project_id` 切分：
+**查询时即时聚合、不落库**的派生值，当前三项均可按 `project_id` 切分（Data Manager 团队成员绩效的独立聚合口径见 [项目成员绩效数据](./project-performance)）：
 
 | 字段                      | 口径                                                                                | helper                     |
 | ------------------------- | ----------------------------------------------------------------------------------- | -------------------------- |
@@ -283,14 +293,14 @@ dashboard 和列表页有两种取数方式：
 
 ## 常见修改落点
 
-| 你想改什么                        | 先看哪里                       |
-| --------------------------------- | ------------------------------ |
-| annotation 数和已标记语义         | `services/annotation.py`       |
-| prediction 数                     | `services/prediction.py`       |
-| batch / project counters 重算     | `services/batch.py`            |
-| dataset 删除 / unlink 后数字异常  | `services/dataset.py`          |
-| orphan cleanup 后数字异常         | `api/v1/projects.py`           |
-| dashboard 显示口径 / 绩效派生聚合 | `api/v1/dashboard/` + 前端页面 |
+| 你想改什么                        | 先看哪里                                                        |
+| --------------------------------- | --------------------------------------------------------------- |
+| annotation 数和已标记语义         | `services/annotation.py`                                        |
+| prediction 数                     | `services/prediction.py`                                        |
+| batch / project counters 重算     | `services/batch.py`                                             |
+| dataset 删除 / unlink 后数字异常  | `services/dataset.py`                                           |
+| orphan cleanup 后数字异常         | `api/v1/projects.py`                                            |
+| dashboard 显示口径 / 绩效派生聚合 | `api/v1/dashboard/`、`services/project_performance.py` + 前端页 |
 
 ## 常见误解
 
@@ -313,5 +323,6 @@ dashboard 和列表页有两种取数方式：
 
 - [任务模块](./task-module)
 - [批次模块](./batch-module)
+- [项目成员绩效数据](./project-performance)
 - [批次生命周期（端到端）](./batch-lifecycle-end-to-end)
 - [Scheduler 与派题](./scheduler-and-task-dispatch)

@@ -5,8 +5,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0370"
-down_revision = "0369"
+revision = "bo0370"
+down_revision = "bo0369"
 branch_labels = None
 depends_on = None
 

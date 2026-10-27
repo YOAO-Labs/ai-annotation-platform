@@ -30,6 +30,54 @@ async def _can_access_job(
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active:
         return False
+    if job.kind in {
+        "storage_usage",
+        "managed_original_verification",
+        "managed_original_reclaim",
+        "managed_reference_reconciliation",
+        "storage_migration_inventory",
+        "storage_migration_copy",
+    }:
+        return actor.role == PlatformRole.SUPER_ADMIN.value
+    if job.kind in {"dataset_quality", "dataset_quality_review"}:
+        from app.services import (
+            dataset_quality as quality_svc,
+            dataset_quality_review as review_svc,
+            dataset_source_access as source_access,
+        )
+        from sqlalchemy import select
+
+        try:
+            manager = await source_access.require_manager(db, actor.id)
+        except HTTPException:
+            return False
+        return bool(
+            await db.scalar(
+                select(AsyncJob.id).where(
+                    AsyncJob.id == job.id,
+                    (
+                        review_svc
+                        if job.kind == "dataset_quality_review"
+                        else quality_svc
+                    ).job_scope_clause(manager),
+                )
+            )
+        )
+    if job.kind in {"dataset_scan", "dataset_registration"}:
+        from app.services import dataset_source_access as source_access
+        from sqlalchemy import select
+
+        try:
+            manager = await source_access.require_manager(db, actor.id)
+        except HTTPException:
+            return False
+        return bool(
+            await db.scalar(
+                select(AsyncJob.id).where(
+                    AsyncJob.id == job.id, source_access.job_scope_clause(manager)
+                )
+            )
+        )
     project_id = job.project_id or job.retained_project_id
     if project_id is None:
         if job.kind == EXPORT_JOB_KIND:

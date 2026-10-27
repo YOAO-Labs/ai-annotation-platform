@@ -41,6 +41,7 @@ def snapshot_payload():
         "preannotate_pipeline": [{"future_stage": {"setting": True}}],
         "annotation_guide": None,
         "guide_assets": [{"key": "guides/a.png", "future_field": "kept"}],
+        "guide_assets_revision": 1,
         "model_version": None,
         "task_lock_ttl_seconds": 300,
         "due_date": "2026-12-31",

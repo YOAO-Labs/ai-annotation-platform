@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import type { TelemetryPage } from "@/api/trainingObservability";
 import { TrainingMetricChart } from "./TrainingMetricChart";
 import type { ObservationWindow } from "./useTrainingObservability";
@@ -48,7 +49,9 @@ export function TrainingResourcePanel({
     <section aria-label="所选执行资源与耗时" className="mb-5 space-y-3">
       {error && (
         <p role="alert" className="text-xs text-status-caution">
-          观测连接中断：{error}。训练状态仍以执行器回执为准。
+          观测连接中断：
+          <CopyableError message={error} />
+          。训练状态仍以执行器回执为准。
         </p>
       )}
       {pending && !latest && (

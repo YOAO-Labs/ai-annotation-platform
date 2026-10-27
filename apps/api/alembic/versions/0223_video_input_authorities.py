@@ -1,7 +1,7 @@
 """Install narrow video Task and Job source-authority projections.
 
-Revision ID: 0223
-Revises: 0222
+Revision ID: bo0223
+Revises: bo0222
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0223"
-down_revision = "0222"
+revision = "bo0223"
+down_revision = "bo0222"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

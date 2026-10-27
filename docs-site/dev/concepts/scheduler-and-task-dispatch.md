@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # Scheduler 与派题
@@ -52,15 +52,16 @@ last_reviewed: 2026-10-18
 - 避免用户刷新页面时被派到另一题
 - 避免同一个用户在同一项目里并行占多题
 
-### 2. 读取项目配置
+### 2. 读取项目配置与可选同 Scene 续派
 
 后续会用到这些 project 字段：
 
 - `sampling`
 - `maximum_annotations`
 - `task_lock_ttl_seconds`
+- `prefer_same_scene_continuation` / `scene_continuation_window_min`
 
-所以 scheduler 本质上是 project-aware 的。
+所以 scheduler 本质上是 project-aware 的。若项目开启了 `prefer_same_scene_continuation`，scheduler 会在进入经典候选池之前优先调用 `_next_same_scene_task(...)` 尝试分配同一 scene 的下一帧（详见下文 [scene 连续派题](#scene-连续派题)）；未命中时回落到第 3 步。
 
 ### 3. 构造候选 task 集合
 

@@ -451,5 +451,5 @@ def test_dataset_source_support_artifact_and_migration_are_closed():
     assert "p_action" not in sql and "p_event" not in sql
     assert "'dataset.delete'" in sql and "'dataset.item_delete'" in sql
     assert "status_code, ip, request_id, detail_json" in sql
-    assert 'down_revision = "0207"' in migration
+
     assert migration.count(" RESTRICT") == 3

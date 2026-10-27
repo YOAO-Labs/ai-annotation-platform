@@ -28,12 +28,8 @@ async function checked(response: Response) {
   return response.json();
 }
 
-// The Data section scrolls the whole page (the frame root scroll owner), not a
-// table-local container; scroll it far enough to trigger cursor loading.
-async function scrollDataPageToBottom(page: Page) {
-  await page.locator("[data-dm-scroll-owner='data']").evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
+function pagination(page: Page, scope: "objects" | "tracks") {
+  return page.getByRole("navigation", { name: scope === "objects" ? "对象分页" : "轨迹分页" });
 }
 
 function url(projectId: string, state: Record<string, string> = {}) {
@@ -57,7 +53,7 @@ for (const scope of ["tasks", "objects", "tracks"] as const) {
           : filtering.lidar.project_id;
     const response = queryResponse(page, projectId, scope);
     await page.goto(url(projectId, { lens: scope }));
-    await checked(await response);
+    const result = await checked(await response);
     const table = page.getByRole("table");
     await expect(table).toBeVisible();
     const viewport = scope === "tasks" ? table.locator("..") : table;
@@ -96,8 +92,16 @@ for (const scope of ["tasks", "objects", "tracks"] as const) {
         })
         .toBeLessThanOrEqual(1);
       expect(await viewport.evaluate((element) => element.scrollTop)).toBe(0);
-      await scrollDataPageToBottom(page);
-      await expect(page.getByText(/已加载 10[12] \/ 10[12]/)).toBeVisible();
+      const pager = pagination(page, scope);
+      await expect(pager.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
+      const nextResponse = queryResponse(page, projectId, scope);
+      await pager.getByRole("button", { name: "下一页", exact: true }).click();
+      const next = await checked(await nextResponse);
+      expect(next.total).toBe(result.total);
+      await expect(page.getByText(`已加载 ${next.items.length} / ${result.total}`)).toBeVisible();
+      await expect(pager.getByRole("status")).toHaveText(
+        `共 ${result.total} 条 · 第 2 / ${Math.ceil(result.total / 20)} 页`,
+      );
     }
   });
 }
@@ -198,31 +202,47 @@ test("object and logical-track totals retain full scope across cursor pages", as
 }) => {
   const objectsResponse = queryResponse(page, filtering.paging.project_id, "objects");
   await page.goto(url(filtering.paging.project_id, { lens: "objects" }));
-  const objects = await checked(await objectsResponse);
+  const firstObjects = await checked(await objectsResponse);
+  expect(firstObjects.items.map((item: { annotation_id: string }) => item.annotation_id)).toEqual(
+    filtering.paging.object_ids.slice(0, 20),
+  );
+  const resizedObjects = queryResponse(page, filtering.paging.project_id, "objects");
+  await pagination(page, "objects").getByLabel("每页对象数").selectOption("100");
+  const objects = await checked(await resizedObjects);
   expect(objects.total).toBe(101);
   expect(objects.items.map((item: { annotation_id: string }) => item.annotation_id)).toEqual(
     filtering.paging.expected_page_one_object_ids,
   );
   await expect(page.getByRole("table")).toHaveAttribute("aria-rowcount", "101");
   const moreObjects = queryResponse(page, filtering.paging.project_id, "objects");
-  await scrollDataPageToBottom(page);
+  await pagination(page, "objects").getByRole("button", { name: "下一页", exact: true }).click();
   const next = await checked(await moreObjects);
   expect(next.total).toBe(101);
   expect(next.items.map((item: { annotation_id: string }) => item.annotation_id)).toEqual(
     filtering.paging.expected_page_two_object_ids,
   );
+  await expect(pagination(page, "objects").getByRole("status")).toHaveText(
+    "共 101 条 · 第 2 / 2 页",
+  );
+  await expect(page.getByText("已加载 1 / 101")).toBeVisible();
+  await expect(
+    pagination(page, "objects").getByRole("button", { name: "下一页", exact: true }),
+  ).toBeDisabled();
 
   await seed.injectToken(page, filtering.user_emails.anno);
   const tracksResponse = queryResponse(page, filtering.lidar.project_id, "tracks");
   await page.goto(url(filtering.lidar.project_id, { lens: "tracks" }));
-  const tracks = await checked(await tracksResponse);
+  await checked(await tracksResponse);
+  const resizedTracks = queryResponse(page, filtering.lidar.project_id, "tracks");
+  await pagination(page, "tracks").getByLabel("每页轨迹数").selectOption("100");
+  const tracks = await checked(await resizedTracks);
   expect(tracks.total).toBe(filtering.lidar.track_refs.length);
   await expect(page.getByRole("table")).toHaveAttribute(
     "aria-rowcount",
     String(filtering.lidar.track_refs.length),
   );
   const moreTracks = queryResponse(page, filtering.lidar.project_id, "tracks");
-  await scrollDataPageToBottom(page);
+  await pagination(page, "tracks").getByRole("button", { name: "下一页", exact: true }).click();
   const trackNext = await checked(await moreTracks);
   const refs = [...tracks.items, ...trackNext.items].map(
     (item: { track_id: string }) => item.track_id,

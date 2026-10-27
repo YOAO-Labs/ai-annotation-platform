@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { GuideMarkdownView } from "@/components/markdown/GuideMarkdownView";
@@ -58,7 +59,7 @@ export function GuidePanel({
   const trimmed = (content ?? "").trim();
   const version = guideVersion ?? annotationGuideVersion(content);
   const scopeKey = guidePanelScopeKey({ projectId, userId, guideVersion, content });
-  const { resolveImage } = useGuideAssets(projectId);
+  const { resolveImage, imageScope } = useGuideAssets(projectId);
   const {
     markGuideRead,
     retry,
@@ -200,7 +201,7 @@ export function GuidePanel({
             <GuideMarkdownView
               content={trimmed}
               resolveImage={resolveImage}
-              imageScope={scopeKey}
+              imageScope={JSON.stringify([scopeKey, imageScope])}
               modalContainerRef={dialogContentRef as RefObject<HTMLElement | null>}
             />
           </div>
@@ -214,7 +215,7 @@ export function GuidePanel({
             {guideRead ? "已确认阅读当前版本" : "阅读完整指引后确认，指南更新后需重新确认"}
             {saveError && (
               <p role="alert" className="mt-1 text-xs text-status-danger">
-                {saveError}
+                <CopyableError message={saveError} />
               </p>
             )}
           </div>

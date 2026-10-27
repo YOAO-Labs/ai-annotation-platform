@@ -1,3 +1,5 @@
+import { originalOwnerKey } from "@/api/originals";
+import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 /**
  * v0.17.x · 巨石拆分 Epic 收尾 —— 从 ThreeDWorkbench 抽出的 Three.js 场景生命周期 hook。
  *
@@ -102,23 +104,34 @@ const RUNTIME_VIEW_TRANSFER_TTL_MS = 10_000;
 const EMPTY_MEASUREMENT_PATHS: SceneMeasurementPath[] = [];
 let pendingRuntimeViewTransfer: {
   continuityKey: string;
+  owner: string;
   view: PointCloudViewState;
   expiresAt: number;
 } | null = null;
 
-function storeRuntimeViewTransfer(continuityKey: string, view: PointCloudViewState) {
+function storeRuntimeViewTransfer(continuityKey: string, view: PointCloudViewState, owner: string) {
+  if (owner !== originalOwnerKey()) return;
   pendingRuntimeViewTransfer = {
     continuityKey,
+    owner,
     view,
     expiresAt: Date.now() + RUNTIME_VIEW_TRANSFER_TTL_MS,
   };
 }
 
-function takeRuntimeViewTransfer(continuityKey: string | null): PointCloudViewState | null {
+function takeRuntimeViewTransfer(
+  continuityKey: string | null,
+  owner: string,
+): PointCloudViewState | null {
   const pending = pendingRuntimeViewTransfer;
   pendingRuntimeViewTransfer = null;
   if (!pending || continuityKey === null) return null;
-  if (pending.continuityKey !== continuityKey || pending.expiresAt < Date.now()) return null;
+  if (
+    pending.owner !== owner ||
+    pending.continuityKey !== continuityKey ||
+    pending.expiresAt < Date.now()
+  )
+    return null;
   return pending.view;
 }
 
@@ -151,6 +164,7 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     onTransformPreview,
   } = params;
 
+  const originalOwner = useOriginalAssetOwner();
   const [loadState, setLoadState] = useState<{
     stats: PointCloudStats | null;
     loadedPointCloudUrl: string | null;
@@ -187,28 +201,54 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
   const suspendCameraSaveRef = useRef(false);
   const loadSequenceRef = useRef(0);
   const loadedContinuityKeyRef = useRef<string | null>(null);
+  const loadedOwnerRef = useRef<string | null>(null);
   const renderSurfaceRef = useRef(renderSurface);
   renderSurfaceRef.current = renderSurface;
   const visibleRegionsRef = useRef(getVisibleRegions);
   visibleRegionsRef.current = getVisibleRegions;
 
-  const scheduleCameraViewSave = useCallback((view: PointCloudViewState) => {
-    if (suspendCameraSaveRef.current) return;
-    const loadedContinuityKey = loadedContinuityKeyRef.current;
-    if (loadedContinuityKey !== null) storeRuntimeViewTransfer(loadedContinuityKey, view);
-    if (!persistCameraViewRef.current) return;
-    pendingCameraViewRef.current = view;
-    if (cameraSaveRafRef.current !== null) return;
-    cameraSaveRafRef.current = window.requestAnimationFrame(() => {
-      cameraSaveRafRef.current = null;
-      const next = pendingCameraViewRef.current;
-      pendingCameraViewRef.current = null;
-      if (!next || !persistCameraViewRef.current) return;
-      onWorkbenchLayoutChangeRef.current({ pointcloudCamera: next });
-    });
-  }, []);
+  const scheduleCameraViewSave = useCallback(
+    (view: PointCloudViewState) => {
+      if (suspendCameraSaveRef.current || originalOwner !== originalOwnerKey()) return;
+      const loadedContinuityKey = loadedContinuityKeyRef.current;
+      if (loadedContinuityKey !== null)
+        storeRuntimeViewTransfer(loadedContinuityKey, view, originalOwner);
+      if (!persistCameraViewRef.current) return;
+      pendingCameraViewRef.current = view;
+      if (cameraSaveRafRef.current !== null) return;
+      cameraSaveRafRef.current = window.requestAnimationFrame(() => {
+        if (originalOwner !== originalOwnerKey()) return;
+        cameraSaveRafRef.current = null;
+        const next = pendingCameraViewRef.current;
+        pendingCameraViewRef.current = null;
+        if (!next || !persistCameraViewRef.current) return;
+        onWorkbenchLayoutChangeRef.current({ pointcloudCamera: next });
+      });
+    },
+    [originalOwner],
+  );
+
+  const scheduleCameraViewSaveRef = useRef(scheduleCameraViewSave);
+  scheduleCameraViewSaveRef.current = scheduleCameraViewSave;
 
   // 实例化 / 销毁 Scene(随容器挂载一次)。
+  useLayoutEffect(() => {
+    if (cameraSaveRafRef.current !== null) {
+      window.cancelAnimationFrame(cameraSaveRafRef.current);
+      cameraSaveRafRef.current = null;
+    }
+    pendingCameraViewRef.current = null;
+    loadedContinuityKeyRef.current = null;
+    loadedOwnerRef.current = null;
+    suspendCameraSaveRef.current = true;
+    loadSequenceRef.current++;
+    sceneRef.current?.retirePointCloud();
+    sceneRef.current?.setViewChangeHandler(scheduleCameraViewSave);
+    cancelActivePointCloudFrameLoad();
+    setLoadState({ stats: null, loadedPointCloudUrl: null, isLoading: !!pointCloudUrl });
+    // Loading dependencies are handled by the load effect; this is an owner retirement boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [originalOwner, sceneRef, scheduleCameraViewSave]);
   useEffect(() => {
     const container = viewportRef.current;
     if (!container) return;
@@ -242,7 +282,7 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         created.setGridVisible(showGrid);
         created.setAxisGizmoVisible(showAxisGizmo);
         created.setCameraDamping(cameraDamping);
-        created.setViewChangeHandler(scheduleCameraViewSave);
+        created.setViewChangeHandler(scheduleCameraViewSaveRef.current);
         created.setTransformHandler((id, psr, commit) => {
           if (commit) onTransformCommitRef.current(id, psr);
           else onTransformPreviewRef.current(id, psr);
@@ -269,8 +309,14 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         cameraSaveRafRef.current = null;
       }
       const loadedContinuityKey = loadedContinuityKeyRef.current;
-      if (scene && loadedContinuityKey !== null && !suspendCameraSaveRef.current) {
-        storeRuntimeViewTransfer(loadedContinuityKey, scene.getViewState());
+      const loadedOwner = loadedOwnerRef.current;
+      if (
+        scene &&
+        loadedContinuityKey !== null &&
+        loadedOwner !== null &&
+        !suspendCameraSaveRef.current
+      ) {
+        storeRuntimeViewTransfer(loadedContinuityKey, scene.getViewState(), loadedOwner);
       }
       ro?.disconnect();
       scene?.dispose();
@@ -345,18 +391,27 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
       pending: true,
     });
     const runtimeView =
-      continuityKey !== null && loadedContinuityKeyRef.current === continuityKey
+      continuityKey !== null &&
+      loadedContinuityKeyRef.current === continuityKey &&
+      loadedOwnerRef.current === originalOwner
         ? scene.getViewState()
-        : takeRuntimeViewTransfer(continuityKey);
+        : takeRuntimeViewTransfer(continuityKey, originalOwner);
     let cancelled = false;
     suspendCameraSaveRef.current = true;
     scene
       .loadPcd(pointCloudUrl, axisConvention, {
-        shouldCommit: () => !cancelled && loadSequence === loadSequenceRef.current,
+        shouldCommit: () =>
+          !cancelled &&
+          originalOwner === originalOwnerKey() &&
+          loadSequence === loadSequenceRef.current,
         visible: !deferPointCloudDisplayRef.current,
       })
       .then((s) => {
-        if (cancelled || loadSequence !== loadSequenceRef.current) {
+        if (
+          cancelled ||
+          originalOwner !== originalOwnerKey() ||
+          loadSequence !== loadSequenceRef.current
+        ) {
           publishPointCloudResourceTrace(pointCloudUrl, {
             type: "load-stale-result",
             status: cancelled ? "cancelled" : "superseded",
@@ -370,6 +425,7 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
           scene.applyViewState(pointcloudCameraRef.current);
         }
         loadedContinuityKeyRef.current = continuityKey;
+        loadedOwnerRef.current = originalOwner;
         onViewModeChangeRef.current(scene.getViewState().mode);
         setLoadState({ stats: s, loadedPointCloudUrl: pointCloudUrl, isLoading: false });
         publishPointCloudResourceTrace(pointCloudUrl, {
@@ -385,7 +441,11 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         suspendCameraSaveRef.current = false;
       })
       .catch((e) => {
-        if (cancelled || loadSequence !== loadSequenceRef.current) {
+        if (
+          cancelled ||
+          originalOwner !== originalOwnerKey() ||
+          loadSequence !== loadSequenceRef.current
+        ) {
           publishPointCloudResourceTrace(pointCloudUrl, {
             type: "load-rejected-after-cancel",
             status: cancelled ? "cancelled" : "superseded",
@@ -416,10 +476,18 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         loadedContinuityKeyRef.current === continuityKey &&
         !suspendCameraSaveRef.current
       ) {
-        storeRuntimeViewTransfer(continuityKey, scene.getViewState());
+        storeRuntimeViewTransfer(continuityKey, scene.getViewState(), originalOwner);
       }
     };
-  }, [pointCloudUrl, continuityKey, axisConvention, rendererReadyVersion, sceneRef, loadAttempt]);
+  }, [
+    originalOwner,
+    pointCloudUrl,
+    continuityKey,
+    axisConvention,
+    rendererReadyVersion,
+    sceneRef,
+    loadAttempt,
+  ]);
 
   // 同步 3D 框图层(标注 / 选中变化)。scene 在挂载 effect 里先建,本 effect 后跑。
   useEffect(() => {

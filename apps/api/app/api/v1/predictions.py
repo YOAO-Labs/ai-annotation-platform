@@ -45,6 +45,7 @@ from app.services.audit import AuditAction, AuditService
 from app.application.async_job_contracts import (
     AsyncJobOperationFailure,
     PredictionRetryPort,
+    RetryCredentialAuthority,
 )
 from app.services.prediction import (
     PredictionService,
@@ -182,11 +183,16 @@ async def list_failed_predictions(
 )
 async def retry_failed_prediction(
     failed_id: uuid.UUID,
+    request: Request,
     actor_id: uuid.UUID = Depends(get_current_user_id),
     retry_port: PredictionRetryPort = Depends(get_prediction_retry_port),
 ) -> Any:
     try:
-        await retry_port.retry_prediction(failed_id=failed_id, actor_id=actor_id)
+        await retry_port.retry_prediction(
+            failed_id=failed_id,
+            actor_id=actor_id,
+            credential=RetryCredentialAuthority.from_request(actor_id, request),
+        )
     except AsyncJobOperationFailure as exc:
         raise HTTPException(
             status_code=exc.status_code,

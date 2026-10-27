@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { isWorkbenchInteractionBlocked } from "../state/workbenchInteractionGuards";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Clock3, Info, Loader2, MousePointer2, Type, X } from "lucide-react";
@@ -530,7 +531,7 @@ export function VideoTrackerPropagateDialog({
       return;
     }
     // v0.22.1 · B · 无源检测必须选目标类别 (新建轨迹归属); combo 发现同理。
-    if (sourcelessLike && !targetClass) {
+    if (sourcelessLike && !availableClasses.includes(targetClass)) {
       setError("请选择新目标的类别");
       return;
     }
@@ -766,7 +767,16 @@ export function VideoTrackerPropagateDialog({
                     disabled={modelOptions.length === 0}
                     className={TRACKER_SELECT_CLASS}
                   >
-                    {modelOptions.length === 0 && <option value="">无可用追踪模型</option>}
+                    {modelKey && !modelOptions.some((model) => model.value === modelKey) && (
+                      <option value={modelKey} disabled hidden>
+                        已选追踪模型（暂不可用）
+                      </option>
+                    )}
+                    {modelOptions.length === 0 && (
+                      <option value="" disabled hidden>
+                        无可用追踪模型
+                      </option>
+                    )}
                     {modelOptions.map((m) => (
                       <option key={m.value} value={m.value}>
                         {m.label}
@@ -794,9 +804,19 @@ export function VideoTrackerPropagateDialog({
                         value={targetClass}
                         onChange={(e) => setTargetClass(e.target.value)}
                         data-testid="tracker-target-class"
+                        disabled={availableClasses.length === 0}
                         className={TRACKER_SELECT_CLASS}
                       >
-                        {availableClasses.length === 0 && <option value="">(无类别)</option>}
+                        {targetClass && !availableClasses.includes(targetClass) && (
+                          <option value={targetClass} disabled hidden>
+                            已选类别（暂不可用）
+                          </option>
+                        )}
+                        {availableClasses.length === 0 && (
+                          <option value="" disabled hidden>
+                            暂无类别
+                          </option>
+                        )}
                         {availableClasses.map((c) => (
                           <option key={c} value={c}>
                             {c}
@@ -1087,7 +1107,7 @@ export function VideoTrackerPropagateDialog({
                     role="alert"
                     className="rounded-md bg-status-danger-soft px-3 py-2 text-xs text-status-danger"
                   >
-                    {error}
+                    <CopyableError message={error} />
                   </p>
                 )}
               </div>
@@ -1107,7 +1127,12 @@ export function VideoTrackerPropagateDialog({
                 size="sm"
                 className="h-auto min-h-8 min-w-0 whitespace-normal"
                 onClick={handleSubmit}
-                disabled={submitting || selectedModelDisabled || isPolylineTrack}
+                disabled={
+                  submitting ||
+                  selectedModelDisabled ||
+                  isPolylineTrack ||
+                  (sourcelessLike && !availableClasses.includes(targetClass))
+                }
                 title={isPolylineTrack ? "polyline 轨迹追踪暂不支持" : undefined}
               >
                 {submitting ? (

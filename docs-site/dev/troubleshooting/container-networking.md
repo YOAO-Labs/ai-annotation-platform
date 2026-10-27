@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # 容器网络与 loopback 限制
@@ -17,7 +16,7 @@ URL must not point to loopback (localhost / 127.0.0.1 / 0.0.0.0 / ::1).
 Use the Docker bridge IP (172.17.0.1) or service DNS (e.g. grounded-sam2-backend) instead.
 ```
 
-或：早期版本注册成功，但 Celery worker 真正调用时连不上，日志显示 `Connection refused`。
+或：早期未拦截时注册成功，但 Celery worker 真正调用时连不上，日志显示 `Connection refused`。
 
 ## 根因
 
@@ -26,7 +25,7 @@ Use the Docker bridge IP (172.17.0.1) or service DNS (e.g. grounded-sam2-backend
 - 容器 A 的 `localhost:9090` ≠ 宿主机 `localhost:9090`
 - 跨容器调用必须通过 Docker 网络（service DNS 或 bridge IP）
 
-v0.9.8 在 `MLBackendCreate.url` / `MLBackendUpdate.url` 上加了 `field_validator` 直接拒绝 loopback，避免后期才在 worker 调用时炸出 `ConnectionRefused`。
+后端在 `MLBackendCreate.url` / `MLBackendUpdate.url` 上通过 `field_validator` 直接拒绝 loopback，避免后期才在 worker 调用时抛出 `ConnectionRefused`。
 
 ## 修复 / 规避
 
@@ -46,16 +45,16 @@ docker exec ai-annotation-platform-celery-worker-1 \
 
 ## 相关存储 host 配置
 
-SAM 工作流里 worker 把 task 文件路径转换成 presigned URL 给 ML Backend 拉取（v0.9.4-phase1）。MinIO presigned URL 默认拼 `MINIO_HOST`，但 ML Backend 在另一个网络命名空间访问该 URL 时也面临同样的 loopback 问题，因此引入：
+SAM 工作流里 worker 把 task 文件路径转换成 presigned URL 给 ML Backend 拉取。内部对象存储 URL 默认使用 `MINIO_ENDPOINT`，但 ML Backend 在另一个网络命名空间访问该 URL 时也面临同样的 loopback 问题，因此支持配置：
 
 ```bash
-ML_BACKEND_STORAGE_HOST=http://172.17.0.1:9000
+ML_BACKEND_STORAGE_HOST=172.17.0.1:9000
 ```
 
-worker 在生成给 ML Backend 的 URL 时优先用这个变量替换 host。配置在 `.env`，参考 `.env.example`。
+worker 在签名前使用这个 Host 与内部端点的协议生成模型访问 URL，不替换已签名链接。留空时模型直接访问内部端点；不能把浏览器同源 `/minio` 填在这里。配置在 `.env`，参考 `.env.example` 及[部署签名契约](/ops/deploy/docker-compose#对象存储访问与签名契约)。
 
 ## 相关
 
-- commit: `d41236b` feat(v0.9.8): URL validator 拒绝 loopback
-- commit: `c5eaf94` feat(v0.9.4-phase1): ML_BACKEND_STORAGE_HOST 引入
-- 代码：`apps/api/app/schemas/ml_backend.py`（field_validator）
+- commit: `d41236b` URL validator 拒绝 loopback
+- commit: `c5eaf94` `ML_BACKEND_STORAGE_HOST` 引入
+- 代码：`apps/api/app/schemas/ml_backend.py`（`field_validator`）

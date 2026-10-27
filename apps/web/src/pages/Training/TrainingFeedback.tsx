@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { AlertCircle } from "lucide-react";
 
 export function TrainingLoading({ label, rows = 3 }: { label: string; rows?: number }) {
@@ -26,7 +27,9 @@ export function TrainingError({ message, onRetry }: { message: string; onRetry: 
       className="flex items-start gap-2.5 rounded-lg bg-status-danger-soft p-4 text-xs text-status-danger"
     >
       <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      <p className="min-w-0 flex-1 break-words leading-relaxed">{message}</p>
+      <p className="min-w-0 flex-1 break-words leading-relaxed">
+        <CopyableError message={message} />
+      </p>
       <button
         className="shrink-0 rounded-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onRetry}

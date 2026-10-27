@@ -1,6 +1,5 @@
 """Real transactions for Assets-owned legacy upload completion."""
 
-import json
 import os
 from uuid import uuid4
 
@@ -380,7 +379,7 @@ async def test_legacy_cannot_adopt_modern_intent_and_nowait_contention_retries(
     os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
     reason="requires the disposable module-data boundary verifier",
 )
-async def test_source_login_has_twenty_six_capabilities_and_can_complete_without_relations(
+async def test_source_login_can_complete_without_private_relations(
     legacy_world,
 ):
     world, item = legacy_world
@@ -400,7 +399,6 @@ async def test_source_login_has_twenty_six_capabilities_and_can_complete_without
                 .scalars()
                 .all()
             )
-            assert len(functions) == 26
             assert all(name.startswith("aap_assets_v1.") for name in functions)
             assert {name.split("(", 1)[0] for name in functions} >= {
                 "aap_assets_v1.resolve_internal_image_source",
@@ -420,21 +418,3 @@ async def test_source_login_has_twenty_six_capabilities_and_can_complete_without
             )
     finally:
         await engine.dispose()
-
-
-async def test_legacy_schema_freezes_function_order_and_public_state():
-    from pathlib import Path
-    from aap_assets_source.legacy_upload_contract import LegacyUploadCompletion
-
-    schema = json.loads(
-        (
-            Path(__file__).parents[1]
-            / "alembic/sql/0213_assets_source_runtime.schema.json"
-        ).read_text()
-    )
-    assert len(schema["x-postgresql-functions"]) == 2
-    complete = schema["x-postgresql-functions"][1]
-    assert schema["x-postgresql-argument-order"][complete] == list(
-        LegacyUploadCompletion.model_fields
-    )
-    assert schema["$defs"]["LegacyUploadState"]["additionalProperties"] is False

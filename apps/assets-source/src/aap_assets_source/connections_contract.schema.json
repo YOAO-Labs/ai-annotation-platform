@@ -1,37 +1,51 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:aap:assets-connections:v1",
-  "title": "aap-assets-connections/v1",
-  "schema": "aap-assets-connections/v1",
-  "failure_codes": [
-    "account_busy",
-    "account_not_active",
-    "connection_busy",
-    "connection_management_forbidden",
-    "connection_missing",
-    "crypto_error",
-    "crypto_not_configured",
-    "global_creation_forbidden",
-    "global_management_forbidden",
-    "host_denied",
-    "invalid_account_role",
-    "invalid_request",
-    "invalid_response",
-    "manager_required",
-    "operation_conflict",
-    "policy_busy",
-    "policy_changed",
-    "policy_unavailable",
-    "resource_budget_exceeded",
-    "service_unavailable",
-    "source_changed",
-    "storage_unavailable",
-    "validation_failed"
-  ],
   "$defs": {
+    "BeginConnectionProbeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "api_key_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key Id"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "required_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Scopes",
+          "type": "array"
+        }
+      },
+      "required": ["connection_id", "actor_id"],
+      "title": "BeginConnectionProbeRequest",
+      "type": "object"
+    },
     "CaptureConnectionRequest": {
       "additionalProperties": false,
       "properties": {
+        "access": {
+          "enum": ["use", "admin"],
+          "title": "Access",
+          "type": "string"
+        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
@@ -40,11 +54,6 @@
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
-          "type": "string"
-        },
-        "access": {
-          "enum": ["use", "admin"],
-          "title": "Access",
           "type": "string"
         }
       },
@@ -52,31 +61,63 @@
       "title": "CaptureConnectionRequest",
       "type": "object"
     },
+    "ConnectionAuthorityProof": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": ["scopes", "expires_at", "revision"],
+      "title": "ConnectionAuthorityProof",
+      "type": "object"
+    },
     "ConnectionCapture": {
       "additionalProperties": false,
       "properties": {
+        "access": {
+          "enum": ["use", "admin"],
+          "title": "Access",
+          "type": "string"
+        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
         },
-        "platform_role": {
-          "enum": ["super_admin", "project_admin", "employee", "viewer"],
-          "title": "Platform Role",
-          "type": "string"
+        "connection": {
+          "$ref": "#/$defs/NativeConnectionFacts"
         },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
           "type": "string"
         },
-        "access": {
-          "enum": ["use", "admin"],
-          "title": "Access",
+        "platform_role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Platform Role",
           "type": "string"
-        },
-        "connection": {
-          "$ref": "#/$defs/NativeConnectionFacts"
         },
         "secret_enc": {
           "anyOf": [
@@ -130,24 +171,14 @@
     "ConnectionMutation": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
-        "actor_id": {
-          "format": "uuid",
-          "title": "Actor Id",
-          "type": "string"
-        },
         "action": {
           "enum": ["create", "update", "delete"],
           "title": "Action",
           "type": "string"
         },
-        "connection_id": {
+        "actor_id": {
           "format": "uuid",
-          "title": "Connection Id",
+          "title": "Actor Id",
           "type": "string"
         },
         "connection": {
@@ -159,6 +190,16 @@
               "type": "null"
             }
           ]
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         }
       },
       "required": ["operation_id", "actor_id", "action", "connection_id", "connection"],
@@ -173,11 +214,6 @@
           "title": "Actor Id",
           "type": "string"
         },
-        "platform_role": {
-          "enum": ["super_admin", "project_admin", "employee", "viewer"],
-          "title": "Platform Role",
-          "type": "string"
-        },
         "allowlist": {
           "items": {
             "type": "string"
@@ -186,14 +222,19 @@
           "title": "Allowlist",
           "type": "array"
         },
-        "policy_source": {
-          "enum": ["database", "environment"],
-          "title": "Policy Source",
+        "platform_role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Platform Role",
           "type": "string"
         },
         "policy_digest": {
           "pattern": "^[0-9a-f]{64}$",
           "title": "Policy Digest",
+          "type": "string"
+        },
+        "policy_source": {
+          "enum": ["database", "environment"],
+          "title": "Policy Source",
           "type": "string"
         }
       },
@@ -222,17 +263,102 @@
       "title": "ConnectionPolicyRequest",
       "type": "object"
     },
+    "ConnectionProbeFinish": {
+      "additionalProperties": false,
+      "properties": {
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionAuthorityProof"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retained": {
+          "title": "Retained",
+          "type": "boolean"
+        },
+        "settled": {
+          "title": "Settled",
+          "type": "boolean"
+        }
+      },
+      "required": ["settled", "retained", "proof"],
+      "title": "ConnectionProbeFinish",
+      "type": "object"
+    },
+    "ConnectionProbeLease": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "location_id": {
+          "format": "uuid",
+          "title": "Location Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionAuthorityProof"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": ["operation_id", "connection_id", "location_id", "revision", "proof"],
+      "title": "ConnectionProbeLease",
+      "type": "object"
+    },
     "ConnectionProbeReceipt": {
       "additionalProperties": false,
       "properties": {
-        "ok": {
-          "title": "Ok",
-          "type": "boolean"
+        "action": {
+          "const": "test",
+          "default": "test",
+          "title": "Action",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
         },
         "message": {
           "maxLength": 2048,
           "minLength": 1,
           "title": "Message",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
           "type": "string"
         },
         "sample_count": {
@@ -247,27 +373,6 @@
             }
           ],
           "title": "Sample Count"
-        },
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
-        "actor_id": {
-          "format": "uuid",
-          "title": "Actor Id",
-          "type": "string"
-        },
-        "connection_id": {
-          "format": "uuid",
-          "title": "Connection Id",
-          "type": "string"
-        },
-        "action": {
-          "const": "test",
-          "default": "test",
-          "title": "Action",
-          "type": "string"
         }
       },
       "required": ["ok", "message", "sample_count", "operation_id", "actor_id", "connection_id"],
@@ -277,15 +382,15 @@
     "ConnectionProbeResult": {
       "additionalProperties": false,
       "properties": {
-        "ok": {
-          "title": "Ok",
-          "type": "boolean"
-        },
         "message": {
           "maxLength": 2048,
           "minLength": 1,
           "title": "Message",
           "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
         },
         "sample_count": {
           "anyOf": [
@@ -313,13 +418,13 @@
           "title": "Actor Id",
           "type": "string"
         },
+        "connection": {
+          "$ref": "#/$defs/ConnectionRecord"
+        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
           "type": "string"
-        },
-        "connection": {
-          "$ref": "#/$defs/ConnectionRecord"
         }
       },
       "required": ["actor_id", "connection_id", "connection"],
@@ -329,9 +434,9 @@
     "ConnectionReceiptLookup": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
+        "action": {
+          "enum": ["create", "update", "delete", "test"],
+          "title": "Action",
           "type": "string"
         },
         "actor_id": {
@@ -339,14 +444,14 @@
           "title": "Actor Id",
           "type": "string"
         },
-        "action": {
-          "enum": ["create", "update", "delete", "test"],
-          "title": "Action",
-          "type": "string"
-        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
           "type": "string"
         },
         "result": {
@@ -371,19 +476,14 @@
     "ConnectionReceiptRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
+        "action": {
+          "enum": ["create", "update", "delete", "test"],
+          "title": "Action",
           "type": "string"
         },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
-          "type": "string"
-        },
-        "action": {
-          "enum": ["create", "update", "delete", "test"],
-          "title": "Action",
           "type": "string"
         },
         "connection_id": {
@@ -404,6 +504,11 @@
             }
           ],
           "title": "Intent"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         }
       },
       "required": ["operation_id", "actor_id", "action", "connection_id", "intent"],
@@ -413,13 +518,31 @@
     "ConnectionRecord": {
       "additionalProperties": false,
       "properties": {
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
           "type": "string"
         },
         "kind": {
@@ -427,14 +550,34 @@
           "title": "Kind",
           "type": "string"
         },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
+        "location_config_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Config Revision"
         },
-        "scope": {
-          "enum": ["global", "owner"],
-          "title": "Scope",
+        "location_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "name": {
+          "title": "Name",
           "type": "string"
         },
         "project_id": {
@@ -449,26 +592,19 @@
           ],
           "title": "Project Id"
         },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "scope": {
+          "enum": ["global", "owner"],
+          "title": "Scope",
+          "type": "string"
+        },
         "secret_set": {
           "title": "Secret Set",
           "type": "boolean"
-        },
-        "created_by": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Created By"
-        },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
         },
         "updated_at": {
           "format": "date-time",
@@ -478,6 +614,7 @@
       },
       "required": [
         "id",
+        "revision",
         "name",
         "kind",
         "config",
@@ -509,6 +646,17 @@
             }
           ]
         },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/ConnectionRecord"
+          },
+          "title": "Connections",
+          "type": "array"
+        },
         "next_cursor": {
           "anyOf": [
             {
@@ -528,17 +676,6 @@
           "minimum": 0,
           "title": "Total",
           "type": "integer"
-        },
-        "complete": {
-          "title": "Complete",
-          "type": "boolean"
-        },
-        "connections": {
-          "items": {
-            "$ref": "#/$defs/ConnectionRecord"
-          },
-          "title": "Connections",
-          "type": "array"
         }
       },
       "required": [
@@ -556,21 +693,21 @@
     "CreateConnectionIntent": {
       "additionalProperties": false,
       "properties": {
-        "name": {
-          "maxLength": 255,
-          "minLength": 1,
-          "title": "Name",
-          "type": "string"
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
         },
         "kind": {
           "enum": ["s3", "sftp"],
           "title": "Kind",
           "type": "string"
         },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
         },
         "scope": {
           "enum": ["global", "owner"],
@@ -590,34 +727,18 @@
     "CreateConnectionNativeRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
         },
-        "intent": {
-          "$ref": "#/$defs/CreateConnectionIntent"
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
         },
         "config": {
           "additionalProperties": true,
           "title": "Config",
           "type": "object"
-        },
-        "secret_enc": {
-          "maxLength": 16777216,
-          "minLength": 1,
-          "title": "Secret Enc",
-          "type": "string"
-        },
-        "policy_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Policy Digest",
-          "type": "string"
         },
         "fallback_allowlist": {
           "items": {
@@ -627,8 +748,24 @@
           "title": "Fallback Allowlist",
           "type": "array"
         },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        "intent": {
+          "$ref": "#/$defs/CreateConnectionIntent"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "secret_enc": {
+          "maxLength": 16777216,
+          "minLength": 1,
+          "title": "Secret Enc",
+          "type": "string"
         }
       },
       "required": [
@@ -646,14 +783,22 @@
     "CreateConnectionRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
+          "type": "string"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "kind": {
+          "enum": ["s3", "sftp"],
+          "title": "Kind",
           "type": "string"
         },
         "name": {
@@ -662,20 +807,10 @@
           "title": "Name",
           "type": "string"
         },
-        "kind": {
-          "enum": ["s3", "sftp"],
-          "title": "Kind",
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
           "type": "string"
-        },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
-        },
-        "secret": {
-          "additionalProperties": true,
-          "title": "Secret",
-          "type": "object"
         },
         "scope": {
           "default": "owner",
@@ -683,8 +818,10 @@
           "title": "Scope",
           "type": "string"
         },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        "secret": {
+          "additionalProperties": true,
+          "title": "Secret",
+          "type": "object"
         }
       },
       "required": ["operation_id", "actor_id", "name", "kind", "config", "secret"],
@@ -694,23 +831,23 @@
     "DeleteConnectionRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
         },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
           "type": "string"
         },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         }
       },
       "required": ["operation_id", "actor_id", "connection_id"],
@@ -721,6 +858,64 @@
       "additionalProperties": false,
       "properties": {},
       "title": "EmptyConnectionIntent",
+      "type": "object"
+    },
+    "FinishConnectionProbeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "api_key_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key Id"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "expected_proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionAuthorityProof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "required_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Scopes",
+          "type": "array"
+        },
+        "settled": {
+          "title": "Settled",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation_id", "connection_id", "actor_id", "settled"],
+      "title": "FinishConnectionProbeRequest",
       "type": "object"
     },
     "ListConnectionsRequest": {
@@ -757,13 +952,31 @@
     "NativeConnectionFacts": {
       "additionalProperties": false,
       "properties": {
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
           "type": "string"
         },
         "kind": {
@@ -771,14 +984,34 @@
           "title": "Kind",
           "type": "string"
         },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
+        "location_config_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Config Revision"
         },
-        "scope": {
-          "enum": ["global", "owner", "project"],
-          "title": "Scope",
+        "location_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "name": {
+          "title": "Name",
           "type": "string"
         },
         "project_id": {
@@ -793,26 +1026,19 @@
           ],
           "title": "Project Id"
         },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "scope": {
+          "enum": ["global", "owner", "project"],
+          "title": "Scope",
+          "type": "string"
+        },
         "secret_set": {
           "title": "Secret Set",
           "type": "boolean"
-        },
-        "created_by": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Created By"
-        },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
         },
         "updated_at": {
           "format": "date-time",
@@ -822,6 +1048,7 @@
       },
       "required": [
         "id",
+        "revision",
         "name",
         "kind",
         "config",
@@ -838,24 +1065,14 @@
     "NativeConnectionMutation": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
-        "actor_id": {
-          "format": "uuid",
-          "title": "Actor Id",
-          "type": "string"
-        },
         "action": {
           "enum": ["create", "update", "delete"],
           "title": "Action",
           "type": "string"
         },
-        "connection_id": {
+        "actor_id": {
           "format": "uuid",
-          "title": "Connection Id",
+          "title": "Actor Id",
           "type": "string"
         },
         "connection": {
@@ -867,6 +1084,16 @@
               "type": "null"
             }
           ]
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         }
       },
       "required": ["operation_id", "actor_id", "action", "connection_id", "connection"],
@@ -881,13 +1108,13 @@
           "title": "Actor Id",
           "type": "string"
         },
+        "connection": {
+          "$ref": "#/$defs/NativeConnectionFacts"
+        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
           "type": "string"
-        },
-        "connection": {
-          "$ref": "#/$defs/NativeConnectionFacts"
         }
       },
       "required": ["actor_id", "connection_id", "connection"],
@@ -912,6 +1139,17 @@
             }
           ]
         },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/NativeConnectionFacts"
+          },
+          "title": "Connections",
+          "type": "array"
+        },
         "next_cursor": {
           "anyOf": [
             {
@@ -931,17 +1169,6 @@
           "minimum": 0,
           "title": "Total",
           "type": "integer"
-        },
-        "complete": {
-          "title": "Complete",
-          "type": "boolean"
-        },
-        "connections": {
-          "items": {
-            "$ref": "#/$defs/NativeConnectionFacts"
-          },
-          "title": "Connections",
-          "type": "array"
         }
       },
       "required": [
@@ -959,6 +1186,19 @@
     "ProjectDeletionAuditContext": {
       "additionalProperties": false,
       "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ip"
+        },
         "method": {
           "anyOf": [
             {
@@ -984,19 +1224,6 @@
           ],
           "default": null,
           "title": "Path"
-        },
-        "ip": {
-          "anyOf": [
-            {
-              "maxLength": 64,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Ip"
         },
         "request_id": {
           "anyOf": [
@@ -1036,29 +1263,17 @@
     "RecordConnectionTestRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
         },
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
-          "type": "string"
-        },
-        "source_snapshot": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Snapshot",
-          "type": "string"
-        },
-        "policy_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Policy Digest",
           "type": "string"
         },
         "fallback_allowlist": {
@@ -1069,11 +1284,23 @@
           "title": "Fallback Allowlist",
           "type": "array"
         },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
         "result": {
           "$ref": "#/$defs/ConnectionProbeResult"
         },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
         }
       },
       "required": [
@@ -1091,58 +1318,91 @@
     "TestConnectionRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
         },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
           "type": "string"
         },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         }
       },
       "required": ["operation_id", "actor_id", "connection_id"],
       "title": "TestConnectionRequest",
       "type": "object"
     },
-    "UpdateConnectionIntent": {
+    "UpdateConnectionAuthorizedRequest": {
       "additionalProperties": false,
       "properties": {
-        "name": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "api_key_id": {
           "anyOf": [
             {
-              "maxLength": 255,
-              "minLength": 1,
+              "format": "uuid",
               "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Name"
+          "default": null,
+          "title": "Api Key Id"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
         },
         "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "expected_proof": {
           "anyOf": [
             {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/$defs/ConnectionAuthorityProof"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Config"
+          "default": null
         },
-        "secret_digest": {
+        "fallback_allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Fallback Allowlist",
+          "type": "array"
+        },
+        "intent": {
+          "$ref": "#/$defs/UpdateConnectionIntent"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy_digest": {
           "anyOf": [
             {
               "pattern": "^[0-9a-f]{64}$",
@@ -1152,38 +1412,14 @@
               "type": "null"
             }
           ],
-          "title": "Secret Digest"
-        }
-      },
-      "required": ["name", "config", "secret_digest"],
-      "title": "UpdateConnectionIntent",
-      "type": "object"
-    },
-    "UpdateConnectionNativeRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
+          "title": "Policy Digest"
         },
-        "actor_id": {
-          "format": "uuid",
-          "title": "Actor Id",
-          "type": "string"
-        },
-        "connection_id": {
-          "format": "uuid",
-          "title": "Connection Id",
-          "type": "string"
-        },
-        "intent": {
-          "$ref": "#/$defs/UpdateConnectionIntent"
-        },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
+        "required_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Scopes",
+          "type": "array"
         },
         "secret_enc": {
           "anyOf": [
@@ -1202,29 +1438,6 @@
           "pattern": "^[0-9a-f]{64}$",
           "title": "Source Snapshot",
           "type": "string"
-        },
-        "policy_digest": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Policy Digest"
-        },
-        "fallback_allowlist": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 256,
-          "title": "Fallback Allowlist",
-          "type": "array"
-        },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
         }
       },
       "required": [
@@ -1238,26 +1451,111 @@
         "policy_digest",
         "fallback_allowlist"
       ],
-      "title": "UpdateConnectionNativeRequest",
+      "title": "UpdateConnectionAuthorizedRequest",
+      "type": "object"
+    },
+    "UpdateConnectionIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Config"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "secret_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Secret Digest"
+        }
+      },
+      "required": ["name", "config", "secret_digest"],
+      "title": "UpdateConnectionIntent",
       "type": "object"
     },
     "UpdateConnectionRequest": {
       "additionalProperties": false,
       "properties": {
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
+        "accepted_api_key_proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionAuthorityProof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
         },
+        "api_key_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key Id"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/ProjectDeletionAuditContext"
+        },
+        "config": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config"
+        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
           "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
         },
         "name": {
           "anyOf": [
@@ -1273,18 +1571,10 @@
           "default": null,
           "title": "Name"
         },
-        "config": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Config"
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         },
         "secret": {
           "anyOf": [
@@ -1298,49 +1588,53 @@
           ],
           "default": null,
           "title": "Secret"
-        },
-        "audit_context": {
-          "$ref": "#/$defs/ProjectDeletionAuditContext"
         }
       },
-      "required": ["operation_id", "actor_id", "connection_id"],
+      "required": ["operation_id", "actor_id", "connection_id", "expected_revision"],
       "title": "UpdateConnectionRequest",
       "type": "object"
     }
   },
+  "$id": "urn:aap:assets-connections:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "failure_codes": [
+    "account_busy",
+    "account_not_active",
+    "api_key_authority_revoked",
+    "connection_busy",
+    "connection_management_forbidden",
+    "connection_missing",
+    "connection_revision_conflict",
+    "crypto_error",
+    "crypto_not_configured",
+    "global_creation_forbidden",
+    "global_management_forbidden",
+    "host_denied",
+    "invalid_account_role",
+    "invalid_request",
+    "invalid_response",
+    "manager_required",
+    "operation_conflict",
+    "operation_missing",
+    "policy_busy",
+    "policy_changed",
+    "policy_unavailable",
+    "resource_budget_exceeded",
+    "service_unavailable",
+    "source_changed",
+    "storage_maintenance",
+    "storage_maintenance_changed",
+    "storage_unavailable",
+    "validation_failed"
+  ],
   "native": {
-    "list_storage_connections": {
-      "signature": "aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer)",
-      "arguments": ["actor_id", "after_created_at", "after_id", "page_size"],
-      "request": "ListConnectionsRequest",
-      "result": "NativeConnectionsPage"
-    },
-    "read_storage_connection": {
-      "signature": "aap_assets_v1.read_storage_connection(uuid,uuid)",
-      "arguments": ["actor_id", "connection_id"],
-      "request": "ReadConnectionRequest",
-      "result": "NativeConnectionRead"
-    },
-    "read_storage_connection_policy": {
-      "signature": "aap_assets_v1.read_storage_connection_policy(uuid,jsonb)",
-      "arguments": ["actor_id", "fallback_allowlist"],
-      "request": "ConnectionPolicyRequest",
-      "result": "ConnectionPolicy"
-    },
     "capture_storage_connection": {
-      "signature": "aap_assets_v1.capture_storage_connection(uuid,uuid,text)",
       "arguments": ["actor_id", "connection_id", "access"],
       "request": "CaptureConnectionRequest",
-      "result": "ConnectionCapture"
-    },
-    "read_storage_connection_receipt": {
-      "signature": "aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)",
-      "arguments": ["operation_id", "actor_id", "action", "connection_id", "intent"],
-      "request": "ConnectionReceiptRequest",
-      "result": "ConnectionReceiptLookup"
+      "result": "ConnectionCapture",
+      "signature": "aap_assets_v1.capture_storage_connection(uuid,uuid,text)"
     },
     "create_storage_connection": {
-      "signature": "aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)",
       "arguments": [
         "operation_id",
         "actor_id",
@@ -1352,33 +1646,40 @@
         "audit_context"
       ],
       "request": "CreateConnectionNativeRequest",
-      "result": "NativeConnectionMutation"
-    },
-    "update_storage_connection": {
-      "signature": "aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb)",
-      "arguments": [
-        "operation_id",
-        "actor_id",
-        "connection_id",
-        "intent",
-        "config",
-        "secret_enc",
-        "source_snapshot",
-        "policy_digest",
-        "fallback_allowlist",
-        "audit_context"
-      ],
-      "request": "UpdateConnectionNativeRequest",
-      "result": "NativeConnectionMutation"
+      "result": "NativeConnectionMutation",
+      "signature": "aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)"
     },
     "delete_storage_connection": {
-      "signature": "aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)",
       "arguments": ["operation_id", "actor_id", "connection_id", "audit_context"],
       "request": "DeleteConnectionRequest",
-      "result": "NativeConnectionMutation"
+      "result": "NativeConnectionMutation",
+      "signature": "aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)"
+    },
+    "list_storage_connections": {
+      "arguments": ["actor_id", "after_created_at", "after_id", "page_size"],
+      "request": "ListConnectionsRequest",
+      "result": "NativeConnectionsPage",
+      "signature": "aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer)"
+    },
+    "read_storage_connection": {
+      "arguments": ["actor_id", "connection_id"],
+      "request": "ReadConnectionRequest",
+      "result": "NativeConnectionRead",
+      "signature": "aap_assets_v1.read_storage_connection(uuid,uuid)"
+    },
+    "read_storage_connection_policy": {
+      "arguments": ["actor_id", "fallback_allowlist"],
+      "request": "ConnectionPolicyRequest",
+      "result": "ConnectionPolicy",
+      "signature": "aap_assets_v1.read_storage_connection_policy(uuid,jsonb)"
+    },
+    "read_storage_connection_receipt": {
+      "arguments": ["operation_id", "actor_id", "action", "connection_id", "intent"],
+      "request": "ConnectionReceiptRequest",
+      "result": "ConnectionReceiptLookup",
+      "signature": "aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)"
     },
     "record_storage_connection_test": {
-      "signature": "aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)",
       "arguments": [
         "operation_id",
         "actor_id",
@@ -1390,10 +1691,43 @@
         "audit_context"
       ],
       "request": "RecordConnectionTestRequest",
-      "result": "ConnectionProbeReceipt"
+      "result": "ConnectionProbeReceipt",
+      "signature": "aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)"
+    },
+    "update_storage_connection_authorized": {
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "connection_id",
+        "intent",
+        "config",
+        "secret_enc",
+        "source_snapshot",
+        "policy_digest",
+        "fallback_allowlist",
+        "audit_context",
+        "api_key_id",
+        "required_scopes",
+        "expected_proof"
+      ],
+      "request": "UpdateConnectionAuthorizedRequest",
+      "result": "NativeConnectionMutation",
+      "signature": "aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)"
     }
   },
   "operations": {
+    "create": {
+      "method": "POST",
+      "path": "/v1/connections/create",
+      "request": "CreateConnectionRequest",
+      "result": "ConnectionMutation"
+    },
+    "delete": {
+      "method": "POST",
+      "path": "/v1/connections/delete",
+      "request": "DeleteConnectionRequest",
+      "result": "ConnectionMutation"
+    },
     "list": {
       "method": "POST",
       "path": "/v1/connections/list",
@@ -1406,29 +1740,41 @@
       "request": "ReadConnectionRequest",
       "result": "ConnectionRead"
     },
-    "create": {
+    "test": {
       "method": "POST",
-      "path": "/v1/connections/create",
-      "request": "CreateConnectionRequest",
-      "result": "ConnectionMutation"
+      "path": "/v1/connections/test",
+      "request": "TestConnectionRequest",
+      "result": "ConnectionProbeReceipt"
     },
     "update": {
       "method": "POST",
       "path": "/v1/connections/update",
       "request": "UpdateConnectionRequest",
       "result": "ConnectionMutation"
-    },
-    "delete": {
-      "method": "POST",
-      "path": "/v1/connections/delete",
-      "request": "DeleteConnectionRequest",
-      "result": "ConnectionMutation"
-    },
-    "test": {
-      "method": "POST",
-      "path": "/v1/connections/test",
-      "request": "TestConnectionRequest",
-      "result": "ConnectionProbeReceipt"
     }
-  }
+  },
+  "runtime": {
+    "begin_connection_probe": {
+      "arguments": ["connection_id", "actor_id", "api_key_id", "required_scopes"],
+      "request": "BeginConnectionProbeRequest",
+      "result": "ConnectionProbeLease",
+      "signature": "aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])"
+    },
+    "finish_connection_probe": {
+      "arguments": [
+        "operation_id",
+        "connection_id",
+        "actor_id",
+        "api_key_id",
+        "required_scopes",
+        "expected_proof",
+        "settled"
+      ],
+      "request": "FinishConnectionProbeRequest",
+      "result": "ConnectionProbeFinish",
+      "signature": "aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)"
+    }
+  },
+  "schema": "aap-assets-connections/v1",
+  "title": "aap-assets-connections/v1"
 }

@@ -1,7 +1,7 @@
 """Install the independent Assets image media owner.
 
-Revision ID: 0220
-Revises: 0219
+Revision ID: bo0220
+Revises: bo0219
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0220"
-down_revision = "0219"
+revision = "bo0220"
+down_revision = "bo0219"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

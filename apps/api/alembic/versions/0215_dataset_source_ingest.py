@@ -1,7 +1,7 @@
 """Add transaction-bound native Dataset source ingest capabilities.
 
-Revision ID: 0215
-Revises: 0214
+Revision ID: bo0215
+Revises: bo0214
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0215"
-down_revision = "0214"
+revision = "bo0215"
+down_revision = "bo0214"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

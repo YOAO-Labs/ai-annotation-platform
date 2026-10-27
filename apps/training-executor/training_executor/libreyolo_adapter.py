@@ -65,6 +65,8 @@ def validate_checkpoint(blob, spec, *, epoch=None, resume=False):
         blob["task"] != "detect"
         or blob["model_family"] != "yolo9"
         or blob["libreyolo_version"] != VERSION
+        or spec["frozen_config"].get("base_model") is not None
+        and blob.get("size") != spec["frozen_config"]["base_model"]["id"][-1].lower()
         or ordered_names(blob) != spec["frozen_config"]["classes"]
     ):
         raise InputMismatchError(
@@ -95,10 +97,11 @@ def validate_checkpoint(blob, spec, *, epoch=None, resume=False):
 
 
 class CheckpointCallbacks:
-    def __init__(self, spec, output, resume=None, progress=None):
+    def __init__(self, spec, output, resume=None, progress=None, membership=None):
         self.spec, self.output, self.resume = spec, output, resume
         self.progress = progress or NativeProgress(spec, output)
         self.checkpoint = None
+        self.membership, self.trainer = membership, None
 
     def commit_resume(self, path):
         # A second cancellation before a new epoch must retain the verified input.
@@ -110,6 +113,10 @@ class CheckpointCallbacks:
         atomic_json(self.output / "checkpoint.json", self.checkpoint)
 
     def on_train_start(self, event):
+        if self.membership is not None:
+            self.membership.observe(
+                "train", self.trainer.train_loader.dataset.dataset.img_files
+            )
         expected = (self.resume["epoch"] + 2) if self.resume else 1
         if (
             Path(event.save_dir).resolve() != (self.output / "framework").resolve()
@@ -144,6 +151,14 @@ class CheckpointCallbacks:
     def on_train_epoch_end(self, event):
         import torch
 
+        if self.membership is not None:
+            if getattr(self.trainer, "_epoch_validator", None) is None:
+                raise InputMismatchError(
+                    "Native validation input observation is missing"
+                )
+            self.membership.observe(
+                "val", self.trainer._epoch_validator.dataloader.dataset.img_files
+            )
         directory = Path(event.save_dir) / "weights"
         full = validate_checkpoint(
             torch.load(directory / "last.pt", map_location="cpu", weights_only=True),
@@ -267,7 +282,10 @@ class StrictResumeLogging(logging.Handler):
             raise RuntimeError("Native checkpoint state restoration failed: " + message)
 
 
-def libreyolo_train(spec, output, progress=None):
+def libreyolo_train(spec, output, progress=None, membership=None):
+    from .input_membership import membership_for
+
+    membership = membership_for(spec, output, membership)
     progress = progress or NativeProgress(spec, output)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     os.environ["LIBREYOLO_FASTER_COCO_EVAL"] = "0"
@@ -303,12 +321,23 @@ def libreyolo_train(spec, output, progress=None):
             ),
             spec,
         )
-    callbacks = CheckpointCallbacks(spec, output, resume, progress=progress)
+    callbacks = CheckpointCallbacks(
+        spec, output, resume, progress=progress, membership=membership
+    )
     if resume:
         callbacks.commit_resume(spec["resume_path"])
     model = LibreYOLO(spec.get("resume_path") or spec["base_path"], device="cuda:0")
     if model.task != "detect":
         raise ValueError("Controlled LibreYOLO base is not a detector")
+    if membership is not None:
+        native_trainer_class = model._trainer_class()
+
+        class ObservedTrainer(native_trainer_class):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                callbacks.trainer = self
+
+        model._trainer_class = lambda: ObservedTrainer
     logger = logging.getLogger("libreyolo.training.trainer")
     handler = StrictResumeLogging()
     logger.addHandler(handler)
@@ -362,6 +391,16 @@ def libreyolo_train(spec, output, progress=None):
     evaluated = LibreYOLO(str(output / "best.pt"), device="cuda:0")
     if ordered_names({"names": evaluated.names}) != spec["frozen_config"]["classes"]:
         raise ValueError("Trained native class order mismatch")
+    if membership is not None:
+        from libreyolo.validation.detection_validator import DetectionValidator
+
+        class ObservedValidator(DetectionValidator):
+            def _setup_dataloader(self):
+                loader = super()._setup_dataloader()
+                membership.observe("val", loader.dataset.img_files)
+                return loader
+
+        evaluated.validator_class = ObservedValidator
     raw = evaluated.val(**evaluation_options(spec, output))
     from .evaluation import libreyolo_descriptor
 
@@ -379,6 +418,8 @@ def libreyolo_train(spec, output, progress=None):
         report["comparison"] = comparison
     else:
         report["comparison_unavailable_reason"] = "evaluator_not_recorded"
+    if membership is not None:
+        membership.complete()
     atomic_json(
         output / "metrics.json",
         report,

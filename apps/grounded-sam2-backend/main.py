@@ -74,6 +74,7 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_admission_header_values,
     parse_gpu_control_token_header_values,
 )
+from aap_backend_runtime.backend_auth import install_backend_auth
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
@@ -158,6 +159,8 @@ BACKEND_VERSION = os.getenv("BACKEND_VERSION", "0.10.1")
 
 app = FastAPI(title="grounded-sam2-backend", version=BACKEND_VERSION)
 install_backend_routing_controller(app)
+
+install_backend_auth(app, "gsam2")
 
 
 async def _buffer_bounded_predict_body(request: Request) -> None:

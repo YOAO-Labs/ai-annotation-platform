@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from aap_protocol_v2.mask_interaction import CocoRlePayload
 
 from app.services.sample_evaluation_engine import (
     MAX_PREDICTIONS,
@@ -76,6 +77,25 @@ class DetectionPrediction(DetectionTruth):
     score: UnitFloat
 
 
+class MaskGeometry(StrictModel):
+    index: Index
+    class_index: Index
+    rle: CocoRlePayload
+    mask_sha256: Hash
+    area_pixels: Annotated[int, Field(gt=0, strict=True)]
+
+
+class MaskTruth(MaskGeometry):
+    annotation_id: uuid.UUID
+    annotation_version: Annotated[int, Field(gt=0, strict=True)]
+    rasterizer: str
+
+
+class MaskPrediction(MaskGeometry):
+    native_class_index: Index
+    score: UnitFloat
+
+
 class DetectionMatch(StrictModel):
     prediction_index: Index
     truth_index: Index
@@ -83,6 +103,14 @@ class DetectionMatch(StrictModel):
 
 
 class DetectionDiagnostic(DetectionMatch):
+    kind: Literal["confusion", "localization"]
+
+
+class MaskMatch(DetectionMatch):
+    dice: UnitFloat
+
+
+class MaskDiagnostic(MaskMatch):
     kind: Literal["confusion", "localization"]
 
 
@@ -103,10 +131,17 @@ class DetectionMatching(DetectionMetrics):
     diagnostics: list[DetectionDiagnostic] = Field(max_length=MAX_PREDICTIONS)
 
 
+class MaskMatching(DetectionMatching):
+    matches: list[MaskMatch] = Field(max_length=MAX_PREDICTIONS)
+    diagnostics: list[MaskDiagnostic] = Field(max_length=MAX_PREDICTIONS)
+
+
 class EvaluationProfile(StrictModel):
     schema_version: Literal[1] = Field(alias="schema")
-    implementation: Literal["aap-ultralytics-detection"]
-    revision: Literal[1]
+    implementation: Literal[
+        "aap-ultralytics-detection", "aap-ultralytics-instance-mask"
+    ]
+    revision: Literal[1, 2]
     ultralytics_version: str = Field(min_length=1, max_length=50)
     torch_version: str = Field(min_length=1, max_length=80)
     pillow_version: str = Field(min_length=1, max_length=50)
@@ -127,11 +162,11 @@ class FrozenEvaluationSample(StrictModel):
     size_bytes: Annotated[int, Field(gt=0, strict=True)]
     split: Literal["val"]
     explicit_negative: bool | None
-    truth: list[DetectionTruth] = Field(max_length=MAX_TRUTH_PER_IMAGE)
+    truth: list[DetectionTruth | MaskTruth] = Field(max_length=MAX_TRUTH_PER_IMAGE)
 
 
 class EvaluationSpec(StrictModel):
-    schema_version: Literal[1] = Field(alias="schema")
+    schema_version: Literal[1, 2] = Field(alias="schema")
     evaluation_id: uuid.UUID
     model_ref: dict[str, Any]
     dataset_id: uuid.UUID
@@ -157,6 +192,20 @@ class EvaluationSpec(StrictModel):
 
     @model_validator(mode="after")
     def validate_budgets(self):
+        expected_truth = MaskTruth if self.schema_version == 2 else DetectionTruth
+        expected_profile = (
+            "aap-ultralytics-instance-mask"
+            if self.schema_version == 2
+            else "aap-ultralytics-detection"
+        )
+        if self.profile.implementation != expected_profile or any(
+            not isinstance(item, expected_truth)
+            for sample in self.samples
+            for item in sample.truth
+        ):
+            raise ValueError(
+                "Evaluation task schema, profile and truth geometry differ"
+            )
         if (
             len(set(self.classes)) != len(self.classes)
             or any(not name or len(name) > 120 for name in self.classes)
@@ -186,11 +235,11 @@ class EvaluationSampleResult(StrictModel):
     width: Annotated[int, Field(gt=0, strict=True)]
     height: Annotated[int, Field(gt=0, strict=True)]
     status: Literal["pending", "succeeded", "failed"]
-    truth: list[DetectionTruth] = Field(max_length=MAX_TRUTH_PER_IMAGE)
-    predictions: list[DetectionPrediction] = Field(
+    truth: list[DetectionTruth | MaskTruth] = Field(max_length=MAX_TRUTH_PER_IMAGE)
+    predictions: list[DetectionPrediction | MaskPrediction] = Field(
         default_factory=list, max_length=MAX_PREDICTIONS
     )
-    matching: DetectionMatching | None = None
+    matching: DetectionMatching | MaskMatching | None = None
     derived_sha256: Hash | None = None
     preprocessing: dict[str, Any] | None = None
     request_id: uuid.UUID
@@ -247,8 +296,18 @@ class EvaluationAggregate(DetectionMetrics):
     confusion: list[ConfusionCount] = Field(max_length=MAX_PREDICTIONS * MAX_SAMPLES)
 
 
+class MaskAreaMetrics(DetectionMetrics):
+    group: Literal["small", "medium", "large"]
+
+
+class MaskEvaluationAggregate(EvaluationAggregate):
+    matched_mean_iou: UnitFloat | None
+    matched_mean_dice: UnitFloat | None
+    area_groups: list[MaskAreaMetrics] = Field(min_length=3, max_length=3)
+
+
 class EvaluationReport(StrictModel):
-    schema_version: Literal[1] = Field(alias="schema")
+    schema_version: Literal[1, 2] = Field(alias="schema")
     evaluation_id: uuid.UUID
     attempt_id: uuid.UUID
     spec_digest: Hash
@@ -262,7 +321,7 @@ class EvaluationReport(StrictModel):
     succeeded_samples: Index
     failed_samples: Index
     pending_samples: Index
-    aggregate: EvaluationAggregate | None
+    aggregate: EvaluationAggregate | MaskEvaluationAggregate | None
     samples: list[EvaluationSampleResult] = Field(min_length=1, max_length=MAX_SAMPLES)
 
     @model_validator(mode="after")
@@ -343,7 +402,7 @@ class EvaluationSamplePage(StrictModel):
     spec_digest: Hash
     total: Index
     offset: Index
-    limit: Annotated[int, Field(ge=1, le=32, strict=True)]
+    limit: Annotated[int, Field(ge=1, le=100, strict=True)]
     items: list[EvaluationSampleResult] = Field(max_length=32)
 
 

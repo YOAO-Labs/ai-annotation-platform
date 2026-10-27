@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import Mock
 import uuid
 import zipfile
 
@@ -12,12 +15,15 @@ from sqlalchemy import select
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene, SensorCalibrationRevision
 from app.db.models.project_member import ProjectMember
+from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
 from aap_assets_catalog.spatial_contract import UpdateCalibrationRequest
 from app.schemas.multicamera_annotation import NormalizedCameraBbox
+from app.services.exporting import packaging
+from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.multicamera_annotation import (
     MulticameraAnnotationError,
     camera_member_out,
@@ -27,8 +33,6 @@ from app.services.multicamera_annotation import (
     restore_camera_member,
     update_camera_member,
 )
-from app.services.exporting.lidar_preflight import preflight_lidar_export
-from app.services.exporting.packaging import build_export_zip
 from app.services.scene_track_domain import bind_annotation_to_scene_track
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.task_dataset_link import link_items
@@ -145,6 +149,9 @@ async def _seed(db, owner_id: uuid.UUID, *, camera_size: int | None = None):
             (camera.id, "camera_front", "CAM_FRONT"),
         ],
     )
+    from tests.test_export_lidar import _register_metadata_sources
+
+    await _register_metadata_sources(db, lidar, camera)
     source = Annotation(
         task_id=task.id,
         project_id=project.id,
@@ -174,6 +181,45 @@ async def _seed(db, owner_id: uuid.UUID, *, camera_size: int | None = None):
     assert binding is not None
     await db.flush()
     return task, camera, source, binding.track
+
+
+class _TrustedLidarMedia:
+    """Frozen delivery double: saved media receipts, never a raw-key presign."""
+
+    def __init__(
+        self, *, project, task, links, members, calibration, receipts, expires_at
+    ):
+        self.project = project
+        self.expires_at = expires_at
+        self.links_by_task = {task.id: links}
+        self.camera_members_by_task = {task.id: members}
+        self.calibration_states = calibration
+        self.scenes_by_id = {}
+        self.poses_by_frame = {}
+        self.receipts = receipts
+
+    def service(self, db):
+        # Business rows stay live for this DB-backed test; only media delivery
+        # is frozen behind saved receipts.
+        from app.services.exporting.service import ExportService
+
+        return ExportService(db, media_paths={})
+
+    def entry(self, task_id, role):
+        receipt = self.receipts.get((task_id, role))
+        assert receipt is not None, f"unregistered media receipt: {role}"
+        return dict(receipt)
+
+
+async def _task_links(db, task):
+    links = {}
+    for link in await db.scalars(
+        select(TaskDatasetItemLink).where(TaskDatasetItemLink.task_id == task.id)
+    ):
+        item = await db.get(DatasetItem, link.dataset_item_id)
+        if item is not None:
+            links[link.role] = (link, item)
+    return links
 
 
 async def test_camera_member_lifecycle_and_calibration_staleness(
@@ -357,9 +403,25 @@ async def test_multicamera_coco_preflight_rejects_unsafe_role_path(
     )
 
     assert report.ready is False
-    assert "multicamera_coco_camera_item_invalid" in {
+    assert "lidar_export_archive_path_conflict" in {
         issue.code for issue in report.issues
     }
+
+
+async def test_multicamera_coco_requires_trusted_media_delivery(
+    db_session, super_admin
+):
+    user, _ = super_admin
+    task, *_ = await _seed(db_session, user.id)
+    with pytest.raises(ValueError, match="lidar_export_contract_missing"):
+        await packaging.build_export_zip(
+            db_session,
+            task.project_id,
+            batch_id=None,
+            targets=["coco-multicamera"],
+            include_attributes=True,
+            video_frame_mode="keyframes",
+        )
 
 
 async def test_multicamera_coco_package_contains_trusted_media_contract(
@@ -374,7 +436,7 @@ async def test_multicamera_coco_package_contains_trusted_media_contract(
     assert primary_item is not None
     primary_item.file_path = ""
     digest = calibration_digest(_calibration())
-    await create_camera_member(
+    member = await create_camera_member(
         db_session,
         task=task,
         actor_id=user.id,
@@ -386,27 +448,37 @@ async def test_multicamera_coco_package_contains_trusted_media_contract(
         expected_calibration_revision=1,
         expected_calibration_digest=digest,
     )
-    monkeypatch.setattr(
-        "app.services.exporting.packaging._hash_dataset_object",
-        lambda key: (len(payload), hashlib.sha256(payload).hexdigest()),
+    project = await db_session.get(Project, task.project_id)
+    assert project is not None
+    sha256 = hashlib.sha256(payload).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    media = _TrustedLidarMedia(
+        project=project,
+        task=task,
+        links=await _task_links(db_session, task),
+        members=[member],
+        calibration={camera.id: SimpleNamespace(revision=1, digest=digest)},
+        receipts={
+            (task.id, "camera_front"): {
+                "presigned_url": "https://saved-export.test/owned-copy",
+                "expires_at": expires_at.isoformat(),
+                "sha256": sha256,
+                "size_bytes": len(payload),
+            }
+        },
+        expires_at=expires_at,
     )
+    forbidden = Mock(side_effect=AssertionError("trusted delivery must not read raw"))
+    monkeypatch.setattr(packaging.storage_service, "generate_download_url", forbidden)
 
-    def trusted_download_url(key, **_kwargs):
-        assert key == camera.file_path
-        return "https://storage.test/trusted"
-
-    monkeypatch.setattr(
-        "app.services.exporting.packaging.storage_service.generate_download_url",
-        trusted_download_url,
-    )
-
-    zip_path, file_count, _size = await build_export_zip(
+    zip_path, file_count, _size = await packaging.build_export_zip(
         db_session,
         task.project_id,
         batch_id=None,
         targets=["coco-multicamera"],
         include_attributes=True,
         video_frame_mode="keyframes",
+        lidar_media=media,
     )
     try:
         with zipfile.ZipFile(zip_path) as archive:
@@ -420,11 +492,12 @@ async def test_multicamera_coco_package_contains_trusted_media_contract(
             )
             assert annotations["annotations"][0]["relation_status"] == "current"
             assert manifest["contract"] == "multicamera-coco-media-v1"
-            assert manifest["media"][0]["source_file_size"] == len(payload)
-            assert (
-                manifest["media"][0]["source_sha256"]
-                == hashlib.sha256(payload).hexdigest()
+            assert manifest["media"][0]["kind"] == "image"
+            assert manifest["media"][0]["presigned_url"] == (
+                "https://saved-export.test/owned-copy"
             )
+            assert manifest["media"][0]["source_file_size"] == len(payload)
+            assert manifest["media"][0]["source_sha256"] == sha256
             assert report == {
                 "annotations_by_role": {"camera_front": 1},
                 "derived_bbox_count": 0,
@@ -437,6 +510,7 @@ async def test_multicamera_coco_package_contains_trusted_media_contract(
         assert file_count == 1
     finally:
         os.unlink(zip_path)
+    forbidden.assert_not_called()
 
 
 async def test_multicamera_coco_cache_digest_tracks_media_etag(

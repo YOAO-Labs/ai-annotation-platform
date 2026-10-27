@@ -453,3 +453,112 @@ describe("resolveWorkbenchImageSource", () => {
     queryClient.clear();
   });
 });
+
+describe("authenticated single selection", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("keeps required and ready pyramids off the complete original loader", async () => {
+    const original = await import("@/hooks/useOriginalImage");
+    const image = vi
+      .spyOn(original, "useOriginalImage")
+      .mockReturnValue({ url: null, version: 0, error: null, ready: false, retry: vi.fn() });
+    vi.spyOn(tasksApi, "getImagePyramid").mockResolvedValue(ready);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result, unmount } = renderHook(() => useWorkbenchImageSource(task(true, "ready")), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.source?.kind).toBe("pyramid"));
+    expect(image.mock.calls.every(([resource]) => resource === null)).toBe(true);
+    unmount();
+    client.clear();
+  });
+  it("uses owned addresses and their actual versions without signed original fallback", async () => {
+    const original = await import("@/hooks/useOriginalImage");
+    const image = vi.spyOn(original, "useOriginalImage").mockReturnValue({
+      url: "blob:owned-one",
+      version: 1,
+      error: null,
+      ready: true,
+      retry: vi.fn(),
+    });
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const single = {
+      ...task(false, "pending"),
+      image_pyramid: null,
+      file_url: "https://old-signed-original.invalid/trap",
+    };
+    const { result, rerender, unmount } = renderHook(() => useWorkbenchImageSource(single), {
+      wrapper,
+    });
+    expect(result.current.source).toMatchObject({ kind: "single", url: "blob:owned-one" });
+    const firstIdentity = result.current.source?.identity;
+    image.mockReturnValue({
+      url: "blob:owned-two",
+      version: 2,
+      error: null,
+      ready: true,
+      retry: vi.fn(),
+    });
+    rerender();
+    expect(result.current.source?.identity).not.toBe(firstIdentity);
+    image.mockReturnValue({
+      url: null,
+      version: 0,
+      error: "来源已变化",
+      ready: false,
+      retry: vi.fn(),
+    });
+    rerender();
+    expect(result.current.source).toBeNull();
+    expect(result.current.contentBlockedReason).toBe("来源已变化");
+    unmount();
+    client.clear();
+  });
+});
+
+describe("session-scoped task retention", () => {
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    const { useAuthStore } = await import("@/stores/authStore");
+    useAuthStore.getState().logout();
+  });
+  it("retains only the same requested Task across a refresh gap and rejects its old object in a new login", async () => {
+    const { useAuthStore } = await import("@/stores/authStore");
+    const user = { id: "reader" } as Parameters<
+      ReturnType<typeof useAuthStore.getState>["setAuth"]
+    >[1];
+    useAuthStore.getState().setAuth("first", user);
+    const original = await import("@/hooks/useOriginalImage");
+    const image = vi
+      .spyOn(original, "useOriginalImage")
+      .mockReturnValue({ url: "blob:owned", version: 1, error: null, ready: true, retry: vi.fn() });
+    const single = { ...task(false, "pending"), image_pyramid: null };
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result, rerender, unmount } = renderHook(
+      ({ incoming, requested }: { incoming: TaskResponse | undefined; requested: string }) =>
+        useWorkbenchImageSource(incoming, null, requested),
+      {
+        initialProps: { incoming: single as TaskResponse | undefined, requested: single.id },
+        wrapper,
+      },
+    );
+    expect(result.current.source?.kind).toBe("single");
+    act(() => useAuthStore.getState().setToken("refresh"));
+    rerender({ incoming: undefined, requested: single.id });
+    expect(result.current.source?.kind).toBe("single");
+    expect(image.mock.lastCall?.[0]).toEqual({ kind: "task", taskId: single.id });
+    rerender({ incoming: undefined, requested: "different-task" });
+    expect(result.current.source).toBeNull();
+    rerender({ incoming: single, requested: single.id });
+    act(() => useAuthStore.getState().setAuth("new-login", user));
+    expect(result.current.source).toBeNull();
+    expect(image.mock.lastCall?.[0]).toBeNull();
+    unmount();
+    client.clear();
+  });
+});

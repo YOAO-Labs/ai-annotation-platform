@@ -11,7 +11,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_inference.topology import RegistryDeletion, RegistryTopologySnapshot
+from aap_inference.topology import (
+    RegistryDeletion,
+    RegistryTopologySnapshot,
+    RepairModelLockStatus,
+)
 from aap_inference_contract.topology import (
     PoolFacts,
     PoolMemberFacts,
@@ -25,6 +29,9 @@ from aap_inference_contract.topology import (
 )
 
 _SCHEMA = "aap_inference_topology_v1"
+_REPAIR_MODEL_LOCK_STATUSES = frozenset(
+    {"ready", "backend_unavailable", "model_changed"}
+)
 _REGISTRY_FACTS = text(f"SELECT {_SCHEMA}.registry_facts(CAST(:registry_id AS uuid))")
 _REGISTRY_URL_OWNER = text(f"SELECT {_SCHEMA}.registry_url_owner(CAST(:url AS text))")
 _REGISTRY_CATALOG = text(f"SELECT {_SCHEMA}.registry_catalog()")
@@ -94,6 +101,10 @@ _DELETE_EMPTY_POOL = text(f"SELECT {_SCHEMA}.delete_empty_pool(CAST(:pool_id AS 
 _LOCK_MEMBER_UPSERT = text(
     f"SELECT {_SCHEMA}.lock_member_upsert_rows(CAST(:pool_id AS uuid),"
     "CAST(:registry_id AS uuid))"
+)
+_LOCK_REPAIR_MODEL_ROWS = text(
+    f"SELECT {_SCHEMA}.lock_repair_model_rows(CAST(:project_id AS uuid),"
+    "CAST(:pool_id AS uuid),CAST(:registry_ids AS uuid[]))"
 )
 _UPSERT_MEMBER = text(
     f"SELECT {_SCHEMA}.upsert_member(CAST(:pool_id AS uuid),"
@@ -587,6 +598,43 @@ class InferenceTopologyData:
             if row["member"] is not None
             else None,
         )
+
+    async def lock_repair_model_rows(
+        self,
+        project_id: UUID,
+        pool_id: UUID,
+        registry_ids: Sequence[UUID],
+    ) -> RepairModelLockStatus:
+        """Share-lock a repair route until the caller-owned transaction ends.
+
+        Pool and project/pool association have to be present and enabled for the
+        route to be usable (``backend_unavailable`` otherwise). Requested and
+        selected backends must each be an active member of that pool, and every
+        registry must still exist (``model_changed`` otherwise). The Native
+        function locks rows in a fixed order with ``FOR SHARE NOWAIT``; a lock
+        conflict propagates as the driver error instead of becoming a status.
+        """
+
+        identities = list(dict.fromkeys(registry_ids))
+        if not 1 <= len(identities) <= 2:
+            raise ValueError(
+                "repair model locks require one or two distinct registry ids"
+            )
+        if any(not isinstance(registry_id, UUID) for registry_id in identities):
+            raise ValueError("repair model locks require UUID registry ids")
+        if self.db.autoflush:
+            await self.db.flush()
+        status = await self.db.scalar(
+            _LOCK_REPAIR_MODEL_ROWS.execution_options(autoflush=False),
+            {
+                "project_id": project_id,
+                "pool_id": pool_id,
+                "registry_ids": identities,
+            },
+        )
+        if type(status) is not str or status not in _REPAIR_MODEL_LOCK_STATUSES:
+            raise RuntimeError("topology repair model lock returned malformed status")
+        return status
 
     async def upsert_member(
         self,

@@ -13,7 +13,7 @@ from aap_assets_images.contract import (
     ImageWorkReference,
 )
 from app.api.v1 import files as files_api
-from app.application.legacy_file_upload import LegacyFileUploadWorkflow
+from app.application import project_thumbnail_backfill
 
 
 def _accepted(request, *, job_id: uuid.UUID) -> AcceptedImageWork:
@@ -60,23 +60,24 @@ async def test_project_task_backfill_checks_manager_and_accepts_project_job(
             requests.append(request)
             return _accepted(request, job_id=job_id)
 
-    workflow = LegacyFileUploadWorkflow(object(), storage=object())
+    db = object()
 
-    async def manager_access(actor, project, *, lock):
-        authorization.append((actor, project, lock))
+    async def manager_access(received_db, actor, project):
+        authorization.append((received_db, actor, project))
 
-    monkeypatch.setattr(workflow, "_manager_access", manager_access)
+    monkeypatch.setattr(project_thumbnail_backfill, "_manager_access", manager_access)
     monkeypatch.setattr(
-        "app.application.legacy_file_upload.image_gateway", lambda: ImageOwner()
+        project_thumbnail_backfill, "image_gateway", lambda: ImageOwner()
     )
 
-    accepted = await workflow.accept_thumbnail_backfill(
+    accepted = await project_thumbnail_backfill.accept_thumbnail_backfill(
+        db,
         actor_id=actor_id,
         project_id=project_id,
         operation_id=operation_id,
     )
 
-    assert authorization == [(actor_id, project_id, True)]
+    assert authorization == [(db, actor_id, project_id)]
     assert len(requests) == 1
     request = requests[0]
     assert request.operation_id == operation_id
@@ -116,29 +117,33 @@ async def test_project_task_backfill_route_returns_typed_idempotent_receipt(
         ),
         spec=request_spec,
     )
+    calls = []
 
-    class Workflow:
-        def __init__(self, *_args, **_kwargs):
-            pass
+    async def accept(db, **request):
+        calls.append((db, request))
+        return accepted
 
-        async def accept_thumbnail_backfill(self, **request):
-            assert request == {
-                "actor_id": actor_id,
-                "project_id": project_id,
-                "operation_id": operation_id,
-            }
-            return accepted
-
-    monkeypatch.setattr(files_api, "LegacyFileUploadWorkflow", Workflow)
+    db = object()
+    monkeypatch.setattr(project_thumbnail_backfill, "accept_thumbnail_backfill", accept)
     response = Response()
     result = await files_api.backfill_project_thumbnails(
         project_id,
         response,
-        db=object(),
+        db=db,
         current_user=SimpleNamespace(id=actor_id),
         idempotency_key=operation_id,
     )
 
+    assert calls == [
+        (
+            db,
+            {
+                "actor_id": actor_id,
+                "project_id": project_id,
+                "operation_id": operation_id,
+            },
+        )
+    ]
     assert result.project_id == project_id
     assert result.operation_id == operation_id
     assert result.job_id == job_id

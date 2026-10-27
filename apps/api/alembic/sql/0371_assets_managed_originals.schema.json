@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:managed-original:v1",
+  "title": "aap-managed-original/v1",
+  "description": "Durable allocation and version-pinned evidence for Assets source producers. Each producer allocates one immutable locator before physical I/O, writes or adopts it under a conditional creation, reads the exact saved version back in full, records the proof, and only then may publish its business item.",
+  "schema": "aap-managed-original/v1",
+  "failure_codes": [
+    "invalid_request",
+    "creation_missing",
+    "creation_scope_mismatch",
+    "creation_state_conflict",
+    "creation_configuration_changed",
+    "creation_target_unavailable",
+    "creation_key_conflict",
+    "creation_budget_exceeded",
+    "creation_evidence_mismatch",
+    "creation_terminal",
+    "resource_budget_exceeded",
+    "storage_unavailable",
+    "invalid_response"
+  ],
+  "native": [
+    "begin_managed_original(jsonb)",
+    "record_managed_original_proof(uuid,jsonb)"
+  ],
+  "operations": ["begin", "record"],
+  "origins": ["direct", "zip", "connector", "directory_copy"],
+  "modes": ["write", "adopt"],
+  "invariants": [
+    "begin resolves the current datasets binding and refuses a connection-backed binding while owner completion paths keep unprefixed item locators",
+    "begin reserves exactly one (storage_identity,bucket,object_key) and never returns a caller-chosen bucket or key",
+    "record only advances allocated to verified with matching sha256/md5/size/etag/version readback evidence and a durable storage operation",
+    "failed, conflict and unknown outcomes retain the reserved locator and never publish an item",
+    "dataset item insert is refused unless the matching creation is verified and its digest matches the item",
+    "dataset_asset_locations is written with the verified creation id, storage_ref and exact etag"
+  ]
+}

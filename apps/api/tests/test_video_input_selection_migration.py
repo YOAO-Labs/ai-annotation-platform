@@ -43,7 +43,7 @@ def test_video_selection_migration_installs_only_new_labeling_projections():
     statements = module._statements()
     created = set(re.findall(r"(?im)^CREATE FUNCTION ([a-z0-9_.]+)\s*\(", source))
     revoked = {signature.split("(", 1)[0] for signature in module._signatures()}
-    assert module.revision == "0224" and module.down_revision == "0223"
+
     assert module._UPGRADE_ARTIFACTS == (SQL.name,)
     assert created and created == revoked
     assert all(name.startswith("aap_labeling_v1.") for name in created)

@@ -1,7 +1,7 @@
 """Add the labeling-owned project deletion data contract.
 
-Revision ID: 0197
-Revises: 0196
+Revision ID: bo0197
+Revises: bo0196
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0197"
-down_revision = "0196"
+revision = "bo0197"
+down_revision = "bo0196"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0197_project_labeling_delete.sql"

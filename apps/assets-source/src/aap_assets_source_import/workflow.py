@@ -40,10 +40,23 @@ from aap_assets_source.import_contract import (
     ImportState,
 )
 from aap_assets_images.contract import ImageFailure, ObjectIdentity
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalFailure,
+    ManagedOriginalFailureEvidence,
+    ManagedOriginalMaterial,
+    observed_current_head_match,
+)
 
 from .config import ImportConfig
 from .database import ImportDatabase
-from .storage import DestinationStorage, DestinationWriteError, SourceReadError
+from .storage import (
+    DestinationStorage,
+    DestinationWriteError,
+    TransferResult,
+    SourceReadError,
+    _image_dimensions,
+    _object_identity_from_verified,
+)
 
 logger = logging.getLogger("aap_assets_source_import.workflow")
 _CHUNKED_PART_ERROR_CODES = {"account_busy", "dataset_busy"}
@@ -421,6 +434,7 @@ class ImportWorkflow:
                     entry,
                     adapter,
                     keeper,
+                    state=state,
                     byte_budget=max(
                         0,
                         state.settings_snapshot.dataset_import_max_total_bytes
@@ -456,6 +470,7 @@ class ImportWorkflow:
         adapter: SourceAdapter,
         keeper: LeaseKeeper,
         *,
+        state: ImportState,
         byte_budget: int,
     ) -> tuple[ImportEntryCompletion, int, ObjectIdentity | None]:
         attempted = 0
@@ -465,48 +480,116 @@ class ImportWorkflow:
             attempted += amount
 
         stream: Any | None = None
+        target: ManagedOriginalMaterial | None = None
+        operation = None
         try:
+            keeper.check()
+            target = await self._database.allocate(
+                _original_request(entry, state, byte_budget)
+            )
+            keeper.check()
+            operation = await self._database.open_operation(target.creation_id)
+            if operation.mode == "read":
+                result = await self._verified_reuse(target, operation, entry, keeper)
+                return (
+                    ImportEntryCompletion(
+                        status="copied",
+                        file_size=result.file_size,
+                        content_hash=result.content_hash,
+                        width=result.dimensions[0] if result.dimensions else None,
+                        height=result.dimensions[1] if result.dimensions else None,
+                    ),
+                    attempted,
+                    result.object_identity,
+                )
             keeper.check()
             stream = await asyncio.to_thread(
                 adapter.open, entry.source.relpath, etag=entry.source.etag
             )
             keeper.check()
-            (
-                size,
-                content_hash,
-                dimensions,
-                object_identity,
-            ) = await self._storage.transfer(
-                stream,
-                entry,
-                byte_budget=byte_budget,
-                before_io=keeper.check,
-                on_bytes=count_bytes,
-            )
+            try:
+                result = await self._storage.transfer(
+                    stream,
+                    entry,
+                    target=target,
+                    byte_budget=byte_budget,
+                    before_io=keeper.check,
+                    on_bytes=count_bytes,
+                    on_prepared=lambda prepared: self._database.original_prepared(
+                        target.creation_id, prepared.evidence()
+                    ),
+                    on_writing=lambda: self._database.original_writing(
+                        target.creation_id
+                    ),
+                    on_written=lambda receipt: self._database.original_written(
+                        target.creation_id,
+                        {
+                            "etag": receipt.etag,
+                            "version_id": receipt.version_id,
+                            "request_id": receipt.request_id,
+                            "response": receipt.response,
+                        },
+                    ),
+                )
+            except BaseException as exc:
+                await _drain_source(stream, exc)
+                raise
+            else:
+                # The source handle must stop owning bytes before settlement.
+                await _drain_source(stream, None)
+                stream = None
             if entry.file_type == "image":
                 keeper.check()
-                if object_identity is None:
+                if result.object_identity is None:
                     raise ImportFailure("invalid_response")
+            verification = {
+                "sha256": result.proof.sha256,
+                "md5": result.proof.md5,
+                "size_bytes": result.proof.size_bytes,
+                "etag": result.proof.etag,
+                "version_id": result.proof.version_id,
+                "observation": (result.proof.verification or {}).get("observation"),
+                "physical_settled": True,
+            }
+            matched = observed_current_head_match(
+                result.proof.verification, size_bytes=result.proof.size_bytes
+            )
+            if matched is not None:
+                verification["current_head_matches"] = matched
+            await self._database.original_verified(target.creation_id, verification)
             return (
                 ImportEntryCompletion(
                     status="copied",
-                    file_size=size,
-                    content_hash=content_hash,
-                    width=dimensions[0] if dimensions else None,
-                    height=dimensions[1] if dimensions else None,
+                    file_size=result.file_size,
+                    content_hash=result.content_hash,
+                    width=result.dimensions[0] if result.dimensions else None,
+                    height=result.dimensions[1] if result.dimensions else None,
                 ),
                 attempted,
-                object_identity,
+                result.object_identity,
             )
-        except SourceChangedError:
+        except SourceChangedError as exc:
+            await self._fail_original(target, "write", "source_changed", exc)
             return _item_error("source_changed"), attempted, None
-        except SourceNotFoundError:
+        except SourceNotFoundError as exc:
+            await self._fail_original(target, "write", "source_not_found", exc)
             return _item_error("source_not_found"), attempted, None
-        except SourcePathError:
+        except SourcePathError as exc:
+            await self._fail_original(target, "write", "invalid_source_object", exc)
             return _item_error("invalid_source_object"), attempted, None
-        except SourceReadError:
+        except SourceReadError as exc:
+            await self._fail_original(target, "write", "source_read_failed", exc)
             return _item_error("source_read_failed"), attempted, None
-        except DestinationWriteError:
+        except DestinationWriteError as exc:
+            await self._fail_original(target, "write", "destination_write_failed", exc)
+            return _item_error("destination_write_failed"), attempted, None
+        except ManagedOriginalFailure as exc:
+            logger.info(
+                "Dataset import allocation refused job=%s code=%s",
+                entry.job_id,
+                exc.code,
+            )
+            await self._fail_original(target, "open", "allocation_refused", exc)
             return _item_error("destination_write_failed"), attempted, None
         except (WorkerStopping, LeaseUnavailable, ImportFailure):
             raise
@@ -516,11 +599,91 @@ class ImportWorkflow:
                 entry.job_id,
                 type(exc).__name__,
             )
+            await self._fail_original(target, "write", "source_read_failed", exc)
             return _item_error("source_read_failed"), attempted, None
         finally:
             if stream is not None:
-                with suppress(Exception):
-                    await asyncio.to_thread(stream.close)
+                await _drain_source(stream, None)
+
+    async def _verified_reuse(
+        self,
+        target: ManagedOriginalMaterial,
+        operation,
+        entry: ImportEntry,
+        keeper: LeaseKeeper,
+    ):
+        """Read back an already verified creation; never claim it again."""
+        if target.sha256 is None or target.size_bytes is None:
+            raise ImportFailure("invalid_response")
+        try:
+            verified = await self._storage.verify(
+                target, sha256=target.sha256, size_bytes=target.size_bytes
+            )
+        except DestinationWriteError as exc:
+            await self._abandon_read_operation(target, operation, exc)
+            raise
+        if verified.sha256 != target.sha256 or verified.size_bytes != target.size_bytes:
+            error = SourceChangedError("verified original no longer matches")
+            await self._abandon_read_operation(target, operation, error)
+            raise error
+        keeper.check()
+        await self._database.close_operation(
+            target.creation_id, operation.operation_id, True
+        )
+        dimensions = (
+            await asyncio.to_thread(_image_dimensions, verified.head_bytes)
+            if entry.file_type == "image"
+            else None
+        )
+        object_identity = None
+        if entry.file_type == "image":
+            object_identity = _object_identity_from_verified(
+                verified, byte_size=verified.size_bytes
+            )
+        return TransferResult(
+            proof=None,
+            file_size=verified.size_bytes,
+            content_hash=verified.md5,
+            dimensions=dimensions,
+            object_identity=object_identity,
+        )
+
+    async def _abandon_read_operation(self, target, operation, exc) -> None:
+        if getattr(exc, "storage_operation_unsettled", False):
+            return
+        try:
+            await self._database.close_operation(
+                target.creation_id, operation.operation_id, True
+            )
+        except Exception:
+            logger.warning(
+                "Dataset import read permit close failed creation=%s",
+                target.creation_id,
+            )
+
+    async def _fail_original(
+        self,
+        target: ManagedOriginalMaterial | None,
+        stage: str,
+        code: str,
+        exc: BaseException,
+    ) -> None:
+        """Record durable failure evidence without inventing a written object."""
+        if target is None:
+            return
+        evidence = _failure_evidence(stage, exc)
+        outcome = "unknown" if not evidence["physical_settled"] else "failed"
+        try:
+            await self._database.fail_original(
+                target.creation_id,
+                outcome,
+                _safe_error_code("import_" + code),
+                evidence,
+            )
+        except Exception:
+            logger.warning(
+                "Dataset import creation failure could not be settled code=%s", code
+            )
 
     async def _complete_with_retry(
         self,
@@ -759,6 +922,101 @@ def _infer_file_type(file_name: str) -> str:
 
 def _item_error(code: str) -> ImportEntryCompletion:
     return ImportEntryCompletion(status="error", error_code=code)
+
+
+def _original_request(
+    entry: ImportEntry, state: ImportState, byte_budget: int
+) -> dict[str, Any]:
+    """Describe only facts the owner can verify against its own entry row."""
+    return {
+        "dataset_id": str(state.dataset_id),
+        "item_id": str(entry.item_id),
+        "publication_id": str(entry.publication_id),
+        "origin": "connector",
+        "mode": "write",
+        "file_path": entry.file_path,
+        "logical_path": entry.file_name,
+        "file_type": entry.file_type,
+        "content_type": _content_type(entry.file_name),
+        "max_bytes": max(0, byte_budget),
+        "authority": {
+            "kind": "dataset_import",
+            "job_id": str(entry.job_id),
+            "entry_index": entry.index,
+            "publication_id": str(entry.publication_id),
+            "item_id": str(entry.item_id),
+        },
+        "requested_by": str(state.actor_id),
+    }
+
+
+def _content_type(file_name: str) -> str:
+    import mimetypes
+
+    return mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+
+
+def _safe_error_code(code: str) -> str:
+    import re
+
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", (code or "").lower()).strip("_")
+    if not cleaned or not cleaned[0].isalpha():
+        cleaned = f"import_{cleaned or 'io_failed'}"
+    return cleaned[:80]
+
+
+def _failure_evidence(
+    stage: str,
+    exc: BaseException | None,
+    *,
+    receipt: dict[str, Any] | None = None,
+    observation: dict[str, Any] | None = None,
+    sha256: str | None = None,
+    md5: str | None = None,
+    size_bytes: int | None = None,
+    current_head_matches: bool | None = None,
+) -> dict[str, Any]:
+    uncertain = bool(
+        exc is not None
+        and (
+            getattr(exc, "storage_operation_unsettled", False)
+            or getattr(exc, "outcome", None) == "unknown"
+        )
+    )
+    if uncertain:
+        physical_outcome = "unknown"
+    elif receipt is not None:
+        physical_outcome = "written"
+    else:
+        physical_outcome = "not_written"
+    return ManagedOriginalFailureEvidence.build(
+        physical_settled=not uncertain,
+        physical_outcome=physical_outcome,
+        stage=stage,
+        receipt=receipt,
+        observation=observation,
+        sha256=sha256,
+        md5=md5,
+        size_bytes=size_bytes,
+        physical_size_bytes=size_bytes,
+        current_head_matches=current_head_matches,
+    )
+
+
+async def _drain_source(handle: Any, pending: BaseException | None) -> None:
+    """Drain one source handle; a failed close leaves settlement unknown."""
+    try:
+        await asyncio.to_thread(handle.close)
+    except Exception:
+        if pending is not None:
+            try:
+                pending.storage_operation_unsettled = True
+            except Exception:
+                pass
+            return
+        error = SourceReadError("source handle close did not settle")
+        error.storage_operation_unsettled = True
+        raise error from None
 
 
 def _require_same_scope(previous: ImportState, returned: ImportState) -> None:

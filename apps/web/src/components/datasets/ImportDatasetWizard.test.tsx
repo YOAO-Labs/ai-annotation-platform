@@ -6,12 +6,16 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import { useAuthStore } from "@/stores/authStore";
 
 const mockCreateDatasetMutateAsync = vi.fn();
 const mockCreateDatasetReset = vi.fn();
 const mockImportFromConnectionMutateAsync = vi.fn();
 const mockPushToast = vi.fn();
+const mockStorage = vi.hoisted(() => ({
+  connections: [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }],
+}));
 
 vi.mock("@/hooks/useDatasets", () => ({
   useCreateDataset: () => ({
@@ -35,7 +39,7 @@ vi.mock("@/hooks/useAsyncJob", () => ({
 
 vi.mock("@/hooks/useStorageConnections", () => ({
   useStorageConnections: () => ({
-    data: [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }],
+    data: mockStorage.connections,
     isLoading: false,
   }),
   useCreateStorageConnection: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -93,14 +97,27 @@ import { ImportDatasetWizard } from "./ImportDatasetWizard";
 import { datasetsApi } from "@/api/datasets";
 import { runUploadQueue } from "@/utils/uploadQueue";
 
-function renderUI(props: Partial<React.ComponentProps<typeof ImportDatasetWizard>> = {}) {
+function RouterState() {
+  const location = useLocation();
+  return (
+    <output data-testid="wizard-url">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
+function renderUI(
+  props: Partial<React.ComponentProps<typeof ImportDatasetWizard>> = {},
+  initialEntry = "/datasets",
+) {
   const defaults = {
     open: true,
     onClose: vi.fn(),
   };
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ImportDatasetWizard {...defaults} {...props} />
+      <RouterState />
     </MemoryRouter>,
   );
 }
@@ -124,6 +141,12 @@ function pickZipFile() {
 
 describe("ImportDatasetWizard", () => {
   beforeEach(() => {
+    sessionStorage.clear();
+    useAuthStore.setState({
+      sessionId: "wizard-session",
+      user: { id: "wizard-user", role: "super_admin" } as any,
+    });
+    mockStorage.connections = [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }];
     mockCreateDatasetMutateAsync.mockReset().mockResolvedValue({ id: "ds-new", name: "Test DS" });
     mockCreateDatasetReset.mockReset();
     mockImportFromConnectionMutateAsync.mockReset();
@@ -255,6 +278,43 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     const nameInput = screen.getByPlaceholderText(/商品检测训练集/) as HTMLInputElement;
     expect(nameInput.value).toBe("dataset-A");
+  });
+  it("keeps the selected connection ID while the available list is refreshed", () => {
+    const view = renderUI();
+    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
+    mockStorage.connections = [
+      { id: "c2", name: "Another connection", kind: "s3", scope: "global" },
+    ];
+    view.rerender(
+      <MemoryRouter>
+        <ImportDatasetWizard open onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("c1");
+    expect(screen.getByRole("combobox")).toHaveDisplayValue("已选连接器（正在核对可用状态）");
+  });
+
+  it("moves configuration to storage and restores text choices to the same dataset/session", async () => {
+    const datasetId = "11111111-1111-1111-1111-111111111111";
+    const path = `/datasets/${datasetId}?tab=items&page=3&item=selected`;
+    const view = renderUI({ datasetId }, path);
+    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
+    fireEvent.change(screen.getByPlaceholderText("batch-a/"), { target: { value: "fleet/2026" } });
+    fireEvent.change(screen.getByPlaceholderText("*.jpg, *.png"), { target: { value: "*.png" } });
+    fireEvent.click(screen.getByLabelText("递归扫描"));
+    expect(screen.queryByRole("button", { name: "新建连接器" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "管理存储位置" }));
+    const url = new URL(screen.getByTestId("wizard-url").textContent!, "https://local.test");
+    expect(url.pathname).toBe("/storage");
+    expect(url.searchParams.get("returnTo")).toBe(`${path}&import=1`);
+    view.unmount();
+    renderUI({ datasetId }, `${path}&import=1`);
+    await waitFor(() => expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("fleet/2026"));
+    expect(screen.getByRole("combobox")).toHaveValue("c1");
+    expect(screen.getByPlaceholderText("*.jpg, *.png")).toHaveValue("*.png");
+    expect(screen.getByLabelText("递归扫描")).not.toBeChecked();
   });
 
   it("连接器提交响应不确定时手动重试复用同一个键", async () => {

@@ -1,7 +1,7 @@
 """Install retained video manifests, exact frame inputs and evidence retention.
 
-Revision ID: 0225
-Revises: 0224
+Revision ID: bo0225
+Revises: bo0224
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0225"
-down_revision = "0224"
+revision = "bo0225"
+down_revision = "bo0224"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

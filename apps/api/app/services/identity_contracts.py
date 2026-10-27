@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 
 class IdentityCredentialRejected(Exception):
@@ -39,3 +40,16 @@ class IdentityActorFacts:
     role: str
     is_active: bool
     weekly_target_default: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptedApiKeyFacts:
+    """Non-secret current facts of an accepted API key.
+
+    ``revision`` is a digest of the stored verifier: it changes on rotation and
+    never exposes the verifier itself.
+    """
+
+    scopes: tuple[str, ...]
+    expires_at: datetime | None
+    revision: str

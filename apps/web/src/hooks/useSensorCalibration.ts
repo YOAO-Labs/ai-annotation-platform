@@ -1,7 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { tasksApi } from "@/api/tasks";
+import { pointCloudManifestQueryKey } from "@/api/pointCloudOriginals";
+import { originalOwnerKey } from "@/api/originals";
+import { useAuthStore } from "@/stores/authStore";
 import type {
   SensorCalibrationHistoryOut,
   SensorCalibrationUpdate,
@@ -10,7 +13,7 @@ import type {
 import { POINT_CLOUD_QUALITY_QUERY_KEY } from "@/hooks/usePointCloudQuality";
 
 export function sensorCalibrationKey(taskId: string | null, cameraRole: string | null) {
-  return ["sensor-calibration", taskId, cameraRole] as const;
+  return ["sensor-calibration", originalOwnerKey(), taskId, cameraRole] as const;
 }
 
 export function useSensorCalibration({
@@ -25,6 +28,7 @@ export function useSensorCalibration({
   enabled: boolean;
 }) {
   const queryClient = useQueryClient();
+  const ownerKey = useSyncExternalStore(useAuthStore.subscribe, originalOwnerKey, originalOwnerKey);
   const queryKey = sensorCalibrationKey(taskId, cameraRole);
   const query = useQuery({
     queryKey,
@@ -33,9 +37,9 @@ export function useSensorCalibration({
   });
   useEffect(() => {
     const latest = query.data?.items[0];
-    if (!latest) return;
+    if (!latest || ownerKey !== originalOwnerKey()) return;
     queryClient.setQueryData<TaskPointCloudManifestResponse>(
-      ["task-point-cloud-manifest", taskId],
+      pointCloudManifestQueryKey(taskId),
       (current) =>
         current
           ? {
@@ -53,12 +57,13 @@ export function useSensorCalibration({
             }
           : current,
     );
-  }, [cameraRole, query.data, queryClient, taskId]);
+  }, [cameraRole, query.data, queryClient, taskId, ownerKey]);
   const refreshRelated = async () => {
+    if (ownerKey !== originalOwnerKey()) return false;
     const results = await Promise.allSettled([
       queryClient.invalidateQueries({ queryKey }, { throwOnError: true }),
       queryClient.invalidateQueries(
-        { queryKey: ["task-point-cloud-manifest", taskId] },
+        { queryKey: pointCloudManifestQueryKey(taskId) },
         { throwOnError: true },
       ),
       queryClient.invalidateQueries(
@@ -76,7 +81,9 @@ export function useSensorCalibration({
           )
         : Promise.resolve(),
     ]);
-    return results.every((result) => result.status === "fulfilled");
+    return (
+      ownerKey === originalOwnerKey() && results.every((result) => result.status === "fulfilled")
+    );
   };
   const update = useMutation({
     mutationFn: ({
@@ -85,8 +92,14 @@ export function useSensorCalibration({
     }: {
       payload: SensorCalibrationUpdate;
       idempotencyKey: string;
-    }) => tasksApi.updateSensorCalibration(taskId!, cameraRole!, payload, idempotencyKey),
-    onSuccess: (updated) => {
+    }) => {
+      if (ownerKey !== originalOwnerKey())
+        throw new DOMException("Calibration owner changed", "AbortError");
+      return tasksApi.updateSensorCalibration(taskId!, cameraRole!, payload, idempotencyKey);
+    },
+    onMutate: () => ({ ownerKey }),
+    onSuccess: (updated, _payload, context) => {
+      if (context?.ownerKey !== originalOwnerKey()) return;
       queryClient.setQueryData<SensorCalibrationHistoryOut>(queryKey, (current) => ({
         current_revision: updated.revision,
         current_digest: updated.digest,
@@ -96,7 +109,7 @@ export function useSensorCalibration({
         ],
       }));
       queryClient.setQueryData<TaskPointCloudManifestResponse>(
-        ["task-point-cloud-manifest", taskId],
+        pointCloudManifestQueryKey(taskId),
         (current) =>
           current
             ? {

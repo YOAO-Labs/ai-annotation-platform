@@ -1,7 +1,7 @@
 """Add Assets and Diagnostics capabilities for dataset unlink.
 
-Revision ID: 0203
-Revises: 0202
+Revision ID: bo0203
+Revises: bo0202
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0203"
-down_revision = "0202"
+revision = "bo0203"
+down_revision = "bo0202"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0203_dataset_unlink_assets.sql"

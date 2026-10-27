@@ -1,13 +1,14 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
 from sqlalchemy import select, func, or_, and_, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.image_pyramid import bind_image_pyramid_api
 from app.deps import (
     get_db,
     get_current_user,
     assert_project_visible,
+    assert_request_scopes,
 )
 from app.db.models.user import User
 from app.schemas.task import (
@@ -40,6 +41,7 @@ from app.api.v1.tasks._shared import (
     _SEQ_NULL_SENTINEL,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.assets_spatial_views import spatial_item_references
 from app.services.labeling_core_read_relations import (
     annotation_row,
     batch_row,
@@ -101,10 +103,13 @@ def _build_task_query(
 
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
+    request: Request,
     project_id: uuid.UUID = Query(...),
     status: str | None = None,
     assignee_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    dataset_id: uuid.UUID | None = None,
+    dataset_filter: str | None = Query(None, max_length=2000),
     unbatched: bool = False,
     reject_reason_type: str | None = None,
     class_name: str | None = None,
@@ -128,6 +133,35 @@ async def list_tasks(
         reject_reason_type=reject_reason_type,
         class_name=class_name,
     )
+    if dataset_id is not None:
+        # Assets publishes item-to-dataset facts; list_tasks never joins the
+        # private dataset_items table itself.
+        filtered = filtered.where(
+            task_row.dataset_item_id.in_(
+                select(spatial_item_references.c.item_id).where(
+                    spatial_item_references.c.dataset_id == dataset_id
+                )
+            )
+        )
+    if dataset_filter is not None:
+        assert_request_scopes(request, "datasets:read")
+        if dataset_id is None:
+            raise HTTPException(422, "筛选范围必须指定数据集")
+        if not access.is_manager:
+            raise HTTPException(403, "筛选训练范围需要项目管理权限")
+        from app.schemas.dataset_view import DatasetItemFilters
+        from app.services.dataset_workbench import project_filtered_item_ids
+
+        try:
+            filters = DatasetItemFilters.model_validate_json(dataset_filter)
+        except ValidationError:
+            raise HTTPException(422, "无效的数据集筛选条件") from None
+        # Assets revalidates the project link and applies its own item
+        # predicates; the task page never joins private dataset tables.
+        item_ids = await project_filtered_item_ids(
+            db, project_id, dataset_id, filters, user
+        )
+        filtered = filtered.where(task_row.dataset_item_id.in_(item_ids))
     count_q = select(func.count()).select_from(filtered.order_by(None).subquery())
 
     # v0.6.8 B-15：首屏与游标分支统一排序，并都产出 next_cursor，修前端 useInfiniteQuery
@@ -161,9 +195,7 @@ async def list_tasks(
     total = ((await db.execute(count_q)).scalar() or 0) if is_first_page else None
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
-    pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db, actor_id=user.id), tasks
-    )
+    pyramids = await _attach_image_pyramids_batch(db, tasks, dims)
     # v0.7.2 · 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
@@ -220,12 +252,11 @@ async def next_task(
         return None
     await db.commit()
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
+    dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     source_references = await _linked_source_references(
         db, [task], actor_id=current_user.id
     )
-    pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db, actor_id=current_user.id), [task]
-    )
+    pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
         task,
@@ -251,12 +282,11 @@ async def get_task(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
+    dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     source_references = await _linked_source_references(
         db, [task], actor_id=current_user.id
     )
-    pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db, actor_id=current_user.id), [task]
-    )
+    pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
         task,

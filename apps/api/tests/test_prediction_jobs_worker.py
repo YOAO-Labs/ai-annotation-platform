@@ -220,7 +220,7 @@ async def test_legacy_frame_execution_rejects_missing_retained_manifest_before_o
         side_effect=AssertionError("legacy input must not be re-resolved")
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
+        "app.services.video_frame_service.build_context_from_task",
         metadata,
     )
     dispatch = AsyncMock()

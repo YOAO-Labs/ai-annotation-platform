@@ -36,9 +36,15 @@ class FileUploadComplete(_AAPModel):
     task_id: UUID
 
 
-class TaskFileUrl(_AAPModel):
-    url: str
-    expires_in: int
+class OriginalIdentity(_AAPModel):
+    owner_kind: Literal["dataset_asset", "task_original"]
+    content_id: UUID
+    sha256: str
+    size_bytes: int
+    media_type: str
+    verification_state: Literal["verified"]
+    original_availability: Literal["unchecked"]
+    download_path: str
 
 
 class ThumbnailBackfill(_AAPModel):

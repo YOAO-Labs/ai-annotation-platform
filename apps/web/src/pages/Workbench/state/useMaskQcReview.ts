@@ -230,7 +230,7 @@ export function collectMaskQcTrackerCandidates(
         frameIndex: targetFrame,
         annotationId: issue.annotation_id,
         instanceId,
-        label: `${job.modelKey || "Tracker"} · r${jobRevision}${instanceId ? ` · 实例 ${instanceId}` : ""}`,
+        label: `${job.modelKey || "Tracker"} · r${jobRevision}`,
       });
     }
   }
@@ -483,6 +483,13 @@ export function useMaskQcReview(params: {
           setState((current) => ({ ...current, phase: "waiting_manifest" }));
           await waitFor(() => dynamicRef.current.videoManifestReady, generation, token.value);
           await waitFor(() => params.videoControlsRef.current !== null, generation, token.value);
+          await waitFor(
+            () =>
+              params.videoControlsRef.current?.isSourceReady?.() ??
+              params.videoControlsRef.current !== null,
+            generation,
+            token.value,
+          );
           setState((current) => ({ ...current, phase: "seeking_frame" }));
           const frameResult = await params.videoControlsRef.current!.seekToFrameReady(targetFrame, {
             recordHistory: false,

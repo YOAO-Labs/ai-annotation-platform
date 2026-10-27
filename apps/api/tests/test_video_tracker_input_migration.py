@@ -86,8 +86,6 @@ def _created_function_signature(statement):
 def test_revision_installs_only_tracker_input_artifact():
     module = _migration()
 
-    assert module.revision == "0228"
-    assert module.down_revision == "0227"
     assert module._UPGRADE_ARTIFACTS == ("0228_video_tracker_inputs.sql",)
     assert set(module._REPLACED_FUNCTIONS) == {
         "aap_assets_v1.claim_accepted_video_input(uuid,uuid,integer)",

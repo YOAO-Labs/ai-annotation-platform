@@ -1,4 +1,4 @@
-"""Task file upload coordination and signed file URLs."""
+"""Task file upload coordination and authenticated original downloads."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ai_annotation.file_models import (
     FileUploadComplete,
     FileUploadInit,
     FileUploadInitRequest,
-    TaskFileUrl,
+    OriginalIdentity,
     ThumbnailBackfill,
 )
 
@@ -46,9 +46,24 @@ class Files:
             raise ValueError("upload_url must be an absolute HTTP(S) URL")
         self._http.put_presigned(upload.upload_url, Path(file_path), content_type)
 
-    def file_url(self, task_id: IdLike) -> TaskFileUrl:
-        resp = self._http.request("GET", f"/files/tasks/{task_id}/file-url")
-        return TaskFileUrl.model_validate(resp.json())
+    def original_identity(self, task_id: IdLike) -> OriginalIdentity:
+        """Read the verified original descriptor required for authenticated download."""
+        resp = self._http.request("GET", f"/files/tasks/{task_id}/original-identity")
+        return OriginalIdentity.model_validate(resp.json())
+
+    def download_original(self, task_id: IdLike, destination: str | Path) -> Path:
+        """Stream the full SHA-256 verified original over platform credentials."""
+        identity = self.original_identity(task_id)
+        return self._http.stream_download(
+            f"/api/v1/files/tasks/{task_id}/original",
+            Path(destination),
+            params={
+                "content_id": str(identity.content_id),
+                "sha256": identity.sha256,
+            },
+            expected_sha256=identity.sha256,
+            expected_size=identity.size_bytes,
+        )
 
     def backfill_thumbnails(
         self, project_id: IdLike, *, idempotency_key: IdLike | None = None

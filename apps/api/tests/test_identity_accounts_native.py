@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -795,3 +796,371 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                 {"ids": list(ids)},
             )
         await _cleanup(test_engine, fixture)
+
+
+def _avatar_storage_ref(token: str, location_id) -> dict:
+    return {
+        "schema": 2,
+        "purpose": "avatars",
+        "location_id": str(location_id),
+        "config_revision": 1,
+        "binding_generation": 2,
+        "endpoint_url": "http://minio:9000",
+        "bucket": "avatars",
+        "object_key": "_aap_managed/avatars/" + token + ".webp",
+        "storage_identity": "a" * 64,
+    }
+
+
+async def _avatar_gate(session, location_id, *, revision=1, state="active"):
+    await session.execute(
+        text(
+            "INSERT INTO public.storage_maintenance_gates "
+            "(location_id, state, revision) VALUES (:location, :state, :revision) "
+            "ON CONFLICT (location_id) DO UPDATE SET state=EXCLUDED.state, "
+            "revision=EXCLUDED.revision"
+        ),
+        {"location": location_id, "state": state, "revision": revision},
+    )
+
+
+async def _avatar_row(
+    session,
+    token,
+    owner_id,
+    data,
+    *,
+    location_id,
+    maintenance_revision=1,
+    state="pending",
+):
+    await session.execute(
+        text(
+            "INSERT INTO public.avatar_uploads ("
+            "token, owner_id, storage_ref, sha256, size_bytes, "
+            "object_version_id, state, retired_at"
+            ") VALUES (:token, :owner, CAST(:ref AS jsonb), :sha, :size, "
+            "'v1', :state, CASE WHEN :state='retired' THEN now() ELSE NULL END)"
+        ),
+        {
+            "token": token,
+            "owner": owner_id,
+            "ref": json.dumps(_avatar_storage_ref(token, location_id)),
+            "sha": hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+            "state": state,
+        },
+    )
+    return {
+        "token": token,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "size_bytes": len(data),
+        "object_version_id": "v1",
+        "maintenance_revision": maintenance_revision,
+        "storage_ref": _avatar_storage_ref(token, location_id),
+    }
+
+
+async def _remove_avatar_world(maker, test_engine, fixture, location_id, *tokens):
+    async with maker.begin() as session:
+        await session.execute(
+            text("DELETE FROM public.avatar_uploads WHERE token = ANY(:tokens)"),
+            {"tokens": list(tokens)},
+        )
+        await session.execute(
+            text(
+                "DELETE FROM public.storage_maintenance_gates "
+                "WHERE location_id=:location"
+            ),
+            {"location": location_id},
+        )
+    await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+async def test_avatar_upload_receipt_publishes_and_retires_atomically(test_engine):
+    fixture = await _seed(test_engine, create_key=False)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    actor = _jwt_actor(fixture["actor_id"])
+    old_token = uuid.uuid4().hex
+    new_token = uuid.uuid4().hex
+    data = b"normalized avatar"
+    location_id = uuid.uuid4()
+    try:
+        async with maker.begin() as session:
+            await session.execute(
+                text("UPDATE public.users SET avatar_ref=:ref WHERE id=:id"),
+                {
+                    "ref": "upload:" + old_token,
+                    "id": fixture["actor_id"],
+                },
+            )
+            await _avatar_gate(session, location_id, revision=3)
+            await _avatar_row(
+                session,
+                old_token,
+                fixture["actor_id"],
+                b"old",
+                location_id=location_id,
+                maintenance_revision=3,
+                state="ready",
+            )
+            new_receipt = await _avatar_row(
+                session,
+                new_token,
+                fixture["actor_id"],
+                data,
+                location_id=location_id,
+                maintenance_revision=3,
+            )
+        operation_id = uuid.uuid4()
+        request = _command("set_avatar_ref", operation_id, actor)
+        async with maker.begin() as session:
+            prepared = await _prepare(session, request)
+            assert prepared["data"]["account"]["avatar_ref"] == "upload:" + old_token
+            changed = await _apply(
+                session,
+                _apply_command(
+                    request,
+                    base_value="upload:" + old_token,
+                    new_value={
+                        "avatar_ref": "upload:" + new_token,
+                        "kind": "upload",
+                        "bytes": len(data),
+                        "expected_previous_avatar_ref": "upload:" + old_token,
+                        "receipt": new_receipt,
+                    },
+                ),
+            )
+            assert changed["ok"], changed
+            assert changed["data"]["previous_avatar_ref"] == "upload:" + old_token
+            assert changed["data"]["changed"] is True
+            assert changed["data"]["account"]["avatar_ref"] == "upload:" + new_token
+        async with maker.begin() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT token, state, retired_at, object_version_id "
+                            "FROM public.avatar_uploads WHERE token IN (:old, :new)"
+                        ),
+                        {"old": old_token, "new": new_token},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            states = {row["token"]: row for row in rows}
+            assert states[new_token]["state"] == "ready"
+            assert states[new_token]["retired_at"] is None
+            assert states[old_token]["state"] == "retired"
+            assert states[old_token]["retired_at"] is not None
+            assert (
+                await session.scalar(
+                    text("SELECT avatar_ref FROM public.users WHERE id=:id"),
+                    {"id": fixture["actor_id"]},
+                )
+                == "upload:" + new_token
+            )
+        # The operation receipt replays the verified publication without a
+        # second state transition or a second audit event.
+        async with maker.begin() as session:
+            replay = await _apply(
+                session,
+                _apply_command(
+                    request,
+                    base_value="upload:" + old_token,
+                    new_value={
+                        "avatar_ref": "upload:" + new_token,
+                        "kind": "upload",
+                        "bytes": len(data),
+                        "expected_previous_avatar_ref": "upload:" + old_token,
+                        "receipt": new_receipt,
+                    },
+                ),
+            )
+            assert replay["data"] == changed["data"]
+    finally:
+        await _remove_avatar_world(
+            maker, test_engine, fixture, location_id, old_token, new_token
+        )
+
+
+@pytest.mark.asyncio
+async def test_avatar_receipt_and_expected_reference_are_fenced(test_engine):
+    fixture = await _seed(test_engine, create_key=False)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    actor = _jwt_actor(fixture["actor_id"])
+    old_token = uuid.uuid4().hex
+    new_token = uuid.uuid4().hex
+    data = b"normalized avatar"
+    location_id = uuid.uuid4()
+    try:
+        async with maker.begin() as session:
+            await session.execute(
+                text("UPDATE public.users SET avatar_ref=:ref WHERE id=:id"),
+                {"ref": "upload:" + old_token, "id": fixture["actor_id"]},
+            )
+            await _avatar_gate(session, location_id, revision=4)
+            await _avatar_row(
+                session,
+                old_token,
+                fixture["actor_id"],
+                b"old",
+                location_id=location_id,
+                maintenance_revision=4,
+                state="ready",
+            )
+            new_receipt = await _avatar_row(
+                session,
+                new_token,
+                fixture["actor_id"],
+                data,
+                location_id=location_id,
+                maintenance_revision=4,
+            )
+        stale = dict(new_receipt)
+        stale["sha256"] = "b" * 64
+        request = _command("set_avatar_ref", uuid.uuid4(), actor)
+        async with maker.begin() as session:
+            await _prepare(session, request)
+            rejected = await _apply(
+                session,
+                _apply_command(
+                    request,
+                    base_value="upload:" + old_token,
+                    new_value={
+                        "avatar_ref": "upload:" + new_token,
+                        "kind": "upload",
+                        "bytes": len(data),
+                        "expected_previous_avatar_ref": "upload:" + old_token,
+                        "receipt": stale,
+                    },
+                ),
+            )
+            assert rejected["error"]["code"] == "avatar_receipt_invalid"
+            assert not rejected["ok"]
+        async with maker.begin() as session:
+            assert (
+                await session.scalar(
+                    text("SELECT state FROM public.avatar_uploads WHERE token=:token"),
+                    {"token": new_token},
+                )
+                == "pending"
+            )
+            assert (
+                await session.scalar(
+                    text("SELECT avatar_ref FROM public.users WHERE id=:id"),
+                    {"id": fixture["actor_id"]},
+                )
+                == "upload:" + old_token
+            )
+        request = _command("set_avatar_ref", uuid.uuid4(), actor)
+        async with maker.begin() as session:
+            await _prepare(session, request)
+            stale_reference = await _apply(
+                session,
+                _apply_command(
+                    request,
+                    base_value="preset:other",
+                    new_value={
+                        "avatar_ref": "upload:" + new_token,
+                        "kind": "upload",
+                        "bytes": len(data),
+                        "expected_previous_avatar_ref": "preset:other",
+                        "receipt": new_receipt,
+                    },
+                ),
+            )
+            assert stale_reference["error"]["code"] == "avatar_reference_changed"
+            assert not stale_reference["ok"]
+    finally:
+        await _remove_avatar_world(
+            maker, test_engine, fixture, location_id, old_token, new_token
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gate_state", "gate_revision", "code"),
+    [
+        ("active", 6, "storage_maintenance_changed"),
+        ("draining", 5, "storage_maintenance"),
+    ],
+)
+async def test_avatar_publication_rechecks_the_storage_gate(
+    test_engine, gate_state, gate_revision, code
+):
+    fixture = await _seed(test_engine, create_key=False)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    actor = _jwt_actor(fixture["actor_id"])
+    old_token = uuid.uuid4().hex
+    new_token = uuid.uuid4().hex
+    data = b"normalized avatar"
+    location_id = uuid.uuid4()
+    try:
+        async with maker.begin() as session:
+            await session.execute(
+                text("UPDATE public.users SET avatar_ref=:ref WHERE id=:id"),
+                {"ref": "upload:" + old_token, "id": fixture["actor_id"]},
+            )
+            await _avatar_gate(session, location_id, revision=5)
+            await _avatar_row(
+                session,
+                old_token,
+                fixture["actor_id"],
+                b"old",
+                location_id=location_id,
+                maintenance_revision=5,
+                state="ready",
+            )
+            new_receipt = await _avatar_row(
+                session,
+                new_token,
+                fixture["actor_id"],
+                data,
+                location_id=location_id,
+                maintenance_revision=5,
+            )
+        async with maker.begin() as session:
+            await _avatar_gate(
+                session, location_id, revision=gate_revision, state=gate_state
+            )
+        request = _command("set_avatar_ref", uuid.uuid4(), actor)
+        async with maker.begin() as session:
+            await _prepare(session, request)
+            rejected = await _apply(
+                session,
+                _apply_command(
+                    request,
+                    base_value="upload:" + old_token,
+                    new_value={
+                        "avatar_ref": "upload:" + new_token,
+                        "kind": "upload",
+                        "bytes": len(data),
+                        "expected_previous_avatar_ref": "upload:" + old_token,
+                        "receipt": new_receipt,
+                    },
+                ),
+            )
+            assert rejected["error"]["code"] == code
+            assert not rejected["ok"]
+        async with maker.begin() as session:
+            assert (
+                await session.scalar(
+                    text("SELECT state FROM public.avatar_uploads WHERE token=:token"),
+                    {"token": new_token},
+                )
+                == "pending"
+            )
+            assert (
+                await session.scalar(
+                    text("SELECT avatar_ref FROM public.users WHERE id=:id"),
+                    {"id": fixture["actor_id"]},
+                )
+                == "upload:" + old_token
+            )
+    finally:
+        await _remove_avatar_world(
+            maker, test_engine, fixture, location_id, old_token, new_token
+        )

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -15,6 +16,7 @@ import { useProject, useProjectMembers } from "@/hooks/useProjects";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { PreannotateConfigForm } from "@/pages/AIPreAnnotate/components/PreannotateConfigForm";
 import { usePreannotateConfig } from "@/pages/AIPreAnnotate/components/usePreannotateConfig";
@@ -198,11 +200,16 @@ function ActionJobStatus({
   const detail = query.data?.error_message;
   return (
     <span className={status === "failed" ? "text-status-danger" : undefined}>
-      {label} <span className="mono">{jobId}</span> ·{" "}
+      {label} <CopyValueButton value={jobId} kind="id" label={`复制${label} ID`} /> ·{" "}
       <span title={taskIds.join("\n")}>提交时选定 {taskIds.length} 个任务</span> ·{" "}
       {jobStatusLabel(status)}
       {query.data?.progress_pct !== undefined && ` · ${query.data.progress_pct}%`}
-      {detail && ` · ${detail}`}
+      {detail && (
+        <>
+          {" "}
+          · <CopyableError message={detail} />
+        </>
+      )}
       {status === "failed" && (
         <Button size="xs" className="ml-1" disabled={busy} onClick={onRerun}>
           重新运行
@@ -226,7 +233,7 @@ function ActionError({ message }: { message: string | null }) {
       role="alert"
       className="rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-xs text-status-danger"
     >
-      {message}
+      <CopyableError message={message} />
     </div>
   ) : null;
 }
@@ -571,7 +578,7 @@ export function DataManagerTaskActions({
         )}
         {actionError && !assignmentOpen && !exportOpen && !preannotateOpen && (
           <div role="alert" className="basis-full text-xs text-status-danger">
-            {actionError}
+            <CopyableError message={actionError} />
           </div>
         )}
         {(exportJobId || preannotateJobId) && (
@@ -652,15 +659,16 @@ export function DataManagerTaskActions({
                 </Badge>
               </div>
               <ul className="max-h-64 overflow-y-auto rounded-md border border-border bg-muted p-2 text-xs">
-                {assignmentPreview.items.map((item) => {
+                {assignmentPreview.items.map((item, index) => {
                   const changes = assignmentChanges(item, memberById);
                   return (
                     <li
                       key={item.task_id}
                       className="flex items-start justify-between gap-3 border-b border-border py-2 last:border-b-0"
                     >
-                      <span className="mono shrink-0">
-                        {item.task_display_id ?? item.task_id.slice(0, 8)}
+                      <span className="mono flex shrink-0 items-center gap-1">
+                        {item.task_display_id ?? `任务 ${index + 1}`}
+                        <CopyValueButton value={item.task_id} kind="id" label="复制分派任务 ID" />
                       </span>
                       <span className="flex flex-col items-end gap-0.5 text-right">
                         <span

@@ -1,3 +1,7 @@
+import { useListPagination } from "@/hooks/useListPagination";
+import { useOffsetListPagination } from "@/hooks/useOffsetListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { bugReportsApi, type BugReportDetail } from "@/api/bug-reports";
@@ -7,6 +11,7 @@ import { MarkdownBlock } from "@/components/bugreport/MarkdownBlock";
 import type { MarkdownEditorProps } from "@/components/markdown/MarkdownEditor";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { useBugReports } from "@/hooks/useBugReports";
+import { useBugAttachmentDownload } from "@/hooks/useBugAttachmentDownload";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { BUGS_URL_DEFAULTS, BUGS_URL_KEYS, bugsUrlCodec } from "./bugsUrlState";
 import styles from "./BugsPage.module.css";
@@ -88,20 +93,29 @@ export function BugsPage() {
   const { state: filters, issues, patch } = urlState;
   const authOwnerId = useAuthStore((state) => state.user?.id ?? null);
   const authToken = useAuthStore((state) => state.token);
+  const pagination = useOffsetListPagination(`${filters.status}\0${filters.severity}`);
   const listParams = useMemo(
     () => ({
       status: filters.status || undefined,
       severity: filters.severity || undefined,
-      limit: 50,
+      limit: pagination.pageSize,
+      offset: pagination.offset,
     }),
-    [filters.severity, filters.status],
+    [filters.severity, filters.status, pagination.pageSize, pagination.offset],
   );
   const listQuery = useBugReports(listParams);
   const items = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
   const loading = listQuery.isLoading;
+  useEffect(() => {
+    if (!listQuery.data || listQuery.isFetching) return;
+    const lastPage = Math.max(0, Math.ceil(total / pagination.pageSize) - 1);
+    if (pagination.page > lastPage) pagination.setPage(lastPage);
+  }, [listQuery.data, listQuery.isFetching, total, pagination]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BugReportDetail | null>(null);
+  const downloads = useBugAttachmentDownload(detail?.id ?? null);
+  const comments = useListPagination(detail?.comments ?? [], detailId ?? "");
   const [commentText, setCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const detailRequestRef = useRef(0);
@@ -216,6 +230,7 @@ export function BugsPage() {
   };
 
   const invalidateDetailScope = () => {
+    downloads.invalidate();
     detailRequestRef.current += 1;
     commentRequestRef.current += 1;
     activeDetailIdRef.current = null;
@@ -262,61 +277,72 @@ export function BugsPage() {
 
       {/* List */}
       <div className={detailId ? styles.layoutWithDetail : styles.layout}>
-        <div>
+        <div className={`${listStyles.surface} min-w-0 self-start`}>
           {loading && <div className={styles.emptyState}>加载中...</div>}
           {!loading && items.length === 0 && <div className={styles.emptyState}>暂无反馈</div>}
-          <table className={styles.table}>
-            <thead>
-              <tr className={styles.headerRow}>
-                <th className={styles.th}>ID</th>
-                <th className={styles.th}>标题</th>
-                <th className={styles.th}>严重度</th>
-                <th className={styles.th}>状态</th>
-                <th className={styles.th}>时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr
-                  key={item.id}
-                  onClick={() => loadDetail(item.id)}
-                  className={
-                    detailId === item.id
-                      ? `${styles.itemRow} ${styles.itemRowSelected}`
-                      : styles.itemRow
-                  }
-                >
-                  <td className={styles.idCell}>{item.display_id}</td>
-                  <td className={styles.titleCell}>
-                    {item.title.length > 40 ? item.title.slice(0, 40) + "..." : item.title}
-                  </td>
-                  <td className={styles.td}>
-                    <span className={`${styles.severity} ${severityClass[item.severity] ?? ""}`}>
-                      {item.severity}
-                    </span>
-                  </td>
-                  <td className={styles.td}>
-                    {statusLabel[item.status] ?? item.status}
-                    {item.reopen_count > 0 && (
-                      <span
-                        title={
-                          item.last_reopened_at
-                            ? `最近重开：${new Date(item.last_reopened_at).toLocaleString("zh-CN")}`
-                            : undefined
-                        }
-                        className={styles.reopenPill}
-                      >
-                        ↻{item.reopen_count}
-                      </span>
-                    )}
-                  </td>
-                  <td className={styles.dateCell}>
-                    {new Date(item.created_at).toLocaleDateString("zh-CN")}
-                  </td>
+          <div className={listStyles.scroll}>
+            <table className={`${listStyles.table} min-w-[540px]`}>
+              <thead>
+                <tr className={styles.headerRow}>
+                  <th>ID</th>
+                  <th>标题</th>
+                  <th>严重度</th>
+                  <th>状态</th>
+                  <th>时间</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr
+                    key={item.id}
+                    onClick={() => loadDetail(item.id)}
+                    className={
+                      detailId === item.id
+                        ? `${styles.itemRow} ${styles.itemRowSelected}`
+                        : styles.itemRow
+                    }
+                  >
+                    <td className={styles.idCell}>{item.display_id}</td>
+                    <td className={styles.titleCell}>
+                      {item.title.length > 40 ? item.title.slice(0, 40) + "..." : item.title}
+                    </td>
+                    <td>
+                      <span className={`${styles.severity} ${severityClass[item.severity] ?? ""}`}>
+                        {item.severity}
+                      </span>
+                    </td>
+                    <td>
+                      {statusLabel[item.status] ?? item.status}
+                      {item.reopen_count > 0 && (
+                        <span
+                          title={
+                            item.last_reopened_at
+                              ? `最近重开：${new Date(item.last_reopened_at).toLocaleString("zh-CN")}`
+                              : undefined
+                          }
+                          className={styles.reopenPill}
+                        >
+                          ↻{item.reopen_count}
+                        </span>
+                      )}
+                    </td>
+                    <td className={styles.dateCell}>
+                      {new Date(item.created_at).toLocaleDateString("zh-CN")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ListPagination
+            label="问题反馈"
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={total}
+            loading={loading}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </div>
 
         {/* Detail panel */}
@@ -366,19 +392,27 @@ export function BugsPage() {
                 <div className={styles.sectionTitle}>截图附件 ({detail.attachments.length})</div>
                 <div className={styles.attachments}>
                   {detail.attachments.map((att) => (
-                    <a
-                      key={att.storageKey}
-                      href={bugReportsApi.attachmentDownloadUrl(detail.id, att.storageKey)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.attachmentLink}
-                    >
-                      <Icon name="image" size={13} />
-                      <span className={styles.attachmentName}>{att.fileName}</span>
-                      <span className={styles.attachmentSize}>
-                        {Math.round(att.size / 1024)} KB
-                      </span>
-                    </a>
+                    <div key={att.storageKey}>
+                      <button
+                        type="button"
+                        onClick={() => void downloads.download(att)}
+                        disabled={downloads.pendingKeys.has(att.storageKey)}
+                        className={styles.attachmentLink}
+                      >
+                        <Icon name="image" size={13} />
+                        <span className={styles.attachmentName}>{att.fileName}</span>
+                        <span className={styles.attachmentSize}>
+                          {downloads.pendingKeys.has(att.storageKey)
+                            ? "下载中…"
+                            : `${Math.round(att.size / 1024)} KB`}
+                        </span>
+                      </button>
+                      {downloads.errors[att.storageKey] && (
+                        <div role="alert" className={styles.attachmentError}>
+                          {downloads.errors[att.storageKey]}，可点击附件重试。
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -412,7 +446,7 @@ export function BugsPage() {
             {/* Comments */}
             <div className={styles.commentsSection}>
               <div className={styles.sectionTitle}>评论 ({detail.comments?.length ?? 0})</div>
-              {detail.comments?.map((c) => (
+              {comments.items.map((c) => (
                 <div key={c.id} className={styles.comment}>
                   <div className={styles.commentMeta}>
                     <span className={styles.commentAuthor}>{c.author_name || "未知"}</span>
@@ -425,6 +459,14 @@ export function BugsPage() {
                 </div>
               ))}
             </div>
+            <ListPagination
+              label="反馈评论"
+              page={comments.page}
+              pageSize={comments.pageSize}
+              total={comments.total}
+              onPageChange={comments.setPage}
+              onPageSizeChange={comments.setPageSize}
+            />
             <div className={styles.commentForm}>
               <div>
                 <CompactMarkdownEditor

@@ -14,6 +14,16 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from .config import SourceConfig
 from aap_assets_source.contract import SourceFailure
+from aap_assets_source.connectors.crypto import (
+    ConnectorCryptoError,
+    ConnectorCryptoNotConfigured,
+    decrypt_secret,
+)
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+)
+from .ingest_storage_errors import ManagedStorageError
+from .managed_storage import ManagedStorage, ManagedWrite
 
 logger = logging.getLogger("aap_assets_source_runtime.storage")
 
@@ -61,6 +71,84 @@ class SourceStorage:
             region_name=config.s3_region,
             config=client_config,
         )
+        self._config = config
+        self.managed = ManagedStorage(
+            self._client,
+            timeout_seconds=config.s3_read_timeout_seconds,
+            client_for_target=self._connection_client,
+        )
+
+    def _connection_client(self, target: ManagedOriginalMaterial) -> Any:
+        """Build a single-attempt client for exactly one connection-backed write."""
+        destination = target.destination
+        if not isinstance(destination, dict):
+            raise ManagedStorageError("storage_write_failed")
+        config = destination.get("config")
+        secret_enc = destination.get("secret_enc")
+        if not isinstance(config, dict) or not isinstance(secret_enc, str):
+            raise ManagedStorageError("storage_write_failed")
+        try:
+            secret = decrypt_secret(secret_enc, self._config.connector_encryption_key)
+            access_key = secret.get("access_key")
+            secret_key = secret.get("secret_key")
+            if (
+                not isinstance(access_key, str)
+                or not access_key
+                or not isinstance(secret_key, str)
+                or not secret_key
+            ):
+                raise ManagedStorageError("storage_write_failed")
+        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
+            raise ManagedStorageError("storage_write_failed") from None
+        client = boto3.client(
+            "s3",
+            endpoint_url=target.endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=str(config.get("region") or self._config.s3_region),
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                connect_timeout=self._config.s3_connect_timeout_seconds,
+                read_timeout=self._config.s3_read_timeout_seconds,
+                retries={"total_max_attempts": 1, "mode": "standard"},
+                proxies={},
+            ),
+        )
+        return client
+
+    async def publish_managed_upload(
+        self,
+        target: ManagedOriginalMaterial,
+        *,
+        staging_key: str,
+        staging_etag: str | None,
+        staging_version_id: str | None,
+        max_bytes: int,
+        image: bool,
+        content_type: str,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ) -> ManagedWrite:
+        """Copy one staging object into the owner-reserved immutable key."""
+        try:
+            return await self.managed.publish_object(
+                target,
+                source_client=self._client,
+                source_bucket=self.import_bucket,
+                source_key=staging_key,
+                source_etag=staging_etag,
+                source_version_id=staging_version_id,
+                content_type=content_type,
+                max_bytes=max_bytes,
+                image=image,
+                on_prepared=on_prepared,
+                on_writing=on_writing,
+                on_written=on_written,
+            )
+        except ManagedStorageError as exc:
+            raise SourceFailure(exc.code) from None
 
     @property
     def client(self) -> Any:
@@ -174,29 +262,31 @@ class SourceStorage:
             logger.info("Image header could not be decoded (%s)", type(exc).__name__)
             return None
 
-    async def publish_dataset_upload(
-        self, staging_key: str, final_key: str, *, etag: str
-    ) -> None:
-        await asyncio.to_thread(
-            self._publish_dataset_upload, staging_key, final_key, etag
-        )
-
-    def _publish_dataset_upload(
-        self, staging_key: str, final_key: str, etag: str
-    ) -> None:
+    async def publish_managed_adoption(
+        self,
+        target: ManagedOriginalMaterial,
+        *,
+        max_bytes: int,
+        image: bool,
+    ) -> ManagedWrite:
+        """Fully read an existing object and pin its exact saved version."""
         try:
-            self._client.copy_object(
-                Bucket=self.datasets_bucket,
-                Key=final_key,
-                CopySource={"Bucket": self.import_bucket, "Key": staging_key},
-                CopySourceIfMatch=etag,
+            return await self.managed.adopt(target, max_bytes=max_bytes, image=image)
+        except ManagedStorageError as exc:
+            raise SourceFailure(exc.code) from None
+
+    async def verify_managed_original(
+        self,
+        target: ManagedOriginalMaterial,
+        *,
+        sha256: str,
+        size_bytes: int,
+        image: bool = False,
+    ):
+        """Read back a verified creation without acquiring new bytes."""
+        try:
+            return await self.managed.verify(
+                target, sha256=sha256, size_bytes=size_bytes, image=image
             )
-        except ClientError as exc:
-            code = exc.response.get("Error", {}).get("Code")
-            if code in _PRECONDITION_CODES or code in _MISSING_CODES:
-                raise SourceFailure("source_changed") from None
-            logger.warning("Dataset source publication failed (%s)", type(exc).__name__)
-            raise SourceFailure("storage_unavailable") from None
-        except BotoCoreError as exc:
-            logger.warning("Dataset source publication failed (%s)", type(exc).__name__)
-            raise SourceFailure("storage_unavailable") from None
+        except ManagedStorageError as exc:
+            raise SourceFailure(exc.code) from None

@@ -13,7 +13,7 @@ export interface CameraDockPanelProps {
   cameras: readonly {
     role: string;
     name: string;
-    image_url: string;
+    image_url?: string | null;
     calibration?: SensorCalibration | null;
   }[];
   boxes: SceneBox[];

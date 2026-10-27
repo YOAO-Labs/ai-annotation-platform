@@ -123,6 +123,7 @@
     "rendering_config",
     "annotation_guide",
     "guide_assets",
+    "guide_assets_revision",
     "model_version",
     "task_lock_ttl_seconds",
     "total_tasks",
@@ -217,7 +218,8 @@
         "scene_continuation_window_min",
         "due_date",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "guide_assets_revision"
       ],
       "column_types": {
         "id": {
@@ -370,6 +372,10 @@
         },
         "updated_at": {
           "type": "timestamp with time zone",
+          "nullable": false
+        },
+        "guide_assets_revision": {
+          "type": "integer",
           "nullable": false
         }
       },

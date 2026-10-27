@@ -1,4 +1,4 @@
--- Grant the Workspace configuration LOGIN only its two closed native functions.
+-- Grant the Workspace configuration LOGIN only its closed native capabilities.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v workspace_configuration_role=workspace_configuration_client
@@ -74,9 +74,12 @@ DECLARE
     step_oid oid := pg_catalog.to_regprocedure(
         'aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])'
     )::oid;
+    guide_oid oid := pg_catalog.to_regprocedure(
+        'aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)'
+    )::oid;
 BEGIN
     IF identity_oid IS NULL OR workspace_oid IS NULL OR client_oid IS NULL
-       OR policy_oid IS NULL OR step_oid IS NULL THEN
+       OR policy_oid IS NULL OR step_oid IS NULL OR guide_oid IS NULL THEN
         RAISE EXCEPTION 'Missing Workspace configuration owner or LOGIN capability';
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
@@ -87,10 +90,14 @@ BEGIN
         WHERE function.oid = policy_oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = step_oid) IS DISTINCT FROM workspace_oid
+       OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
+           WHERE function.oid = guide_oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.prorettype FROM pg_catalog.pg_proc AS function
            WHERE function.oid = policy_oid) IS DISTINCT FROM 'jsonb'::pg_catalog.regtype
        OR (SELECT function.prorettype FROM pg_catalog.pg_proc AS function
-           WHERE function.oid = step_oid) IS DISTINCT FROM 'jsonb'::pg_catalog.regtype THEN
+           WHERE function.oid = step_oid) IS DISTINCT FROM 'jsonb'::pg_catalog.regtype
+       OR (SELECT function.prorettype FROM pg_catalog.pg_proc AS function
+           WHERE function.oid = guide_oid) IS DISTINCT FROM 'jsonb'::pg_catalog.regtype THEN
         RAISE EXCEPTION 'A Workspace configuration RPC has the wrong owner or return type';
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
@@ -152,6 +159,7 @@ END $$;
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1
     TO :"workspace_configuration_role";
 GRANT EXECUTE ON FUNCTION
+    aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb),
     aap_workspace_configuration_v1.configuration_policy(),
     aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     TO :"workspace_configuration_role";
@@ -165,7 +173,8 @@ DECLARE
     actual_functions text[];
     expected_functions text[] := ARRAY[
         'aap_workspace_configuration_v1.configuration_policy()',
-        'aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])'
+        'aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])',
+        'aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(

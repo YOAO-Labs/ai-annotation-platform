@@ -1,72 +1,66 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
-# API Schema 边界 (DB ↔ API ↔ 前端)
+# API Schema 边界（DB ↔ API ↔ 前端）
 
-后端 ML backend 返回的是 Label Studio 标准 shape，前端工作台消费的是平台内部 shape。本文记录三层边界、adapter 责任和单测黄金样本约定。
-
-<!-- history: this page originally documented the v0.9 adapter fix; visible guidance now focuses on the current schema contract. -->
+后端 ML Backend 返回的是 Label Studio 兼容标准 shape，而前端工作台消费的是平台内部强类型 shape。本文说明三层 schema 边界、读路径转换器责任与自动代码生成机制。
 
 ## 三层 schema
 
-```
-┌────────────────────────────────────────────────────┐
-│ DB (PostgreSQL)                                     │
-│   predictions.result   = JSONB                      │
-│   存的是 LabelStudio 标准 {type, value, score}      │
-│   原因: 与导出 / CVAT / Label Studio 互通工具兼容   │
-└──────────────────────┬─────────────────────────────┘
-                       │ services/prediction.PredictionService
-                       │ + to_internal_shape()
-                       ↓
-┌────────────────────────────────────────────────────┐
-│ API (FastAPI / Pydantic)                            │
-│   PredictionOut.result = list[dict]                 │
-│   每个 dict 已转成内部 shape:                        │
-│     {type, class_name, geometry, confidence}        │
-│   geometry = {type: "bbox", x, y, w, h} | polygon   │
-└──────────────────────┬─────────────────────────────┘
-                       │ openapi-ts codegen → src/api/generated/types.gen.ts
-                       │ + 手写 PredictionShape (TypedDict 泛 unknown)
-                       ↓
-┌────────────────────────────────────────────────────┐
-│ 前端 (apps/web/src/types/index.ts + transforms.ts)  │
-│   PredictionShape = { type, class_name, geometry,  │
-│                        confidence }                 │
-│   predictionsToBoxes() 消费 → AiBox 渲染            │
-└────────────────────────────────────────────────────┘
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│ DB (PostgreSQL)                                                    │
+│   predictions.result = JSONB                                       │
+│   存储 Label Studio 标准 {type, value, score}                      │
+│   原因：与导出 / CVAT / Label Studio 生态工具保持原生兼容          │
+└──────────────────────────┬─────────────────────────────────────────┘
+                           │ services/prediction.PredictionService
+                           │ + to_internal_shape()
+                           ↓
+┌────────────────────────────────────────────────────────────────────┐
+│ API (FastAPI / Pydantic)                                           │
+│   PredictionOut.result = list[PredictionShape]                     │
+│   读路径统一转换为平台内部 shape：                                 │
+│     {type, tool_unit_id, class_name, geometry, confidence}         │
+│   geometry 覆盖 bbox | rotated_bbox | polygon | multi_polygon |    │
+│                polyline | keypoint | cuboid_3d | raster_mask       │
+└──────────────────────────┬─────────────────────────────────────────┘
+                           │ openapi-ts codegen → src/api/generated/types.gen.ts
+                           ↓
+┌────────────────────────────────────────────────────────────────────┐
+│ 前端 (apps/web/src/types/index.ts + transforms.ts)                 │
+│   PredictionShape 强类型消费 → predictionsToBoxes() → 画布渲染     │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Adapter 在哪里
 
-| 位置                                                       | 职责                                                 |
-| ---------------------------------------------------------- | ---------------------------------------------------- |
-| `apps/api/app/services/prediction.py:to_internal_shape`    | LabelStudio 标准 → 内部 shape (read path 单一适配点) |
-| `apps/api/app/api/v1/tasks/predictions.py:get_predictions` | list predictions 端点构建 PredictionOut 时调用       |
-| `apps/api/app/services/annotation.py:61-64`                | annotation 创建时取 prediction 候选转换              |
+| 位置                                                       | 职责                                               |
+| ---------------------------------------------------------- | -------------------------------------------------- |
+| `apps/api/app/services/prediction.py:to_internal_shape`    | Label Studio 标准 → 内部 shape（读路径单一适配点） |
+| `apps/api/app/api/v1/tasks/predictions.py:get_predictions` | 查询 predictions 端点构建 `PredictionOut` 时调用   |
+| `apps/api/app/services/annotation.py`                      | 采纳预测创建 annotation 时转换候选几何与类别       |
 
-写路径 (`PredictionService.create_from_ml_result`) **不动** — 直接存 ML backend 返回的 LabelStudio 原文, 维持 DB 标准。读路径单一吸收适配, 避免双向转换导致的环状依赖。
+写路径（`PredictionService.create_from_ml_result`）保持原样存储 ML Backend 返回的格式，读路径单点吸收转换，避免双向转换产生环状依赖。
 
-## OpenAPI codegen
+## OpenAPI Codegen
 
-工具: `@hey-api/openapi-ts` (`apps/web/openapi-ts.config.ts`).
+工具：`@hey-api/openapi-ts`（配置位于 `apps/web/openapi-ts.config.ts`）。
 
 ```bash
-# 1. 后端改 Pydantic schema 后, 刷新 OpenAPI snapshot
+# 1. 后端修改 Pydantic schema 后，刷新 OpenAPI snapshot
 cd apps/api && uv run python ../../scripts/export_openapi.py
 
-# 2. 生成 TypeScript types
-cd apps/web && pnpm codegen
-
-# 输出: apps/web/src/api/generated/types.gen.ts
+# 2. 生成前端 TypeScript 类型与能力词表
+pnpm codegen
+# 输出：apps/web/src/api/generated/types.gen.ts（gitignored）
 ```
 
-`pnpm build` 通过 `prebuild` hook (`scripts/codegen-if-changed.mjs`) 仅在 snapshot 比生成产物新时跑 codegen, 加速开发循环。
+`pnpm --filter @anno/web build` 通过 `prebuild` 钩子（`apps/web/scripts/codegen-if-changed.mjs`）仅在 snapshot 比本地生成产物更新时执行 codegen，兼顾类型安全与构建速度。
 
 ## Capability Registry Codegen
 
@@ -91,9 +85,9 @@ pre-commit 会在 capability registry、schema 或 API 序列化文件变更时�
 
 - ✅ `AsyncJobOut` **从 codegen 派生**，见 `apps/web/src/api/asyncJobs.ts`
 - ✅ `PredictionShape` / `PredictionResponse` **从 codegen 派生**
-  - 后端: `apps/api/app/schemas/prediction.py` 加 `PredictionShape` Pydantic 模型 (geometry 复用 `_jsonb_types.{Bbox,Polygon}Geometry`); `PredictionOut.result: list[PredictionShape]`
-  - 前端: `apps/web/src/types/index.ts` re-export generated 类型, 对 `geometry` 做轻度窄化 (剔除 dict fallback) 兼容 transforms.ts 强类型消费
-  - 数据流: DB 仍存 LabelStudio 标准 `{type, value, score}` (导出兼容); 读路径 `to_internal_shape()` 在 `apps/api/app/api/v1/tasks/predictions.py` 转换后构造 PredictionOut
+  - 后端：`apps/api/app/schemas/prediction.py` 定义 `PredictionShape` Pydantic 模型（geometry 复用 `_jsonb_types` 中的几何联合类型）；`PredictionOut.result: list[PredictionShape]`
+  - 前端：`apps/web/src/types/index.ts` 重导出生成类型，对 `geometry` 做窄化以兼容 `transforms.ts` 强类型消费
+  - 数据流：DB 仍存 Label Studio 标准 `{type, value, score}`；读路径 `to_internal_shape()` 在 `apps/api/app/api/v1/tasks/predictions.py` 转换后构造 `PredictionOut`
 
 ## 兼容旧 schema 的最小不变量
 

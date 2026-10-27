@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useFocusedListPagination } from "./useFocusedListPagination";
 /**
  * v0.23.4 P3 · registry "GPU 资源" tab (Super Admin only).
  *
@@ -28,6 +31,7 @@ import {
 } from "@/components/shadcn/ui/table";
 import { Progress } from "@/components/shadcn/ui/progress";
 import { Input } from "@/components/shadcn/ui/input";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 
 import type {
   GPUArbiterResourceItem,
@@ -35,7 +39,7 @@ import type {
 } from "@/api/adminMlIntegrations";
 import { formatShortId } from "./registryShared";
 import { urlIssuesForView } from "../marketUrlState";
-import { EmptyState, LoadingState, NullCell, ShortCopyableId, UrlIssueChips } from "./registryUi";
+import { EmptyState, LoadingState, NullCell, UrlIssueChips } from "./registryUi";
 import type { RegistryScope, RegistrySectionProps } from "./registryTypes";
 import type { Diagnostic } from "../runtimeTopology";
 import { DiagnosticBadge } from "../runtime/DiagnosticBadge";
@@ -90,6 +94,22 @@ export function GPUResourcesSection({
   const focusGpuId = url.gpuId;
   const resources = gpuResources ?? [];
   const focusGpuExists = resources.some((r) => r.gpu_resource_id === focusGpuId);
+
+  const rows = resources.filter((r) => {
+    if (!url.gpuQ) return true;
+    const q = url.gpuQ.trim().toLowerCase();
+    return `${r.gpu_resource_id} ${r.node_id} ${r.physical_device_token ?? ""}`
+      .toLowerCase()
+      .includes(q);
+  });
+
+  const pagination = useFocusedListPagination(
+    rows,
+    url.gpuQ,
+    focusGpuId,
+    (resource) => resource.gpu_resource_id,
+  );
+
   useEffect(() => {
     if (!focusGpuId || !focusGpuExists) return;
     setExpanded((prev) => {
@@ -100,15 +120,7 @@ export function GPUResourcesSection({
     });
     const row = document.querySelector<HTMLElement>(`[data-gpu-row="${focusGpuId}"]`);
     row?.scrollIntoView?.({ block: "nearest" });
-  }, [focusGpuId, focusGpuExists]);
-
-  const rows = resources.filter((r) => {
-    if (!url.gpuQ) return true;
-    const q = url.gpuQ.trim().toLowerCase();
-    return `${r.gpu_resource_id} ${r.node_id} ${r.physical_device_token ?? ""}`
-      .toLowerCase()
-      .includes(q);
-  });
+  }, [focusGpuId, focusGpuExists, pagination.page]);
 
   if (loading.gpu) {
     return <LoadingState label="加载 GPU 资源…" />;
@@ -155,7 +167,7 @@ export function GPUResourcesSection({
       {resources.length === 0 ? (
         <EmptyState icon="activity" message="尚未配置 GPU_ARBITER_RESOURCES_JSON" />
       ) : (
-        <Table containerClassName="overflow-hidden rounded-lg border border-border bg-card">
+        <Table containerClassName={listStyles.surface}>
           <TableHeader>
             <TableRow>
               <TableHead className="w-8" />
@@ -168,7 +180,7 @@ export function GPUResourcesSection({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((resource) => (
+            {pagination.items.map((resource) => (
               <GpuResourceRow
                 key={resource.gpu_resource_id}
                 resource={resource}
@@ -190,6 +202,12 @@ export function GPUResourcesSection({
           </TableBody>
         </Table>
       )}
+      <ListPagination
+        label="GPU 资源"
+        {...pagination}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </div>
   );
 }
@@ -279,11 +297,15 @@ function GpuResourceRow({
               ) : (
                 <span className="text-xs text-muted-foreground">未提供设备序号</span>
               )}
+              <CopyValueButton
+                value={resource.gpu_resource_id}
+                kind="id"
+                label="复制 GPU 资源 ID"
+              />
             </div>
             <div className="flex items-center gap-2 text-2xs text-muted-foreground">
               <span>节点 · {resource.node_id}</span>
             </div>
-            <ShortCopyableId value={resource.gpu_resource_id} label="GPU 资源 ID" />
             <div className="text-2xs text-muted-foreground">
               配置 · {resource.configured_mode ?? "未配置"}
             </div>

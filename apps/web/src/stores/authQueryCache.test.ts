@@ -5,6 +5,18 @@ import { clearProactiveLogout, isProactiveLogout } from "@/utils/authRedirect";
 import { bindAuthQueryCache } from "./authQueryCache";
 import { bindAuthStorage, useAuthStore } from "./authStore";
 
+it("drops cached identities when the same account and token enter a different session", () => {
+  const client = new QueryClient();
+  useAuthStore.getState().setAuth("same-token", { id: "alice" } as MeResponse);
+  const unbind = bindAuthQueryCache(client);
+  client.setQueryData(["task-point-cloud-manifest", "task"], "old-private-manifest");
+  useAuthStore.setState({ sessionId: crypto.randomUUID() });
+  expect(client.getQueryData(["task-point-cloud-manifest", "task"])).toBeUndefined();
+  unbind();
+  client.clear();
+  useAuthStore.getState().logout();
+});
+
 it("drops private cached queries and ignores late results across account changes", async () => {
   const client = new QueryClient();
   const alice = { id: "alice" } as MeResponse;

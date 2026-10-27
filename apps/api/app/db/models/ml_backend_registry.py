@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -27,6 +28,9 @@ class MLBackendRegistry(Base):
 
     __tablename__ = "ml_backend_registry"
     __table_args__ = (
+        CheckConstraint(
+            "auth_revision >= 0", name="ck_ml_backend_auth_revision_nonnegative"
+        ),
         CheckConstraint(
             "(gpu_resource_id IS NULL) = (vram_budget_mb IS NULL)",
             name="ck_ml_backend_registry_gpu_claim_pair",
@@ -55,6 +59,11 @@ class MLBackendRegistry(Base):
     # 端点接入属性(上提到全局, 不做项目覆盖)
     auth_method: Mapped[str] = mapped_column(String(20), default="none")
     auth_token: Mapped[str | None] = mapped_column(String(500))
+    # Database-managed revision fences health/control observations across rotation,
+    # including rotations back to a previously used credential.
+    auth_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
     extra_params: Mapped[dict] = mapped_column(JSONB, default=dict)
     # ADR-0049 · 一个 registry backend 本期只能 claim 一个稳定物理 GPU/MIG
     # resource。CPU / 尚未完成 GPU 配置的存量行保持 null/null，不猜卡。

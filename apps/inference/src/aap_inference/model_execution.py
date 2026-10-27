@@ -15,9 +15,11 @@ from aap_inference.backend_endpoint import (
 )
 from aap_inference_contract.backend_endpoint import BackendEndpointSubject
 from aap_inference_contract.execution import (
+    DispatchBoundary,
     ExecutionFailure,
     ExecutionProvenance,
     FrozenModelOperation,
+    ModelExecutionDispatch,
     ModelExecutionRouteBinding,
     ModelExecutionError,
     ModelExecutionObservation,
@@ -40,6 +42,12 @@ from .request_tracking import RequestContext
 
 class ModelExecutionUnavailable(RuntimeError):
     """Required execution owner composition is incomplete or unavailable."""
+
+
+class _DispatchBoundaryAbort(Exception):
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        super().__init__(type(error).__name__)
 
 
 class ModelExecutionRequestContextFactory(Protocol):
@@ -132,7 +140,12 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
     async def readiness(self) -> bool:
         return await self._endpoint_source.readiness()
 
-    async def execute(self, request: FrozenModelOperation) -> ModelOperationResult:
+    async def execute(
+        self,
+        request: FrozenModelOperation,
+        *,
+        before_dispatch: DispatchBoundary | None = None,
+    ) -> ModelOperationResult:
         if (
             not isinstance(request, FrozenModelOperation)
             or request.endpoint_subject is None
@@ -169,6 +182,13 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
                 and endpoint.registry_id != request.required_instance_id
             ):
                 raise ModelExecutionUnavailable()
+            if before_dispatch is not None:
+                # Exact dispatch boundary: endpoint authority is open and this
+                # provider is about to issue the single physical request.
+                try:
+                    await before_dispatch(ModelExecutionDispatch.from_request(request))
+                except BaseException as error:
+                    raise _DispatchBoundaryAbort(error) from error
             transport_backend = _TransportBackend(
                 id=endpoint.registry_id,
                 url=endpoint.url,
@@ -292,6 +312,8 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
                 wall_time_ms=int((time.perf_counter() - started) * 1000),
                 response_digest=digest,
             )
+        except _DispatchBoundaryAbort as abort:
+            raise abort.error from None
         except ModelExecutionError:
             raise
         except Exception as exc:

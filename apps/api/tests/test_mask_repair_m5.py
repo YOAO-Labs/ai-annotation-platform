@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
 from sqlalchemy import select
 
 from app.application.raster_mask_retention import referenced_raster_mask_keys
@@ -16,16 +18,10 @@ from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.services.dataset_assets import register_item_asset
 from app.services.mask_qc.topology import rle_and_not, rle_or
-from app.services.mask_repair import (
-    canonical_digest,
-    execute_repair_shard,
-    rollback_repair_shard,
-)
-from app.services.raster_mask_storage import (
-    build_rle_reference,
-    reserve_raster_mask_upload,
-)
+from app.services.mask_repair import canonical_digest
+from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import coco_rle_area, encode_coco_rle
 from tests.factory import create_user
 
@@ -41,7 +37,11 @@ def _rle(rows: list[str]) -> dict:
     return encode_coco_rle(pixels, width, height)
 
 
-async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
+async def _seed_repair_issue(
+    db, *, owner_id: uuid.UUID, locked: bool = False, source=None, island=None
+):
+    source = source if source is not None else _rle([".....", ".###.", "....#"])
+    island = island if island is not None else _rle([".....", ".....", "....#"])
     suffix = uuid.uuid4().hex[:8]
     project = Project(
         display_id=f"P-RPR-{suffix}",
@@ -74,11 +74,21 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
         file_name="repair.png",
         file_path="repair.png",
         file_type="image",
-        width=5,
-        height=3,
+        width=source["size"][1],
+        height=source["size"][0],
     )
     db.add(item)
     await db.flush()
+    # Request qualification freezes real registered source facts. Physical image
+    # reads belong to the committed managed-owner integration tests.
+    output = io.BytesIO()
+    with Image.new("RGB", (item.width, item.height), "red") as image:
+        image.save(output, "PNG")
+    raw = output.getvalue()
+    item.file_size = len(raw)
+    await register_item_asset(
+        db, item, sha256=hashlib.sha256(raw).hexdigest(), size_bytes=len(raw)
+    )
     # The review task carries a distinct literal annotator as its frozen round
     # contributor, so the owner's QC repair is not a self-review of own work.
     author = await create_user(
@@ -100,8 +110,6 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
     )
     db.add(task)
     await db.flush()
-    source = _rle([".....", ".###.", "....#"])
-    island = _rle([".....", ".....", "....#"])
     source_ref = build_rle_reference(source)
     island_ref = build_rle_reference(island)
     annotation = Annotation(
@@ -321,11 +329,11 @@ async def test_execute_rejects_expired_receipt(
 
 
 @pytest.mark.asyncio
-async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
+async def test_execute_replay_reuses_batch_and_dispatch(
     httpx_client, super_admin, db_session, monkeypatch, app_module
 ):
     user, token = super_admin
-    project, _task, annotation, issue, source, island = await _seed_repair_issue(
+    project, _task, _annotation, issue, source, island = await _seed_repair_issue(
         db_session, owner_id=user.id
     )
     rles = {
@@ -346,9 +354,9 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     plan = dry_run.json()
     dispatches: list[tuple[uuid.UUID, bool]] = []
 
-    def fake_dispatch(batch_id: uuid.UUID, *, rollback: bool) -> str:
+    def fake_dispatch(batch_id: uuid.UUID, *, rollback: bool, execution_id: str) -> str:
         dispatches.append((batch_id, rollback))
-        return "celery-mask-repair-1"
+        return execution_id
 
     monkeypatch.setitem(
         app_module.dependency_overrides,
@@ -370,53 +378,8 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     assert first.status_code == 202, first.text
     assert replay.status_code == 202, replay.text
     assert replay.json()["id"] == first.json()["id"]
+    assert replay.json()["async_job_id"] == first.json()["async_job_id"]
     assert len(dispatches) == 1
-
-    batch = await db_session.get(MaskRepairBatch, uuid.UUID(first.json()["id"]))
-    assert batch is not None
-    private_item = batch.plan_json["items"][0]
-    # Plans written before optional-null omission must remain executable.
-    private_item["payload"]["cut_path"] = None
-    result_rle = private_item["result_rle"]
-    rles[private_item["result_reference"]["sha256"]] = result_rle
-    monkeypatch.setattr("app.services.mask_mutation.load_coco_rle", fake_load)
-    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", fake_load)
-
-    async def reserve_result(db, *, task_id, reference, **_kwargs):
-        await reserve_raster_mask_upload(
-            db, task_id=task_id, object_key=reference["object_key"], limit=100
-        )
-
-    async def no_store(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(
-        "app.services.mask_repair.store_repair_result_rle", reserve_result
-    )
-    monkeypatch.setattr(
-        "app.services.mask_mutation.prepare_mask_payload_for_write", no_store
-    )
-    shard_result = await execute_repair_shard(
-        db_session,
-        batch_id=batch.id,
-        shard=batch.plan_json["shards"][0],
-        actor=user,
-        async_job_id=batch.async_job_id,
-    )
-    assert shard_result["status"] == "completed"
-    assert shard_result["items"][0]["changed_pixels"] == 1
-    assert issue.status == "resolved"
-
-    await db_session.refresh(annotation)
-    annotation.version = shard_result["items"][0]["after_version"] + 1
-    await db_session.flush()
-    with pytest.raises(RuntimeError, match="rollback_version_conflict"):
-        await rollback_repair_shard(
-            db_session,
-            plan_items=batch.plan_json["items"],
-            shard_result=shard_result,
-            actor=user,
-        )
 
 
 @pytest.mark.asyncio

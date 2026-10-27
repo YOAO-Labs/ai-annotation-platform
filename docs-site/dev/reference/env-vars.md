@@ -73,6 +73,10 @@ last_reviewed: 2026-10-27
 | `MINIO_PUBLIC_URL` | `/minio` | 浏览器可达的 MinIO 根地址。DEV 用同源 /minio，由 Vite :3000 代理到 localhost:9000，远程浏览器无需额外打通 9000 端口。生产应改为完整外网 URL。 容器中的 ML Backend 访问地址仍由 ML_BACKEND_STORAGE_HOST 独立控制。 |
 | `MINIO_ACCESS_KEY` | `minioadmin` | MinIO 访问密钥（相当于 AWS Access Key ID） 沿用 compose 自带 minio 时，这两项同时作为 minio 容器的 root 凭据（docker-compose.yml 绑定）， 后端/worker 与 minio 容器自动共用同一份；用托管 S3/OSS 时填对方的 AK/SK 即可。 |
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO 密钥（相当于 AWS Secret Access Key）；生产环境务必更换 |
+| `AAP_SOURCE_FENCE_ACCESS_KEY` | `—` | 仅原生源端封闭运维命令使用，在操作进程中导出，不加入API或Worker配置。 |
+| `AAP_SOURCE_FENCE_SECRET_KEY` | `—` | 显式登记来源的root密钥，不写入描述文件、状态或报告。 |
+| `AAP_TARGET_FENCE_ACCESS_KEY` | `—` | 仅整组切换回滚运维CLI使用的独立B凭据，不回退为A凭据，不加入API或Worker配置。 |
+| `AAP_TARGET_FENCE_SECRET_KEY` | `—` | — |
 | `MINIO_BUCKET` | `annotations` | 存放标注文件（图片、音频等）的桶名称 |
 | `MINIO_DATASETS_BUCKET` | `datasets` | 数据集源文件桶（图片/视频/文本原始文件） |
 | `MINIO_BUG_REPORTS_BUCKET` | `bug-reports` | Bug 反馈截图桶（180 天 lifecycle） |
@@ -81,24 +85,24 @@ last_reviewed: 2026-10-27
 | `MINIO_IMPORT_BUCKET` | `import` | 导入预标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_EXPORT_BUCKET` | `export` | 导出标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_AVATARS_BUCKET` | `avatars` | 用户头像桶（永久保留，不可重生，纳入备份；不挂 lifecycle） |
-| `MINIO_TRAINING_BUCKET` | `training` | Immutable training datasets and model artifacts; no automatic expiration. |
+| `MINIO_TRAINING_BUCKET` | `training` | Immutable training datasets, model artifacts and SHA256 base-model assets; no automatic expiration. Bucket names are scoped to one endpoint/environment; node caches are prepared independently. |
 | `MINIO_INPUTS_BUCKET` | `accepted-inputs` | 已受理的不可变输入对象使用独立启用版本控制的桶，不配置自动过期。 |
 
 ## 项目受控训练，默认关闭。API 与独立 executor 使用同一随机凭据（至少 32 字符）。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `TRAINING_ENABLED` | `false` | — |
+| `TRAINING_ENABLED` | `false` | default worker 同步以下开关、凭据、资源与目录；更改后需重新创建该服务。 |
 | `TRAINING_EXECUTOR_TOKEN` | `—` | — |
 | `TRAINING_NODE_ID` | `local` | — |
 | `TRAINING_GPU_UUID` | `—` | — |
-| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Qualified adapters: ultralytics 8.4.177 / libreyolo 1.6.0; entries share the same shape. Ultralytics additionally qualifies yolo11n-seg simple-polygon instance training; configure its verified weight entry explicitly. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
+| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Current adapters: ultralytics 8.4.183 / libreyolo 1.6.0; entries share the same shape. Explicitly list verified YOLOv8/11/26 n/s/m/l/x detect/segment or LibreYOLO9 t/s/m/c detect assets. A bucket-backed entry also pins size_bytes and object_key=model-assets/sha256/SHA256/weights.pt. Prepare that digest on each target node before accepting experiments; bucket existence alone is insufficient. Historical 8.4.177 experiments require their original qualified runtime, not an implicit version rewrite. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
 | `TRAINING_HEARTBEAT_TIMEOUT_SECONDS` | `60` | — |
 | `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：先准备已发布镜像，Compose 不构建镜像。 TRAINING_IMAGE 为仓库名（可带标签），不得包含 @digest；凭据文件不进入镜像。 TRAINING_IMAGE_DIGEST 必须为 registry manifest digest（RepoDigests），不能用镜像 .Id。 Compose 用同一 repository@sha256 引用选择镜像并生成 TRAINING_IMAGE_REFERENCE。 |
 | `TRAINING_IMAGE_DIGEST` | `—` | — |
 | `TRAINING_API_URL` | `http://host.docker.internal:8000/api/v1/internal/training` | — |
 | `TRAINING_EXECUTOR_TOKEN_PATH` | `—` | — |
-| `TRAINING_MODELS_PATH` | `./training/models` | — |
+| `TRAINING_MODELS_PATH` | `./training/models` | Executor /models and YOLO Backend /model-assets share this read-only host directory only on the same host. On different hosts, prepare separate local directories from the same authoritative bucket. |
 
 ## 超大图 Image Pyramid
 
@@ -173,7 +177,11 @@ last_reviewed: 2026-10-27
 |---|---|---|
 | `YOLO_DEVICE` | `cuda:0` | profile gpu-yolo · 与 grounded-sam2 / sam3 三 backend 独立启停 |
 | `YOLO_MODEL_POOL_CAP` | `2` | — |
-| `YOLO_MANAGED_MODELS_TOKEN` | `—` | Controlled model installation/prediction credential; at least 32 random characters. Configure the same token on the platform's YOLO inference registry. Empty disables this path. |
+| `YOLO_MANAGED_MODELS_TOKEN` | `—` | Optional manual override. Empty uses the system-managed per-service credential. Existing manual credentials are never overwritten; use the same Token in its registry. |
+| `ML_MANAGED_AUTH_DIR` | `./data/inference-auth` | Private shared defaults for five first-party inference services; no token values go in .env. |
+| `ML_MANAGED_BACKEND_URLS` | `—` | Deployment-owned trust map. Leave unset for built-in host/Compose defaults; never a UI URL allowlist. |
+| `ML_MANAGED_BACKEND_URLS` | `{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}` | — |
+| `ML_BACKEND_OPERATIONS_DIR` | `./data/backend-manager` | Restricted local operation queue; the separate host runner owns Docker access. |
 | `YOLO_BUILD_TIMEOUT` | `30` | — |
 | `YOLO_IDLE_UNLOAD_SECONDS` | `600` | — |
 | `YOLO_IDLE_CHECK_INTERVAL` | `60` | — |
@@ -309,6 +317,9 @@ last_reviewed: 2026-10-27
 | `CONNECTOR_ENCRYPTION_KEY` | `—` | 本地 API 模式留空时，创建或解密凭据的连接器操作不可用；远程 Source 模式由 Source 服务配置同一 key。 生成: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
 | `CONNECTOR_HOST_ALLOWLIST` | `—` | 存储连接器主机白名单部署默认值（CIDR/IP/域名，CSV 或 JSON 数组）。 超管通过 /storage-connections/allowlist 写入 DB 后会覆盖该默认值。 本地连接宿主机 SFTP 示例: CONNECTOR_HOST_ALLOWLIST=172.17.0.1/32,172.26.1.17/32 |
 | `CONNECTOR_DEPLOYMENT_SFTP_HOST` | `—` | 可选：超级管理员「添加部署主机」快捷项预填的 SFTP hostname/IP；留空不展示。 只配置地址，不包含凭据、路径或白名单规则。目标仍须显式加入 CONNECTOR_HOST_ALLOWLIST。 |
+| `STORAGE_FILESYSTEM_ROOTS` | `{}` | 部署允许的只读根；位置和子目录通过存储位置 API 动态登记。 API 与指定 worker 各自配置实际可见路径，默认空映射拒绝所有根。 示例：STORAGE_FILESYSTEM_ROOTS={"ceph":"/mnt/cephfs","local":"/mnt/storage"} |
+| `STORAGE_SFTP_ROOTS` | `{}` | 已验收只读 chroot 的 SFTP 账号资格；整个账号命名空间必须属于该位置，连接 base_path 必须为 /。 JSON 根句柄 → {host, port, username, host_key}；host_key 为完整 SSH 公钥（类型与 base64）。默认不开放。 变更前先禁用相关位置，再协调 API/worker 配置；仅修改一个进程环境不能撤销旧 worker。 |
+| `STORAGE_MAINTENANCE_PROTOCOL_ENABLED` | `false` | 位置维护控制默认关闭；新代码始终登记受控访问。 仅在该部署命名空间全部 API/Worker 退出旧协议并完成核验后启用，空账本不是部署资格。 |
 | `DATASET_IMPORT_MAX_FILES` | `50000` | 连接器导入单个 job 最多扫描 / 导入的文件数；超限直接失败，避免误扫全桶。 |
 | `DATASET_IMPORT_MAX_TOTAL_BYTES` | `214748364800` | 连接器导入单个 job 允许的总字节数；默认 200GiB。 |
 | `MASK_FORMAT_TEMP_QUOTA_BYTES` | `8589934592` | Mask 格式导入 / 导出单 job 临时空间上限；写入时按实际字节持续复核。 |
@@ -639,22 +650,11 @@ last_reviewed: 2026-10-27
 | `ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS` | `2` | — |
 | `ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS` | `10` | — |
 
-## Optional guide-byte capability in the same Assets Source binary.
+## Assets Source serves dataset/source operations; guide bytes use managed uploads.
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_SOURCE_MODE` | `source` | source (default), guide-only (no PostgreSQL/source credentials), source-and-guide. |
-| `ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT` | `4` | — |
-| `ASSETS_SOURCE_GUIDE_S3_ENDPOINT` | `—` | — |
-| `ASSETS_SOURCE_GUIDE_S3_PUBLIC_URL` | `/minio` | — |
-| `ASSETS_SOURCE_GUIDE_S3_REGION` | `us-east-1` | — |
-| `ASSETS_SOURCE_GUIDE_S3_BUCKET` | `—` | — |
-| `ASSETS_SOURCE_GUIDE_S3_ACCESS_KEY` | `—` | — |
-| `ASSETS_SOURCE_GUIDE_S3_ACCESS_KEY_FILE` | `—` | — |
-| `ASSETS_SOURCE_GUIDE_S3_SECRET_KEY` | `—` | — |
-| `ASSETS_SOURCE_GUIDE_S3_SECRET_KEY_FILE` | `—` | — |
-| `ASSETS_SOURCE_GUIDE_S3_CONNECT_TIMEOUT_SECONDS` | `2` | — |
-| `ASSETS_SOURCE_GUIDE_S3_READ_TIMEOUT_SECONDS` | `5` | — |
+| `ASSETS_SOURCE_MODE` | `source` | — |
 
 ## 独立连接器导入进程（可选，不进入默认 Compose）
 
@@ -797,10 +797,6 @@ last_reviewed: 2026-10-27
 | `WORKSPACE_INFERENCE_PROBE_TOKEN` | `—` | — |
 | `WORKSPACE_INFERENCE_PROBE_TOKEN_FILE` | `—` | — |
 | `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_GUIDE_OBJECTS_URL` | `—` | Guide byte capability consumed by the API binding and the Workspace owner. In the independent owner, use the existing Assets Source Guide endpoint. |
-| `WORKSPACE_GUIDE_OBJECTS_TOKEN` | `—` | — |
-| `WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE` | `—` | — |
-| `WORKSPACE_GUIDE_OBJECTS_TIMEOUT_SECONDS` | `15` | — |
 | `WORKSPACE_TEMPLATE_QUERY_URL` | `—` | Template reads: empty borrows the caller transaction. Select URL or DSN. Explicit remote failures do not fall back to another reader. |
 | `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL` | `—` | — |
 | `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL_FILE` | `—` | — |

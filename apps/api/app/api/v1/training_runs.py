@@ -1,17 +1,19 @@
 """Project training and the separately authenticated executor protocol."""
 
-import asyncio
 import secrets
 import uuid
+from copy import deepcopy
 from datetime import timedelta
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.project import Project
+from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_run import (
     TrainingAttempt,
     TrainingEvent,
@@ -41,6 +43,7 @@ from app.schemas.training_run import (
     TrainingRunOut,
     TrainingRunDetail,
     TrainingEvaluationOut,
+    TrainingRegisteredModel,
 )
 from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
@@ -53,8 +56,14 @@ from app.services import training_recipes as recipes
 from app.services import training_observability as observations
 from app.services import training_initialization as initialization
 from app.services import training_adapters as adapters
-from app.services.storage import storage_service as storage
-from app.services.training_dataset_bridge import content_digest
+from app.services import storage_access
+from app.services.training_list_filters import (
+    ISODate,
+    created_date_bounds,
+    literal_search_pattern,
+    run_task_expression,
+)
+from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -92,6 +101,9 @@ async def catalog(
         and lease.last_seen_at > service.now() - timedelta(seconds=30)
     )
     result["busy"] = bool(lease and lease.attempt_id)
+    service.annotate_readiness(
+        result, lease.runtime if lease else {}, online=result["online"]
+    )
     result["initialization_policy_digest"] = (
         lease.runtime.get("initialization_policy_digest") if lease else None
     )
@@ -148,7 +160,7 @@ async def parameter_schema(
     ):
         raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
     try:
-        return definition(framework, base_model)
+        return definition(framework, base_model, version=template["version"])
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -184,21 +196,54 @@ async def list_runs(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=120),
+    status: str | None = Query(
+        None,
+        pattern="^(queued|preparing|training|evaluating|uploading|cancelling|lost|succeeded|failed|cancelled)$",
+    ),
+    task: Literal["detect", "segment"] | None = None,
+    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    created_from: ISODate | None = Query(
+        None, description="创建日期下界，UTC 日期（含）"
+    ),
+    created_to: ISODate | None = Query(
+        None, description="创建日期上界，UTC 日期（含整天）"
+    ),
 ) -> dict:
+    start, end = created_date_bounds(created_from, created_to)
+    predicates = [TrainingRun.project_id == project.id]
+    pattern = literal_search_pattern(q)
+    if pattern is not None:
+        predicates.append(
+            or_(
+                TrainingRun.name.ilike(pattern, escape="\\"),
+                TrainingRun.config["base_model"]["id"]
+                .as_string()
+                .ilike(pattern, escape="\\"),
+            )
+        )
+    if status is not None:
+        predicates.append(TrainingRun.status == status)
+    if task is not None:
+        predicates.append(run_task_expression(TrainingRun.config) == task)
+    if framework is not None:
+        predicates.append(TrainingRun.config["framework"].as_string() == framework)
+    if start is not None:
+        predicates.append(TrainingRun.created_at >= start)
+    if end is not None:
+        predicates.append(TrainingRun.created_at <= end)
     if adapters.catalog()["enabled"]:
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()
     total = await db.scalar(
-        select(func.count())
-        .select_from(TrainingRun)
-        .where(TrainingRun.project_id == project.id)
+        select(func.count()).select_from(TrainingRun).where(*predicates)
     )
     items = (
         await db.scalars(
             select(TrainingRun)
-            .where(TrainingRun.project_id == project.id)
-            .order_by(TrainingRun.created_at.desc())
+            .where(*predicates)
+            .order_by(TrainingRun.created_at.desc(), TrainingRun.id.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -210,6 +255,25 @@ async def list_runs(
             for item in items
         ],
     }
+
+
+@router.post(
+    "/{run_id}/storage-pin",
+    response_model=TrainingRunOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def pin_legacy_run_storage(
+    run_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: IdentityActorFacts = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_run_storage_adoption import pin
+
+    return await pin(
+        db, run_id, user, project, getattr(request.state, "api_key_id", None)
+    )
 
 
 @router.get("/{run_id}", response_model=TrainingRunDetail)
@@ -226,9 +290,27 @@ async def get_run(
             .order_by(TrainingAttempt.ordinal.desc())
         )
     ).all()
+    registered_models = (
+        await db.execute(
+            select(
+                TrainedModelVersion.id,
+                TrainedModelVersion.attempt_id,
+                TrainedModelVersion.name,
+            )
+            .where(
+                TrainedModelVersion.project_id == project.id,
+                TrainedModelVersion.run_id == run.id,
+            )
+            .order_by(TrainedModelVersion.created_at, TrainedModelVersion.id)
+        )
+    ).all()
     return {
         "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
         "registration_eligibility": registration_eligibility(run.config),
+        "registered_models": [
+            TrainingRegisteredModel.model_validate(model).model_dump(mode="json")
+            for model in registered_models
+        ],
         "attempts": [
             TrainingAttemptOut.model_validate(attempt).model_dump(mode="json")
             for attempt in attempts
@@ -289,7 +371,7 @@ async def get_evaluation(
     attempt = await db.get(TrainingAttempt, attempt_id)
     if run is None or attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="实验或执行尝试不存在")
-    result = await read_evaluation(run, attempt, offset, limit)
+    result = await read_evaluation(run, attempt, offset, limit, db=db)
     await db.commit()
     return result
 
@@ -330,6 +412,105 @@ async def resume_run(
     return run
 
 
+def _log_download_http_error(exc):
+    failure = HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+    if getattr(exc, "storage_operation_unsettled", False):
+        storage_access.mark_unsettled(failure)
+    return failure
+
+
+async def _download_artifact_context(db, project, user, run_id, attempt_id, name):
+    await lock_project_manager(db, user.id, project.id)
+    run = await db.scalar(
+        select(TrainingRun)
+        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="训练实验不存在")
+    attempt = await db.get(
+        TrainingAttempt,
+        attempt_id,
+        populate_existing=True,
+        with_for_update={"read": True},
+    )
+    artifact = (
+        (attempt.artifacts or {}).get(name)
+        if attempt and attempt.run_id == run.id
+        else None
+    )
+    if not artifact or attempt.status not in service.TERMINAL:
+        raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
+    try:
+        owner = service.attempt_storage_owner(run, attempt, artifact["key"])
+    except TrainingDatasetError as exc:
+        if artifact.get("role") == "log":
+            raise _log_download_http_error(exc) from exc
+        raise
+    return run, attempt, deepcopy(artifact), owner
+
+
+async def _read_log_download(db, project, user, run_id, attempt_id, name, context):
+    run, attempt, artifact, owner = context
+    if artifact["role"] != "log":
+        raise HTTPException(status_code=404, detail="该产物不是训练日志")
+    frozen = deepcopy((owner.ref, attempt.status, artifact))
+    try:
+        result = await service.storage_io.read(
+            db,
+            owner,
+            "training_artifact_download",
+            lambda transport: observations.read_redacted_log(
+                run, attempt, name, artifact, transport=transport
+            ),
+            object_key=artifact["key"],
+            sha256=artifact["sha256"],
+            size_bytes=artifact["size_bytes"],
+        )
+    except TrainingDatasetError as exc:
+        raise _log_download_http_error(exc) from exc
+    _, latest_attempt, latest_artifact, latest_owner = await _download_artifact_context(
+        db, project, user, run_id, attempt_id, name
+    )
+    if (latest_owner.ref, latest_attempt.status, latest_artifact) != frozen:
+        raise HTTPException(status_code=409, detail="训练日志归属或校验信息已变化")
+    return result
+
+
+@router.get(
+    "/{run_id}/attempts/{attempt_id}/artifacts/{name}/content",
+    response_class=Response,
+    responses={200: {"content": {"text/plain": {}}}},
+)
+async def download_log_content(
+    run_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    name: str,
+    project: Project = Depends(require_project_owner),
+    user: IdentityActorFacts = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    context = await _download_artifact_context(
+        db, project, user, run_id, attempt_id, name
+    )
+    result = await _read_log_download(
+        db, project, user, run_id, attempt_id, name, context
+    )
+    return Response(
+        content=result["content"],
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name, safe='')}",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/{run_id}/attempts/{attempt_id}/artifacts/{name}/download")
 async def download_artifact(
     run_id: uuid.UUID,
@@ -339,51 +520,49 @@ async def download_artifact(
     user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await lock_project_manager(db, user.id, project.id)
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
-        .with_for_update(read=True)
+    context = await _download_artifact_context(
+        db, project, user, run_id, attempt_id, name
     )
-    if run is None:
-        raise HTTPException(status_code=404, detail="训练实验不存在")
-    attempt = await db.get(TrainingAttempt, attempt_id)
-    artifact = (
-        (attempt.artifacts or {}).get(name)
-        if attempt and attempt.run_id == run.id
-        else None
-    )
-    if not artifact or attempt.status not in service.TERMINAL:
-        raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
+    _, _, artifact, owner = context
     if artifact["role"] == "log":
-        derived = await asyncio.to_thread(
-            observations.redacted_log, run, attempt, name, artifact
+        result = await _read_log_download(
+            db, project, user, run_id, attempt_id, name, context
         )
         return {
-            **{key: value for key, value in derived.items() if key != "key"},
-            "url": storage.generate_download_url(
-                derived["key"],
+            **{key: value for key, value in result.items() if key != "content"},
+            "url": (
+                f"/projects/{project.id}/training-runs/{run_id}/attempts/{attempt_id}"
+                f"/artifacts/{quote(name, safe='')}/content"
+            ),
+            "requires_authentication": True,
+        }
+
+    def download(transport):
+        if not transport.verify_upload(artifact["key"], bucket=owner.bucket):
+            raise HTTPException(
+                status_code=409, detail="训练产物已不可用，请联系管理员"
+            )
+        return {
+            "url": transport.generate_download_url(
+                artifact["key"],
                 expires_in=600,
-                bucket=storage.training_bucket,
+                bucket=owner.bucket,
                 download_name=name,
                 align=False,
             ),
+            "sha256": artifact["sha256"],
+            "size_bytes": artifact["size_bytes"],
         }
-    if not await asyncio.to_thread(
-        storage.verify_upload, artifact["key"], bucket=storage.training_bucket
-    ):
-        raise HTTPException(status_code=409, detail="训练产物已不可用，请联系管理员")
-    return {
-        "url": storage.generate_download_url(
-            artifact["key"],
-            expires_in=600,
-            bucket=storage.training_bucket,
-            download_name=name,
-            align=False,
-        ),
-        "sha256": artifact["sha256"],
-        "size_bytes": artifact["size_bytes"],
-    }
+
+    return await service.storage_io.read(
+        db,
+        owner,
+        "training_artifact_download",
+        download,
+        object_key=artifact["key"],
+        sha256=artifact["sha256"],
+        size_bytes=artifact["size_bytes"],
+    )
 
 
 @router.delete(

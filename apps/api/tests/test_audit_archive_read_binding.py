@@ -80,15 +80,15 @@ def test_dedicated_archive_read_binding_closes_each_client(monkeypatch, tmp_path
     monkeypatch.setattr(audit_partition_service, "storage_service", None)
 
     assert (
-        audit_partition_service.AuditPartitionService.list_archives()[0]["object_key"]
+        audit_partition_service.AuditArchiveReadService.list_archives()[0]["object_key"]
         == "2026/10.jsonl.gz"
     )
-    assert audit_partition_service.AuditPartitionService.read_archive_rows(
+    assert audit_partition_service.AuditArchiveReadService.read_archive_rows(
         2026, 10
     ) == [{"action": "login"}]
     FakeClient.fail = True
     with pytest.raises(RuntimeError, match="archive read failed"):
-        audit_partition_service.AuditPartitionService.read_archive_rows(2026, 10)
+        audit_partition_service.AuditArchiveReadService.read_archive_rows(2026, 10)
     assert len(instances) == 3
     assert all(storage.closed for storage in instances)
 
@@ -103,7 +103,7 @@ def test_dedicated_archive_read_binding_closes_each_client(monkeypatch, tmp_path
             return []
 
     monkeypatch.setattr(audit_partition_service, "storage_service", LegacyStorage())
-    assert audit_partition_service.AuditPartitionService.list_archives() == []
+    assert audit_partition_service.AuditArchiveReadService.list_archives() == []
 
 
 def test_partial_dedicated_credentials_fail_without_fallback(
@@ -123,6 +123,6 @@ def test_partial_dedicated_credentials_fail_without_fallback(
     )
 
     with pytest.raises(ConfigurationError) as error:
-        audit_partition_service.AuditPartitionService.list_archives()
+        audit_partition_service.AuditArchiveReadService.list_archives()
 
     assert secret not in str(error.value)

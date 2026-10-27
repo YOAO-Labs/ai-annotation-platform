@@ -32,6 +32,7 @@ from aap_inference_contract.execution import (
     ExecutionFailure,
     ExecutionProvenance,
     FrozenModelOperation,
+    ModelExecutionDispatch,
     ModelExecutionError,
     ModelExecutionObservation,
     ModelExecutionPort,
@@ -77,8 +78,30 @@ pytestmark = [
 def _install_video_model_port(monkeypatch, predict, *, backend_id):
     class FixtureModelExecutionPort:
         async def execute(
-            self, operation: FrozenModelOperation
+            self,
+            operation: FrozenModelOperation,
+            *,
+            before_dispatch=None,
         ) -> ModelOperationResult:
+            if before_dispatch is not None:
+                health = operation.health_meta or {}
+                await before_dispatch(
+                    ModelExecutionDispatch(
+                        request_id=operation.request_id,
+                        operation=operation.operation,
+                        route_scope_id=uuid4(),
+                        attempt_id=operation.request_id,
+                        requested_registry_id=operation.requested_registry_id,
+                        requested_pool_id=operation.requested_pool_id,
+                        registry_id=backend_id,
+                        instance_id=backend_id,
+                        pool_id=operation.selected_pool_id,
+                        member_id=operation.selected_member_id,
+                        topology_generation=operation.topology_generation,
+                        endpoint_digest="0" * 64,
+                        capabilities=health.get("capabilities"),
+                    )
+                )
             inputs = tuple(thaw_json(value) for value in operation.task_inputs)
             context = (
                 None if operation.context is None else thaw_json(operation.context)
@@ -91,6 +114,7 @@ def _install_video_model_port(monkeypatch, predict, *, backend_id):
                 instance_id=backend_id,
                 route_scope_id=uuid4(),
                 attempt_id=operation.request_id,
+                endpoint_sha256="0" * 64,
             )
             observation_operation = (
                 "predict"

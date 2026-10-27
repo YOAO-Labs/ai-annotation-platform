@@ -22,6 +22,8 @@ x-prod-infra-env: &prod-infra-env
   DATABASE_URL: ${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}
   MIGRATION_DATABASE_URL: ""
   ALEMBIC_AUTO_UPGRADE: "false"
+  ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://grounded-sam2-backend:8001","sam3":"http://sam3-backend:8002","yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
+  STORAGE_FILESYSTEM_ROOTS: "${STORAGE_FILESYSTEM_ROOTS:-{}}"
   REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
   MINIO_ENDPOINT: ${MINIO_ENDPOINT:?.env.production 必须设置 MINIO_ENDPOINT}
   MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
@@ -54,8 +56,21 @@ services:
     environment:
       GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
+      ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"gsam2":"http://grounded-sam2-backend:8001","sam3":"http://sam3-backend:8002","yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
+      ML_MANAGED_AUTH_DIR: /run/aap-inference-auth
+      ML_BACKEND_OPERATIONS_DIR: /run/aap-backend-manager
     volumes:
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
+      - type: bind
+        source: ${ML_BACKEND_OPERATIONS_DIR:-./data/backend-manager}
+        target: /run/aap-backend-manager
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}
+        target: /run/aap-inference-auth
+        bind:
+          create_host_path: false
       - type: bind
         source: ${GPU_LIFECYCLE_SIGNING_KEYS_FILE:-/dev/null}
         target: /run/secrets/gpu_lifecycle_signing_keys

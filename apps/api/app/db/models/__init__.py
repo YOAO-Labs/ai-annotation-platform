@@ -1,4 +1,53 @@
+from app.db.models.dataset_reference_replica import DatasetReferenceReplica
+from app.db.models.managed_original_reclaim import (
+    ManagedOriginalReclaimAttempt,
+    ManagedOriginalReclaimClaim,
+    ReferenceReconciliationState,
+)
+from app.db.models.thumbnail_output import ThumbnailOutput
+from app.db.models.mask_format_upload import MaskFormatUpload
+from app.db.models.storage_fault import StorageFaultState
+from app.db.models.storage_observation_rate import StorageObservationBucket
+from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+from app.db.models.guide_asset_upload import GuideAssetUpload
+from app.db.models.project_guide_asset import ProjectGuideAsset
+from app.db.models.comment_attachment_upload import CommentAttachmentUpload
+from app.db.models.audit_archive_output import AuditArchiveOutput
+from app.db.models.managed_original_creation import ManagedOriginalCreation
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
+from app.db.models.storage_usage import (
+    StorageUsageInventory,
+    StorageUsageSnapshot,
+    StorageUsageMutation,
+    StorageUsageInventoryObject,
+    StorageUsageReconciliation,
+    StorageUsageSchedule,
+)
+from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
+from app.db.models.managed_original_verification import ManagedOriginalVerification
+from app.db.models.storage_migration_inventory import StorageMigrationInventory
+from app.db.models.storage_migration_window import StorageMigrationWindow
+from app.db.models.storage_migration_finalization import StorageMigrationFinalization
+from app.db.models.storage_migration_cutovers import StorageMigrationCutover
+from app.db.models.storage_migration_read_publication import (
+    StorageMigrationReadPublication,
+    StorageMigrationReadRoute,
+)
+from app.db.models.storage_migration_copy import (
+    StorageMigrationCopy,
+    StorageMigrationCopyAttempt,
+    StorageMigrationCopyDelta,
+)
+from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+from app.db.models.managed_original_retention_hold import ManagedOriginalRetentionHold
+from app.db.models.dataset_quality_review import (
+    DatasetQualityReviewBatch,
+    DatasetQualityReviewMember,
+)
+from app.db.models.dataset_quality import DatasetQualityRun, DatasetQualityResult
+from app.db.models.dataset_saved_view import DatasetSavedView
 from app.db.models.user import User
+from app.db.models.avatar_upload import AvatarUpload
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
 from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.group import Group
@@ -29,7 +78,13 @@ from app.db.models.task import Task
 from app.db.models.task_append_operation import TaskAppendOperation
 from app.db.models.task_creation_chunk import TaskCreationChunk
 from app.db.models.task_creation_operation import TaskCreationOperation
-from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
+from app.db.models.task_original import TaskOriginal
+from app.db.models.image_pyramid import (
+    ImagePyramidAsset,
+    ImagePyramidGeneration,
+    ImagePyramidOutput,
+)
+from app.db.models.video_derivative import VideoDerivativeOutput
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock, AnnotationDraft
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -72,6 +127,7 @@ from app.db.models.video_tracker_job import (
     VideoTrackerJobStatus,
 )
 from app.db.models.raster_mask_upload import RasterMaskUpload
+from app.db.models.raster_mask_object import RasterMaskObject, RasterMaskPublication
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
@@ -96,6 +152,7 @@ from app.db.models.point_cloud_quality import (
 from app.db.models.audit_log import AuditLog
 from app.db.models.user_invitation import UserInvitation
 from app.db.models.bug_report import BugReport, BugComment
+from app.db.models.bug_attachment_upload import BugAttachmentUpload
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.email_verification_token import EmailVerificationToken
 from app.db.models.notification import Notification
@@ -104,6 +161,8 @@ from app.db.models.system_setting import SystemSetting
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.export_output import ExportOutput
+from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.db.models.project_task_dataset import (
@@ -159,7 +218,38 @@ from app.db.models.asset_image import (
     AssetImageOperation,
 )
 
+from app.db.models.prediction_execution import PredictionExecutionSnapshot
+from app.db.models.prediction_input import PredictionInputLease
+
+from app.db.models.dataset_asset import (
+    DatasetAsset,
+    DatasetAssetLocation,
+    StorageBinding,
+    StorageLocation,
+    StorageLocationProbe,
+)
+
+from app.db.models.dataset_source import (
+    DatasetSource,
+    DatasetScanRun,
+    DatasetScanEntry,
+    DatasetSourceRevision,
+)
+
+from app.db.models.site_agent import Site, AgentRegistration, AgentCredential
+from app.db.models.site_agent_command import SiteAgentCommand
+
 __all__ = [
+    "DatasetReferenceReplica",
+    "Site",
+    "AgentRegistration",
+    "AgentCredential",
+    "SiteAgentCommand",
+    "DatasetAuxiliaryOriginal",
+    "StorageMaintenanceGate",
+    "StorageOperation",
+    "PredictionInputLease",
+    "PredictionExecutionSnapshot",
     "TrainedModelVersion",
     "ModelDeployment",
     "ModelRelease",
@@ -180,12 +270,16 @@ __all__ = [
     "ProjectPipeline",
     "ProjectTemplate",
     "ProjectTaskView",
+    "DatasetSavedView",
     "Task",
     "TaskAppendOperation",
     "TaskCreationOperation",
     "TaskCreationChunk",
+    "TaskOriginal",
     "ImagePyramidAsset",
     "ImagePyramidGeneration",
+    "ImagePyramidOutput",
+    "VideoDerivativeOutput",
     "TaskBatch",
     "TaskLock",
     "AnnotationDraft",
@@ -221,6 +315,8 @@ __all__ = [
     "VideoTrackerJobKind",
     "VideoTrackerJobStatus",
     "RasterMaskUpload",
+    "RasterMaskObject",
+    "RasterMaskPublication",
     "AiMaskAcceptDecision",
     "AnnotationOperation",
     "AnnotationLineageEdge",
@@ -298,3 +394,80 @@ __all__ += [
 ]
 __all__ += ["DatasetLegacyUploadOperation"]
 __all__ += ["DatasetUploadIntent"]
+
+__all__ += [
+    "DatasetAsset",
+    "DatasetAssetLocation",
+    "StorageBinding",
+    "StorageLocation",
+    "StorageLocationProbe",
+]
+
+
+__all__ += [
+    "DatasetSource",
+    "DatasetScanRun",
+    "DatasetScanEntry",
+    "DatasetSourceRevision",
+]
+
+__all__ += ["DatasetQualityRun", "DatasetQualityResult"]
+
+__all__ += ["DatasetQualityReviewBatch", "DatasetQualityReviewMember"]
+
+
+__all__ += [
+    "StorageUsageInventory",
+    "StorageUsageSnapshot",
+    "StorageUsageMutation",
+    "StorageUsageInventoryObject",
+    "StorageUsageReconciliation",
+    "StorageUsageSchedule",
+]
+__all__ += ["OriginalCacheEntry", "OriginalCacheReadLease"]
+__all__ += ["ManagedOriginalRetirement"]
+__all__ += ["ManagedOriginalRetentionHold"]
+
+__all__ += ["ManagedOriginalVerification", "StorageMigrationInventory"]
+__all__ += ["StorageMigrationWindow"]
+
+__all__ += ["ManagedOriginalCreation"]
+
+__all__ += ["AvatarUpload"]
+
+__all__ += ["ExportOutput", "ExportMediaBundle"]
+
+__all__ += ["BugAttachmentUpload"]
+
+
+__all__ += ["AuditArchiveOutput"]
+
+__all__ += ["CommentAttachmentUpload"]
+
+
+__all__ += ["GuideAssetUpload", "ProjectGuideAsset"]
+
+__all__ += ["StorageFaultState"]
+__all__ += ["StorageObservationBucket"]
+
+__all__ += ["StorageMigrationFinalization"]
+__all__ += ["StorageMigrationCutover"]
+__all__ += ["StorageMigrationReadPublication", "StorageMigrationReadRoute"]
+
+__all__ += ["MaskFormatUpload"]
+
+
+__all__ += ["ThumbnailOutput"]
+
+
+__all__ += [
+    "StorageMigrationCopy",
+    "StorageMigrationCopyAttempt",
+    "StorageMigrationCopyDelta",
+]
+
+__all__ += [
+    "ManagedOriginalReclaimAttempt",
+    "ManagedOriginalReclaimClaim",
+    "ReferenceReconciliationState",
+]

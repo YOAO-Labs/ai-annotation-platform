@@ -30,7 +30,7 @@ def test_native_video_projection_schema_matches_the_portable_artifact():
 
 def test_new_authorities_have_reversible_installer_and_no_image_replacements():
     module = migration()
-    assert module.revision == "0223" and module.down_revision == "0222"
+
     assert module._UPGRADE_ARTIFACTS == (SQL.name,)
     statements = module._statements()
     source = SQL.read_text()

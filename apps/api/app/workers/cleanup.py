@@ -1,105 +1,167 @@
 """Celery cleanup adapters for attachment and raster-mask retention.
 
-软删评论附件 7 天 grace 期后从 MinIO 删除。
-annotations 桶的 comment-attachments/ 前缀有 90 天过期兜底，本任务提供更精确的近期清理路径。
+Comment attachments use saved owners, fixed expiry and a seven-day deletion
+window. Unknown historical attachment metadata is retained for reconciliation.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
-from app.application.raster_mask_retention import RasterMaskRetentionWorkflow
-from app.services.annotation_comment import AnnotationCommentService
-from app.services.storage import storage_service
-from app.workers._db import task_session, task_session_factory
+from sqlalchemy import case, delete, text, update
+
+from app.db.models.annotation_conversion_plan import AnnotationConversionPlan
+from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
+from app.db.models.mask_annotation_revision import MaskAnnotationRevision
+from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
+from app.observability.raster_mask import (
+    refresh_raster_mask_active_geometries_safely,
+)
+from app.services.raster_mask_references import (
+    _MASK_REFERENCE_QUERIES as _MASK_REFERENCE_QUERIES,
+    _MASK_REFERENCE_EXISTS_QUERIES as _MASK_REFERENCE_EXISTS_QUERIES,
+    referenced_keys,
+    is_referenced,
+)
+from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
+VIDEO_TRACKER_STAGED_TTL = timedelta(hours=24)
+_referenced_raster_mask_keys = referenced_keys
+_is_raster_mask_key_referenced = is_referenced
+
+
+async def _expire_mask_annotation_revisions(
+    db,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Delete snapshots after their retention window has actually elapsed."""
+    result = await db.execute(
+        delete(MaskAnnotationRevision)
+        .where(MaskAnnotationRevision.expires_at <= (now or datetime.now(timezone.utc)))
+        .returning(MaskAnnotationRevision.id)
+    )
+    return len(result.scalars().all())
+
+
+async def _expire_annotation_conversion_plans(
+    db,
+    *,
+    now: datetime | None = None,
+) -> int:
+    result = await db.execute(
+        delete(AnnotationConversionPlan)
+        .where(
+            AnnotationConversionPlan.expires_at <= (now or datetime.now(timezone.utc))
+        )
+        .returning(AnnotationConversionPlan.id)
+    )
+    return len(result.scalars().all())
+
 
 @celery_app.task(name="app.workers.cleanup.purge_soft_deleted_attachments")
 def purge_soft_deleted_attachments() -> dict:
-    """每日 03:00 UTC 清理已软删超过 7 天的评论附件。
-
-    每次最多选择 500 条评论（包括空附件行）。对象删除失败只记录日志，附件行仍会清空并提交；
-    数据库提交失败可回滚行，但不能恢复此前已从 MinIO 删除的对象。
-    """
+    """Retry up to 500 known expired or retired comment attachments."""
     return asyncio.run(_purge_async())
 
 
 async def _purge_async() -> dict:
-    """领域服务选择评论和清空附件行，worker 编排对象删除及最终提交。"""
-    deleted_objects = 0
-    processed_comments = 0
+    """Retry only known attachment owners; never erase unknown legacy metadata."""
+    from app.services import comment_attachment_uploads
 
     async with task_session() as db:
-        comment_service = AnnotationCommentService(db)
-        comments = await comment_service.select_expired_attachment_comments()
+        return await comment_attachment_uploads.cleanup(db, limit=500)
 
-        for comment in comments:
-            attachments = comment.attachments or []
-            if not attachments:
-                continue
-            for att in attachments:
-                key = att.get("storage_key") if isinstance(att, dict) else None
-                if not key:
-                    continue
-                try:
-                    # Run blocking boto3 deletion in a thread so the async GC loop
-                    # is not blocked per object.
-                    await asyncio.to_thread(storage_service.delete_object, key)
-                    deleted_objects += 1
-                except Exception as e:
-                    log.warning("delete object %s failed: %s", key, e)
-            # 标记已清空，避免下次重复扫
-            await comment_service.clear_attachments(comment.id)
-            processed_comments += 1
 
-        await db.commit()
+@celery_app.task(name="app.workers.cleanup.purge_guide_assets")
+def purge_guide_assets() -> dict:
+    """Retire or retry saved guide-image owners without scanning legacy JSON."""
+    return asyncio.run(_purge_guide_assets_async())
 
-    log.info(
-        "purge_soft_deleted_attachments done: comments=%d objects=%d",
-        processed_comments,
-        deleted_objects,
+
+async def _purge_guide_assets_async() -> dict:
+    from app.services import guide_asset_uploads
+
+    async with task_session() as db:
+        return await guide_asset_uploads.cleanup(db, limit=500)
+
+
+async def _expire_stale_video_tracker_candidates(
+    db,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Release abandoned staged Mask refs and correction track leases after 24h."""
+    cutoff = (now or datetime.now(timezone.utc)) - VIDEO_TRACKER_STAGED_TTL
+    expirable = (
+        VideoTrackerJobStatus.PENDING_REVIEW.value,
+        VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
+        VideoTrackerJobStatus.CANCELLED.value,
     )
-    return {"comments": processed_comments, "objects": deleted_objects}
+    result = await db.execute(
+        update(VideoTrackerJob)
+        .where(
+            VideoTrackerJob.staged_result.is_not(None),
+            VideoTrackerJob.status.in_(expirable),
+            VideoTrackerJob.completed_at.is_not(None),
+            VideoTrackerJob.completed_at <= cutoff,
+        )
+        .values(
+            staged_result=None,
+            status=case(
+                (
+                    VideoTrackerJob.status.in_(
+                        (
+                            VideoTrackerJobStatus.PENDING_REVIEW.value,
+                            VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
+                        )
+                    ),
+                    VideoTrackerJobStatus.DISCARDED.value,
+                ),
+                else_=VideoTrackerJob.status,
+            ),
+            revision=VideoTrackerJob.revision + 1,
+        )
+        .returning(VideoTrackerJob.id)
+    )
+    return len(result.scalars().all())
 
 
 @celery_app.task(name="app.workers.cleanup.purge_unreferenced_raster_masks")
-def purge_unreferenced_raster_masks(
-    dry_run: bool = False,
-    scan_pages: int = 1,
-    delete_limit: int = 100,
-    after_key: str | None = None,
-) -> dict:
-    """Delete unreferenced content-addressed mask objects after a 24-hour grace."""
-    return asyncio.run(
-        _run_raster_mask_retention(
-            dry_run=dry_run,
-            scan_pages=scan_pages,
-            delete_limit=delete_limit,
-            after_key=after_key,
-        )
-    )
+def purge_unreferenced_raster_masks(dry_run: bool = False) -> dict:
+    """Retire and collect known RLE owners after their protected publication window."""
+    return asyncio.run(_purge_unreferenced_raster_masks_async(dry_run=dry_run))
 
 
-async def _run_raster_mask_retention(
-    *,
-    dry_run: bool = False,
-    scan_pages: int = 1,
-    delete_limit: int = 100,
-    after_key: str | None = None,
-) -> dict:
-    async with task_session_factory() as factory:
-        async with factory() as db:
-            workflow = RasterMaskRetentionWorkflow(db, session_factory=factory)
-            return await workflow.purge_unreferenced_raster_masks(
-                dry_run=dry_run,
-                scan_pages=scan_pages,
-                delete_limit=delete_limit,
-                after_key=after_key,
+async def _purge_unreferenced_raster_masks_async(*, dry_run: bool = False) -> dict:
+    from app.services import raster_mask_objects
+
+    async with task_session() as db:
+        expired_tracker = expired_conversion = expired_revisions = 0
+        if not dry_run:
+            await db.execute(
+                delete(AiMaskAcceptDecision).where(
+                    AiMaskAcceptDecision.expires_at <= datetime.now(timezone.utc)
+                )
             )
+            expired_tracker = await _expire_stale_video_tracker_candidates(db)
+            expired_conversion = await _expire_annotation_conversion_plans(db)
+            expired_revisions = await _expire_mask_annotation_revisions(db)
+            await db.commit()
+            await refresh_raster_mask_active_geometries_safely(db)
+        result = await raster_mask_objects.cleanup(db, dry_run=dry_run, limit=1000)
+        result.update(
+            expired_tracker_candidates=expired_tracker,
+            expired_conversion_plans=expired_conversion,
+            expired_mask_revisions=expired_revisions,
+        )
+    log.info("purge_unreferenced_raster_masks done: %s", result)
+    return result
 
 
 @celery_app.task(name="app.workers.cleanup.refresh_user_perf_mv")
@@ -113,7 +175,6 @@ def refresh_user_perf_mv() -> dict:
 
 
 async def _refresh_mv_async() -> dict:
-    from sqlalchemy import text
 
     async with task_session() as db:
         try:

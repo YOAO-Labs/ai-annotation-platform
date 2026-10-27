@@ -21,6 +21,8 @@ dependencies = [
     "aap-jobs[queue-client]",
     "aap-notifications[postgres,publication-client]",
     "aap-media-probe[client]",
+    "aap-filesystem-read",
+    "aap-site-agent-contract",
     "aap-task-contract",
     "aap-training-contract",
     "aap-workspace-contract",
@@ -83,6 +85,8 @@ aap-audit = { path = "../audit", editable = true }
 aap-jobs = { path = "../jobs", editable = true }
 aap-notifications = { path = "../notifications", editable = true }
 aap-media-probe = { path = "../media-probe", editable = true }
+aap-filesystem-read = { path = "../_shared/filesystem_read", editable = true }
+aap-site-agent-contract = { path = "../_shared/site_agent_contract", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
 aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
@@ -107,6 +111,10 @@ test = [
 asyncio_mode = "auto"
 addopts = "-q --tb=short"
 testpaths = ["tests"]
+# Repository-level operator scripts (scripts/video_*.py) are consumed by the
+# legacy video fence tests. `scripts` stays a namespace package, so this adds
+# the repo-root modules without shadowing apps/api/scripts.
+pythonpath = ["../.."]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

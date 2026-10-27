@@ -79,6 +79,11 @@ async def lifespan(app: FastAPI):
             "Production environment has no SENTRY_DSN configured; "
             "error tracking is disabled. Set SENTRY_DSN in .env to enable."
         )
+    from app.services.managed_inference_auth import initialize_default_credentials
+
+    credential_states = initialize_default_credentials()
+    if "invalid" in credential_states.values():
+        logger.warning("Some managed inference credential stores are unavailable")
     storage_service.ensure_all_buckets()
     # v0.19.0 ADR-0044 · env 配置的 ML backend 启动时 upsert 成全局注册项 (source=env)。
     # 失败不阻断启动 (探测超时/DB 抖动仅告警)。
@@ -88,16 +93,22 @@ async def lifespan(app: FastAPI):
         await sync_env_backends()
     except Exception:
         logger.warning("env ML backend sync failed at startup", exc_info=True)
-    yield
-    # v0.9.13 · shutdown: 释放 WS Redis pool (带 2s timeout), 避免 --reload / SIGTERM 时
-    # worker 卡 "Waiting for background tasks to complete". 客户端 WS 收到 1006 后会自走
-    # 指数退避重连. timeout 兜底见 ws.py:close_redis_pool 注释.
+    from app.services.original_playback_registry import PlaybackRegistry
+
+    playback_registry = PlaybackRegistry()
+    app.state.original_playback_registry = playback_registry
+    playback_registry.start_reaper()
     try:
-        await _close_ws_redis_pool()
-        await close_bug_reopen_redis_pool()
-    except Exception:
-        # shutdown 期任何异常都不能传播 — uvicorn 会捕获后转 ERROR 日志并继续退出
-        pass
+        yield
+    finally:
+        try:
+            await playback_registry.shutdown()
+        finally:
+            try:
+                await _close_ws_redis_pool()
+                await close_bug_reopen_redis_pool()
+            except Exception:
+                pass
 
 
 app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)

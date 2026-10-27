@@ -9,6 +9,7 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.annotation import AnnotationOut
 from app.services.annotation import AnnotationService
+from app.services.content_snapshot import ContentError
 from app.services.candidate_decision_contract import (
     CandidateAcceptCommand,
     CandidateDecisionError,
@@ -58,6 +59,9 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
                 attribute_overrides=command.attribute_overrides,
                 video_segment_id=command.video_segment_id,
                 write_scope=command.write_scope,
+                reference_receipt=command.reference_receipt,
+                repair_original_receipt=command.repair_original_receipt,
+                video_acceptance_receipt=command.video_acceptance_receipt,
             )
             if annotations is None:
                 return None
@@ -72,6 +76,16 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
             await heartbeat_task_lock_for_legacy_video(
                 self._db, self._task, self._actor.id
             )
+            if command.repair_original_receipt is not None:
+                from app.services.managed_mask_repair import recheck_credentials
+
+                await recheck_credentials(self._db, command.repair_original_receipt)
+            if command.video_acceptance_receipt is not None:
+                from app.services.video_prediction_acceptance import (
+                    recheck_credentials,
+                )
+
+                await recheck_credentials(self._db, command.video_acceptance_receipt)
             await self._db.commit()
             return [
                 AnnotationOut.model_validate(annotation) for annotation in annotations
@@ -80,6 +94,13 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
             raise CandidateDecisionError(
                 status_code=exc.status_code, detail=exc.detail
             ) from exc
+        except ContentError as exc:
+            from app.services.dataset_content import content_http_error
+
+            error = content_http_error(exc)
+            raise CandidateDecisionError(
+                status_code=error.status_code, detail=error.detail
+            ) from None
         except HTTPException as exc:
             raise CandidateDecisionError(
                 status_code=exc.status_code,
@@ -95,6 +116,12 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
                 shape_index=command.shape_index,
                 write_scope=command.write_scope,
             )
+            if command.video_rejection_receipt is not None:
+                from app.services.video_prediction_acceptance import (
+                    recheck_credentials,
+                )
+
+                await recheck_credentials(self._db, command.video_rejection_receipt)
             await self._db.commit()
         except HTTPException as exc:
             raise CandidateDecisionError(

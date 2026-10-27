@@ -1,13 +1,12 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockScanItems, mockDimensions, mockMedia, actor } = vi.hoisted(() => ({
+const { mockScanItems, mockDimensions, mockMedia } = vi.hoisted(() => ({
   mockScanItems: vi.fn(),
   mockDimensions: vi.fn(),
   mockMedia: vi.fn(),
-  actor: { id: "actor-1" },
 }));
 
 vi.mock("@/api/datasets", () => ({
@@ -17,22 +16,27 @@ vi.mock("@/api/datasets", () => ({
     backfillMedia: mockMedia,
   },
 }));
-vi.mock("@/stores/authStore", () => ({
-  useAuthStore: (selector: (state: { user: { id: string } }) => unknown) =>
-    selector({ user: { id: actor.id } }),
-}));
-
+import { useAuthStore } from "@/stores/authStore";
+import type { MeResponse } from "@/api/auth";
 import { useBackfillDimensions, useBackfillMedia, useScanDatasetItems } from "./useDatasets";
+
+function setActor(id: string) {
+  useAuthStore.getState().setAuth(`token-${id}`, { id } as MeResponse);
+}
 
 function makeWrapper(client: QueryClient) {
   return ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
 }
 
+beforeEach(() => {
+  setActor("actor-1");
+});
+
 afterEach(() => {
   cleanup();
+  useAuthStore.getState().logout();
   vi.clearAllMocks();
-  actor.id = "actor-1";
 });
 
 describe.each([
@@ -74,7 +78,7 @@ describe.each([
       await expect(result.current.mutateAsync(undefined)).rejects.toThrow("response lost again");
     });
     const priorActorKey = keyAt(3);
-    actor.id = "actor-2";
+    await act(async () => setActor("actor-2"));
     rerender();
     await act(async () => {
       await result.current.mutateAsync(undefined);

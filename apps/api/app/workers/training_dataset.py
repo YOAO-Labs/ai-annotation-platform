@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import tempfile
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import (
@@ -23,70 +25,242 @@ from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.storage import storage_service
+from app.services import (
+    training_dataset_storage,
+    training_storage_io,
+    training_write_accounting,
+)
+from app.services import training_dataset_originals as originals
+from app.services import storage_access
+from app.services.training_dataset_bridge import content_digest
+from app.db.models.async_job import AsyncJob
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     build_training_package,
+    instance_rle_payload,
+    instance_rle_text,
 )
 from app.services.training_datasets import (
     MAX_IMAGE_BYTES,
     bind_training_authority,
-    fail_dataset_build,
-    mark_dataset_running,
-    publish_dataset_package,
-    update_dataset_progress,
+    dataset_authority,
 )
+from app.services.content_snapshot import ContentError
+from app.services.reference_keys import is_reference
+from training_contract.dataset import (
+    is_instance_rle,
+    instance_rle_budget,
+    DatasetContractError,
+)
+
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
 
+async def require_authority(db, version) -> None:
+    """Compose the training authority owner port for one worker unit of work."""
+    await dataset_authority(db, version, training_authority=bind_training_authority(db))
+
+
+class Superseded(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Execution:
+    version_id: uuid.UUID
+    job_id: uuid.UUID
+    attempt_id: uuid.UUID
+    snapshot_digest: str
+    owner_ref: dict
+    authority: originals.Authority
+    celery_task_id: str | None
+
+
+async def guard_execution(db, context, *, lock=False, status="running"):
+    statement = select(TrainingDatasetVersion).where(
+        TrainingDatasetVersion.id == context.version_id
+    )
+    if lock:
+        statement = statement.with_for_update()
+    version = await db.scalar(statement.execution_options(populate_existing=True))
+    job = (
+        await db.scalar(
+            job_lock_statement(context.job_id, mode="update", populate_existing=True)
+        )
+        if lock
+        else await db.get(AsyncJob, context.job_id, populate_existing=True)
+    )
+    if (version and version.status == "cancelled") or (
+        job
+        and (job.status == "cancelled" or (job.payload or {}).get("cancel_requested"))
+    ):
+        raise asyncio.CancelledError
+    if (
+        version is None
+        or job is None
+        or version.status != status
+        or job.status != status
+        or version.attempt_id != context.attempt_id
+        or version.async_job_id != context.job_id
+        or job.celery_task_id != context.celery_task_id
+    ):
+        raise Superseded
+    if (
+        version.project_id != context.authority.project_id
+        or version.creator_id != context.authority.actor_id
+        or job.project_id != version.project_id
+        or job.user_id != version.creator_id
+        or job.kind != "training_dataset"
+        or (job.payload or {}).get("training_dataset_id") != str(version.id)
+        or version.snapshot_digest != context.snapshot_digest
+        or content_digest(version.snapshot) != context.snapshot_digest
+        or training_dataset_storage.resolve(version).ref != context.owner_ref
+    ):
+        raise ContentError("training_input_binding_changed")
+    return version
+
+
 def file_digest(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as source:
+    with storage_access.closing_registered(path.open("rb")) as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
+def verify_output(
+    bucket,
+    key,
+    expected_sha256,
+    expected_size,
+    *,
+    snapshot_digest=None,
+    transport=None,
+    observation=None,
+):
+    """Read back the actual saved object, without trusting its SHA metadata."""
+    destination = transport or storage_service
+    head = destination.client.head_object(Bucket=bucket, Key=key)
+    if head["ContentLength"] != expected_size or (
+        snapshot_digest is not None
+        and head.get("Metadata", {}).get("snapshot-digest") != snapshot_digest
+    ):
+        raise TrainingDatasetError(
+            "training_output_mismatch", "训练文件写回大小或归属校验失败"
+        )
+    params = {"Bucket": bucket, "Key": key, "IfMatch": head["ETag"]}
+    if head.get("VersionId"):
+        params["VersionId"] = head["VersionId"]
+    response = destination.client.get_object(**params)
+    digest, size = hashlib.sha256(), 0
+    with storage_access.closing_registered(response["Body"]) as body:
+        while chunk := body.read(min(1024 * 1024, expected_size - size + 1)):
+            size += len(chunk)
+            if size > expected_size:
+                raise TrainingDatasetError(
+                    "training_output_mismatch", "训练文件写回内容校验失败"
+                )
+            digest.update(chunk)
+    if size != expected_size or digest.hexdigest() != expected_sha256:
+        raise TrainingDatasetError(
+            "training_output_mismatch", "训练文件写回内容校验失败"
+        )
+    if observation is not None:
+        observation.readback(response)
+
+
+def _upload_output(
+    destination, bucket, key, digest, size, upload, *, snapshot_digest=None
+):
+    accounting = getattr(destination, "_write_accounting", None)
+    observation = (
+        training_write_accounting.Observation(
+            accounting,
+            destination.client,
+            key,
+            {"sha256": digest, "size_bytes": size},
+        )
+        if accounting is not None
+        else None
+    )
+    if observation is None:
+        upload()
+    else:
+        with observation.hooks():
+            upload()
+    verify_output(
+        bucket,
+        key,
+        digest,
+        size,
+        snapshot_digest=snapshot_digest,
+        transport=destination,
+        observation=observation,
+    )
+    if observation is not None:
+        observation.complete()
+
+
 def materialize_image(
-    sample: dict, prefix: str, snapshot_digest: str, directory: Path
+    sample: dict,
+    prefix: str,
+    snapshot_digest: str,
+    directory: Path,
+    *,
+    bucket: str,
+    verified_reference=None,
+    verified_original=None,
+    transport=None,
 ) -> dict:
     """Reuse preserved source bytes on retries; never reread changed originals."""
+    if transport is None and training_dataset_storage.MANAGED_NAMESPACE in prefix + "/":
+        training_dataset_storage._reject("training_storage_binding_unproven")
+    destination = transport or storage_service
     key = f"{prefix}/media/{sample['task_id']}"
-    bucket = storage_service.training_bucket
     preserved = False
     try:
-        head = storage_service.client.head_object(Bucket=bucket, Key=key)
+        head = destination.client.head_object(Bucket=bucket, Key=key)
         if head.get("Metadata", {}).get("snapshot-digest") != snapshot_digest:
             raise TrainingDatasetError(
                 "preserved_media_conflict", "冻结图片的身份不匹配"
             )
-        response = storage_service.client.get_object(
+        response = destination.client.get_object(
             Bucket=bucket, Key=key, IfMatch=head["ETag"]
         )
         preserved = True
     except ClientError as exc:
         if exc.response["Error"]["Code"] not in {"404", "NoSuchKey", "NotFound"}:
             raise
-        params = {
-            "Bucket": sample["source_bucket"],
-            "Key": sample["source_key"],
-            "IfMatch": sample["media"]["etag"],
-        }
-        if sample["media"].get("version_id"):
-            params["VersionId"] = sample["media"]["version_id"]
-        try:
-            response = storage_service.client.get_object(**params)
-        except ClientError as source_error:
+        if verified_original is not None:
+            originals.validate_receipt(sample.get("original"))
+            verified_original.file.seek(0)
+            response = {"Body": verified_original.file}
+        elif is_reference(sample["source_key"]):
+            if verified_reference is None:
+                raise TrainingDatasetError(
+                    "reference_read_required", "引用图片需要严格校验读取"
+                )
+            verified_reference.file.seek(0)
+            response = {"Body": verified_reference.file}
+        elif sample.get("original") is not None:
+            originals.validate_receipt(sample["original"])
             raise TrainingDatasetError(
-                "source_media_changed", "原始图片已变化或不可用，请创建新版本"
-            ) from source_error
+                "original_read_required", "托管图片需要已登记原件校验读取"
+            )
+        else:
+            raise TrainingDatasetError(
+                "original_input_unrecorded",
+                "原图缺少内容身份且没有保留副本，请创建新版本",
+            )
     path = directory / sample["task_id"]
     try:
         size = 0
-        with path.open("wb") as target:
-            for chunk in response["Body"].iter_chunks(chunk_size=1024 * 1024):
+        with storage_access.closing_registered(path.open("wb")) as target:
+            for chunk in iter(lambda: response["Body"].read(1024 * 1024), b""):
                 size += len(chunk)
                 if size > MAX_IMAGE_BYTES:
                     raise TrainingDatasetError(
@@ -94,14 +268,25 @@ def materialize_image(
                     )
                 target.write(chunk)
     finally:
-        response["Body"].close()
+        if preserved:
+            storage_access.close_registered(response["Body"])
     if size != sample["media"]["size_bytes"]:
         raise TrainingDatasetError("source_media_changed", "图片大小与冻结清单不一致")
     digest = file_digest(path)
     if preserved and head["Metadata"].get("sha256") != digest:
         raise TrainingDatasetError("preserved_media_corrupt", "冻结图片校验失败")
+    if sample.get("original") is not None:
+        expected = originals.validate_receipt(sample["original"])
+        if digest != expected["sha256"] or size != expected["size_bytes"]:
+            raise TrainingDatasetError(
+                "source_media_changed", "图片内容与固定原件身份不一致"
+            )
+    if sample.get("asset_reference") and sample["asset_reference"]["sha256"] != digest:
+        raise TrainingDatasetError(
+            "source_media_changed", "图片摘要与固定 Asset 不一致"
+        )
     try:
-        with Image.open(path) as image:
+        with storage_access.closing_registered(Image.open(path)) as image:
             width, height = storage_service._logical_image_dimensions(image)
             extension = {
                 "JPEG": ".jpg",
@@ -114,10 +299,14 @@ def materialize_image(
                 raise TrainingDatasetError(
                     "unsupported_image", "图片格式或像素数量不适合当前训练器"
                 )
+            if sample.get("raster_contract"):
+                instance_rle_budget(width, height, len(sample["annotations"]))
             image.load()
-    except TrainingDatasetError:
+    except (TrainingDatasetError, DatasetContractError):
         raise
     except Exception as exc:
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
         raise TrainingDatasetError("invalid_image", "图片无法完整解码") from exc
     if (sample.get("expected_width") and width != sample["expected_width"]) or (
         sample.get("expected_height") and height != sample["expected_height"]
@@ -126,15 +315,45 @@ def materialize_image(
             "image_dimensions_changed", "图片尺寸与冻结的标注坐标范围不一致"
         )
     if not preserved:
-        storage_service.client.upload_file(
-            str(path),
+        _upload_output(
+            destination,
             bucket,
             key,
-            ExtraArgs={
-                "Metadata": {"snapshot-digest": snapshot_digest, "sha256": digest}
-            },
+            digest,
+            size,
+            lambda: destination.client.upload_file(
+                str(path),
+                bucket,
+                key,
+                ExtraArgs={
+                    "Metadata": {"snapshot-digest": snapshot_digest, "sha256": digest}
+                },
+            ),
+            snapshot_digest=snapshot_digest,
+        )
+    if sample.get("raster_contract"):
+        # Independently retained training object, under the same version prefix
+        # and deletion owner as the original frozen media.
+        payload = instance_rle_payload(sample, sample["classes"], width, height)
+        mask_path = directory / f"{sample['task_id']}.json"
+        with storage_access.closing_registered(mask_path.open("w")) as target:
+            target.write(instance_rle_text(payload))
+        mask_key = f"{prefix}/masks/{sample['task_id']}.json"
+        _upload_output(
+            destination,
+            bucket,
+            mask_key,
+            file_digest(mask_path),
+            mask_path.stat().st_size,
+            lambda: destination.upload_file(
+                str(mask_path),
+                mask_key,
+                bucket=bucket,
+                content_type="application/json",
+            ),
         )
     return {
+        **({"mask_path": str(mask_path)} if sample.get("raster_contract") else {}),
         "task_id": sample["task_id"],
         "path": str(path),
         "sha256": digest,
@@ -145,8 +364,148 @@ def materialize_image(
     }
 
 
+def _materialize_image(target, *args, accounting=None, **kwargs):
+    if target is None:
+        if accounting is not None:
+            training_dataset_storage._reject("training_storage_binding_unproven")
+        return materialize_image(*args, **kwargs)
+    return training_storage_io.physical(
+        target,
+        lambda bound: materialize_image(*args, transport=bound, **kwargs),
+        **({"accounting": accounting} if accounting is not None else {}),
+    )
+
+
+async def materialize_sample(
+    db,
+    version,
+    sample,
+    prefix,
+    snapshot_digest,
+    directory,
+    node_id,
+    *,
+    authority=None,
+    guard=None,
+    target=None,
+    accounting=None,
+):
+    """Try retained bytes first, then resolve an authorized reference if needed."""
+    owner = training_dataset_storage.resolve(version)
+    if prefix != owner.prefix.rstrip("/"):
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "冻结前缀与版本归属不一致", status_code=409
+        )
+    owner.contains(f"{prefix}/media/{sample['task_id']}")
+    if target is None and (owner.key_prefix or accounting is not None):
+        target = await training_storage_io.prepare(db, owner)
+
+    async def checkpoint():
+        if authority is not None:
+            await originals.check(db, authority)
+        if guard is not None:
+            await guard()
+        if authority is not None or guard is not None:
+            await db.commit()
+        if authority is not None:
+            originals.clock(authority)
+
+    await checkpoint()
+    try:
+        result = await originals.physical(
+            _materialize_image,
+            target,
+            sample,
+            prefix,
+            snapshot_digest,
+            directory,
+            bucket=owner.bucket,
+            accounting=accounting,
+            timeout=120,
+        )
+        await checkpoint()
+        return result
+    except TrainingDatasetError as exc:
+        if exc.code not in {"reference_read_required", "original_read_required"}:
+            raise
+        managed = exc.code == "original_read_required"
+    if managed:
+        contract = version.snapshot.get("managed_original_contract")
+        if type(contract) is not int or contract != 1:
+            raise ContentError("original_input_unrecorded")
+        authority = authority or await originals.delegated(db, version)
+        async with originals.media(db, authority, sample, guard=guard) as (
+            stage,
+            source,
+        ):
+            result = await originals.physical(
+                _materialize_image,
+                target,
+                sample,
+                prefix,
+                snapshot_digest,
+                directory,
+                bucket=owner.bucket,
+                accounting=accounting,
+                verified_original=stage,
+                timeout=120,
+            )
+        result["_managed_source"] = source
+        return result
+    if not node_id or not node_id.startswith("worker:"):
+        raise TrainingDatasetError(
+            "worker_read_not_verified", "训练构建节点尚未核验原图读取能力"
+        )
+    from app.db.models.user import User
+    from app.services.training_dataset_sources import training_reference_snapshot
+
+    await require_authority(db, version)
+    actor = await db.get(User, version.creator_id, populate_existing=True)
+    content, _, _ = await training_reference_snapshot(
+        db,
+        sample,
+        actor,
+        api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        node_id=node_id,
+    )
+    failure = None
+    try:
+        result = await originals.physical(
+            _materialize_image,
+            target,
+            sample,
+            prefix,
+            snapshot_digest,
+            directory,
+            bucket=owner.bucket,
+            accounting=accounting,
+            verified_reference=content,
+            timeout=120,
+        )
+        await require_authority(db, version)
+        await checkpoint()
+        result["_source_backed"] = True
+        return result
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        try:
+            await originals.physical(content.close)
+        except BaseException as closing:
+            if getattr(failure, "storage_operation_unsettled", False):
+                storage_access.mark_unsettled(closing)
+            raise
+
+
 async def build_dataset(
-    version_id: uuid.UUID, job_id: uuid.UUID, attempt_id: uuid.UUID, session_factory
+    version_id: uuid.UUID,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    session_factory,
+    *,
+    node_id: str | None = None,
+    celery_task_id: str | None = None,
 ) -> None:
     # Keep the connection checked out across domain transaction commits.
     async with session_factory() as session:
@@ -159,26 +518,76 @@ async def build_dataset(
         if not acquired:
             return
         try:
-            await _build_dataset(version_id, job_id, attempt_id, session_factory)
+            await _build_dataset(
+                version_id, job_id, attempt_id, session_factory, node_id, celery_task_id
+            )
         finally:
-            await execution.execute(select(func.pg_advisory_unlock(key)))
-            await execution.commit()
+
+            async def release():
+                await execution.execute(select(func.pg_advisory_unlock(key)))
+                await execution.commit()
+
+            await storage_access.finish(asyncio.create_task(release()))
 
 
-async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> None:
+async def _build_dataset(
+    version_id, job_id, attempt_id, session_factory, node_id=None, celery_task_id=None
+) -> None:
+    accounting = _BuildAccounting()
+    failure = None
+    try:
+        await _build_dataset_contents(
+            version_id,
+            job_id,
+            attempt_id,
+            session_factory,
+            node_id,
+            celery_task_id,
+            accounting=accounting,
+        )
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if accounting.recorder is not None:
+            original = failure if failure is not None else accounting.failure
+            publishing = await training_write_accounting.finish(
+                accounting.recorder,
+                original,
+                settled=getattr(accounting.permit, "_settled", False) is True,
+            )
+            if publishing is not None and publishing is not original:
+                raise publishing
+
+
+@dataclass
+class _BuildAccounting:
+    recorder: object = None
+    permit: object = None
+    failure: BaseException | None = None
+
+
+async def _build_dataset_contents(
+    version_id,
+    job_id,
+    attempt_id,
+    session_factory,
+    node_id=None,
+    celery_task_id=None,
+    *,
+    accounting,
+) -> None:
     prefix = None
+    owner = None
     published = False
+    unsettled = False
+    permit = None
     async with session_factory() as db:
         version = await db.get(TrainingDatasetVersion, version_id)
         if version is None:
             return
         try:
-            training_authority = bind_training_authority(db)
-            await training_authority.assert_authority(
-                project_id=version.project_id,
-                actor_id=version.creator_id,
-                api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
-            )
+            await require_authority(db, version)
             version = (
                 await db.execute(
                     select(TrainingDatasetVersion)
@@ -193,11 +602,36 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 or version.status != "pending"
             ):
                 return
-            mark_dataset_running(version)
+            owner = training_dataset_storage.resolve(version)
+            authority = await originals.delegated(db, version)
+            job = await db.scalar(
+                job_lock_statement(job_id, mode="update", populate_existing=True)
+            )
+            context = Execution(
+                version_id,
+                job_id,
+                attempt_id,
+                version.snapshot_digest,
+                owner.ref,
+                authority,
+                job.celery_task_id if job else None,
+            )
+            if celery_task_id is not None and celery_task_id != context.celery_task_id:
+                return
+            await guard_execution(db, context, lock=True, status="pending")
+            from app.db.models.storage_maintenance import StorageOperation
+
+            if await db.scalar(
+                select(StorageOperation.id)
+                .where(StorageOperation.purpose == originals.output_purpose(version_id))
+                .limit(1)
+            ):
+                raise storage_access.mark_unsettled(ContentError("execution_stopping"))
+            prefix = owner.prefix.rstrip("/")
+            version.status = "running"
             await jobs.mark_running(db, job_id)
             snapshot = version.snapshot
             snapshot_digest = version.snapshot_digest
-            prefix = f"projects/{version.project_id}/datasets/{version.id}"
             parent = (
                 await db.get(TrainingDatasetVersion, version.parent_id)
                 if version.parent_id
@@ -205,84 +639,117 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
             )
             parent_manifest = parent.manifest if parent else None
             await db.commit()
-            with tempfile.TemporaryDirectory(prefix="aap-training-") as temporary:
-                directory = Path(temporary)
-                media = []
-                for index, sample in enumerate(snapshot["samples"]):
-                    media.append(
-                        await asyncio.to_thread(
-                            materialize_image,
-                            sample,
-                            prefix,
-                            snapshot_digest,
-                            directory,
+            target = await training_storage_io.prepare(db, owner)
+            accounting.recorder = training_write_accounting.recorder(
+                db,
+                owner,
+                version_id,
+                producer="training_dataset_outputs",
+                purpose="training_version",
+            )
+            permit = await storage_access.acquire(
+                db,
+                uuid.UUID(owner.ref["location_id"]),
+                originals.output_purpose(version_id),
+            )
+            accounting.permit = permit
+            async with permit:
+                with originals.temporary_directory(prefix="aap-training-") as temporary:
+                    directory = Path(temporary)
+                    media = []
+                    source_reads = []
+                    managed_reads = {}
+
+                    async def guard():
+                        return await guard_execution(db, context)
+
+                    for index, sample in enumerate(snapshot["samples"]):
+                        media.append(
+                            await materialize_sample(
+                                db,
+                                version,
+                                {
+                                    **sample,
+                                    "raster_contract": True,
+                                    "classes": snapshot["classes"],
+                                }
+                                if is_instance_rle(snapshot)
+                                else sample,
+                                prefix,
+                                snapshot_digest,
+                                directory,
+                                node_id,
+                                authority=authority,
+                                guard=guard,
+                                target=target,
+                                accounting=accounting.recorder,
+                            )
                         )
-                    )
-                    version = (
-                        await db.execute(
-                            select(TrainingDatasetVersion)
-                            .where(TrainingDatasetVersion.id == version_id)
-                            .with_for_update()
-                            .execution_options(populate_existing=True)
+                        if media[-1].pop("_source_backed", False):
+                            source_reads.append(sample)
+                        source = media[-1].pop("_managed_source", None)
+                        if source is not None:
+                            managed_reads[sample["task_id"]] = source
+                        version = await guard_execution(db, context, lock=True)
+                        version.progress_pct = int(
+                            80 * (index + 1) / len(snapshot["samples"])
                         )
-                    ).scalar_one_or_none()
-                    if (
-                        version is None
-                        or version.attempt_id != attempt_id
-                        or version.async_job_id != job_id
-                        or version.status != "running"
-                    ):
-                        return
-                    progress_pct = int(80 * (index + 1) / len(snapshot["samples"]))
-                    update_dataset_progress(version, progress_pct)
-                    await jobs.update_progress(db, job_id, progress_pct)
-                    await db.commit()
-                package = directory / "dataset.zip"
-                manifest = await asyncio.to_thread(
-                    build_training_package,
-                    snapshot,
-                    media,
-                    package,
-                    parent_manifest=parent_manifest,
-                )
-                package_key = f"{prefix}/attempts/{attempt_id}/dataset.zip"
-                await asyncio.to_thread(
-                    storage_service.upload_file,
-                    str(package),
-                    package_key,
-                    bucket=storage_service.training_bucket,
-                    content_type="application/zip",
-                )
-                package_digest = await asyncio.to_thread(file_digest, package)
-                package_size = package.stat().st_size
-                await training_authority.assert_authority(
-                    project_id=version.project_id,
-                    actor_id=version.creator_id,
-                    api_key_id=version.snapshot.get("authorization", {}).get(
-                        "api_key_id"
-                    ),
-                )
-                version = (
-                    await db.execute(
-                        select(TrainingDatasetVersion)
-                        .where(TrainingDatasetVersion.id == version_id)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
+                        await jobs.update_progress(db, job_id, version.progress_pct)
+                        await db.commit()
+                    package = directory / "dataset.zip"
+                    manifest = await originals.physical(
+                        build_training_package,
+                        snapshot,
+                        media,
+                        package,
+                        parent_manifest=parent_manifest,
                     )
-                ).scalar_one()
-                if (
-                    version.async_job_id != job_id
-                    or version.attempt_id != attempt_id
-                    or version.status != "running"
-                ):
-                    return
-                publish_dataset_package(
-                    version,
-                    manifest=manifest,
-                    package_key=package_key,
-                    package_sha256=package_digest,
-                    size_bytes=package_size,
+                    owner = training_dataset_storage.resolve(version)
+                    package_key = owner.key(f"attempts/{attempt_id}/dataset.zip")
+                    package_digest = await originals.physical(file_digest, package)
+                    package_size = package.stat().st_size
+                    await originals.physical(
+                        training_storage_io.physical,
+                        target,
+                        lambda bound: _upload_output(
+                            bound,
+                            owner.bucket,
+                            package_key,
+                            package_digest,
+                            package_size,
+                            lambda: bound.upload_file(
+                                str(package),
+                                package_key,
+                                bucket=owner.bucket,
+                                content_type="application/zip",
+                            ),
+                        ),
+                        accounting=accounting.recorder,
+                    )
+                await require_authority(db, version)
+                await originals.check(db, authority)
+                version = await guard_execution(db, context, lock=True)
+                await storage_access.check(
+                    db,
+                    uuid.UUID(owner.ref["location_id"]),
+                    expected_revision=permit.revision,
+                    lock=True,
                 )
+                for source in managed_reads.values():
+                    await originals.recheck(db, authority, source)
+                if source_reads:
+                    from app.services.training_dataset_sources import (
+                        lock_source_maintenance,
+                    )
+
+                    await lock_source_maintenance(db, {"samples": source_reads})
+                version.manifest = manifest
+                version.package_key = package_key
+                version.package_sha256 = package_digest
+                version.size_bytes = package_size
+                version.status = "ready"
+                version.progress_pct = 100
+                version.completed_at = datetime.now(timezone.utc)
                 await jobs.mark_complete(
                     db,
                     job_id,
@@ -292,9 +759,24 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                     },
                 )
                 await notify_job_terminal(db, job_id=job_id)
+                originals.clock(authority)
                 await db.commit()
                 published = True
-        except Exception as exc:
+        except Superseded as exc:
+            accounting.failure = exc
+            await db.rollback()
+        except (Exception, asyncio.CancelledError) as exc:
+            accounting.failure = exc
+            unsettled = getattr(exc, "storage_operation_unsettled", False)
+            if isinstance(exc, HTTPException) and exc.status_code in {401, 403}:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                exc = TrainingDatasetError(
+                    "api_key_revoked"
+                    if detail.get("code") == "api_key_authority_revoked"
+                    else "authority_revoked",
+                    "训练数据版本的凭证或权限已失效",
+                    status_code=403,
+                )
             await db.rollback()
             version = (
                 await db.execute(
@@ -309,33 +791,69 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 and version.async_job_id == job_id
                 and version.status in {"pending", "running"}
             ):
-                error_code = (
+                cancelled = isinstance(exc, asyncio.CancelledError)
+                version.status = "cancelled" if cancelled else "failed"
+                version.error_code = (
                     exc.code
-                    if isinstance(exc, TrainingDatasetError)
+                    if isinstance(
+                        exc, (TrainingDatasetError, DatasetContractError, ContentError)
+                    )
                     else "build_failed"
                 )
-                error_message = (
+                version.error_message = (
                     str(exc)
-                    if isinstance(exc, TrainingDatasetError)
+                    if isinstance(
+                        exc, (TrainingDatasetError, DatasetContractError, ContentError)
+                    )
                     else "训练数据构建失败，请检查素材或重试"
                 )
-                fail_dataset_build(
-                    version,
-                    error_code=error_code,
-                    error_message=error_message,
-                )
-                await jobs.mark_failed(db, job_id, error=error_message)
+                version.completed_at = datetime.now(timezone.utc)
+                if cancelled:
+                    version.error_code = version.error_message = None
+                    await jobs.mark_cancelled(db, job_id)
+                else:
+                    await jobs.mark_failed(db, job_id, error=version.error_message)
                 await notify_job_terminal(db, job_id=job_id)
                 await db.commit()
         finally:
             await db.rollback()
-            if prefix and not published:
+            if owner is not None and prefix and not published and not unsettled:
+                cleanup = False
                 try:
-                    await asyncio.to_thread(
-                        storage_service.delete_prefix,
-                        f"{prefix}/attempts/{attempt_id}/",
-                        bucket=storage_service.training_bucket,
+                    # A commit acknowledgement can fail after publication succeeded.
+                    referenced_key = await db.scalar(
+                        select(TrainingDatasetVersion.package_key).where(
+                            TrainingDatasetVersion.id == version_id
+                        )
                     )
+                    cleanup = (
+                        referenced_key != f"{prefix}/attempts/{attempt_id}/dataset.zip"
+                    )
+                except Exception:
+                    log.exception(
+                        "Cannot verify training attempt cleanup: %s", attempt_id
+                    )
+                finally:
+                    await db.rollback()
+                try:
+                    if cleanup:
+                        owner = training_dataset_storage.resolve_ref(owner.ref)
+                        cleanup_target = await training_storage_io.prepare(db, owner)
+                        cleanup_permit = await storage_access.acquire(
+                            db,
+                            uuid.UUID(owner.ref["location_id"]),
+                            originals.output_purpose(version_id),
+                            expected_revision=permit.revision if permit else None,
+                        )
+                        async with cleanup_permit:
+                            await originals.physical(
+                                training_storage_io.physical,
+                                cleanup_target,
+                                lambda bound: bound.delete_prefix(
+                                    f"{prefix}/attempts/{attempt_id}/",
+                                    bucket=owner.bucket,
+                                ),
+                            )
                 except Exception:
                     log.exception("Training attempt cleanup failed: %s", attempt_id)
 
@@ -350,6 +868,8 @@ def run_training_dataset(self, version_id: str, job_id: str, attempt_id: str) ->
                 uuid.UUID(job_id),
                 uuid.UUID(attempt_id),
                 async_sessionmaker(engine, expire_on_commit=False),
+                node_id=f"worker:{self.request.hostname}",
+                celery_task_id=self.request.id,
             )
         finally:
             await engine.dispose()

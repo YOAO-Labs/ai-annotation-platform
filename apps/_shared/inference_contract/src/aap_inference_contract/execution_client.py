@@ -7,8 +7,10 @@ import math
 from urllib.parse import urlsplit
 
 from .execution import (
+    DispatchBoundary,
     ExecutionFailure,
     FrozenModelOperation,
+    ModelExecutionDispatch,
     ModelExecutionError,
     ModelExecutionPort,
     ModelOperationResult,
@@ -89,7 +91,12 @@ class ModelExecutionHttpClient(ModelExecutionPort):
             )
         return self._client
 
-    async def execute(self, request: FrozenModelOperation) -> ModelOperationResult:
+    async def execute(
+        self,
+        request: FrozenModelOperation,
+        *,
+        before_dispatch: DispatchBoundary | None = None,
+    ) -> ModelOperationResult:
         if not isinstance(request, FrozenModelOperation):
             raise ModelExecutionUnavailable()
         if (
@@ -110,6 +117,10 @@ class ModelExecutionHttpClient(ModelExecutionPort):
             import httpx
         except ImportError:
             raise ModelExecutionUnavailable() from None
+        if before_dispatch is not None:
+            # The caller's boundary runs in this process after routing admission
+            # and endpoint-subject capture, but before the one physical request.
+            await before_dispatch(ModelExecutionDispatch.from_request(request))
         body = model_operation_request_bytes(request)
         client = await self._http_client()
         try:

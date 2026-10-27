@@ -1,9 +1,8 @@
 ---
 audience: [project_admin, super_admin, developer]
 type: reference
-since: v0.10.16
 status: stable
-last_reviewed: 2026-09-10
+last_reviewed: 2026-10-26
 ---
 
 # 异步任务（async_jobs）
@@ -28,8 +27,8 @@ last_reviewed: 2026-09-10
 | `predictions_import`      | 外部 prediction 上传（[Import guide](./import)）                                         | ✅                                  |
 | `dataset_import`          | 数据集连接器导入文件                                                                     | ✅                                  |
 | `point_cloud_cross_frame` | 3D Scene 跨帧传播                                                                        | ✅（逐帧协作取消）                  |
-| `create_tasks`            | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ❌                                  |
-| `export`                  | 项目 / 批次导出                                                                          | ❌                                  |
+| `create_tasks`            | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ✅（已提交任务保留）                |
+| `export`                  | 项目 / 批次 / 选中任务导出                                                               | ✅（协作取消）                      |
 
 ## 端点
 
@@ -90,18 +89,31 @@ owner-scoped；非 owner（且非 super_admin）→ `403`，记录不存在返�
 
 ### `POST /api/v1/async-jobs/{id}/cancel`
 
-软取消。当前支持 `predictions_import`、`dataset_import`、`audit_archive`、`batch_predict`、
-`point_cloud_cross_frame`、`point_cloud_quality`、`mask_qc`、`mask_repair`、
-`mask_format_import`、`training_dataset` 和 `sample_evaluation`；其他 kind 返回
-`400 not cancellable`。已终态（`completed` / `failed` / `cancelled`）调用返回 `409`，领域仍保留自身取消意图与终态策略。
+软取消。当前支持 `predictions_import`、`dataset_import`、`dataset_scan`、`dataset_registration`、
+`storage_usage`、`managed_original_verification`、`managed_original_reclaim`、
+`storage_migration_inventory`、`storage_migration_copy`、`dataset_quality`、
+`dataset_quality_review`、`audit_archive`、`batch_predict`、`create_tasks`、`export`、`point_cloud_cross_frame`、
+`point_cloud_quality`、`mask_qc`、`mask_repair`、`mask_format_import`、`training_dataset` 和
+`sample_evaluation`；其他 kind 返回 `400 not cancellable`。已终态（`completed` / `failed` /
+`cancelled`）调用返回 `409`，领域仍保留自身取消意图与终态策略。
 
 成功响应由 `AsyncJobCancelResponse` 定义：`id` 为作业 UUID，`status` 为 `cancelled` 或 `cancel_requested`。后者只表示已保存停止意图，执行可能仍在收尾；客户端应继续查询作业/领域状态。HTTP 200 不代表进程已经退出。
 
 跨帧 pending 请求直接保存 cancelled 与完整目标计数，HTTP 不强制进度 100；消息可能被撤销而不执行。运行中的请求写入取消意图，在下一帧边界停止，保留此前成功写入；worker 完成取消收尾时推进至 100。连接器导入则由 HTTP 立即保存 cancelled，worker 在文件边界停止并为已取消行回填最终计数，保留阶段进度而不强制 100；取消检查之前仍可能先枚举源文件。
 
 `batch_predict` 使用协作取消：API 对 `pending` job 直接写 `cancelled`；对 `running` job 写
-`payload.cancel_requested=true`，并对 Celery task 执行 `revoke(..., terminate=False)`。worker 不会强杀
-进程，而是在下一条预测边界停止并写入取消结果：
+`payload.cancel_requested=true`，提交后再对 Celery task 尽力执行 `revoke(..., terminate=False)`。worker 不会强杀进程。
+
+`audit_archive` 取消需当前超级管理员权限，并重新核对原请求账号或 API Key。取消与每月归档发布共用作业行锁：取消先提交时保留源分区及未发布候选；月份发布先提交时保留该月已归档结果，随后停止未处理月份。接口返回 `{"status":"cancelled","id":"…"}`，不强杀物理上传，也不删除待确认对象。重复 Celery 投递只返回既有作业状态，不重新开始未收尾候选；失败原因使用固定分类，`result` 保留此前成功月份。
+
+图片预标的取消与单题结果提交使用同一作业行锁：取消先提交时丢弃当前在途结果；结果事务先获得锁时保留该题已提交结果，随后跳过未处理题目。已完成作业在锁下重新检查后返回 `409`，不会再被改成取消。图片覆盖模式的旧候选、已采纳 AI 标注与新结果同事务替换，写入失败或提交前取消时保留旧内容。视频逐帧由独立 owner 处理，保留原派发前清理和段边界取消规则。
+
+`mask_repair` 同样先持久化取消，再尽力 revoke；Worker 在下一分片边界或 SAM 返回后的提交前检查。
+已完成分片、候选及 Tracker 子任务保留，修复批次显示 `partial`；没有提交工作则为 `cancelled`。
+Tracker 子任务保留自身的取消与审阅入口。`mask_repair_rollback` 不通过通用 cancel API 取消；信号中断时保留检查点并将批次标记为 `rollback_failed`，
+可在原保留期内从修复面板继续回滚。完整执行与恢复合同见 [Mask 质检批量修复](./tasks-and-annotations.md#mask-质检批量修复)。
+
+取消结果仅统计已经提交的题目：
 
 ```json
 {
@@ -161,6 +173,29 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 - **Celery signals 兜底**：`task_failure` / `task_revoked` 按执行 ID 交给终态应用工作流，组合通用状态、各领域账本及通知，保留已完成保护、部分结果及领域状态机，不无条件覆盖所有作业。
 - **调用方事务**：状态写命令不自行提交或发送通知；异常是否继续、逐项回滚或使作业失败由具体执行器保留。不能把通用所有者理解为一律吞错或自动重试。
 
+### 存储任务的实际推进
+
+列表及详情额外返回可空的 `last_progress_at` 和 `progress_observation`。覆盖 `dataset_scan`、`dataset_registration`、`storage_usage`、`storage_migration_inventory`、`storage_migration_copy`；来源同步通过扫描／登记子任务展示。其他任务及升级前记录没有观测时返回 `null`，不从 `updated_at`、开始时间或百分比回填。
+
+| 字段                          | 含义                                                                                                                   |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `last_progress_at`            | 最后接受的新进展在服务器上的记录时间                                                                                   |
+| `progress_observation.schema` | 固定为 `1`                                                                                                             |
+| `execution_id`                | 绑定当前作业与执行任务的 UUID；不作为访问凭证                                                                          |
+| `stage`                       | `scanning`、`validating`、`preflight`、`registering`、`enumerating`、`preparing`、`copying`、`verifying`、`publishing` |
+| `unit`                        | `directories`、`pages`、`entries`、`records`、`objects`                                                                |
+| `completed`                   | 当前观测单位的非负累计计数；不同阶段或单位之间不能相加                                                                 |
+| `sequence`                    | 当前 execution 中单调增加的正整数                                                                                      |
+| `observed_at`                 | 读取响应时的服务器时间                                                                                                 |
+| `idle_seconds`                | 服务器按记录时间计算的未推进秒数，时间无效时为 `null`                                                                  |
+| `attention_after_seconds`     | 固定 `900`，仅供核实提示使用                                                                                           |
+
+只有新目录／S3页接受、登记条目转换、容量分页或新的复制结果等事实才记录推进。同一结果重复提交、旧任务或旧序号不刷新时间；claim、普通百分比更新、续租和权限／取消检查也不刷新。目录、登记、容量页和复制结果的观测随原事务提交或回滚。迁移清单的实际处理记录以限频短事务保存观测，它不表示报告已经封存，也不提供中断恢复检查点。
+
+响应不包含原始路径、对象键或内部观测证明。字段不合法、执行身份不匹配时两个字段均保持未知。GET／列表只读数据库，不访问存储、不创建任务、不刷新记录时间。
+
+前端仅对 `running` 且具有当前有效观测、`idle_seconds >= attention_after_seconds` 的任务提示“长时间未记录新的已提交进展”。这不证明死锁或底层I/O停止，也不触发失败、取消、重试、清理或恢复访问。终态不提示；首次观测前、排队和缺少中间事实的准备阶段均不能据此推断卡死。见[排查说明](../../ops/runbooks/celery-worker-stuck.md#存储任务的无进展提示)。
+
 ## Retention
 
 终态行（`completed` / `failed` / `cancelled`）每日 04:15 UTC 由 Celery beat 任务
@@ -187,3 +222,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 - 模型：[`apps/api/app/db/models/async_job.py`](../../../apps/api/app/db/models/async_job.py)
 - service：[`apps/api/app/services/async_job.py`](../../../apps/api/app/services/async_job.py)
 - 前端铃铛：[`apps/web/src/components/shell/JobsBell.tsx`](../../../apps/web/src/components/shell/JobsBell.tsx)
+
+## 目录观测扫描任务
+
+`dataset_scan` 复用全局任务入口，但只限当前超级管理员读取和取消。进行中百分比保持未知，使用累计 `processed_count / file_count / directory_count / skipped_count` 与阶段呈现进度；`complete` 单独表示枚举完整性。取消保留已提交目录观测，恢复通过[扫描专属接口](./dataset-sources)，不使用 prediction 的 retry-failed。任务清理不会删除长期扫描账本。
+
+导出Job的私有输入/输出授权证明不在payload中返回。结果中的下载URL按固定产物期限签发，缓存复用不延期；已完成结果只透传已保存URL，不从当前桶猜测重签。升级前缺少输出授权证明的未完成导出需要重新发起，详见[导出归属与期限](export.md#产物归属与固定期限)。

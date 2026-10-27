@@ -1,14 +1,13 @@
 ---
 audience: [dev, ops]
 type: explanation
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-19
 ---
 
 # 部署拓扑
 
-平台的核心应用边界由 web、API、按队列隔离的 Celery worker / beat、PostgreSQL、Redis 和对象存储组成。ML Backend 是通过 HTTP 协议注册的独立计算服务，可以与核心应用同机，也可以运行在独立 GPU 主机或集群中。
+平台的核心应用边界由 Web、API、按队列隔离的 7 类 Celery Worker / Beat、PostgreSQL、Redis 和对象存储组成。ML Backend 与在线学习训练执行器（`training-executor`）是通过 HTTP 协议协作的独立计算服务，既可与核心应用同机部署，也可运行在独立 GPU 主机中。
 
 ## 部署形态与演进
 
@@ -48,14 +47,14 @@ Source 使用专用 PostgreSQL LOGIN 精确执行 26 项 Assets 能力，不直�
 
 共享 `apps/assets-media` 工件承载视频与图片控制协议：控制 LOGIN 为 49 项能力，视频 worker LOGIN 为 20 项；图片 worker 使用独立 LOGIN，限于 10 项图片/图片输入执行能力。cleanup LOGIN 提供 8 项 outbox、图片和受理输入垃圾清理能力。视频输入的 HTTP、轮询进程和 Cleanup 已完成隔离本地联调；业务预测消费者仍待迁移。这些角色只执行发布的 Assets 函数，不直接读取业务表或其它 owner schema。独立图片 worker 的镜像入口和数据库角色已定义；此处不将其列为默认 Compose 服务或生产资格证明。
 
-### 受控训练计算节点 (Training Executor)
+### 受控训练计算节点（Training Executor）与在线学习协同
 
 模型训练是长耗时、高算力占用的批处理任务，与秒级响应的 ML 推理和普通 Celery 异步任务有本质区别：
 
-- **拉取式执行器**：训练使用独立的 `training-executor` 容器（由 `docker-compose.training.yml` 启动），不占用普通的 Celery worker。执行器通过内部 HTTP 轮询 (`/api/v1/internal/training/claim`) 获取排队中的训练实验，支持单物理节点部署或独立 GPU 主机部署。
-- **物理 GPU 独占锁**：执行器利用宿主状态卷上的 OS 文件锁（flock）保证物理 GPU 的严格独占。每个物理 GPU 同时仅允许一个训练实验运行，训练子进程继承锁句柄，彻底杜绝多实验并发导致的 CUDA OOM。
-- **凭据与网络边界**：执行器与 API 通信采用独立的随机共享凭据 (`TRAINING_EXECUTOR_TOKEN`，至少 32 字符，通过 Docker secret 注入)，仅能访问内部受控端点 (`/api/v1/internal/training/*`)，不暴露给外部网络或普通用户 JWT。
-- **存储拓扑**：训练包与产物独立存储于 MinIO `training` 桶（不可变、不设置生命周期过期），执行器使用 API 签发的短期对象存储 URL 下载训练包并上传产物，无需直接持有 MinIO 管理凭据。
+- **拉取式执行器**：训练使用独立的 `training-executor` 容器（由 `docker-compose.training.yml` 的 `training` profile 启动），不占用普通的 Celery worker。执行器通过内部 HTTP 轮询（`/api/v1/internal/training/claim`）获取排队中的训练实验，支持单物理节点部署或独立 GPU 主机部署。
+- **物理 GPU 独占锁**：执行器利用宿主状态卷上的 OS 文件锁（`flock`）保证物理 GPU 的严格独占。每个物理 GPU 同时仅允许一个训练实验运行，训练子进程继承锁句柄，彻底杜绝多实验并发导致的 CUDA OOM。
+- **凭据与 Worker 协同边界**：执行器与 API 通信采用独立的共享凭据（`TRAINING_EXECUTOR_TOKEN`，至少 32 个字符），仅能访问 `/api/v1/internal/training/*`。同时，消费 `default`、`ml.cpu` 与 `export` 队列的 Celery Worker 需同步配置 相同的训练功能开关与训练目录，推理调用另使用注册表中的 Backend 访问凭据，以驱动自动学习策略巡检、超参搜索推进、逐样本评估与主动选样。
+- **存储拓扑**：训练包与产物独立存储于 MinIO `training` 桶（不可变、不设置生命周期过期），执行器使用 API 签发的短期预签名 URL 下载训练包并上传产物，无需直接持有 MinIO 管理凭据。
 
 ## 生产入口与端口
 

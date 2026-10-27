@@ -16,8 +16,11 @@ vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({ role: mockRole }),
 }));
 
-vi.mock("./CapabilityCatalogPanel", () => ({
-  CapabilityCatalogPanel: () => <div data-testid="catalog-panel">目录面板</div>,
+vi.mock("./ModelDirectoryPanel", () => ({
+  ModelDirectoryPanel: () => <div data-testid="catalog-panel">模型面板</div>,
+}));
+vi.mock("./ProtocolCatalogPanel", () => ({
+  ProtocolCatalogPanel: () => <div data-testid="protocol-panel">协议面板</div>,
 }));
 vi.mock("./RuntimeObservePanel", () => ({
   RuntimeObservePanel: () => <div data-testid="runtime-panel">运行时面板</div>,
@@ -89,7 +92,7 @@ describe("ModelMarketPage 主 TAB（阶段一骨架）", () => {
     expect(screen.getByTestId("location-probe").dataset.search).toBe("?tab=registry");
     // PUSH 而非 REPLACE——返回按钮可回到上一个主 TAB。
     expect(screen.getByTestId("location-probe").dataset.navigationType).toBe("PUSH");
-    await user.click(screen.getByRole("tab", { name: /能力目录/ }));
+    await user.click(screen.getByRole("tab", { name: /模型目录/ }));
     expect(screen.getByTestId("location-probe").dataset.search).toBe("");
   });
 
@@ -112,9 +115,10 @@ describe("ModelMarketPage 主 TAB（阶段一骨架）", () => {
       });
     });
 
-    it("主导航只有能力目录 + 注册管理两个 TAB", () => {
+    it("项目管理员可见模型、协议与注册管理，隐藏运行时观测", () => {
       renderPage("/model-market?tab=registry");
-      expect(screen.getByRole("tab", { name: /能力目录/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /模型目录/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /协议能力/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /注册管理/ })).toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: /运行时观测/ })).not.toBeInTheDocument();
     });
@@ -125,5 +129,19 @@ describe("ModelMarketPage 主 TAB（阶段一骨架）", () => {
     await waitFor(() => {
       expect(screen.getByTestId("ai-pre-jobs")).toBeInTheDocument();
     });
+  });
+
+  it("旧任务分组深链迁移到协议页并保留任务与搜索", async () => {
+    renderPage(
+      "/model-market?tab=catalog&catalog_group=task&catalog_task=detect&catalog_q=car&catalog_view=list",
+    );
+    expect(screen.getByTestId("protocol-panel")).toBeInTheDocument();
+    await waitFor(() => {
+      const search = screen.getByTestId("location-probe").dataset.search ?? "";
+      expect(search).toContain("tab=protocol");
+      expect(search).toContain("protocol_task=detect");
+      expect(search).not.toContain("catalog_");
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("原分组及卡片/列表显示设置已移除");
   });
 });

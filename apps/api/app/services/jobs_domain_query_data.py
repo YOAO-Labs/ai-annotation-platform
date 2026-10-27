@@ -23,9 +23,15 @@ class JobsDomainQueryPostgresData:
         result = await self.db.execute(
             select(AsyncJob).from_statement(
                 text(
-                    "SELECT * FROM aap_jobs_v1.active_cross_frame_job("
+                    "SELECT job.*, "
+                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "AS execution_snapshot_id, progress.last_progress_at, "
+                    "progress.progress_observation FROM "
+                    "aap_jobs_v1.active_cross_frame_job("
                     "CAST(:actor_id AS pg_catalog.uuid), "
-                    "CAST(:singleflight_key AS pg_catalog.text))"
+                    "CAST(:singleflight_key AS pg_catalog.text)) AS job "
+                    "CROSS JOIN LATERAL "
+                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"actor_id": actor_id, "singleflight_key": singleflight_key},
@@ -36,10 +42,16 @@ class JobsDomainQueryPostgresData:
         result = await self.db.execute(
             select(AsyncJob).from_statement(
                 text(
-                    "SELECT * FROM aap_jobs_v1.cross_frame_job_page("
+                    "SELECT job.*, "
+                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "AS execution_snapshot_id, progress.last_progress_at, "
+                    "progress.progress_observation FROM "
+                    "aap_jobs_v1.cross_frame_job_page("
                     "CAST(:actor_id AS pg_catalog.uuid), "
                     "CAST(:scene_id AS pg_catalog.text), "
-                    "CAST(:limit AS pg_catalog.int4))"
+                    "CAST(:limit AS pg_catalog.int4)) AS job "
+                    "CROSS JOIN LATERAL "
+                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"actor_id": actor_id, "scene_id": scene_id, "limit": limit},
@@ -90,9 +102,15 @@ class JobsDomainQueryPostgresData:
         return await self.db.scalar(
             select(AsyncJob).from_statement(
                 text(
-                    "SELECT * FROM aap_jobs_v1.find_action_idempotent_jobs("
+                    "SELECT job.*, "
+                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "AS execution_snapshot_id, progress.last_progress_at, "
+                    "progress.progress_observation FROM "
+                    "aap_jobs_v1.find_action_idempotent_jobs("
                     "CAST(:kind AS pg_catalog.text), CAST(:project_id AS pg_catalog.uuid), "
-                    "CAST(:actor_id AS pg_catalog.uuid), CAST(:key AS pg_catalog.text))"
+                    "CAST(:actor_id AS pg_catalog.uuid), CAST(:key AS pg_catalog.text)) "
+                    "AS job CROSS JOIN LATERAL "
+                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"kind": kind, "project_id": project_id, "actor_id": actor_id, "key": key},

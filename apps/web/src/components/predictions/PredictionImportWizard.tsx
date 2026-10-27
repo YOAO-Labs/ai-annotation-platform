@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 // v0.10.15 · 外部预测导入向导.
 //
 // 三步: ①选格式 + 文件 + 兜底 model_version ② dry-run 预览 ③确认提交.
@@ -490,8 +491,10 @@ function PreviewBox({
         <div className={styles.errors}>
           {preview.errors.slice(0, 50).map((err, idx) => (
             <div key={idx} className={styles.errorRow}>
-              <code>{JSON.stringify(err.task_match)}</code>{" "}
-              <span className={styles.errorReason}>· {err.reason}</span>
+              <CopyableError
+                message={`${JSON.stringify(err.task_match)} · ${err.reason}`}
+                className={styles.errorReason}
+              />
             </div>
           ))}
           {preview.errors.length > 50 && (

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import {
   createContext,
   useCallback,
@@ -56,6 +57,7 @@ import {
   defaultDockWidth,
   panelMinimumWidth,
   panelSupportsContext,
+  workbenchPanelTitle,
   type WorkbenchPanelSlots,
   type WorkbenchWorkspaceCommands,
   type WorkbenchWorkspaceState,
@@ -87,9 +89,14 @@ export interface WorkbenchDockWorkspaceProps {
 
 type Executor = ReturnType<typeof createWorkbenchLayoutExecutor>;
 const SlotsContext = createContext<WorkbenchPanelSlots | null>(null);
-const PanelCloseContext = createContext<{ hide: (id: PanelId) => void; disabled: boolean }>({
+const PanelCloseContext = createContext<{
+  hide: (id: PanelId) => void;
+  disabled: boolean;
+  context: WorkspaceContext;
+}>({
   hide: () => {},
   disabled: true,
+  context: "annotate:image",
 });
 
 function isPanelContentVisible(api: IDockviewPanelProps["api"] | undefined): boolean {
@@ -182,15 +189,16 @@ function PanelHeaderActions({ group }: IDockviewHeaderActionsProps) {
 
 function PanelTab({ api }: IDockviewPanelHeaderProps) {
   const id = api.id as PanelId;
-  const { hide, disabled } = useContext(PanelCloseContext);
+  const { hide, disabled, context } = useContext(PanelCloseContext);
+  const title = workbenchPanelTitle(id, context);
   return (
     <div className="flex h-full items-center gap-1 pl-2 text-xs" data-workbench-layout-control>
-      <span>{WORKBENCH_PANEL_REGISTRY[api.id as PanelId].title}</span>
+      <span>{title}</span>
       {WORKBENCH_PANEL_REGISTRY[id].capabilities.hide && (
-        <Tooltip name={`隐藏${WORKBENCH_PANEL_REGISTRY[id].title}`} side="bottom">
+        <Tooltip name={`隐藏${title}`} side="bottom">
           <button
             type="button"
-            aria-label={`隐藏${WORKBENCH_PANEL_REGISTRY[id].title}`}
+            aria-label={`隐藏${title}`}
             disabled={disabled}
             className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
             onPointerDown={(event) => event.stopPropagation()}
@@ -551,6 +559,7 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
       hydration.current = { api, session, revision: owner.restoreRevision };
       for (const panel of api.panels) {
         const spec = WORKBENCH_PANEL_REGISTRY[panel.id as PanelId];
+        panel.api.setTitle(workbenchPanelTitle(panel.id as PanelId, context));
         panel.api.setRenderer(spec.renderer);
         panel.api.setConstraints({
           minimumWidth: panelMinimumWidth(panel.id as PanelId, bounds().width),
@@ -900,7 +909,7 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
       : []),
     ...availablePanels.map((id) => ({
       id,
-      label: WORKBENCH_PANEL_REGISTRY[id].title,
+      label: workbenchPanelTitle(id, context),
       active: visiblePanels.includes(id),
       disabled: owner.readOnly,
       onSelect: () => commands.toggle(id),
@@ -974,7 +983,9 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
       }}
     >
       <SlotsContext.Provider value={slots}>
-        <PanelCloseContext.Provider value={{ hide: commands.hide, disabled: owner.readOnly }}>
+        <PanelCloseContext.Provider
+          value={{ hide: commands.hide, disabled: owner.readOnly, context }}
+        >
           {renderTopbar(
             menu,
             view,
@@ -989,10 +1000,13 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
               role="status"
               className="flex shrink-0 items-center gap-2 border-b border-border bg-muted px-3 py-1 text-xs text-muted-foreground"
             >
-              {owner.error ??
-                (owner.readOnlyReason === "newer-schema"
-                  ? "此布局来自新版，当前使用只读标准布局。"
-                  : "保存的布局无法恢复，请从布局菜单重置。")}
+              {owner.error ? (
+                <CopyableError message={owner.error} />
+              ) : owner.readOnlyReason === "newer-schema" ? (
+                "此布局来自新版，当前使用只读标准布局。"
+              ) : (
+                "保存的布局无法恢复，请从布局菜单重置。"
+              )}
             </div>
           )}
           <div

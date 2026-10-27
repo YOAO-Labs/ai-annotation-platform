@@ -6,6 +6,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 import torch
@@ -163,3 +164,66 @@ def test_download_enforces_exact_and_maximum_sizes_without_exposing_api_auth(
         )
     assert not (tmp_path / "input.pt").exists()
     assert calls[0][1] == {"timeout": 60, "trust_env": False}
+
+
+def segment_specification(tmp_path):
+    from training_contract.initialization import SEGMENTATION_POLICY_DIGEST
+    from training_contract.dataset import INSTANCE_RLE_CONTRACT
+
+    spec = specification(tmp_path)
+    pin = spec["frozen_config"]["initialization"]
+    pin.update(
+        policy_digest=SEGMENTATION_POLICY_DIGEST,
+        task="segment",
+        base_model="yolo11n-seg",
+        data_contract=dict(INSTANCE_RLE_CONTRACT),
+    )
+    pin["evaluation"].update(
+        normalized_model_digest="1" * 64,
+        descriptor_digest="2" * 64,
+        weights_sha256=pin["artifact"]["sha256"],
+    )
+    pin["source_digest"] = digest(
+        {key: value for key, value in pin.items() if key != "source_digest"}
+    )
+    spec["frozen_config"].update(
+        task="segment", data_contract=dict(INSTANCE_RLE_CONTRACT)
+    )
+    return spec
+
+
+def test_native_segmentation_warm_start_transfers_mask_head_and_resets_state(tmp_path):
+    from ultralytics.nn.tasks import SegmentationModel
+
+    spec = segment_specification(tmp_path)
+    native = SegmentationModel("yolo11n-seg.yaml", nc=2, verbose=False).half()
+    native.names = {0: "car", 1: "person"}
+    baseline = prepare(spec, SimpleNamespace(model=native, task="segment"))
+    loaded = copy.deepcopy(native).float()
+    optimizer = torch.optim.SGD(loaded.parameters(), lr=0.01)
+    trainer = SimpleNamespace(
+        model=loaded,
+        optimizer=optimizer,
+        scheduler=torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1),
+        scaler=torch.amp.GradScaler("cpu", enabled=False),
+        ema=SimpleNamespace(updates=0),
+        best_fitness=0.0,
+        best=tmp_path / "best.pt",
+        start_epoch=0,
+    )
+    receipt = observation(spec, baseline, trainer)
+    assert receipt["source_tensor_digest"] == receipt["loaded_tensor_digest"]
+    assert (
+        receipt["mask_head_tensor_digest"] == receipt["loaded_mask_head_tensor_digest"]
+    )
+    assert receipt["mask_head_tensor_count"] == len(native.model[-1].state_dict()) > 50
+    with torch.no_grad():
+        next(loaded.model[-1].parameters()).add_(0.01)
+    with pytest.raises(InputMismatchError):
+        observation(spec, baseline, trainer)
+    # Resume uses the original experiment checkpoint and never rereads the
+    # optional source initialization file, even when that source is gone.
+    Path(spec["initialization_path"]).unlink()
+    spec["resume_path"] = "/state/own-checkpoint.pt"
+    validate_input(spec)
+    assert prepare(spec, None)["mode"] == "checkpoint_resume"

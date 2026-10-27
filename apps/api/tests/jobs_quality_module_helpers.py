@@ -422,9 +422,14 @@ async def exercise_quality_dispatch(
     from app.config import settings
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
     from app.db.models.dataset import DatasetItem
+    from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
     from app.db.models.point_cloud_quality import (
         PointCloudQualityIssue,
         PointCloudQualityRun,
+    )
+    from app.services.dataset_assets import (
+        LEGACY_LOCATION_ID,
+        ensure_legacy_bindings,
     )
     from tests.factory import create_user
     from tests.test_asset_storage_cleanup_runtime import _verify_postgres
@@ -522,6 +527,8 @@ async def exercise_quality_dispatch(
         maker = async_sessionmaker(test_engine, expire_on_commit=False)
         source_prefix = f"quality/{uuid.uuid4().hex}"
         pcd = _point_cloud_pcd()
+        pcd_sha256 = hashlib.sha256(pcd).hexdigest()
+        bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
         source_keys = [f"{source_prefix}/{frame:06d}.pcd" for frame in range(3)]
         async with maker.begin() as db:
             owner = await create_user(
@@ -530,6 +537,7 @@ async def exercise_quality_dispatch(
                 f"jobs-quality-{uuid.uuid4().hex[:12]}@worker.test",
                 "Jobs quality acceptance",
             )
+            await ensure_legacy_bindings(db)
             project, scene, tasks, _track, _annotations = await _seed_quality_scene(
                 db, owner_id=owner.id
             )
@@ -538,13 +546,33 @@ async def exercise_quality_dispatch(
                 key = source_keys[frame]
                 item.file_path = key
                 item.file_size = len(pcd)
-                item.content_hash = hashlib.sha256(pcd).hexdigest()
+                item.content_hash = pcd_sha256
                 task.file_path = key
+                asset = DatasetAsset(
+                    id=uuid.uuid4(),
+                    dataset_item_id=item.id,
+                    media_type="point_cloud",
+                    verification_state="verified",
+                    checksum_algorithm="sha256",
+                    checksum_value=pcd_sha256,
+                    size_bytes=len(pcd),
+                )
+                db.add(asset)
+                await db.flush()
+                db.add(
+                    DatasetAssetLocation(
+                        asset_id=asset.id,
+                        location_id=LEGACY_LOCATION_ID,
+                        bucket=bucket,
+                        object_key=key,
+                        role="managed_original",
+                        reference_state="present",
+                    )
+                )
             owner_id = owner.id
             project_id = project.id
             scene_id = scene.id
 
-        bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
         storage_scope, destroy_storage_scope = _create_quality_storage_scope(
             resources, owner_s3, source_keys
         )

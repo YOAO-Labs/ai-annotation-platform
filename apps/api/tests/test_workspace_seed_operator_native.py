@@ -23,10 +23,11 @@ from app.db.models.dataset import Dataset
 from app.db.models.project import Project
 from app.services.project_access import get_workspace_project
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_import_nuscenes_lite import (
+from tests.test_datasets_upload_zip import (
+    _FakeDatasetSourceStorage,
     _patch_storage_clients,
-    _write_fake_nuscenes,
 )
+from tests.test_import_nuscenes_lite import _write_fake_nuscenes
 from scripts import seed_pointcloud as seed
 
 
@@ -171,7 +172,8 @@ async def test_directory_and_nuscenes_match_original_workflow(
             db, "super_admin", f"seed-capture-{uuid.uuid4()}@example.test", "Seed owner"
         )
         actor_id = actor.id
-    fake = _patch_storage_clients(monkeypatch)
+    fake = _FakeDatasetSourceStorage()
+    _patch_storage_clients(monkeypatch, fake)
     fixture = tmp_path / "pointcloud"
     (fixture / "lidar").mkdir(parents=True)
     (fixture / "lidar/000000.pcd").write_bytes(

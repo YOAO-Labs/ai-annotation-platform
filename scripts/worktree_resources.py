@@ -44,6 +44,7 @@ OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
 IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+    "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
     "aap_identity_v1.authentication_policy()",
     "aap_identity_v1.read_provisioning_account(text)",
     "aap_identity_v1.create_provisioning_account(jsonb)",
@@ -126,6 +127,11 @@ NOTIFICATION_DELIVERY_READ_CAPABILITIES = (
     "aap_notifications_v1.delivery_super_pairs(jsonb)",
 )
 NOTIFICATION_RUNTIME_CAPABILITIES = (
+    "aap_notifications_v1.read_state_command_scoped(jsonb)",
+    "aap_notifications_v1.delete_command_scoped(jsonb)",
+    "aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
+    "aap_notifications_v1.inbox_total_count_scoped(uuid,text)",
+    "aap_notifications_v1.inbox_unread_count_scoped(uuid,text)",
     "aap_notifications_v1.preference_command(jsonb)",
     "aap_notifications_v1.append_notification(jsonb)",
     "aap_notifications_v1.append_job_terminal_notification(jsonb)",
@@ -142,6 +148,11 @@ AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.maintenance_command(jsonb)",
 )
 JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
+    "aap_jobs_v1.read_job_execution_snapshot(uuid)",
+    "aap_jobs_v1.read_job_progress(uuid)",
+    "aap_jobs_v1.read_job_progress_for_update(uuid,text,text)",
+    "aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)",
     "aap_jobs_v1.read_job(uuid)",
     "aap_jobs_v1.jobs_by_execution_id(text)",
     "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
@@ -451,6 +462,8 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "aap_labeling_v1.accepted_video_input_referenced(uuid)",
 )
 IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.read_video_derivative_links(uuid[])",
+    "aap_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid)",
     "aap_assets_v1.read_image_source(uuid,uuid,uuid)",
     "aap_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb)",
     "aap_assets_v1.read_image_summaries(uuid,jsonb,text)",
@@ -1309,6 +1322,7 @@ class LocalResources:
                     "aap_workspace_project_query_v1.project_search_member_ids(uuid, text), "
                     "aap_workspace_configuration_v1.configuration_policy(), "
                     "aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[]), "
+                    "aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb), "
                     "aap_inference_pipelines_v1.pipeline_policy(), "
                     "aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[]), "
                     "aap_workspace_membership_v1.membership_policy(), "
@@ -1389,8 +1403,6 @@ class LocalResources:
                     "aap_labeling_v1.batch_control_command(jsonb), "
                     "aap_labeling_v1.prediction_record_command(jsonb), "
                     "aap_labeling_v1.prediction_partition_command(jsonb), "
-                    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text), "
-                    "aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text), "
                     "aap_labeling_v1.scene_track_command(jsonb), "
                     "aap_labeling_v1.cross_frame_write_command(jsonb), "
                     "aap_labeling_v1.annotation_prediction_command(jsonb), "
@@ -1403,6 +1415,12 @@ class LocalResources:
                     "aap_labeling_v1.scene_read_query(jsonb), "
                     "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid), "
                     "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid), "
+                    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid), "
+                    "aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid), "
+                    "aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid), "
+                    "aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid), "
+                    "aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid), "
+                    "aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text), "
                     "aap_labeling_v1.video_control_command(jsonb), "
                     "aap_labeling_v1.video_segment_lifecycle_command(jsonb), "
                     "aap_labeling_v1.annotation_transfer_command(jsonb), "
@@ -1479,10 +1497,31 @@ class LocalResources:
                     "aap_assets_v1.capture_storage_connection(uuid, uuid, text), "
                     "aap_assets_v1.read_storage_connection_receipt(uuid, uuid, text, uuid, jsonb), "
                     "aap_assets_v1.create_storage_connection(uuid, uuid, jsonb, jsonb, text, text, jsonb, jsonb), "
-                    "aap_assets_v1.update_storage_connection(uuid, uuid, uuid, jsonb, jsonb, text, text, text, jsonb, jsonb), "
+                    "aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb), "
+                    "aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]), "
+                    "aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean), "
                     "aap_assets_v1.delete_storage_connection(uuid, uuid, uuid, jsonb), "
                     "aap_assets_v1.record_storage_connection_test(uuid, uuid, uuid, text, text, jsonb, jsonb, jsonb), "
                     "aap_assets_v1.create_operator_image_dataset(uuid, uuid, text, text), "
+                    "aap_assets_v1.publish_operator_item_original(jsonb), "
+                    "aap_assets_v1.operator_item_original_facts(uuid,uuid), "
+                    "aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid), "
+                    "aap_assets_v1.begin_operator_auxiliary(jsonb), "
+                    "aap_assets_v1.publish_operator_auxiliary(uuid), "
+                    "aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid), "
+                    "aap_assets_v1.operator_auxiliary_material(uuid,uuid), "
+                    "aap_assets_v1.operator_item_original_material(uuid,uuid), "
+                    "aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid), "
+                    "aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid), "
+                    "aap_assets_v1.operator_dataset_state(uuid), "
+                    "aap_assets_v1.operator_scene_state(uuid,uuid), "
+                    "aap_assets_v1.open_operator_storage_operation(uuid), "
+                    "aap_assets_v1.record_operator_original_prepared(uuid,jsonb), "
+                    "aap_assets_v1.mark_operator_original_writing(uuid), "
+                    "aap_assets_v1.record_operator_original_written(uuid,jsonb), "
+                    "aap_assets_v1.record_operator_original_verified(uuid,jsonb), "
+                    "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb), "
+                    "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean), "
                     "aap_assets_v1.ensure_operator_nuscenes_dataset(uuid, uuid, jsonb), "
                     "aap_assets_v1.append_operator_items(uuid, uuid, jsonb), "
                     "aap_assets_v1.patch_operator_items(uuid, uuid, jsonb), "
@@ -1581,7 +1620,12 @@ class LocalResources:
                     "REVOKE ALL ON FUNCTION "
                     "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
                     f"FROM {role}, PUBLIC",
-                    "REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text) "
+                    "REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text), "
+                    "aap_notifications_v1._visible_inbox_rows_scoped(uuid,text), "
+                    "aap_notifications_v1._notification_is_migration_inventory(uuid) "
+                    f"FROM {role}, PUBLIC",
+                    "REVOKE EXECUTE ON FUNCTION "
+                    "aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb) "
                     f"FROM {role}, PUBLIC",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",

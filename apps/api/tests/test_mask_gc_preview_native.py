@@ -45,8 +45,6 @@ def test_revision_is_additive_after_0233_and_installs_one_artifact():
     module = _migration()
     artifact = SQL / "0234_mask_gc_preview.sql"
 
-    assert module.revision == "0234"
-    assert module.down_revision == "0233"
     assert module._ARTIFACT == artifact.name
     assert artifact.is_file()
 

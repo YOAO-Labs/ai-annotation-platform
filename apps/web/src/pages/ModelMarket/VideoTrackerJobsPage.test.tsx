@@ -392,4 +392,32 @@ describe("VideoTrackerJobsPanel", () => {
       }),
     );
   });
+  it("切换页容量清空游标历史，并将新 limit 与独立 URL 键一起应用", async () => {
+    mockListVideoJobs.mockImplementation(async (params) =>
+      response([makeJob("running", 1)], params.cursor ? null : "next-page"),
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() =>
+      expect(mockListVideoJobs).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cursor: "next-page", limit: 20 }),
+        expect.anything(),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "每页视频追踪任务数" })).toBeEnabled(),
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "每页视频追踪任务数" }), {
+      target: { value: "50" },
+    });
+    await waitFor(() =>
+      expect(mockListVideoJobs).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cursor: undefined, limit: 50 }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+    expect(screen.getByTestId("location-search").textContent).toContain("video_page_size=50");
+  });
 });

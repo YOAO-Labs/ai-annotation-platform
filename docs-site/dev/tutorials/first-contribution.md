@@ -2,9 +2,8 @@
 title: 第一个贡献
 audience: [dev]
 type: tutorial
-since: v0.9.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # 第一个贡献：改文案 → 跑测试 → 提 PR
@@ -20,7 +19,7 @@ last_reviewed: 2026-05-09
 
 找一处前端界面上的中文文案（比如按钮、提示语）：
 
-```
+```text
 apps/web/src/
 ```
 
@@ -30,8 +29,8 @@ apps/web/src/
 
 ```bash
 cd apps/web
-pnpm test          # 单元测试（vitest）
-pnpm test:coverage # 带覆盖率
+pnpm test          # 单元测试（Vitest）
+pnpm test:coverage # 带覆盖率统计
 ```
 
 确认测试通过（或你的改动不影响现有测试）。
@@ -39,7 +38,7 @@ pnpm test:coverage # 带覆盖率
 ## Step 3：本地预览
 
 ```bash
-pnpm dev           # 启动 Vite dev server（localhost:3000）
+pnpm dev:web       # 启动 Vite 开发服务器（http://localhost:3000）
 ```
 
 在浏览器确认文案已更新。
@@ -58,16 +57,16 @@ git push origin your-branch
 
 1. 在 GitHub 点击 **Compare & pull request**
 2. 填写：改了什么、为什么改、如何验证
-3. 等待 CI（lint + type-check + vitest）通过
+3. 等待 CI（lint + typecheck + vitest）通过
 4. 请求 Review
 
 ## 常见卡点
 
-| 问题                       | 处理                                 |
-| -------------------------- | ------------------------------------ |
-| `pnpm test` 报 import 错误 | `pnpm install` 后重试                |
-| TypeScript 类型报错        | `pnpm type-check` 查看完整错误       |
-| CI 失败但本地通过          | 检查 Node 版本（需 ≥22）；查 CI 日志 |
+| 问题                       | 处理                                           |
+| -------------------------- | ---------------------------------------------- |
+| `pnpm test` 报 import 错误 | 先运行 `pnpm install` 与 `pnpm codegen` 后重试 |
+| TypeScript 类型报错        | 运行 `pnpm typecheck` 查看完整错误             |
+| CI 失败但本地通过          | 检查 Node 版本（需 ≥22）；查 CI 日志           |
 
 ## 下一步
 

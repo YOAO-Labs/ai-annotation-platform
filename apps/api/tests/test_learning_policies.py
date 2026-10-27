@@ -15,7 +15,6 @@ from app.services import learning_policies as service, training_runs as runs
 from app.application import learning_policy_execution
 from app.services import training_claims as claims
 from app.services.training_dataset_bridge import semantic_partitions
-from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
 from app.services.training_datasets import bind_training_authority
 from tests.test_training_runs import ready_dataset, executor_claim
 
@@ -28,7 +27,6 @@ async def check_policy_with_db_reader(db, policy_id, *, force=False):
     return await service.check_policy(
         db,
         policy_id,
-        source_reader=SqlAlchemyProjectTaskSourceReader(db),
         training_authority=bind_training_authority(db),
         force=force,
     )

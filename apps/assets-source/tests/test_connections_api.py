@@ -91,6 +91,7 @@ def _requests():
                 operation_id=operation_id,
                 actor_id=actor_id,
                 connection_id=connection_id,
+                expected_revision=1,
                 name="updated connector",
             ),
         ),

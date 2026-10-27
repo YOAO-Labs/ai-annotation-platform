@@ -29,9 +29,9 @@ export function Step2ClassesPerUnit({
     }));
   };
   return (
-    <div className={styles.formStack}>
+    <div className={styles.classesStep}>
       <div className={styles.sectionHint}>
-        v0.10.17 类别按工具单位独立配置。切换下方 Tab 给每个启用的工具单位单独维护类别。 强隔离:
+        类别按工具单位独立配置。切换下方 Tab 给每个启用的工具单位单独维护类别。 强隔离:
         不同工具的同名类是独立记录, 可以同名不同色。
       </div>
       <UnitTabs form={form} setForm={setForm} />
@@ -41,6 +41,7 @@ export function Step2ClassesPerUnit({
         </div>
       ) : (
         <ClassEditor
+          className="min-h-0"
           value={rows}
           onChange={onChange}
           max={50}

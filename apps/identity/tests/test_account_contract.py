@@ -92,6 +92,104 @@ def test_wire_request_rejects_duplicate_unknown_and_wrong_avatar_fields():
         )
 
 
+def _avatar_receipt(token="a" * 32, *, size=9):
+    return {
+        "token": token,
+        "sha256": "b" * 64,
+        "size_bytes": size,
+        "object_version_id": "version-1",
+        "maintenance_revision": 1,
+        "storage_ref": {
+            "schema": 1,
+            "purpose": "avatars",
+            "location_id": "4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7",
+            "config_revision": 1,
+            "binding_generation": 1,
+            "endpoint_url": "http://minio:9000",
+            "bucket": "avatars",
+            "object_key": token + ".webp",
+            "storage_identity": "c" * 64,
+        },
+    }
+
+
+def test_upload_avatar_requires_an_owned_verified_receipt():
+    token = "a" * 32
+    request = account_request(
+        "set_avatar_ref",
+        payload={
+            "avatar_ref": "upload:" + token,
+            "kind": "upload",
+            "bytes": 9,
+            "expected_previous_avatar_ref": "preset:blue",
+            "receipt": _avatar_receipt(token),
+        },
+    )
+    payload = request.model_dump(mode="json")["payload"]
+    assert payload["expected_previous_avatar_ref"] == "preset:blue"
+    assert payload["receipt"]["storage_ref"]["purpose"] == "avatars"
+
+    base = {
+        "avatar_ref": "upload:" + token,
+        "kind": "upload",
+        "bytes": 9,
+        "receipt": _avatar_receipt(token),
+    }
+    with pytest.raises(ValidationError):
+        account_request("set_avatar_ref", payload=base)
+    for broken in (
+        {**base, "expected_previous_avatar_ref": None, "receipt": None},
+        {
+            **base,
+            "expected_previous_avatar_ref": None,
+            "receipt": {**_avatar_receipt(token), "size_bytes": 10},
+        },
+        {
+            **base,
+            "expected_previous_avatar_ref": None,
+            "receipt": _avatar_receipt("d" * 32),
+        },
+        {
+            **base,
+            "expected_previous_avatar_ref": None,
+            "receipt": {
+                key: value
+                for key, value in _avatar_receipt(token).items()
+                if key != "maintenance_revision"
+            },
+        },
+        {
+            **base,
+            "expected_previous_avatar_ref": None,
+            "receipt": {**_avatar_receipt(token), "maintenance_revision": 0},
+        },
+        {
+            **base,
+            "expected_previous_avatar_ref": None,
+            "receipt": {
+                **(_avatar_receipt(token)),
+                "storage_ref": {
+                    **_avatar_receipt(token)["storage_ref"],
+                    "object_key": "other.webp",
+                },
+            },
+        },
+    ):
+        with pytest.raises(ValidationError):
+            account_request("set_avatar_ref", payload=broken)
+
+    with pytest.raises(ValidationError):
+        account_request(
+            "set_avatar_ref",
+            payload={
+                "avatar_ref": "preset:blue",
+                "kind": "preset_or_clear",
+                "bytes": None,
+                "receipt": _avatar_receipt(token),
+            },
+        )
+
+
 def test_wire_reply_binds_operation_id_actor_and_credential_identity():
     request = account_request("read_self_account")
     reply = decode_account_reply(

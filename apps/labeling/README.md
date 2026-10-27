@@ -153,14 +153,18 @@ public-schema CREATE for this maintenance. The prediction-client profile allows
 exactly the two prediction-write commands plus this maintenance command; callers
 still lack raw table access and DDL. User-performance MV ownership remains separate.
 
-Legacy upload Task initialization and completion use the fixed
-`create_uploading_task(uuid,uuid,text,text,text)` and
-`complete_uploading_task(uuid,uuid,uuid,text,text)` capabilities. The packaged
-`upload-tasks.schema.json` defines their argument order and closed replies.
-The owner preserves Task defaults and sequence allocation, locks and compares the
-captured completion target, and performs no commit. The API retains manager
-authorization, the post-storage canonical fence, and the shared transaction with
-image admission; initialization still commits before signing the upload URL.
+Independent Task uploads use `create_uploading_task(uuid,uuid,text,text,text,text,uuid)`
+for the fixed uploading row and `publish_task_original(uuid,uuid,uuid,uuid,uuid,text)`
+for the CAS pointer after Assets seals the original. The packaged
+`upload-tasks.schema.json` defines their argument order, closed replies and the
+`image`/`video`/`other` file types. The owner preserves Task defaults, rechecks
+manager authority and performs no commit. The API allocates and verifies the
+independent managed original, commits before signing the staging URL, and keeps
+the post-storage canonical fence before publication.
+
+The pre-managed `create_uploading_task(uuid,uuid,text,text,text)` and
+`complete_uploading_task(uuid,uuid,uuid,text,text)` pair is retired by `bo0380`
+and is no longer granted or distributed.
 
 `scene_track_command(jsonb)` owns command lock/replay/apply/inspect/list/revert,
 including operation snapshots, intervals, member changes and reversal. Current

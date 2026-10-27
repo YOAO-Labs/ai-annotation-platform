@@ -18,9 +18,14 @@ from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNI
 
 from app.db.enums import UserRole
 from app.services.project_access import get_workspace_project
-from app.db.models.prediction import Prediction, FailedPrediction
+from app.db.models.prediction import (
+    INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
+    Prediction,
+    FailedPrediction,
+)
 from app.db.models.task import Task
 from app.services.annotation_propagation import _new_track_id
+from app.services.content_snapshot import ContentError
 from app.services.labeling_write_scope import LabelingWriteScope
 from app.services.labeling_write_guard import lock_labeling_write
 from app.services.labeling_prediction_contract import (
@@ -610,6 +615,219 @@ def _prediction_result_for_write(request: ApplyPredictionResultRequest) -> list[
     return request.result
 
 
+def _portable_mask_meta(request: ApplyPredictionResultRequest) -> dict | None:
+    meta = request.token_meta
+    return meta if (meta or {}).get("mask_objects") is not None else None
+
+
+def _provenance_write_facts(request: ApplyPredictionResultRequest, result: list[dict]):
+    """Exactly the frozen write facts the native qualification digest covers."""
+    return dict(
+        task_id=request.task_id,
+        project_id=request.project_id,
+        ml_backend_id=request.ml_backend_id,
+        result=result,
+        score=request.score,
+        model_version=request.model_version,
+        inference_time_ms=request.inference_time_ms,
+        token_meta=request.token_meta,
+        source=request.source,
+        pipeline_extra=request.pipeline_extra,
+        ml_backend_pool_id=request.ml_backend_pool_id,
+        model_provenance=request.model_provenance,
+    )
+
+
+async def _verify_input_provenance(
+    db, request: ApplyPredictionResultRequest, result: list[dict], task
+) -> tuple[dict, dict | None, dict | None]:
+    """Validate the input owner's receipt in the already-locked write transaction."""
+    original = request.original_receipt
+    reference = request.reference_receipt
+    native = request.background_native_reference_receipt
+    video_input = request.video_input_receipt
+    video_result = request.video_result_receipt
+    from app.services.content_snapshot import ContentError
+
+    from app.services.reference_keys import is_reference
+
+    repair_original = request.repair_original_receipt
+    repair_reference = request.repair_reference_receipt
+    reference_task = is_reference(task.file_path)
+    if task.file_type == "image" and not reference_task:
+        if (
+            request.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+            and request.native_original_receipt is None
+        ):
+            raise ContentError("prediction_requires_original_provenance")
+        if request.source == "mask_repair" and repair_original is None:
+            raise ContentError("repair_original_requires_new_plan")
+    if (
+        task.file_type == "video"
+        and request.source == "ml_backend"
+        and result
+        and video_input is None
+    ):
+        from types import SimpleNamespace
+        from app.services.video_prediction_acceptance import requires_qualification
+
+        if requires_qualification(
+            SimpleNamespace(source=request.source, result=result)
+        ):
+            raise ContentError("prediction_video_requires_new_request")
+    if repair_original is not None or repair_reference is not None:
+        if (
+            (repair_original is not None and repair_reference is not None)
+            or any(
+                receipt is not None
+                for receipt in (
+                    original,
+                    reference,
+                    native,
+                    video_input,
+                    video_result,
+                    request.native_original_receipt,
+                    request.native_reference_receipt,
+                )
+            )
+            or request.source != "mask_repair"
+            or request.accepted_video_input is not None
+            or (request.token_meta or {}).get("mask_objects") is not None
+            or len(result) != 1
+            or (result[0].get("geometry") or {}).get("type") != "raster_mask"
+        ):
+            raise ContentError(
+                "repair_original_receipt_invalid"
+                if repair_original is not None
+                else "repair_reference_receipt_invalid"
+            )
+        if repair_original is not None:
+            from app.services.managed_mask_repair import validate_receipt
+
+            receipt, evidence_key = repair_original, "original_input"
+        else:
+            from app.services.reference_mask_repair import validate_receipt
+
+            receipt, evidence_key = repair_reference, "reference_input"
+        evidence = await validate_receipt(
+            db,
+            request.task_id,
+            request.write_scope.actor_id,
+            receipt,
+            "prediction",
+            result,
+            project_id=request.project_id,
+        )
+        return {evidence_key: evidence}, None, None
+    interactive_original = request.native_original_receipt
+    interactive_reference = request.native_reference_receipt
+    if interactive_original is not None or interactive_reference is not None:
+        if (
+            (interactive_original is not None and interactive_reference is not None)
+            or any(
+                receipt is not None
+                for receipt in (original, reference, native, video_input, video_result)
+            )
+            or request.source != INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+            or request.accepted_video_input is not None
+            or (request.token_meta or {}).get("mask_objects") is not None
+        ):
+            raise ContentError("prediction_native_receipt_invalid")
+        if interactive_original is not None:
+            from app.services.managed_native_inference import validate_native_receipt
+
+            receipt = interactive_original
+            evidence_key = "original_input"
+        else:
+            from app.services.reference_inference import validate_native_receipt
+
+            receipt = interactive_reference
+            evidence_key = "reference_input"
+        evidence = await validate_native_receipt(
+            db,
+            request.task_id,
+            request.project_id,
+            receipt,
+            actor_id=request.write_scope.actor_id,
+            result=result,
+        )
+        return {evidence_key: evidence}, None, None
+
+    if video_input is not None or video_result is not None:
+        if (
+            video_input is None
+            or video_result is None
+            or getattr(video_result, "anchor", None) is not video_input
+            or any(receipt is not None for receipt in (original, reference, native))
+            or request.source != "ml_backend"
+            or request.accepted_video_input is not None
+        ):
+            raise ContentError("prediction_video_receipt_invalid")
+        from app.services.video_prediction_references import (
+            public_provenance,
+            validate_result_receipt,
+        )
+
+        evidence = await validate_result_receipt(
+            db,
+            request.task_id,
+            request.project_id,
+            video_result,
+            _provenance_write_facts(request, result),
+        )
+        return (
+            {"original_video_input": public_provenance(evidence)},
+            None,
+            evidence,
+        )
+    if original is not None:
+        if reference is not None or native is not None:
+            raise ContentError("prediction_original_receipt_invalid")
+        if request.source != "ml_backend" or request.accepted_video_input is not None:
+            raise ContentError("prediction_original_receipt_invalid")
+        from app.services.prediction_originals import validate_receipt
+
+        evidence = await validate_receipt(
+            db, request.task_id, request.project_id, original
+        )
+        return {"original_input": evidence}, None, None
+    if native is not None:
+        if reference is None or request.accepted_video_input is not None:
+            raise ContentError("background_native_reference_receipt_invalid")
+        if request.source != "ml_backend":
+            raise ContentError("background_native_reference_receipt_invalid")
+        from app.services.reference_native_predictions import validate_receipt
+
+        evidence, qualification = await validate_receipt(
+            db,
+            request.task_id,
+            request.project_id,
+            native,
+            _provenance_write_facts(request, result),
+        )
+        return {"reference_input": evidence}, qualification, None
+    if reference is not None:
+        if request.source != "ml_backend" or request.accepted_video_input is not None:
+            raise ContentError("prediction_reference_receipt_invalid")
+        from app.services.prediction_references import validate_receipt
+
+        from app.services.raster_mask_storage import collect_mask_geometries
+
+        if (
+            (request.token_meta or {}).get("mask_objects") is not None
+            or collect_mask_geometries(result)
+            or any(shape.get("type") == "brushlabels" for shape in result)
+        ):
+            raise ContentError("reference_prediction_geometry_not_supported")
+        evidence = await validate_receipt(
+            db, request.task_id, request.project_id, reference
+        )
+        return {"reference_input": evidence}, None, None
+    if reference_task:
+        raise ContentError("reference_operation_not_supported", 409)
+    return {}, None, None
+
+
 class PredictionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -680,7 +898,13 @@ class PredictionService:
         )
         try:
             verified_content = await preflight_mask_payload_for_write(
-                self.db, preflight_task, result
+                self.db,
+                preflight_task,
+                result,
+                portable_mask_meta=_portable_mask_meta(request),
+                native_original_receipt=request.native_original_receipt,
+                repair_original_receipt=request.repair_original_receipt,
+                video_result_receipt=request.video_result_receipt,
             )
             task, _actor, _access = await lock_labeling_write(
                 self.db,
@@ -700,6 +924,12 @@ class PredictionService:
             raise _apply_prediction_error(exc) from exc
         except HTTPException as exc:
             raise _apply_prediction_error(exc) from exc
+        except ContentError as exc:
+            raise ApplyPredictionResultError(
+                code=exc.code,
+                status_code=exc.status,
+                detail={"code": exc.code},
+            ) from None
         if accepted_video_input is not None:
             assert write_scope.job_id is not None
             existing = await self._existing_video_prediction(
@@ -710,16 +940,45 @@ class PredictionService:
             if existing is not None:
                 return _video_prediction_receipt(existing)
         try:
+            (
+                input_evidence,
+                native_qualification,
+                video_evidence,
+            ) = await _verify_input_provenance(self.db, request, result, task)
+        except ContentError as exc:
+            raise ApplyPredictionResultError(
+                code=exc.code,
+                status_code=exc.status,
+                detail={"code": exc.code},
+            ) from None
+        try:
             await prepare_mask_payload_for_write(
                 self.db,
                 task,
                 result,
                 verified_content=verified_content,
                 require_verified_content=True,
+                portable_mask_meta=_portable_mask_meta(request),
+                native_original_receipt=request.native_original_receipt,
+                repair_original_receipt=request.repair_original_receipt,
+                video_result_receipt=request.video_result_receipt,
             )
         except RasterMaskContractError as exc:
             raise _apply_prediction_error(exc) from exc
-        return await self._persist_prediction_result(request, task, result)
+        except ContentError as exc:
+            raise ApplyPredictionResultError(
+                code=exc.code,
+                status_code=exc.status,
+                detail={"code": exc.code},
+            ) from None
+        return await self._persist_prediction_result(
+            request,
+            task,
+            result,
+            input_evidence=input_evidence,
+            native_qualification=native_qualification,
+            video_evidence=video_evidence,
+        )
 
     async def apply_prediction_result_bundle(
         self, requests: tuple[ApplyPredictionResultRequest, ...]
@@ -751,10 +1010,16 @@ class PredictionService:
         ]
         verified_contents = []
         try:
-            for result in normalized_results:
+            for request, result in zip(requests, normalized_results, strict=True):
                 verified_contents.append(
                     await preflight_mask_payload_for_write(
-                        self.db, preflight_task, result
+                        self.db,
+                        preflight_task,
+                        result,
+                        portable_mask_meta=_portable_mask_meta(request),
+                        native_original_receipt=request.native_original_receipt,
+                        repair_original_receipt=request.repair_original_receipt,
+                        video_result_receipt=request.video_result_receipt,
                     )
                 )
             task, _actor, _access = await lock_labeling_write(
@@ -775,6 +1040,12 @@ class PredictionService:
             raise _apply_prediction_error(exc) from exc
         except HTTPException as exc:
             raise _apply_prediction_error(exc) from exc
+        except ContentError as exc:
+            raise ApplyPredictionResultError(
+                code=exc.code,
+                status_code=exc.status,
+                detail={"code": exc.code},
+            ) from None
 
         if accepted_video_input is not None:
             assert scope.job_id is not None
@@ -785,9 +1056,21 @@ class PredictionService:
             )
             if existing is not None:
                 return (_video_prediction_receipt(existing),)
+        provenance = []
         try:
-            for result, verified_content in zip(
-                normalized_results, verified_contents, strict=True
+            for request, result in zip(requests, normalized_results, strict=True):
+                provenance.append(
+                    await _verify_input_provenance(self.db, request, result, task)
+                )
+        except ContentError as exc:
+            raise ApplyPredictionResultError(
+                code=exc.code,
+                status_code=exc.status,
+                detail={"code": exc.code},
+            ) from None
+        try:
+            for request, result, verified_content in zip(
+                requests, normalized_results, verified_contents, strict=True
             ):
                 await prepare_mask_payload_for_write(
                     self.db,
@@ -795,19 +1078,47 @@ class PredictionService:
                     result,
                     verified_content=verified_content,
                     require_verified_content=True,
+                    portable_mask_meta=_portable_mask_meta(request),
+                    native_original_receipt=request.native_original_receipt,
+                    repair_original_receipt=request.repair_original_receipt,
+                    video_result_receipt=request.video_result_receipt,
                 )
         except RasterMaskContractError as exc:
             raise _apply_prediction_error(exc) from exc
+        except ContentError as exc:
+            raise ApplyPredictionResultError(
+                code=exc.code,
+                status_code=exc.status,
+                detail={"code": exc.code},
+            ) from None
 
         receipts = []
-        for request, result in zip(requests, normalized_results, strict=True):
+        for (request, result), (
+            input_evidence,
+            native_qualification,
+            video_evidence,
+        ) in zip(requests, normalized_results, provenance, strict=True):
             receipts.append(
-                await self._persist_prediction_result(request, task, result)
+                await self._persist_prediction_result(
+                    request,
+                    task,
+                    result,
+                    input_evidence=input_evidence,
+                    native_qualification=native_qualification,
+                    video_evidence=video_evidence,
+                )
             )
         return tuple(receipts)
 
     async def _persist_prediction_result(
-        self, request: ApplyPredictionResultRequest, task: Task, result: list[dict]
+        self,
+        request: ApplyPredictionResultRequest,
+        task: Task,
+        result: list[dict],
+        *,
+        input_evidence: dict | None = None,
+        native_qualification: dict | None = None,
+        video_evidence: dict | None = None,
     ) -> ApplyPredictionResultReceipt:
         prediction_id = (
             request.batch_result_identity.prediction_id
@@ -816,10 +1127,32 @@ class PredictionService:
         )
         token_meta = request.token_meta or {}
         extra = {
-            **(request.pipeline_extra or {}),
+            **{
+                key: value
+                for key, value in (request.pipeline_extra or {}).items()
+                if key
+                not in {
+                    "reference_input",
+                    "reference_execution",
+                    "reference_native",
+                    "original_input",
+                    "original_video_input",
+                    "video_prediction_proof",
+                }
+            },
             **(
                 {"trained_model": request.model_provenance}
                 if request.model_provenance
+                else {}
+            ),
+            **(
+                {"inference_runtime": token_meta["inference_runtime"]}
+                if request.model_provenance and "inference_runtime" in token_meta
+                else {}
+            ),
+            **(
+                {"segmentation": token_meta["segmentation"]}
+                if "segmentation" in token_meta
                 else {}
             ),
             **(
@@ -833,6 +1166,70 @@ class PredictionService:
                 else {}
             ),
         }
+        if input_evidence:
+            extra = {**extra, **input_evidence}
+        if native_qualification is not None:
+            if request.batch_result_identity is None:
+                raise ValueError(
+                    "native qualification requires a frozen prediction identity"
+                )
+            from app.services.reference_native_predictions import (
+                PROOF_KEY,
+                persisted_qualification,
+            )
+
+            pending = Prediction(
+                id=prediction_id,
+                created_at=request.batch_result_identity.prediction_created_at,
+                task_id=request.task_id,
+                project_id=request.project_id,
+                ml_backend_id=request.ml_backend_id,
+                ml_backend_pool_id=request.ml_backend_pool_id,
+                model_version=request.model_version,
+                score=request.score,
+                tool_unit_id=derive_tool_unit_from_result(result),
+                result=result,
+                source=request.source,
+                rejected_shape_indexes=[],
+            )
+            extra = {
+                **extra,
+                PROOF_KEY: persisted_qualification(
+                    pending, extra, native_qualification
+                ),
+            }
+        video_created_at = None
+        if video_evidence is not None:
+            from app.services.video_prediction_acceptance import (
+                PROOF_KEY as VIDEO_PROOF_KEY,
+                persisted_qualification as qualify_video_prediction,
+            )
+
+            video_created_at = (
+                request.batch_result_identity.prediction_created_at
+                if request.batch_result_identity is not None
+                else datetime.now(timezone.utc)
+            )
+            pending = Prediction(
+                id=prediction_id,
+                created_at=video_created_at,
+                task_id=request.task_id,
+                project_id=request.project_id,
+                ml_backend_id=request.ml_backend_id,
+                ml_backend_pool_id=request.ml_backend_pool_id,
+                model_version=request.model_version,
+                score=request.score,
+                tool_unit_id=derive_tool_unit_from_result(result),
+                result=result,
+                source=request.source,
+                rejected_shape_indexes=[],
+            )
+            extra = {
+                **extra,
+                VIDEO_PROOF_KEY: qualify_video_prediction(
+                    pending, extra, video_evidence
+                ),
+            }
         command = InsertPredictionResult(
             schema=PREDICTION_RECORDS_PROTOCOL,
             operation="insert_result",
@@ -840,7 +1237,7 @@ class PredictionService:
             prediction_created_at=(
                 request.batch_result_identity.prediction_created_at
                 if request.batch_result_identity is not None
-                else None
+                else video_created_at
             ),
             prediction_meta_id=uuid.uuid4(),
             task_id=request.task_id,
@@ -895,6 +1292,12 @@ class PredictionService:
         set_committed_value(task, "total_predictions", data.total_predictions)
         set_committed_value(task, "updated_at", data.task_updated_at)
         await self.db.flush()
+        if request.repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, request.repair_original_receipt)
+        if request.video_input_receipt is not None:
+            await request.video_input_receipt.owner.recheck_credentials()
         return ApplyPredictionResultReceipt(
             id=data.prediction_id,
             created_at=data.created_at,
@@ -967,6 +1370,7 @@ class PredictionService:
         extra: dict | None = None,
         ml_backend_pool_id: uuid.UUID | None = None,
         failure_id: uuid.UUID | None = None,
+        execution_snapshot_id: uuid.UUID | None = None,
     ) -> FailedPrediction:
         resolved_failure_id = failure_id if failure_id is not None else uuid.uuid4()
         # Keep pending Task counter changes ahead of the native failure insert.
@@ -982,6 +1386,7 @@ class PredictionService:
             error_type=error_type,
             message=message,
             extra=extra or {},
+            execution_snapshot_id=execution_snapshot_id,
         )
         failed = FailedPrediction(
             id=resolved_failure_id,
@@ -998,6 +1403,7 @@ class PredictionService:
             created_at=created_at,
         )
         failed.last_retry_at = None
+        failed.execution_snapshot_id = execution_snapshot_id
         make_transient_to_detached(failed)
         self.db.add(failed)
         await self.db.flush()

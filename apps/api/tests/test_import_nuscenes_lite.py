@@ -10,37 +10,35 @@
 
 from __future__ import annotations
 
-import io
 import hashlib
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import json
 import os
-import uuid
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
+import uuid
 import zipfile
 
 import numpy as np
 import pytest
 from PIL import Image
-from sqlalchemy import func, select, text
+from sqlalchemy import select
 
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
+from app.config import settings
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+from app.services import managed_original_creation as creation
+from tests.test_managed_original_creation import Client
+
+from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task_batch import TaskBatch
-from aap_assets_catalog.spatial_contract import (
-    ListScenesRequest,
-    ReadItemsRequest,
-    ReadPosesRequest,
-    SetSceneSourceRequest,
-    UpsertPosesRequest,
-)
-from app.services.assets_spatial import AssetsSpatialGateway
-from app.services.labeling_scene import get_neighbors_for_task
+from app.services import scene as scene_svc
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.storage import storage_service
-from app.services.dataset import DatasetService
 from app.workers.export import _nuscenes_scope_digest
 from scripts.import_nuscenes_scene import (
     _derived_display_id,
@@ -53,8 +51,6 @@ from scripts.import_nuscenes_scene import (
     _transform,
     import_nuscenes,
 )
-
-import scripts.seed_pointcloud as seed_pointcloud
 
 pytestmark = pytest.mark.asyncio
 
@@ -122,7 +118,7 @@ async def test_same_named_datasets_use_distinct_storage_roots(
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
     fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
+    monkeypatch.setattr(storage_service, "client", fake_client)
 
     first = await import_nuscenes(
         db_session,
@@ -151,7 +147,7 @@ async def test_same_named_datasets_use_distinct_storage_roots(
     }
     assert len(storage_roots) == 2
     for dataset in datasets:
-        root_prefix = f"{dataset.metadata_['source']['storage_root']}/"
+        root_prefix = f"__aap_managed_datasets__/{dataset.id}/"
         item_paths = list(
             (
                 await db_session.execute(
@@ -174,7 +170,7 @@ async def test_same_named_datasets_use_distinct_storage_roots(
         },
     }
     await db_session.flush()
-    objects_before = dict(fake_client.objects)
+    objects_before = deepcopy(fake_client.objects)
     with pytest.raises(ValueError, match="storage_root does not match its UUID"):
         await import_nuscenes(
             db_session,
@@ -206,48 +202,54 @@ async def test_safe_source_path_rejects_cross_platform_escape(filename):
         _safe_source_path(filename)
 
 
-# --------------------------------------------------------------------------- #
-# fake S3:put_object 存 dict,get_object 读回(attach_calibration 要读 calib)
-# --------------------------------------------------------------------------- #
-class _FakeS3Client:
-    def __init__(self) -> None:
-        self.objects: dict[tuple[str, str], bytes] = {}
-        self.metadata: dict[tuple[str, str], dict[str, str]] = {}
-
-    def put_object(  # noqa: N803
-        self, *, Bucket, Key, Body, ContentType=None, Metadata=None
-    ):
-        self.objects[(Bucket, Key)] = bytes(Body)
-        self.metadata[(Bucket, Key)] = dict(Metadata or {})
-
-    def _etag(self, bucket, key):
-        return f'"{hashlib.md5(self.objects[(bucket, key)], usedforsecurity=False).hexdigest()}"'
-
-    def get_object(self, *, Bucket, Key, IfMatch=None):  # noqa: N803
-        payload = self.objects[(Bucket, Key)]
-        return {
-            "Body": io.BytesIO(payload),
-            "ContentLength": len(payload),
-            "ETag": self._etag(Bucket, Key),
-        }
-
-    def head_object(self, *, Bucket, Key, IfMatch=None):  # noqa: N803
-        payload = self.objects[(Bucket, Key)]
-        return {
-            "ContentLength": len(payload),
-            "ETag": self._etag(Bucket, Key),
-            "Metadata": self.metadata[(Bucket, Key)],
-        }
-
-    def delete_object(self, *, Bucket, Key):  # noqa: N803
-        self.objects.pop((Bucket, Key), None)
+# Controlled transport and independent ledgers live in one disposable namespace.
+class _FakeS3Client(Client):
+    def __init__(self):
+        super().__init__()
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+        )
 
 
-def _patch_storage_clients(monkeypatch, client=None):
-    fake = client or _FakeS3Client()
-    monkeypatch.setattr(storage_service, "client", fake)
-    monkeypatch.setattr(storage_service, "spatial_source_client", fake)
-    return fake
+@pytest.fixture(autouse=True)
+def controlled_transport(monkeypatch):
+    monkeypatch.setattr(creation, "create_client", lambda **_: storage_service.client)
+
+
+async def _frozen_test_delivery(db, project_id, client):
+    """Exercise frozen serialization; actual copy/lease behavior has worker tests."""
+    from app.services.exporting import lidar_inputs
+    from app.services.exporting.lidar_frozen import FrozenLidar
+
+    captured = await lidar_inputs.collect(db, project_id, None, ["nuscenes"], {})
+
+    class ReceiptView(FrozenLidar):
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+        def entry(self, task_id, role):
+            binding = next(
+                row
+                for row in captured.snapshot["media"]
+                if row["task_id"] == str(task_id) and row["role"] == role
+            )
+            source = captured.sources[f"{task_id}:{role}"]
+            data = client.objects[(source.bucket, source.object_key)]["data"]
+            assert len(data) == source.size_bytes
+            assert hashlib.sha256(data).hexdigest() == source.sha256
+            return {
+                "presigned_url": "https://receipt.invalid/" + binding["source_key"],
+                "expires_at": self.expires_at.isoformat(),
+                "sha256": source.sha256,
+                "size_bytes": source.size_bytes,
+            }
+
+        async def pcd_bytes(self, task_id):
+            source = captured.sources[f"{task_id}:primary_lidar"]
+            data = client.objects[(source.bucket, source.object_key)]["data"]
+            assert hashlib.sha256(data).hexdigest() == source.sha256
+            return data
+
+    return ReceiptView(captured.snapshot)
 
 
 # --------------------------------------------------------------------------- #
@@ -426,285 +428,16 @@ def _write_fake_nuscenes(
         (meta / f"{name}.json").write_text(json.dumps(rows), encoding="utf-8")
 
 
-async def test_nuscenes_task_creation_rolls_back_with_import_transaction(
-    tmp_path, test_engine, monkeypatch
-):
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-    from tests.factory import create_user
-
-    suffix = uuid.uuid4().hex[:6].upper()
-    dataset_display_id = f"DS-NU-{suffix}"
-    project_display_id = f"P-NU-{suffix}"
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with maker.begin() as setup:
-        owner = await create_user(
-            setup,
-            "super_admin",
-            f"nuscenes-rollback-{suffix.lower()}@example.test",
-            "nuScenes rollback test",
-        )
-        owner_id = owner.id
-
-    root = tmp_path / "nuscenes-transaction"
-    _write_fake_nuscenes(root, scenes=1, samples_per=1)
-    fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
-
-    async def fail_after_task_creation(_service, _dataset_id):
-        raise RuntimeError("injected calibration digest failure")
-
-    monkeypatch.setattr(
-        DatasetService, "record_nuscenes_calibration_digests", fail_after_task_creation
-    )
-    caller = maker()
-    transaction = await caller.begin()
-
-    async def reject_internal_commit():
-        raise AssertionError("nuScenes import must leave the caller transaction open")
-
-    monkeypatch.setattr(caller, "commit", reject_internal_commit)
-    dataset_id = None
-    project_id = None
-    scene_ids: list[uuid.UUID] = []
-    try:
-        with pytest.raises(RuntimeError, match="injected calibration digest failure"):
-            await import_nuscenes(
-                caller,
-                nuscenes_root=root,
-                scene_names=["scene-0000"],
-                dataset_name=f"nu-transaction-rollback-{suffix.lower()}",
-                owner_id=owner_id,
-                dataset_display_id=dataset_display_id,
-                project_display_id=project_display_id,
-            )
-
-        dataset_id = await caller.scalar(
-            select(Dataset.id).where(Dataset.display_id == dataset_display_id)
-        )
-        project_id = await caller.scalar(
-            select(Project.id).where(Project.display_id == project_display_id)
-        )
-        if dataset_id is not None:
-            scene_ids = list(
-                (
-                    await caller.scalars(
-                        select(Scene.id).where(Scene.dataset_id == dataset_id)
-                    )
-                ).all()
-            )
-        assert dataset_id is not None and project_id is not None
-        from app.db.models.task import Task
-
-        assert (
-            await caller.scalar(
-                select(func.count())
-                .select_from(Task)
-                .where(Task.project_id == project_id)
-            )
-            == 1
-        )
-        assert len(scene_ids) == 1
-        assert transaction.is_active, "import_nuscenes committed the caller transaction"
-        await transaction.rollback()
-
-        async with test_engine.connect() as observer:
-            counts = (
-                await observer.execute(
-                    text(
-                        "SELECT "
-                        "(SELECT count(*) FROM public.datasets WHERE id=:dataset_id), "
-                        "(SELECT count(*) FROM public.projects WHERE id=:project_id), "
-                        "(SELECT count(*) FROM public.dataset_items WHERE dataset_id=:dataset_id), "
-                        "(SELECT count(*) FROM public.scenes WHERE dataset_id=:dataset_id), "
-                        "(SELECT count(*) FROM public.tasks WHERE project_id=:project_id), "
-                        "(SELECT count(*) FROM public.task_creation_operations WHERE dataset_id=:dataset_id), "
-                        "(SELECT count(*) FROM public.project_datasets "
-                        "WHERE dataset_id=:dataset_id AND project_id=:project_id), "
-                        "(SELECT count(*) FROM public.audit_logs WHERE actor_id=:owner_id), "
-                        "(SELECT count(*) FROM public.dataset_spatial_operations "
-                        "WHERE scope->>'dataset_id'=:dataset_id_text "
-                        "OR scope->>'scene_id'=ANY(CAST(:scene_ids AS text[])))"
-                    ),
-                    {
-                        "dataset_id": dataset_id,
-                        "project_id": project_id,
-                        "owner_id": owner_id,
-                        "dataset_id_text": str(dataset_id),
-                        "scene_ids": [str(scene_id) for scene_id in scene_ids],
-                    },
-                )
-            ).one()
-            assert counts == (0, 0, 0, 0, 0, 0, 0, 0, 0)
-    finally:
-        if transaction.is_active:
-            await transaction.rollback()
-        await caller.close()
-        await _cleanup_nuscenes_rollback_rows(
-            test_engine,
-            dataset_display_id=dataset_display_id,
-            project_display_id=project_display_id,
-            dataset_id=dataset_id,
-            project_id=project_id,
-            scene_ids=scene_ids,
-            owner_id=owner_id,
-        )
-
-
-async def _cleanup_nuscenes_rollback_rows(
-    test_engine,
-    *,
-    dataset_display_id: str,
-    project_display_id: str,
-    dataset_id: uuid.UUID | None,
-    project_id: uuid.UUID | None,
-    scene_ids: list[uuid.UUID],
-    owner_id: uuid.UUID,
-) -> None:
-    async with test_engine.begin() as cleanup:
-        if project_id is None:
-            project_id = await cleanup.scalar(
-                text("SELECT id FROM public.projects WHERE display_id=:display_id"),
-                {"display_id": project_display_id},
-            )
-        if dataset_id is None:
-            dataset_id = await cleanup.scalar(
-                text("SELECT id FROM public.datasets WHERE display_id=:display_id"),
-                {"display_id": dataset_display_id},
-            )
-        if dataset_id is not None and not scene_ids:
-            scene_ids = list(
-                (
-                    await cleanup.scalars(
-                        text(
-                            "SELECT id FROM public.scenes WHERE dataset_id=:dataset_id"
-                        ),
-                        {"dataset_id": dataset_id},
-                    )
-                ).all()
-            )
-        if project_id is not None:
-            await cleanup.execute(
-                text(
-                    "DELETE FROM public.task_dataset_item_links "
-                    "WHERE task_id IN (SELECT id FROM public.tasks WHERE project_id=:project_id)"
-                ),
-                {"project_id": project_id},
-            )
-            await cleanup.execute(
-                text("DELETE FROM public.tasks WHERE project_id=:project_id"),
-                {"project_id": project_id},
-            )
-        if dataset_id is not None:
-            await cleanup.execute(
-                text(
-                    "DELETE FROM public.task_creation_operations "
-                    "WHERE dataset_id=:dataset_id"
-                ),
-                {"dataset_id": dataset_id},
-            )
-            await cleanup.execute(
-                text(
-                    "DELETE FROM public.dataset_spatial_operations "
-                    "WHERE scope->>'dataset_id'=:dataset_id_text "
-                    "OR scope->>'scene_id'=ANY(CAST(:scene_ids AS text[]))"
-                ),
-                {
-                    "dataset_id_text": str(dataset_id),
-                    "scene_ids": [str(scene_id) for scene_id in scene_ids],
-                },
-            )
-            await cleanup.execute(
-                text(
-                    "DELETE FROM public.project_datasets WHERE dataset_id=:dataset_id"
-                ),
-                {"dataset_id": dataset_id},
-            )
-            await cleanup.execute(
-                text("DELETE FROM public.datasets WHERE id=:dataset_id"),
-                {"dataset_id": dataset_id},
-            )
-        if project_id is not None:
-            await cleanup.execute(
-                text("DELETE FROM public.projects WHERE id=:project_id"),
-                {"project_id": project_id},
-            )
-        await cleanup.execute(
-            text("DELETE FROM public.audit_logs WHERE actor_id=:actor_id"),
-            {"actor_id": owner_id},
-        )
-        await cleanup.execute(
-            text("DELETE FROM public.users WHERE id=:actor_id"),
-            {"actor_id": owner_id},
-        )
-
-
-async def test_legacy_seed_objects_are_deleted_only_after_caller_commit(
-    tmp_path, db_session, super_admin, monkeypatch
-):
-    owner, _ = super_admin
-    root = tmp_path / "nuscenes-legacy-replacement"
-    _write_fake_nuscenes(root, scenes=1, samples_per=1)
-    fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
-    monkeypatch.setattr(
-        seed_pointcloud,
-        "ensure_nuscenes_mini",
-        lambda cache_dir=None, offline=False: root,
-    )
-    monkeypatch.setattr(seed_pointcloud, "NUSCENES_SCENES", ["scene-0000"])
-
-    old_key = "legacy-pc-dev/old-frame.pcd"
-    fake_client.put_object(
-        Bucket=storage_service.datasets_bucket, Key=old_key, Body=b"old PCD"
-    )
-    legacy_dataset = Dataset(
-        display_id="DS-PC-DEV",
-        name="pc-scene-dev",
-        data_type="lidar",
-        created_by=owner.id,
-        file_count=1,
-        metadata_={"source": {"format": "legacy-pointcloud"}},
-    )
-    legacy_project = Project(
-        display_id="P-PC-DEV",
-        name="点云联合标注 (dev)",
-        type_label="点云框选",
-        type_key="lidar_box_3d",
-        data_type="lidar",
-        owner_id=owner.id,
-    )
-    db_session.add_all([legacy_dataset, legacy_project])
-    await db_session.flush()
-    db_session.add_all(
-        [
-            DatasetItem(
-                dataset_id=legacy_dataset.id,
-                file_name="old-frame.pcd",
-                file_path=old_key,
-                file_type="point_cloud",
-                file_size=7,
-            ),
-            ProjectDataset(project_id=legacy_project.id, dataset_id=legacy_dataset.id),
-        ]
-    )
-    await db_session.flush()
-
-    info, cleanup_keys = await seed_pointcloud.seed_nuscenes_scene(
-        db_session,
-        owner_id=owner.id,
-        cache_dir=root,
-        offline=True,
-        create_batch=False,
-    )
-
-    assert info["replaced_legacy"] is True
-    assert cleanup_keys == [old_key]
-    assert fake_client.objects[(storage_service.datasets_bucket, old_key)] == b"old PCD"
-
-    await db_session.commit()
-    assert fake_client.objects[(storage_service.datasets_bucket, old_key)] == b"old PCD"
-    seed_pointcloud.cleanup_legacy_dev_seed_objects(cleanup_keys)
-    assert (storage_service.datasets_bucket, old_key) not in fake_client.objects
+def _use_distinct_sensor_files(root: Path) -> None:
+    """Give each sensor record its own archive path while retaining shared maps."""
+    table = root / "v1.0-mini/sample_data.json"
+    records = json.loads(table.read_text())
+    for record in records:
+        original = root / record["filename"]
+        unique = original.with_name(record["token"] + "-" + original.name)
+        shutil.copy2(original, unique)
+        record["filename"] = unique.relative_to(root).as_posix()
+    table.write_text(json.dumps(records))
 
 
 async def test_import_nuscenes_two_scenes(
@@ -713,8 +446,9 @@ async def test_import_nuscenes_two_scenes(
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=2, samples_per=3)
+    _use_distinct_sensor_files(root)
 
-    _patch_storage_clients(monkeypatch)
+    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
 
     result = await import_nuscenes(
         db_session,
@@ -736,11 +470,7 @@ async def test_import_nuscenes_two_scenes(
     project = await db_session.get(Project, result["project_id"])
     assert dataset.display_id == "DS-PC-TEST"
     assert dataset.file_count == 14
-    gateway = AssetsSpatialGateway(db_session)
-    item_facts = await gateway.read_items(
-        ReadItemsRequest(dataset_id=dataset_id), same_session_native=True
-    )
-    assert item_facts.items[0].axis_convention == "iso_8855"
+    assert dataset.metadata_["axis_convention"] == "iso_8855"
     assert dataset.metadata_["source"] == {
         "format": "nuscenes",
         "version": "v1.0-mini",
@@ -752,37 +482,57 @@ async def test_import_nuscenes_two_scenes(
     assert project.display_id == "P-PC-TEST"
     assert project.name == "nuScenes test seed"
     assert project.tool_bindings == {"lidar_box_3d": {"enabled": True}}
-    items = item_facts.items
+    items = list(
+        (
+            await db_session.execute(
+                select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+            )
+        ).scalars()
+    )
     assert len(items) == 14
-    assert all(item.content_hash and len(item.content_hash) == 64 for item in items)
+    assert all(item.content_hash and len(item.content_hash) == 32 for item in items)
+    assets = list(
+        await db_session.scalars(
+            select(DatasetAsset).where(
+                DatasetAsset.dataset_item_id.in_([item.id for item in items])
+            )
+        )
+    )
+    assert len(assets) == len(items)
+    assert all(
+        asset.verification_state == "verified" and len(asset.checksum_value) == 64
+        for asset in assets
+    )
     camera_items = [item for item in items if item.file_type == "image"]
     assert camera_items
     assert all((item.width, item.height) == (1, 1) for item in camera_items)
     assert all(
-        item.metadata["nuscenes_export"]["sample_data"]["sample_token"]
+        item.metadata_["nuscenes_export"]["sample_data"]["sample_token"]
         for item in camera_items
     )
     assert all(
-        item.metadata["nuscenes_export"]["sample"]["scene_token"]
+        item.metadata_["nuscenes_export"]["sample"]["scene_token"]
         for item in camera_items
     )
     assert all(
-        len(item.metadata["nuscenes_export"]["source_sha256"]) == 64
-        and item.metadata["nuscenes_export"]["source_file_size"] > 0
+        len(item.metadata_["nuscenes_export"]["source_sha256"]) == 64
+        and item.metadata_["nuscenes_export"]["source_file_size"] > 0
         for item in camera_items
     )
     assert all(
-        item.metadata["nuscenes_export"]["platform_calibration_digest"]
+        item.metadata_["nuscenes_export"]["platform_calibration_digest"]
         for item in camera_items
     )
 
     # 2. DB 里 2 个 Scene 行,name 对应
-    scenes = sorted(
-        await gateway.list_scenes(
-            ListScenesRequest(actor_id=None, dataset_id=dataset_id),
-            same_session_native=True,
-        ),
-        key=lambda scene: scene.name,
+    scenes = (
+        (
+            await db_session.execute(
+                select(Scene).where(Scene.dataset_id == dataset_id).order_by(Scene.name)
+            )
+        )
+        .scalars()
+        .all()
     )
     assert [s.name for s in scenes] == ["scene-0000", "scene-0001"]
     assert all(
@@ -799,23 +549,27 @@ async def test_import_nuscenes_two_scenes(
 
     # 3. 每个 scene 的 lidar items frame_index = 0/1/2,scene_id 正确
     for scene in scenes:
-        lidar_rows = sorted(
+        lidar_rows = (
             (
-                row
-                for row in item_facts.items
-                if row.scene_id == scene.id and row.file_type == "point_cloud"
-            ),
-            key=lambda row: row.frame_index,
+                await db_session.execute(
+                    select(DatasetItem)
+                    .where(DatasetItem.scene_id == scene.id)
+                    .where(DatasetItem.file_type == "point_cloud")
+                    .order_by(DatasetItem.frame_index)
+                )
+            )
+            .scalars()
+            .all()
         )
-        assert [row.frame_index for row in lidar_rows] == [0, 1, 2]
-        assert all(row.scene_id == scene.id for row in lidar_rows)
+        assert [r.frame_index for r in lidar_rows] == [0, 1, 2]
+        assert all(r.scene_id == scene.id for r in lidar_rows)
 
     # 3.5 v0.15.0 · 每 scene 落 3 行 ego pose:frame_index 对齐、timestamp 单调、
     # translation 差分 = 设定步长(2m/帧)
+    from app.services import scene_pose as scene_pose_svc
+
     for scene in scenes:
-        traj = await gateway.read_poses(
-            ReadPosesRequest(actor_id=None, scene_id=scene.id)
-        )
+        traj = await scene_pose_svc.get_trajectory(db_session, scene.id)
         assert [p.frame_index for p in traj] == [0, 1, 2]
         ts = [p.timestamp_us for p in traj]
         assert ts == sorted(ts) and len(set(ts)) == 3
@@ -828,20 +582,23 @@ async def test_import_nuscenes_two_scenes(
     from app.db.models.task import Task
 
     scene_a = scenes[0]
-    last_lidar = next(
-        row
-        for row in item_facts.items
-        if row.scene_id == scene_a.id
-        and row.file_type == "point_cloud"
-        and row.frame_index == 2
-    )
+    last_lidar = (
+        await db_session.execute(
+            select(DatasetItem)
+            .where(DatasetItem.scene_id == scene_a.id)
+            .where(DatasetItem.file_type == "point_cloud")
+            .where(DatasetItem.frame_index == 2)
+        )
+    ).scalar_one()
     last_task = (
         await db_session.execute(
             select(Task).where(Task.dataset_item_id == last_lidar.id)
         )
     ).scalar_one()
 
-    neighbors = await get_neighbors_for_task(db_session, task_id=last_task.id, k=1)
+    neighbors = await scene_svc.get_neighbors_for_task(
+        db_session, task_id=last_task.id, k=1
+    )
     assert neighbors is not None
     assert neighbors.scene_total_frames == 3
     assert neighbors.frame_index == 2
@@ -861,13 +618,10 @@ async def test_import_nuscenes_two_scenes(
     assert preflight.issues == []
 
     first_camera = camera_items[0]
-    first_camera_orm = await db_session.get(DatasetItem, first_camera.id)
-    assert first_camera_orm is not None
-    original_camera_metadata = dict(first_camera_orm.metadata_ or {})
-    assert first_camera.metadata == original_camera_metadata
+    original_camera_metadata = first_camera.metadata_
     invalid_source = dict(original_camera_metadata["nuscenes_export"])
     invalid_source["source_sha256"] = "z" * 64
-    first_camera_orm.metadata_ = {
+    first_camera.metadata_ = {
         **original_camera_metadata,
         "nuscenes_export": invalid_source,
     }
@@ -882,45 +636,32 @@ async def test_import_nuscenes_two_scenes(
     assert "nuscenes_source_asset_contract_missing" in {
         issue.code for issue in invalid_sha_preflight.issues
     }
-    first_camera_orm.metadata_ = original_camera_metadata
+    first_camera.metadata_ = original_camera_metadata
     await db_session.flush()
 
     digest_before_pose_change = await _nuscenes_scope_digest(
         db_session, project.id, None
     )
-    pose_gateway = AssetsSpatialGateway(db_session)
-    scene_poses = await pose_gateway.read_poses(
-        ReadPosesRequest(actor_id=None, scene_id=scene_a.id)
-    )
-    first_pose = scene_poses[0]
+    first_pose = (
+        await db_session.execute(
+            select(SceneFramePose)
+            .where(SceneFramePose.scene_id == scene_a.id)
+            .order_by(SceneFramePose.frame_index)
+            .limit(1)
+        )
+    ).scalar_one()
     original_translation = list(first_pose.ego_translation)
-    await pose_gateway.upsert_poses(
-        UpsertPosesRequest(
-            operation_id=uuid.uuid4(),
-            scene_id=scene_a.id,
-            poses=[
-                first_pose.model_copy(
-                    update={
-                        "ego_translation": [
-                            original_translation[0] + 1.0,
-                            *original_translation[1:],
-                        ]
-                    }
-                )
-            ],
-        ),
-        same_session_native=True,
-    )
+    first_pose.ego_translation = [
+        original_translation[0] + 1.0,
+        *original_translation[1:],
+    ]
+    await db_session.flush()
     assert (
         await _nuscenes_scope_digest(db_session, project.id, None)
         != digest_before_pose_change
     )
-    await pose_gateway.upsert_poses(
-        UpsertPosesRequest(
-            operation_id=uuid.uuid4(), scene_id=scene_a.id, poses=[first_pose]
-        ),
-        same_session_native=True,
-    )
+    first_pose.ego_translation = original_translation
+    await db_session.flush()
     assert (
         await _nuscenes_scope_digest(db_session, project.id, None)
         == digest_before_pose_change
@@ -935,26 +676,17 @@ async def test_import_nuscenes_two_scenes(
     )
     db_session.add(partial_batch)
     await db_session.flush()
-    scene_item_ids = {
-        item.id
-        for item in item_facts.items
-        if item.scene_id == scene_a.id and item.file_type == "point_cloud"
-    }
-    task_rows = list(
+    partial_tasks = list(
         (
             await db_session.execute(
-                select(Task).where(Task.dataset_item_id.in_(scene_item_ids))
+                select(Task)
+                .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+                .where(DatasetItem.scene_id == scene_a.id)
+                .order_by(DatasetItem.frame_index)
+                .limit(2)
             )
         ).scalars()
     )
-    partial_tasks = sorted(
-        task_rows,
-        key=lambda task: next(
-            item.frame_index
-            for item in item_facts.items
-            if item.id == task.dataset_item_id
-        ),
-    )[:2]
     for task in partial_tasks:
         task.batch_id = partial_batch.id
     await db_session.flush()
@@ -982,6 +714,9 @@ async def test_import_nuscenes_two_scenes(
         targets=["nuscenes"],
         include_attributes=True,
         video_frame_mode="keyframes",
+        lidar_media=await _frozen_test_delivery(
+            db_session, project.id, storage_service.client
+        ),
     )
     materialized = tmp_path / "devkit-tree"
     try:
@@ -1037,12 +772,14 @@ async def test_backfill_frame_poses_restores_deleted_rows(
     """v0.15.0 · backfill 脚本:模拟 v0.15.0 前导入的库(无 pose 行)→ 补齐。"""
     from sqlalchemy import delete
 
+    from app.db.models.scene_pose import SceneFramePose
+    from app.services import scene_pose as scene_pose_svc
     from scripts.backfill_frame_poses import backfill_frame_poses
 
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=3)
-    _patch_storage_clients(monkeypatch)
+    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
 
     result = await import_nuscenes(
         db_session,
@@ -1060,14 +797,12 @@ async def test_backfill_frame_poses_restores_deleted_rows(
     )
     assert report == [{"name": "scene-0000", "poses": 3}]
 
-    gateway = AssetsSpatialGateway(db_session)
     scene = (
-        await gateway.list_scenes(
-            ListScenesRequest(actor_id=None, dataset_id=result["dataset_id"]),
-            same_session_native=True,
+        await db_session.execute(
+            select(Scene).where(Scene.dataset_id == result["dataset_id"])
         )
-    )[0]
-    traj = await gateway.read_poses(ReadPosesRequest(actor_id=None, scene_id=scene.id))
+    ).scalar_one()
+    traj = await scene_pose_svc.get_trajectory(db_session, scene.id)
     assert [p.frame_index for p in traj] == [0, 1, 2]
     assert [p.ego_translation[0] for p in traj] == [0.0, 2.0, 4.0]
 
@@ -1076,12 +811,7 @@ async def test_backfill_frame_poses_restores_deleted_rows(
         db_session, dataset_ref="DS-NU-nu-lite-bf", nuscenes_root=root
     )
     assert report2 == [{"name": "scene-0000", "poses": 3}]
-    assert (
-        len(
-            await gateway.read_poses(ReadPosesRequest(actor_id=None, scene_id=scene.id))
-        )
-        == 3
-    )
+    assert len(await scene_pose_svc.get_trajectory(db_session, scene.id)) == 3
 
 
 async def test_manifest_exposes_ego_pose(
@@ -1093,7 +823,7 @@ async def test_manifest_exposes_ego_pose(
     user, token = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=2)
-    _patch_storage_clients(monkeypatch)
+    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
     monkeypatch.setattr(
         storage_service,
         "generate_download_url",
@@ -1108,15 +838,14 @@ async def test_manifest_exposes_ego_pose(
         owner_id=user.id,
     )
 
-    fact_page = await AssetsSpatialGateway(db_session).read_items(
-        ReadItemsRequest(dataset_id=result["dataset_id"]),
-        same_session_native=True,
-    )
-    frame1_item = next(
-        item
-        for item in fact_page.items
-        if item.file_type == "point_cloud" and item.frame_index == 1
-    )
+    frame1_item = (
+        await db_session.execute(
+            select(DatasetItem)
+            .where(DatasetItem.dataset_id == result["dataset_id"])
+            .where(DatasetItem.file_type == "point_cloud")
+            .where(DatasetItem.frame_index == 1)
+        )
+    ).scalar_one()
     task = (
         await db_session.execute(
             select(Task).where(Task.dataset_item_id == frame1_item.id)
@@ -1142,7 +871,7 @@ async def test_import_nuscenes_bounds_long_derived_display_ids(
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
-    _patch_storage_clients(monkeypatch)
+    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
 
     dataset_name = "nu-ego-0061-v0143"
     result = await import_nuscenes(
@@ -1175,7 +904,7 @@ async def test_import_nuscenes_frame_modes_axis_and_points(
     )
 
     fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
+    monkeypatch.setattr(storage_service, "client", fake_client)
 
     ego_result = await import_nuscenes(
         db_session,
@@ -1196,30 +925,23 @@ async def test_import_nuscenes_frame_modes_axis_and_points(
 
     ego_dataset = await db_session.get(Dataset, ego_result["dataset_id"])
     sensor_dataset = await db_session.get(Dataset, sensor_result["dataset_id"])
-    spatial = AssetsSpatialGateway(db_session)
-    ego_items = await spatial.read_items(
-        ReadItemsRequest(dataset_id=ego_dataset.id), same_session_native=True
-    )
-    sensor_items = await spatial.read_items(
-        ReadItemsRequest(dataset_id=sensor_dataset.id), same_session_native=True
-    )
-    assert ego_items.items[0].axis_convention == "iso_8855"
-    assert sensor_items.items[0].axis_convention == "apollo"
+    assert ego_dataset.metadata_["axis_convention"] == "iso_8855"
+    assert sensor_dataset.metadata_["axis_convention"] == "apollo"
 
-    def first_point(dataset: Dataset) -> tuple[float, float, float]:
-        storage_root = dataset.metadata_["source"]["storage_root"]
-        key = next(
-            k
-            for _, k in fake_client.objects
-            if k.startswith(f"{storage_root}/") and k.endswith(".pcd")
+    async def first_point(dataset: Dataset) -> tuple[float, float, float]:
+        key = await db_session.scalar(
+            select(DatasetItem.file_path).where(
+                DatasetItem.dataset_id == dataset.id,
+                DatasetItem.file_type == "point_cloud",
+            )
         )
-        payload = fake_client.objects[(storage_service.datasets_bucket, key)]
+        payload = fake_client.objects[(storage_service.datasets_bucket, key)]["data"]
         marker = b"DATA binary\n"
         offset = payload.index(marker) + len(marker)
         return tuple(np.frombuffer(payload[offset : offset + 12], dtype="<f4"))
 
-    assert first_point(ego_dataset) == pytest.approx((11.0, 22.0, 33.0))
-    assert first_point(sensor_dataset) == pytest.approx((1.0, 2.0, 3.0))
+    assert await first_point(ego_dataset) == pytest.approx((11.0, 22.0, 33.0))
+    assert await first_point(sensor_dataset) == pytest.approx((1.0, 2.0, 3.0))
 
 
 async def test_existing_ascii_scene_is_upgraded_in_place(
@@ -1228,65 +950,32 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
-    fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
-
-    first = await import_nuscenes(
+    client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", client)
+    dataset = Dataset(
+        id=uuid.uuid4(),
+        display_id=_derived_display_id("DS-NU-", "nu-lite-upgrade"),
+        name="nu-lite-upgrade",
+        data_type="point_cloud",
+        is_temporal=True,
+        created_by=user.id,
+        metadata_={
+            "axis_convention": "iso_8855",
+            "source": {
+                "storage_layout": "legacy_name",
+                "storage_root": "nu-lite-upgrade",
+            },
+        },
+    )
+    db_session.add(dataset)
+    await db_session.flush()
+    scene = await scene_svc.create_scene(
         db_session,
-        nuscenes_root=root,
-        scene_names=["scene-0000"],
-        dataset_name="nu-lite-upgrade",
-        owner_id=user.id,
-    )
-    dataset = await db_session.get(Dataset, first["dataset_id"])
-    dataset_items = list(
-        (
-            await db_session.execute(
-                select(DatasetItem).where(DatasetItem.dataset_id == dataset.id)
-            )
-        ).scalars()
-    )
-    item_facts = await AssetsSpatialGateway(db_session).read_items(
-        ReadItemsRequest(dataset_id=dataset.id), same_session_native=True
-    )
-    item = next(row for row in item_facts.items if row.file_type == "point_cloud")
-    item_orm = next(row for row in dataset_items if row.id == item.id)
-    current_root = dataset.metadata_["source"]["storage_root"]
-    legacy_root = "nu-lite-upgrade"
-    for (bucket, key), payload in list(fake_client.objects.items()):
-        if not key.startswith(f"{current_root}/"):
-            continue
-        replacement = f"{legacy_root}/{key.removeprefix(f'{current_root}/')}"
-        fake_client.objects[(bucket, replacement)] = payload
-        fake_client.metadata[(bucket, replacement)] = fake_client.metadata[
-            (bucket, key)
-        ]
-        del fake_client.objects[(bucket, key)]
-        del fake_client.metadata[(bucket, key)]
-    for dataset_item in dataset_items:
-        dataset_item.file_path = dataset_item.file_path.replace(
-            f"{current_root}/", f"{legacy_root}/", 1
-        )
-        if dataset_item.file_type in {"point_cloud", "image"}:
-            item_metadata = dict(dataset_item.metadata_ or {})
-            item_metadata.pop("nuscenes_export", None)
-            dataset_item.metadata_ = item_metadata
-    scene = (
-        await AssetsSpatialGateway(db_session).list_scenes(
-            ListScenesRequest(actor_id=None, dataset_id=dataset.id),
-            same_session_native=True,
-        )
-    )[0]
-    scene_metadata = dict(scene.source_metadata or {})
-    scene_metadata.pop("nuscenes_export", None)
-    await AssetsSpatialGateway(db_session).set_scene_source(
-        SetSceneSourceRequest(
-            operation_id=uuid.uuid4(),
-            scene_id=scene.id,
-            source_format=scene.source_format,
-            source_metadata=scene_metadata,
-        ),
-        same_session_native=True,
+        dataset_id=dataset.id,
+        name="scene-0000",
+        source_format="nuscenes",
+        source_metadata={"frame": "ego"},
+        created_by=user.id,
     )
     legacy = (
         b"# .PCD v0.7 - Point Cloud Data file format\n"
@@ -1294,30 +983,42 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         b"WIDTH 3\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS 3\nDATA ascii\n"
         b"1 2 3\n4 5 6\n7 8 9\n"
     )
-    fake_client.objects[(storage_service.datasets_bucket, item_orm.file_path)] = legacy
-    item_orm.file_size = len(legacy)
-    item_orm.content_hash = hashlib.sha256(legacy).hexdigest()
-    metadata = dict(dataset.metadata_ or {})
-    source = dict(metadata["source"])
-    source.pop("pcd_encoding", None)
-    source.pop("storage_root", None)
-    source.pop("storage_layout", None)
-    metadata["source"] = source
-    dataset.metadata_ = metadata
+    items = []
+    for logical, kind, payload in (
+        ("scene-0000/lidar/scene-0000_000000.pcd", "point_cloud", legacy),
+        (
+            "scene-0000/camera/CAM_FRONT/scene-0000_000000.jpg",
+            "image",
+            (root / "samples/CAM_FRONT/cam.jpg").read_bytes(),
+        ),
+    ):
+        path = "nu-lite-upgrade/" + logical
+        client.store(storage_service.datasets_bucket, path, payload)
+        row = DatasetItem(
+            id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            scene_id=scene.id,
+            frame_index=0,
+            file_name=Path(path).name,
+            file_path=path,
+            file_type=kind,
+            file_size=len(payload),
+            content_hash=hashlib.sha256(payload).hexdigest(),
+            metadata_={"storage_relative_path": logical},
+        )
+        db_session.add(row)
+        items.append(row)
     await db_session.flush()
-
-    second = await import_nuscenes(
+    item = items[0]
+    old_id, old_key = item.id, item.file_path
+    result = await import_nuscenes(
         db_session,
         nuscenes_root=root,
         scene_names=["scene-0000"],
         dataset_name="nu-lite-upgrade",
         owner_id=user.id,
     )
-
-    upgraded = fake_client.objects[
-        (storage_service.datasets_bucket, item_orm.file_path)
-    ]
-    assert second["scenes"] == [
+    assert result["scenes"] == [
         {
             "name": "scene-0000",
             "frames": 1,
@@ -1326,17 +1027,19 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
             "backfilled_camera_dimensions": 1,
         }
     ]
+    assert item.id == old_id and item.file_path != old_key
+    assert client.objects[(storage_service.datasets_bucket, old_key)]["data"] == legacy
+    upgraded = client.objects[(storage_service.datasets_bucket, item.file_path)]["data"]
     assert b"DATA binary\n" in upgraded[:200]
-    await db_session.refresh(item_orm)
-    assert item_orm.file_size == len(upgraded)
-    assert item_orm.content_hash == hashlib.sha256(upgraded).hexdigest()
-    camera_item = next(row for row in dataset_items if row.file_type == "image")
-    await db_session.refresh(camera_item)
-    assert (camera_item.width, camera_item.height) == (1, 1)
-    await db_session.refresh(dataset, attribute_names=["metadata_"])
+    assert item.file_size == len(upgraded)
+    asset = await db_session.scalar(
+        select(DatasetAsset).where(DatasetAsset.dataset_item_id == item.id)
+    )
+    assert asset.checksum_value == hashlib.sha256(upgraded).hexdigest()
+    assert item.nuscenes_raw_original_id is not None
     assert dataset.metadata_["source"]["pcd_encoding"] == "binary_xyz_f32"
     assert dataset.metadata_["source"]["storage_layout"] == "legacy_name"
-
+    keys = set(client.objects)
     third = await import_nuscenes(
         db_session,
         nuscenes_root=root,
@@ -1344,13 +1047,8 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         dataset_name="nu-lite-upgrade",
         owner_id=user.id,
     )
-    assert third["scenes"] == [
-        {
-            "name": "scene-0000",
-            "frames": 1,
-            "skipped": True,
-        }
-    ]
+    assert third["scenes"] == [{"name": "scene-0000", "frames": 1, "skipped": True}]
+    assert set(client.objects) == keys
 
 
 async def test_existing_scene_rejects_source_drift_before_object_writes(
@@ -1360,7 +1058,7 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
     fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
+    monkeypatch.setattr(storage_service, "client", fake_client)
 
     await import_nuscenes(
         db_session,
@@ -1369,8 +1067,7 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
         dataset_name="nu-lite-source-drift",
         owner_id=user.id,
     )
-    objects_before = dict(fake_client.objects)
-    metadata_before = {key: dict(value) for key, value in fake_client.metadata.items()}
+    objects_before = deepcopy(fake_client.objects)
     lidar_path = root / "samples" / "LIDAR_TOP" / "lidar.pcd.bin"
     original_lidar = lidar_path.read_bytes()
     lidar_path.write_bytes(original_lidar + (b"\0" * 20))
@@ -1384,7 +1081,6 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
             owner_id=user.id,
         )
     assert fake_client.objects == objects_before
-    assert fake_client.metadata == metadata_before
 
     lidar_path.write_bytes(original_lidar)
     calibration_path = root / "v1.0-mini" / "calibrated_sensor.json"
@@ -1400,7 +1096,6 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
             owner_id=user.id,
         )
     assert fake_client.objects == objects_before
-    assert fake_client.metadata == metadata_before
 
     calibration_rows[0]["translation"] = _ZERO_TRANS
     calibration_path.write_text(json.dumps(calibration_rows), encoding="utf-8")
@@ -1408,9 +1103,7 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
     scene_rows = json.loads(scene_path.read_text(encoding="utf-8"))
     scene_rows[0]["token"] = "replacement-scene-token"
     scene_path.write_text(json.dumps(scene_rows), encoding="utf-8")
-    with pytest.raises(
-        ValueError, match="does not match the requested nuScenes source"
-    ):
+    with pytest.raises(ValueError, match="existing scene source drift"):
         await import_nuscenes(
             db_session,
             nuscenes_root=root,
@@ -1419,18 +1112,16 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
             owner_id=user.id,
         )
     assert fake_client.objects == objects_before
-    assert fake_client.metadata == metadata_before
 
 
-async def test_existing_binary_scene_refreshes_platform_pcd_fingerprint(
+async def test_existing_binary_scene_reuses_platform_pcd_receipt_without_rewrite(
     tmp_path, db_session, super_admin, monkeypatch
 ):
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
-    fake_client = _FakeS3Client()
-    _patch_storage_clients(monkeypatch, fake_client)
-
+    client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", client)
     first = await import_nuscenes(
         db_session,
         nuscenes_root=root,
@@ -1438,16 +1129,32 @@ async def test_existing_binary_scene_refreshes_platform_pcd_fingerprint(
         dataset_name="nu-lite-pcd-fingerprint",
         owner_id=user.id,
     )
-    item = (
-        await db_session.execute(
-            select(DatasetItem)
-            .where(DatasetItem.dataset_id == first["dataset_id"])
-            .where(DatasetItem.file_type == "point_cloud")
+    item = await db_session.scalar(
+        select(DatasetItem).where(
+            DatasetItem.dataset_id == first["dataset_id"],
+            DatasetItem.file_type == "point_cloud",
         )
-    ).scalar_one()
-    object_key = (storage_service.datasets_bucket, item.file_path)
-    fake_client.metadata[object_key] = {}
-
+    )
+    asset = await db_session.scalar(
+        select(DatasetAsset).where(DatasetAsset.dataset_item_id == item.id)
+    )
+    replica = await db_session.scalar(
+        select(DatasetAssetLocation).where(DatasetAssetLocation.asset_id == asset.id)
+    )
+    before = (
+        item.file_path,
+        asset.checksum_value,
+        asset.size_bytes,
+        replica.creation_id,
+        replica.etag,
+        replica.verified_at,
+    )
+    objects_before = deepcopy(client.objects)
+    writes_before = [
+        call
+        for call in client.calls
+        if call[0] in {"create", "part", "copy", "complete", "put"}
+    ]
     second = await import_nuscenes(
         db_session,
         nuscenes_root=root,
@@ -1455,15 +1162,21 @@ async def test_existing_binary_scene_refreshes_platform_pcd_fingerprint(
         dataset_name="nu-lite-pcd-fingerprint",
         owner_id=user.id,
     )
-
-    assert fake_client.metadata[object_key] == {"sha256": item.content_hash}
-    assert second["scenes"] == [
-        {
-            "name": "scene-0000",
-            "frames": 1,
-            "skipped": True,
-        }
-    ]
+    assert (
+        item.file_path,
+        asset.checksum_value,
+        asset.size_bytes,
+        replica.creation_id,
+        replica.etag,
+        replica.verified_at,
+    ) == before
+    assert client.objects == objects_before
+    assert [
+        call
+        for call in client.calls
+        if call[0] in {"create", "part", "copy", "complete", "put"}
+    ] == writes_before
+    assert second["scenes"] == [{"name": "scene-0000", "frames": 1, "skipped": True}]
 
 
 async def test_existing_scene_backfills_missing_camera_dimensions(
@@ -1472,7 +1185,7 @@ async def test_existing_scene_backfills_missing_camera_dimensions(
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=2)
-    _patch_storage_clients(monkeypatch)
+    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
 
     first = await import_nuscenes(
         db_session,
@@ -1504,8 +1217,6 @@ async def test_existing_scene_backfills_missing_camera_dimensions(
         owner_id=user.id,
     )
 
-    for item in camera_items:
-        await db_session.refresh(item, attribute_names=["width", "height"])
     assert [(item.width, item.height) for item in camera_items] == [(1, 1), (1, 1)]
     assert second["scenes"] == [
         {

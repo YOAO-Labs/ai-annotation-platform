@@ -1654,8 +1654,8 @@ export function useImageAnnotationActions({
       // 视频几何无法走 image 定位（侧栏/快捷键无 stage transform），需 fixed anchor：
       // 优先锚到画布上的框（overlay 屏幕矩形 + 当前帧 bbox），覆盖所有触发入口；
       // 框在当前帧不可见时退回调用方传入的锚点（如侧栏按钮），再不行才贴右上角兜底。
-      // raster_mask 也无同步外接框；本版不启用 canvas renderer，因此同样走 fixed
-      // 锚点，避免把 type/mask 强转 Geom 后计算出 NaNpx。
+      // Raster bounds arrive asynchronously; the class picker uses a fixed
+      // anchor rather than treating an object reference as synchronous geometry.
       const resolvedAnchor = needsFixedAnchor
         ? ((isVideoGeometry ? videoBoxScreenAnchor(ann, s.videoFrameIndex) : null) ??
           anchor ??

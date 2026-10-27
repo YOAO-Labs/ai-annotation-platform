@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     func,
@@ -42,6 +43,9 @@ class StorageConnection(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     # 非密钥配置：s3 → endpoint/region/bucket/base_prefix/use_ssl；
     # sftp → host/port/username/base_path/auth_type。

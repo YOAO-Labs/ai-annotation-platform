@@ -18,6 +18,7 @@ from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.db.models.project import Project
+from app.db.models.user import User
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
 from app.schemas.prediction import PredictionOut
@@ -29,6 +30,12 @@ from app.services.video_tracks import resolve_track_at_frame
 
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_membership
+from tests.managed_image_inference_fixtures import (
+    attach_managed,
+    db_session as db_session,
+    input_world as input_world,
+    sync_world as sync_world,
+)
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
 ALT_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 1, 3]}
@@ -117,6 +124,12 @@ async def _seed(
     )
     db.add(task)
     await db.flush()
+    if media_type == "image":
+        await attach_managed(
+            db, project, await db.get(User, owner_id), task=task, item=item
+        )
+    else:
+        await db.commit()
     return task, backend, pool
 
 
@@ -185,6 +198,11 @@ def _body(
     receipt = issue_ai_mask_receipt(
         {
             "task_id": str(task.id),
+            **(
+                {"original_input": deepcopy(task._test_original_input)}
+                if task.file_type == "image"
+                else {}
+            ),
             "frame_index": frame_index,
             "candidate_id": candidate_id,
             "candidate_index": candidate_index,
@@ -236,7 +254,12 @@ def accept_storage_mocks(monkeypatch):
 
     # Preflight now verifies through the shared byte port before persistence.
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
-    store = AsyncMock()
+
+    async def store_values(_db, _value, resolved, *, task_id):
+        for reference, rle in resolved:
+            contents[reference["object_key"]] = deepcopy(rle)
+
+    store = AsyncMock(side_effect=store_values)
     prepare_prediction = AsyncMock()
     prepare_annotation = AsyncMock()
     monkeypatch.setattr(
@@ -310,6 +333,9 @@ async def test_exemplar_both_accept_uses_original_mask_index(
         model_id="sam-image",
         task_id=task.id,
         frame_index=frame_index,
+        original_input=deepcopy(task._test_original_input)
+        if media_type == "image"
+        else None,
     )
     body = bodies[1]
     body["candidate"]["receipt"] = response["accept_receipts"][raw[3]["candidate_id"]]

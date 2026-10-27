@@ -32,6 +32,7 @@ _SNAPSHOT_FIELDS = {
     "url",
     "auth_method",
     "auth_token",
+    "auth_revision",
     "gpu_resource_id",
     "vram_budget_mb",
     "eviction_priority",
@@ -115,6 +116,9 @@ class BackendEndpointSnapshot:
     vram_budget_mb: int | None = field(repr=False)
     eviction_priority: int = field(repr=False)
     extra_params: Mapping[str, Any] | None = field(repr=False)
+    # Exact registry credential generation captured with the endpoint snapshot.
+    # In-process seam fakes may omit it; SQL snapshots always carry it.
+    auth_revision: int = field(default=0, repr=False)
 
     def __repr__(self) -> str:
         return (
@@ -207,12 +211,15 @@ def _snapshot(
         if auth_method is not None and type(auth_method) is not str:
             raise ValueError("invalid endpoint authentication mode")
         token = value["auth_token"]
+        revision = value["auth_revision"]
         resource = value["gpu_resource_id"]
         vram = value["vram_budget_mb"]
         priority = value["eviction_priority"]
         extra = value["extra_params"]
         if token is not None and type(token) is not str:
             raise ValueError("invalid endpoint credential")
+        if type(revision) is not int or revision < 0:
+            raise ValueError("invalid endpoint authentication revision")
         if resource is not None and type(resource) is not str:
             raise ValueError("invalid GPU resource identity")
         if vram is not None and type(vram) is not int:
@@ -231,6 +238,7 @@ def _snapshot(
             url=value["url"],
             auth_method=auth_method,
             auth_token=token,
+            auth_revision=revision,
             gpu_resource_id=resource,
             vram_budget_mb=vram,
             eviction_priority=priority,

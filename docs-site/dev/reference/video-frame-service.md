@@ -1,21 +1,20 @@
 ---
+title: 视频后端帧服务
 audience: [dev, ops]
 type: reference
-since: v0.9.25
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-24
 ---
 
 # 视频后端帧服务
 
-视频帧服务把视频帧作为后端一等资源暴露，服务于长视频 chunk 拉取、单帧 thumbnail / AI 推理复用，以及 manifest v2。旧的 `GET /api/v1/tasks/{task_id}/video/manifest` 保持不变。
-
-<!-- history: versioned video frame service rollout notes are folded into the current API reference. -->
+视频帧服务把视频帧作为后端一等资源暴露，服务于长视频 chunk 拉取、单帧 thumbnail / AI 推理复用，以及 manifest v2。原有 Task 和 facade 路径继续提供服务，派生交付按输出身份核验。
 
 ## 资源模型
 
 - 物理视频仍是 `DatasetItem(file_type="video")`。
-- `VideoFrameIndex` 保存 B1 生成的 `frame_index -> pts_ms` 时间表。
+- `VideoDerivativeOutput` 独立保存每次 metadata、frame、chunk 尝试的来源、委派、固定存储位置、租约、结果和 SHA／大小清单；不随业务行级联删除。
+- `DatasetItem.video_output_id` 指向活动 metadata generation，`video_building_output_id` 保留在建尝试；完整时间表随该 generation 冻结，`VideoFrameIndex` 是同次发布的查询索引。
 - `VideoChunk` 保存 chunk 元数据和 MinIO key。
 - `VideoFrameCache` 保存单帧 WebP/JPEG 缓存元数据和 MinIO key。
 - `VideoSegment` 保存视频内可分配 frame range、assignee 和短 TTL lock。
@@ -32,7 +31,8 @@ GET /api/v1/videos/{dataset_item_id}/manifest
 
 响应包含：
 
-- `video_url`：原始或转码后的整段视频 signed URL。
+- `video_url`：为空；整段原件使用独立的认证准备与范围读取协议。
+- `metadata_generation_id`：当前冻结元数据／时序的输出 UUID。
 - `chunks_manifest_url`：chunk 列表入口。
 - `frame_timetable_url`：帧时间表入口。
 - `frame_service_base`：单帧接口前缀。
@@ -48,7 +48,7 @@ GET /api/v1/tasks/{task_id}/video/chunks/{chunk_id}
 GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}
 ```
 
-首次请求缺失 chunk 时，API 创建 `VideoChunk(status="pending")`，提交后通过注入的 `MediaJobDispatcher` 投递生成请求；Celery 适配器仍使用原 `ensure_video_chunks` task。单 chunk 未 ready 时返回 HTTP 202 和 `Retry-After`；ready 后返回 signed URL。
+首次请求缺失 chunk 时，API 分配独立 output、设置逻辑行 pending，提交短事务后投递 `generate_video_derivatives`。单 chunk 未 ready 时返回 HTTP 202 和 `Retry-After`；ready 后返回 signed URL。
 
 ### 相邻块预热
 
@@ -70,7 +70,7 @@ GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}
 | `ready`   | worker 完成 chunk 生成（含 ffprobe 写 `diagnostics.samples`），返回 signed URL      |
 | `failed`  | ffmpeg 失败 / 超时；行携带 `error` 字段；客户端可触发 retry                         |
 
-> 实现：`apps/api/app/services/video_frame_service.py` 的 `_ensure_chunk_rows` / `_chunk_out`。chunk 状态白名单见 `{"pending", "ready", "failed"}`；越界值视为 `pending`。
+> 实现见 `app/services/video_derivatives.py`、`video_frame_service.py` 和 `app/workers/media_derivatives.py`。逻辑状态与不可变物理输出责任分开保存。`video_frame_service` 的 `_ensure_chunk_rows` / `_chunk_out` 输出 chunk 状态时按 `{"pending", "ready", "failed"}` 白名单处理，越界值视为 `pending`。
 
 media worker 会在源 codec 为 H.264 / H.265 且 chunk 起始帧 keyframe 对齐时优先尝试 ffmpeg stream copy；不满足条件或 smart-copy 失败时，自动 fallback 到既有 H.264 baseline fragmented MP4 重编码。API 行为保持兼容，只额外返回诊断字段：
 
@@ -93,7 +93,7 @@ media worker 会在源 codec 为 H.264 / H.265 且 chunk 起始帧 keyframe 对�
 
 ### Sample manifest（WebCodecs demux）
 
-chunk 生成时，media worker 会用 `ffprobe -show_packets` 扫一遍生成出的 chunk mp4，把每个 packet 的字节偏移 / 大小 / 时间戳 / 关键帧标记写进 `diagnostics["samples"]`（同时写 `codec_string` / `width` / `height`）。扫包失败（如 fragmented mp4 的 `pos` 缺失）时静默跳过，不影响 chunk 生成。
+chunk 生成时，media worker 会用 `ffprobe -show_packets` 扫一遍生成出的 chunk mp4，把每个 packet 的字节偏移 / 大小 / 时间戳 / 关键帧标记写进 `diagnostics["samples"]`（同时写 `codec_string` / `width` / `height`）。已知探测失败时可缺少 samples，普通播放仍可用；进程构造或关闭不确定时拒绝发布并保留责任。存在的样本必须精确覆盖冻结帧范围，每个 offset／size 都落在实际 chunk 内；smart-copy 帧数不符先尝试转码，仍不符则拒绝发布。
 
 ```http
 GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}/samples
@@ -121,28 +121,20 @@ GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}/samples
 }
 ```
 
-`samples` 数组按解码顺序排列（满足 `VideoDecoder` 喂入要求），`frame_index` 按 pts 展示顺序（presentation rank）+ chunk `start_frame` 推算。前端默认尝试 WebCodecs 精确解码；`?webcodecs=0` 或 localStorage `video.experimental.webcodecs=0` 可在当前客户端显式关闭，统一工作台设置窗口的「性能与实验」也提供同一本机入口。启用时，`VideoKonvaStage` 经 `useVideoPreciseFrame` 按当前帧定位 chunk → 拉 samples → 从 chunk 字节切出「GOP 起点关键帧 → 目标帧」的 GOP plan → 由有状态 GOP decoder session 构造 `EncodedVideoChunk[]` 交 `useVideoChunkDecoder` 精确解码。decoder 优先请求硬件加速，浏览器拒绝该偏好但支持 codec 时会去掉偏好安全重试；同 GOP 逐帧只提交增量，前台后退 / 跨 GOP 可确定性重建，后台预取若需要 reset 则直接跳过，不能反向阻塞当前可见帧。已缓存的目标位图可在原生 `<video>` seek 尚未结算时立即交给 Konva；codec 不支持、chunk pending / failed、缺 samples / description、signed URL 过期或字节越界都安全回退到原生 `<video>` / 位图，不阻断标注。
-
-`VideoDecoder` 与后续 Canvas / WebGPU 都运行在打开工作台的客户端浏览器，使用客户端机器的 CPU /
-GPU；Linux 部署服务器只提供 API、demux metadata、chunk bytes 与对象存储，不会替客户端执行这些
-浏览器 API。客户端没有硬解 profile 时允许软件解码或安全回退，不能从服务端是否有 GPU 推断浏览器
-实际解码路径。
-
-严格资格不能从静态 GPU profile 推断实际 decoder。Apple Silicon Chrome 可通过 CDP Media domain 把
-`WebCodecs::VideoDecoder` player 与隐藏原生 `<video>` 分开，并要求 initialized player 发布
-`VideoToolboxVideoDecoder` 和 platform decoder 标记；缺失或矛盾证据保持 `inconclusive`。
-
-manifest 还带 `description`（base64）：后端直读 chunk mp4 的 `avcC`/`hvcC` box，取出 `AVC/HEVCDecoderConfigurationRecord`（含 SPS/PPS），前端解码后填入 `VideoDecoderConfig.description`；`codec_string` 也由该 record 的字节派生（`avc1.PPCCLL` / `hvc1.…`），不再硬编码。这两项是 AVCC 长度前缀样本能被 `VideoDecoder` 正确解码的前提——缺 `description` 时浏览器按 Annex-B 解析必失败。旧 chunk（`diagnostics` 无 `description`）则降级。
+- **解码顺序与 GOP 计划**：`samples` 数组按解码顺序排列（满足浏览器 `VideoDecoder` 喂入要求），`frame_index` 按 PTS 展示顺序（presentation rank）加 chunk `start_frame` 推算。前端默认尝试 WebCodecs 精确解码（可通过 `?webcodecs=0`、`localStorage["video.experimental.webcodecs"]=0` 或工作台设置「性能与实验」关闭）。启用时，`VideoKonvaStage` 经 `useVideoPreciseFrame` 定位 chunk → 拉取 samples → 切出「GOP 起点关键帧 → 目标帧」的 GOP 计划 → 由有状态 GOP decoder session 构造 `EncodedVideoChunk[]` 交由 `useVideoChunkDecoder` 解码。
+- **硬件加速偏好与无损回退**：解码器优先请求硬件加速，若浏览器拒绝该偏好但支持对应 codec 则自动去掉偏好重试；同 GOP 逐帧前进只提交增量包，后退或跨 GOP 确定性重建，后台预取若需 reset 则直接跳过以免阻塞当前可见帧。任何 codec 不支持、chunk 未就绪、缺失 `samples` / `description` 或 URL 过期均安全回退至原生 `<video>` / 单帧位图。
+- **客户端执行边界**：`VideoDecoder` 与 Canvas / WebGPU 均运行在客户端浏览器并消费客户端机器的 CPU/GPU；Linux 服务端仅提供 API、解复用元数据与分片字节流。Apple Silicon Chrome 严格资格验收通过 CDP Media 域区分 `WebCodecs::VideoDecoder` 与隐藏原生 `<video>`，并核验 `VideoToolboxVideoDecoder` 及平台硬解标记。
+- **AVCC/HVCC `description` 注入**：manifest 同时返回 base64 编码的 `description`（后端直接读取 chunk MP4 的 `avcC`/`hvcC` box 提取 `AVC/HEVCDecoderConfigurationRecord` 含 SPS/PPS，并派生准确的 `codec_string`），确保 AVCC 长度前缀样本能被浏览器 `VideoDecoder` 正确解析。
 
 MinIO key：
 
 ```text
-videos/{dataset_item_id}/chunks/{chunk_id}.mp4
+video-derivatives/objects/{output_id}/chunk.mp4
 ```
 
 ### Chunk warmup
 
-`list_chunks` / `get_chunk` 命中某些 chunk 后，会向后 look-ahead 预解码相邻 chunk（逐帧导航多为向前推进），减少后续等待。受 `VIDEO_CHUNK_WARMUP_LOOKAHEAD` 控制（默认 1，设 0 关闭）。warmup 保守降级：只对**还没 ready 且没在 pending 进行中**的相邻 chunk 投递 `ensure_video_chunks`，不重复投递、不阻塞主请求。纯选择逻辑见 `video_frame_service.warmup_chunk_ids`。
+`list_chunks` / `get_chunk` 命中某些 chunk 后，会向后 look-ahead 预解码相邻 chunk（逐帧导航多为向前推进），减少后续等待。受 `VIDEO_CHUNK_WARMUP_LOOKAHEAD` 控制（默认 1，设 0 关闭）。warmup 保守降级：只对**还没 ready 且没在 pending 进行中**的相邻 chunk 提交独立 owner 后投递，复用已在建的同一尝试、不阻塞主请求。纯选择逻辑见 `video_frame_service.warmup_chunk_ids`。
 
 ## 单帧缓存
 
@@ -155,19 +147,23 @@ POST /api/v1/videos/{dataset_item_id}/frames:prefetch
 POST /api/v1/videos/{dataset_item_id}/frames:retry
 ```
 
-缓存命中返回 `status="ready"` 和 signed URL；未命中创建 `VideoFrameCache(status="pending")`，投递 `extract_video_frames`，并返回 HTTP 202。抽帧优先使用 B1 的 `pts_ms`，旧视频缺 timetable 时按 `fps` 估算。
+缓存命中先沿保存位置完整验证 metadata.json 与图片，再返回 `status="ready"`、签名 URL、output_id、sha256、byte_size 和 metadata_generation_id；未命中创建独立 output，提交后投递并返回 HTTP 202。抽帧只用已登记原件和该 generation 的 PTS；缺少确切条目时保留 fps 估算。
+
+帧缓存与转码分块使用毫秒时间戳舍入区间的下界定位，并保留微秒精度传给 FFmpeg，避免舍入后的起点晚于目标帧真实 PTS，造成错取下一帧或末帧抽取失败。
 
 `frames:retry` 默认只重投 `status="failed"` 的缓存行；传入 `frame_indices` 时只处理这些帧，未传时最多处理当前 `width + format` 下 500 条失败行。`force=true` 会重置指定帧的 storage key / byte size 并重新投递，适合源视频修复后刷新坏缓存。
+
+更新抽帧逻辑后，先刷新实际消费任务的 worker，再按宽度、格式分组重试。已生成但内容受影响的缓存需要显式列出源帧号并设置 `force=true` 重建，每批最多 500 帧；空帧号列表仍只选失败项，不会强制重建全部缓存。重建完成后刷新浏览器中的帧缓存。
 
 MinIO key：
 
 ```text
-videos/{dataset_item_id}/frames/{frame_index}_{width}.{format}
+video-derivatives/objects/{output_id}/frame.{format}
 ```
 
-视频 metadata 任务生成 poster 时也写入同一套缓存：`frame_index=0,width=512,format=webp`。因此 `DatasetItem.thumbnail_path` 与 `metadata.video.poster_frame_path` 会指向 `videos/{dataset_item_id}/frames/0_512.webp`。
+poster 属于 metadata output 的 `poster.webp`，不冒充某个 frame-cache output。缩略图只从当前 metadata owner 核验和签发；旧无归属路径不签名。
 
-内部 AI worker 可调用 `app.services.video_frame_service.get_frame_array()` 读取已缓存帧，进程内 LRU 上限由 `VIDEO_FRAME_MEMORY_CACHE_ITEMS` 控制。
+内部 AI 读取必须提供显式原件委派；`get_frame_array()` 完整核验当前 output 的字节再解码，不按 Item／帧号复用无身份的内存数组。逐帧预标注同样使用已登记来源与 saved owner。
 
 ## 失败资产与重试
 
@@ -190,7 +186,9 @@ POST /api/v1/storage/video-assets/retry
 
 `probe` / `poster` / `frame_timetable` 共用 metadata 任务，因此重试任一项都会重新跑视频 metadata 生成链路。`chunk` / `frame` 重试由 `video_frame_service` 重置对应行的状态、错误，再由存储 API 在提交后投递 media 队列；派发失败不会回滚已提交的 `pending` 状态，也没有隐式补偿。
 
-chunk 重试还会清空旧的 `generation_mode` / `diagnostics`，下一次 worker 会重新判断 smart-copy eligibility。frame 重试保留 `frame_index`、`width`、`format` 及已有 `storage_key` / `byte_size`。
+存储管理页的错误栏支持鼠标点击或键盘激活，复制接口返回的完整错误原文；显示省略不会截断复制内容，复制成功或失败都会提示。
+
+chunk 重试会清空旧的 `generation_mode` / `diagnostics`，下一次 worker 会重新判断 smart-copy eligibility。frame 重试保留 `frame_index`、`width`、`format` 及已有 `storage_key` / `byte_size`。
 
 ## Timetable 重建
 
@@ -203,7 +201,7 @@ uv run python -m app.cli.video.rebuild_timetable --dataset-id <uuid> --keep-goin
 uv run python -m app.cli.video.rebuild_timetable --all --limit 100
 ```
 
-`application/video_timetable_rebuild.py::VideoTimetableRebuildWorkflow` 读取 `source_key_for_item` 选定的原始来源对象并沿用既有 `StorageService.bucket_for_cache_key` 桶选择，再调用 `services/media_probe.py::probe_video_frame_timetable`。`DatasetService` 替换索引、记录源帧总数，并只清除或更新 `frame_timetable_error`；失败时 CLI 回滚当前项后保存错误，成功项仍逐项提交。`--dry-run` 会执行下载与探测但不写数据库。源 key 与桶前缀匹配行为保持原样。
+命令为已登记原件显式创建新的 metadata output，使用同一套完整读取、原生生成、回读与发布合同；成功后原子替换元数据和时序索引。始终处理原视频，不使用 playback 转码副本。未知原件明确拒绝；失败不提前替换活动时序。`--dry-run` 只读取已有 owner，不下载、不投递。
 
 单项失败保留其旧索引并记录错误；使用 `--keep-going` 时，CLI 从已保存的 UUID 和刷新后的行继续后续项，不复用回滚后过期的 ORM 属性。成功项仍逐项提交，最终只要有失败就返回非零退出码；继续处理不等于重试失败项。
 
@@ -211,7 +209,7 @@ uv run python -m app.cli.video.rebuild_timetable --all --limit 100
 
 超长视频不必给每帧都存一行 `VideoFrameIndex`。`--sparse-stride <N>`（默认 1 = 全帧）让重建只持久化**锚点子集**：`select_sparse_anchor_rows` 取「stride 网格上的帧 ∪ 所有关键帧」（保留关键帧使 chunk smart-copy 的 keyframe 对齐判定不退化）。锚点仍写进现有 `video_frame_indices`。
 
-读取时 `frame_index → pts_ms` 对外语义不变：命中锚点用 DB 真值，否则由相邻锚点线性插值、范围外按 fps 外推（纯函数 `resolve_pts_ms_sparse`）。`frame_timetable_frame_count` 仍记源视频总帧数。旧的全帧 timetable 视频零行为变化。
+独立 output 保留完整探测时间表，HTTP timetable 和派生规格从该冻结结果读取；数据库索引只持久化所选锚点，包含首末帧及关键帧。切换 stride 会产生新 generation，不改写旧结果。
 
 ### 帧采样网格 helper
 

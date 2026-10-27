@@ -1,7 +1,7 @@
 """Add Jobs cancellation and fixed dataset unlink audit capabilities.
 
-Revision ID: 0204
-Revises: 0203
+Revision ID: bo0204
+Revises: bo0203
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0204"
-down_revision = "0203"
+revision = "bo0204"
+down_revision = "bo0203"
 branch_labels = depends_on = None
 
 _ARTIFACT = (

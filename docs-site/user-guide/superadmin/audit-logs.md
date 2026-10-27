@@ -2,7 +2,7 @@
 audience: [super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-25
 ---
 
 # 审计日志
@@ -91,6 +91,16 @@ last_reviewed: 2026-10-17
 - `system.settings_update` / `system.bootstrap_admin`
 - `audit.export` / `audit.archive`
 
+## 存储故障关联
+
+在动作中选择“存储访问故障”，对象类型选择 `storage_location`，可按位置 ID 查询；也可从存储位置的来源诊断点击“查看此来源故障记录”。该入口仅向超级管理员展示，继续使用现有审计详情和筛选，不会触发扫描或重新读取原件。
+
+明细的 `category` 区分 `root_unavailable`（配置根不可用或根身份变化）、`access_denied`（存储服务认证或访问权限拒绝）、`source_changed`（实际读取／摘要核验不符）和 `preview_failed`（预览生成失败）。缺失单个文件不据此推断根挂载丢失，错误客户端 SHA 不据此推断源文件已变化。
+
+`location_id / source_id / dataset_id / item_id / asset_id / task_id / run_id / job_id / registration_id` 仅在实际流程已解析到时记录；可用详情键值逐一筛选。HTTP 读取记录保留安全的 `request_id`，扫描关联真实轮次与后台任务；没有关联字段就保持缺失，不猜测补齐。记录不含完整路径、对象键、签名 URL、密钥或原始异常。
+
+当前覆盖数据集来源的核验读取、引用图片读取、扫描失败和预览生成，不代表全部媒体／训练消费者或远端站点已接入。审计只表示当时观察到故障，不是当前健康证明；观测库不可用时可能缺记录，不能以“没有事件”断言原件可读。预览失败仍与原件故障分开，正常读取与业务错误响应不因观测写入失败改变。
+
 ## 查询界面
 
 ![审计日志筛选栏](../images/superadmin/audit-logs/filter-bar.png)
@@ -155,6 +165,14 @@ docker exec ai-annotation-platform-postgres-1 psql -U user -d annotation -c \
 ## 分区策略
 
 `audit_logs` 按月分区（[ADR 0007](../../dev/adr/archive/0007-audit-log-partitioning)）。运维上每月初由 cron 创建下月分区，旧分区可按合规策略归档/删除（默认保留 12 个月）。
+
+### 读取历史归档
+
+归档列表和内容接口仅限当前超级管理员使用。`GET /api/v1/audit-logs/archives` 只列出已完成发布的归档；未确认的写入保留待核对，不会作为可读归档显示。
+
+使用 `GET /api/v1/audit-logs/archives/{year}/{month}?limit=100&offset=0` 分页读取，单页最多 1000 行。每次请求都会完整核验归档后再返回指定页，末尾 `_partition_meta` 也是一行，因此 `total` 比审计事件数多一。
+
+历史归档按创建时保存的 bucket 和内容摘要读取，调整新归档的写入 bucket 不影响已有归档。缺少独立归属的旧归档会返回冲突，平台不会从当前 bucket 猜测读取。中途撤权、凭据到期、维护状态变化或内容损坏都会阻止返回，详见[审计归档 API](../../api/guides/audit-archives)。
 
 ## 写入侧约定
 

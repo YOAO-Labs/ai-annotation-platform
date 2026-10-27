@@ -48,10 +48,6 @@ class RuntimeSettings(BaseSettings):
     inference_probe_token: SecretStr | None = Field(default=None, repr=False)
     inference_probe_token_file: str = ""
     inference_probe_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-    guide_objects_url: str = Field(default="", repr=False)
-    guide_objects_token: SecretStr | None = Field(default=None, repr=False)
-    guide_objects_token_file: str = ""
-    guide_objects_timeout_seconds: float = Field(default=15, gt=0, le=120)
     configuration_video_segment_size_frames: int = Field(default=18000, ge=1)
     configuration_video_tracker_window_size_frames: int = Field(default=300, ge=1)
     configuration_video_tracker_sam3_window_size_frames: int = Field(default=16, ge=1)

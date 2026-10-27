@@ -5,12 +5,8 @@
 自带的开源素材 `tracking_car.mp4`(来自 grounded-sam-2 vendor,Apache-2.0,行车track 演示),
 可公开分享。
 
-视频接入要点(与 seed_coco8 图片不同):
-- 帧/分块(video_chunks / video_frame_cache)是**按需**生成的(前端首次请求时由 celery worker
-  用 ffmpeg 切片),seed **不预填**;但 DatasetItem.metadata_["video"](fps/frame_count/宽高/codec)
-  与 VideoFrameIndex(逐帧时间表)**必须**同步填好,否则前端 manifest/timetable 接口报 503。
-- 元数据通过公开探测客户端同步取得，可按配置使用本地或独立服务，不依赖异步 worker。
-- 素材是 h264,前端切 chunk 走 smart_copy(无需转码),工作台可直接渲染。
+视频元数据、时间表与 poster 通过已登记原件的统一 generation 发布。seed 只登记本次
+PUT 的真实字节，调用方提交业务记录后，以显式委派派发媒体任务；不预填原始派生路径。
 
 owner 用传入用户(seed.py 传 admin;独立跑兜底 admin),与其余 seed 脚本一致。
 
@@ -96,7 +92,6 @@ async def seed_video(
         Dataset,
         DatasetItem,
         ProjectDataset,
-        VideoFrameIndex,
     )
     from app.services.workspace_seed_data import (
         create_media_seed_project,
@@ -104,7 +99,9 @@ async def seed_video(
     )
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
-    from app.services.media_probe import probe_video_file, probe_video_frame_timetable
+    from app.workers.media import probe_video_file
+    from app.services import video_derivative_originals as originals
+    from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
 
     existing = await db.scalar(
         select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
@@ -116,9 +113,8 @@ async def seed_video(
     if not video.exists():
         raise FileNotFoundError(f"开源视频素材缺失: {video}")
 
-    # 完整探测结果到齐后才写入素材和逐帧时间表。
+    # Local probe is reporting only; persisted derivatives use the owned pipeline.
     video_meta = probe_video_file(video)
-    timetable = probe_video_frame_timetable(video)
 
     ds = Dataset(
         display_id=DATASET_DISPLAY_ID,
@@ -138,10 +134,11 @@ async def seed_video(
     )
 
     # 上传视频到 MinIO datasets 桶。
-    bucket = storage_service.datasets_bucket
+    binding = await ensure_legacy_bindings(db)
+    bucket = binding.bucket
     key = f"{DATASET_FOLDER}/{video.name}"
     payload = video.read_bytes()
-    storage_service.client.put_object(
+    put_result = storage_service.client.put_object(
         Bucket=bucket,
         Key=key,
         Body=payload,
@@ -153,28 +150,23 @@ async def seed_video(
         file_name=video.name,
         file_path=key,
         file_type="video",
-        file_size=video.stat().st_size,
+        file_size=len(payload),
         content_hash=hashlib.sha256(payload).hexdigest(),
-        width=video_meta["width"],
-        height=video_meta["height"],
-        metadata_={"video": video_meta},
+        metadata_={},
     )
     db.add(item)
     await db.flush()
 
-    # 逐帧时间表(manifest/timetable 接口依赖;不填前端按 fps 估算,这里填精确值)。
-    db.add_all(
-        [
-            VideoFrameIndex(
-                dataset_item_id=item.id,
-                frame_index=e["frame_index"],
-                pts_ms=e["pts_ms"],
-                is_keyframe=e["is_keyframe"],
-                pict_type=e.get("pict_type"),
-                byte_offset=e.get("byte_offset"),
-            )
-            for e in timetable
-        ]
+    await register_item_asset(
+        db,
+        item,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+        etag=(put_result.get("ETag") or "").strip('"'),
+        binding=binding,
+    )
+    delegation = originals.system_authorization(
+        "dataset_item", item.id, await originals.pin(db, "dataset_item", item.id)
     )
 
     ds.file_count = 1
@@ -190,7 +182,9 @@ async def seed_video(
 
     return {
         "project": PROJECT_DISPLAY_ID,
-        "frames": len(timetable),
+        "frames": video_meta.get("frame_count") or 0,
+        "item_id": str(item.id),
+        "video_delegation": delegation,
         "tasks": tasks_result,
         "video_meta": video_meta,
     }
@@ -204,18 +198,12 @@ async def main() -> None:
         info = await seed_video(db, owner_id=owner_id)
         await db.commit()
 
-        # Seed populated video metadata but not its poster. Keep this on the
-        # existing video-owner backfill path; image work is admitted separately.
-        from sqlalchemy import select
+        if info is not None:
+            from app.workers.media import generate_video_metadata
 
-        from app.db.models.dataset import Dataset
-        from app.workers.media import backfill_media
-
-        ds = await db.scalar(
-            select(Dataset).where(Dataset.display_id == DATASET_DISPLAY_ID)
-        )
-        if ds is not None:
-            backfill_media.delay(str(ds.id))
+            generate_video_metadata.delay(
+                info["item_id"], delegation=info["video_delegation"]
+            )
 
     print("=== 开源视频 video-track dev 数据 ===")
     if info is None:

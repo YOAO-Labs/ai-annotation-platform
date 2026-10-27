@@ -119,6 +119,8 @@ class TaskDiscussionPage(BaseModel):
 
 
 class CommentAttachmentUploadInitRequest(BaseModel):
+    """Compatibility request for the retired presigned upload initializer."""
+
     file_name: str = Field(min_length=1, max_length=255)
     content_type: str = Field(
         default="application/octet-stream", min_length=1, max_length=128

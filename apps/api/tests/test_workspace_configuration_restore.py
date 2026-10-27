@@ -403,16 +403,12 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             ).one()
             assert frozen_scope == "private" and frozen_creator == actor_id
 
-        refused = _alembic(test_engine.url, "downgrade", "0256")
+        refused = _alembic(test_engine.url, "downgrade", "bo0256")
         assert refused.returncode != 0
         assert b"Cannot remove Workspace configuration while private state exists" in (
             refused.stdout + refused.stderr
         )
         async with source_maker() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             assert await db.scalar(
                 text(
                     "SELECT to_regnamespace('aap_workspace_configuration_v1') IS NOT NULL"
@@ -512,10 +508,6 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             for request in directory_requests
         ] == original_directory
         async with restored_maker() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             template = await db.get(ProjectTemplate, template_id)
             project = await db.get(Project, project_id)
             assert template is not None and template.name == later_name

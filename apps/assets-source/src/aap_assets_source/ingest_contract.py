@@ -467,7 +467,27 @@ class IngestDeliveryAcknowledged(_Value):
 
 
 class IngestDataPort(Protocol):
-    """Five owner capabilities bound to the caller's one outer transaction."""
+    """Owner capabilities bound to the caller's one outer transaction."""
+
+    async def allocate(self, request: dict): ...
+
+    async def open_operation(self, creation_id): ...
+
+    async def original_prepared(self, creation_id, prepared) -> None: ...
+
+    async def original_writing(self, creation_id) -> None: ...
+
+    async def original_written(self, creation_id, receipt) -> None: ...
+
+    async def original_verified(self, creation_id, verification) -> None: ...
+
+    async def fail_original(
+        self, creation_id, outcome, error_code, evidence
+    ) -> None: ...
+
+    async def close_operation(
+        self, creation_id, operation_id, physical_settled
+    ) -> None: ...
 
     async def begin(
         self, command: IngestCommand, descriptor: IngestDescriptor

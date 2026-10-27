@@ -51,6 +51,7 @@ services:
     ports:
       - "8001:8001"
     environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
       SAM_VARIANT: ${SAM_VARIANT:-tiny}
       DINO_VARIANT: ${DINO_VARIANT:-T}
       BOX_THRESHOLD: ${BOX_THRESHOLD:-0.35}
@@ -87,6 +88,12 @@ services:
       # 实卡完成 image/video/双池/full-unload 验收前保持 0，不发布 enforce 能力。
       GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED: ${GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED:-0}
     volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/gsam2
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
       - gsam2_checkpoints:/app/checkpoints
       - gsam2_hf_cache:/app/.cache/huggingface
     deploy:
@@ -116,6 +123,7 @@ services:
     ports:
       - "8002:8002"
     environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
       HF_TOKEN: ${HF_TOKEN}
       HF_HOME: /app/.cache/huggingface
       SAM3_DOWNLOAD_VIDEO: ${SAM3_DOWNLOAD_VIDEO:-1}
@@ -142,6 +150,12 @@ services:
       # 注: 该模型 FP16 加载即 ~7GB, 8GB 卡前向激活仍会 OOM——需 >8GB 显存实用。
       PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
     volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/sam3
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
       - sam3_checkpoints:/app/checkpoints
       - sam3_hf_cache:/app/.cache/huggingface
     deploy:
@@ -172,6 +186,7 @@ services:
     ports:
       - "8003:8003"
     environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
       YOLO_DEVICE: ${YOLO_DEVICE:-cuda:0}
       YOLO_MODEL_POOL_CAP: ${YOLO_MODEL_POOL_CAP:-2}
       YOLO_MANAGED_MODELS_TOKEN: ${YOLO_MANAGED_MODELS_TOKEN:-}
@@ -185,7 +200,16 @@ services:
       NVIDIA_VISIBLE_DEVICES: ${YOLO_GPU_DEVICE_ID:-0}
       AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${YOLO_GPU_DEVICE_ID:-0}
     volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/yolo
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
       - yolo_checkpoints:/app/checkpoints
+      # Same host: use the executor's resolved path to reuse one physical blob.
+      # Remote hosts prepare their own directory with the same immutable assets.
+      - ${TRAINING_MODELS_PATH:-./training/models}:/model-assets:ro
     deploy:
       resources:
         reservations:
@@ -220,6 +244,7 @@ services:
     ports:
       - "8004:8004"
     environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
       ONNXTOOLS_MODEL_DIR: /app/models
       ONNXTOOLS_DET_MODEL: ${ONNXTOOLS_DET_MODEL:-rtdetr-2024080100.onnx}
       ONNXTOOLS_VA_MODEL: ${ONNXTOOLS_VA_MODEL:-va_260612.onnx}
@@ -233,6 +258,12 @@ services:
       NVIDIA_VISIBLE_DEVICES: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
       AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
     volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/onnxtools
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
       - ./apps/onnxtools-backend/models:/app/models:ro
     deploy:
       resources:
@@ -262,6 +293,7 @@ services:
     ports:
       - "8005:8005"
     environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
       RAPIDOCR_MODEL_DIR: /app/models
       RAPIDOCR_DEVICE: ${RAPIDOCR_DEVICE:-gpu}
       RAPIDOCR_POOL_CAP: ${RAPIDOCR_POOL_CAP:-3}
@@ -274,6 +306,12 @@ services:
       NVIDIA_VISIBLE_DEVICES: ${RAPIDOCR_GPU_DEVICE_ID:-0}
       AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${RAPIDOCR_GPU_DEVICE_ID:-0}
     volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/rapidocr
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
       - ./apps/rapidocr-backend/models:/app/models:ro
     deploy:
       resources:

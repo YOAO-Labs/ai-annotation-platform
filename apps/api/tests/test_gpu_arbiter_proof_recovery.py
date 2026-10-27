@@ -4161,9 +4161,11 @@ async def test_eviction_drain_uncertainty_becomes_unknown_without_releasing_budg
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["control_epoch", "auth_aba"])
 async def test_eviction_phase_commit_skips_redis_after_durable_control_changes(
     test_engine: AsyncEngine,
     proof_store: GPUArbiterStore,
+    change: str,
 ) -> None:
     factory, backend_ids = await _create_active_backends(
         test_engine,
@@ -4186,9 +4188,17 @@ async def test_eviction_phase_commit_skips_redis_after_durable_control_changes(
             resource_id=_RESOURCE_A,
         )
         async with factory.begin() as db:
-            fence = await db.get(GPUBackendFence, victim_id)
-            assert fence is not None
-            fence.control_epoch_high_water = 2
+            if change == "auth_aba":
+                backend = await db.get(MLBackendRegistry, victim_id)
+                original = (backend.auth_method, backend.auth_token)
+                backend.auth_method, backend.auth_token = "token", "rotated"
+                await db.flush()
+                backend.auth_method, backend.auth_token = original
+                await db.flush()
+            else:
+                fence = await db.get(GPUBackendFence, victim_id)
+                assert fence is not None
+                fence.control_epoch_high_water = 2
         challenge = "c" * 64
         await _install_eviction_phase_health(
             factory,
@@ -4206,7 +4216,12 @@ async def test_eviction_phase_commit_skips_redis_after_durable_control_changes(
             challenge=challenge,
             owner_id=owner_id,
         )
-        assert (result.status, result.reason) == ("stale", "control_epoch_changed")
+        assert (result.status, result.reason) == (
+            "stale",
+            "registry_claim_changed"
+            if change == "auth_aba"
+            else "control_epoch_changed",
+        )
         snapshot = await proof_store.snapshot(_RESOURCE_A)
         assert snapshot.committed_mb == 60
         assert snapshot.allocations[0].state is GPUAllocationState.DRAINING

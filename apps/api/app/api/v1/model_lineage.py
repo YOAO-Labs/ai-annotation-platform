@@ -31,7 +31,7 @@ async def get_lineage(
     node_id: uuid.UUID,
     relation: str | None = Query(None, max_length=40),
     cursor: str | None = Query(None, max_length=1000),
-    limit: int = Query(20, ge=1, le=20),
+    limit: int = Query(20, ge=1, le=100),
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):
@@ -42,7 +42,7 @@ async def get_lineage(
 async def get_decisions(
     version_id: uuid.UUID,
     before: int | None = Query(None, ge=1),
-    limit: int = Query(20, ge=1, le=20),
+    limit: int = Query(20, ge=1, le=100),
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):

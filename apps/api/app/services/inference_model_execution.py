@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from aap_inference_contract.execution import (
+    DispatchBoundary,
     FrozenModelOperation,
     ModelExecutionError,
     ModelExecutionPort,
@@ -118,7 +119,12 @@ class _ModelExecutionGateway(ModelExecutionPort):
             request, context=wire, required_instance_id=required_instance_id
         ), reference
 
-    async def execute(self, request: FrozenModelOperation) -> ModelOperationResult:
+    async def execute(
+        self,
+        request: FrozenModelOperation,
+        *,
+        before_dispatch: DispatchBoundary | None = None,
+    ) -> ModelOperationResult:
         if not isinstance(request, FrozenModelOperation):
             raise TypeError("Model execution requires a frozen logical operation")
         if request.route_binding is not None or request.endpoint_subject is not None:
@@ -259,7 +265,9 @@ class _ModelExecutionGateway(ModelExecutionPort):
                 ),
             )
             try:
-                result = await client.execute(bound)
+                # Routing admission and endpoint-subject capture are complete;
+                # the caller's boundary runs immediately before the one request.
+                result = await client.execute(bound, before_dispatch=before_dispatch)
             except ModelExecutionError as error:
                 self._observe(error.failure.observation)
                 raise

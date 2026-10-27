@@ -1,7 +1,7 @@
 """Add module-owned project cleanup capabilities.
 
-Revision ID: 0198
-Revises: 0197
+Revision ID: bo0198
+Revises: bo0197
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0198"
-down_revision = "0197"
+revision = "bo0198"
+down_revision = "bo0197"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0198_project_owned_cleanup_contract.sql"

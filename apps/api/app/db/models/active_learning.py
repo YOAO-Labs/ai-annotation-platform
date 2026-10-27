@@ -17,6 +17,11 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.training_dataset import TRAINING_STORAGE_REF_CHECK
+
+_STORAGE_REF_CHECK = TRAINING_STORAGE_REF_CHECK.replace(
+    "'training-dataset'", "'active-learning'"
+).replace("/datasets/", "/active-learning/")
 
 STATUSES = "'queued','running','cancelling','lost','succeeded','failed','cancelled'"
 
@@ -24,6 +29,12 @@ STATUSES = "'queued','running','cancelling','lost','succeeded','failed','cancell
 class ActiveLearningRound(Base):
     __tablename__ = "active_learning_rounds"
     __table_args__ = (
+        CheckConstraint(_STORAGE_REF_CHECK, name="ck_active_learning_storage_ref"),
+        CheckConstraint(
+            "storage_ref IS NULL OR storage_ref->>'prefix' = COALESCE(storage_ref->>'key_prefix','') || "
+            "'projects/' || project_id::text || '/active-learning/' || id::text || '/'",
+            name="ck_active_learning_storage_prefix",
+        ),
         UniqueConstraint("project_id", "request_id", name="uq_active_learning_request"),
         Index("ix_active_learning_project_created", "project_id", "created_at"),
         CheckConstraint(f"status IN ({STATUSES})", name="ck_active_learning_status"),
@@ -60,6 +71,7 @@ class ActiveLearningRound(Base):
     status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
     spec: Mapped[dict] = mapped_column(JSONB, nullable=False)
     spec_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     authorization: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     inference_dispatches: Mapped[int] = mapped_column(

@@ -14,12 +14,12 @@ export type QueueState = "active" | "finished" | "failed" | "all";
 
 export const trainingHubApi = {
   catalog: () => apiClient.get<TrainingHubCatalog>("/training/catalog"),
-  projects: (search = "", offset = 0) =>
+  projects: (search = "", offset = 0, limit = 20) =>
     apiClient.get<TrainingProjectPage>(
-      `/training/projects?limit=20&offset=${offset}&search=${encodeURIComponent(search)}`,
+      `/training/projects?limit=${limit}&offset=${offset}&search=${encodeURIComponent(search)}`,
     ),
-  runs: (state: QueueState, offset = 0, framework = "") =>
+  runs: (state: QueueState, offset = 0, framework = "", limit = 20) =>
     apiClient.get<TrainingQueuePage>(
-      `/training/runs?state=${state}&limit=20&offset=${offset}${framework ? `&framework=${encodeURIComponent(framework)}` : ""}`,
+      `/training/runs?state=${state}&limit=${limit}&offset=${offset}${framework ? `&framework=${encodeURIComponent(framework)}` : ""}`,
     ),
 };

@@ -84,6 +84,7 @@ def _page(actor_id, *, config=None):
     timestamp = datetime(2026, 10, 19, tzinfo=UTC)
     connection = ConnectionRecord(
         id=uuid4(),
+        revision=1,
         name="connection",
         kind="s3",
         config=config or {"endpoint": "https://storage.example.test", "bucket": "data"},

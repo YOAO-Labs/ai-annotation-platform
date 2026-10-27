@@ -232,15 +232,23 @@ class ModelReturnEligibility(BaseModel):
     qualification: dict[str, JsonValue] | None
 
 
+class TrainingRegisteredModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    name: str
+
+
 class TrainingRunDetail(BaseModel):
     run: TrainingRunOut
     attempts: list[TrainingAttemptOut]
     registration_eligibility: ModelReturnEligibility | None = None
+    registered_models: list[TrainingRegisteredModel] = Field(default_factory=list)
 
 
 class TrainingEvaluationDescriptor(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    revision: Literal[1, 2]
+    revision: Literal[1, 2, 3]
     config_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     candidate: EvaluationCandidate
     benchmark: EvaluationBenchmark
@@ -251,7 +259,7 @@ class TrainingEvaluationDescriptor(BaseModel):
     def task_revision(self):
         segmentation = self.evaluator.task == "instance-segmentation"
         if (
-            self.revision != (2 if segmentation else 1)
+            self.revision not in ({2, 3} if segmentation else {1})
             or segmentation
             and self.evaluator.framework != "ultralytics"
         ):

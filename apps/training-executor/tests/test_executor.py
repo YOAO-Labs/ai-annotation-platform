@@ -27,6 +27,7 @@ def test_report_keeps_observed_class_identity_and_validation_scope():
         result,
         {
             "frozen_config": {
+                "framework_version": "8.4.183",
                 "classes": ["car", "person"],
                 "validation_digest": "fixed",
             },
@@ -45,6 +46,7 @@ def test_report_keeps_observed_class_identity_and_validation_scope():
     ]
     assert report["validation_digest"] == "fixed"
     assert report["evaluation"]["independent_test_set"] is False
+    assert report["evaluation"]["version"] == "8.4.183"
 
 
 def test_segmentation_report_keeps_box_mask_metrics_and_native_fitness_separate():
@@ -63,6 +65,7 @@ def test_segmentation_report_keeps_box_mask_metrics_and_native_fitness_separate(
         result,
         {
             "frozen_config": {
+                "framework_version": "8.4.183",
                 "classes": ["shape"],
                 "validation_digest": "frozen",
                 "configuration": {"identity": {"task": SEGMENTATION}},

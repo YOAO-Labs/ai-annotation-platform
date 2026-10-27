@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
 import { ApiError } from "@/api/client";
+import { useVerifiedImage } from "@/hooks/useVerifiedImage";
+import { useOriginalImage } from "@/hooks/useOriginalImage";
+import { originalOwnerKey } from "@/api/originals";
 import type { TaskResponse } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import {
@@ -185,14 +188,44 @@ export function workbenchImagePreviewUrl(source: WorkbenchImageSource | null): s
 }
 
 export function useWorkbenchImageSource(
-  task: TaskResponse | undefined,
+  incomingTask: TaskResponse | undefined,
   mediaIdentity?: string | null,
+  requestedTaskId?: string | null,
 ): {
   source: WorkbenchImageSource | null;
-  /** Read fresh metadata and signed URLs without requesting a pyramid rebuild. */
+  /** Refresh authenticated bytes or derived metadata without rebuilding the pyramid. */
   refresh: () => Promise<void>;
   retry: (() => Promise<void>) | undefined;
+  contentBlockedReason?: string | null;
+  contentPending?: boolean;
 } {
+  const userId = useAuthStore((state) => state.user?.id);
+  const sessionId = useAuthStore((state) => state.sessionId);
+  const ownerKey = originalOwnerKey();
+  // A query may briefly retain its old object after login changes. Never lend
+  // that object to the new session, even when it names the same requested Task.
+  const taskOwners = useRef(new WeakMap<TaskResponse, string>());
+  const retained = useRef<{ owner: string; task?: TaskResponse }>({ owner: ownerKey });
+  if (retained.current.owner !== ownerKey) retained.current = { owner: ownerKey };
+  if (incomingTask) {
+    const previousOwner = taskOwners.current.get(incomingTask);
+    if (!previousOwner) taskOwners.current.set(incomingTask, ownerKey);
+    if (
+      (!previousOwner || previousOwner === ownerKey) &&
+      (!requestedTaskId || incomingTask.id === requestedTaskId)
+    ) {
+      retained.current.task = incomingTask;
+    } else retained.current.task = undefined;
+  } else if (!requestedTaskId || retained.current.task?.id !== requestedTaskId) {
+    retained.current.task = undefined;
+  }
+  const task = retained.current.task;
+  const reference = task?.storage_mode === "reference";
+  const verified = useVerifiedImage(
+    reference && task?.content_sha256
+      ? `/files/tasks/${task.id}/content?sha256=${task.content_sha256}`
+      : null,
+  );
   const queryClient = useQueryClient();
   const actorId = useAuthStore((state) => state.user?.id ?? null);
   const [retryWindow, setRetryWindow] = useState<{ scope: string; untilMs: number } | null>(null);
@@ -208,7 +241,7 @@ export function useWorkbenchImageSource(
     () =>
       [
         "image-pyramid",
-        actorId,
+        ownerKey,
         task?.id,
         summary?.source_snapshot,
         summary?.profile_version,
@@ -219,7 +252,7 @@ export function useWorkbenchImageSource(
         summary?.required,
       ] as const,
     [
-      actorId,
+      ownerKey,
       task?.id,
       summary?.source_snapshot,
       summary?.profile_version,
@@ -274,20 +307,60 @@ export function useWorkbenchImageSource(
     query.data?.width,
     query.data?.height,
   ]);
-  const source = useMemo(
+  const selection = useMemo(
     () =>
-      resolveWorkbenchImageSource(task, query.data, {
-        mediaIdentity,
-        maxSingleDecodedBytes,
-      }),
-    [maxSingleDecodedBytes, mediaIdentity, query.data, task],
+      resolveWorkbenchImageSource(
+        reference
+          ? verified.url
+            ? { ...task!, file_url: verified.url }
+            : undefined
+          : task
+            ? { ...task, file_url: "original-selection" }
+            : undefined,
+        query.data,
+        {
+          mediaIdentity: reference
+            ? `${mediaIdentity ?? task?.id}/${verified.url}`
+            : `${userId}/${sessionId}/${mediaIdentity ?? task?.dataset_item_id ?? task?.id}`,
+          maxSingleDecodedBytes,
+        },
+      ),
+    [
+      maxSingleDecodedBytes,
+      mediaIdentity,
+      query.data,
+      task,
+      reference,
+      verified.url,
+      userId,
+      sessionId,
+    ],
   );
+  const needsOriginal = !reference && selection?.kind === "single";
+  const original = useOriginalImage(
+    needsOriginal && task ? { kind: "task", taskId: task.id } : null,
+    mediaIdentity ?? task?.dataset_item_id ?? task?.id ?? null,
+  );
+  const source = needsOriginal
+    ? original.url && selection?.kind === "single"
+      ? {
+          ...selection,
+          url: original.url,
+          identity: `${selection.identity}/address/${original.version}`,
+        }
+      : null
+    : selection;
   const refetch = query.refetch;
+  const retryContent = verified.retry;
+  const retryOriginal = original.retry;
   const refresh = useCallback(async () => {
+    if (originalOwnerKey() !== ownerKey) return;
+    if (reference) retryContent();
+    if (needsOriginal) retryOriginal();
     if (shouldQuery) await refetch();
-  }, [refetch, shouldQuery]);
+  }, [refetch, shouldQuery, reference, retryContent, needsOriginal, retryOriginal, ownerKey]);
   const retry = useCallback(async () => {
-    if (!task?.id) return;
+    if (!task?.id || originalOwnerKey() !== ownerKey) return;
     const key =
       retryAttempt.current?.scope === scope ? retryAttempt.current.key : crypto.randomUUID();
     retryAttempt.current = { scope, key };
@@ -308,6 +381,7 @@ export function useWorkbenchImageSource(
       }
       throw error;
     }
+    if (originalOwnerKey() !== ownerKey) return;
     if (retryAttempt.current?.key === key) retryAttempt.current = null;
     setRetryWindow({ scope, untilMs: Date.now() + 30_000 });
     queryClient.setQueryData<ImagePyramidResponse>(queryKey, (current) => ({
@@ -331,10 +405,26 @@ export function useWorkbenchImageSource(
       queryClient.invalidateQueries({ queryKey: ["task", task.id] }),
       queryClient.invalidateQueries({ queryKey: ["tasks"] }),
     ]);
-  }, [queryClient, queryKey, refetch, scope, summary, task]);
+  }, [ownerKey, queryClient, queryKey, refetch, scope, summary, task]);
   return {
     source,
     refresh,
-    retry: source?.kind === "pyramid-failed" && source.retryable ? retry : undefined,
+    contentPending: reference
+      ? !verified.ready && !verified.error
+      : needsOriginal && !original.ready && !original.error,
+    contentBlockedReason:
+      incomingTask?.file_type === "image" && !task
+        ? "正在当前会话重新读取任务图片，请稍候"
+        : reference && !verified.ready
+          ? (verified.error ?? "正在核验并读取原图，请稍候")
+          : needsOriginal && !original.ready
+            ? (original.error ?? "正在核验并读取原图，请稍候")
+            : null,
+    retry:
+      reference || needsOriginal
+        ? refresh
+        : source?.kind === "pyramid-failed" && source.retryable
+          ? retry
+          : undefined,
   };
 }

@@ -1,7 +1,7 @@
 """Add Labeling-owned dataset unlink capabilities.
 
-Revision ID: 0202
-Revises: 0201
+Revision ID: bo0202
+Revises: bo0201
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0202"
-down_revision = "0201"
+revision = "bo0202"
+down_revision = "bo0201"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0202_dataset_unlink_labeling.sql"

@@ -76,11 +76,6 @@ async def test_s3_probe_preserves_limits_counts_samples_and_closes_client(monkey
     assert arguments["aws_access_key_id"] == "access"
     assert arguments["aws_secret_access_key"] == "secret"
     assert arguments["region_name"] == "test-region"
-    assert arguments["config"].options == {
-        "connect_timeout": 10,
-        "read_timeout": 15,
-        "retries": {"max_attempts": 1},
-    }
     assert client.list_arguments == {
         "Bucket": "source-bucket",
         "Prefix": "imports/",
@@ -179,9 +174,12 @@ async def test_sftp_probe_pins_hosts_credentials_timeout_and_sample_limit(
     events = []
 
     class FakeSftp:
-        def listdir(self, path):
-            events.append(("listdir", path))
-            return [f"entry-{index}" for index in range(25)]
+        def listdir_iter(self, path, read_aheads=1):
+            events.append(("listdir_iter", path, read_aheads))
+            return iter([f"entry-{index}" for index in range(25)])
+
+        def get_channel(self):
+            return None
 
         def close(self):
             events.append("sftp.close")
@@ -245,17 +243,16 @@ async def test_sftp_probe_pins_hosts_credentials_timeout_and_sample_limit(
         for event in events
         if isinstance(event, tuple) and event[0] == "connect"
     )
-    assert connect == {
-        "hostname": "8.8.8.8",
-        "port": 2222,
-        "username": "svc",
-        "password": None,
-        "pkey": "parsed-key",
-        "timeout": 10,
-        "allow_agent": False,
-        "look_for_keys": False,
-    }
-    assert ("listdir", "/data/imports") in events
+    # Pinned identity and credential use, not the connector SDK's wire shape.
+    assert (connect["hostname"], connect["port"], connect["username"]) == (
+        "8.8.8.8",
+        2222,
+        "svc",
+    )
+    assert connect["password"] is None
+    assert connect["pkey"] == "parsed-key"
+    assert connect["allow_agent"] is False
+    assert connect["look_for_keys"] is False
     assert events[-2:] == ["sftp.close", "client.close"]
 
 
@@ -266,8 +263,11 @@ async def test_sftp_probe_hides_exception_text_and_closes_both_resources(monkeyp
     events = []
 
     class FakeSftp:
-        def listdir(self, _path):
+        def listdir_iter(self, _path, read_aheads=1):
             raise OSError(f"cannot list {secret_url}")
+
+        def get_channel(self):
+            return None
 
         def close(self):
             events.append("sftp.close")

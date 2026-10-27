@@ -40,8 +40,10 @@ _EDITING_FUNCTIONS = {
 }
 
 
+@pytest.mark.parametrize("server_lineage", [False, True])
 async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evidence(
     test_engine,
+    server_lineage,
 ):
     dsn = _dsn(
         test_engine,
@@ -62,10 +64,14 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
         "flag": {"origin": "ai", "model_ref": {"model_id": "test"}},
         "nested": {"origin": "ai", "model_ref": {"model_id": "test"}},
     }
+    lineage = {"schema": 1, "source_digest": "1" * 64}
+    if server_lineage:
+        old_metadata["_video_prediction"] = lineage
     new_attributes = {
         "color": "green",
         "flag": 1,
         "nested": [1, {"enabled": 0}],
+        "_video_prediction": {"schema": 1, "source_digest": "0" * 64},
     }
     expected_metadata = _sync_attributes_meta(
         old_attributes, old_metadata, new_attributes
@@ -73,6 +79,7 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
     assert expected_metadata == {
         "flag": old_metadata["flag"],
         "nested": old_metadata["nested"],
+        **({"_video_prediction": lineage} if server_lineage else {}),
     }
     try:
         async with maker.begin() as db:

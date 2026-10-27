@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -71,7 +71,7 @@ function renderPanel(patch: Partial<React.ComponentProps<typeof TrackOperationsP
       />
     </QueryClientProvider>,
   );
-  return { onCompleted };
+  return { onCompleted, queryClient };
 }
 
 describe("TrackOperationsPanel", () => {
@@ -170,6 +170,34 @@ describe("TrackOperationsPanel", () => {
       track_id: "trk-primary",
       secondary_track_id: "trk-secondary",
     });
+  });
+  it("preserves a removed merge candidate without previewing a different track", async () => {
+    const { queryClient } = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "合并" }));
+    const select = await screen.findByRole("combobox", { name: "合并候选轨迹" });
+    await waitFor(() => expect(select).not.toBeDisabled());
+    fireEvent.change(select, { target: { value: "trk-secondary" } });
+    expect(screen.getByRole("button", { name: "预览影响" })).toBeEnabled();
+    api.listPointCloudTrackOperationCandidates.mockResolvedValue({
+      contract_version: 1,
+      candidates: [
+        {
+          track_id: "trk-another",
+          class_name: "car",
+          first_frame: 15,
+          last_frame: 17,
+          member_count: 2,
+        },
+      ],
+    });
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["point-cloud-track-operation-candidates"] });
+    });
+    expect(select).toHaveValue("trk-secondary");
+    await waitFor(() => expect(select).toHaveDisplayValue("已选轨迹（已不在合并候选中）"));
+    expect(screen.getByRole("button", { name: "预览影响" })).toBeDisabled();
+    expect(api.previewSceneTrackCommand).not.toHaveBeenCalled();
+    queryClient.clear();
   });
 
   it("requires explicit confirmation before deactivating keyframes", async () => {

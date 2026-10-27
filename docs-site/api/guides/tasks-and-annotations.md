@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-24
 ---
 
 # 任务与标注
@@ -15,7 +15,9 @@ last_reviewed: 2026-10-18
 
 ## 任务模型
 
-`tasks` 表的每行代表一条待标数据，可以是一张图片、一个视频任务，或其它项目类型的数据。任务属于 project，可暂不分批。常规生产状态包括 `pending / in_progress / review / completed / rejected`；传统文件上传在准备阶段使用 `uploading`，确认对象存在后转为 `pending`。批次状态负责更高层的生产推进。
+批次操作历史通过 `GET /api/v1/projects/{project_id}/batches/{batch_id}/audit-logs` 读取，支持 `limit`（默认 50，1–200）与 `offset`（默认 0），按时间及记录 ID 倒序稳定分页，返回数组。接口要求项目可见，并按当前项目和批次 ID 限定范围；分页不改变历史操作或批次状态。
+
+`tasks` 表的每行代表一条待标数据，可以是一张图片、一个视频任务，或其它项目类型的数据。任务属于 project 且可暂不分批；分批后属于一个 batch，batch 属于 project。常规生产状态包括 `pending / in_progress / review / completed / rejected`；传统文件上传在准备阶段使用 `uploading`，确认对象存在后转为 `pending`。批次状态负责更高层的生产推进。
 
 ## 历史任务文件入口
 
@@ -37,6 +39,47 @@ last_reviewed: 2026-10-18
 不可访问的项目或任务返回 `404`，可见但无管理权返回 `403`，停用主体返回 `401`。对授权管理者，任务已不在上传状态或对象缺失返回 `400`；当前行锁繁忙或来源绑定变化返回 `409`。任务原图读取沿用完整任务可见性，不因同属一个项目就允许读取其他人的隐藏任务。
 
 初始化保留先提交任务、再返回签名地址的时点；图片完成会在验证对象身份后，于同一数据库事务内提交任务状态、来源身份绑定和持久媒体作业。完成回执表示图像作业已受理，不保证缩略图已经生成；管理者仍可使用项目回填入口。权限变化会影响新请求，但不撤销已经签发、尚未按原规则到期的对象 URL。
+
+## 独立任务原件上传
+
+既有低层集成可以继续使用两步接口；平台图像导入向导和Python SDK使用数据集导入接口。
+
+1. `POST /api/v1/files/upload-init` 提交 `project_id`、`file_name` 和 `content_type`（默认 `image/jpeg`），返回 `task_id`、`upload_url`、`expires_in=900`。文件名为非空相对路径，最多500字符；不得包含父目录跳转、绝对路径或控制字符。
+2. 客户端使用返回地址PUT原文件，Content-Type必须与初始化相同。该地址仅写暂存区，不能直接写最终原件。
+3. `POST /api/v1/files/upload-complete/{task_id}` 封存文件，成功返回 `status=ok`、`task_id`。单文件最多5GiB；服务端完整核对SHA-256和大小、条件创建最终对象、保存真实写入回执并完整回读后，才把任务从uploading改为pending。
+
+两个接口均要求当前项目管理权限；API Key需 `tasks:write`。完成上传必须由初始化的同一账号调用；初始化使用API Key时还需同一Key，JWT发起则继续使用JWT。每次请求在物理I/O前后复核原请求凭证、账号、项目和Task快照。权限撤销、任务被删除或归属变化拒绝最终发布，已经写入的候选保留独立责任。成功后重复完成不会再写最终对象，也不会重置后续业务状态。
+
+最终对象的UUID位置、SHA、大小和创建证据保存在独立记录，业务Task只保存关联。删除Task或项目不会删除这份记录或原件；发布回滚也保留已核验但未绑定的候选。此接口不提供原件物理回收许可。数据集关联及primary_lidar等中间表关联Task继续使用已有DatasetItem原件，不通过独立上传完成接口认领。
+
+典型错误为403（权限、凭证或上传发起者不匹配）、404（当前项目/任务不可访问）、409（上下文/配置/门禁变化、最终键冲突、旧未知上传缺创建证明）、413（超过5GiB）和503（存储不可用）。未知历史uploading不HEAD当前桶后直接接受；应重新初始化并上传。旧实现签发的最终键URL在到期前仍可能有效，升级时应单独核对其收尾。该上传闭环不代表全部原件下载、训练、媒体派生和导出消费者已经改用固定位置。
+
+已封存的独立图片Task可调用[严格图片读取接口](./verified-content.md#图片任务)。身份响应使用 `owner_kind=task_original` 与 `task_original_id`；读取沿用保存位置和完整摘要，仍按当前任务可见性授权，不要求读取者是上传发起者。此图片接口的64MiB及解码预算独立于上传的5GiB上限。
+
+独立任务原件、持久 RLE 对象、评论附件和指南图片的新分配使用 annotations 用途绑定，管理接口见[标注文件用途切换](./storage-locations.md#标注文件用途切换)。已有及在途对象继续按保存地址读取，当前绑定变化与正常密钥轮换不改写旧定位；公开逻辑键、内容引用、权限、发布状态和评论附件首次90天期限保持。普通几何仍在数据库，Mask 格式暂存与缩略图分别沿 import、media-cache 管理。
+
+## 数据集筛选下的任务选择
+
+`GET /api/v1/tasks` 保留原查询参数，并可在 `dataset_id` 外提供 `dataset_filter`（最多2000字符的 JSON 对象），合同为数据集的 DatasetItemFilters。仅项目管理者使用此范围；API Key 还需 `datasets:read`。数据集必须关联当前项目，Scene/来源逐次校验归属与权限。无数据集、非法JSON、未知字段或不合法范围422，失效条件404；不忽略条件扩大选择。过滤在游标/offset分页和首页计数之前执行，与训练预检复用同一SQL。未传新参数保留原任务可见性和后续页 total=null 的合同。
+
+## Mask 质检批量修复
+
+`POST /projects/{project_id}/mask-qc/repairs:dry-run` 返回短期 receipt 和冻结计划摘要；
+`POST /projects/{project_id}/mask-qc/repairs` 使用两者执行。每次执行或恢复都有独立作业身份，旧消息和运行中重复投递不能接管新尝试。
+取消 `mask_repair` 作业先保存数据库状态，再通知队列；已经提交的分片、SAM 候选和 Tracker 子任务保留，尚未提交的模型结果会丢弃。
+
+`POST /mask-qc/repairs/{repair_id}/resume` 继续失败或部分完成批次，跳过完成项；Tracker 派发应答未知时复用同一个子任务。
+`POST /mask-qc/repairs/{repair_id}/rollback` 必须提交当前 `result_digest`，支持保留期内的 `completed`、`partial` 和 `rollback_failed` 状态。
+回滚按片保存检查点，继续时使用本次发起者的当前权限，跳过已回滚片；新版本冲突不强制覆盖。返回的 `result` 保留检查点和冲突原因。
+原地引用图片支持确定性修复和 `rerun_local_sam`，引用视频/Tracker 保持限制。dry-run 固定 Item/Asset/SHA、大小、尺寸、来源修订与 SAM 模型/变体/参数；execute、resume、rollback 分别保存本次 actor/Key 证明，API Key 需 `tasks:read`、`annotations:read` 和 `annotations:write`。Worker 必须有自身的读取锚点，不回退 API 节点或预览。原图严格快照在最终短事务之外捕获；确定性修复不要求 AI 开关，SAM 需要 AI 与 native mask 写入资格。旧无引用计划证明的记录须重新预览。私有 Key 证明不出现在作业 DTO 中。
+
+SAM 候选通过既有预测 accept/reject 端点审阅。采纳额外核对已提交单元、生成时结果与元信息摘要、原标注版本/内容和当前严格原图，重复采纳返回 `409`。父作业 partial/cancelled 不影响已提交候选的审阅；驳回使用当前写权限，不要求原图在线。详情见 [Mask 用户说明](../../user-guide/workbench/mask-brush.md)。
+
+托管图片支持相同端点，覆盖独立 Task 原件、直接 DatasetItem 和 primary 关联。计划保存完整 canonical 原件关系、源 Annotation 事实及 SAM 声明配置；内部证明不出现在公开计划或 Job 响应中。托管请求的 API Key 只需本端点原有的 `annotations:write`，仍须满足审核写入、任务阶段、编辑锁和 native mask 门禁。确定性修复不要求 AI 开关，SAM 重跑需要 AI 开关。
+
+每次 execute、resume、rollback 保存本次请求凭据；resume 可以采用当前合法 Task 版本，但不能重新选择原图、源标注或模型。Worker 在发送真实路由的模型请求前及最终保存前重核授权和来源。原图完整读取并确认关闭后才进入最终业务事务；SAM 临时输入独立登记为 `mask_repair` 并固定非 null 对象版本。候选、元信息与单元完成记录原子提交，确定性操作、谱系和检查点同事务保存。历史图片计划缺少可信证明时返回 `409 repair_original_requires_new_plan`，须重新 dry-run。
+
+托管 SAM 候选的 `GET /tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` 按当前读权限核对已提交单元及当前原件；采纳使用当前调用者的写权限，不要求原生成 JWT 仍有效。源标注、候选内容、元信息或来源变化时拒绝预览和采纳。已采纳 Mask 的通用内容读取支持独立 Task 和 primary 形态；读取资格不授予普通手工写入权限。驳回仍不读取原图。
 
 ## 拉取下一个任务
 
@@ -71,7 +114,11 @@ Idempotency-Key: 61fffd41-c706-48c7-818e-0c40cdbeb6c9
 
 `POST /api/v1/tasks/:id/annotations/:annotation_id/secondary-inference` 在选中标注的 ROI 上运行模型，按 `write_target` 写回属性或创建子标注。
 
-仅 `super_admin`、`project_admin`、`annotator` 可调用，且仍需通过项目与任务可见性、当前归属和可编辑状态检查；API Key 还需 `annotations:write` scope。审核员调用返回 `403`，不会执行推理或写入结果。审核员通过普通标注接口进行人工修正的权限保持原有规则。
+项目管理者或具备 `annotation.write` 能力的项目标注员可调用，且仍需通过项目与任务可见性、当前归属和可编辑状态检查；API Key 还需 `annotations:write` scope。审核员调用返回 `403`，不会执行推理或写入结果。审核员通过普通标注接口进行人工修正的权限保持原有规则。
+
+托管图片使用已登记 canonical 原件，覆盖独立 Task、直接 DatasetItem 和 primary 关联。完整读取并核验一次原图后，按实际尺寸裁剪 ROI；每请求的临时输入独立登记为 `secondary_inference`，只上传裁剪，并固定非 null 对象版本。请求和响应结构保持原样，不创建 Prediction 或 AsyncJob；该入口不受交互工具开关控制。
+
+模型派发前及写入前重新检查原 JWT／API Key、当前项目／任务权限、批次、编辑锁、原件与父标注事实。原图来源或父标注在推理期间变化返回 `409`，撤权返回 `403`，失去项目可见性时沿用 `404`；不会留下部分子标注或覆盖并发人工属性。全部属性／子标注、贡献者与审计在同一事务提交；人工属性保护、AI model_ref、子标注一层深度、32px ROI 下限及原有后端错误映射保持。
 
 ## 任务讨论与问题线程
 
@@ -107,7 +154,15 @@ GET /api/v1/feedbacks/:root_id/thread?limit=50
 
 `discussion/annotation-counts` 返回 `{ "counts": { "annotation-uuid": 3 } }`，一次统计当前任务可用标注的全部有效原评论，包含已解决评论。按标注 ID 分组，只返回正数，不受分页影响，不计反馈镜像；已删除评论或不可用标注不计入。接口沿用任务讨论可见性检查，数量不代表每用户未读数。
 
-标注附件下载接口 `GET /annotations/:annotation_id/comment-attachments/download?key=...` 默认仍返回短期签名地址的 302 跳转。浏览器使用 Bearer 登录时，应先带认证头请求 `as_json=true`，取得 `{ download_url }` 后不携带 Bearer 头下载对象；直接打开 API 链接不会自动携带登录凭据。两种返回方式都重新校验原标注的任务权限和附件键前缀，签名有效期为五分钟。
+标注评论附件使用认证文件传输，保留通用文件和空文件，单文件最多 20 MiB，不限制为图片。调用 `POST /annotations/:annotation_id/comment-attachments/upload?file_name=...`，携带 Bearer 头，将原文件字节直接作为请求体，`Content-Type` 为文件 MIME（缺省 `application/octet-stream`）。文件名不得包含路径或控制字符，MIME 会转为小写并去除参数。成功返回已有四字段回执：`storageKey`、`fileName`、`mimeType`、`size`。
+
+创建原标注评论时提交完整回执。服务端只接受本人在同一实际标注、任务和项目中上传、已核验且尚未绑定的附件；键不可重复，回执字段须与服务器保存的事实一致，一个上传只能首次绑定一个原评论。上传和绑定要求标注活动，已有评论的附件仍按真实任务权限读取，标注本身软删或取消不会删除评论附件。
+
+调用 `GET /annotations/:annotation_id/comment-attachments/download?key=...`，携带 Bearer 头，成功直接返回完整核验的原文件字节，使用 `attachment`、`private, no-store` 和 `nosniff`。`as_json` 参数仅保留请求兼容，两种取值都返回文件，不再返回下载 URL 或 302。浏览器使用认证 fetch 获取 Blob 并下载，完成后释放临时 object URL。旧 `upload-init` 已停用：合法请求返回 `409 comment_attachment_upload_init_retired` 和新上传路径，模型校验错误仍为 `422`。
+
+附件从上传时固定保留 90 天；原评论删除后停止下载，物理清理保留 7 天宽限，两者取较早期限。账号、项目或原评论硬删后，已知文件的清理责任仍保留；读取未收尾或删除失败时延后并重试。超期已知回执返回 `410`，已知对象缺失返回 `404`，未知旧归属或绑定变化返回 `409`，存储或关闭收尾无法确认返回 `503`。历史未知附件保留元数据供核对，不从当前桶猜测读取或删除。
+
+Feedback 镜像和原生反馈中的附件字典仅是元数据，不生成新附件归属、延长保存期或独立授权下载，也不会阻止原评论附件清理。读取及写入都会在存储操作后复查原账号、原凭据、实际讨论权限、绑定与维护状态；中途撤权或变化会阻止发布回执或返回文件。
 
 反馈列表的 `root_only` 和 `include_counts` 默认为 `false`，旧调用方式不变。开启 `include_counts` 后，`total` 为当前筛选的准确数量，`status_counts` 返回 `open`、`resolved`、`wont_fix` 各自数量，只忽略 `status` 筛选。未解决数量应读取 `status_counts.open`，不能用当前已加载卡片数替代。
 
@@ -392,6 +447,12 @@ GET /api/v1/tasks/:id/video/frame-timetable?from=0&to=120
 
 每个 task 最多保留 256 个尚未被 annotation POST/PATCH 认领的匿名上传；重复上传相同内容不重复占额度。达到上限返回 `422 mask_quota_exceeded`。图片和视频单帧 Mask 使用 `GET /api/v1/annotations/{annotation_id}/mask-content`；视频 Mask 轨迹的当前解析帧使用带 `{frame_index}` 的路径，兼容客户端也可以用带帧路径读取单态 Mask。对象或帧路径会随编辑及恢复指向新内容，因此返回 `Cache-Control: private, no-cache`，每次按当前摘要重新校验；`If-None-Match` 命中返回 304，摘要变化返回完整 RLE。对象损坏或尺寸失配返回 409，存储暂时不可用返回可重试 503。部署可以分别控制读取和创建；创建关闭时仍允许安全读取存量 geometry。
 
+引用中的 SHA 键是可移植内容身份，实际字节由独立存储记录定位到 UUID 对象。上传、导入、转换、Tracker 和质检先完整验证字节，再保存业务引用；业务提交前有持久发布记录保护，普通进度提交不会释放该保护。匿名上传的未认领额度在 24 小时后由清理任务释放。清理还会检查当前标注、候选、训练保留、修订和当前版本的区域审阅范围；已退休对象在后续轮次才会删除。
+
+历史 SHA 键缺少独立存储记录时返回 `409 raster_object_storage_unpinned`，保留原文件和元数据。即使提供命中的 ETag，也须先完成归属和完整内容核验，不能借 304 绕过。恢复原始 RLE 后可重新上传或随完整数据包导入；仅修改当前 annotations 桶不会接管旧对象。内容锁冲突返回 `409 mask_content_busy`，刷新后重试。
+
+图片 Prediction 候选使用 `GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` 读取，支持相同的 RLE、ETag 和结构化错误合同；`shape_index` 必须取原始候选下标。完整权限和审阅状态规则见[图片原生候选内容](./predictions.md#图片原生候选内容)。
+
 ## Mask 实例原子操作
 
 切割、拆分、复制、合并和严格非重叠会在一个任务级事务内提交：
@@ -486,6 +547,10 @@ dry-run 接收最多 100 个同来源类型的 `annotation_ids`、目标 `mask |
 execute 只接收 `plan_token`、任务内 actor 维度的幂等 key，以及 replace / lossy 的显式确认。服务端按 task → task edit lock → video segment → Mask 内容引用 → upload reservation → annotation UUID 的顺序加锁，重新验证计划归属、TTL、来源快照、类别和写入闸，并重算转换结果与冻结报告。只有两者一致后才预留配额，取得 annotation 行锁并再次验证快照，然后写入新 Mask 对象；最后在同一个事务内写 annotation、内容关联、`convert_annotations` operation、`converted` lineage、任务统计与聚合审计，并返回完整的更新 / 新建对象。相同 key 与相同请求回放首次响应，即使短期计划已清理；同 key 异参、计划已消费、版本漂移、报告漂移或锁冲突返回结构化 409，任一失败都不会部分转换。
 
 ## 原生 AI Mask 候选采纳
+
+托管图片候选必须带交互端点签发的 `original_input` 来源证据。服务端按保存位置重新核验原件及真实尺寸，支持独立 TaskOriginal 和 primary 关联；旧无来源候选或 decision 不会自动认领当前文件。来源变化、权限撤销或提交前凭据过期会拒绝接受和重放，保持已有原子写入与 If-Match 规则。托管采纳保留 `annotations:write` 要求；实际读取原标注 Mask 提示时另需 `annotations:read`。
+
+原地引用图片同样支持本接口。交互端点签发的候选回执必须包含匹配原图的服务器证据；采纳另外要求 `tasks:read`，精修另需 `annotations:read`，并重新严格核验原图与当前任务权限。旧无证据回执不能获得引用写入资格。相同请求在有效 decision 期限内重放时，复用已存原图血缘，不要求短期候选回执仍有效；来源不可用或当前权限不符仍会拒绝。
 
 交互式推理返回的原生 Mask 是短生命周期候选，不应由客户端拆成“上传内容 + 创建标注”两次写操作。客户端应把候选和平台签发的 receipt 提交到任务级原子采纳接口：
 
@@ -601,6 +666,8 @@ POST /api/v1/tasks/:id/annotations/accept
 2. 反查类别配置把 alias 映射回原类别名
 3. 写审计 `annotation.prediction_accepted`
 
+托管视频整段预标的普通候选采纳还会按当前调用者核对已保存候选、当前原件、真实视频尺寸及实际掩码内容，支持独立 TaskOriginal 和 primary 关联。生成凭据到期或原 Job 清理不妨碍当前合法用户采纳；来源、候选或权限变化则拒绝整次写入。缺少服务端证明的历史整段候选需重新预标，既有逐帧框和外部导入沿各自合同处理。完整说明见[视频固定输入](./predictions.md#托管视频的固定输入)。
+
 ## 驳回预测
 
 ```http
@@ -629,6 +696,16 @@ Mask 格式导出预检 `POST /api/v1/projects/{project_id}/mask-formats/exports
 | `DELETE /tasks/:id/lock` | 主动释放 |
 
 锁过期后由后台清理任务自动归还。详见 [ADR 0005](../../dev/adr/archive/0005-task-lock-and-review-matrix)。
+
+## 图片金字塔
+
+`GET /tasks/{id}/image-pyramid`、`POST /tasks/{id}/image-pyramid/asset-urls` 和 `POST /tasks/{id}/image-pyramid/retry` 都沿用 `annotations:read` 与当前 Task 可见性；重试不要求数据集管理权限，读取已归档数据集不额外受限。GET 非图片仍返回 `not_available`；ready manifest 沿用 `aap-image-pyramid/v1`、ETag 和短期 URL，批签最多 128 项并按首次出现顺序去重。
+
+图片原件必须有已登记的 DatasetAsset 或独立 TaskOriginal；准备和执行固定同一原件及准确请求授权，后台完整核对 SHA／长度，持续复验凭据、Task 关系和维护门禁。目录与原地引用仍拒绝。缺少登记事实会明确拒绝，不按文件名或当前桶回源。
+
+每次尝试保存独立输出位置和逐文件内容清单，URL 只指向该 owner。读取与签名前完整核验 manifest、overview 或所请求 tile；源变化或损坏输出停止返回地址并使当前代失效。维护、凭据或存储不可用不会当作成功读取。旧未保存归属的 ready 代视为陈旧，可在原件已登记后显式重试新代；既有 pending/building 重试幂等，失败重试沿用冷却与频率限制。内部归属与清单不加入公开 manifest。
+
+Task／Dataset／Dashboard 的金字塔缩略图也只沿用 active 输出的保存位置。删除业务对象保留独立输出责任，由后台在无引用、无在用操作后清理；未知历史文件不按当前缓存桶猜删。详见[派生资产合同](../../dev/concepts/image-pyramid-assets)。
 
 ## 相关
 

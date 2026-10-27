@@ -1,4 +1,5 @@
 ---
+title: 独立工作树开发环境
 audience: [dev]
 type: how-to
 status: stable
@@ -123,7 +124,7 @@ pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
 
-`--with-worker` 使用当前 checkout 的 Python 依赖，同时启动普通和维护 worker。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，负责审计与预测月分区、旧审计分区归档，以及人员效率和审计统计物化视图刷新。两者均需通过任务注册与队列订阅检查，`doctor` 分别显示 `worker` 和 `maintenance_worker`；任一个退出都会停止同次启动的服务。
+`--with-worker` 使用当前 checkout 的 Python 依赖，同时启动普通和维护 worker。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，负责审计与预测月分区、旧审计分区归档，以及人员效率和审计统计物化视图刷新。两者均需通过任务注册与队列订阅检查；除了职责队列，也允许 Celery 自动创建的当前节点专属定向队列，缺失职责队列或其他意外订阅仍会阻止启动。`doctor` 分别显示 `worker` 和 `maintenance_worker`；任一个退出都会停止同次启动的服务。
 
 这两类 worker 不消费 GPU 队列，也不复用主目录的 Docker worker。媒体任务需要的系统依赖仍须在本机安装。修改 worker Python 代码后应停止并重启当前环境，Celery 不会热重载。
 
@@ -149,7 +150,9 @@ pnpm dev:worktree -- destroy --mode e2e --confirm '<id>:e2e'
 - `reset`：删除该模式的数据库、自有运行账号、Redis、bucket、派生文件，再创建空环境并迁移；新账号生成新密码。
 - `destroy`：只删除该模式资源，保留工作树身份；验证资源删除后清除该模式的目标记录，允许下次初始化选择新的本机基础设施。
 - `--confirm` 不是泛化的 `--yes`；必须匹配当前工作树和模式。
-- 有数据库或运行账号连接、环境会话仍在运行、资源标记不匹配、角色存在外部依赖时拒绝删除。不使用强制断开数据库连接、全局删桶或共享栈 `down`。
+- 有客户端或其他后台数据库连接、环境会话仍在运行、资源标记不匹配、角色存在外部依赖时拒绝删除。不使用强制断开数据库连接、全局删桶或共享栈 `down`。
+- PostgreSQL 自带的 `autovacuum worker` 不计入阻止删除的连接，由普通 `DROP DATABASE` 处理；工作树清理与迁移验收采用同一规则。
+- 基础设施地址变化时，先使用旧配置处理旧环境，不能让同一份清单静默改指另一个服务器。
 - 基础设施地址变化时，先使用旧配置处理旧环境，不能让同一份清单静默改指另一个服务器。
 
 销毁会先核对全部归属、连接和角色依赖，再删除本模式数据库及准确匹配的自有账号，不对其他数据库执行 `DROP OWNED`。凭据与目标清单保留到全部资源删除成功，失败后可用原配置重试。创建账号与归属 comment 在同一数据库事务里完成；若事务中断但凭据文件已保存，后续 `init` 复用该密码恢复，不自动轮换现有账号。

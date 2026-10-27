@@ -3,7 +3,8 @@
 权限：
   - global-scope 连接器、主机白名单：仅 super_admin。
   - owner-scope 连接器：project_admin 可建，创建者或 super_admin 可改/删。
-  - 查看/测试/导入：global、创建者本人或 super_admin 可用。
+  - 配置查看：仅 project_admin / super_admin，API Key 需 datasets:read。
+  - 测试/导入：沿各入口角色及连接使用范围校验。
 密钥永不回吐（Out 仅 secret_set:bool）。create/test/import 三处都过白名单 + SSRF。
 """
 
@@ -26,7 +27,7 @@ from aap_assets_source.connections_contract import (
 )
 from app.config import settings
 from app.db.enums import UserRole
-from app.deps import get_current_user, get_db, require_roles
+from app.deps import get_current_user, get_db, require_roles, assert_request_scopes
 from app.schemas.storage_connection import (
     ConnectorAllowlistOut,
     ConnectorAllowlistUpdate,
@@ -148,11 +149,17 @@ async def get_deployment_sftp_preset(
 # ---- 连接器 CRUD ----
 
 
-@router.get("", response_model=list[StorageConnectionOut])
+@router.get(
+    "",
+    response_model=list[StorageConnectionOut],
+    description="仅项目管理员或超级管理员可读配置；API Key 需 datasets:read。",
+)
 async def list_connections(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
+    assert_request_scopes(request, "datasets:read")
     connections = await AssetsConnectionsGateway(db).list_connections(user.id)
     return [_connection_out(connection) for connection in connections]
 
@@ -189,12 +196,18 @@ async def create_connection(
     return _connection_out(result.connection)
 
 
-@router.get("/{conn_id}", response_model=StorageConnectionOut)
+@router.get(
+    "/{conn_id}",
+    response_model=StorageConnectionOut,
+    description="仅项目管理员或超级管理员可读可见连接配置；API Key 需 datasets:read。",
+)
 async def get_connection(
     conn_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
+    assert_request_scopes(request, "datasets:read")
     result = await AssetsConnectionsGateway(db).read_connection(
         _connection_request(
             ReadConnectionRequest, actor_id=user.id, connection_id=conn_id
@@ -213,16 +226,46 @@ async def update_connection(
     user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    assert_request_scopes(request, "datasets:write")
     operation_id = idempotency_key or uuid.uuid4()
+    api_key_id = getattr(request.state, "api_key_id", None)
+    accepted_proof = None
+    if api_key_id:
+        import uuid as _uuid
+
+        from aap_assets_source.connections_contract import (
+            ConnectionAuthorityProof,
+        )
+        from app.services.identity_account_lock_data import (
+            IdentityAccountLockData,
+        )
+
+        facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
+            user.id, _uuid.UUID(str(api_key_id))
+        )
+        if facts is None or (
+            "*" not in facts.scopes and "datasets:write" not in facts.scopes
+        ):
+            raise HTTPException(
+                status_code=403, detail={"code": "api_key_authority_revoked"}
+            )
+        accepted_proof = ConnectionAuthorityProof(
+            scopes=list(facts.scopes),
+            expires_at=facts.expires_at,
+            revision=facts.revision,
+        )
     result = await AssetsConnectionsGateway(db).update_connection(
         _connection_request(
             UpdateConnectionRequest,
             operation_id=operation_id,
             actor_id=user.id,
             connection_id=conn_id,
+            expected_revision=payload.expected_revision,
             name=payload.name,
             config=payload.config,
             secret=payload.secret,
+            api_key_id=uuid.UUID(str(api_key_id)) if api_key_id else None,
+            accepted_api_key_proof=accepted_proof,
             audit_context=_connection_audit_context(request),
         )
     )
@@ -264,6 +307,7 @@ async def test_connection(
     user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    assert_request_scopes(request, "datasets:read")
     operation_id = idempotency_key or uuid.uuid4()
     result = await AssetsConnectionsGateway(db).test_connection(
         _connection_request(

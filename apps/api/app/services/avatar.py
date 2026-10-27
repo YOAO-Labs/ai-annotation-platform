@@ -15,15 +15,19 @@
 
 from __future__ import annotations
 
-import logging
 import re
 import uuid
 
+import hashlib
+from contextlib import nullcontext
+from copy import copy
+
 from botocore.exceptions import ClientError
 
+from app.services import avatar_storage, storage_access
 from app.services.storage import storage_service
-
-logger = logging.getLogger(__name__)
+from app.services.avatar_storage_target import object_params, version_id, _prove_absent
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 
 PRESET_PREFIX = "preset:"
 UPLOAD_PREFIX = "upload:"
@@ -31,6 +35,7 @@ UPLOAD_PREFIX = "upload:"
 # 严格白名单顺带挡掉路径穿越（/ . ? #）与任意字符串进入 <img src>。
 _PRESET_SLUG_RE = re.compile(r"[a-z0-9-]{1,40}")
 _UPLOAD_TOKEN_RE = re.compile(r"[0-9a-f]{32}")
+_SAVED_VERSION = object()
 
 # 头像按 24h 强缓存；token 每次上传都是新的,故不存在 stale 问题。
 AVATAR_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
@@ -74,7 +79,7 @@ def is_upload_token(token: str) -> bool:
 
 
 def upload_object_key(token: str) -> str:
-    return f"{token}.webp"
+    return avatar_storage.object_key_for(token)
 
 
 def validate_client_ref(ref: str | None) -> str | None:
@@ -94,48 +99,156 @@ def validate_client_ref(ref: str | None) -> str | None:
     return build_preset_ref(slug)
 
 
-def write_avatar_object(token: str, data: bytes) -> None:
-    storage_service.put_bytes(
-        upload_object_key(token),
-        data,
-        content_type="image/webp",
-        cache_control=AVATAR_CACHE_CONTROL,
-        bucket=storage_service.avatars_bucket,
+def _client_context(owner, target, *, owned=False):
+    ref = owner.ref
+    if target is None:
+        if ref["location_id"] != str(LEGACY_LOCATION_ID):
+            raise avatar_storage.AvatarStorageError("avatar_storage_binding_unproven")
+        if owned:
+            from app.services.managed_s3_target import Target
+
+            return Target(
+                LEGACY_LOCATION_ID,
+                ref["config_revision"],
+                None,
+                owner.endpoint_url,
+                owner.bucket,
+                "",
+                purpose="avatars",
+                _legacy_client=storage_service.client,
+            ).client(owned=True)
+        return nullcontext(storage_service.client)
+    if (
+        str(target.location_id) != ref["location_id"]
+        or target.endpoint_url != owner.endpoint_url
+        or target.bucket != owner.bucket
+        or target.key_prefix + owner.object_key.rsplit("/", 1)[-1] != owner.object_key
+    ):
+        raise avatar_storage.AvatarStorageError("avatar_storage_identity_changed")
+    return target.client(**({"owned": True} if owned else {}))
+
+
+def write_avatar_object(
+    record, data: bytes, *, target=None, accounting=None
+) -> str | None:
+    """Write only the exact saved object, then independently verify its bytes."""
+    owner = avatar_storage.resolve(record)
+    if (
+        len(data) != record.size_bytes
+        or hashlib.sha256(data).hexdigest() != record.sha256
+    ):
+        raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+    with _client_context(owner, target, owned=accounting is not None) as client:
+        from app.services.conditional_write_accounting import Observation
+
+        observation = (
+            Observation(
+                accounting,
+                client,
+                owner.object_key,
+                {"sha256": record.sha256, "size_bytes": record.size_bytes},
+            )
+            if accounting is not None
+            else None
+        )
+
+        def submit():
+            return client.put_object(
+                Bucket=owner.bucket,
+                Key=owner.object_key,
+                Body=data,
+                IfNoneMatch="*",
+                ContentType="image/webp",
+                CacheControl=AVATAR_CACHE_CONTROL,
+            )
+
+        response = submit() if observation is None else observation.submit(submit)
+        receipt = copy(record)
+        receipt.object_version_id = version_id(response)
+        if _read(client, owner, receipt) is None:
+            raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+        if observation is not None:
+            observation.verified(receipt.object_version_id)
+    return receipt.object_version_id
+
+
+def read_avatar_object(record, *, target=None) -> tuple[bytes, str] | None:
+    """Bound a full read by the independent receipt; always close its body."""
+    owner = avatar_storage.resolve(record)
+    with _client_context(owner, target) as client:
+        return _read(client, owner, record)
+
+
+def read_from_client(client, record, *, response_version_id):
+    """Read a saved logical owner with an explicit physical response version."""
+    return _read(
+        client,
+        avatar_storage.resolve(record),
+        record,
+        response_version_id=response_version_id,
     )
 
 
-def read_avatar_object(token: str) -> tuple[bytes, str] | None:
-    """读取头像字节与 ETag；对象不存在返回 None。"""
-    key = upload_object_key(token)
+def _read(client, owner, record, *, response_version_id=_SAVED_VERSION):
+    version = getattr(record, "object_version_id", None)
+    expected = version if response_version_id is _SAVED_VERSION else response_version_id
     try:
-        head = storage_service.client.head_object(
-            Bucket=storage_service.avatars_bucket, Key=key
+        response = client.get_object(
+            **object_params(owner.bucket, owner.object_key, version)
         )
-    except ClientError:
-        return None
-    response = storage_service.client.get_object(
-        Bucket=storage_service.avatars_bucket, Key=key
-    )
-    body = response["Body"]
-    try:
-        data = body.read()
-    finally:
-        body.close()
-    return data, str(head.get("ETag") or "")
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {
+            "404",
+            "NoSuchKey",
+            "NoSuchVersion",
+            "NotFound",
+        }:
+            return None
+        raise
+    with storage_access.closing_registered(response["Body"]) as body:
+        if (
+            (expected is not None and response.get("VersionId") != expected)
+            or response.get("ContentRange") is not None
+            or response.get("DeleteMarker")
+        ):
+            raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+        checksum = hashlib.sha256()
+        chunks, size = [], 0
+        while True:
+            chunk = body.read(min(64 * 1024, record.size_bytes - size + 1))
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > record.size_bytes:
+                raise avatar_storage.AvatarStorageError(
+                    "avatar_storage_invalid_receipt"
+                )
+            checksum.update(chunk)
+            chunks.append(chunk)
+        if size != record.size_bytes or checksum.hexdigest() != record.sha256:
+            raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+    return b"".join(chunks), f'"{record.sha256}"'
 
 
-def delete_ref_object(ref: str | None) -> None:
-    """删除某个引用指向的上传对象(若存在)。
+def delete_avatar_object(record, *, target=None, accounting=None) -> None:
+    """The caller owns the committed retirement; never infer its current bucket."""
+    owner = avatar_storage.resolve(record)
+    version = getattr(record, "object_version_id", None)
+    with _client_context(owner, target, owned=accounting is not None) as client:
+        params = object_params(owner.bucket, owner.object_key, version)
+        if (
+            target is not None
+            and version is None
+            and _read(client, owner, record) is None
+        ):
+            return
+        if accounting is None:
+            response = client.delete_object(**params)
+        else:
+            from app.services.object_removal_accounting import Observation
 
-    尽力而为：清理失败只记日志，不影响调用方已完成的头像变更；遗留的是一个几十 KB
-    的无引用孤儿对象，运维可按「桶内 key 不在 users.avatar_ref 中」比对清理。
-    """
-    parsed = parse_ref(ref)
-    if parsed is None or parsed[0] != "upload":
-        return
-    try:
-        storage_service.delete_object(
-            upload_object_key(parsed[1]), bucket=storage_service.avatars_bucket
-        )
-    except Exception as exc:  # noqa: BLE001 - 清理失败不得影响主流程
-        logger.warning("Failed to delete avatar object for %s: %s", ref, exc)
+            observation = Observation(accounting, client, owner.object_key, version)
+            response = observation.submit(lambda: client.delete_object(**params))
+        _prove_absent(client, params)
+        if accounting is not None:
+            observation.complete(response)

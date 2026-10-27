@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -265,7 +266,11 @@ export function MemberRoleChangeModal({ open, projectId, member, members, onClos
               {previewPending ? "读取中…" : "重新预览"}
             </Button>
           </div>
-          {previewError && <div className="mt-1 text-status-danger">{previewError}</div>}
+          {previewError && (
+            <div className="mt-1 text-status-danger">
+              <CopyableError message={previewError} />
+            </div>
+          )}
           {stale && (
             <div className="mt-1 text-status-caution" role="alert">
               预览已过期：请重新预览，确认最新任务与锁状态后再保存。
@@ -297,7 +302,7 @@ export function MemberRoleChangeModal({ open, projectId, member, members, onClos
         {change.isError && (
           <div className="flex items-center gap-2 rounded-md border border-status-danger bg-status-danger-soft px-3 py-2 text-status-danger">
             <Icon name="warning" size={12} />
-            {(change.error as Error)?.message ?? "保存失败"}
+            <CopyableError message={(change.error as Error)?.message ?? "保存失败"} />
           </div>
         )}
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { clsx } from "clsx";
+import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
@@ -43,6 +44,7 @@ import type { UserRole } from "@/types";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { getPasswordValidationErrors, isPasswordStrong } from "@/utils/password";
 import { SystemSettingsSection } from "./SystemSettingsSection";
+import { MLBackendOperationsSection } from "./MLBackendOperationsSection";
 import { useUnsavedSettingsGuard } from "./useUnsavedSettingsGuard";
 
 type SectionKey = "profile" | "workbench" | "apikeys" | "feedback" | "notifications" | "system";
@@ -62,10 +64,9 @@ export function SettingsPage() {
   const { role } = usePermissions();
   const currentUserId = useAuthStore((state) => state.user?.id);
   const isAdmin = role === "super_admin";
-  const [section, setSection] = useState<SectionKey>("profile");
+  const [searchParams, setSearchParams] = useSearchParams();
   const [systemDirty, setSystemDirty] = useState(false);
-  // 与路由级离开守卫共用同一确认 (文案 + 防重入),分区切换也不再弹原生 confirm。
-  const confirmLeaveSystemSettings = useUnsavedSettingsGuard(systemDirty);
+  useUnsavedSettingsGuard(systemDirty);
 
   const sections: {
     key: SectionKey;
@@ -81,6 +82,8 @@ export function SettingsPage() {
       ? [{ key: "system" as SectionKey, label: "系统设置", icon: "settings" as const }]
       : []),
   ];
+  const section =
+    sections.find((item) => item.key === searchParams.get("section"))?.key ?? "profile";
 
   return (
     <PageContainer>
@@ -99,11 +102,10 @@ export function SettingsPage() {
                   <li key={s.key}>
                     <button
                       onClick={() => {
-                        if (section === "system" && systemDirty) {
-                          confirmLeaveSystemSettings(() => setSection(s.key));
-                          return;
-                        }
-                        setSection(s.key);
+                        if (active) return;
+                        const params = new URLSearchParams(searchParams);
+                        params.set("section", s.key);
+                        setSearchParams(params, { replace: true });
                       }}
                       className={clsx(
                         "flex w-full cursor-pointer appearance-none items-center gap-2 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm font-medium max-[760px]:whitespace-nowrap",
@@ -130,6 +132,7 @@ export function SettingsPage() {
           {section === "system" && isAdmin && (
             <div className="flex flex-col gap-4">
               <SystemSettingsSection key={currentUserId} onDirtyChange={setSystemDirty} />
+              <MLBackendOperationsSection />
               <ConnectorAllowlistSettings />
             </div>
           )}

@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, Protocol, TypeAlias
@@ -462,6 +462,23 @@ class ModelTaskResult:
         if self.session_token is not None and type(self.session_token) is not str:
             raise ValueError("Invalid tracker session token")
 
+    def to_wire(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "result": thaw_json(self.result),
+            "score": self.score,
+            "model_version": self.model_version,
+            "inference_time_ms": self.inference_time_ms,
+            "cache_hit": self.cache_hit,
+            "model_load_ms": self.model_load_ms,
+            "meta": None if self.meta is None else thaw_json(self.meta),
+            "mask_input_next": self.mask_input_next,
+            "diagnostic": None
+            if self.diagnostic is None
+            else thaw_json(self.diagnostic),
+            "session_token": self.session_token,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionProvenance:
@@ -514,6 +531,115 @@ class ExecutionProvenance:
             )
         ):
             raise ValueError("Invalid endpoint snapshot fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class ModelExecutionDispatch:
+    """Actual selected route/endpoint facts captured before physical dispatch.
+
+    The owner derives this from its routing admission and sealed endpoint subject.
+    It is deliberately credential-free: the sealed subject is represented only by
+    a digest, and declared capabilities are the routing-owner's public snapshot.
+    """
+
+    request_id: uuid.UUID
+    operation: ExecutionOperation
+    route_scope_id: uuid.UUID
+    attempt_id: uuid.UUID
+    requested_registry_id: uuid.UUID | None
+    requested_pool_id: uuid.UUID | None
+    registry_id: uuid.UUID
+    instance_id: uuid.UUID
+    pool_id: uuid.UUID | None
+    member_id: uuid.UUID | None
+    topology_generation: int | None = None
+    endpoint_digest: str | None = None
+    capabilities: Mapping[str, Any] | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "request_id", _uuid(self.request_id))
+        object.__setattr__(self, "route_scope_id", _uuid(self.route_scope_id))
+        object.__setattr__(self, "attempt_id", _uuid(self.attempt_id))
+        for name in (
+            "requested_registry_id",
+            "requested_pool_id",
+            "registry_id",
+            "instance_id",
+            "pool_id",
+            "member_id",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                _uuid(
+                    getattr(self, name),
+                    optional=name
+                    in {
+                        "requested_registry_id",
+                        "requested_pool_id",
+                        "pool_id",
+                        "member_id",
+                    },
+                ),
+            )
+        if self.operation not in {
+            "batch_predict",
+            "interactive_predict",
+            "pinned_tracker",
+        }:
+            raise ValueError("Invalid dispatch operation")
+        if self.attempt_id != self.request_id:
+            raise ValueError("Dispatch attempt and request differ")
+        if self.registry_id != self.instance_id:
+            raise ValueError("Selected registry and instance differ")
+        if self.topology_generation is not None and (
+            type(self.topology_generation) is not int or self.topology_generation < 0
+        ):
+            raise ValueError("Invalid dispatch topology generation")
+        if self.endpoint_digest is not None and (
+            type(self.endpoint_digest) is not str
+            or len(self.endpoint_digest) != 64
+            or any(c not in "0123456789abcdef" for c in self.endpoint_digest)
+        ):
+            raise ValueError("Invalid dispatch endpoint digest")
+        if self.capabilities is not None:
+            frozen = freeze_json(self.capabilities)
+            if not isinstance(frozen, Mapping):
+                raise ValueError("Dispatch capabilities must be an object")
+            object.__setattr__(self, "capabilities", frozen)
+
+    @classmethod
+    def from_request(cls, request: FrozenModelOperation) -> ModelExecutionDispatch:
+        """Derive the dispatch fact from one already-authorized frozen attempt."""
+        route = request.route_binding
+        subject = request.endpoint_subject
+        if (
+            not isinstance(request, FrozenModelOperation)
+            or route is None
+            or subject is None
+            or request.endpoint_registry_id is None
+        ):
+            raise ValueError("Dispatch requires sealed route and endpoint authority")
+        encoded = _json_bytes(subject.model_dump(mode="json", by_alias=True))
+        health = request.health_meta or {}
+        capabilities = (
+            health.get("capabilities") if isinstance(health, Mapping) else None
+        )
+        return cls(
+            request_id=request.request_id,
+            operation=request.operation,
+            route_scope_id=route.scope_id,
+            attempt_id=route.attempt_id,
+            requested_registry_id=request.requested_registry_id,
+            requested_pool_id=request.requested_pool_id,
+            registry_id=request.endpoint_registry_id,
+            instance_id=request.endpoint_registry_id,
+            pool_id=request.selected_pool_id,
+            member_id=request.selected_member_id,
+            topology_generation=request.topology_generation,
+            endpoint_digest=hashlib.sha256(encoded).hexdigest(),
+            capabilities=capabilities,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -688,24 +814,7 @@ class ModelOperationResult:
             "protocol": MODEL_EXECUTION_RESULT_PROTOCOL,
             "request_id": str(self.request_id),
             "operation": self.operation,
-            "results": [
-                {
-                    "task_id": result.task_id,
-                    "result": thaw_json(result.result),
-                    "score": result.score,
-                    "model_version": result.model_version,
-                    "inference_time_ms": result.inference_time_ms,
-                    "cache_hit": result.cache_hit,
-                    "model_load_ms": result.model_load_ms,
-                    "meta": None if result.meta is None else thaw_json(result.meta),
-                    "mask_input_next": result.mask_input_next,
-                    "diagnostic": None
-                    if result.diagnostic is None
-                    else thaw_json(result.diagnostic),
-                    "session_token": result.session_token,
-                }
-                for result in self.results
-            ],
+            "results": [result.to_wire() for result in self.results],
             "provenance": _provenance_to_wire(self.provenance),
             "observation": self.observation.to_wire(),
             "wall_time_ms": self.wall_time_ms,
@@ -875,8 +984,16 @@ class ModelExecutionError(Exception):
         super().__init__(failure.code)
 
 
+DispatchBoundary: TypeAlias = Callable[[ModelExecutionDispatch], Awaitable[None]]
+
+
 class ModelExecutionPort(Protocol):
-    async def execute(self, request: FrozenModelOperation) -> ModelOperationResult: ...
+    async def execute(
+        self,
+        request: FrozenModelOperation,
+        *,
+        before_dispatch: DispatchBoundary | None = None,
+    ) -> ModelOperationResult: ...
 
 
 _TRACKER_RESPONSE_MAX_BYTES = 64 * 1024 * 1024

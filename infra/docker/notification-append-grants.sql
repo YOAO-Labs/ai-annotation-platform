@@ -154,6 +154,9 @@ GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_notification(jsonb)
     TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_job_terminal_notification(jsonb)
     TO :"api_role", :"append_role";
+GRANT EXECUTE ON FUNCTION aap_notifications_v1.read_state_command_scoped(jsonb),
+    aap_notifications_v1.delete_command_scoped(jsonb)
+    TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.read_state_command(jsonb)
     TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.delete_command(pg_catalog.jsonb)
@@ -182,9 +185,19 @@ DECLARE
     v_delete oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.delete_command(pg_catalog.jsonb)'
     )::oid;
+    v_scoped_read_state oid := pg_catalog.to_regprocedure(
+        'aap_notifications_v1.read_state_command_scoped(jsonb)'
+    )::oid;
+    v_scoped_delete oid := pg_catalog.to_regprocedure(
+        'aap_notifications_v1.delete_command_scoped(jsonb)'
+    )::oid;
 BEGIN
     IF v_allowed IS NULL OR v_terminal IS NULL OR v_preference IS NULL OR v_read_state IS NULL
-       OR v_delete IS NULL
+       OR v_delete IS NULL OR v_scoped_read_state IS NULL OR v_scoped_delete IS NULL
+       OR NOT pg_catalog.has_function_privilege(v_client, v_scoped_read_state, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_api, v_scoped_read_state, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_client, v_scoped_delete, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_api, v_scoped_delete, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_client, v_allowed, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_client, v_terminal, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_client, v_preference, 'EXECUTE')
@@ -201,7 +214,8 @@ BEGIN
             WHERE namespace.nspname = 'aap_notifications_v1'
               AND pg_catalog.has_function_privilege(v_client, function.oid, 'EXECUTE')
               AND function.oid NOT IN (
-                  v_allowed, v_terminal, v_preference, v_read_state, v_delete
+                  v_allowed, v_terminal, v_preference, v_read_state, v_delete,
+                  v_scoped_read_state, v_scoped_delete
               )
        ) OR pg_catalog.has_table_privilege(
             v_client, 'public.notifications',

@@ -40,6 +40,7 @@ from app.services.assets_connections import (
 def _record(connection_id: uuid.UUID, actor_id: uuid.UUID, name: str, created_at):
     return ConnectionRecord(
         id=connection_id,
+        revision=1,
         name=name,
         kind="s3",
         config={"endpoint": "https://s3.example.test", "bucket": "archive"},
@@ -57,6 +58,7 @@ def _native_record(
 ):
     return NativeConnectionFacts(
         id=connection_id,
+        revision=1,
         name=name,
         kind="s3",
         config={"endpoint": "https://s3.example.test", "bucket": "archive"},

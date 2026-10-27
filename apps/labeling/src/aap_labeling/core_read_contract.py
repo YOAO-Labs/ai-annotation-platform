@@ -69,6 +69,8 @@ CORE_READ_COLUMNS = {
         "last_reopened_at",
         "created_at",
         "updated_at",
+        "thumbnail_output_id",
+        "original_id",
     ),
     "batch_rows": (
         "id",
@@ -179,6 +181,7 @@ CORE_READ_COLUMNS = {
         "dismissed_at",
         "extra",
         "created_at",
+        "execution_snapshot_id",
     ),
     "task_lock_rows": (
         "id",
@@ -271,6 +274,10 @@ CORE_READ_COLUMNS = {
 CORE_READ_LOCK_FUNCTIONS = (
     "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)",
     "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)",
+    "aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)",
+    "aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)",
+    "aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)",
+    "aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)",
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)",
     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)",
     "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)",

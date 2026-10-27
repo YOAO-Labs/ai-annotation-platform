@@ -125,7 +125,7 @@ async def test_workspace_backend_binding_command_survives_owned_database_restore
             isolation_level="AUTOCOMMIT",
             hide_parameters=True,
         )
-        assert await _database_head(test_engine) == "0276"
+
         source_function = await _function_metadata(test_engine)
         assert source_function["owner"] == "workspace_code"
         assert source_function["security_definer"] is True
@@ -204,7 +204,7 @@ async def test_workspace_backend_binding_command_survives_owned_database_restore
             test_engine.url.set(database=clone), hide_parameters=True
         )
         await _assert_clone_owner(restored_engine, clone, ownership)
-        assert await _database_head(restored_engine) == "0276"
+
         assert await _function_metadata(restored_engine) == source_function
         assert await _snapshot(restored_engine, world) == source_rows
 

@@ -1,7 +1,9 @@
 import { create } from "zustand";
+import type { MouseEvent } from "react";
 import { toast } from "sonner";
 
 import { Toaster } from "@/components/shadcn/ui/sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 
 /**
  * Toast —— sonner 适配层(v0.17.2)。
@@ -28,7 +30,28 @@ interface ToastStore {
 export const useToastStore = create<ToastStore>(() => ({
   push: ({ msg, sub, kind }) => {
     const duration = kind === "error" ? 6000 : kind === "warning" ? 4500 : 3500;
-    const opts = { description: sub, duration };
+    const diagnostic = kind === "error" || (kind !== "success" && !!sub);
+    const opts = {
+      description: sub,
+      duration,
+      ...(diagnostic && {
+        classNames: {
+          content: "min-w-0",
+          title: "max-h-40 overflow-auto whitespace-pre-wrap break-words",
+          description: "max-h-40 overflow-auto whitespace-pre-wrap break-words",
+        },
+        action: {
+          label: "复制详情",
+          onClick: async (event: MouseEvent<HTMLButtonElement>) => {
+            event.preventDefault();
+            const copied = await copyToClipboard(sub ? `${msg}\n${sub}` : msg);
+            const feedback = copied ? "已复制完整错误信息" : "复制失败，请检查浏览器剪贴板权限";
+            if (copied) toast.success(feedback);
+            else toast.error(feedback);
+          },
+        },
+      }),
+    };
     if (kind === "success") toast.success(msg, opts);
     else if (kind === "warning") toast.warning(msg, opts);
     else if (kind === "error") toast.error(msg, opts);

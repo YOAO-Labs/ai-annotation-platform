@@ -13,6 +13,37 @@ from .contract import ClosedModel, IdentityUnavailable
 ACCOUNT_LOCK_PROTOCOL = "aap-identity-account-locks/v1"
 AccountLockMode: TypeAlias = Literal["share", "update", "key_share"]
 ACCEPTED_API_KEY_PROTOCOL = "aap-identity-accepted-api-key/v1"
+ACCEPTED_API_KEY_FACTS_PROTOCOL = "aap-identity-accepted-api-key-facts/v1"
+
+
+def accepted_api_key_facts_schema() -> dict:
+    """Non-secret current facts of an already accepted key."""
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": ACCEPTED_API_KEY_FACTS_PROTOCOL,
+        "$comment": (
+            "Confirms an already accepted key ID under its SHARE fence and returns "
+            "current scopes, expiry and a digest revision of the stored verifier. "
+            "The verifier itself is never returned. The caller keeps its actor "
+            "lock; no transaction is committed or rolled back."
+        ),
+        "x-postgresql-functions": [
+            "aap_identity_v1.read_accepted_api_key_facts(uuid, uuid)"
+        ],
+        "x-postgresql-result": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["scopes", "expires_at", "revision"],
+                "additionalProperties": False,
+                "properties": {
+                    "scopes": {"type": "array", "items": {"type": "string"}},
+                    "expires_at": {"type": ["string", "null"]},
+                    "revision": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                },
+            },
+        },
+    }
 
 
 class AcceptedApiKeyRequest(ClosedModel):

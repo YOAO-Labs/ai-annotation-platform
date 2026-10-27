@@ -1,7 +1,7 @@
 """Install the independent Assets video media state and execution boundary.
 
-Revision ID: 0219
-Revises: 0218
+Revision ID: bo0219
+Revises: bo0218
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0219"
-down_revision = "0218"
+revision = "bo0219"
+down_revision = "bo0218"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

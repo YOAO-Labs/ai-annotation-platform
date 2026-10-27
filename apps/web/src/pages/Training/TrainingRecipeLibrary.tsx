@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +12,7 @@ import {
   type TrainingReuseCandidate,
 } from "@/api/trainingRecipes";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { trainingInputClass } from "./TrainingParameterField";
@@ -81,14 +85,21 @@ export function TrainingRecipeStatus({
   });
   if (origin.kind === "clone")
     return (
-      <div className="mt-2 space-y-1 break-all text-xs text-muted-foreground">
-        <p>
-          来源实验：{origin.run_id}
-          {origin.attempt_id ? ` · 执行尝试：${origin.attempt_id}` : ""}
+      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-1">
+          来源实验 <CopyValueButton value={origin.run_id} kind="id" label="复制来源训练实验 ID" />
+          {origin.attempt_id && (
+            <>
+              · 执行尝试{" "}
+              <CopyValueButton value={origin.attempt_id} kind="id" label="复制来源执行尝试 ID" />
+            </>
+          )}
         </p>
         {clone.error && (
           <p role="alert" className="text-status-caution">
-            来源暂不可用：{clone.error.message}。草稿已保留，可明确解除来源后继续。
+            来源暂不可用：
+            <CopyableError message={clone.error.message} />
+            。草稿已保留，可明确解除来源后继续。
           </p>
         )}
         {clone.data && !clone.data.compatible && (
@@ -112,7 +123,9 @@ export function TrainingRecipeStatus({
       {pinned.data && !pinned.data.source_available && <p>原实验已删除；配方完整快照仍可用。</p>}
       {pinned.error && (
         <p role="alert" className="text-status-caution">
-          无法核验来源：{pinned.error.message}。当前草稿保留，提交前需重新核验或明确解除来源。
+          无法核验来源：
+          <CopyableError message={pinned.error.message} />
+          。当前草稿保留，提交前需重新核验或明确解除来源。
         </p>
       )}
     </div>
@@ -139,12 +152,13 @@ export function TrainingRecipeSave({
   const [targetHead, setTargetHead] = useState(0);
   const [conflict, setConflict] = useState<TrainingRecipeOut | null>(null);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const request = useRef<{ body: TrainingRecipeWrite; recipe?: string } | null>(null);
   const recipes = useQuery({
-    queryKey: ["training-recipes", projectId, page, false, owner.scope],
-    queryFn: () => trainingRecipesApi.list(projectId, page * 20),
+    queryKey: ["training-recipes", projectId, page, pageSize, false, owner.scope],
+    queryFn: () => trainingRecipesApi.list(projectId, page * pageSize, false, pageSize),
     enabled: !!capture,
   });
   const save = async () => {
@@ -161,7 +175,7 @@ export function TrainingRecipeSave({
           ...capture,
           name: name.trim(),
           description,
-          request_id: crypto.randomUUID(),
+          request_id: randomId(),
           expected_head_revision: target ? targetHead : 0,
         },
         recipe: target || undefined,
@@ -225,7 +239,8 @@ export function TrainingRecipeSave({
             </p>
             {error && (
               <p role="alert" className="text-status-danger">
-                {error}。编辑内容已保留；网络失败可重试原请求。
+                <CopyableError message={error} />
+                。编辑内容已保留；网络失败可重试原请求。
               </p>
             )}
             {conflict && (
@@ -272,30 +287,24 @@ export function TrainingRecipeSave({
                   ))}
                 </select>
               </label>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!page}
-                  onClick={() => {
-                    setPage((p) => p - 1);
-                    setTarget("");
-                  }}
-                >
-                  上一页配方
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={(page + 1) * 20 >= (recipes.data?.total ?? 0)}
-                  onClick={() => {
-                    setPage((p) => p + 1);
-                    setTarget("");
-                  }}
-                >
-                  下一页配方
-                </Button>
-              </div>
+              <ListPagination
+                label="配方"
+                page={page}
+                pageSize={pageSize}
+                total={recipes.data?.total ?? 0}
+                loading={recipes.isFetching}
+                previousLabel="上一页配方"
+                nextLabel="下一页配方"
+                onPageChange={(next) => {
+                  setPage(next);
+                  setTarget("");
+                }}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPage(0);
+                  setTarget("");
+                }}
+              />
               <label className="block">
                 配方名称
                 <input
@@ -354,19 +363,34 @@ export function TrainingRecipeLibrary({
   const client = useQueryClient();
   const owner = useRequestOwner(projectId);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [archived, setArchived] = useState(false);
   const [selected, setSelected] = useState("");
   const [historyPage, setHistoryPage] = useState(0);
+  const [historyPageSize, setHistoryPageSize] = useState(20);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const recipes = useQuery({
-    queryKey: ["training-recipes", projectId, page, archived, owner.scope],
-    queryFn: () => trainingRecipesApi.list(projectId, page * 20, archived),
+    queryKey: ["training-recipes", projectId, page, pageSize, archived, owner.scope],
+    queryFn: () => trainingRecipesApi.list(projectId, page * pageSize, archived, pageSize),
     refetchInterval: 5000,
   });
   const history = useQuery({
-    queryKey: ["training-recipe-history", projectId, selected, historyPage, owner.scope],
-    queryFn: () => trainingRecipesApi.revisions(projectId, selected, historyPage * 20),
+    queryKey: [
+      "training-recipe-history",
+      projectId,
+      selected,
+      historyPage,
+      historyPageSize,
+      owner.scope,
+    ],
+    queryFn: () =>
+      trainingRecipesApi.revisions(
+        projectId,
+        selected,
+        historyPage * historyPageSize,
+        historyPageSize,
+      ),
     enabled: !!selected,
     refetchInterval: 5000,
   });
@@ -421,7 +445,7 @@ export function TrainingRecipeLibrary({
         </label>
         {(error || recipes.error || history.error) && (
           <p role="alert" className="text-status-danger">
-            {error || recipes.error?.message || history.error?.message}
+            <CopyableError message={error || recipes.error?.message || history.error?.message} />
           </p>
         )}
         {selected && (
@@ -485,28 +509,23 @@ export function TrainingRecipeLibrary({
         {items?.length === 0 && (
           <p className="text-muted-foreground">暂无配方。在参数工作区或成功实验中保存一份配置。</p>
         )}
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={selected ? !historyPage : !page}
-            onClick={() => (selected ? setHistoryPage((p) => p - 1) : setPage((p) => p - 1))}
-          >
-            上一页
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={
-              selected
-                ? (historyPage + 1) * 20 >= (history.data?.total ?? 0)
-                : (page + 1) * 20 >= (recipes.data?.total ?? 0)
+        <ListPagination
+          label={selected ? "配方修订" : "配方"}
+          page={selected ? historyPage : page}
+          pageSize={selected ? historyPageSize : pageSize}
+          total={(selected ? history.data?.total : recipes.data?.total) ?? 0}
+          loading={selected ? history.isFetching : recipes.isFetching}
+          onPageChange={selected ? setHistoryPage : setPage}
+          onPageSizeChange={(size) => {
+            if (selected) {
+              setHistoryPageSize(size);
+              setHistoryPage(0);
+            } else {
+              setPageSize(size);
+              setPage(0);
             }
-            onClick={() => (selected ? setHistoryPage((p) => p + 1) : setPage((p) => p + 1))}
-          >
-            下一页
-          </Button>
-        </div>
+          }}
+        />
       </div>
     </details>
   );

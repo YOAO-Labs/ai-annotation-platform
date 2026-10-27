@@ -15,6 +15,7 @@ from app.schemas.training_initialization import TrainingInitialization
 class LearningPolicySave(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0)
+    task: Literal["detect", "segment"] = "detect"
     enabled: bool = False
     parent_id: uuid.UUID
     batch_id: uuid.UUID | None = None
@@ -49,6 +50,7 @@ class LearningPolicyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: uuid.UUID
+    task: Literal["detect", "segment"] = "detect"
     creator_id: uuid.UUID | None
     revision: int
     enabled: bool

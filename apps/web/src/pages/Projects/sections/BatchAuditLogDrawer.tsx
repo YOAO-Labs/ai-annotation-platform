@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPageState } from "@/hooks/useListPageState";
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
@@ -41,7 +44,17 @@ export function BatchAuditLogDrawer({
   batch: BatchResponse;
   onClose: () => void;
 }) {
-  const { data: logs = [], isLoading } = useBatchAuditLogs(projectId, batch.id, true);
+  const pagination = useListPageState(`${projectId}:${batch.id}`);
+  const {
+    data: logs = [],
+    isLoading,
+    isFetching,
+    isError,
+  } = useBatchAuditLogs(projectId, batch.id, true, {
+    limit: pagination.pageSize + 1,
+    offset: pagination.page * pagination.pageSize,
+  });
+  const items = logs.slice(0, pagination.pageSize);
 
   return (
     <Modal
@@ -50,17 +63,34 @@ export function BatchAuditLogDrawer({
       title={`操作历史 · ${batch.display_id} ${batch.name}`}
       width={680}
     >
-      {isLoading && <div className="p-6 text-center text-sm text-muted-foreground">加载中…</div>}
-      {!isLoading && logs.length === 0 && (
-        <div className="p-6 text-center text-sm text-muted-foreground">暂无操作记录</div>
-      )}
-      {!isLoading && logs.length > 0 && (
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          {logs.map((log) => (
-            <Entry key={log.id} log={log} />
-          ))}
-        </div>
-      )}
+      <div className={listStyles.surface}>
+        {isError && (
+          <div role="alert" className={listStyles.empty}>
+            操作记录加载失败，请重新打开后重试。
+          </div>
+        )}
+        {isLoading && <div className="p-6 text-center text-sm text-muted-foreground">加载中…</div>}
+        {!isLoading && logs.length === 0 && (
+          <div className="p-6 text-center text-sm text-muted-foreground">暂无操作记录</div>
+        )}
+        {!isLoading && logs.length > 0 && (
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            {items.map((log) => (
+              <Entry key={log.id} log={log} />
+            ))}
+          </div>
+        )}
+        <ListPagination
+          label="操作记录"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          count={items.length}
+          hasNext={logs.length > pagination.pageSize}
+          loading={isFetching}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      </div>
     </Modal>
   );
 }
@@ -79,7 +109,7 @@ function Entry({ log }: { log: BatchAuditLogEntry }) {
   const reason = (detail as { reason?: string }).reason;
 
   return (
-    <div className="border-b border-border px-3 py-2.5 text-sm">
+    <div className={`${listStyles.row} text-sm`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="mono text-xs text-muted-foreground">{time}</span>
         {role && (

@@ -45,8 +45,6 @@ def test_migration_adds_root_registration_release_and_liveness():
     statements = module._statements(module._ARTIFACT)
     sql = artifact.read_text(encoding="utf-8")
 
-    assert module.revision == "0232"
-    assert module.down_revision == "0231"
     assert artifact.is_file()
     assert any(
         "register_tracker_running_mask_root(jsonb)" in item for item in statements

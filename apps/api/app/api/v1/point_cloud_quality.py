@@ -51,6 +51,7 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
 from app.services import async_job as async_job_svc
+from app.services.content_snapshot import ContentError
 from app.services.audit import AuditAction, AuditService
 from app.services.point_cloud_quality.service import (
     PointCloudQualityError,
@@ -204,6 +205,7 @@ async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
 )
 async def create_run(
     body: PointCloudQualityRunRequest,
+    request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
@@ -224,12 +226,18 @@ async def create_run(
     lease = None
     try:
         run, job, created = await create_quality_run(
-            db, project=project, actor_id=current_user.id, request=body
+            db,
+            project=project,
+            actor_id=current_user.id,
+            request=body,
+            http_request=request,
         )
         if created and job is not None:
             lease = await prepare_quality_run_dispatch(db, run=run, job=job)
     except PointCloudQualityError as exc:
         _raise_quality_error(exc)
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     await db.commit()
     if created and job is not None and lease is not None:
         run_id, job_id = run.id, job.id

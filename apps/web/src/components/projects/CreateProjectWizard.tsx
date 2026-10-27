@@ -29,7 +29,7 @@ import {
 } from "@/api/projects";
 import { projectTemplatesApi, type ProjectTemplateOut } from "@/api/projectTemplates";
 import type { ClassConfigEntry } from "@/api/projects";
-import type { ClassRow } from "@/pages/Projects/sections/ClassEditor";
+import { defaultColorFor, type ClassRow } from "@/pages/Projects/sections/ClassEditor";
 import { validateAttributeFields } from "@/pages/Projects/sections/AttributeSchemaEditor";
 import { Step1DataTypeAndTools } from "./steps/Step1DataTypeAndTools";
 import { Step2ClassesPerUnit } from "./steps/Step2ClassesPerUnit";
@@ -161,7 +161,7 @@ function buildUnitBindingsFromSource(src: {
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .map((c) => ({
         name: c.name,
-        color: c.color ?? "#888888",
+        color: c.color ?? defaultColorFor(c.name),
         ...(c.alias ? { alias: c.alias } : {}),
       }));
     const attributeFields: AttributeField[] =
@@ -188,7 +188,7 @@ function buildUnitBindingsFromSource(src: {
       const c: ClassConfigEntry | undefined = cfg[name];
       return {
         name,
-        color: c?.color ?? "#888888",
+        color: c?.color ?? defaultColorFor(name),
         ...(c?.alias ? { alias: c.alias } : {}),
       } as ClassRow;
     });
@@ -468,7 +468,7 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
       }
       width={620}
     >
-      <div data-testid="project-wizard">
+      <div className={styles.wizard} data-testid="project-wizard">
         {step !== 7 && <Stepper current={stepperCurrent} />}
         {/* v0.10.14 · E2 · 模板模式: 顶部横幅 + 加载态. */}
         {templateId && !sourceProjectId && step !== 7 && (
@@ -495,74 +495,76 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
                     setForm((s) => ({ ...s, copyAnnotationGuide: e.target.checked }))
                   }
                 />
-                同时复制标注指引（图片资源与源项目共享存储）
+                同时复制标注指引（共享图片引用，独立删除）
               </label>
             )}
           </div>
         )}
 
-        {step === 1 && (
-          <Step1DataTypeAndTools
-            form={form}
-            setForm={setForm}
-            nameValid={nameValid || trimmedName.length === 0}
-            dueValid={dueValid}
-          />
-        )}
+        <div className={clsx(styles.stepContent, step === 2 && styles.classesContent)}>
+          {step === 1 && (
+            <Step1DataTypeAndTools
+              form={form}
+              setForm={setForm}
+              nameValid={nameValid || trimmedName.length === 0}
+              dueValid={dueValid}
+            />
+          )}
 
-        {step === 2 && <Step2ClassesPerUnit form={form} setForm={setForm} />}
+          {step === 2 && <Step2ClassesPerUnit form={form} setForm={setForm} />}
 
-        {step === 3 && (
-          <Step3AttributesPerUnit form={form} setForm={setForm} error={step3AttrError} />
-        )}
+          {step === 3 && (
+            <Step3AttributesPerUnit form={form} setForm={setForm} error={step3AttrError} />
+          )}
 
-        {step === 4 && <Step4Ai form={form} setForm={setForm} />}
+          {step === 4 && <Step4Ai form={form} setForm={setForm} />}
 
-        {step === 5 && created && (
-          <Step5Datasets
-            project={created}
-            form={form}
-            setForm={setForm}
-            onNext={(linked) => {
-              void linked;
-              setStep(6);
-            }}
-          />
-        )}
+          {step === 5 && created && (
+            <Step5Datasets
+              project={created}
+              form={form}
+              setForm={setForm}
+              onNext={(linked) => {
+                void linked;
+                setStep(6);
+              }}
+            />
+          )}
 
-        {step === 6 && created && (
-          <Step6Members
-            project={created}
-            form={form}
-            setForm={setForm}
-            onNext={(added) => {
-              finishWizard(form.datasetIds.length, added);
-            }}
-          />
-        )}
+          {step === 6 && created && (
+            <Step6Members
+              project={created}
+              form={form}
+              setForm={setForm}
+              onNext={(added) => {
+                finishWizard(form.datasetIds.length, added);
+              }}
+            />
+          )}
 
-        {step === 7 && created && (
-          <Step7Success
-            project={created}
-            summary={{
-              datasets: form.datasetIds.length,
-              members: form.members.length,
-            }}
-            onOpenProject={() => {
-              onClose();
-              navigate(`/projects/${created.id}/annotate`);
-            }}
-            onOpenSettings={() => {
-              onClose();
-              navigate(`/projects/${created.id}/settings`);
-            }}
-            onOpenReadiness={() => {
-              onClose();
-              navigate(`/projects/${created.id}/settings?section=readiness`);
-            }}
-            onDone={onClose}
-          />
-        )}
+          {step === 7 && created && (
+            <Step7Success
+              project={created}
+              summary={{
+                datasets: form.datasetIds.length,
+                members: form.members.length,
+              }}
+              onOpenProject={() => {
+                onClose();
+                navigate(`/projects/${created.id}/annotate`);
+              }}
+              onOpenSettings={() => {
+                onClose();
+                navigate(`/projects/${created.id}/settings`);
+              }}
+              onOpenReadiness={() => {
+                onClose();
+                navigate(`/projects/${created.id}/settings?section=readiness`);
+              }}
+              onDone={onClose}
+            />
+          )}
+        </div>
 
         {(step === 1 || step === 2 || step === 3 || step === 4) && (
           <Footer

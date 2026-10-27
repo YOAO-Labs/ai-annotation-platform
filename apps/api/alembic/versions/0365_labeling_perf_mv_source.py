@@ -3,8 +3,8 @@
 from sqlalchemy import text
 from alembic import op
 
-revision = "0365"
-down_revision = "0364"
+revision = "bo0365"
+down_revision = "bo0364"
 branch_labels = depends_on = None
 
 _OWNER = text(

@@ -37,6 +37,9 @@ _INPUT_WAIT_CODES = frozenset(
 _VIDEO_WAIT_CODES = _INPUT_WAIT_CODES | frozenset(
     {"frame_not_ready", "frame_busy", "manifest_busy", "manifest_not_ready"}
 )
+_MANIFEST_WAIT_CODES = _INPUT_WAIT_CODES | frozenset(
+    {"manifest_busy", "manifest_not_ready", "input_not_ready"}
+)
 
 
 class FrozenInputRetryDeferred(RuntimeError):
@@ -130,6 +133,87 @@ def _accepted_input_metadata(value, *, task_id, project_id) -> dict:
     }
 
 
+def _accepted_manifest_metadata(value, *, task_id, project_id, actor_id):
+    """Validate the sealed bulk-image evidence recorded on the failure."""
+    from aap_assets_input_manifests import contract as manifest_contract
+
+    if not isinstance(value, dict):
+        raise ValueError("accepted input manifest evidence is malformed")
+    try:
+        manifest_id = uuid.UUID(str(value["manifest_id"]))
+        selection_digest = value["selection_digest"]
+        ordinal = value["ordinal"]
+        evidence_task_id = uuid.UUID(str(value["task_id"]))
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("accepted input manifest evidence is malformed") from exc
+    if (
+        value.get("protocol") != manifest_contract.MANIFEST_SCHEMA
+        or evidence_task_id != task_id
+        or not isinstance(selection_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", selection_digest) is None
+        or type(ordinal) is not int
+        or ordinal < 1
+    ):
+        raise ValueError("accepted input manifest evidence is malformed")
+    try:
+        retry_actor = uuid.UUID(str(actor_id)) if actor_id is not None else None
+    except (TypeError, ValueError) as exc:
+        raise ValueError("accepted input manifest actor is malformed") from exc
+    if retry_actor is None:
+        raise ValueError("accepted input manifest actor is unavailable")
+    return {
+        "protocol": manifest_contract.MANIFEST_SCHEMA,
+        "manifest_id": manifest_id,
+        "selection_digest": selection_digest,
+        "ordinal": ordinal,
+        "task_id": task_id,
+        "project_id": project_id,
+        "actor_id": retry_actor,
+    }
+
+
+async def _sealed_manifest_member(gateway, manifest):
+    """Fetch only this task's member from the already sealed bulk selection."""
+    from aap_assets_input_manifests import contract as manifest_contract
+
+    scope = manifest_contract.ManifestScope(
+        job_id=manifest["manifest_id"],
+        actor_id=manifest["actor_id"],
+        project_id=manifest["project_id"],
+    )
+    header = await gateway.ensure_sealed(
+        scope, selection_digest=manifest["selection_digest"]
+    )
+    if (
+        header.status != "sealed"
+        or header.sealed_digest is None
+        or header.job_id != manifest["manifest_id"]
+        or header.actor_id != manifest["actor_id"]
+        or header.project_id != manifest["project_id"]
+        or header.selection_digest != manifest["selection_digest"]
+    ):
+        raise manifest_contract.ManifestFailure("manifest_scope_mismatch")
+    page = await gateway.page(
+        manifest_contract.ManifestPageRequest(
+            **scope.model_dump(mode="python"),
+            selection_digest=manifest["selection_digest"],
+            sealed_digest=header.sealed_digest,
+            cursor=manifest["ordinal"] - 1,
+            page_size=1,
+        )
+    )
+    if not page.members:
+        raise manifest_contract.ManifestFailure("manifest_not_ready")
+    member = page.members[0]
+    if member.ordinal != manifest["ordinal"] or member.task_id != manifest["task_id"]:
+        raise manifest_contract.ManifestFailure("manifest_scope_mismatch")
+    if member.state == "failed":
+        raise manifest_contract.ManifestFailure(member.error or "input_corrupt")
+    if member.state != "ready" or member.input is None:
+        raise manifest_contract.ManifestFailure("input_not_ready")
+    return member
+
+
 def _accepted_video_failure(value, *, task_id, project_id):
     from aap_assets_video_inputs.evidence import (
         VideoEvidenceFailure,
@@ -162,6 +246,7 @@ async def _prepare_retry_input(
     fid = uuid.UUID(failed_id)
     accepted_input = None
     accepted_video_failure = None
+    manifest = None
     terminal_error = None
     task_id = None
     task = registry_reference = None
@@ -211,9 +296,25 @@ async def _prepare_retry_input(
                     except (TypeError, ValueError) as exc:
                         terminal_error = exc
             elif "accepted_input_manifest" in extra:
-                terminal_error = ValueError(
-                    "bulk image manifest retry has no retained accepted input"
-                )
+                if task is None:
+                    terminal_error = ValueError(
+                        "accepted input manifest retry task is unavailable"
+                    )
+                else:
+                    try:
+                        manifest = _accepted_manifest_metadata(
+                            extra["accepted_input_manifest"],
+                            task_id=task.id,
+                            project_id=failed.project_id,
+                            actor_id=actor_id,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        terminal_error = exc
+            elif "reference_input" in extra or "original_input" in extra:
+                # The admitted Job carries the owner proof; _infer opens that
+                # owner's retained input instead of the current source URL.
+                if task is None:
+                    terminal_error = ValueError("retry authority task is unavailable")
             elif "accepted_video_input" in extra:
                 if task is None:
                     terminal_error = ValueError(
@@ -258,7 +359,7 @@ async def _prepare_retry_input(
                 )
 
     if (
-        (accepted_input is None and accepted_video_failure is None)
+        (manifest is None and accepted_input is None and accepted_video_failure is None)
         or terminal_error is not None
         or task_id is None
         or task is None
@@ -269,6 +370,74 @@ async def _prepare_retry_input(
             accepted_video_failure=accepted_video_failure,
             terminal_error=terminal_error,
         )
+        return
+
+    if manifest is not None:
+        from aap_assets_input_manifests import contract as manifest_contract
+        from aap_assets_inputs import contract as c
+        from aap_assets_inputs.contract import InputFailure
+        from app.services.accepted_input_manifests import input_manifest_gateway
+
+        async with input_manifest_gateway(session_factory=session_factory) as gateway:
+            try:
+                member = await _sealed_manifest_member(gateway, manifest)
+            except manifest_contract.ManifestFailure as exc:
+                if exc.code in _MANIFEST_WAIT_CODES:
+                    raise FrozenInputRetryDeferred(exc.code) from exc
+                raise ValueError(
+                    f"accepted input manifest retry failed: {exc.code}"
+                ) from exc
+            record = member.input
+            if record.sha256 is None or record.byte_size is None:
+                raise FrozenInputRetryDeferred("input_not_ready")
+            request = c.InputRequest(
+                input_id=record.input_id,
+                job_id=manifest["manifest_id"],
+                task_id=member.task_id,
+            )
+            try:
+                temporary_directory = tempfile.TemporaryDirectory(
+                    prefix="aap-manifest-retry-"
+                )
+            except OSError as exc:
+                raise FrozenInputRetryDeferred("storage_unavailable") from exc
+            with temporary_directory as directory:
+                local_path = Path(directory) / "source"
+                reference = None
+                terminal_error = None
+                try:
+                    reference = await gateway.inputs.ensure_reference(request)
+                    receipt = reference.input
+                    if (
+                        receipt.input_id != record.input_id
+                        or receipt.job_id != manifest["manifest_id"]
+                        or receipt.task_id != member.task_id
+                        or receipt.project_id != manifest["project_id"]
+                        or receipt.sha256 != record.sha256
+                        or receipt.byte_size != record.byte_size
+                    ):
+                        raise InputFailure("input_corrupt")
+                    await gateway.inputs.download(reference, local_path)
+                    await _verify_retry_source(gateway.inputs, request)
+                except InputFailure as exc:
+                    if exc.code in _INPUT_WAIT_CODES:
+                        raise FrozenInputRetryDeferred(exc.code) from exc
+                    terminal_error = exc
+                yield _PreparedRetryInput(
+                    accepted_input={
+                        "input_id": record.input_id,
+                        "job_id": manifest["manifest_id"],
+                        "task_id": member.task_id,
+                        "project_id": manifest["project_id"],
+                        "sha256": record.sha256,
+                        "byte_size": record.byte_size,
+                    },
+                    gateway=gateway.inputs,
+                    request=request,
+                    reference=reference,
+                    local_path=local_path if reference is not None else None,
+                    terminal_error=terminal_error,
+                )
         return
 
     if accepted_video_failure is not None:

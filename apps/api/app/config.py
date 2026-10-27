@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import (
+    BaseModel,
+    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -55,6 +57,29 @@ _GPU_ARBITER_MODE_ORDER = {
     GPUArbiterMode.OBSERVE: 1,
     GPUArbiterMode.ENFORCE: 2,
 }
+
+
+class SftpReferenceRoot(BaseModel):
+    """Deployment attestation: this account's entire namespace is a read-only jail."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    host: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    port: int = Field(default=22, strict=True, ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_.-]+$")
+    host_key: str = Field(min_length=20, max_length=4096)
+
+    @field_validator("host_key")
+    @classmethod
+    def _validate_host_key(cls, value):
+        import paramiko
+
+        try:
+            entry = paramiko.hostkeys.HostKeyEntry.from_line("qualified " + value)
+            if entry is None or entry.key is None or len(value.split()) != 2:
+                raise ValueError()
+        except Exception:
+            raise ValueError("Invalid pinned SFTP public host key") from None
+        return value
 
 
 class Settings(BaseSettings):
@@ -113,6 +138,39 @@ class Settings(BaseSettings):
     connector_host_allowlist: Annotated[list[str], NoDecode] = []
     # 部署主机 SFTP 快捷项。只存 API 与 worker 共同可达的非敏感 hostname/IP；空值关闭。
     connector_deployment_sftp_host: str = ""
+    # Enable controls only after every consumer in the namespace uses admission.
+    storage_maintenance_protocol_enabled: bool = False
+    # Deployment roots only. Runtime registrations store handles and subpaths.
+    storage_filesystem_roots: dict[str, str] = Field(default_factory=dict)
+    storage_sftp_roots: dict[str, SftpReferenceRoot] = Field(default_factory=dict)
+
+    @field_validator("storage_sftp_roots")
+    @classmethod
+    def _validate_sftp_roots(cls, value):
+        import re
+
+        targets = [(root.host, root.port, root.username) for root in value.values()]
+        if len(targets) != len(set(targets)) or any(
+            not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", handle) for handle in value
+        ):
+            raise ValueError("Invalid or ambiguous SFTP reference roots")
+        return value
+
+    @field_validator("storage_filesystem_roots")
+    @classmethod
+    def _validate_filesystem_roots(cls, value):
+        import re
+
+        for handle, path in value.items():
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", handle)
+                or not path.startswith("/")
+                or path == "/"
+                or "\x00" in path
+                or any(part in {".", "..", ""} for part in path[1:].split("/"))
+            ):
+                raise ValueError("Invalid controlled storage root")
+        return value
 
     @field_validator("connector_host_allowlist", mode="before")
     @classmethod
@@ -254,10 +312,6 @@ class Settings(BaseSettings):
     workspace_configuration_database_url: str = Field(default="", repr=False)
     workspace_configuration_database_url_file: str = ""
     workspace_configuration_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-    workspace_guide_objects_url: str = Field(default="", repr=False)
-    workspace_guide_objects_token: str = Field(default="", repr=False)
-    workspace_guide_objects_token_file: str = ""
-    workspace_guide_objects_timeout_seconds: float = Field(default=15, gt=0, le=120)
     workspace_template_query_url: str = ""
     workspace_template_query_database_url: str = Field(default="", repr=False)
     workspace_template_query_database_url_file: str = ""
@@ -402,6 +456,42 @@ class Settings(BaseSettings):
     # (Linux: 172.17.0.1:9000) 或 host.docker.internal:9000 (macOS/Win) 即可。
     # 留空时 file URL 直接透传 (生产: api / sam / minio 同 K8s 网时不需要)。
     ml_backend_storage_host: str = ""
+
+    # Deployment-owned identities. UI input cannot extend the credential allowlist.
+    ml_managed_backend_urls: Annotated[dict[str, str], NoDecode] = {
+        "gsam2": "http://172.17.0.1:8001",
+        "sam3": "http://172.17.0.1:8002",
+        "yolo": "http://172.17.0.1:8003",
+        "onnxtools": "http://172.17.0.1:8004",
+        "rapidocr": "http://172.17.0.1:8005",
+    }
+    ml_managed_auth_dir: str = str(
+        _PARENTS[3] / "data" / "inference-auth"
+        if len(_PARENTS) > 3
+        else Path("/run/aap-inference-auth")
+    )
+    ml_backend_operations_dir: str = str(
+        _PARENTS[3] / "data" / "backend-manager"
+        if len(_PARENTS) > 3
+        else Path("/run/aap-backend-manager")
+    )
+
+    @field_validator("ml_managed_auth_dir", "ml_backend_operations_dir")
+    @classmethod
+    def _deployment_local_directory(cls, value: str) -> str:
+        path = Path(value)
+        root = _PARENTS[3] if len(_PARENTS) > 3 else Path.cwd()
+        return str(path if path.is_absolute() else root / path)
+
+    @field_validator("ml_managed_backend_urls", mode="before")
+    @classmethod
+    def _managed_backend_urls(cls, value):
+        from aap_protocol_v2.backend_auth import validate_backend_urls
+
+        if isinstance(value, str) and not value.strip():
+            value = cls.model_fields["ml_managed_backend_urls"].default
+        parsed = json.loads(value) if isinstance(value, str) else value
+        return validate_backend_urls(parsed)
 
     # v0.9.6 · ML Backend 注册表单 URL 默认值预填 hint (avoid 手敲 http://172.17.0.1:8001).
     # dev 推荐 http://172.17.0.1:8001; 生产 K8s 同 namespace 时留空, 让运维直接输 service DNS.

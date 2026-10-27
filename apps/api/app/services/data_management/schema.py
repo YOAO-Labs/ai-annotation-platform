@@ -188,6 +188,13 @@ def build_data_manager_schema(
             operators=_TEXT_OPS,
         ),
         DataManagerFilterFieldOut(
+            key="dataset.dataset_id",
+            label="数据集 ID",
+            group="数据集",
+            value_type="text",
+            operators=["eq", "ne", "in"],
+        ),
+        DataManagerFilterFieldOut(
             key="annotation.annotation_count",
             label="标注数",
             group="标注",

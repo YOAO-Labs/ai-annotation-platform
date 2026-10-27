@@ -6,6 +6,8 @@ requires-python = ">=3.11,<3.14"
 
 # Binary packages are supplied by the matching immutable Docker base.
 dependencies = [
+    "aap-backend-runtime",
+    "aap-protocol-v2",
     "aap-task-contract",
     "torch==2.14.1",
     "torchvision==0.29.1",
@@ -19,7 +21,7 @@ dependencies = [
     "prometheus-client>=0.20",
     "cryptography>=43.0.0",
     "PyJWT>=2.10,<3",
-    "ultralytics==8.4.177",
+    "ultralytics==8.4.183",
     "libreyolo==1.6.0",
     "aap-training-contract",
     "clip",
@@ -43,9 +45,11 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models", "libreyolo_adapter", "sample_evaluations"]
+py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "class_names", "model_metadata", "observability", "gpu_lifecycle", "managed_models", "managed_segmentation", "libreyolo_adapter", "sample_evaluations", "segmentation_evaluations"]
 
 [tool.uv.sources]
+aap-backend-runtime = { path = "../_shared/backend_runtime", editable = true }
+aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
 torch = { index = "pytorch-cu132" }

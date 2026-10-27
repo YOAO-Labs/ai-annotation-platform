@@ -1,14 +1,17 @@
 from fastapi import APIRouter
+from app.api.v1 import site_agents, site_agent_transport
 from app.api.v1 import (
     admin_alias_freq,
     admin_analytics,
     admin_ml_integrations,
     admin_preannotate,
     admin_system_health,
+    admin_backend_operations,
     api_keys,
     async_jobs,
     auth,
     avatars,
+    media_cache,
     internal,
     audit_logs,
     annotation_comments,
@@ -20,7 +23,13 @@ from app.api.v1 import (
     dashboard,
     data_manager,
     datasets,
+    dataset_lifecycle,
+    dataset_views,
+    dataset_quality,
+    dataset_quality_review,
     files,
+    originals,
+    original_playback,
     groups,
     guide_assets,
     invitations,
@@ -28,6 +37,7 @@ from app.api.v1 import (
     me,
     ml_backends,
     ml_capabilities,
+    model_catalog,
     mask_qc,
     point_cloud_quality,
     mask_formats,
@@ -41,7 +51,15 @@ from app.api.v1 import (
     scenes,
     search,
     storage,
+    storage_migration_inventories,
+    storage_migration_copies,
+    storage_migration_windows,
     storage_connections,
+    storage_locations,
+    storage_maintenance,
+    storage_reclamation,
+    dataset_sources,
+    dataset_reference_replicas,
     system_settings,
     tasks,
     training_datasets,
@@ -64,6 +82,13 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter()
+api_router.include_router(
+    media_cache.router, prefix="/media-cache", tags=["media-cache"]
+)
+api_router.include_router(originals.router, tags=["originals"])
+api_router.include_router(original_playback.router, tags=["originals"])
+api_router.include_router(model_catalog.router, tags=["model-catalog"])
+api_router.include_router(admin_backend_operations.router)
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(invitations.router, prefix="/auth", tags=["auth"])
 api_router.include_router(
@@ -149,8 +174,19 @@ api_router.include_router(
 )
 api_router.include_router(files.router, prefix="/files", tags=["files"])
 api_router.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
+api_router.include_router(dataset_lifecycle.router, tags=["datasets"])
+api_router.include_router(dataset_views.router, tags=["datasets"])
+api_router.include_router(dataset_quality.router, tags=["datasets"])
+api_router.include_router(dataset_quality_review.router, tags=["datasets"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(storage.router, prefix="/storage", tags=["storage"])
+api_router.include_router(
+    storage_reclamation.router, prefix="/storage", tags=["storage"]
+)
+api_router.include_router(
+    storage_locations.router, prefix="/storage-locations", tags=["storage-locations"]
+)
+api_router.include_router(storage_maintenance.router, tags=["storage-locations"])
 api_router.include_router(
     storage_connections.router,
     prefix="/storage-connections",
@@ -205,3 +241,25 @@ if _e2e_seed_routes_enabled():
     from app.api.v1 import _test_seed  # noqa: E402
 
     api_router.include_router(_test_seed.router, prefix="/__test", tags=["_test_seed"])
+
+api_router.include_router(dataset_sources.router, tags=["dataset-sources"])
+api_router.include_router(dataset_reference_replicas.router, tags=["dataset-sources"])
+api_router.include_router(site_agents.router, tags=["site-agents"])
+api_router.include_router(site_agent_transport.router, tags=["site-agents"])
+
+api_router.include_router(
+    storage_migration_inventories.router,
+    prefix="/storage/migration-inventories",
+    tags=["storage"],
+)
+
+
+api_router.include_router(
+    storage_migration_copies.router, prefix="/storage", tags=["storage"]
+)
+
+api_router.include_router(
+    storage_migration_windows.router,
+    prefix="/storage/migration-windows",
+    tags=["storage"],
+)

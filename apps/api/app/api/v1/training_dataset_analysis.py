@@ -1,12 +1,12 @@
 """Project-authorized, bounded inspection of immutable training data."""
 
-import asyncio
 import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from starlette.background import BackgroundTask
@@ -24,8 +24,10 @@ from app.schemas.training_dataset_analysis import (
     TrainingDatasetSamplePage,
     TrainingDatasetSampleDetail,
     TrainingDatasetInsightComparison,
+    TrainingDatasetFrozenMask,
 )
 from app.services import training_dataset_analysis as service
+from app.services import training_dataset_storage, training_storage_io
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -146,6 +148,9 @@ async def samples(
         "reintroduced",
         "unchanged",
         "unknown",
+        "source_relation_changed",
+        "source_evidence_updated",
+        "source_unknown",
     ] = "all",
 ):
     _, target, _ = await authorized_analysis(db, project, user, version_id)
@@ -220,15 +225,124 @@ async def sample_detail(
     limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0, le=2147483647),
 ):
-    await authorized_analysis(db, project, user, version_id)
+    version, _, _ = await authorized_analysis(db, project, user, version_id)
     row = await sample_row(db, version_id, task_id)
+    manifest = await db.scalar(
+        select(TrainingDatasetVersion.manifest).where(
+            TrainingDatasetVersion.id == version_id,
+            TrainingDatasetVersion.project_id == project.id,
+        )
+    )
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="数据版本已删除")
+    from app.services.training_dataset_sources import frozen_source_evidence
+
+    member = next(
+        (
+            member
+            for member in manifest.get("samples", [])
+            if member["task_id"] == str(task_id)
+        ),
+        None,
+    )
+    if member is None and row.included:
+        raise HTTPException(status_code=409, detail="冻结清单缺少该成员")
+    frozen, source = {}, None
+    if member is not None and member.get("asset_reference") is None:
+        matched = func.jsonb_path_query_first(
+            TrainingDatasetVersion.snapshot,
+            literal("$.samples[*] ? (@.task_id == $task_id)").cast(JSONPATH),
+            func.jsonb_build_object("task_id", str(task_id)),
+        ).cast(JSONB)
+        projection = await db.scalar(
+            select(
+                func.jsonb_build_object(
+                    "contract_present",
+                    TrainingDatasetVersion.snapshot.has_key(
+                        "managed_original_contract"
+                    ),
+                    "contract",
+                    TrainingDatasetVersion.snapshot["managed_original_contract"],
+                    "member",
+                    func.jsonb_build_object(
+                        "task_id", matched["task_id"], "original", matched["original"]
+                    ),
+                )
+            ).where(
+                TrainingDatasetVersion.id == version_id,
+                TrainingDatasetVersion.project_id == project.id,
+            )
+        )
+        if projection is None:
+            raise HTTPException(status_code=404, detail="数据版本已删除")
+        if projection["contract_present"]:
+            frozen["managed_original_contract"] = projection["contract"]
+        source = projection["member"]
+    try:
+        lineage = (
+            frozen_source_evidence(
+                frozen, manifest, member, source, version.snapshot_digest
+            )
+            if member is not None
+            else {
+                "status": "unrecorded",
+                "reasons": ["not_in_package"],
+                "evidence": None,
+                "kind": "unknown",
+                "managed_evidence": None,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="冻结来源证据不可用") from exc
     return {
         "sample": row,
         "labels": row.labels[offset : offset + limit],
         "total": row.instances,
         "limit": limit,
         "offset": offset,
+        "source_lineage": lineage,
     }
+
+
+@router.get(
+    "/samples/{task_id}/masks/{annotation_id}", response_model=TrainingDatasetFrozenMask
+)
+async def sample_mask(
+    version_id: uuid.UUID,
+    task_id: uuid.UUID,
+    annotation_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    user: IdentityActorFacts = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    version, _, _ = await authorized_analysis(db, project, user, version_id)
+    retained = await db.scalar(
+        select(TrainingDatasetVersion.id)
+        .where(
+            TrainingDatasetVersion.id == version.id,
+            TrainingDatasetVersion.project_id == project.id,
+        )
+        .with_for_update(read=True)
+    )
+    if retained is None:
+        raise HTTPException(status_code=404, detail="数据版本已删除")
+    row = await sample_row(db, version_id, task_id)
+    try:
+        storage_owner = training_dataset_storage.resolve(version)
+        return await training_storage_io.read(
+            db,
+            storage_owner,
+            "training_dataset_mask",
+            lambda bound: service.read_instance_mask(
+                project.id, version, row, annotation_id, transport=bound
+            ),
+            object_key=storage_owner.key(f"masks/{row.task_id}.json"),
+            sha256=row.label_sha256,
+        )
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
 
 
 @router.get(
@@ -272,8 +386,18 @@ async def sample_media(
             status_code=409, detail="该任务未纳入训练包，没有可读取的冻结成员媒体"
         )
     try:
-        source, content_type = await asyncio.to_thread(
-            service.read_media, project.id, version, row, preview=preview
+        storage_owner = training_dataset_storage.resolve(version)
+        source, content_type = await training_storage_io.read(
+            db,
+            storage_owner,
+            "training_dataset_media",
+            lambda bound: service.read_media(
+                project.id, version, row, preview=preview, transport=bound
+            ),
+            object_key=storage_owner.key(f"media/{row.task_id}"),
+            sha256=row.sha256,
+            size_bytes=row.size_bytes,
+            close_result=lambda result: result[0].close(),
         )
     except TrainingDatasetError as exc:
         await service.record_media_observation(db, row, error_code=exc.code)

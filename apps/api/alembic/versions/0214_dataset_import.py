@@ -1,7 +1,7 @@
 """Add retained native state and bounded contracts for connector Dataset imports.
 
-Revision ID: 0214
-Revises: 0213
+Revision ID: bo0214
+Revises: bo0213
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0214"
-down_revision = "0213"
+revision = "bo0214"
+down_revision = "bo0213"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

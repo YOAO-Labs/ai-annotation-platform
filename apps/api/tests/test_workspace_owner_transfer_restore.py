@@ -220,14 +220,10 @@ async def test_owner_transfer_receipt_replays_after_restore_and_blocks_populated
                 == 0
             )
 
-        refused = _alembic(test_engine.url.set(database=clone), "downgrade", "0253")
+        refused = _alembic(test_engine.url.set(database=clone), "downgrade", "bo0253")
         assert refused.returncode != 0
         assert b"receipts" in refused.stdout + refused.stderr
         async with restored_owner.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             assert (
                 await db.scalar(
                     text(
@@ -240,14 +236,14 @@ async def test_owner_transfer_receipt_replays_after_restore_and_blocks_populated
             await db.execute(
                 text("DELETE FROM public.workspace_owner_transfer_operation_receipts")
             )
-        empty = _alembic(test_engine.url.set(database=clone), "downgrade", "0253")
+        empty = _alembic(test_engine.url.set(database=clone), "downgrade", "bo0253")
         assert empty.returncode == 0, (
             "Owned empty Workspace owner transfer downgrade failed"
         )
         async with restored_owner.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0253"
+                == "bo0253"
             )
             assert await db.scalar(
                 text(

@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-23
 ---
 
 # 标注模块
@@ -82,27 +82,27 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 
 `apps/api/app/db/models/annotation.py` 中当前最关键的字段：
 
-| 字段                   | 含义                                                                                                                                                                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task_id`              | 所属任务                                                                                                                                                                                                                  |
-| `project_id`           | 所属项目，便于跨 task 聚合                                                                                                                                                                                                |
-| `user_id`              | 标注创建者                                                                                                                                                                                                                |
-| `source`               | `manual` / `prediction_based` / `interpolated`（v0.15.x 跨帧区间插值生成框）                                                                                                                                              |
-| `annotation_type`      | 几何类型，如 `bbox`、`polygon`、`video_bbox`、`video_track_bbox`                                                                                                                                                          |
-| `class_name`           | 类目名                                                                                                                                                                                                                    |
-| `geometry`             | JSONB 几何体                                                                                                                                                                                                              |
-| `confidence`           | 置信度，可空                                                                                                                                                                                                              |
-| `parent_prediction_id` | 来自哪条 prediction，可空                                                                                                                                                                                                 |
-| `parent_annotation_id` | 父框 id，可空；表「车牌属于车」这类从属层级（仅一层，见下方父子约束）                                                                                                                                                     |
-| `track_id`             | 跨帧同一对象的通用标识（`String(64)`，可空，格式 `trk_<uuid.hex>`，几何类型无关）；由单一工厂 `_new_track_id()` 产出，propagate / interpolate / 导出 / 3D 前端统一读本列（见下方跨帧链）<!-- since v0.21.2 · ADR-0045 --> |
-| `scene_track_id`       | 3D Scene Track 成员外键；与冗余 `track_id` 双写并由诊断器检查一致性，图片和 compact video 可空                                                                                                                            |
-| `temporal_role`        | 时间角色：`keyframe` / `derived` / `sample`；与 `source` 正交，用于重算和生命周期影响判断                                                                                                                                 |
-| `lead_time`            | 标注耗时                                                                                                                                                                                                                  |
-| `attributes`           | 扩展属性                                                                                                                                                                                                                  |
-| `attributes_meta`      | 属性级溯源 sidecar，`{key: {origin, model_ref?}}`（只记 `origin=ai` 的键，见下方属性溯源）                                                                                                                                |
-| `was_cancelled`        | 逻辑取消标记                                                                                                                                                                                                              |
-| `is_active`            | 软删除标记                                                                                                                                                                                                                |
-| `version`              | 乐观并发控制版本号                                                                                                                                                                                                        |
+| 字段                   | 含义                                                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_id`              | 所属任务                                                                                                                                                 |
+| `project_id`           | 所属项目，便于跨 task 聚合                                                                                                                               |
+| `user_id`              | 标注创建者                                                                                                                                               |
+| `source`               | `manual` / `prediction_based` / `interpolated`（跨帧区间插值生成框）                                                                                     |
+| `annotation_type`      | 几何类型，如 `bbox`、`polygon`、`video_bbox`、`video_track_bbox`                                                                                         |
+| `class_name`           | 类目名                                                                                                                                                   |
+| `geometry`             | JSONB 几何体                                                                                                                                             |
+| `confidence`           | 置信度，可空                                                                                                                                             |
+| `parent_prediction_id` | 来自哪条 prediction，可空                                                                                                                                |
+| `parent_annotation_id` | 父框 id，可空；表「车牌属于车」这类从属层级（仅一层，见下方父子约束）                                                                                    |
+| `track_id`             | 跨帧同一对象的通用标识（`String(64)`，可空，格式 `trk_<uuid.hex>`，几何类型无关）；由单一工厂 `_new_track_id()` 产出，propagate / interpolate / 导出共用 |
+| `scene_track_id`       | 3D Scene Track 成员外键；与冗余 `track_id` 双写并由诊断器检查一致性，图片和 compact video 可空                                                           |
+| `temporal_role`        | 时间角色：`keyframe` / `derived` / `sample`；与 `source` 正交，用于重算和生命周期影响判断                                                                |
+| `lead_time`            | 标注耗时                                                                                                                                                 |
+| `attributes`           | 扩展属性                                                                                                                                                 |
+| `attributes_meta`      | 属性级溯源 sidecar，`{key: {origin, model_ref?}}`（只记 `origin=ai` 的键，见下方属性溯源）                                                               |
+| `was_cancelled`        | 逻辑取消标记                                                                                                                                             |
+| `is_active`            | 软删除标记                                                                                                                                               |
+| `version`              | 乐观并发控制版本号                                                                                                                                       |
 
 设计要点：
 
@@ -133,104 +133,33 @@ Annotation 是“用户最终提交的结构化标注结果”。它不是工作
 | `keypoint`                                     | 关键点 (COCO 范式)  | `points[]` 各 `{x,y,v}`，`v` 可见性 0/1/2，与类别 `keypoint_schema.nodes` 同 index 对齐 |
 | `raster_mask`                                  | 图片栅格 Mask       | 单个 `coco_rle_ref`；内容在对象存储，创建由独立开关控制                                 |
 | `video_mask`                                   | 视频单帧栅格 Mask   | `frame_index` + 单个 `coco_rle_ref`；没有轨迹身份                                       |
+| `video_track_mask`                             | 视频栅格 Mask 轨迹  | compact `coco_rle_ref` keyframes；内容在对象存储                                        |
 | `video_bbox`                                   | 视频逐帧框          | 单个 frame 上的 bbox，带 `frame_index`                                                  |
 | `video_track_bbox`                             | 视频对象轨迹        | 一条 annotation 保存稳定 `track_id` 和 `keyframes[]`                                    |
 | `video_track_polygon` / `video_track_polyline` | 视频点集轨迹        | compact points keyframes 与 outside                                                     |
-| `video_track_mask`                             | 视频栅格 Mask 轨迹  | compact `coco_rle_ref` keyframes；内容在对象存储                                        |
 
 `keypoint` 的骨骼拓扑（命名节点 + 连线）不存进 geometry，而是 unit 级模板：`project.tool_bindings["keypoint"].keypoint_schema`（`KeypointSchema = {nodes: KeypointNode[], edges: [int,int][]}`，后端见 `_jsonb_types.py`，前端在项目设置「类别与属性」里的 `KeypointSchemaEditor` 维护）。geometry 只存各节点的 `{x,y,v}`，按 index 与 schema 节点一一对应。
 
 `video_track_bbox` 是 compact 轨迹模型，不把插值帧逐条写库。编辑同一对象其它帧时，前端会更新同一条 annotation 的 `geometry.keyframes[]`；前端显示的 interpolated bbox 只是视图结果。目标"消失"用 `outside` 闭区间段表达；插值不跨消失段、其中不输出 bbox；`occluded=true` 表示目标仍存在但被遮挡。
 
-`raster_mask` 保存单个图片尺寸的内容寻址 RLE 引用；`video_mask` 在同一种引用外增加精确
-`frame_index`；`video_track_mask` 沿用 track 外壳，在关键帧保存引用。创建 / 更新必须同时通过
-Pydantic 强类型与 task 的媒体、尺寸和帧数上下文校验；读取对象还会复核 SHA-256、canonical
-bytes、runs 和 size。单帧视频 Mask 不跨帧显示，Mask 轨迹才采用 hold 解析且不写展开帧；
-对象回收只删除没有任何 active annotation、prediction 或 staged tracker job 引用且超过
-grace period 的内容。
+#### 光栅掩码（`raster_mask`）存储与并发契约
 
-图片工作台通过受任务权限保护的 `GET /tasks/{task_id}/mask-capabilities` 获取有效读写能力，不在浏览器复制环境变量。原生写入需同时通过部署总闸、项目 opt-in、`region` 绑定和任务 / 对象锁。`polygon | multi_polygon | raster_mask` 只能在同一 `region` 工具单元内原位转换；类型转换和 Raster 内容替换必须带最新 `If-Match`，同一事务内同步 `annotation_type` 与 `geometry.type`。
+- **内容寻址 RLE 引用**：`raster_mask` 保存单个图片尺寸的内容寻址 RLE 引用；`video_mask` 增加精确 `frame_index`；`video_track_mask` 沿用 track 外壳并在关键帧保存引用。创建 / 更新必须同时通过 Pydantic 强类型与 task 的媒体、尺寸和帧数上下文校验；读取对象还会复核 SHA-256、canonical bytes、runs 和 size。对象回收只删除没有任何 active annotation、prediction 或 staged tracker job 引用且超过 grace period 的内容。
+- **能力探测与转换边界**：图片工作台通过 `GET /tasks/{task_id}/mask-capabilities` 获取有效读写能力，不在浏览器复制环境变量。原生写入需同时通过部署总闸、项目 opt-in、`region` 绑定和任务 / 对象锁。`polygon | multi_polygon | raster_mask` 只能在同一 `region` 工具单元内原位转换；类型转换和 Raster 内容替换必须带最新 `If-Match`，同一事务内同步 `annotation_type` 与 `geometry.type`。
+- **浏览器显示缓存预算**：按 `navigator.deviceMemory` 分为 64 / 128 / 192 MiB（缺失默认 128 MiB），下载并发分别为 1 / 2 / 4。准入同时计算 crop alpha、bitmap 与保留的 RLE counts，在插入前淘汰未 pin LRU。正在编辑和 selected 对象可 pin；其余对象进入可重试 `budget_exceeded` 状态。同一 SHA-256 的并发内容请求 single-flight；单对象的完整 crop 超预算时保留不超过约一百万像素的 preview 与 canonical RLE，显示使用 preview，命中按 RLE column-major run 精确查询。
 
-浏览器显示缓存按 `navigator.deviceMemory` 分为 64 / 128 / 192 MiB，缺失时使用 128 MiB；下载并发分别为
-1 / 2 / 4。准入同时计算 crop alpha、bitmap 与保留的 RLE counts，在插入前淘汰未 pin LRU，不能让当前帧
-全部 active 对象绕过硬预算。正在编辑和 selected 对象可 pin；其余对象进入可重试 `budget_exceeded`
-状态。同一 SHA-256 的并发内容请求 single-flight。单对象的完整 crop 超预算时保留不超过约一百万像素的
-preview 与 canonical RLE，显示使用 preview，命中按 RLE column-major run 精确查询。
+#### 前端光栅加速、Worker 池与分块编辑
 
-Mask 内容分析与大图操作共享任务级 `RasterMaskWorkerPool`。Low 档位创建 1 个 slot，其余档位创建 2 个；
-等待队列最多 32 项，优先级依次为正在编辑、selected、当前内容、预取。同一 slot 连续处理多个 job，输入
-counts 在主线程边界复制为 `Uint32Array` 后转移所有权，分析 crop alpha、操作结果和实例计划再以
-transferable buffer 返回。分析默认 15 秒、普通操作 30 秒、tile merge 60 秒；运行中取消、超时或 crash
-只终止并补充对应 Worker，其他 slot 继续。pool 按 task 创建，切题或卸载时 dispose，队列、session run
-index 与 Worker 一并清空；生产环境没有 Worker 时返回明确错误，不在主线程静默执行大操作。
+- **任务级 `RasterMaskWorkerPool`**：Low 档位创建 1 个 slot，其余档位创建 2 个；等待队列最多 32 项，优先级依次为正在编辑、selected、当前内容、预取。输入 counts 复制为 `Uint32Array` 后转移所有权，分析 crop alpha、操作结果和实例计划以 transferable buffer 返回。超时分别为分析 15 秒、普通操作 30 秒、tile merge 60 秒；pool 按 task 创建，切题或卸载时 dispose。
+- **大 ROI 形态学与 Packed Tile 缓存**：大 ROI morphology 复用同一 pool 与持久 base RLE session。store 只发送 `core + halo` 的 input、operation 和相交 dirty tile 的 packed overrides；结果只返回 core 内 non-empty XOR tile patches。对于 input 至少 4 MP、radius `1..31` 的 `square dilate`，Worker 按 session 惰性缓存 immutable base RLE 的 512² row-aligned packed tiles，再以 word span 组装 ROI scratch。
+- **512² Tile 1-bit XOR 撤销历史**：笔画开始后只在首次触及某个 tile 时捕获临时基线，结束时与当前二值像素生成 XOR 并释放基线；高级操作在确认时按变更边界由 Worker 直接返回同种 patch。undo / redo 对当前真值执行同一次 XOR，最多 100 条，按 Low / Standard / High 档位共享 16 / 32 / 64 MiB 硬预算。
+- **大画布稀疏分块（`SparseMaskTileStore`）**：图片 RLE 允许最大 8192 像素单边和 67,108,864 总像素（视频与交互式 AI 收紧到 4096 和 16,777,216）。图片任一边超过 4096 或超过 dense 像素预算时切换至 `SparseMaskTileStore`，以 immutable base RLE 加 512 像素 materialized override tile 作为真值。大画布只开放局部 brush / erase / lasso 与视口 `ROI + halo` morphology；整图扫描操作（flood fill、component / hole、split / join / overlap、conversion）在分配前以 `large_mask_full_scan_required` 拒绝。
 
-大 ROI morphology 也复用同一 pool 与持久 base RLE session。store 只发送 core、halo 后的 input、operation
-和相交 dirty tile 的 packed overrides；结果只返回 core 内 non-empty XOR tile patches。core tile 以最多两个
-并发 decode 有界物化，避免大 ROI 一次填满 Worker 等待队列。响应必须先通过 session、内容摘要、
-source / tile revision、尺寸、尾位和 core 边界校验，再一次性应用；取消、过期或畸形响应不会产生部分写入。
+#### WebGPU 加速与诊断回退
 
-对于 input 至少 4 MP、radius `1..31` 的 `square dilate`，Worker 按 session 惰性缓存 immutable base RLE
-的 512² row-aligned packed tiles，再以 word span 组装 ROI scratch；本次请求显式携带的 dirty packed
-overrides 以 masked overwrite 做 exact set / clear，绝不写回 base cache。cache 不是 mutable current truth，
-miss、CPU budget 不足或 invariant failure 时可从 immutable RLE 直接构造 packed input。
-
-WebGPU ready 时，shader 对含 halo 的 input 执行 morphology，并只回读 core `after XOR source` words。
-production 保留单个 one-pass shader。横向 intermediate + 纵向 XOR 的两阶段候选虽然 bit-exact，但同包
-资格矩阵只有 9/36 bucket 达到两轮 p95 门，且局部收益不能跨输入图案稳定成立，因此没有进入 Worker、
-协议或普通前端 bundle，也没有 radius/ROI 或 adapter-specific crossover。
-WebGPU gate 关闭、adapter/device 不可用、初始化中、GPU budget 不足，或 submit/map/device lost 等运行时
-失败时，同一 packed source 交给 separable CPU kernel：水平 word expansion 只计算一次，再按纵向窗口 OR。
-因此大 ROI CPU fallback 不重建 input-sized dense alpha。小 ROI、不支持的 operation 或 packed prospective
-admission 失败时才使用完整 dense CPU morphology。
-
-两种 backend 的 core XOR 都由同一 builder 处理：Worker 以 popcount、首尾 bit 和跨 tile byte spans 把
-non-zero words scatter 成 history patch，不逐 set bit 重算像素与 tile 坐标。production 协议没有 benchmark
-selector；direct packed kernel 只作为 test/benchmark oracle。
-
-Mask 本地撤销历史使用 512 像素 tile 的 1-bit XOR patch。笔画开始后只在首次触及某个 tile
-时捕获临时基线，结束时与当前二值像素生成 XOR 并释放基线；高级操作在确认时按变更边界
-由 Worker 直接返回同种 patch，不再在主线程创建 before checkpoint 或扫描 after。undo / redo 对当前
-真值执行同一次 XOR，不再构造 before / after RLE。历史最多
-100 条，并按 Low / Standard / High 档位共享 16 / 32 / 64 MiB 硬预算；新写入会释放 redo，超预算
-时只从最旧 undo 开始淘汰。这是编辑器本地历史，不改变服务端 annotation history 与审计语义。
-
-大画布编辑不创建整图 alpha 或整图 overlay canvas。`SparseMaskTileStore` 以 immutable base RLE 加
-512 像素 materialized override tile 作为真值；每个 tile 的显示 alpha、immutable `baseBits` 和可写
-`currentBits` 都计入准入预算，dirty 由两份 packed bits 比较。brush / erase / lasso 只同步 touched bits，
-history patch 同时更新 alpha 与 current bits。base 在 Worker 会话中建 run index，单 tile 按列从
-COCO RLE 精确解码。brush / erase / lasso 与 dense editor 共用像素中心和 even-odd 栅格化原语，
-命中优先读 override，未物化区域通过主线程 run index 精确查询 base。viewport 仅 pin 可见 tile
-与一圈预取；全图缩放时不解码全部 tile，而是使用不参与写入和精确命中的受限 overview。
-保存只传 dirty overrides，Worker 按 COCO column-major 顺序合并并直接复用未访问 base 区间。
-
-图片 RLE 结构与任务能力允许最大 8192 像素单边和 67,108,864 总像素；视频与交互式 AI
-仍在媒体感知边界收紧到 4096 和 16,777,216。图片任一边超过 4096 或超过 dense 像素
-预算时选择 sparse backend。大画布只开放局部 brush / erase / lasso；morphology 读取当前视口
-`ROI + halo` 并只写回 core。flood fill、component / hole、split / join / overlap、整图 morphology
-和 conversion 在分配前以 `large_mask_full_scan_required` 拒绝。如果可见 tile 也无法通过硬预算准入，
-编辑器保持只读 overview；已经 dirty 的 tile 与 history 保留到用户保存、重试或显式丢弃。
-
-WebGPU 只是大 ROI `square dilate` 的客户端候选后端，build-time gate 默认开启，并在首次相关 morphology
-请求时惰性探测 adapter；显式关闭时 Worker 不加载 provider、不请求 adapter。只有 slot 0 可以持有一个
-device，且仅在 input 至少 `2048²`、客户端 adapter ready、operation 和独立 GPU buffer budget 允许时路由。
-CPU compute budget 单独约束 packed/dense scratch、XOR、patch upper bound 与 retained cache；GPU budget
-为零不会清空 CPU budget。
-
-第一次 WebGPU failure 销毁 device/buffers 并进入 30 秒 cooldown；到期后的下一次 eligible foreground
-request 只重试一次，连续第二次失败后当前 page/provider lifecycle 固定 CPU。新 Mask session 不清除
-circuit；最后 session release、Worker replacement 或 dispose 会销毁 provider。该 GPU 属于访问网页的
-浏览器；Linux API、Celery 与 ML backend 主机不会因为此 gate 使用服务端 GPU。
-
-pool snapshot 暴露 provider/circuit 状态、稳定 failure stage、owner、CPU/GPU budgets、source / XOR /
-readback capacity、packed/dense transient、base cache / scratch bytes、prepare strategy、cache hit / miss /
-evict、XOR word density / touched tiles、scan / allocation / scatter 分段与 backend，不包含 Mask 内容。
-最近 20 次 typed compute event 可附到 BUG 报告；完整 task id、adapter/driver 和浏览器原始错误不进入该
-快照。base cache 上限取 32 MiB 与 CPU budget 四分之一中的较小值；session release 会清理所属 entries，
-dispose 后这些资源与 session 一起归零。
-
-Linux X11 默认 Chrome 当前拿不到 adapter，按正常能力回退处理；强制 unsafe Vulkan 只用于研发资格。
-Linux Wayland、macOS Metal、Windows D3D12 与 Safari/Edge 的项目实机矩阵仍是 `not tested`，不得从
-X11 强制 Vulkan结果外推性能或支持声明。
+- **客户端候选加速**：WebGPU 是大 ROI `square dilate` 的客户端候选后端（使用访问网页的浏览器 GPU，不占用服务端 GPU）。仅 slot 0 可持有一个 device，且仅在 input 至少 `2048²`、客户端 adapter ready、operation 和独立 GPU buffer budget 允许时路由。WebGPU 不可用或运行时失败时，同一 packed source 自动回退至 separable CPU kernel。
+- **熔断与冷却（Circuit Breaker）**：第一次 WebGPU failure 销毁 device/buffers 并进入 30 秒 cooldown；到期后的下一次 eligible 请求只重试一次，连续第二次失败后当前 page/provider lifecycle 固定回退 CPU。
+- **脱敏诊断快照**：pool snapshot 暴露 provider/circuit 状态、failure stage、CPU/GPU budgets、cache hit/miss/evict 与分段耗时，最近 20 次 typed compute event 可附到 BUG 报告（不含 Mask 像素内容、完整 task id 或驱动原始错误）。详细排障见 [栅格 Mask WebGPU 与大画布排障](../troubleshooting/raster-mask-webgpu)。
 
 ### 原子多对象 Mask 操作
 
@@ -266,6 +195,15 @@ SAM / Tracker 重跑项只创建候选，不越过候选审阅直接改写 annot
 
 执行编排由 `application/mask_repair_execution.py` 持有，`services/mask_repair.py` 持有批次、分片日志及回滚状态变更。SAM 候选先保存为真实 Prediction/PredictionMeta 与栅格对象，再登记候选结果；该写入事务在批次日志锁之前提交，避免取消方的 AsyncJob→Batch 锁序与执行方形成反向等待。回滚失败时，批次 `rollback_failed` 与通用作业失败在同一事务落库。
 
+每次执行和回滚都有独立 AsyncJob UUID，并在发布前固定为 Celery task ID；消息携带该 Job，旧消息只能解析自己记录的尝试，
+不能认领恢复后的新 Job。认领、每个提交边界和终态都以 fresh Job → Batch 顺序加锁并核对当前指针、actor、plan digest 和状态，运行中重复投递直接退出。取消先提交数据库标记再 best-effort revoke；发布应答丢失只能失败仍 pending 的原尝试，不能覆盖已运行或完成的作业。
+
+SAM 模型调用位于最终事务之外，返回后重新核对当前权限、任务绑定、来源版本和锁；全部候选、元信息和 parent item 完成记录原子提交。
+每个确定性 shard 先锁 Task，再按全局顺序取得本片的全部 Raster 内容锁，最后才写 Annotation；跨片范围版本只接受冻结版本或该批已提交的 after version。
+Tracker child 与 parent 派发意图同事务持久化，事务外按相同 child / task ID 发布；应答未知保留待派发状态，恢复复用原 child，确认发布不能被迟到异常降级。
+这些已提交 child 在父修复取消后保留，使用自身审阅与取消流程。回滚以本次 Job 的 actor 执行，按计划分片的逆序逐片原子提交 geometry 和检查点；
+`rollback_failed` 可继续未完成片，原地引用修复门禁仍保留。尚无自动接管 running 硬失联尝试的租约，此增量不承诺硬杀后的自动恢复。
+
 Mask QC 问题的人工 PATCH (`/api/v1/mask-qc/issues/{issue_id}`) 由
 `services/mask_qc/service.py::decide_issue` 持有状态与 resolver/time 写入，并先校验
 Issue 的 Task 绑定和冻结源版本的 effective-stale 状态；过期问题拒绝处置。API 保留
@@ -287,7 +225,7 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 - 跨工具单位（图片 / 视频）的"遮挡键集合"在前端通过 `useWorkbenchShellModel` / `ReviewWorkbench` 取并集，避免切工具后视觉丢失
 - 切类时属性按新类别 `applies_to` 过滤；改类悬浮框（`ClassPickerPopover`）即时联动刷新可见字段
 
-> **历史背景**：v0.11.27 之前 `Annotation` 上有 `is_occluded` 内置布尔列，只影响视觉、不进导出。迁移 `0088_remove_annotation_occlusion` 删除该列；旧项目如需保留遮挡语义，请在 schema 上新增一个 boolean 属性并启用 `style_occluded`。`video_track_bbox.keyframes[i].occluded` 是视频轨迹层面的"目标存在但被遮挡"语义，与 annotation 表无关，未变更。
+> **历史迁移说明**：早期 `Annotation` 表上的内置布尔列 `is_occluded` 已由迁移 `0088_remove_annotation_occlusion` 移除；如需表达图片遮挡语义，请在项目属性 schema 上配置 boolean 属性并开启 `style_occluded`。视频 `video_track_bbox.keyframes[i].occluded` 是视频轨迹层面的"目标存在但被遮挡"语义，与 annotation 表列无关。
 
 ### 属性级溯源（`attributes_meta`）
 
@@ -436,11 +374,7 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 
 ### track_id：跨帧链的键
 
-<!-- since v0.21.2 · ADR-0045 · 跨帧链键从 group_id 高位段迁移到独立 track_id 列，编组 / group_id 列已下线 -->
-
-`Annotation.track_id`（见上表）是跨帧延续的兼容链键：同一物体在各帧的框共享一个 `track_id`。3D Scene 同时通过 `scene_track_id` 关联显式 Scene Track，由 Track 提供类别、存在区间和 revision；完整权威关系见 [Scene Track 与轨迹生命周期](./scene-track-lifecycle)。源框无 `track_id` 时由 `_new_track_id()`（`services/annotation_propagation.py`）分配一个 `trk_<uuid.hex>` 并写回源框。区间插值据此找到链两端的关键帧。此前跨帧链借 `group_id` 高位段表达，随标注编组下线，`group_id` 列已删、跨帧语义统一到独立的 `track_id` 列。
-
-<!-- migration 0118 · 紧凑视频轨迹 track_id 列/geometry 双写同步，Data Manager 跨 task track 检索依赖 -->
+`Annotation.track_id`（见上表）是跨帧延续的兼容链键：同一物体在各帧的框共享一个 `track_id`。3D Scene 同时通过 `scene_track_id` 关联显式 Scene Track，由 Track 提供类别、存在区间和 revision；完整权威关系见 [Scene Track 与轨迹生命周期](./scene-track-lifecycle)。源框无 `track_id` 时由 `_new_track_id()`（`services/annotation_propagation.py`）分配一个 `trk_<uuid.hex>` 并写回源框。区间插值据此找到链两端的关键帧。
 
 紧凑视频轨迹（`video_track_bbox` / `video_track_polygon` / `video_track_polyline`）的身份历史上有两处表示：`Annotation.track_id` 列与内嵌的 `geometry.track_id`。为让二者不再漂移，写入时由 `prepare_compact_track_identity()`（`services/annotation_track_identity.py`）收口——列一旦存在即权威，新轨迹沿用 geometry 值或分配平台 id，并把解析结果同时写回列与 `geometry.track_id`（互为镜像）。通用 `PATCH` 更新几何时拒绝改动身份（抛 `track_id cannot be changed through geometry update`），避免误换链键。迁移 `0118` 对存量数据做一次幂等回填对齐两处表示，并建偏索引 `ix_annotations_project_track_active (project_id, track_id, task_id)`——数据管理（Data Manager）跨 task 的 track 检索走这条索引。
 
@@ -496,7 +430,7 @@ AI 采纳入口：
 
 `CandidateDecisionPort.accept()` 的 SQL 实现按 `prediction.tool_unit_id` 读取 `project.tool_bindings` 中对应 unit 的 classes，把 ML backend 写入的英文 alias 映射回项目真实类目名。生成的 annotation `tool_unit_id` 沿用 `prediction.tool_unit_id`。
 
-所以如果你改类目别名逻辑,要一起看:
+所以如果你改类目别名逻辑，要一起看：
 
 - `annotation.py:_accept_prediction` 和 `application/candidate_decision.py`
 - `project.tool_bindings`（唯一存储真值；`classes_config` 是响应兼容视图，不是独立写入源）
@@ -506,14 +440,12 @@ AI 采纳入口：
 
 annotation 必须携带 `tool_unit_id: String(30)`（枚举 bbox / polyline / region / lidar_box_3d / rotated_bbox / keypoint / point_mask_3d，与 `app/schemas/_jsonb_types.ToolUnitId` Literal 对齐）：
 
-<!-- history: tool_unit and extra geometry units were introduced in separate release slices; this section now documents the current required model. -->
-
-- 写入路径: `AnnotationService.create(..., tool_unit_id="bbox")` 按 `project.tool_bindings[unit].classes` **软校验** `class_name` 命中, 空集合放行兼容旧数据, 不命中返 422。
-- `accept_prediction` 沿用 `prediction.tool_unit_id` 给生成的 annotation, 保持工具维度一致。
-- 老数据由 alembic 0072 backfill: `annotation_type IN ('polygon', 'mask')` → `region`, 其它 → `bbox` 占位。
+- 写入路径：`AnnotationService.create(..., tool_unit_id="bbox")` 按 `project.tool_bindings[unit].classes` **软校验** `class_name` 命中，空集合放行兼容旧数据，不命中返 422。
+- `accept_prediction` 沿用 `prediction.tool_unit_id` 给生成的 annotation，保持工具维度一致。
+- 老数据由 alembic 0072 backfill：`annotation_type IN ('polygon', 'mask')` → `region`，其它 → `bbox` 占位。
 - `ai_interactive` 已退役。迁移把存量 annotation / prediction 及项目 binding 归位到 `region` / `bbox`；遗留客户端继续上报该值时，写入 schema 会按 geometry type 映射并记录 warning，不会把退役值重新写回数据库。
 
-强隔离: 同名类在不同 unit 下是独立记录, 不能跨 unit 共享 (避免回退到"项目级扁平类别表"反模式)。详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
+强隔离：同名类在不同 unit 下是独立记录，不能跨 unit 共享（避免回退到"项目级扁平类别表"反模式）。详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
 ## Task / Batch 回写
 
@@ -587,15 +519,16 @@ annotation 路径几乎都带两个伴随动作：
 
 改 annotation 逻辑时，至少检查这些位置：
 
-| 文件                                                                     | 为什么要看                                     |
-| ------------------------------------------------------------------------ | ---------------------------------------------- |
-| `apps/web/src/api/tasks.ts`                                              | annotation API 包装                            |
-| `apps/web/src/hooks/useTasks.ts`                                         | create/update/delete mutation                  |
-| `apps/web/src/hooks/usePredictions.ts`                                   | accept prediction 后的双缓存失效               |
-| `apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts` | 图片 bbox / polygon / SAM / AI 候选 / 批量操作 |
-| `apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts` | 视频 bbox / track / keyframe / 转换操作        |
-| `apps/web/src/pages/Workbench/modes/useReviewMode.tsx`                   | reviewer 模式下的 annotation 查看与审核策略    |
-| `apps/web/src/pages/Workbench/state/useCanvasDraftPersistence.ts`        | 当前主草稿路径仍在前端本地                     |
+| 文件                                                                     | 为什么要看                                           |
+| ------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `apps/web/src/api/tasks.ts`                                              | annotation API 包装                                  |
+| `apps/web/src/hooks/useTasks.ts`                                         | create/update/delete mutation                        |
+| `apps/web/src/hooks/usePredictions.ts`                                   | accept prediction 后的双缓存失效                     |
+| `apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts` | 图片 bbox / polygon / SAM / AI 候选 / 批量操作       |
+| `apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts` | 视频 bbox / track / keyframe / 转换操作              |
+| `apps/web/src/pages/Workbench/modes/useReviewMode.tsx`                   | reviewer 模式下的 annotation 查看与审核策略          |
+| `apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts`         | 断网/5xx 时的 IndexedDB 原子离线队列与恢复重放       |
+| `apps/web/src/pages/Workbench/state/useCanvasDraftPersistence.ts`        | 讨论区评论画布涂鸦（`canvas_draft:*`）的本地会话暂存 |
 
 视频工作台还要检查：
 
@@ -627,14 +560,15 @@ annotation 路径几乎都带两个伴随动作：
 
 ### 误解 3：后端 draft 已经是主草稿系统
 
-不是。当前更真实的说法是：
+不是。当前更真实的边界是：
 
-- 后端有 `AnnotationDraft` 数据模型和 service
-- 前端工作台主草稿恢复仍以本地 `sessionStorage` 为主
+- 后端有 `AnnotationDraft` 数据模型和 service，但尚未暴露 HTTP 路由或接入工作台主链
+- 主标注几何在完成时直接写入后端（网络异常时进入 IndexedDB 离线队列 `useWorkbenchOfflineQueue`），未闭合绘制保存在各 Stage 内存态
+- `sessionStorage["canvas_draft:*"]`（`useCanvasDraftPersistence.ts`）仅用于暂存讨论区评论的画布圈点涂鸦，不存主标注几何
 
 ### 误解 4：图片框"遮挡"是 annotation 上的内置状态位
 
-不再是。v0.11.27 起 `Annotation.is_occluded` 列已删除（迁移 `0088`），"遮挡"收敛为普通 boolean 属性 + `AttributeField.style_occluded` 开关派生渲染。详见 [属性 schema 与派生渲染](#属性-schema-与派生渲染)。视频 `video_track_bbox.keyframes[i].occluded` 不在此次变更范围内，仍是轨迹关键帧的内置字段。
+不是。`Annotation.is_occluded` 列已在迁移 `0088` 中移除，"遮挡"收敛为普通 boolean 属性 + `AttributeField.style_occluded` 开关派生渲染。详见 [属性 schema 与派生渲染](#属性-schema-与派生渲染)。视频 `video_track_bbox.keyframes[i].occluded` 仍是轨迹关键帧的内置字段。
 
 ## 相关文档
 

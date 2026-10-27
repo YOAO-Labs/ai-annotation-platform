@@ -15,6 +15,56 @@ def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.mark.parametrize(
+    "shape_index,rejected,expected",
+    [(0, [0], 409), (1, [0], 200), (None, [0], 200), (None, [0, 1], 409)],
+)
+async def test_acceptance_respects_persisted_rejections(
+    db_session, httpx_client, super_admin, shape_index, rejected, expected
+):
+    from sqlalchemy import func, select
+    from app.db.models.annotation import Annotation
+    from tests.factory import create_project, create_task
+
+    actor, token = super_admin
+    project = await create_project(db_session, owner_id=actor.id, classes=["car"])
+    task = await create_task(db_session, project_id=project.id, status="pending")
+    prediction = Prediction(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        task_id=task.id,
+        rejected_shape_indexes=rejected,
+        result=[
+            {
+                "type": "rectanglelabels",
+                "value": {
+                    "x": x,
+                    "y": 0,
+                    "width": 10,
+                    "height": 10,
+                    "rectanglelabels": ["car"],
+                },
+            }
+            for x in (0, 20)
+        ],
+    )
+    db_session.add(prediction)
+    await db_session.commit()
+    response = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept",
+        params={"shape_index": shape_index} if shape_index is not None else {},
+        headers=_bearer(token),
+    )
+    assert response.status_code == expected, response.text
+    assert await db_session.scalar(
+        select(func.count())
+        .select_from(Annotation)
+        .where(Annotation.task_id == task.id)
+    ) == (1 if expected == 200 else 0)
+    if expected == 200:
+        assert [a["attributes"]["_shape_index"] for a in response.json()] == [1]
+
+
 @pytest.mark.asyncio
 async def test_predictions_include_original_shape_index_after_confidence_filter(
     httpx_client,

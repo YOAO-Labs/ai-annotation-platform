@@ -1,9 +1,13 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.9.7 · pre_annotated 批次历史表 (含 client-side 搜索 / 排序 / 分页).
  * v0.9.12 · BUG B-16 加 checkbox 多选 + 底部浮窗 + 批量重激活/删除 prediction.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +21,6 @@ import type {
 } from "@/api/adminPreannotate";
 import { useBulkPreannotateClear } from "@/hooks/useBulkPreannotateActions";
 import { buildWorkbenchUrl, currentWorkbenchReturnTo } from "@/utils/workbenchNavigation";
-import { HISTORY_PAGE_SIZE } from "../styles";
 import styles from "./HistoryTable.module.css";
 
 type SortKey = "last_run_at" | "total_tasks" | "prediction_count" | "failed_count";
@@ -34,11 +37,11 @@ export function HistoryTable({ items, isLoading }: Props) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_run_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [page, setPage] = useState(0);
   // v0.9.12 B-16 · 多选 state (按 batch_id 索引, 跨折叠/分页保留)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmMode, setConfirmMode] = useState<BulkClearMode | null>(null);
   const [reasonInput, setReasonInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkClearResponse | null>(null);
   const bulkClear = useBulkPreannotateClear();
 
@@ -65,13 +68,8 @@ export function HistoryTable({ items, isLoading }: Props) {
     return arr;
   }, [filtered, sortKey, sortDir]);
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / HISTORY_PAGE_SIZE));
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages - 1));
-  }, [totalPages]);
-  const safePage = Math.min(page, totalPages - 1);
-  const pageStart = safePage * HISTORY_PAGE_SIZE;
-  const pageItems = sorted.slice(pageStart, pageStart + HISTORY_PAGE_SIZE);
+  const pagination = useListPagination(sorted, `${search}|${sortKey}|${sortDir}`);
+  const { items: pageItems, setPage } = pagination;
 
   // B-2 · 项目→batch 分组,折叠展开;按当前页 pageItems 聚合
   const grouped = useMemo(() => {
@@ -158,11 +156,30 @@ export function HistoryTable({ items, isLoading }: Props) {
     if (!confirmMode) return;
     const trimmed = reasonInput.trim();
     if (trimmed.length < 10) return;
-    const res = await bulkClear.mutateAsync({
-      batch_ids: Array.from(selectedIds),
-      mode: confirmMode,
-      reason: trimmed,
-    });
+    if (submitting) return;
+    setSubmitting(true);
+    const batchIds = Array.from(selectedIds);
+    const res: BulkClearResponse = { succeeded: [], skipped: [], failed: [] };
+    try {
+      for (let start = 0; start < batchIds.length; start += 50) {
+        const chunk = batchIds.slice(start, start + 50);
+        try {
+          const next = await bulkClear.mutateAsync({
+            batch_ids: chunk,
+            mode: confirmMode,
+            reason: trimmed,
+          });
+          res.succeeded.push(...next.succeeded);
+          res.skipped.push(...next.skipped);
+          res.failed.push(...next.failed);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "批量操作失败";
+          res.failed.push(...chunk.map((batch_id) => ({ batch_id, reason })));
+        }
+      }
+    } finally {
+      setSubmitting(false);
+    }
     setBulkResult(res);
     if (res.failed.length === 0 && res.skipped.length === 0) {
       // 全成功 → 直接关闭 + 清选中
@@ -203,169 +220,159 @@ export function HistoryTable({ items, isLoading }: Props) {
           <div className={styles.message}>无匹配批次（搜索：{search}）</div>
         ) : (
           <>
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr className={styles.headerRow}>
-                    <th className={`${styles.tableHeaderCell} ${styles.checkboxHeaderCell}`}>
-                      <input
-                        type="checkbox"
-                        aria-label="全选当前页"
-                        checked={allOnPageSelected}
-                        onChange={togglePageAll}
-                      />
-                    </th>
-                    <th className={styles.tableHeaderCell}>项目</th>
-                    <th className={styles.tableHeaderCell}>批次</th>
-                    <th className={styles.sortableHeaderCell} onClick={() => onSort("total_tasks")}>
-                      总数{sortIndicator("total_tasks")}
-                    </th>
-                    <th
-                      className={styles.sortableHeaderCell}
-                      onClick={() => onSort("prediction_count")}
-                    >
-                      已预标{sortIndicator("prediction_count")}
-                    </th>
-                    <th
-                      className={styles.sortableHeaderCell}
-                      onClick={() => onSort("failed_count")}
-                    >
-                      失败{sortIndicator("failed_count")}
-                    </th>
-                    <th className={styles.sortableHeaderCell} onClick={() => onSort("last_run_at")}>
-                      最近预标{sortIndicator("last_run_at")}
-                    </th>
-                    <th className={styles.tableHeaderCell}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grouped.map((g) => {
-                    const isCollapsed = collapsed.has(g.id);
-                    const totalBatches = g.batches.length;
-                    const totalFailed = g.batches.reduce((s, b) => s + b.failed_count, 0);
-                    const totalTasks = g.batches.reduce((s, b) => s + b.total_tasks, 0);
-                    return (
-                      <Fragment key={g.id}>
-                        <tr onClick={() => toggleProject(g.id)} className={styles.groupRow}>
-                          <td colSpan={8} className={styles.groupCell}>
-                            <span className={styles.groupLabel}>
-                              <Icon name={isCollapsed ? "chevRight" : "chevDown"} size={11} />
-                              <strong>{g.name}</strong>
-                              {g.displayId && (
-                                <span className={styles.subtle}>({g.displayId})</span>
-                              )}
-                              <span className={styles.mutedText}>
-                                · {totalBatches} 批 · {totalTasks} 任务
-                                {totalFailed > 0 && (
-                                  <span className={styles.failedCount}>· {totalFailed} 失败</span>
+            <div className={listStyles.surface}>
+              <div className={listStyles.scroll}>
+                <table className={listStyles.table}>
+                  <thead>
+                    <tr className={styles.headerRow}>
+                      <th className={`${styles.tableHeaderCell} ${styles.checkboxHeaderCell}`}>
+                        <input
+                          type="checkbox"
+                          aria-label="全选当前页"
+                          checked={allOnPageSelected}
+                          onChange={togglePageAll}
+                        />
+                      </th>
+                      <th className={styles.tableHeaderCell}>项目</th>
+                      <th className={styles.tableHeaderCell}>批次</th>
+                      <th
+                        className={styles.sortableHeaderCell}
+                        onClick={() => onSort("total_tasks")}
+                      >
+                        总数{sortIndicator("total_tasks")}
+                      </th>
+                      <th
+                        className={styles.sortableHeaderCell}
+                        onClick={() => onSort("prediction_count")}
+                      >
+                        已预标{sortIndicator("prediction_count")}
+                      </th>
+                      <th
+                        className={styles.sortableHeaderCell}
+                        onClick={() => onSort("failed_count")}
+                      >
+                        失败{sortIndicator("failed_count")}
+                      </th>
+                      <th
+                        className={styles.sortableHeaderCell}
+                        onClick={() => onSort("last_run_at")}
+                      >
+                        最近预标{sortIndicator("last_run_at")}
+                      </th>
+                      <th className={styles.tableHeaderCell}>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grouped.map((g) => {
+                      const isCollapsed = collapsed.has(g.id);
+                      const totalBatches = g.batches.length;
+                      const totalFailed = g.batches.reduce((s, b) => s + b.failed_count, 0);
+                      const totalTasks = g.batches.reduce((s, b) => s + b.total_tasks, 0);
+                      return (
+                        <Fragment key={g.id}>
+                          <tr onClick={() => toggleProject(g.id)} className={styles.groupRow}>
+                            <td colSpan={8} className={styles.groupCell}>
+                              <span className={styles.groupLabel}>
+                                <Icon name={isCollapsed ? "chevRight" : "chevDown"} size={11} />
+                                <strong>{g.name}</strong>
+                                {g.displayId && (
+                                  <span className={styles.subtle}>({g.displayId})</span>
                                 )}
-                              </span>
-                            </span>
-                          </td>
-                        </tr>
-                        {!isCollapsed &&
-                          g.batches.map((it) => {
-                            const isSel = selectedIds.has(it.batch_id);
-                            return (
-                              <tr
-                                key={it.batch_id}
-                                className={isSel ? styles.selectedRow : undefined}
-                              >
-                                <td className={styles.tableCell}>
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`选择 ${it.batch_name}`}
-                                    checked={isSel}
-                                    onChange={() => toggleOne(it.batch_id)}
-                                  />
-                                </td>
-                                <td className={`${styles.tableCell} ${styles.childMarkerCell}`}>
-                                  ↳
-                                </td>
-                                <td className={styles.tableCell}>{it.batch_name}</td>
-                                <td className={`${styles.tableCell} ${styles.numeric}`}>
-                                  {it.total_tasks}
-                                </td>
-                                <td className={styles.tableCell}>
-                                  <Badge variant="ai">{it.prediction_count}</Badge>
-                                </td>
-                                <td className={styles.tableCell}>
-                                  {it.failed_count > 0 ? (
-                                    <Badge variant="danger">{it.failed_count}</Badge>
-                                  ) : (
-                                    <span className={styles.subtle}>0</span>
+                                <span className={styles.mutedText}>
+                                  · {totalBatches} 批 · {totalTasks} 任务
+                                  {totalFailed > 0 && (
+                                    <span className={styles.failedCount}>· {totalFailed} 失败</span>
                                   )}
-                                </td>
-                                <td className={`${styles.tableCell} ${styles.mutedCell}`}>
-                                  {formatRelative(it.last_run_at)}
-                                </td>
-                                <td className={styles.tableCell}>
-                                  <div className={styles.rowActions}>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() =>
-                                        navigate(
-                                          buildWorkbenchUrl(it.project_id, {
-                                            batchId: it.batch_id,
-                                            returnTo: currentWorkbenchReturnTo(location),
-                                          }),
-                                        )
-                                      }
-                                      title="打开工作台接管 review"
-                                    >
-                                      <Icon name="chevRight" size={11} />
-                                    </Button>
-                                    {it.can_retry && (
+                                </span>
+                              </span>
+                            </td>
+                          </tr>
+                          {!isCollapsed &&
+                            g.batches.map((it) => {
+                              const isSel = selectedIds.has(it.batch_id);
+                              return (
+                                <tr
+                                  key={it.batch_id}
+                                  className={isSel ? styles.selectedRow : undefined}
+                                >
+                                  <td className={styles.tableCell}>
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`选择 ${it.batch_name}`}
+                                      checked={isSel}
+                                      onChange={() => toggleOne(it.batch_id)}
+                                    />
+                                  </td>
+                                  <td className={`${styles.tableCell} ${styles.childMarkerCell}`}>
+                                    ↳
+                                  </td>
+                                  <td className={styles.tableCell}>{it.batch_name}</td>
+                                  <td className={`${styles.tableCell} ${styles.numeric}`}>
+                                    {it.total_tasks}
+                                  </td>
+                                  <td className={styles.tableCell}>
+                                    <Badge variant="ai">{it.prediction_count}</Badge>
+                                  </td>
+                                  <td className={styles.tableCell}>
+                                    {it.failed_count > 0 ? (
+                                      <Badge variant="danger">{it.failed_count}</Badge>
+                                    ) : (
+                                      <span className={styles.subtle}>0</span>
+                                    )}
+                                  </td>
+                                  <td className={`${styles.tableCell} ${styles.mutedCell}`}>
+                                    {formatRelative(it.last_run_at)}
+                                  </td>
+                                  <td className={styles.tableCell}>
+                                    <div className={styles.rowActions}>
                                       <Button
                                         size="sm"
                                         variant="ghost"
                                         onClick={() =>
-                                          navigate(`/ai-pre?failed=1&batch_id=${it.batch_id}`)
+                                          navigate(
+                                            buildWorkbenchUrl(it.project_id, {
+                                              batchId: it.batch_id,
+                                              returnTo: currentWorkbenchReturnTo(location),
+                                            }),
+                                          )
                                         }
-                                        title="到下方失败 prediction 列表重试"
+                                        title="打开工作台接管 review"
                                       >
-                                        <Icon name="refresh" size={11} />
+                                        <Icon name="chevRight" size={11} />
                                       </Button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {totalPages > 1 && (
-              <div className={styles.pagination}>
-                <span className={styles.helperInline}>
-                  共 {sorted.length} 条 · 第 {safePage + 1}/{totalPages} 页
-                </span>
-                <div className={styles.rowActions}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={safePage === 0}
-                    onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  >
-                    <Icon name="chevLeft" size={11} /> 上一页
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={safePage >= totalPages - 1}
-                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  >
-                    下一页 <Icon name="chevRight" size={11} />
-                  </Button>
-                </div>
+                                      {it.can_retry && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() =>
+                                            navigate(`/ai-pre?failed=1&batch_id=${it.batch_id}`)
+                                          }
+                                          title="到下方失败 prediction 列表重试"
+                                        >
+                                          <Icon name="refresh" size={11} />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
+            </div>
           </>
         )}
+        <ListPagination
+          label="已就绪批次"
+          {...pagination}
+          loading={isLoading}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </div>
 
       {selectedIds.size > 0 && (
@@ -380,7 +387,7 @@ export function HistoryTable({ items, isLoading }: Props) {
       <Modal
         open={confirmMode !== null}
         onClose={() => {
-          if (!bulkClear.isPending) closeConfirm();
+          if (!submitting) closeConfirm();
         }}
         title={
           confirmMode === "reset_to_draft"
@@ -399,7 +406,7 @@ export function HistoryTable({ items, isLoading }: Props) {
             onReasonChange={setReasonInput}
             onCancel={closeConfirm}
             onSubmit={submitBulk}
-            isPending={bulkClear.isPending}
+            isPending={submitting}
             error={bulkClear.error instanceof Error ? bulkClear.error.message : null}
           />
         )}
@@ -492,7 +499,11 @@ function BulkConfirmForm(props: {
           className={styles.textarea}
         />
       </label>
-      {props.error && <div className={styles.errorText}>{props.error}</div>}
+      {props.error && (
+        <div className={styles.errorText}>
+          <CopyableError message={props.error} />
+        </div>
+      )}
       <div className={styles.formActions}>
         <Button size="sm" variant="ghost" onClick={props.onCancel} disabled={props.isPending}>
           取消
@@ -537,7 +548,7 @@ function BulkResultView(props: { result: BulkClearResponse; onClose: () => void 
           <ul className={styles.resultListDanger}>
             {failed.map((it) => (
               <li key={it.batch_id}>
-                <code>{it.batch_id.slice(0, 8)}</code> — {it.reason}
+                <CopyableError message={`${it.batch_id} — ${it.reason}`} />
               </li>
             ))}
           </ul>

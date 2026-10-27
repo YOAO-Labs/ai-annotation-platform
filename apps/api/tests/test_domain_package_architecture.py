@@ -278,11 +278,6 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="media_job_dispatch", legacy_facades=()),
     DomainSpec(package="dataset", legacy_facades=()),
     DomainSpec(package="video_frame_service", legacy_facades=()),
-    DomainSpec(
-        package="video_context_contract",
-        legacy_facades=(),
-        allowed_app_imports=("app.services.video_context",),
-    ),
     DomainSpec(package="assets_point_cloud_manifest", legacy_facades=()),
     DomainSpec(package="assets_media_summary", legacy_facades=()),
     DomainSpec(
@@ -305,11 +300,6 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="image_pyramid", legacy_facades=()),
-    DomainSpec(
-        package="image_pyramid_contract",
-        legacy_facades=(),
-        allowed_app_imports=("app.schemas.image_pyramid",),
-    ),
     DomainSpec(package="training_dataset_dispatch", legacy_facades=()),
     DomainSpec(package="training_datasets", legacy_facades=()),
     DomainSpec(
@@ -537,7 +527,6 @@ DOMAIN_PACKAGES = (
             "app.services.inference_backend_probe",
             "app.services.workspace_configuration_data",
             "app.services.workspace_project_query",
-            "app.services.workspace_guide_objects",
         ),
     ),
     DomainSpec(package="workspace_configuration_data", legacy_facades=()),

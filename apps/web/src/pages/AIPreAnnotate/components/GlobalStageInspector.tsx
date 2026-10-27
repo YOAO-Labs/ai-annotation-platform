@@ -285,14 +285,24 @@ export function GlobalStageInspector({
         <select
           className={styles.selectInput}
           value={modelKey}
+          disabled={pool.length === 0}
           onChange={(e) => setModelKey(e.target.value)}
           aria-label={kind === "source" ? "源阶段模型" : `阶段 ${displayIndex} 模型`}
         >
+          {modelKey && !pool.some((option) => option.key === modelKey) && (
+            <option value={modelKey} disabled hidden>
+              已选模型（不适用于当前输入）
+            </option>
+          )}
           {pool.length === 0 ? (
-            <option value="">暂无全局模型</option>
+            <option value="" disabled hidden>
+              暂无全局模型
+            </option>
           ) : (
             <>
-              <option value="">— 请选择 —</option>
+              <option value="" disabled hidden>
+                请选择模型
+              </option>
               {pool.map((opt) => (
                 <option key={opt.key} value={opt.key} disabled={opt.disabled}>
                   {opt.backendName} · {opt.model.display_name}

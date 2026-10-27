@@ -1,7 +1,7 @@
 """Add Assets-owned legacy upload completion and replay.
 
-Revision ID: 0213
-Revises: 0212
+Revision ID: bo0213
+Revises: bo0212
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0213"
-down_revision = "0212"
+revision = "bo0213"
+down_revision = "bo0212"
 branch_labels = depends_on = None
 
 

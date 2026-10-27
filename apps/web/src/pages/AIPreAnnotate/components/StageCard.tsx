@@ -20,6 +20,7 @@ import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { hasInput, INPUT_BBOX_PROMPT_ID, INPUT_CROP_ID } from "@/api/capabilityInputs";
 import { usePreannotateConfig, type PreannotateArgs } from "./usePreannotateConfig";
+import { CatalogModelSelect } from "./CatalogModelSelect";
 import { PreannotateConfigForm } from "./PreannotateConfigForm";
 import { ChipMultiSelect } from "./ChipMultiSelect";
 import type { PipelineStagePayload, PipelineStageStat } from "@/hooks/usePreannotation";
@@ -92,9 +93,9 @@ export function StageCard({
 }: Props) {
   const [backendId, setBackendId] = useState<string | null>(() => {
     const other = backends.find((b) => b.id !== sourceBackendId);
-    return other?.id ?? null;
+    return (other ?? backends[0])?.id ?? null;
   });
-  const cfg = usePreannotateConfig({ projectId, backendId });
+  const cfg = usePreannotateConfig({ projectId, backendId, inputMode: "crop" });
 
   const [classFilter, setClassFilter] = useState<Set<string>>(new Set());
   const [pad, setPad] = useState(0.05);
@@ -163,7 +164,9 @@ export function StageCard({
       return classify?.id ?? downstreamModels[0]?.id ?? null;
     });
   }, [backendId, downstreamModels]);
-  const selectedModel = downstreamModels.find((m) => m.id === selectedModelId) ?? null;
+  const selectedModel = cfg.selectedCatalogId
+    ? (cfg.geometricModel ?? null)
+    : (downstreamModels.find((m) => m.id === selectedModelId) ?? null);
 
   // 下游 model 归类 (判据抽到 pipelineGraph.classifyDownstream, 与全局侧 GlobalStageInspector 共用):
   //   box-seg geometry (消费上游框出 polygon, geometry 投递) / crop-detect geometry (父 crop 检子物体,
@@ -190,23 +193,35 @@ export function StageCard({
   // 派生 stage payload (不含 stage 序号 / parent_stage, 由容器补)。
   // stageArgs / currentVariantSlice 每次渲染新对象, 用 JSON 串作 useMemo 稳定依赖 (抽出供静态检查)。
   const stageArgsKey = JSON.stringify(stageArgs);
+  const paramsKey = JSON.stringify(cfg.paramsValue);
   const variantSliceKey = JSON.stringify(cfg.currentVariantSlice);
   const payload = useMemo<Omit<PipelineStagePayload, "stage" | "parent_stage"> | null>(() => {
     const classArr = Array.from(classFilter);
     // v0.18.12 · box-seg geometry 下游: 直接由 backend+model 构造, 不依赖 prompt/configReady。
     // 变体取选中 model 自己声明的轴 (box-seg 只有 sam_variant), 从共享 variant 选择器值过滤。
-    if (isGeometryDownstream && backendId && selectedModel) {
+    if (cfg.selectedCatalogId && !stageArgs) return null;
+    if (isGeometryDownstream && cfg.backendId && selectedModel) {
       const axisKeys = new Set((selectedModel.supported_variants ?? []).map((g) => g.key));
       const variantSlice: Record<string, string> = {};
       for (const [k, v] of Object.entries(cfg.currentVariantSlice)) {
         if (axisKeys.has(k)) variantSlice[k] = v;
       }
       return {
-        ml_backend_id: backendId,
-        model_id: selectedModel.id,
+        ml_backend_id: cfg.backendId,
+        model_id:
+          stageArgs?.model_id && cfg.selectedCatalogId ? stageArgs.model_id : selectedModel.id,
         task: selectedModel.task,
-        model_variants: variantSlice,
-        params: {},
+        model_variants: cfg.selectedCatalogId ? stageArgs?.model_variants : variantSlice,
+        params: cfg.selectedCatalogId
+          ? (stageArgs?.params ?? {})
+          : Object.fromEntries(
+              Object.entries(cfg.paramsValue).filter(
+                ([key]) => key in (selectedModel.params?.properties ?? {}),
+              ),
+            ),
+        ...(isCropDetectGeometry && cfg.selectedClassIdx.size
+          ? { class_filter: [...cfg.selectedClassIdx].sort((a, b) => a - b) }
+          : {}),
         parent_class_filter: classArr.length > 0 ? classArr : undefined,
         // box-seg → geometry 投递 (整图+父框列表); crop-detect → crop 投递 (裁父框 + 坐标回映)。
         ...(isCropDetectGeometry
@@ -251,6 +266,10 @@ export function StageCard({
     backendId,
     selectedModel?.id,
     variantSliceKey,
+    cfg.selectedCatalogId,
+    cfg.backendId,
+    cfg.selectedClassIdx,
+    paramsKey,
     classFilter,
     pad,
     writeKeys,
@@ -295,6 +314,11 @@ export function StageCard({
   // v0.18.16 §13 · 能力旗标上抛 (供画布可达性 / 产属性警示)。
   const supportedInputs = selectedModel?.supported_inputs ?? [];
   const supportedInputsKey = supportedInputs.join(",");
+  const outputClassesKey = JSON.stringify(
+    (selectedModel?.classes ?? [])
+      .filter((c) => !cfg.selectedClassIdx.size || cfg.selectedClassIdx.has(c.index))
+      .map((c) => cfg.selectedCatalogEntry?.output_classes?.[c.index] ?? c.name),
+  );
   const caps = useMemo<StageCaps>(
     () => ({
       hasCapabilities: capabilitiesReady,
@@ -304,10 +328,18 @@ export function StageCard({
       producesAttributes,
       producesClass,
       batchable,
+      outputClasses: JSON.parse(outputClassesKey) as string[],
     }),
     // supportedInputsKey 串化 supportedInputs 作稳定依赖。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [supportedInputsKey, capabilitiesReady, producesAttributes, producesClass, batchable],
+    [
+      supportedInputsKey,
+      capabilitiesReady,
+      producesAttributes,
+      producesClass,
+      batchable,
+      outputClassesKey,
+    ],
   );
   const onCapsRef = useRef(onCaps);
   onCapsRef.current = onCaps;
@@ -385,7 +417,10 @@ export function StageCard({
           <span className={styles.fieldLabel}>ML Backend</span>
           <select
             value={backendId ?? ""}
-            onChange={(e) => setBackendId(e.target.value || null)}
+            onChange={(e) => {
+              cfg.setCatalogModel?.("");
+              setBackendId(e.target.value || null);
+            }}
             className={styles.promptInput}
           >
             {backends.map((b) => (
@@ -399,7 +434,8 @@ export function StageCard({
       )}
 
       {/* v0.18.12 · 下游模型选择: 同一 backend 暴露多个可作下游的批量原子时显式选 (分类 / 框→分割)。 */}
-      {downstreamModels.length > 1 && (
+      <CatalogModelSelect cfg={cfg} />
+      {!cfg.selectedCatalogId && downstreamModels.length > 1 && (
         <label className={styles.field}>
           <span className={styles.fieldLabel}>下游模型</span>
           <select
@@ -493,7 +529,7 @@ export function StageCard({
       </div>
 
       {/* ROI pad 仅 crop 投递有意义; geometry 投递传整图 + 框列表, 不裁 crop。 */}
-      {!isGeometryDownstream && (
+      {!isBoxSegGeometry && (
         <div className={styles.field}>
           <span className={styles.fieldLabel}>ROI 扩展 pad（0–0.5）</span>
           <input
@@ -565,7 +601,7 @@ export function StageCard({
         cfg={cfg}
         projectMlBackendId={projectMlBackendId}
         hideModelTaskSelector
-        hideClassWhitelist
+        hideClassWhitelist={!isCropDetectGeometry}
       />
     </Card>
   );

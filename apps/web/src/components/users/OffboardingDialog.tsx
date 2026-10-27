@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -258,7 +259,9 @@ function ProjectCard({
                     disabled={disabled}
                     className="mt-1 w-full appearance-none rounded-md border border-border bg-card px-2.5 py-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <option value="">— 选择同项目合格接收人 —</option>
+                    <option value="" disabled hidden>
+                      选择同项目合格接收人
+                    </option>
                     {rolePreview.receiver_options.map((receiver) => (
                       <option key={receiver.id} value={receiver.id}>
                         {receiver.name} · {receiver.email}
@@ -750,7 +753,9 @@ export function OffboardingDialog({ open, user, onClose }: OffboardingDialogProp
           {formError && (
             <div className="flex items-start gap-2 rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-xs text-status-danger">
               <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
-              <span>{formError}</span>
+              <span>
+                <CopyableError message={formError} />
+              </span>
             </div>
           )}
 
@@ -867,7 +872,9 @@ export function ReactivateDialog({ open, user, onClose }: ReactivateDialogProps)
           {error && (
             <div className="flex items-start gap-2 rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-xs text-status-danger">
               <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
+              <span>
+                <CopyableError message={error} />
+              </span>
             </div>
           )}
           <div className="flex justify-end gap-2 border-t border-border pt-3">

@@ -1,7 +1,7 @@
 """Add durable failed-prediction retry authority and delivery outbox.
 
-Revision ID: 0233
-Revises: 0232
+Revision ID: bo0233
+Revises: bo0232
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import context, op
 
-revision = "0233"
-down_revision = "0232"
+revision = "bo0233"
+down_revision = "bo0232"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

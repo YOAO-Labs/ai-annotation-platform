@@ -172,40 +172,6 @@ async def test_conditioned_image_read_rejects_replaced_or_removed_source(code, s
         assert error.value.code == "source_changed"
 
 
-@pytest.mark.asyncio
-async def test_copy_precondition_failure_is_source_changed() -> None:
-    s3 = _S3()
-    s3.copy_error = _client_error("PreconditionFailed", 412)
-    storage = SourceStorage(_config(), internal_client=s3, public_signer=_Signer())
-
-    with pytest.raises(SourceFailure) as error:
-        await storage.publish_dataset_upload(
-            "dataset-uploads/item/source",
-            "dataset-sources/dataset/item/publication/photo.png",
-            etag='"stale-etag"',
-        )
-    assert error.value.code == "source_changed"
-
-
-@pytest.mark.asyncio
-async def test_publication_is_conditional_and_only_targets_dataset_bucket() -> None:
-    s3 = _S3()
-    storage = SourceStorage(_config(), internal_client=s3, public_signer=_Signer())
-
-    await storage.publish_dataset_upload(
-        "dataset-uploads/item/source",
-        "dataset-sources/dataset/item/publication/image.png",
-        etag='"source-etag"',
-    )
-
-    assert s3.copy_call == {
-        "Bucket": "datasets",
-        "Key": "dataset-sources/dataset/item/publication/image.png",
-        "CopySource": {"Bucket": "imports", "Key": "dataset-uploads/item/source"},
-        "CopySourceIfMatch": '"source-etag"',
-    }
-
-
 def test_storage_has_no_object_delete_or_bucket_management_surface() -> None:
     assert not hasattr(SourceStorage, "delete_object")
     assert not hasattr(SourceStorage, "delete_prefix")

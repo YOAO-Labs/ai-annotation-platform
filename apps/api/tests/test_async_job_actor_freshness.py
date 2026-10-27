@@ -9,7 +9,10 @@ import pytest
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.application.async_job_contracts import AsyncJobOperationFailure
+from app.application.async_job_contracts import (
+    AsyncJobOperationFailure,
+    RetryCredentialAuthority,
+)
 from app.application.async_job_read import SqlAsyncJobReadAdapter
 from app.application.prediction_retry import SqlPredictionRetry
 from app.db.models.async_job import AsyncJob
@@ -182,7 +185,13 @@ async def test_global_job_retry_refreshes_cached_super_admin_before_claim(
             with pytest.raises(AsyncJobOperationFailure) as denied:
                 await SqlPredictionRetry(
                     retained, dispatcher=dispatcher
-                ).retry_job_items(job_id=global_job_id, actor_id=actor_id)
+                ).retry_job_items(
+                    job_id=global_job_id,
+                    actor_id=actor_id,
+                    credential=RetryCredentialAuthority(
+                        actor_id=actor_id, authorization="Bearer stale"
+                    ),
+                )
 
             assert denied.value.status_code == expected_status
             assert denied.value.detail == "not your job"
@@ -220,7 +229,13 @@ async def test_failed_prediction_retry_refreshes_cached_super_admin_before_claim
             with pytest.raises(AsyncJobOperationFailure) as denied:
                 await SqlPredictionRetry(
                     retained, dispatcher=dispatcher
-                ).retry_prediction(failed_id=failed_id, actor_id=actor_id)
+                ).retry_prediction(
+                    failed_id=failed_id,
+                    actor_id=actor_id,
+                    credential=RetryCredentialAuthority(
+                        actor_id=actor_id, authorization="Bearer stale"
+                    ),
+                )
 
             assert denied.value.status_code == expected_status
             assert denied.value.detail == expected_detail

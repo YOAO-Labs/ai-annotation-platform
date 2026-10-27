@@ -16,6 +16,7 @@ from aap_inference.gpu.settings import (
     GPUAuthoritySettings,
     parse_gpu_resources,
 )
+from aap_inference.backend_transport import BackendTransport
 from scripts.validate_gpu_arbitration import (
     ActionSpec,
     BackendEndpoint,
@@ -1154,7 +1155,7 @@ async def test_run_action_cancels_and_reaps_http_child_on_injected_cancel(
                 request_cancelled.set()
 
     monkeypatch.setattr(
-        "scripts.validate_gpu_arbitration.httpx.AsyncClient", FakeClient
+        BackendTransport, "_http_client", lambda _self, **_kwargs: FakeClient()
     )
 
     @asynccontextmanager
@@ -1316,7 +1317,7 @@ async def test_concurrent_health_fault_is_attributed_to_exact_action(
             return FakeResponse()
 
     monkeypatch.setattr(
-        "scripts.validate_gpu_arbitration.httpx.AsyncClient", FakeClient
+        BackendTransport, "_http_client", lambda _self, **_kwargs: FakeClient()
     )
     fault = FaultController(kind="health-timeout", target=_BACKEND_A)
 

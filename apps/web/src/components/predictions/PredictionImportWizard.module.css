@@ -111,6 +111,7 @@
 .errors {
   max-height: 220px;
   overflow: auto;
+  scrollbar-gutter: stable;
   border-top: 1px solid var(--sc-border);
   padding-top: 8px;
   font-size: 12px;

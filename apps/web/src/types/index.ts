@@ -96,6 +96,9 @@ export interface TaskResponse {
   display_id: string;
   file_name: string;
   file_url: string | null;
+  original_identity_path?: string | null;
+  storage_mode?: "managed" | "reference";
+  content_sha256?: string | null;
   file_type: string;
   tags: string[];
   status: TaskStatus;
@@ -158,9 +161,11 @@ export interface VideoMetadata {
 }
 
 export interface TaskVideoManifestResponse {
+  metadata_generation_id?: string | null;
   task_id: string;
   dataset_item_id?: string | null;
-  video_url: string;
+  original_identity_path?: string | null;
+  video_url: string | null;
   poster_url: string | null;
   metadata: VideoMetadata;
   expires_in: number;
@@ -175,6 +180,7 @@ export interface VideoFrameTimetableEntry {
 }
 
 export interface TaskVideoFrameTimetableResponse {
+  metadata_generation_id?: string | null;
   task_id: string;
   fps: number | null;
   frame_count: number | null;
@@ -183,6 +189,10 @@ export interface TaskVideoFrameTimetableResponse {
 }
 
 export interface VideoFrameOut {
+  byte_size?: number | null;
+  output_id?: string | null;
+  sha256?: string | null;
+  metadata_generation_id?: string | null;
   frame_index: number;
   width: number;
   format: "webp" | "jpeg";
@@ -211,6 +221,9 @@ export interface VideoChunkDiagnostics {
 }
 
 export interface VideoChunkOut {
+  output_id?: string | null;
+  sha256?: string | null;
+  metadata_generation_id?: string | null;
   chunk_id: number;
   start_frame: number;
   end_frame: number;
@@ -238,9 +251,10 @@ export interface VideoManifestSegmentOut {
 // manifest v2 对齐后端 VideoManifestV2Response (apps/api/app/schemas/video_frame_service.py)。
 // 与 v1 TaskVideoManifestResponse 并存:精确帧 pipeline 仅在 WebCodecs decoder 激活时增量查询。
 export interface VideoManifestV2Response {
+  metadata_generation_id?: string | null;
   task_id: string | null;
   dataset_item_id: string;
-  video_url: string;
+  video_url: string | null;
   poster_url: string | null;
   fps: number | null;
   frame_count: number | null;
@@ -265,6 +279,9 @@ export interface VideoChunkSampleEntry {
 }
 
 export interface VideoChunkSamplesResponse {
+  output_id?: string | null;
+  sha256?: string | null;
+  metadata_generation_id?: string | null;
   dataset_item_id: string;
   chunk_id: number;
   codec_string: string;

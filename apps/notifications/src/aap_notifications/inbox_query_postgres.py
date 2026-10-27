@@ -16,9 +16,16 @@ class NotificationInboxQuerySession(Protocol):
 class NotificationInboxQueryPostgresData:
     """Run fixed functions through ORM statements, preserving autoflush and identity."""
 
-    def __init__(self, session: NotificationInboxQuerySession, notification_model):
+    def __init__(
+        self,
+        session: NotificationInboxQuerySession,
+        notification_model,
+        *,
+        include_migration_inventory: bool = True,
+    ):
         self.session = session
         self.notification_model = notification_model
+        self._suffix = "" if include_migration_inventory else "_scoped"
 
     async def page(
         self,
@@ -31,7 +38,7 @@ class NotificationInboxQueryPostgresData:
     ) -> list[Any]:
         statement = select(self.notification_model).from_statement(
             text(
-                "SELECT * FROM aap_notifications_v1.inbox_page("
+                f"SELECT * FROM aap_notifications_v1.inbox_page{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text), "
                 "CAST(:unread_only AS pg_catalog.bool), "
@@ -56,7 +63,7 @@ class NotificationInboxQueryPostgresData:
             func.count(self.notification_model.id).label("inbox_total_count")
         ).from_statement(
             text(
-                "SELECT aap_notifications_v1.inbox_total_count("
+                f"SELECT aap_notifications_v1.inbox_total_count{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text))"
             )
@@ -72,7 +79,7 @@ class NotificationInboxQueryPostgresData:
             func.count(self.notification_model.id).label("inbox_unread_count")
         ).from_statement(
             text(
-                "SELECT aap_notifications_v1.inbox_unread_count("
+                f"SELECT aap_notifications_v1.inbox_unread_count{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text))"
             )

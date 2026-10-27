@@ -74,7 +74,14 @@ export function CreateFromProjectDialog({ open, onClose }: Props) {
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
           >
-            <option value="">请选择项目</option>
+            <option value="" disabled hidden>
+              请选择项目
+            </option>
+            {projectId && !projects.data?.some((project) => project.id === projectId) && (
+              <option value={projectId} disabled hidden>
+                已选项目（暂不可用）
+              </option>
+            )}
             {(projects.data ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.display_id} · {p.name}

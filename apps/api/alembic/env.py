@@ -58,6 +58,20 @@ def do_run_migrations(connection: Connection) -> None:
         text("SELECT pg_advisory_lock(:k)").bindparams(k=_ALEMBIC_LOCK_ID)
     )
     try:
+        if connection.scalar(text("SELECT to_regclass('public.alembic_version')")):
+            revisions = connection.scalars(
+                text("SELECT version_num FROM public.alembic_version")
+            ).all()
+            if any(
+                "0190" <= revision <= "0370" for revision in revisions
+            ) and connection.scalar(text("SELECT to_regnamespace('aap_workspace_v1')")):
+                raise RuntimeError(
+                    "This database uses the pre-merge backend-opt revision lineage. "
+                    "Numeric 0190-0267 now retain the published main history; "
+                    "owner migrations use bo0190-bo0370. Refusing an ambiguous "
+                    "upgrade: restore and reconcile a verified backup before "
+                    "adopting the merged lineage; do not stamp the database."
+                )
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

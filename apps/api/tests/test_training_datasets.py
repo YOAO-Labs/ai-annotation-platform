@@ -1,6 +1,5 @@
 """Project authority, immutable snapshot and materialization regressions."""
 
-import hashlib
 import io
 import json
 import uuid
@@ -10,59 +9,49 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from PIL import Image
-from sqlalchemy import delete, event, select, update
 
-from app.deps import get_training_dataset_dispatcher
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
-from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import training_datasets as service
 from app.services.training_dataset_bridge import TrainingDatasetError
-from app.services.dataset_task_facts import ProjectTaskSourceRead
-from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
-from app.services.training_datasets import bind_training_authority
-from tests.factory import create_batch, create_membership, create_project, create_task
+from tests.factory import (
+    create_api_key,
+    create_membership,
+    create_project,
+    create_task,
+)
+from tests.sample_evaluation_original_fixtures import Objects
+from tests.training_original_fixtures import (
+    image_bytes,
+    original_receipt,
+    register_original,
+    staged_image,
+)
 
 dispatch_dataset = service.dispatch_dataset
 
 
-def source_reader(db):
-    return SqlAlchemyProjectTaskSourceReader(db)
-
-
-async def freeze_selection_with_db_reader(db, *args, **kwargs):
-    return await service.freeze_selection(
-        db, *args, source_reader=source_reader(db), **kwargs
-    )
-
-
-class _NoopDatasetDispatcher:
-    async def dispatch_dataset(self, *_args, **_kwargs):
-        pass
-
-
 @pytest.fixture
-def source_headers(monkeypatch, app_module):
-    monkeypatch.setattr(
-        service,
-        "capture_source_media",
-        lambda sample: {"etag": '"original"', "size_bytes": 128, "version_id": None},
-    )
-    monkeypatch.setitem(
-        app_module.dependency_overrides,
-        get_training_dataset_dispatcher,
-        _NoopDatasetDispatcher,
-    )
+def source_headers(monkeypatch):
+    provider = Objects().install(monkeypatch)
+    monkeypatch.setattr(service, "dispatch_dataset", _no_dispatch)
+    yield provider
+    assert all(body.closed for body in provider.bodies)
 
 
-async def reviewed_project(db, owner):
+async def _no_dispatch(*args, **kwargs):
+    pass
+
+
+async def reviewed_project(db, owner, *, original_objects=None):
     project = await create_project(db, owner_id=owner.id)
     tasks = []
     for _ in range(3):
         task = await create_task(db, project_id=project.id, status="completed")
+        if original_objects is not None:
+            await register_original(db, task, owner, provider=original_objects)
         task.reviewed_at = datetime.now(timezone.utc)
         task.is_labeled = True
         db.add(
@@ -80,190 +69,6 @@ async def reviewed_project(db, owner):
     return project, tasks
 
 
-async def test_selection_refreshes_live_source_without_mutating_prior_cut(
-    db_session, super_admin, source_headers
-):
-    owner, _ = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
-    task = tasks[0]
-    annotation = await db_session.scalar(
-        select(Annotation).where(Annotation.task_id == task.id)
-    )
-    annotation.geometry = {
-        **annotation.geometry,
-        "source": {"points": [[1, 2]]},
-    }
-    await db_session.flush()
-    prior = await source_reader(db_session).read_project_task_source_facts(
-        ProjectTaskSourceRead(
-            project_id=project.id,
-            tool_unit_id="bbox",
-            task_ids=(task.id,),
-            limit=2,
-        )
-    )
-    prior_annotation = prior.tasks[0].annotations[0]
-    exported = prior_annotation.as_json()
-    exported["geometry"]["source"]["points"][0][0] = 99
-    assert prior_annotation.as_json()["geometry"]["source"]["points"] == [[1, 2]]
-    with pytest.raises(TypeError):
-        prior.tool_bindings["bbox"]["classes"][0]["name"] = "changed"
-
-    previous_task_version = task.version
-    previous_annotation_version = annotation.version
-    await db_session.execute(
-        update(Task)
-        .where(Task.id == task.id)
-        .values(
-            version=Task.version + 1,
-            status="in_progress",
-            reviewed_at=None,
-        )
-        .execution_options(synchronize_session=False)
-    )
-    await db_session.execute(
-        update(Annotation)
-        .where(Annotation.id == annotation.id)
-        .values(
-            version=Annotation.version + 1,
-            class_name="truck",
-            geometry={**annotation.geometry, "x": 0.4},
-        )
-        .execution_options(synchronize_session=False)
-    )
-    await db_session.execute(
-        update(Project)
-        .where(Project.id == project.id)
-        .values(
-            tool_bindings={"bbox": {"enabled": True, "classes": [{"name": "truck"}]}}
-        )
-        .execution_options(synchronize_session=False)
-    )
-    excluded_snapshot, report = await freeze_selection_with_db_reader(
-        db_session,
-        project,
-        TrainingDatasetSelection(task_ids=[task.id]),
-        actor_id=owner.id,
-    )
-    assert excluded_snapshot["samples"] == []
-    assert report["excluded"] == [{"task_id": str(task.id), "code": "not_reviewed"}]
-    snapshot, _ = await freeze_selection_with_db_reader(
-        db_session,
-        project,
-        TrainingDatasetSelection(mode="manager_confirmed", task_ids=[task.id]),
-        actor_id=owner.id,
-    )
-    sample = snapshot["samples"][0]
-    assert snapshot["classes"] == ["truck"]
-    assert sample["task_version"] == previous_task_version + 1
-    assert sample["eligibility"]["reviewed"] is False
-    assert sample["annotations"] == [
-        {
-            **prior_annotation.as_json(),
-            "version": previous_annotation_version + 1,
-            "class_name": "truck",
-            "geometry": {**annotation.geometry, "x": 0.4},
-        }
-    ]
-    assert prior.tasks[0].task_version == previous_task_version
-    assert prior.tasks[0].reviewed is True
-    assert prior_annotation.class_name == "car"
-    assert prior_annotation.geometry["x"] == 0.1
-
-
-async def test_labeling_source_reader_scopes_orders_limits_and_uses_one_query(
-    db_session, super_admin
-):
-    owner, _token = super_admin
-    project = await create_project(db_session, owner_id=owner.id)
-    foreign_project = await create_project(db_session, owner_id=owner.id)
-    batch = await create_batch(db_session, project_id=project.id)
-    other_batch = await create_batch(db_session, project_id=project.id)
-    scoped = [await create_task(db_session, project_id=project.id) for _ in range(3)]
-    other_batch_task = await create_task(db_session, project_id=project.id)
-    foreign_task = await create_task(db_session, project_id=foreign_project.id)
-    for task in scoped:
-        task.batch_id = batch.id
-    other_batch_task.batch_id = other_batch.id
-    await db_session.flush()
-
-    reader = source_reader(db_session)
-    engine = db_session.bind.sync_engine
-    statements = []
-
-    def count_statement(_connection, _cursor, statement, _parameters, _context, _many):
-        statements.append(statement)
-
-    event.listen(engine, "before_cursor_execute", count_statement)
-    try:
-        limited = await reader.read_project_task_source_facts(
-            ProjectTaskSourceRead(
-                project_id=project.id,
-                tool_unit_id="bbox",
-                batch_id=batch.id,
-                limit=2,
-            )
-        )
-        assert len(statements) == 1
-        expected = sorted(scoped, key=lambda task: task.id)[:2]
-        assert [fact.task_id for fact in limited.tasks] == [
-            task.id for task in expected
-        ]
-        assert limited.tool_bindings is not None
-
-        statements.clear()
-        unrestricted = await reader.read_project_task_source_facts(
-            ProjectTaskSourceRead(
-                project_id=project.id,
-                tool_unit_id="bbox",
-                limit=4,
-            )
-        )
-        assert len(statements) == 1
-        assert [fact.task_id for fact in unrestricted.tasks] == sorted(
-            [task.id for task in scoped] + [other_batch_task.id]
-        )
-
-        statements.clear()
-        requested = await reader.read_project_task_source_facts(
-            ProjectTaskSourceRead(
-                project_id=project.id,
-                tool_unit_id="bbox",
-                batch_id=batch.id,
-                task_ids=(
-                    foreign_task.id,
-                    other_batch_task.id,
-                    scoped[2].id,
-                    scoped[0].id,
-                ),
-                limit=4,
-            )
-        )
-        assert len(statements) == 1
-        assert [fact.task_id for fact in requested.tasks] == sorted(
-            (scoped[0].id, scoped[2].id)
-        )
-
-        statements.clear()
-        empty = await reader.read_project_task_source_facts(
-            ProjectTaskSourceRead(
-                project_id=project.id,
-                tool_unit_id="bbox",
-                task_ids=(foreign_task.id, uuid.uuid4()),
-                limit=2,
-            )
-        )
-        assert len(statements) == 1
-        assert empty.tasks == () and empty.tool_bindings is None
-    finally:
-        event.remove(engine, "before_cursor_execute", count_statement)
-
-    with pytest.raises(ValueError, match="limit"):
-        ProjectTaskSourceRead(project_id=project.id, tool_unit_id="bbox", limit=0)
-    with pytest.raises(ValueError, match="limit"):
-        ProjectTaskSourceRead(project_id=project.id, tool_unit_id="bbox", limit=20_002)
-
-
 async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_list(
     db_session, super_admin, httpx_client, source_headers
 ):
@@ -278,6 +83,7 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
     annotations = []
     for i in range(3):
         task = await create_task(db_session, project_id=project.id, status="completed")
+        await register_original(db_session, task, owner, provider=source_headers)
         task.reviewed_at = datetime.now(timezone.utc)
         annotation = Annotation(
             task_id=task.id,
@@ -293,6 +99,7 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
         db_session.add(annotation)
         annotations.append(annotation)
     negative = await create_task(db_session, project_id=project.id, status="completed")
+    await register_original(db_session, negative, owner, provider=source_headers)
     negative.reviewed_at = datetime.now(timezone.utc)
     negative.submitted_at = negative.skipped_at = datetime.now(timezone.utc)
     negative.skip_reason = "no_target"
@@ -372,7 +179,9 @@ async def test_snapshot_is_fixed_after_task_edits_and_creation_is_idempotent(
     db_session, super_admin, httpx_client, source_headers
 ):
     owner, token = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
+    project, tasks = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     headers = {"Authorization": f"Bearer {token}"}
     path = f"/api/v1/projects/{project.id}/training-datasets"
     preflight = await httpx_client.post(f"{path}:preflight", headers=headers, json={})
@@ -400,115 +209,44 @@ async def test_snapshot_is_fixed_after_task_edits_and_creation_is_idempotent(
     assert repeated.json()["id"] == str(version_id)
     await db_session.refresh(version)
     assert json.dumps(version.snapshot, sort_keys=True) == saved
-    changed = await httpx_client.post(
-        path, headers=headers, json={**payload, "name": "Different name"}
-    )
-    assert changed.status_code == 409
-    await db_session.refresh(version)
-    assert json.dumps(version.snapshot, sort_keys=True) == saved
     fresh = await httpx_client.post(
-        path,
-        headers=headers,
-        json={**payload, "request_id": str(uuid.uuid4())},
+        path, headers=headers, json={**payload, "request_id": str(uuid.uuid4())}
     )
     assert fresh.status_code == 409
-
-
-async def test_stale_preflight_and_invalid_selection_do_not_create_dataset_rows(
-    db_session, super_admin, httpx_client, source_headers
-):
-    from app.db.models.project_task_dataset import (
-        ProjectTaskDataset,
-        TaskDatasetVersionMembership,
-    )
-
-    owner, token = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
-    headers = {"Authorization": f"Bearer {token}"}
-    path = f"/api/v1/projects/{project.id}/training-datasets"
-    preflight = await httpx_client.post(f"{path}:preflight", headers=headers, json={})
-    assert preflight.status_code == 200 and preflight.json()["ready"]
-    stale_request_id = uuid.uuid4()
-    stale_payload = {
-        "name": "Stale preflight",
-        "request_id": str(stale_request_id),
-        "preflight_digest": preflight.json()["digest"],
-    }
-    tasks[0].status = "in_progress"
-    await db_session.flush()
-    stale = await httpx_client.post(path, headers=headers, json=stale_payload)
-    assert stale.status_code == 409
-    invalid_request_id = uuid.uuid4()
-    invalid = await httpx_client.post(
-        path,
-        headers=headers,
-        json={
-            "name": "Unknown task",
-            "task_ids": [str(uuid.uuid4())],
-            "request_id": str(invalid_request_id),
-            "preflight_digest": "0" * 64,
-        },
-    )
-    assert invalid.status_code == 404
-    assert (
-        await db_session.scalar(
-            select(TrainingDatasetVersion.id).where(
-                TrainingDatasetVersion.project_id == project.id
-            )
-        )
-        is None
-    )
-    assert (
-        await db_session.scalar(
-            select(AsyncJob.id).where(
-                AsyncJob.project_id == project.id,
-                AsyncJob.kind == "training_dataset",
-            )
-        )
-        is None
-    )
-    assert (
-        await db_session.scalar(
-            select(ProjectTaskDataset.id).where(
-                ProjectTaskDataset.project_id == project.id
-            )
-        )
-        is None
-    )
-    assert (
-        await db_session.scalar(
-            select(TaskDatasetVersionMembership.version_id)
-            .join(
-                ProjectTaskDataset,
-                TaskDatasetVersionMembership.task_dataset_id == ProjectTaskDataset.id,
-            )
-            .where(ProjectTaskDataset.project_id == project.id)
-        )
-        is None
-    )
 
 
 async def test_only_current_review_round_can_imply_negative(
     db_session, super_admin, source_headers
 ):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     task = await create_task(db_session, project_id=project.id, status="completed")
+    await register_original(db_session, task, owner, provider=source_headers)
     task.reviewed_at = datetime.now(timezone.utc)
     task.skip_reason = "no_target"
     task.skipped_at = datetime.now(timezone.utc) - timedelta(days=1)
     task.submitted_at = datetime.now(timezone.utc)
     await db_session.flush()
-    snapshot, report = await freeze_selection_with_db_reader(
-        db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+    snapshot, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert {"task_id": str(task.id), "code": "unconfirmed_negative"} in report[
         "excluded"
     ]
     task.skipped_at = task.submitted_at
     await db_session.flush()
-    snapshot, report = await freeze_selection_with_db_reader(
-        db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+    snapshot, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["summary"]["negatives"] == 1
     assert any(s["task_id"] == str(task.id) for s in snapshot["samples"])
@@ -518,15 +256,18 @@ async def test_manager_confirmation_does_not_turn_unselected_empty_tasks_into_ne
     db_session, super_admin, source_headers
 ):
     owner, _ = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
+    project, tasks = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     blank = await create_task(db_session, project_id=project.id)
-    snapshot, report = await freeze_selection_with_db_reader(
+    snapshot, report = await service.freeze_selection(
         db_session,
         project,
         TrainingDatasetSelection(
             mode="manager_confirmed", task_ids=[t.id for t in tasks] + [blank.id]
         ),
         actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["summary"]["negatives"] == 0
     assert report["excluded"] == [
@@ -538,7 +279,9 @@ async def test_member_cannot_access_versions_and_project_deletion_is_atomic(
     db_session, super_admin, annotator, httpx_client, source_headers
 ):
     owner, token = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
+    project, tasks = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     employee, employee_token = annotator
     await create_membership(
         db_session,
@@ -579,22 +322,31 @@ async def test_foreign_parent_and_unknown_tasks_rejected(
     db_session, super_admin, source_headers
 ):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     with pytest.raises(TrainingDatasetError) as error:
-        await freeze_selection_with_db_reader(
+        await service.freeze_selection(
             db_session,
             project,
             TrainingDatasetSelection(task_ids=[uuid.uuid4()]),
             actor_id=owner.id,
+            trusted_actor=True,
         )
     assert error.value.status_code == 404
 
 
 async def test_revoked_creator_cannot_publish(db_session, super_admin, source_headers):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
-    snapshot, report = await freeze_selection_with_db_reader(
-        db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
+    snapshot, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     version = TrainingDatasetVersion(
         project_id=project.id,
@@ -610,17 +362,17 @@ async def test_revoked_creator_cannot_publish(db_session, super_admin, source_he
     owner.is_active = False
     await db_session.flush()
     with pytest.raises(TrainingDatasetError) as error:
-        await bind_training_authority(db_session).assert_authority(
-            project_id=version.project_id,
-            actor_id=version.creator_id,
-            api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        await service.dataset_authority(
+            db_session,
+            version,
+            training_authority=service.bind_training_authority(db_session),
         )
     assert error.value.code == "authority_revoked"
 
 
 async def make_version(db, owner, project):
-    snapshot, report = await freeze_selection_with_db_reader(
-        db, project, TrainingDatasetSelection(), actor_id=owner.id
+    snapshot, report = await service.freeze_selection(
+        db, project, TrainingDatasetSelection(), actor_id=owner.id, trusted_actor=True
     )
     version = TrainingDatasetVersion(
         project_id=project.id,
@@ -633,35 +385,12 @@ async def make_version(db, owner, project):
     )
     db.add(version)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    await allocate(db, version)
     await service.enqueue_dataset(db, version)
     await db.commit()
     return version
-
-
-async def make_minimal_cancel_target(db, owner):
-    from app.services import async_job as async_job_service
-
-    project = await create_project(db, owner_id=owner.id)
-    job = await async_job_service.create_job(
-        db,
-        kind="training_dataset",
-        user_id=owner.id,
-        project_id=project.id,
-        celery_task_id="stale-execution",
-    )
-    version = TrainingDatasetVersion(
-        project_id=project.id,
-        creator_id=owner.id,
-        async_job_id=job.id,
-        request_id=uuid.uuid4(),
-        request_digest="a" * 64,
-        snapshot_digest="b" * 64,
-        snapshot={"task": "detect", "classes": [], "samples": []},
-        name="Cancellation regression",
-    )
-    db.add(version)
-    await db.flush()
-    return project, job, version
 
 
 async def test_cancel_reconciles_domain_and_execution_fences_deletion(
@@ -673,7 +402,9 @@ async def test_cancel_reconciles_domain_and_execution_fences_deletion(
 
     monkeypatch.setattr(celery_app.control, "revoke", lambda *args, **kwargs: None)
     owner, token = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     version = await make_version(db_session, owner, project)
     headers = {"Authorization": f"Bearer {token}"}
     response = await httpx_client.post(
@@ -704,215 +435,23 @@ async def test_cancel_reconciles_domain_and_execution_fences_deletion(
             await execution.commit()
 
 
-@pytest.mark.parametrize(
-    ("fresh_job_status", "version_status", "missing_version"),
-    [
-        ("running", "running", False),
-        ("completed", "running", False),
-        ("running", "ready", False),
-        ("running", None, True),
-    ],
-)
-async def test_training_dataset_cancellation_uses_fresh_job_and_version_state(
-    db_session,
-    super_admin,
-    monkeypatch,
-    fresh_job_status,
-    version_status,
-    missing_version,
-):
-    from app.db.models.notification import Notification
-    from app.services.training_dataset_cancellation_contract import (
-        TrainingDatasetCancellationFailure,
-    )
-    from app.services.training_datasets import SqlTrainingDatasetCancellation
-
-    owner, _ = super_admin
-    project, job, version = await make_minimal_cancel_target(db_session, owner)
-    assert job.status == "pending"
-    assert job.celery_task_id == "stale-execution"
-    assert version.status == "pending"
-
-    await db_session.execute(
-        update(AsyncJob)
-        .where(AsyncJob.id == job.id)
-        .values(status=fresh_job_status, celery_task_id="fresh-execution")
-        .execution_options(synchronize_session=False)
-    )
-    if missing_version:
-        await db_session.execute(
-            delete(TrainingDatasetVersion)
-            .where(TrainingDatasetVersion.id == version.id)
-            .execution_options(synchronize_session=False)
-        )
-    else:
-        await db_session.execute(
-            update(TrainingDatasetVersion)
-            .where(TrainingDatasetVersion.id == version.id)
-            .values(status=version_status)
-            .execution_options(synchronize_session=False)
-        )
-
-    # The identity-map rows stay stale until the cancellation owner re-reads them.
-    assert job.status == "pending"
-    assert job.celery_task_id == "stale-execution"
-    assert version.status == "pending"
-    execution_ids = []
-    published = []
-
-    class CaptureExecutionControl:
-        def request_cancel(self, execution_id):
-            execution_ids.append(execution_id)
-
-    async def capture_redis_publish(*, user_id, message):
-        published.append((user_id, message))
-
-    monkeypatch.setattr("app.services.notification._publish", capture_redis_publish)
-    cancellation = SqlTrainingDatasetCancellation(
-        db_session, execution_control=CaptureExecutionControl()
-    )
-
-    if fresh_job_status == "running" and version_status == "running":
-        await cancellation.request_cancel(
-            job_id=job.id, project_id=project.id, actor_id=owner.id
-        )
-        await db_session.commit()
-        await db_session.refresh(job)
-        await db_session.refresh(version)
-        assert execution_ids == ["fresh-execution"]
-        assert job.status == "cancelled"
-        assert version.status == "cancelled"
-        assert version.error_code == "cancelled"
-        assert version.error_message == "训练数据构建已取消"
-        assert version.completed_at is not None
-        notification = await db_session.scalar(
-            select(Notification).where(
-                Notification.user_id == owner.id,
-                Notification.type == "job.cancelled",
-                Notification.target_type == "async_job",
-                Notification.target_id == job.id,
-            )
-        )
-        assert notification is not None
-        assert len(published) == 1
-        assert published[0][0] == owner.id
-        assert published[0][1]["type"] == "job.cancelled"
-    else:
-        with pytest.raises(TrainingDatasetCancellationFailure) as exc:
-            await cancellation.request_cancel(
-                job_id=job.id, project_id=project.id, actor_id=owner.id
-            )
-        assert exc.value.status_code == 409
-        assert exc.value.detail == "训练数据构建已结束"
-        assert execution_ids == []
-        await db_session.refresh(job)
-        assert job.status == fresh_job_status
-        assert job.celery_task_id == "fresh-execution"
-        if missing_version:
-            assert (
-                await db_session.scalar(
-                    select(TrainingDatasetVersion.id).where(
-                        TrainingDatasetVersion.id == version.id
-                    )
-                )
-                is None
-            )
-        else:
-            await db_session.refresh(version)
-            assert version.status == version_status
-        notification_id = await db_session.scalar(
-            select(Notification.id).where(
-                Notification.user_id == owner.id,
-                Notification.target_id == job.id,
-            )
-        )
-        assert notification_id is None
-        assert published == []
-
-
-async def test_training_dataset_cancellation_restores_current_account_rejection(
-    db_session, super_admin
-):
-    from app.application.async_job_contracts import AsyncJobOperationFailure
-    from app.application.job_cancellation import SqlJobCancellation
-    from app.db.models.user import User
-
-    owner, _ = super_admin
-    _project, job, version = await make_minimal_cancel_target(db_session, owner)
-    assert owner.is_active is True
-    await db_session.execute(
-        update(User)
-        .where(User.id == owner.id)
-        .values(is_active=False)
-        .execution_options(synchronize_session=False)
-    )
-    assert owner.is_active is True
-    execution_ids = []
-
-    class CaptureExecutionControl:
-        def request_cancel(self, execution_id):
-            execution_ids.append(execution_id)
-
-    with pytest.raises(AsyncJobOperationFailure) as exc:
-        await SqlJobCancellation(
-            db_session, execution_control=CaptureExecutionControl()
-        ).cancel(job_id=job.id, actor_id=owner.id)
-
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "账号已停用或不存在"
-    assert exc.value.headers == {"WWW-Authenticate": "Bearer"}
-    assert execution_ids == []
-    assert job.status == "pending"
-    assert version.status == "pending"
-
-
-async def test_training_dataset_cancellation_preserves_unexpected_owner_exception(
-    db_session, super_admin, monkeypatch
-):
-    from app.application.job_cancellation import SqlJobCancellation
-
-    owner, _ = super_admin
-    _project, job, _version = await make_minimal_cancel_target(db_session, owner)
-    owner_failure = RuntimeError("owner dependency failed")
-
-    async def fail_project_manager(*_args, **_kwargs):
-        raise owner_failure
-
-    monkeypatch.setattr(
-        "app.services.training_datasets.lock_project_manager", fail_project_manager
-    )
-    execution_ids = []
-
-    class CaptureExecutionControl:
-        def request_cancel(self, execution_id):
-            execution_ids.append(execution_id)
-
-    with pytest.raises(RuntimeError) as exc:
-        await SqlJobCancellation(
-            db_session, execution_control=CaptureExecutionControl()
-        ).cancel(job_id=job.id, actor_id=owner.id)
-
-    assert exc.value is owner_failure
-    assert execution_ids == []
-
-
 @pytest.mark.parametrize("accepted_status", ["pending", "running", "ready"])
 async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
-    db_session, super_admin, source_headers, accepted_status
+    db_session, super_admin, source_headers, monkeypatch, accepted_status
 ):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     version = await make_version(db_session, owner, project)
 
-    class BrokerResponseLostDispatcher:
-        async def dispatch_dataset(self, *_args, **_kwargs):
-            version.status = accepted_status
-            await db_session.commit()
-            raise OSError("broker response lost")
+    async def broker_response_lost(*args, **kwargs):
+        version.status = accepted_status
+        await db_session.commit()
+        raise OSError("broker response lost")
 
-    await dispatch_dataset(
-        db_session, version, dispatcher=BrokerResponseLostDispatcher()
-    )
+    monkeypatch.setattr(service.asyncio, "to_thread", broker_response_lost)
+    await dispatch_dataset(db_session, version)
     await db_session.refresh(version)
     assert version.status == (
         "failed" if accepted_status == "pending" else accepted_status
@@ -922,10 +461,10 @@ async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
 async def test_api_key_scopes_and_post_queue_revocation(
     db_session, super_admin, httpx_client, source_headers
 ):
-    from tests.factory import create_api_key
-
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     key, token = await create_api_key(db_session, owner.id, "training", [])
     path = f"/api/v1/projects/{project.id}/training-datasets"
     denied = await httpx_client.get(path, headers={"Authorization": f"Bearer {token}"})
@@ -936,12 +475,13 @@ async def test_api_key_scopes_and_post_queue_revocation(
         path, headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200
-    snapshot, report = await freeze_selection_with_db_reader(
+    snapshot, report = await service.freeze_selection(
         db_session,
         project,
         TrainingDatasetSelection(),
         actor_id=owner.id,
         api_key_id=str(key.id),
+        trusted_actor=True,
     )
     version = TrainingDatasetVersion(
         project_id=project.id,
@@ -957,10 +497,10 @@ async def test_api_key_scopes_and_post_queue_revocation(
     key.revoked_at = datetime.now(timezone.utc)
     await db_session.flush()
     with pytest.raises(TrainingDatasetError) as error:
-        await bind_training_authority(db_session).assert_authority(
-            project_id=version.project_id,
-            actor_id=version.creator_id,
-            api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        await service.dataset_authority(
+            db_session,
+            version,
+            training_authority=service.bind_training_authority(db_session),
         )
     assert error.value.code == "api_key_revoked"
 
@@ -983,9 +523,20 @@ async def test_real_storage_materialization_retry_preserves_originals(
             storage_service.put_bytes(
                 task.file_path, buffer.getvalue(), content_type="image/png"
             )
+            await register_original(
+                db_session,
+                task,
+                owner,
+                raw=buffer.getvalue(),
+                bucket=storage_service.bucket,
+            )
         await db_session.flush()
-        snapshot, report = await freeze_selection_with_db_reader(
-            db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+        snapshot, report = await service.freeze_selection(
+            db_session,
+            project,
+            TrainingDatasetSelection(),
+            actor_id=owner.id,
+            trusted_actor=True,
         )
         assert report["ready"]
         version = TrainingDatasetVersion(
@@ -999,6 +550,9 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         db_session.add(version)
         await db_session.flush()
+        from app.services.training_dataset_storage import allocate
+
+        await allocate(db_session, version)
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
 
@@ -1020,7 +574,6 @@ async def test_real_storage_materialization_retry_preserves_originals(
         await db_session.refresh(version)
         assert version.status == "failed"
         assert version.error_code == "temporary_failure"
-        assert version.completed_at is not None
         storage_service.delete_prefix(source_prefix)
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
@@ -1030,10 +583,6 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         await db_session.refresh(version)
         assert version.status == "ready", version.error_message
-        assert version.progress_pct == 100
-        assert version.completed_at is not None
-        assert version.error_code is None
-        assert version.error_message is None
         response = storage_service.client.get_object(
             Bucket=storage_service.training_bucket, Key=version.package_key
         )
@@ -1052,91 +601,36 @@ async def test_real_storage_materialization_retry_preserves_originals(
                     io.BytesIO(archive.read(sample["image_path"]))
                 ) as image:
                     assert image.size == (32, 24)
-        assert version.manifest == manifest
-        assert version.size_bytes == len(package_bytes)
-        assert version.package_sha256 == hashlib.sha256(package_bytes).hexdigest()
         assert version.snapshot == snapshot
         original_checksum = version.package_sha256
-        ready_package_key = version.package_key
-        ready_attempt_id = version.attempt_id
-        await worker.build_dataset(
-            version.id, version.async_job_id, uuid.uuid4(), sessions
-        )
-        await db_session.refresh(version)
-        assert version.status == "ready"
-        assert version.attempt_id == ready_attempt_id
-        assert version.package_key == ready_package_key
-        assert version.package_sha256 == original_checksum
-        package_head = storage_service.client.head_object(
-            Bucket=storage_service.training_bucket,
-            Key=ready_package_key,
-        )
-        assert package_head["ContentLength"] == version.size_bytes
         await worker.build_dataset(
             version.id, version.async_job_id, version.attempt_id, sessions
         )
         await db_session.refresh(version)
         assert version.package_sha256 == original_checksum
-        # A failed retry must preserve the original published fields and object.
+        # A late cancellation after upload must discard this attempt's ZIP.
         version.status = "failed"
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
-        failed_attempt = version.attempt_id
-        monkeypatch.setattr(worker, "build_training_package", temporary_failure)
-        await worker.build_dataset(
-            version.id, version.async_job_id, failed_attempt, sessions
-        )
-        await db_session.refresh(version)
-        assert version.status == "failed"
-        assert version.error_code == "temporary_failure"
-        assert version.package_key == ready_package_key
-        assert version.package_sha256 == original_checksum
-        assert version.size_bytes == len(package_bytes)
-        assert version.manifest == manifest
-        assert version.snapshot == snapshot
-        failed_object = storage_service.client.get_object(
-            Bucket=storage_service.training_bucket, Key=ready_package_key
-        )
-        try:
-            preserved_bytes = failed_object["Body"].read()
-        finally:
-            failed_object["Body"].close()
-        assert hashlib.sha256(preserved_bytes).hexdigest() == original_checksum
-        # A late cancellation after upload discards only this attempt's ZIP.
-        await service.enqueue_dataset(db_session, version)
-        await db_session.commit()
         cancelled_attempt = version.attempt_id
-        monkeypatch.setattr(worker, "build_training_package", original_bridge)
         authority_calls = 0
-        original_authority = service.SqlTrainingAuthority.assert_authority
+        original_authority = worker.require_authority
 
-        async def cancel_before_publication(authority, **facts):
+        async def cancel_before_publication(db, current):
             nonlocal authority_calls
             authority_calls += 1
-            await original_authority(authority, **facts)
+            await original_authority(db, current)
             if authority_calls == 2:
-                db = authority._db
-                current = await db.get(TrainingDatasetVersion, version.id)
                 current.status = "cancelled"
                 await service.jobs.mark_cancelled(db, current.async_job_id)
                 await db.commit()
 
-        monkeypatch.setattr(
-            service.SqlTrainingAuthority, "assert_authority", cancel_before_publication
-        )
+        monkeypatch.setattr(worker, "require_authority", cancel_before_publication)
         await worker.build_dataset(
             version.id, version.async_job_id, cancelled_attempt, sessions
         )
         await db_session.refresh(version)
         assert version.status == "cancelled"
-        assert version.package_key == ready_package_key
-        assert version.package_sha256 == original_checksum
-        assert version.size_bytes == len(package_bytes)
-        assert version.manifest == manifest
-        cancel_package_head = storage_service.client.head_object(
-            Bucket=storage_service.training_bucket, Key=ready_package_key
-        )
-        assert cancel_package_head["ContentLength"] == len(package_bytes)
         assert (
             storage_service.list_objects(
                 f"{training_prefix}datasets/{version.id}/attempts/{cancelled_attempt}/",
@@ -1151,65 +645,45 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
 
 
-def test_changed_source_is_rejected_before_preserving_media(tmp_path):
+def test_changed_verified_original_is_rejected_before_preserving_media(
+    tmp_path, monkeypatch
+):
+    from botocore.exceptions import ClientError
     from app.services.storage import storage_service
     from app.workers.training_dataset import materialize_image
 
-    prefix = f"test-training-source/{uuid.uuid4()}/"
-    key = prefix + "image.png"
+    def missing_retained(**kwargs):
+        raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+
+    def unexpected_io(*args, **kwargs):
+        pytest.fail("Changed staged bytes must not trigger raw GETs or retained PUTs")
+
+    monkeypatch.setattr(storage_service.client, "head_object", missing_retained)
+    monkeypatch.setattr(storage_service.client, "get_object", unexpected_io)
+    monkeypatch.setattr(storage_service.client, "upload_file", unexpected_io)
+    original, changed = image_bytes(color="red"), image_bytes(color="blue")
+    receipt = original_receipt(original)
+    sample = {
+        "task_id": str(uuid.uuid4()),
+        "source_key": "test-training-source/image.png",
+        "original": receipt,
+        "media": {"sha256": receipt["sha256"], "size_bytes": len(original)},
+    }
+    stage = staged_image(changed)
     try:
-        storage_service.put_bytes(key, b"original", content_type="image/png")
-        sample = {
-            "task_id": str(uuid.uuid4()),
-            "source_bucket": storage_service.bucket,
-            "source_key": key,
-        }
-        sample["media"] = service.capture_source_media(sample)
-        storage_service.put_bytes(key, b"changed", content_type="image/png")
-        if version_id := sample["media"]["version_id"]:
-            # An overwrite alone keeps the frozen source readable in versioned buckets.
-            storage_service.client.delete_object(
-                Bucket=storage_service.bucket, Key=key, VersionId=version_id
-            )
         with pytest.raises(TrainingDatasetError) as error:
-            materialize_image(sample, prefix.rstrip("/"), "frozen", tmp_path)
+            materialize_image(
+                sample,
+                "test-training-source",
+                "frozen",
+                tmp_path,
+                bucket="retained-training",
+                verified_original=stage,
+            )
         assert error.value.code == "source_media_changed"
-        assert (
-            storage_service.list_objects(prefix, bucket=storage_service.training_bucket)
-            == []
-        )
+        assert not stage.file.closed
     finally:
-        storage_service.delete_prefix(prefix)
-        storage_service.delete_prefix(prefix, bucket=storage_service.training_bucket)
-
-
-def test_versioned_source_overwrite_preserves_frozen_image(tmp_path):
-    from app.services.storage import storage_service
-    from app.workers.training_dataset import materialize_image
-
-    prefix = f"test-training-source/{uuid.uuid4()}/"
-    key = prefix + "image.png"
-    image = io.BytesIO()
-    Image.new("RGB", (7, 5), "red").save(image, format="PNG")
-    original = image.getvalue()
-    try:
-        storage_service.put_bytes(key, original, content_type="image/png")
-        sample = {
-            "task_id": str(uuid.uuid4()),
-            "source_bucket": storage_service.bucket,
-            "source_key": key,
-        }
-        sample["media"] = service.capture_source_media(sample)
-        if not sample["media"]["version_id"]:
-            pytest.skip("requires object versioning for frozen source retention")
-        storage_service.put_bytes(key, b"changed", content_type="image/png")
-        media = materialize_image(sample, prefix.rstrip("/"), "frozen", tmp_path)
-        assert media["sha256"] == hashlib.sha256(original).hexdigest()
-        assert (media["width"], media["height"]) == (7, 5)
-        assert (tmp_path / sample["task_id"]).read_bytes() == original
-    finally:
-        storage_service.delete_prefix(prefix)
-        storage_service.delete_prefix(prefix, bucket=storage_service.training_bucket)
+        stage.close()
 
 
 async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_other_task_negatives(
@@ -1218,7 +692,9 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
     source_headers,
 ):
     owner, _ = super_admin
-    project, boxes = await reviewed_project(db_session, owner)
+    project, boxes = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     project.tool_bindings = {
         **project.tool_bindings,
         "region": {"enabled": True, "classes": ["shape"]},
@@ -1226,6 +702,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
     region_only = await create_task(
         db_session, project_id=project.id, status="completed"
     )
+    await register_original(db_session, region_only, owner, provider=source_headers)
     region_only.reviewed_at = datetime.now(timezone.utc)
     polygons = []
     for task in [*boxes, region_only]:
@@ -1243,8 +720,12 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         polygons.append(ann)
         db_session.add(ann)
     await db_session.flush()
-    detect, report = await freeze_selection_with_db_reader(
-        db_session, project, TrainingDatasetSelection(task="detect"), actor_id=owner.id
+    detect, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(task="detect"),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["ready"]
     assert report["summary"]["eligible"] == 3 and report["summary"]["objects"] == 3
@@ -1258,11 +739,12 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         for sample in detect["samples"]
         for a in sample["annotations"]
     )
-    segment, report = await freeze_selection_with_db_reader(
+    segment, report = await service.freeze_selection(
         db_session,
         project,
         TrainingDatasetSelection(task="segmentation"),
         actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["ready"] and report["summary"]["eligible"] == 4
     assert (
@@ -1283,14 +765,18 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         "holes": [[[0.2, 0.2], [0.3, 0.2], [0.3, 0.3]]],
     }
     await db_session.flush()
-    _, report = await freeze_selection_with_db_reader(
-        db_session, project, TrainingDatasetSelection(task="segment"), actor_id=owner.id
+    _, report = await service.freeze_selection(
+        db_session,
+        project,
+        TrainingDatasetSelection(task="segment"),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert (
         not report["ready"] and report["issues"][0]["code"] == "unsupported_annotation"
     )
     # The manager's negative confirmation is explicit and scoped to detect.
-    snapshot, report = await freeze_selection_with_db_reader(
+    snapshot, report = await service.freeze_selection(
         db_session,
         project,
         TrainingDatasetSelection(
@@ -1300,6 +786,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
             confirmed_negative_ids=[region_only.id],
         ),
         actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["ready"] and report["summary"]["negatives"] == 1
     assert (

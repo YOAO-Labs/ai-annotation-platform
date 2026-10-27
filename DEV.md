@@ -6,6 +6,18 @@
 > 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yyq19990828.github.io/ai-annotation-platform/dev/)。
 > 本文件仅保留快速参考。
 
+## 合并后的数据库迁移谱系
+
+主线迁移 `0190`–`0267` 保留原身份；后端 owner 迁移使用 `bo0190`–`bo0370`，
+首项接在主线 `0267` 后，形成一条线性链。迁移文件名和冻结 SQL 工件名保持不变；
+下文旧验收记录中的数字编号仍指当时的原始谱系，不能直接作为当前升级目标。
+
+主线数据库可按正常升级流程进入新链。已经运行旧 backend-opt 数字谱系的数据库，
+包括旧 `0366`／`0370`，不是可直接升级的主线库；迁移入口在发现 owner schema 与旧数字
+版本时会在 DDL 前拒绝。先保留数据库与角色备份，在副本上迁入完整主线结构、核对来源
+身份／位置账本与最终 schema，再由部署负责人明确采用。不要通过 `stamp`、删版本表、
+跳过迁移或放宽权限绕过历史差异；本次源码整合不自动升级任何日常数据库。
+
 ## 本机开发服务定时重启
 
 主 checkout 的 Web/API 可由用户 systemd 的 `aap-development-web.service`（3000）与 `aap-development-api.service`（8000）管理。单元模板位于 `infra/systemd/aap-development-{api,web}.service.in`；安装到 `~/.config/systemd/user/` 前替换 `@PROJECT_DIR@` 和 `@NODE_BIN_DIR@` 为实际绝对路径。API 直接使用本 checkout 的 Python 虚拟环境，Web 使用固定 Node 路径；Web 端口被占用时会失败，不自动换端口。首次接管已有进程需核对其 PID、会话和工作目录，不得按端口杀未知进程。
@@ -56,6 +68,8 @@ ai-annotation-platform/
 │   │   │   └── utils/           # 工具函数
 │   │   └── pyproject.toml
 │   │
+│   ├── storage-agent/           # 跨网络只读站点存储 Agent
+│   ├── training-executor/       # 受控单 GPU 在线学习训练执行器
 │   ├── grounded-sam2-backend/   # Grounded-SAM-2 GPU backend
 │   │   ├── vendor/              # IDEA-Research/Grounded-SAM-2 镜像副本（sync_vendor.sh）
 │   │   ├── predictor.py         # 三种 prompt (point/bbox/text) 路由
@@ -67,8 +81,16 @@ ai-annotation-platform/
 │   ├── rapidocr-backend/        # OCR backend
 │   │
 │   └── _shared/                 # 跨子应用共享 Python 包
-│       └── mask_utils/          # mask→polygon (sam2-backend / sam3-backend 共用)
+│       ├── backend_runtime/     # ML Backend 运行时公共工具与健康/认证基座
+│       ├── filesystem_read/     # 受控根目录解析与只读快照原语
+│       ├── mask_utils/          # mask→polygon (sam2-backend / sam3-backend 共用)
+│       ├── protocol_v2/         # ML Backend 协议 schema 与能力词表
+│       ├── site_agent_contract/ # 中心与只读站点 Agent 传输消息契约
+│       ├── task_contract/       # 统一任务类型、媒体与导出契约
+│       └── training_contract/   # 受控训练参数、输入成员、谱系与模型回流契约
 │
+├── packages/
+│   └── python-sdk/              # Python SDK、CLI 与 TUI 客户端
 ├── infra/docker/                # Dockerfile + Nginx (web/api)
 ├── scripts/                     # 工具脚本（seed.py / eval_simplify.py / sync_vendor.sh）
 ├── docs-site/                   # VitePress 用户手册 + 开发文档 + API
@@ -143,9 +165,23 @@ MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配�
 
 在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。已受理的不可变输入对象使用独立 `MINIO_INPUTS_BUCKET`（默认 `accepted-inputs`），该桶必须启用 versioning，且不能设置自动过期；`media-cache` 保持非版本化。旧八桶/九桶工作树只会在显式 `init/up` 时按阶段扩展到十桶；`doctor/stop/destroy` 仍按旧清单只读、停止或销毁，不会隐式创建新桶。升级中断会留下 `.worktree/<mode>/training-bucket-upgrade.json` 或 `inputs-bucket-upgrade.json`；缺少归属标签的新桶不会被自动接管。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
 
+### 数据集工作台规模测量
+
+数据集分页、筛选与关联项目统计的可复现本地基线使用 `scripts/benchmark_dataset_workbench.py`，仅运行于 owned、空业务库的 `e2e` 环境。两档索引各含 40 张真实目录图片，其余明确为未核验合成索引；测量前用当前命名空间的迁移账号准备完整统计，API 仍使用普通运行账号。[测量方法与读数](docs-site/dev/reference/dataset-workbench-benchmark.md) 包含运行、浏览器请求预算及清理步骤。
+
+真实目录遍历另使用 `scripts/benchmark_dataset_scan.py`，同样要求空业务库及完整归属核验的 `e2e` 环境。真实专属 Worker 测量 1,000／10,000／40,000 文件、取消恢复和既有预算边界；它不改扫描预算，也不代替图片读取性能。命令、计量口径及清理见[目录扫描资源基线](docs-site/dev/reference/dataset-scan-benchmark.md)。
+
+目录原图的实际核验／HTTP传输使用 `scripts/benchmark_dataset_read.py`：三档真实编码并登记的图片，各测首次、单路与四路完整读取，记录 SQL、源字节、API资源和响应断开后的临时文件收尾。仅运行于同样归属核验且业务为空的 `e2e`，不修改生产读取和预算；方法、实际读数及清理见[原图读取资源基线](docs-site/dev/reference/dataset-read-benchmark.md)。
+
+已采纳目录来源的完整增量同步使用 `scripts/benchmark_dataset_sync.py`：真实Worker测量1,000／10,000文件的无变化轮次和1%纯新增自动采纳，汇总全部扫描／预检／登记分块及旧文件重读。它在同样空业务库且归属核验的e2e环境运行，显式推进阶段唤醒，不计生产定时周期；复现、计量边界和清理见[增量同步资源基线](docs-site/dev/reference/dataset-sync-benchmark.md)。
+
+训练准备使用`scripts/benchmark_dataset_training.py`，在独立空test模式测量1,000／10,000托管合成任务的真实HTTP预检／创建、Celery打包和两次完整包读取。夹具准备单列，原件与业务行保持，源码指纹变化拒绝完成；复现、S3上下文范围及资源清理见[训练准备资源基线](docs-site/dev/reference/dataset-training-benchmark.md)。
+
 ### 任务数据集管理关联与回填
 
 任务版本流的增量迁移只增加 `project_task_datasets` 与 `task_dataset_version_memberships`，不重写历史冻结记录。先核对实际 API／worker 的 checkout、挂载、数据库与迁移图，再应用迁移，刷新手动创建的 API 和执行自动学习策略的 worker／scheduler。Celery 不会因 Python 文件更新自动重载；仅本次管理与分析代码变化不要求重建未改变的 GPU 训练／推理镜像。
+
+数据集生命周期升级须先应用 Alembic 0214，再接入新模型并刷新执行导入、建任务、扫描/登记、同步、质量检测及复核的 worker；原件与业务关系不回填。迁移是加列，历史为活动且生命周期修订1；发生归档/恢复后，降级会拒绝删除生命周期事实。独立工作树环境先核实资源所有权，使用其迁移连接；保留人工数据，禁止用测试数据库准备过程代替应用迁移。
 
 历史关联使用 `apps/api/scripts/backfill_task_datasets.py`。目标必选其一：`--project-id UUID` 或 `--all-projects`；模式必选其一：`--dry-run`、`--apply`、`--verify`。以下以已核对的当前工作树 `dev` 模式为例；先停止同模式运行进程再执行，避免与启动器模式锁竞争。生产环境使用部署中明确选定的应用环境和现有虚拟环境，不能沿用不明来源的共享 `.env`。
 
@@ -165,11 +201,13 @@ pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python s
 
 ### 训练执行器配置
 
-受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
+受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API，并重新创建 `celery-worker`，使定期策略检查使用同一训练目录。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
 
-已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
+主开发 API 仅监听宿主 `127.0.0.1:8000` 时，训练执行器的本机 Compose override 需设置 `network_mode: host`，并将 `TRAINING_API_URL` 指向 `http://127.0.0.1:8000/api/v1/internal/training`。凭据文件保持 `0600`，将执行器 `user` 配置为其所有者的 UID/GID，并让持久 `/state` 卷归该用户所有；执行器移除了全部 capabilities，不能依靠 root 绕过文件权限。该 override 只用于独立训练 Compose 项目，不加入核心 worker 的 Compose 配置。
 
-启用实例分割前，核验 [官方 YOLO11n 分割权重](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.pt)：大小 6,182,636 字节，SHA-256 为 `55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152`。将文件加入只读基础权重目录，在 Ultralytics 的 `base_models` 中加入 `yolo11n-seg`，其 `filename` 为 `yolo11n-seg.pt`，`sha256` 为上述摘要。任务与资格从受控参数定义派生，不能通过添加任意模型 ID 开放新规格。共享契约变化后重建实际训练／推理镜像，再刷新目标 API、Celery 和 scheduler，确认目录中的分割参数身份与执行器相容。分割模型回流、逐样本评估、增强预览、项目权重初始化、策略和参数搜索仍需独立资格验证。
+训练镜像固定 Ultralytics 8.4.183 与 LibreYOLO 1.6.0。共享注册表登记 YOLOv8／YOLO11／YOLO26 的 n/s/m/l/x 检测与实例分割，以及 LibreYOLO YOLO9 t/s/m/c 检测；目录只启用已准备权重并完成对应资格核验的型号。旧实验保留原框架、参数和镜像身份，不自动授权跨版本续训。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
+
+启用实例分割前，核验 [官方 YOLO11n 分割权重](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.pt)：大小 6,182,636 字节，SHA-256 为 `55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152`。将文件加入只读基础权重目录，在 Ultralytics 的 `base_models` 中加入 `yolo11n-seg`，其 `filename` 为 `yolo11n-seg.pt`，`sha256` 为上述摘要。任务与资格从受控参数定义派生，不能通过添加任意模型 ID 开放新规格。共享契约变化后重建实际训练／推理镜像，再刷新目标 API、Celery 和 scheduler，确认目录中的分割参数身份与执行器相容。原生掩码训练需执行器明确上报 `instance_rle_consumer`；分割受控回流、逐样本 mask 评估、项目权重初始化、任务独立策略和主动选样各自核验资格，增强预览及参数搜索仍受原有任务限制。升级应用迁移后重建开发 API worker、YOLO 与训练执行器镜像，保持目录中的实际 registry image digest 一致；原有实验需要目录明确声明兼容镜像。见[实例分割链路](docs-site/dev/concepts/instance-segmentation-learning.md)。
 
 ```bash
 hf download LibreYOLO/LibreYOLO9t LibreYOLO9t.pt \
@@ -177,13 +215,23 @@ hf download LibreYOLO/LibreYOLO9t LibreYOLO9t.pt \
 sha256sum ./training/models/LibreYOLO9t.pt
 ```
 
-LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultralytics 专属参数。最终指标记录实际最佳权重摘要，原生 `precision`／`recall` 别名分别表示 mAP50-95／AR100，暂无分类别指标；训练可取消并续训，但不保证逐位复现。成功实验中的 LibreYOLO YOLO9 t/s/m/c 原生检测最佳权重可注册候选，通过原生 CPU 安装与固定样本试用后由负责人发布。E、其他任务、量化及外部格式尚未通过回流资格检查；共享样本评估与主动学习排名仍仅支持 Ultralytics。移除训练目录项可停止新实验，但不改变已有模型或发布。
+LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultralytics 专属参数。最终指标记录实际最佳权重摘要，原生 `precision`／`recall` 别名分别表示 mAP50-95／AR100，暂无分类别指标；训练可取消并续训，但不保证逐位复现。成功实验中的 LibreYOLO YOLO9 t/s/m/c 原生检测最佳权重可注册候选，通过原生 CPU 安装与固定样本试用后由负责人发布。E 不在固定 LibreYOLO 的原生实现中，不可新建执行；其他任务、量化及外部格式尚未通过回流资格检查；共享样本评估与主动学习排名仍仅支持 Ultralytics。移除训练目录项可停止新实验，但不改变已有模型或发布。
 
 可用 `docker compose -f docker-compose.training.yml --profile training up -d training-executor` 启动独立服务。启动前先准备已发布的训练镜像，Compose 不再兼任构建。`TRAINING_IMAGE` 填仓库名（可带标签，但不得已有 `@digest`），`TRAINING_IMAGE_DIGEST` 填该镜像的 registry manifest digest，例如 `sha256:` 加 64 位小写十六进制。使用 registry 返回的摘要或 `docker image inspect` 的 `RepoDigests`，不能使用 `.Id` 的镜像配置摘要。Compose 将同一个 `repository@sha256` 引用用于实际镜像和 `TRAINING_IMAGE_REFERENCE`，执行器从该引用派生上报摘要；目录的 `image_digest` 也须一致。仅修改 API/Web 业务代码不要求重建训练镜像。
 
 `TRAINING_EXECUTOR_TOKEN_PATH` 为仅管理员可读的凭据文件，`TRAINING_MODELS_PATH` 为校验过的只读基础权重目录，`TRAINING_API_URL` 指向目标 API 的 `/api/v1/internal/training`。不要将 executor 指向其他工作树。该服务不挂 Docker socket，不读取 API `.env`，不持有数据库或 MinIO 管理凭据。
 
-模型回流需要重建 YOLO 镜像、应用迁移并刷新预测 worker。`YOLO_MANAGED_MODELS_TOKEN` 至少 32 个随机字符；将相同凭据配置到平台已启用的 YOLO 推理实例（认证方式 `token`）。Ultralytics 训练与推理使用相同的已验证版本；LibreYOLO 原生 CPU 适配器固定 LibreYOLO、Torch 与 torchvision 版本，并严格核对全部主模型张量、类别顺序和任务。此扩展无需新增迁移或环境变量；重建包含共享 qualification helper 的 YOLO 镜像并刷新 API／预测 worker。安装文件持久保存于 YOLO checkpoints 卷的 `managed/`，不能删除仍被部署使用的权重与收据。先更新实例健康与能力，再执行候选加载、固定验证图试用和发布。路由仅允许对应部署的确切实例；`off/observe` 模式下该实例还须是服务池的 legacy 实例。重新加载可恢复缺失或损坏的本地副本，不能改变版本身份。
+成员回执能力变更需要实际重建执行器镜像，并同步目标 API 的目录摘要；宿主源码更新或服务在线不能证明新实验可领取。升级前核对服务归属、空闲队列和持久状态，部署后用正常入口完成小实验，独立核对 `manifest.json` 的 `input_membership` 与资源释放。多工作树不得共用指向另一 API 的执行器或修改共享 `.env`；同一物理 GPU 必须共享节点身份和状态锁。完整流程见[成员回执部署验收](docs-site/ops/deploy/docker-compose.md#5-实际训练成员回执的部署验收)。
+
+模型回流需要重建 YOLO 镜像、应用迁移并刷新预测 worker。内置 YOLO 默认使用 `managed:yolo`，平台自动管理私有凭据；已有手动 `YOLO_MANAGED_MODELS_TOKEN` 优先，继续使用匹配的手动 `token`。Ultralytics 训练与推理使用相同的已验证版本；LibreYOLO 原生 CPU 适配器固定 LibreYOLO、Torch 与 torchvision 版本，并严格核对全部主模型张量、类别顺序和任务。此扩展无需新增迁移或环境变量；重建包含共享 qualification helper 的 YOLO 镜像并刷新 API／预测 worker。安装文件持久保存于 YOLO checkpoints 卷的 `managed/`，不能删除仍被部署使用的权重与收据。先更新实例健康与能力，再执行候选加载、固定验证图试用和发布。路由仅允许对应部署的确切实例；`off/observe` 模式下该实例还须是服务池的 legacy 实例。重新加载可恢复缺失或损坏的本地副本，不能改变版本身份。
+
+五个第一方推理服务默认使用独立系统托管认证，API 启动时在 `data/inference-auth/<provider>/token` 安全生成一次并持久保存。目录为 `0700`、文件为 `0600`，并发初始化复用相同文件，异常文件不会覆盖。各 backend 只读自己的子目录，业务协议和 GPU 控制路由要求 Bearer；`/health` 与 `/metrics` 保持公开，GPU 控制签名仍独立验证。平台 worker 使用 registry 中已同步的凭据，无需读取这些文件。
+
+`ML_MANAGED_BACKEND_URLS` 是部署固定的服务 ID → HTTP origin 映射，默认宿主桥接端口为 8001–8005，生产 Compose 默认使用内部服务 DNS。API 与所有 worker 必须使用相同映射；URL 不能重复或包含路径、userinfo、query、fragment。注册新环境实例默认采用对应 `managed:<provider>`；已有手动 Token 与无认证实例不会在启动时改写。超管显式初始化同步或保存系统托管时验证 `/managed-auth` 身份，禁止代理与重定向；普通健康检查不作为认证证明。
+
+首次升级须重建五个启用的 backend 镜像并应用 Compose 的只读凭据挂载；API 容器对同一目录可写。目录骨架随 checkout 提供，Compose 禁止隐式创建宿主目录。非 root API 应与 checkout 目录 UID 一致；root API 发布前将文件归属设为目录 UID，便于宿主开发进程复用。目录专用于本部署，不能共享到其他 worktree；相对 `ML_MANAGED_AUTH_DIR` 锚定当前 checkout。保留目录与已有手动 Token，后续初始化无需修改 `.env` 或重建服务。
+
+超管「设置 → 系统设置 → ML 服务认证与维护」可查看、初始化和同步认证。页面上的镜像/容器重建需要宿主机单独运行维护程序，安装与中断恢复见[本机 ML 服务维护](docs-site/ops/deploy/ml-backend-maintenance.md)；API 不直接访问 Docker socket。
 
 同一物理 GPU 的所有执行器必须共享同一个持久 `/state` 卷和一致的节点 ID；子进程继承其中的资源锁。不要在进程运行时删除状态卷或强行释放数据库租约。先停止接收新实验，等待当前进程退出和产物上传，再轮换认证凭据或镜像。旧实验续训默认仍需原镜像；修订 1 仅使用明确配置的历史镜像兼容列表。修订 2 的检测检查点只有通过实际续训验收后，才可在对应框架目录的 `compatible_config_images` 中配置「来源镜像 → 完整既有 `configuration.identity` 列表」，同时核验目标镜像、框架版本和原生参数定义。不得改写冻结摘要，也不能用检测验收放行分割或未经验证的其他组合。执行器重启后恢复持久日志，上传故障只重试上传。
 
@@ -237,6 +285,38 @@ pnpm dev:worktree -- stop --mode test
 支持范围为 macOS/Linux 的本机开发基础设施；不会自动注册共享 ML 后端或启动 GPU/beat。
 完整的首次数据、权限要求、重建与清理说明见[独立工作树开发环境](docs-site/dev/how-to/worktree-environments.md)。
 
+验证数据库与对象的一致恢复，可在当前 checkout 的 API 虚拟环境运行：
+
+```sh
+apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
+```
+
+该命令只创建两套随机 owned test 资源，不接收现有环境目标，不启动应用或调度；源销毁后从完整备份代次和独立演练密钥恢复，再校验冻结包、标注、物理映射及未完成任务。成功或注入失败均核对清理；清理失败会保留私有清单。纯守卫测试为 `PYTHONPATH=scripts:apps/api apps/api/.venv/bin/python -m unittest test_storage_backup_bundle test_worktree_recovery`。详细预算、报告、故障注入与生产边界见[一致备份与隔离恢复演练](docs-site/ops/deploy/storage-recovery.md)。
+
+对象存储双候选本地比较使用 `apps/api/.venv/bin/python scripts/verify_storage_candidates.py run --manifest /private/owner.json --report /private/comparison.json`。仅创建所属临时容器、卷、网络及回环端口，独立浏览器 session 在结束时关闭；不读取部署 `.env` 或连接现有业务服务。固定 digest、预算、案例状态与硬杀后精确清理见[候选本地验证](docs-site/ops/deploy/storage-candidate-poc.md)。
+
+受控本机 MinIO 源可用 `scripts/storage_source_fence.py init/preview/seal/status/release` 封闭原生写入。命令读取私有拓扑描述，凭据只从操作进程的 `AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY` 取得；不读取应用 `.env`，不自动接管现有9000服务。唯一入口拒写、真实源进程退出、规则／multipart 收尾及恢复顺序见[MinIO原生源端封闭](docs-site/ops/deploy/storage-migration-inventory.md#minio-原生源端封闭)。纯检查使用 `PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_storage_source_fence_*.py'`；真实验收脚本 `verify_storage_source_fence.py` 仅创建专属 Docker 资源，不初始化数据库模式或修改人工环境。
+
+应用最终清单／增量封存须应用0262。可信运维以现有应用数据库环境运行 `scripts/finalize_storage_migration.py bind/seal/status/invalidate`，把真实原生封闭绑定到停止窗口的新修订和准确 B5 后继；API／Worker 不需 Docker 权限。完整 verify、单入口责任、解除与独立恢复写入见[最终增量封存](docs-site/ops/deploy/storage-migration-inventory.md#绑定窗口并封存最终增量)。数据库或应答未知时保留原 claim，不删除状态绕过。批次封存不修改用途绑定或业务读取位置。
+
+托管原件读取映射须应用0263并刷新所属Worker。沿同一命令使用 `publish-reads/status-reads/withdraw-reads`：从sealed全量Copy发布准确目标版本；撤回先阻止新映射读取，再等待该发布的实际许可结束，保留源端claim。原件逻辑定位与当前新分配Binding不变。所属空test模式的实际HTTP／独立Worker验收入口是 `scripts/verify_storage_migration_original_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，可加 `--pause-for-browser`；脚本只创建和清理自己登记的源／目标及进程，测试模式数据库／Redis／九桶仍须由launcher销毁。详见[原件映射运维](docs-site/ops/deploy/storage-migration-inventory.md#发布托管原件读取映射)。
+
+训练保留产物及导出ZIP的纯读取复用上述发布，无新增迁移或依赖。刷新实际消费这些读取的Worker。所属空test模式验收入口为 `scripts/verify_storage_migration_artifact_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`。其余保留文件使用 `scripts/verify_storage_migration_retained_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，同样只允许所属空test模式；验证头像HTTP、RLE持久owner及其余物理接缝的独立Worker读取，不代替其业务授权回归。旧直接S3链接不会被改写，观察期保留原只读入口至自然失效；撤回也不撤销已发出的目标签名。
+
+有保存摘要的Mask暂存沿同一发布读取；日志下载改为认证获取完整核验后的脱敏内容，不再向旧Run位置写派生物。所属空test模式入口为 `scripts/verify_storage_migration_staged_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，核验真实离线A／B准确副本、API预检与日志下载、独立Worker暂存materialize和实际GET撤回排空，不代表整批导入或模型训练。旧Creation、预标租约、训练产物创建和export building仍按保存owner排空或显式重建，不因当前Binding变化原地续写。
+
+九用途原子切换须应用0264，可信运维入口为 `scripts/cutover_storage_migration.py preview/activate/status/begin-rollback/bind-rollback/restore-source`。预览执行九用途既有探测，五分钟内按完整向量确认；回滚恢复未来A分配，B新对象保持保存位置和物理只读。组合命令分别使用操作进程的 `AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY` 与 `AAP_TARGET_FENCE_ACCESS_KEY / AAP_TARGET_FENCE_SECRET_KEY`，不向API／Worker传递，不在A/B之间回退凭据。空test模式实际入口为 `scripts/verify_storage_migration_cutover.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`；两端独立原生拓扑、恢复步骤及中断续做见[整组切换运维](docs-site/ops/deploy/storage-migration-inventory.md#九用途原子切换与新写入回滚)。
+
+正常成功切换后的观察使用独立入口 `scripts/verify_storage_migration_observation.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，仍仅接受所属空test模式。它复用真实B上传／Celery缩略图，记录在线及停止旧A后的准确读取、B新分配和九用途保留清单；不执行回滚或生产源删除。短时本地结果不替代生产观察期、旧链接截止、恢复覆盖及业务确认，详见[观察与旧实例退役](docs-site/ops/deploy/storage-migration-inventory.md#正常切换后的观察与旧实例退役)。
+
+对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。超级管理员也可在“存储管理 → 迁移准备”提交同一核心的后台任务并下载报告，须应用0255及刷新所属Worker。应用报告受32MiB上限和现有终态Job30天保留规则约束；CLI输出由操作者管理。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
+
+应用侧初次复制须应用0256并刷新所属Worker。封存源清单可在控制台选择已登记全局S3目标，后台自动建立配对定位目录与持久复制计划，审阅后显式执行；原CLI目录／复制核心移入应用模块，兼容脚本入口保持。SQLite初始计划与PG逐对象delta保留nonce及准确版本，独立owner不随单次Job过期删除；当前凭据轮换、取消收尾、显式续跑、失败对象选择重试和私密检查点的边界见[控制台初次复制](docs-site/ops/deploy/storage-migration-inventory.md#从控制台执行初次复制)。该链不改Binding、业务引用、镜像或原写入渠道。
+
+已保存业务定位使用独立命令：`apps/api/.venv/bin/python scripts/inventory_storage_references.py --source-inventory /private/source.jsonl --output /private/references.jsonl`。它在有界只读数据库快照结束后关联同一份完整性核验的源报告，不访问S3，覆盖27类保存归属及历史／暂存／删除声明；按各family实际schema解释九用途保存地址，未知、未展开与其他源保留。独立`--verify`只核对新目录。纯检查为`PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage*references.py'`；当前schema实际只读DB资格使用上述手册中的`verify_storage_references_current.py`，仅在所属空test环境执行。`verify_storage_references.py`保留旧0244／0245历史夹具，不用于当前head。
+
+初次预复制使用 `scripts/copy_storage_migration.py plan/run/verify/status`，输入为封存源清单与配对目录，目标凭据仅从 `0600` 私有 JSON 读取，checkpoint 位于 `0700` 目录。`run` 续跑不明确写入并仅在 `--retry-failed` 时重试失败项；`verify` 只读保存的实际目标版本。纯检查为 `PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage_migration_copy.py'`，CLI 检查为同命令模式 `test_copy_storage_migration.py`；所属空 test 实际资格使用 `verify_storage_migration_copy.py`，详细命令、预算、退出码与清理见[本地初次复制](docs-site/ops/deploy/storage-migration-inventory.md#本地初次复制与可恢复核验)。
+
 ## Codex 会话启动硬件上下文
 
 仓库内的 `.codex/hooks.json` 会在 Codex 会话启动、恢复、清空或压缩后运行
@@ -253,9 +333,9 @@ agent 上下文。脚本只使用 Node.js 标准库和系统自带查询命令�
 node scripts/test-codex-session-start.mjs
 ```
 
-## 快速开始
+## 本地启动与开发细则
 
-### 1. 启动基础服务
+标准前置依赖、本地启动步骤与技术栈总览见 [README.md#快速开始](README.md#快速开始)。以下补充本地开发常用的环境变量、GPU 绑定与热重载细则：
 
 ```bash
 docker compose up -d
@@ -1811,7 +1891,7 @@ import { Button, Badge, Card, Avatar, StatCard, Icon } from "@/components/ui";
 
 ### 页面路由与数据访问
 
-页面路由由 React Router 定义在 `apps/web/src/App.tsx`，不是 Zustand page switch。`/projects/:id/annotate` 与 `/projects/:id/review` 使用全屏工作台；Dashboard、数据集、存储、`/ai-pre`、模型市场、项目设置、审核、用户与系统管理等页面通过 `AppShell` 路由承载。`/training` 仍是唯一明确的占位入口。
+页面路由由 React Router 定义在 `apps/web/src/App.tsx`，不是 Zustand page switch。`/projects/:id/annotate` 与 `/projects/:id/review` 使用全屏工作台；Dashboard、数据集、存储、`/ai-pre`、模型市场、在线学习训练数据集（`/training` 与 `/training/:id`）、项目设置、审核、用户与系统管理等页面通过 `AppShell` 路由承载。
 
 业务数据通过 `apps/web/src/api/` 的 API client 和 React Query 获取；Zustand 仅保存认证、界面偏好和短生命周期交互状态。测试 fixture 不能作为运行时数据来源。
 
@@ -1924,6 +2004,10 @@ docker compose --env-file .env.production \
 > 开发态不带 `-f docker-compose.prod.yml`，api/web 仍跑宿主机。
 > 单独构建镜像：`docker build -f infra/docker/Dockerfile.web -t anno-web .` / `docker build -f infra/docker/Dockerfile.api -t anno-api .`。API 镜像需要仓库根目录作为 context，以复制 `apps/_shared/protocol_v2`。
 
+### 局域网生产环境（同机共存）
+
+同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、九个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
+
 ## 测试与文档
 
 正常月报由 `app/services/audit_summary.py` 本地计算，API、Compose、工作树启动和普通 CI 均不依赖 Go；生产 API 不读取 `AUDIT_SUMMARY_URL` 或选择实验适配器。
@@ -1947,6 +2031,7 @@ node --test scripts/check-workflow-names.test.mjs
 pnpm test                        # vitest 单测
 pnpm --filter @anno/web test:coverage  # 前端带覆盖率
 pnpm test:e2e                    # Playwright E2E（自启 :3001/:8010，使用 annotation_e2e）
+pnpm --filter @anno/web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
 pnpm --filter @anno/web test:e2e:visual  # 独立视觉基线
 pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
 
@@ -1962,6 +2047,9 @@ pnpm openapi:check               # CI 校验
 # 文档站
 pnpm docs:dev                    # http://localhost:5173
 pnpm docs:build
+# 从共享训练契约更新两训练仓库的完整参数表；--check 只核对一致性
+apps/api/.venv/bin/python docs-site/scripts/generate-training-reference.py
+apps/api/.venv/bin/python docs-site/scripts/generate-training-reference.py --check
 pnpm --filter @anno/docs-site check:all  # 文档元数据、导航与生成物检查
 ```
 
@@ -2189,7 +2277,7 @@ pnpm docs:media:audit -- --release
   DEV 会让签名媒体走页面同源的 `:3000/minio` 并由 Vite 转发到 MinIO，远程机器
   只需打通 3000 端口。若返回 `localhost:9000` 或宿主机 `:9000`，会分别命中
   访问者自己或受跨网段端口策略影响。`ML_BACKEND_STORAGE_HOST` 是容器的另一层
-  地址，可以继续使用 Docker 网关。修改 `.env` 或 Vite 代理配置后重启 API/Web。
+  地址，可以继续使用 Docker 网关。`MINIO_PROXY_TARGET` 必须与 `MINIO_ENDPOINT` 的协议、Host及端口完全一致，确保代理恢复签名 Host；worktree 启动器自动对齐。模型端点在签名前单独选择，不能替换已签名 URL。修改 `.env` 或 Vite 代理配置后重启 API/Web。
 - **截图 seed 报 backend 能力不足**：live 模式只接受当前可达且能力快照覆盖截图场景的
   registry，不按名称猜测。确认目标 backend 已启动并被 API 同步；无 GPU 时启动
   `screenshot-ml-stub` 后改用 `--ml-backend-mode stub`。不要把浏览器的 `/minio`
@@ -2226,9 +2314,45 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 重跑 seed 会保留已有任务和标注，并从 nuScenes `sample_data` 幂等回填旧相机条目缺失的
 像素宽高，供 3D 投影、持久化 2D 成员和残差质检共用。
 
-## 下一步计划
+### COCO8 在线训练夹具
 
-详见 [CHANGELOG.md](CHANGELOG.md) 顶部的 roadmap 与 [docs/plans/](docs/plans/) 下的具体计划。
+只生成在线训练测试项目，不导入视频、点云等其他示例：
+
+```bash
+cd apps/api
+PYTHONPATH=. uv run python scripts/seed.py --profile online-training
+```
+
+该入口复用版本化素材清单，首次下载并校验 COCO8 与 COCO8-seg 两份归档（合计约 0.9 MB）到
+`~/.cache/ai-annotation-platform/seed-assets`；可用 `--cache-dir` 指定缓存、
+`--offline` 复用已缓存素材，或通过 `--asset-dir` 提供同时包含 `coco8/` 与 `coco8-seg/` 的本地素材目录。
+需要当前开发栈的 PostgreSQL、MinIO 和 Redis；数据包在脚本内同步构建，不依赖 export worker。
+
+生成项目 **COCO8 在线训练（dev）**（`P-COCO8-TRAIN`）和数据集 `DS-COCO8-TRAIN`，
+使用 COCO 80 类、8 张原图、30 个原始检测框及 30 个实例掩膜，任务均已完成审核。
+分割标注来自官方 COCO8-seg 多边形，经 COCO 栅格化后以原图 RLE 保存；不会将检测框转成掩膜。`pm` 是负责人，
+`anno` / `anno2` / `anno3`、`qa`、`viewer` 获得各自的项目职责。检测和实例分割分别生成独立的初始训练数据版本，均包含真实原图与对应标注，
+保留官方 4 张训练图 / 4 张验证图划分；后续创建版本时选择同任务的父版本可继承分区。
+升级旧检测夹具时只在原任务尚未人工修改、无锁或草稿时增补分割；不符合条件会拒绝增补。
+分割已生成后重跑会保留人工修改或删除的掩膜，原检测快照、训练记录及发布均不变。
+重跑保留已有任务、标注、数据版本、实验和策略；固定编号被其他数据占用时拒绝覆盖。
+初始版本构建失败、取消或因进程退出遗留在运行状态时，重跑命令会基于同一冻结快照重新构建；
+若上次构建仍在执行或清理，命令会提示稍后重试。也可到项目「训练数据」查看失败原因并重试。
+
+登录 `pm`（密码 `123456`），打开项目「训练数据」，选择初始版本后新建实验。
+已配置训练执行器时，可先选当前训练目录中的 Ultralytics / YOLO11n，试跑
+`epochs=1`、`batch=4`、`imgsz=320`、`seed=42`。自动训练可引用该初始数据版本，
+将变化门槛设为 `1`、检查间隔设为 `1` 分钟、冷却设为 `0`，再明确保存并启用。
+首次成功后，修改并重新审核训练分区标注可验证下一轮触发；仅验证分区变化不触发训练。
+实例分割选择 `yolo11n-seg`、原生 RLE 数据版本，建议 `epochs=3`、`batch=1`、`imgsz=640`、`seed=42`；
+本夹具在 640 输入及验证器 160 掩膜平面预检中没有实例完全消失。
+完整人工验收及目标 GPU 故障、受控模型生命周期验收见
+[实例分割在线学习验收](docs-site/dev/how-to/validate-segmentation-online-learning.md)。
+夹具不创建实验或启用策略，也不要求生成时已开启训练目录。COCO8 用于流程试跑，不能据此评估模型质量。
+
+## 数据集、存储与站点 Agent 开发核验
+
+### 自动训练策略调度核验
 
 自动训练策略默认关闭。部署迁移后刷新 default/export worker 与 beat，确认注册 `app.workers.learning_policy.check_policies`；beat 每分钟分批检查策略，独立训练执行器仍按固定 GPU 领取。负责人明确保存门槛、检查间隔和冷却时间后才启用；没有 beat 的工作树环境可通过「立即检查与同步」验收相同路径。关闭策略不要求训练目录仍在线，成功训练不会自动发布。
 
@@ -2263,26 +2387,17 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec
 
 该项目不进入默认 Compose，默认只 expose 内部 8767。宿主联调可使用 `uv run --project apps/assets-source --extra server python -m aap_assets_source_runtime`，传入专用环境，再将网关指向实际可达地址。网关 `ASSETS_SOURCE_URL` 留空为本地模式，设置后还需同一 token；刷新 API 生效。默认网关超时 300 秒，上限 3600 秒；服务默认池 1..8、取得连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒、请求/响应 1/16 MiB。就绪检查验证 SQL 身份，实际对象权限由业务调用及本地验收验证。
 
-同一二进制还可选择 `ASSETS_SOURCE_MODE=guide-only` 或 `source-and-guide`；默认 `source` 不变。
-`guide-only` 不需要数据库或原来源凭据，只开放健康检查及私有指南对象接口。
-该能力使用独立的 `ASSETS_SOURCE_GUIDE_S3_ENDPOINT`、`_PUBLIC_URL`（默认 `/minio`）、
-`_REGION`（默认 `us-east-1`）、`_BUCKET` 和 `_ACCESS_KEY`／`_SECRET_KEY`（均支持 `_FILE`）。
-凭据只覆盖配置标注桶的 `projects/*/guide/*`，允许 Get/Put/普通 Delete，显式禁止版本删除；
-无需 ListBucket 或桶管理权限。`ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT` 默认 4，超额立即返回 busy；
-指南 S3 连接／读取超时由 `_CONNECT_TIMEOUT_SECONDS`／`_READ_TIMEOUT_SECONDS` 指定，默认 2／5 秒。
-服务与客户端均不自动重试，网络超时后的对象效果可能不确定。公共指南工作流由 Workspace 编排；
-字节与命令的本地验收边界见 [ADR-0144](docs/adr/0144-workspace-guide-assets-owner.md)。
+指南素材使用统一受管上传和不可变存储引用，不再通过独立指南字节 RPC 签名或删除对象。
+上传初始化选择存储绑定并建立 pending 记录；完成时校验实际对象，之后由 Workspace
+`guide_assets_step` 在同一事务内校验当前权限、项目修订与存储维护门，发布 ready 状态、
+项目引用和指南列表。删除先解除引用，最后一个引用消失后退休上传，由清理流程处理物理对象。
+跨项目复制复用已验证引用，并校验源快照和目标项目修订；不重新上传字节。
 
-指南命令使用同一个 Workspace Configuration owner。先应用当前 Native 迁移及 module-data
-owner grants，再配置已有的 `WORKSPACE_CONFIGURATION_URL` 或专用 DSN；两者不同时设置。
-默认借用 API 事务，完成／删除由 HTTP 提交后完整刷新；独立 owner 自行提交与刷新。
-独立 Workspace 必须配置 `WORKSPACE_GUIDE_OBJECTS_URL` 和 `_TOKEN` 或 `_TOKEN_FILE`，
-指向已启用指南能力的 Assets Source，token 与该进程的 `ASSETS_SOURCE_TOKEN` 相同。
-字节 RPC 超时由 `WORKSPACE_GUIDE_OBJECTS_TIMEOUT_SECONDS` 指定，默认 15 秒，调用不自动重试。
-可将 `docker-compose.workspace-guide-assets.yml` 叠加到现有配置 owner，额外挂载一份只读 bearer；
-它不创建新服务，也不给 Workspace S3 凭据。API 未设置字节 URL 时复用现有客户端；
-设置后失败不回退。指南命令的三路径、实际锁跨度、独立工件、容器重启与备份恢复均已在隔离本地验证。
-恢复验收从非空登记和真实对象开始，克隆库的新写入及撤权不影响源库。此结果不构成生产切换、容量或完整模块资格。
+先应用当前 Native 迁移及 module-data owner grants，再配置已有的
+`WORKSPACE_CONFIGURATION_URL` 或专用 DSN；两者不同时设置。默认借用 API 事务，
+独立配置 owner 自行管理事务。Workspace 不持有 S3 凭据，字节 I/O 属于受管存储适配器。
+旧指南字节服务及其 Compose overlay 已移除。旧指南切片的容器、恢复和容量证据只适用于
+当时的实现；受管存储、维护门及新发布能力必须以当前代码重新验收，不能沿用旧结论。
 
 复制后进程退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。单文件上传重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。ZIP/扫描在一个外层 SQL 事务中提交素材、Labeling append、计数、ZIP Scene/frame 变更、收据和媒体派发意图。媒体派发由 API maintenance relay 领取，交付回执只表示 broker 接受，不代表媒体已完成。
 
@@ -3531,3 +3646,63 @@ AI Mask 溯源的独立 Pool 存在性读取使用
 `aap_inference_v1.ai_mask_pool_reference_row(uuid)`；实例读取仍复用既有 Inference
 能力，不扩大 Health 或 Mask 专用账号权限。独占验收库选择器为
 `AAP_MODULE_DATA_INFERENCE_POOL_REFERENCE_URL`，仅用于验收，不新增产品 DSN。
+
+### 受控存储根与节点探测
+
+`STORAGE_FILESYSTEM_ROOTS` 是根句柄到当前进程可见绝对目录的 JSON 映射，默认 `{}`；示例 `{"ceph":"/mnt/cephfs"}`。`.env.example` 只提供空默认，不给每个数据集配置环境变量。统一挂载后新增子目录、注册位置无需重启；新 volumes/容器环境需重建受影响容器，无需重建镜像。不要修改其他 checkout 的共享 `.env` 或挂载。
+
+`STORAGE_SFTP_ROOTS` 默认 `{}`，声明经部署核验的只读 SFTP jail 及精确 host/port/username/完整主机公钥。连接 base_path 必须为 `/`；整个账号可读范围作为位置授权范围，不能通过来源子目录缩小安全边界。API 与指定扫描/读取 worker 均须加载相同资格；环境调整需刷新相应进程/容器，无需重建镜像。变更已有资格前先在平台禁用位置并提交修订，再协调所有节点，历史引用不会自动重绑新锚点。完整配置与操作顺序见[只读 SFTP 引用](docs-site/ops/deploy/docker-compose.md#只读-sftp-引用)。
+
+新 probe task 使用 Celery `worker_direct`；部署本次代码时刷新受影响 worker 并核对任务注册和实际专属队列，再执行指定 hostname 探测。只重启 API 无法更新 Celery。隔离测试可启动归属当前 checkout 的临时 worker；不得刷新未知共享进程。配置和限制见[存储位置 API](docs-site/api/guides/storage-locations.md)及[部署示例](docs-site/ops/deploy/docker-compose.md#受控存储根目录)。
+
+目录观测扫描复用指定 worker 的专属队列；修改 `workers/dataset_scan.py` 后刷新当前部署的相关 worker 并验证 `app.workers.dataset_scan.run_dataset_scan` 注册。源码挂载时无需重建镜像。来源和扫描账本迁移为0196；验证使用独立 test 环境和临时根，不要对真实业务目录做故障注入。参见[扫描接口](docs-site/api/guides/dataset-sources.md)。
+
+内容核验账本迁移为0197；无新 worker task 或镜像构建；目录首次核验还需刷新使用 mounted 源码的扫描/probe worker、重新探测并扫描，记录实际主机证据，旧未知证据明确拒绝。托管严格读取只需当前 API。目录读取要求该 API 实例完成有效 read 探测；只挂载扫描 worker 时明确不可用。每进程快照上限256MiB临时字节，部署时给系统临时目录留出对应空间，多进程需累加；不写业务来源。见[严格读取接口](docs-site/api/guides/verified-content.md)。
+
+目录原地引用使用 Alembic0198：应用回退须保留已有 Reference/Asset 身份，仅空引用表可 schema downgrade。管理员逐条登记后，普通手工标注会在 Task 锁内重新捕获有界图片；慢挂载会延长锁占用。按节点配置只读根和检查 API/worker 访问，详见[引用内容合同](docs-site/api/guides/verified-content.md#已登记目录引用)。工作树启动器接受 Celery 自动创建的本节点定向队列，仍拒绝缺失职责队列或意外订阅，避免指定节点扫描/探测造成就绪误判。
+
+### 位置访问维护部署核验
+
+迁移0215新增访问 Gate 与未收尾账本。先向经过所有权核验的目标应用迁移，再刷新该命名空间的 API 和所有实际队列消费者；Celery 不会热重载。无依赖或镜像变更时不重建镜像，工作树通过其拥有的服务刷新两个 Worker 并验证任务注册、队列和实际派发，保留原端口与人工业务。
+
+`STORAGE_MAINTENANCE_PROTOCOL_ENABLED` 默认 false：新代码始终登记受控访问，但预览/提交控制保持关闭。确认旧 API/Worker 都已退出、新准入与旧委托拒绝已实测后，才为该命名空间的全部进程设置 true 并刷新。不能仅重启一个 API，或以初始空账本推断无旧访问。共享 `.env` 不应为单个工作树更改。
+
+维护仅针对单个逻辑位置。取消或超时会等待实际 I/O 收尾；进程退出或账本删除失败留下记录，不会 TTL 到期自动清零。等待中的记录必须先核实责任，平台没有强制清零接口。独立冻结内容与平台自有清理不追加源维护限制，也不把共享根、其他位置和外部客户端当作已停止。回退代码保留账本；有未收尾或非初始维护事实时禁止丢弃0215。详见[维护协议](docs-site/dev/concepts/storage-connections.md#位置访问维护协议)。
+
+### 原图与预览观测率
+
+先在核实归属的目标应用迁移0261，再刷新所属API和实际执行严格读取／登记代码的Worker；Celery不会热重载。没有依赖或镜像输入变化，不需要重建镜像；本次不新增任务、Beat计划或环境变量。刷新后通过实际回源和新建预览检查计数，faults GET只读数据库，不能靠刷新面板制造观测。
+
+计数按完成时UTC日期累加，旁路失败只丢失本次观察且不重试，不改变业务结果；无分母和不可用均保持未知。应用回退保留汇总表，非空记录拒绝破坏性降级。详见[窗口观测率](docs-site/dev/concepts/storage-connections.md#原图与预览的窗口观测率)。
+
+### 托管原件保留账本
+
+准确版本受控回收须先应用迁移0260，再刷新所属API、default队列Worker及Beat，核对回收和引用核对任务实际注册；挂载源码不需要重建镜像。引用核对每日运行，也可由超级管理员手动提交，只保存DB观察，不自动删除。回收必须经独立预览确认，已登记逻辑位置停止且真实访问排空后，由绑定当前attempt/task/Gate修订的专用许可执行准确版本读删；普通停止位置仍不开放写入。
+
+回退应用保留新增attempt、claim/tombstone、核对状态及相关约束。可能发出DELETE或物理关闭不确定时，不能删责任记录、按TTL清零或强行恢复位置访问。恢复保留准确版本、历史回执及旧目标，不自动续跑；当前部署下重新预览并复验保护。未版本化、`null`版本或缺少创建证据的历史原件继续保留；详见[准确版本回收](docs-site/dev/concepts/storage-connections.md#准确版本回收与引用栅栏)。
+
+迁移0216新增独立原件位置记录。部署先向核实归属的目标应用迁移，再刷新实际执行Dataset/Item删除代码的API与Worker；无依赖或镜像变化时不重建镜像。旧代码删除不会生成新记录，不能将升级前或未登记的原件解释为已覆盖。
+
+删除前的capture与业务删除同事务，无独立提交或对象I/O。没有保留策略时`retain_until=null`表示无限期保护；预演不签发物理执行凭证。回退保留账本，有记录时拒绝0216降级。离线恢复映射须包含该物理owner，未知身份拒绝静默映射；详见[原件保留合同](docs-site/dev/concepts/storage-connections.md#托管原件移除后的保留证据)。
+
+迁移0217增加声明保留要求、定位摘要索引及历史不可变约束。先在核实归属的目标应用迁移，再接入新的保留/预演读取；刷新实际使用这些模型的所属API/Worker，不需要重建镜像。仅超级管理员与全权Key可通过五分钟预览确认修改一条记录的期限、登记或显式解除要求；未指定期限仍无限期，不设置生产默认天数。所有保留修改共用组事务锁，既有业务删除捕获继续追加默认无限期记录。
+
+回退保留已登记和已解除历史；存在任何hold或非初始策略事实时0217拒绝降级。离线恢复只映射原有退休锚点的物理字段，新hold按稳定ID关联且所有字段保持。已声明要求仅约束托管原件预演，不能据此宣称已验证真实备份、迁移、S3对象锁或其他清理器均已纳管；详见[保留策略与要求](docs-site/dev/concepts/storage-connections.md#显式策略与声明保留要求)。
+
+迁移0218新增原件核验历史。先对核实归属的目标应用迁移，再刷新所属API和执行default队列的Worker，确认`app.workers.managed_original_verification.verify_managed_original`实际注册；不需要重建镜像。核验使用独立持久访问记录，回调在SDK线程开始前提交Permit ID，取消或失败不等于实际I/O已关闭。running无TTL重跑，pending可显式重派；关闭不确定或进程丢失时保留责任，不能删除记录强行解除。
+
+核验仅对当前可证明的平台定位和可信历史SHA/大小读取，固定5GiB、256KiB块、60秒协作预算，客户端短超时且单次尝试；超预算返回明确未完成。纯流完整摘要适用于多种文件，不引入图像解码或完整暂存。任意核验事实阻止0218破坏性降级；恢复历史不做物理映射，旧context失效后显式核验目标。见[核验合同](docs-site/dev/concepts/storage-connections.md#已登记原件的完整内容观测)。
+
+### 只读站点 Agent 组件
+
+独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，中心配对、传输及扫描／预检登记／原图快照已经接通。超级管理员入口为 `/storage?tab=agents`，Agent 图片支持完整核验后的单区间 Range。API 虚拟环境新增两个锁定本地包；开发环境应用迁移并刷新 API 重载父进程及受影响 Worker，继续使用现有工作树归属服务与端口，无需重建现有后端镜像。
+
+`scripts/verify_site_agent.py` 必须通过 `dev:worktree exec --mode test` 运行，传入私有绝对 `--state` 路径和本机已缓存的不可变 `--runtime-image sha256:...`。它复用镜像，创建带独立所有权的中心／站点网络、HTTPS API、Worker 和 Agent；来源只挂载给 Agent，演练结束删除这些容器和网络。异常中止时可用同一 state 执行 `--cleanup`；测试数据库、Redis 和九桶仍由 launcher 管理，结束后按 doctor 的 test 确认值销毁。不得以 dev 模式执行或复用人工验收资源。显式副本由`--scenario replicas`验证两个独立站点、A实际离线后的B读取、权限及坏副本拒收。可选`--ui-hold-seconds`仅用于有界的所有权绑定UI交接，范围0–300秒。
+
+E06 的 `verify_site_agent.py --scenario recovery` 在同一自有拓扑中以中心较低带宽限制执行原图上传中断／重启、丢领取响应至原期限失效、扫描断网恢复和撤销检查；只观察数据库，不写造租约或回执。`basic` 保持单站点扫描登记和完整／Range 合同。三个场景都只用 launcher 的一次性 test 资源。
+
+引用图片备用来源管理使用迁移0267和`dataset-items/{item_id}/reference-replicas`端点；对应管理UI位于样本检查器的默认折叠区。`test_dataset_reference_replicas.py`覆盖定向授权、同内容候选、完整读取、撤销、缓存策略和冻结身份；真实双Agent验证沿`verify_site_agent.py`的自有隔离拓扑执行，不重建后端镜像。
+
+## 下一步计划
+
+数据集与存储全系列 Epic 的执行队列、归档状态与活跃切片见 [docs/plans/1792752668_dataset-storage-epic-execution.md](docs/plans/1792752668_dataset-storage-epic-execution.md)，其他专项计划见 [docs/plans/](docs/plans/)。

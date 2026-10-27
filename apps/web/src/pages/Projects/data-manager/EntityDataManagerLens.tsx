@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPageState } from "@/hooks/useListPageState";
+import { useInfiniteListPagination } from "@/hooks/useInfiniteListPagination";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -13,6 +16,7 @@ import type {
 } from "@/api/taskViews";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 import {
@@ -92,7 +96,6 @@ import {
 } from "./dataManagerUrlState";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 
-const PAGE_SIZE = 100;
 const FIELD_CLASS =
   "h-8 w-full appearance-none rounded-sm border border-border bg-background px-2 py-1.5 text-foreground disabled:bg-muted disabled:text-muted-foreground";
 
@@ -164,7 +167,12 @@ const COLUMN_WIDTHS: Record<string, number> = {
   quality: 220,
 };
 
-function objectCell(row: DataManagerObject, column: string) {
+function objectCell(
+  row: DataManagerObject,
+  column: string,
+  ordinal: number,
+  trackOrdinals: ReadonlyMap<string, number>,
+) {
   switch (column) {
     case "class_name":
       return <span className="font-medium">{row.class_name}</span>;
@@ -173,7 +181,18 @@ function objectCell(row: DataManagerObject, column: string) {
     case "tool_geometry":
       return `${row.tool_unit_id} / ${row.annotation_type}`;
     case "track_id":
-      return row.track_id ? <span className="font-mono">{row.track_id}</span> : "无";
+      return row.track_id ? (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          轨迹 {trackOrdinals.get(row.track_id)}
+          <CopyValueButton
+            value={row.track_id}
+            kind="id"
+            label={`复制对象轨迹 ${trackOrdinals.get(row.track_id)} ID`}
+          />
+        </span>
+      ) : (
+        "无"
+      );
     case "attributes":
       return attributeSummary(row.attributes);
     case "task_location":
@@ -191,16 +210,26 @@ function objectCell(row: DataManagerObject, column: string) {
     case "created_by":
       return row.created_by_name ?? "未知";
     case "annotation_id":
-      return <span className="font-mono">{row.annotation_id}</span>;
+      return (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          对象 {ordinal}
+          <CopyValueButton value={row.annotation_id} kind="id" label="复制标注 ID" />
+        </span>
+      );
     default:
       return "无";
   }
 }
 
-function trackCell(row: DataManagerTrack, column: string) {
+function trackCell(row: DataManagerTrack, column: string, ordinal: number) {
   switch (column) {
     case "track_id":
-      return <span className="font-mono">{row.track_id}</span>;
+      return (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          轨迹 {ordinal}
+          <CopyValueButton value={row.track_id} kind="id" label="复制轨迹 ID" />
+        </span>
+      );
     case "class_name":
       return row.class_name ?? "不一致";
     case "track_kind":
@@ -482,14 +511,16 @@ export function EntityDataManagerLens({
       setSelected(null);
     }
   }, [baseline, currentSignature]);
+  const paginationScope = JSON.stringify([projectId, scope, selectedKey, currentSignature]);
+  const pageState = useListPageState(paginationScope);
   const queryPayload = useMemo(
     () => ({
       filter_json: filterJson as Record<string, unknown>,
       sort_json: sort,
       columns_json: columns,
-      limit: PAGE_SIZE,
+      limit: pageState.pageSize,
     }),
-    [columns, filterJson, sort],
+    [columns, filterJson, sort, pageState.pageSize],
   );
   const queryReady = Boolean(
     selectedView &&
@@ -506,14 +537,18 @@ export function EntityDataManagerLens({
     queryReady && scope === "objects",
   );
   const tracksQ = useDataManagerTracks(projectId, queryPayload, queryReady && scope === "tracks");
-  const rows = useMemo<EntityRow[]>(
-    () =>
-      scope === "objects"
-        ? (objectsQ.data?.pages.flatMap((page) => page.items) ?? [])
-        : (tracksQ.data?.pages.flatMap((page) => page.items) ?? []),
-    [objectsQ.data?.pages, scope, tracksQ.data?.pages],
-  );
   const activeQ = scope === "objects" ? objectsQ : tracksQ;
+  const pagination = useInfiniteListPagination<EntityRow>(paginationScope, activeQ, pageState);
+  const rows = pagination.items;
+  const trackOrdinals = useMemo(() => {
+    const ordinals = new Map<string, number>();
+    for (const row of rows) {
+      if (row.track_id && !ordinals.has(row.track_id)) {
+        ordinals.set(row.track_id, ordinals.size + 1);
+      }
+    }
+    return ordinals;
+  }, [rows]);
   const total = activeQ.data?.pages[0]?.total ?? 0;
   const facets = activeQ.data?.pages[0]?.facets;
 
@@ -558,15 +593,6 @@ export function EntityDataManagerLens({
     };
   }, [hasRows, scrollContainerRef]);
   const virtualRows = virtualizer.getVirtualItems();
-  const lastVirtualIndex = virtualRows[virtualRows.length - 1]?.index ?? -1;
-  const hasNextPage = activeQ.hasNextPage;
-  const isFetchingNextPage = activeQ.isFetchingNextPage;
-  const fetchNextPage = activeQ.fetchNextPage;
-  useEffect(() => {
-    if (lastVirtualIndex >= rows.length - 10 && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
-    }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, lastVirtualIndex, rows.length]);
   // Query, sort or column changes return the reader to the result start on the
   // page scroll owner; loading another cursor page keeps the viewport position.
   useEffect(() => {
@@ -581,7 +607,7 @@ export function EntityDataManagerLens({
         8,
     );
     if (scroller.scrollTop > top) scroller.scrollTo({ top });
-  }, [filterJson, sort, columns, scrollContainerRef]);
+  }, [filterJson, sort, columns, pageState.page, pageState.pageSize, scrollContainerRef]);
 
   useEffect(() => {
     if (!hydrationRef.current || skipUrlSyncRef.current || !filterReady) {
@@ -1105,7 +1131,7 @@ export function EntityDataManagerLens({
                   role="row"
                   className={cn(
                     styles.entityGrid,
-                    "relative z-base min-w-max border-b border-border bg-muted",
+                    "relative z-base min-w-max border-b border-border bg-muted/50",
                   )}
                   // eslint-disable-next-line no-restricted-syntax -- schema columns determine the grid at runtime.
                   style={{ "--dm-grid-columns": gridTemplate } as CSSProperties}
@@ -1181,16 +1207,21 @@ export function EntityDataManagerLens({
                         (scope === "objects"
                           ? (row as DataManagerObject).annotation_id
                           : (row as DataManagerTrack).track_ref);
+                      const selectedKey =
+                        scope === "objects"
+                          ? (row as DataManagerObject).annotation_id
+                          : (row as DataManagerTrack).track_ref;
+                      const selectRow = () => setSelected(selectedKey);
                       return (
-                        <button
+                        <div
                           key={row.entity_key}
-                          type="button"
                           role="row"
+                          tabIndex={0}
                           aria-selected={entitySelected}
                           className={cn(
                             styles.virtualRow,
-                            "absolute left-0 grid h-[46px] min-w-max border-b border-border text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            entitySelected && "bg-muted",
+                            "absolute left-0 grid h-[46px] min-w-max cursor-pointer border-b border-border text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            entitySelected && "bg-muted/50",
                           )}
                           // eslint-disable-next-line no-restricted-syntax -- virtualizer provides each row offset at runtime.
                           style={
@@ -1201,19 +1232,31 @@ export function EntityDataManagerLens({
                               "--dm-row-offset": `${virtualRow.start - scrollMargin}px`,
                             } as CSSProperties
                           }
-                          onClick={() =>
-                            setSelected(
-                              scope === "objects"
-                                ? (row as DataManagerObject).annotation_id
-                                : (row as DataManagerTrack).track_ref,
+                          onClick={selectRow}
+                          onKeyDown={(event) => {
+                            if (
+                              event.target !== event.currentTarget ||
+                              (event.key !== "Enter" && event.key !== " ")
                             )
-                          }
+                              return;
+                            event.preventDefault();
+                            selectRow();
+                          }}
                         >
                           {columns.map((column) => {
                             const content =
                               scope === "objects"
-                                ? objectCell(row as DataManagerObject, column)
-                                : trackCell(row as DataManagerTrack, column);
+                                ? objectCell(
+                                    row as DataManagerObject,
+                                    column,
+                                    pageState.page * pageState.pageSize + virtualRow.index + 1,
+                                    trackOrdinals,
+                                  )
+                                : trackCell(
+                                    row as DataManagerTrack,
+                                    column,
+                                    pageState.page * pageState.pageSize + virtualRow.index + 1,
+                                  );
                             return (
                               <span
                                 key={`${row.entity_key}:${column}`}
@@ -1225,7 +1268,7 @@ export function EntityDataManagerLens({
                               </span>
                             );
                           })}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1236,6 +1279,16 @@ export function EntityDataManagerLens({
                   </div>
                 )}
               </div>
+              <ListPagination
+                label={scope === "objects" ? "对象" : "轨迹"}
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                total={pagination.total}
+                hasNext={pagination.hasNext}
+                loading={activeQ.isFetching}
+                onPageChange={pagination.onPageChange}
+                onPageSizeChange={pagination.setPageSize}
+              />
             </div>
           </div>
         </div>

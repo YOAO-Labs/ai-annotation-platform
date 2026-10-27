@@ -3,7 +3,7 @@ title: aap tui 终端运维台
 audience: [dev]
 type: reference
 status: beta
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-19
 ---
 
 # aap tui 终端运维台

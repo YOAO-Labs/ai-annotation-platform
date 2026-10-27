@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 审核模块
@@ -263,9 +262,9 @@ approve 还受 Mask QC 摘要新鲜度、阻断项与 warning 确认门禁约束
 - `reopen` 发生在任务已通过后
 - `accept-rejection` 发生在 reviewer 已明确退回后
 
-## 审核贡献者证据（增量 A2）
+## 审核贡献者证据与自审拦截
 
-`tasks` 上有三个可空字段，用于在项目级角色模型启用前先可靠记录“谁在标注阶段动过这题”：
+`tasks` 表维护三个可空证据字段，用于可靠记录“谁在标注阶段动过这题”并驱动项目角色下的自审拦截（`409`）：
 
 | 字段                         | 含义                                                                                                                                |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -273,17 +272,13 @@ approve 还受 Mask QC 摘要新鲜度、阻断项与 warning 确认门禁约束
 | `review_contributor_ids`     | 当前 `review_round_id` 冻结的贡献者集合。                                                                                           |
 | `review_submitter_id`        | 实际提交该轮的 actor。                                                                                                              |
 
-写入规则（`app/services/annotation_evidence.py`）：
+写入与锁序规则（`apps/api/app/services/annotation_evidence.py`）：
 
-- 每一次标注阶段写动作（create / update / delete、批量写、撤销/恢复、转换、导入、AI 采纳、视频/场景命令、多相机、tracker 接收）都在同一事务里把实际 actor 累积到 `annotation_contributor_ids`，不读取 `Annotation.user_id` 推断编辑者。
-- 累积是 task 行锁下的 read-modify-write；刷新证据前先 flush 待定变更，避免同事务内第二次写入丢失第一次的累积。混合顺序边界先在禁止 autoflush 的上下文中取 NOWAIT 锁，再 flush 和刷新，防止待定 UPDATE 抢先阻塞。`NULL` 具有粘性：在 legacy 未知题上新增一笔标注不会把未知收窄成“只有新 actor”的已知集合。畸形证据（非数组、空元素，或含非 UUID 元素）同样保持未知，绝不静默丢弃。
-- 优先在取 Annotation / SceneTrack 行锁之前锁定 task（或复用调用方已持有的 task 锁）；不能保证该顺序的边界采用下述非阻塞冲突处理。失败事务会连同证据一起回滚。冻结与进入 review 的状态迁移共用同一把 task 锁。
-- 无法在取资源锁前锁定全部 task 的混合顺序边界（AAP 导入、区间插值、scene resume、tracker 接受）使用 `FOR UPDATE NOWAIT`：task 忙时整体回滚并返回可重试的 409（`task_evidence_busy`），不形成阻塞等待环。用户触发的预测清理把发起 actor 记为贡献；系统清理无法归属 actor 时，把受影响 task 的累积集合保守置回未知。
-- `submit` / `skip` / 批量送审 / 视频分段完成后进入 review 时，将累积集合、存活标注作者、有效 assignee 与提交者一起冻结为 `review_contributor_ids`，并写 `review_submitter_id` 与新的 `review_round_id`。未知累积量不会伪造已知的 review 集合。
-- 离开 review（`withdraw` / `reopen` / `accept-rejection` / `review/reject` / 批次退回或重置 / 视频分段重开）会清空当前轮的 review 证据；标注累积集合按“保守”原则保留（删除、重置、改派、重开都不清除）。
-- 审核阶段的修改属于审核动作，不把审核员加入标注贡献者集合。首次审核统计（`first_review_*`）保持不变。
-
-领取、通过、退回和审核微调均消费当前轮冻结证据：贡献者、提交者或有效标注员不能自审，缺失或畸形证据按未知拒绝，而不是按空集合放行。首次审核事实独立保留，不因后续重开、重审或退回覆盖。
+1. **事务内实时累积**：每一次标注阶段写动作（create / update / delete、批量写、撤销/恢复、转换、导入、AI 采纳、视频/场景命令、多相机、tracker 接收）都在同一事务里把实际 actor 累积到 `annotation_contributor_ids`，不读取 `Annotation.user_id` 推断编辑者。
+2. **行锁与 `NULL` 粘性**：累积是 task 行锁下的 read-modify-write，刷新证据前先 flush 待定变更，避免同事务内第二次写入丢失第一次的累积。混合顺序边界先在禁止 autoflush 的上下文中取 NOWAIT 锁，再 flush 和刷新，防止待定 UPDATE 抢先阻塞。`NULL` 具有粘性：在 legacy 未知题上新增一笔标注不会把未知收窄成“只有新 actor”的已知集合；畸形证据（非数组、空元素，或含非 UUID 元素）同样保持未知，绝不静默丢弃。
+3. **锁获取顺序与非阻塞回退**：优先在取 Annotation / SceneTrack 行锁之前锁定 task（或复用调用方已持有的 task 锁）；不能保证该顺序的边界采用非阻塞冲突处理。失败事务会连同证据一起回滚；冻结与进入 review 的状态迁移共用同一把 task 锁。无法在取资源锁前锁定全部 task 的混合顺序边界（AAP 导入、区间插值、scene resume、tracker 接受）在禁止 autoflush 上下文中先取 `FOR UPDATE NOWAIT` 锁：task 忙时整体回滚并返回可重试的 `409 task_evidence_busy`，避免死锁等待环。用户触发的预测清理把发起 actor 记为贡献；系统清理无法归属 actor 时，把受影响 task 的累积集合保守置回未知。
+4. **送审冻结与出审清理**：`submit` / `skip` / 批量送审 / 视频分段完成后进入 `review` 时，将累积集合、存活标注作者、有效 assignee 与提交者一起冻结为 `review_contributor_ids`，并写入 `review_submitter_id` 与新的 `review_round_id`。未知累积量不会伪造已知的 review 集合。离开 `review`（`withdraw` / `reopen` / `accept-rejection` / `review/reject` / 批次退回或重置 / 视频分段重开）会清空当前轮的 review 证据，而 `annotation_contributor_ids` 按保守原则保留（删除、重置、改派、重开都不清除）。
+5. **审核修改与自审门禁**：审核阶段的修改属于审核动作，不把审核员加入标注贡献者集合。领取、通过、退回和审核微调均消费当前轮冻结证据：贡献者、提交者或有效标注员不能自审，缺失或畸形证据按未知拒绝，而不是按空集合放行。非 Owner / Super Admin 的审核员若命中 `review_contributor_ids` 或 `review_submitter_id`，在 `review/claim`、`review/approve`、`review/reject` 时会被自审门禁拒绝（返回 `409`）。首次审核事实独立保留，不因后续重开、重审或退回覆盖。
 
 ## Batch 级审核细节
 
@@ -352,8 +347,8 @@ review 链路几乎每个动作都带审计。
 
 - `TASK_SUBMIT`
 - `TASK_SKIP`
-- `TASK_WITHDRAW`
 - `TASK_REVIEW_CLAIM`
+- `TASK_WITHDRAW`
 - `TASK_APPROVE`
 - `TASK_REJECT`
 - `TASK_REOPEN`
@@ -389,19 +384,11 @@ reviewer 与 annotator 的沟通收敛到工作台右栏下段的 `DiscussionPan
 
 issue 在画布上以图钉呈现，与 issues tab 列表双向联动：
 
-- 点列表项（有 pin）→ `focusIssue(feedback)` 携带完整目标，图片平移到图钉，视频交给任务与视图恢复入口；保留 `focusIssue(id)` 的旧调用兼容。
-- 图钉单击 → `useActiveIssueStore` 高亮对应行并自动把面板切到 issues tab。
-- 视频 Stage 的图钉按 `anchor_position.frame` 帧级显隐（`VideoKonvaIssueLayer.tsx`），颜色按 status 映射（open=warning / resolved=success / wont_fix=muted）。
-
-视频落点通过 `useIssuePins` 保存当次请求的归一化坐标和源帧，等待 `seekToFrameReady` 返回精确的 `ready` 后再打开创建框。Issue 表单以每次打开及 project/task 作为会话边界，冻结提交目标和帧号；清空坐标仍使用任务级空锚点。迟到定位、提交回调不能关闭或改写新任务的表单。讨论页的任务级问题入口直接使用空锚点打开同一表单，并使未完成的像素定位请求失效，不依赖视频准备结果；此会话固定为任务级，不允许手填坐标绕过源帧就绪检查。
-
-列表和时间轴共用受绘制 / Mask 草稿保护的帧定位入口。`VideoStageControls.seekToFrameReady` 返回 `ready / cancelled / timeout / unavailable`；`ready` 要求当前任务与请求仍有效、实际源帧匹配并收到媒体层绘制回执。WebCodecs 位图和原生回退分别验证来源；时间轴的乐观帧号、邻帧容差和计时结束都不能作为成功证据。Mask QC 定位也检查这一结果，失败时不选择标注、不加载比较或聚焦区域。
-
-视频像素锚可包含 `video_context`，写入合同见 [视频问题反馈](../../api/guides/tasks-and-annotations.md#视频问题反馈)。原有 JSONB 保存对象版本、源帧范围、归一化视口中心、相对于 fit 的缩放以及源帧时间窗；没有新增表列或历史回填。读取未知版本时保留原值，但恢复端只使用旧帧与像素锚。对象软删除、版本变化或外键清空不使历史反馈不可读；回复原样继承已有锚点，不能借此修改或伪造上下文。
-
-`useVideoIssueNavigation` 以项目和每次导航意图管理取消信号。先重新检查目标任务权限，再经 `selectTask` 与最新导航调度器处理绘制和 Mask 草稿；将检查过的任务写入已有查询缓存，等待目标标注、真实媒体尺寸及首次 fit。精确帧就绪后，通过 Stage 的恢复租约抑制该次选中触发的普通聚焦，待选中 props、viewport 和 Overlay 时间窗实际提交后才报告成功。各 live 状态仍归原有 Stage / Overlay 所有，租约只保存本次恢复输入。
-
-Stage 的用户操作通知会取消权限预检、媒体等待或视图恢复中的旧意图；内部精确 seek、不吸附的暂停与带有任务复位来源的清空选择不会误取消。所有等待后检查任务、来源代次与取消信号，完成、错误、超时及卸载均释放订阅和租约。原对象已变化时退回帧与像素位置并提示；媒体缩短或现有缩放/时间窗规则夹取目标时说明边界变化。视频问题列表支持项目范围和游标分页，点击事件不依赖当前任务的反馈查询。
+- **点击列表项（带 pin）**：调用 `focusIssue(feedback)` 携带完整目标，图片平移到图钉，视频交给任务与视图恢复入口；同时保留 `focusIssue(id)` 旧调用兼容。
+- **点击画布图钉**：`useActiveIssueStore` 高亮对应行并自动把面板切到 issues tab。
+- **视频图钉显隐與落点**：视频 Stage 的图钉按 `anchor_position.frame` 帧级显隐（`VideoKonvaIssueLayer.tsx`），颜色按 status 映射（`open=warning` / `resolved=success` / `wont_fix=muted`）。视频落点通过 `useIssuePins` 保存归一化坐标和源帧，等待 `VideoStageControls.seekToFrameReady` 返回精确 `ready` 后再打开创建框；讨论页的任务级问题入口则直接使用空锚点打开表单。
+- **视频像素锚上下文（`video_context`）**：写入合同见 [视频问题反馈](../../api/guides/tasks-and-annotations.md#视频问题反馈)。JSONB 保存对象版本、源帧范围、归一化视口中心、相对于 fit 的缩放以及源帧时间窗；对象软删除、版本变化或外键清空不使历史反馈不可读。
+- **跨任务视频定位（`useVideoIssueNavigation`）**：按项目和导航意图管理取消信号。先检查目标任务权限，再经 `selectTask` 与最新导航调度器处理绘制和 Mask 草稿；精确帧就绪后通过恢复租约抑制普通聚焦，待选中 props、viewport 和 Overlay 时间窗实际提交后报告成功。用户主动操作画布会取消恢复中的旧意图。
 
 ### 评论画布批注
 

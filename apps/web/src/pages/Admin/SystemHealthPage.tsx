@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 /**
  * v0.10.58 · super_admin system health panel.
  * Tailwind/shadcn surface with semantic status colors.
@@ -22,9 +25,6 @@ const STATUS_CLASS: Record<SystemHealthStatus, string> = {
 
 const PILL_BASE = "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-xs font-semibold";
 
-const TABLE_CLASS =
-  "w-full border-collapse text-xs [&_td]:border-b [&_td]:border-border [&_td]:px-2.5 [&_td]:py-2 [&_td]:text-left [&_th]:border-b [&_th]:border-border [&_th]:bg-muted [&_th]:px-2.5 [&_th]:py-2 [&_th]:text-left [&_th]:font-medium [&_th]:text-muted-foreground [&_tr:last-child_td]:border-b-0";
-
 function formatLatency(value: number | null): string {
   return value == null ? "—" : `${value.toFixed(1)}ms`;
 }
@@ -46,6 +46,8 @@ export function SystemHealthPage() {
   });
 
   const data = healthQ.data;
+  const queues = useListPagination(data?.celery.queues ?? []);
+  const workers = useListPagination(data?.celery.workers ?? []);
 
   return (
     <div className="flex flex-col gap-4 px-6 py-5 text-foreground">
@@ -111,29 +113,39 @@ export function SystemHealthPage() {
               {data.celery.queues.length === 0 ? (
                 <div className="p-5 text-center text-xs text-muted-foreground">暂无积压任务</div>
               ) : (
-                <table className={TABLE_CLASS}>
-                  <thead>
-                    <tr>
-                      <th>Queue</th>
-                      <th>Length</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.celery.queues.map((queue) => (
-                      <tr key={queue.name}>
-                        <td>{queue.name}</td>
-                        <td className="tabular-nums">{queue.length}</td>
-                        <td>
-                          <span className={`${PILL_BASE} ${STATUS_CLASS[queue.status]}`}>
-                            {STATUS_LABEL[queue.status]}
-                          </span>
-                        </td>
+                <div className={listStyles.scroll}>
+                  <table className={listStyles.table}>
+                    <thead>
+                      <tr>
+                        <th>Queue</th>
+                        <th>Length</th>
+                        <th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {queues.items.map((queue) => (
+                        <tr key={queue.name}>
+                          <td>{queue.name}</td>
+                          <td className="tabular-nums">{queue.length}</td>
+                          <td>
+                            <span className={`${PILL_BASE} ${STATUS_CLASS[queue.status]}`}>
+                              {STATUS_LABEL[queue.status]}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
+              <ListPagination
+                label="队列"
+                page={queues.page}
+                pageSize={queues.pageSize}
+                total={queues.total}
+                onPageChange={queues.setPage}
+                onPageSizeChange={queues.setPageSize}
+              />
             </section>
 
             <section className="overflow-hidden rounded-md border border-border bg-card">
@@ -148,31 +160,41 @@ export function SystemHealthPage() {
                   没有 worker 响应
                 </div>
               ) : (
-                <table className={TABLE_CLASS}>
-                  <thead>
-                    <tr>
-                      <th>Worker</th>
-                      <th>Heartbeat</th>
-                      <th>Pool</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.celery.workers.map((worker) => (
-                      <tr key={worker.name}>
-                        <td>{worker.name}</td>
-                        <td>{formatHeartbeat(worker.last_heartbeat_seconds_ago)}</td>
-                        <td className="tabular-nums">{worker.pool_max ?? "—"}</td>
-                        <td>
-                          <span className={`${PILL_BASE} ${STATUS_CLASS[worker.status]}`}>
-                            {STATUS_LABEL[worker.status]}
-                          </span>
-                        </td>
+                <div className={listStyles.scroll}>
+                  <table className={listStyles.table}>
+                    <thead>
+                      <tr>
+                        <th>Worker</th>
+                        <th>Heartbeat</th>
+                        <th>Pool</th>
+                        <th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {workers.items.map((worker) => (
+                        <tr key={worker.name}>
+                          <td>{worker.name}</td>
+                          <td>{formatHeartbeat(worker.last_heartbeat_seconds_ago)}</td>
+                          <td className="tabular-nums">{worker.pool_max ?? "—"}</td>
+                          <td>
+                            <span className={`${PILL_BASE} ${STATUS_CLASS[worker.status]}`}>
+                              {STATUS_LABEL[worker.status]}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
+              <ListPagination
+                label="Worker"
+                page={workers.page}
+                pageSize={workers.pageSize}
+                total={workers.total}
+                onPageChange={workers.setPage}
+                onPageSizeChange={workers.setPageSize}
+              />
             </section>
           </div>
         </>

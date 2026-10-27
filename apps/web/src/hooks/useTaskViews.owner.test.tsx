@@ -152,6 +152,28 @@ describe("Data Manager auth-owned query state", () => {
     await waitFor(() => expect(hook.result.current.data).toEqual({ marker: "rotated-token" }));
   });
 
+  it("does not present previous rows as a different page or row count", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    queryTask.mockImplementation((_project, request) =>
+      request.offset === 0 && request.limit === 20
+        ? Promise.resolve({ items: [{ id: "first-page" }], total: 40, limit: 20, offset: 0 })
+        : new Promise(() => undefined),
+    );
+    const hook = renderHook(
+      ({ limit, offset }) => useProjectTaskQuery("p1", { ...payload("first"), limit, offset }),
+      {
+        initialProps: { limit: 20, offset: 0 },
+        wrapper: wrapper(client),
+      },
+    );
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    hook.rerender({ limit: 20, offset: 20 });
+    expect(hook.result.current.data).toBeUndefined();
+    expect(hook.result.current.isPlaceholderData).toBe(false);
+    hook.rerender({ limit: 10, offset: 0 });
+    expect(hook.result.current.data).toBeUndefined();
+  });
+
   it("scopes summary cache keys to the same auth owner", async () => {
     querySummary.mockResolvedValue({ marker: "summary" });
     const client = new QueryClient({

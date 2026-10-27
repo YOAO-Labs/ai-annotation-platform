@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -327,7 +328,13 @@ export function BoxListItem({
           <span className="shrink-0 px-1.5 py-px border border-border rounded bg-muted text-muted-foreground font-[inherit]">
             {toolMeta.label}
           </span>
-          <span className="overflow-hidden text-ellipsis whitespace-nowrap">{toolMeta.detail}</span>
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+            {rasterMaskStatus?.state === "error" || rasterMaskStatus?.state === "deferred" ? (
+              <CopyableError message={toolMeta.detail} truncate />
+            ) : (
+              toolMeta.detail
+            )}
+          </span>
           {(rasterMaskStatus?.state === "error" || rasterMaskStatus?.state === "deferred") &&
             rasterMaskStatus.retryable &&
             onRetryRasterMask && (

@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # 批次模块
@@ -224,26 +223,24 @@ task 路由中的这些事件也会影响 batch：
 
 `split(project_id, data, created_by)` 从项目里尚未归类（未分配批次）的 task 中切出新批次，`BatchSplitRequest.strategy` 决定切分方式：
 
-| 策略                  | 说明                                                                                    |
-| --------------------- | --------------------------------------------------------------------------------------- |
-| `metadata`            | 按 `metadata_key` / `metadata_value` 过滤出匹配 task，归入一个新批次                    |
-| `id_range`            | 按显式给定的 `item_ids` 列表把指定 task 归入一个新批次                                  |
-| `random`              | 把未归类 task 切成 `n_batches` 个批次；`shuffle=False` 时按 task 创建顺序切分（不打乱） |
-| `by_scene`（v0.14.4） | 适用 scene 模式项目：按 task 所属 scene 分组，每个 scene 切成一个独立批次               |
+| 策略       | 说明                                                                                    |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `metadata` | 按 `metadata_key` / `metadata_value` 过滤出匹配 task，归入一个新批次                    |
+| `id_range` | 按显式给定的 `item_ids` 列表把指定 task 归入一个新批次                                  |
+| `random`   | 把未归类 task 切成 `n_batches` 个批次；`shuffle=False` 时按 task 创建顺序切分（不打乱） |
+| `by_scene` | 适用 scene 模式项目：按 task 所属 scene 分组，每个 scene 切成一个独立批次               |
 
-`by_scene` 细节：
+`by_scene` 细节与强制门禁：
 
-- 通过 `resolve_task_scene_frames` 解析每个 task 的 `scene_id` / `scene_name` / `frame_index`，按 `scene_id` 分组，每组生成一个批次；无 scene 的 task 归入一个「无 scene」批次，排在最后。
-- 批次命名为 `{name_prefix} · {scene_name}`（无 scene 时为 `{name_prefix} · 无 scene`）。
-- 每个批次内调用 `_set_sequence_orders`，把 task 的 `sequence_order` 写为各自的 `frame_index`，使工作台派题顺序与 scene 内帧序一致；`frame_index` 为空的 task 不写 `sequence_order`。
-
-**scene 模式项目强制只能 `by_scene`（v0.15.x）**：scene 项目同一 scene 的连续帧必须落同一批次，`random` / 顺序切分会把连续帧拆散给不同标注员。因此 `split` 入口加了一道门——当 `project.scene_mode` 为真且 `data.strategy != "by_scene"` 时直接抛 `HTTPException(422, "scene 模式项目分包只能按 scene(strategy=by_scene)")`，防御绕过前端直发 API。前端 `BatchesSection` 三个 split 入口对 scene 项目也只暴露「按 scene 建包」（横带的 `random` 一键建包对 scene 项目隐藏，「创建批次」直接走 `by_scene` 不弹对话框）。
+- **分组与帧序**：通过 `resolve_task_scene_frames` 解析每个 task 的 `scene_id` / `scene_name` / `frame_index`，按 `scene_id` 分组，每组生成一个批次（命名为 `{name_prefix} · {scene_name}`；无 scene 的 task 归入 `{name_prefix} · 无 scene`）。每个批次内调用 `_set_sequence_orders`，把 task 的 `sequence_order` 写为各自的 `frame_index`，使工作台派题顺序与 scene 内帧序一致。
+- **后端门禁**：scene 项目同一 scene 的连续帧必须落入同一批次；当 `project.scene_mode` 为真且 `data.strategy != "by_scene"` 时，`split` 入口直接抛出 `HTTPException(422, "scene 模式项目分包只能按 scene(strategy=by_scene)")`。
+- **前端入口**：`BatchesSection` 对 scene 项目仅暴露「按 scene 建包」，隐藏 `random` 一键建包，「创建批次」直接调用 `by_scene`。
 
 scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)。
 
-### `delete` 与删批次保护（v0.11.25）
+### `delete` 与删批次保护
 
-`delete(batch_id, *, force=False)` 不再是裸删，它先判断批次里有没有"不该被无声丢弃"的工作：
+`delete(batch_id, *, force=False)` 先判断批次里有没有“不该被无声丢弃”的工作：
 
 - `_count_protected_tasks(batch_id)` 返回 `(non_pending, predicted, affected)`：
   - `non_pending`：`Task.status != "pending"` 的数量（进行中 / 已完成 / 已审核等）
@@ -278,7 +275,7 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 
 ### `clean_task_predictions`
 
-`clean_task_predictions(task_ids)` 是 task 维度的清理命令，被 `_reset_and_clean_batch_tasks` 与 `batch_predict` 的 `overwrite` 模式共用；它不自行提交：
+`clean_task_predictions(task_ids)` 是 task 维度的“清 AI 预标产物”清理命令，被 `_reset_and_clean_batch_tasks` 与 `batch_predict` 的 `overwrite` 模式共用；它不自行提交：
 
 - 仅软删除 `source="prediction_based"` 的有效标注；人工及其他来源保留
 - 把残留 annotation 的 `parent_prediction_id` 置空
@@ -306,7 +303,7 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 
 ### bulk 系列
 
-后端当前已实现：
+后端当前支持的批量与锁操作：
 
 - `bulk-archive`
 - `bulk-delete`
@@ -314,11 +311,7 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 - `bulk-activate`
 - `bulk-approve`
 - `bulk-reject`
-- admin lock / unlock
-
-尚未实现：
-
-- bulk pause / resume
+- `admin-lock` / `admin-unlock`
 
 ### 批次导出
 

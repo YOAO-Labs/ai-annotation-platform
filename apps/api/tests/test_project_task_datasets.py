@@ -4,6 +4,7 @@ import asyncio
 import copy
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +16,7 @@ from training_contract.dataset import (
     DETECTION_CONTRACT,
     LEGACY_SEGMENTATION_CONTRACT,
     SEGMENTATION_CONTRACT,
+    INSTANCE_RLE_CONTRACT,
     DatasetContractError,
     data_contract,
 )
@@ -93,6 +95,13 @@ async def add_version(db, project, *, snapshot=None, status="ready", created_at=
         },
         dict(DETECTION_CONTRACT),
         dict(SEGMENTATION_CONTRACT),
+        dict(INSTANCE_RLE_CONTRACT),
+        {**INSTANCE_RLE_CONTRACT, "schema": 4.0},
+        {**INSTANCE_RLE_CONTRACT, "schema": "4"},
+        {**INSTANCE_RLE_CONTRACT, "format": "ultralytics-yolo"},
+        {**INSTANCE_RLE_CONTRACT, "geometry": SEGMENTATION_CONTRACT["geometry"]},
+        {**INSTANCE_RLE_CONTRACT, "bridge": SEGMENTATION_CONTRACT["bridge"]},
+        {**INSTANCE_RLE_CONTRACT, "media_type": "video"},
         {**DETECTION_CONTRACT, "schema": 3.0},
         {**DETECTION_CONTRACT, "schema": "3"},
         {**DETECTION_CONTRACT, "bridge": "unqualified"},
@@ -480,21 +489,37 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     project = await create_project(db_session, owner_id=owner.id)
     calls = []
 
-    async def freeze(*_args, **_kwargs):
-        calls.append("freeze")
-        return {**DETECTION_CONTRACT, "classes": ["car"]}, {
-            "ready": True,
-            "digest": "b" * 64,
-            "classes": ["car"],
-            "summary": {"images": 2},
-            "issues": [],
-            "excluded": [],
-        }
+    async def prepare(*_args, **_kwargs):
+        calls.append("prepare")
+        return SimpleNamespace(
+            snapshot={**DETECTION_CONTRACT, "classes": ["car"]},
+            report={
+                "ready": True,
+                "digest": "b" * 64,
+                "classes": ["car"],
+                "summary": {"images": 2},
+                "issues": [],
+                "excluded": [],
+            },
+            # A faked preparation still carries the caller's authority so the
+            # route's real clock check remains active instead of being skipped.
+            authority=SimpleNamespace(
+                project_id=project.id,
+                actor_id=owner.id,
+                key_id=None,
+                key=None,
+                proof=None,
+            ),
+        )
+
+    async def finalize(_db, prepared):
+        return prepared.snapshot, prepared.report
 
     async def no_dispatch(*_args, **_kwargs):
         pass
 
-    monkeypatch.setattr(frozen_datasets, "freeze_selection", freeze)
+    monkeypatch.setattr(frozen_datasets, "prepare_selection", prepare)
+    monkeypatch.setattr(frozen_datasets, "finalize_selection", finalize)
     monkeypatch.setattr(frozen_datasets, "enqueue_dataset", no_dispatch)
     monkeypatch.setattr(frozen_datasets, "dispatch_dataset", no_dispatch)
     headers = {"Authorization": f"Bearer {token}"}
@@ -511,7 +536,7 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     repeated = await httpx_client.post(path, headers=headers, json=payload)
     assert repeated.status_code == 202, repeated.text
     assert repeated.json()["version_ordinal"] == 1
-    assert calls == ["freeze"]
+    assert calls == ["prepare"]
 
     old = await add_version(db_session, project)
     replay = {
@@ -529,7 +554,7 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     assert (
         response.json()["id"] == str(old.id) and response.json()["version_ordinal"] == 2
     )
-    assert calls == ["freeze"]
+    assert calls == ["prepare"]
     await db_session.refresh(old)
     assert (old.snapshot, old.snapshot_digest, old.request_digest) == preserved
 
@@ -590,3 +615,14 @@ async def test_concurrent_creators_and_replay_issue_each_ordinal_once(
             return membership.ordinal
 
     assert await asyncio.gather(*(replay() for _ in range(4))) == [issued[0][1]] * 4
+
+
+async def test_native_rle_sql_profile_preserves_distinct_bridge(db_session):
+    actual = await db_session.scalar(
+        select(
+            service.contract_profile_expression(
+                literal(INSTANCE_RLE_CONTRACT, type_=JSONB)
+            )
+        )
+    )
+    assert actual == {**INSTANCE_RLE_CONTRACT, "source_media_type": "image"}

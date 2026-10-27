@@ -1,7 +1,7 @@
 """Publish Learning-owned project deletion retention capabilities.
 
-Revision ID: 0196
-Revises: 0195
+Revision ID: bo0196
+Revises: bo0195
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0196"
-down_revision = "0195"
+revision = "bo0196"
+down_revision = "bo0195"
 branch_labels = depends_on = None
 
 

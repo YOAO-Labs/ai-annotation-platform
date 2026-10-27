@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import Any, Mapping, Protocol
 from uuid import UUID
 
 from app.schemas.annotation import AnnotationOut
@@ -18,6 +18,9 @@ class CandidateAcceptCommand:
     override_class_name: str | None
     attribute_overrides: dict | None
     video_segment_id: UUID | None
+    reference_receipt: Any | None = None
+    repair_original_receipt: Any | None = None
+    video_acceptance_receipt: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +28,7 @@ class CandidateRejectCommand:
     write_scope: LabelingWriteScope
     prediction_id: UUID
     shape_index: int | None
+    video_rejection_receipt: Any | None = None
 
 
 class CandidateDecisionError(Exception):

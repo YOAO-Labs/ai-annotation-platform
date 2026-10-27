@@ -30,8 +30,18 @@ def _bind_jobs_read_to_fake_session(monkeypatch):
 
 
 class _Session:
+    autoflush = True
+    identity_map: dict = {}
+
     def __init__(self, job, task):
         self.job, self.task = job, task
+
+    async def execute(self, _statement):
+        task = self.task
+        return SimpleNamespace(scalar_one_or_none=lambda: task)
+
+    async def flush(self):
+        return None
 
     async def __aenter__(self):
         return self
@@ -47,7 +57,7 @@ class _Session:
         return None
 
 
-def _request(*, protocol=c.INPUT_SCHEMA, input_ids=None):
+def _request(*, protocol=c.INPUT_SCHEMA, input_ids=None, authority_kind=None):
     job_id = uuid.uuid4()
     task_id = uuid.uuid4()
     project_id = uuid.uuid4()
@@ -61,6 +71,13 @@ def _request(*, protocol=c.INPUT_SCHEMA, input_ids=None):
         "accepted_inputs_protocol": protocol,
         "accepted_input_ids": mapping,
     }
+    if authority_kind is not None:
+        binding = {"task_id": str(task_id)}
+        if authority_kind in {"reference", "both"}:
+            binding["reference"] = {"sha256": "a" * 64}
+        if authority_kind in {"original", "both"}:
+            binding["original"] = {"sha256": "a" * 64}
+        payload["prediction_authority"] = {"schema": 2, "tasks": [binding]}
     request = BatchPredictionRequest(
         project_id=str(project_id),
         ml_backend_id=str(uuid.uuid4()),
@@ -327,6 +344,52 @@ async def test_missing_legacy_workbench_image_identity_fails_closed(monkeypatch)
         async with _prepare_accepted_input(request, _session_factory(job, task)):
             pass
     assert not called
+    assert job.status == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority_kind", ["original", "both"])
+async def test_workbench_image_without_identity_stays_closed(
+    monkeypatch, authority_kind
+):
+    request, job, task, _input_id = _request(
+        protocol=None, authority_kind=authority_kind
+    )
+    job.payload.pop("accepted_inputs_protocol")
+    job.payload.pop("accepted_input_ids")
+
+    @asynccontextmanager
+    async def unexpected_input_gateway(**_kwargs):
+        pytest.fail("non-reference workbench images require admitted identity")
+        yield None
+
+    monkeypatch.setattr(
+        "app.services.accepted_inputs.input_gateway", unexpected_input_gateway
+    )
+    with pytest.raises(ValueError, match="legacy Workbench image"):
+        async with _prepare_accepted_input(request, _session_factory(job, task)):
+            pass
+    assert job.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_frozen_reference_replaces_admission_for_workbench_image(monkeypatch):
+    request, job, task, _input_id = _request(protocol=None, authority_kind="reference")
+    job.payload.pop("accepted_inputs_protocol")
+    job.payload.pop("accepted_input_ids")
+
+    @asynccontextmanager
+    async def unexpected_input_gateway(**_kwargs):
+        pytest.fail("reference originals are owned by their frozen authority")
+        yield None
+
+    monkeypatch.setattr(
+        "app.services.accepted_inputs.input_gateway", unexpected_input_gateway
+    )
+    async with _prepare_accepted_input(
+        request, _session_factory(job, task)
+    ) as prepared:
+        assert prepared is None
     assert job.status == "pending"
 
 
@@ -652,6 +715,22 @@ async def test_manifest_failed_prediction_without_input_cannot_resolve_current_u
     )
 
     class Session:
+        autoflush = True
+        identity_map: dict = {}
+
+        def __init__(self):
+            self._rows = [failed, task]
+
+        async def execute(self, _statement):
+            row = self._rows.pop(0) if self._rows else task
+            return SimpleNamespace(scalar_one_or_none=lambda: row)
+
+        async def flush(self):
+            return None
+
+        async def scalar(self, *_args, **_kwargs):
+            return None
+
         async def __aenter__(self):
             return self
 

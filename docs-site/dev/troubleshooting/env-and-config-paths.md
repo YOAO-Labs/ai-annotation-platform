@@ -1,9 +1,8 @@
 ---
 audience: [dev, ops]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # 环境变量与 config 路径
@@ -22,7 +21,7 @@ IndexError: list index out of range
 
 ## 根因
 
-`apps/api/app/config.py` v0.9.6 引入了 `parents[3]` 假设宿主机目录布局：
+早期 `apps/api/app/config.py` 曾使用 `parents[3]` 假设宿主机目录布局：
 
 ```
 ai-annotation-platform/        # parents[3]
@@ -70,5 +69,5 @@ ENV_FILE = REPO_ROOT / ".env" if REPO_ROOT else None
 
 ## 相关
 
-- commit: `0a99cc6` v0.9.7 端到端跑通修复段
+- commit: `0a99cc6` 端到端跑通修复段
 - 代码：`apps/api/app/config.py`

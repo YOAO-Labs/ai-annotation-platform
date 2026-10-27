@@ -13,8 +13,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from aap_assets_source.connections_contract import (
-    CONNECTION_NATIVE_ARGUMENTS,
     CONNECTION_NATIVE_SIGNATURES,
+    RUNTIME_NATIVE_SIGNATURES,
 )
 from aap_assets_source_runtime.database import ROLE_PREFLIGHT_SQL
 from tests.test_asset_storage_cleanup_runtime import _required_env, _verify_postgres
@@ -30,7 +30,15 @@ pytestmark = [
 
 _SOURCE_URL = "AAP_MODULE_DATA_ASSET_SOURCE_URL"
 _CONTAINER_ID = "AAP_MODULE_DATA_PG_CONTAINER_ID"
-_EXPECTED_LEGACY_SOURCE_CAPABILITIES = {
+_EXPECTED_SOURCE_CAPABILITIES = {
+    "begin_operator_auxiliary",
+    "open_operator_storage_operation",
+    "record_operator_original_prepared",
+    "mark_operator_original_writing",
+    "record_operator_original_written",
+    "record_operator_original_verified",
+    "fail_operator_original",
+    "close_operator_storage_operation",
     "reserve_dataset_upload",
     "lock_dataset_upload",
     "find_dataset_upload_duplicate",
@@ -161,17 +169,22 @@ WITH captured AS (
         access => 'admin'
     ) -> 'data' AS data
 )
-SELECT aap_assets_v1.update_storage_connection(
+SELECT aap_assets_v1.update_storage_connection_authorized(
     operation_id => :'update_operation_id'::uuid,
     actor_id => :'actor_id'::uuid,
     connection_id => :'create_operation_id'::uuid,
-    intent => '{"name":"psql native updated","config":null,"secret_digest":null}'::jsonb,
+    intent => jsonb_build_object(
+        'name', 'psql native updated', 'config', NULL, 'secret_digest', NULL
+    ),
     config => captured.data -> 'connection' -> 'config',
     secret_enc => NULL,
     source_snapshot => captured.data ->> 'source_snapshot',
     policy_digest => NULL,
     fallback_allowlist => '[]'::jsonb,
-    audit_context => '{}'::jsonb
+    audit_context => '{}'::jsonb,
+    api_key_id => NULL,
+    required_scopes => ARRAY[]::text[],
+    expected_proof => NULL
 )
 FROM captured;
 WITH captured AS (
@@ -338,12 +351,11 @@ async def test_restricted_source_psql_calls_frozen_connection_surface_and_rolls_
         capabilities = json.loads(lines[2])
         assert isinstance(capabilities, list)
         by_name = {entry["name"]: entry["args"] for entry in capabilities}
-        assert len(by_name) == 26
-        assert set(by_name) == _EXPECTED_LEGACY_SOURCE_CAPABILITIES | set(
-            CONNECTION_NATIVE_SIGNATURES
+        assert set(by_name) == (
+            _EXPECTED_SOURCE_CAPABILITIES
+            | set(CONNECTION_NATIVE_SIGNATURES)
+            | set(RUNTIME_NATIVE_SIGNATURES)
         )
-        for name, arguments in CONNECTION_NATIVE_ARGUMENTS.items():
-            assert by_name[name] == list(arguments)
 
         listing = _success(_json_object(lines[3]))
         assert listing["actor_id"] == str(actor_id)

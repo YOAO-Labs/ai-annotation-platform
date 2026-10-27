@@ -1,4 +1,5 @@
 import asyncio
+from functools import partial
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -20,6 +21,7 @@ from app.api.v1.deactivation_commands import (
 from app.services.identity_account_commands import AccountCommandsPort
 from app.services.identity_deactivation_commands import DeactivationCommandsPort
 from app.services import avatar as avatar_service
+from app.services import avatar_uploads
 from app.services.avatar_image import (
     ALLOWED_CONTENT_TYPES as ALLOWED_IMAGE_CONTENT_TYPES,
     MAX_AVATAR_FILE_BYTES,
@@ -62,22 +64,9 @@ async def update_profile(
     return data["account"]
 
 
-async def _set_avatar(
-    request, credentials, commands, avatar_ref, *, kind, size=None, operation_id=None
-):
-    data = await execute_account(
-        request,
-        credentials,
-        commands,
-        "set_avatar_ref",
-        {"avatar_ref": avatar_ref, "kind": kind, "bytes": size},
-        operation_id=operation_id,
-    )
-    if data["changed"]:
-        await asyncio.to_thread(
-            avatar_service.delete_ref_object, data["previous_avatar_ref"]
-        )
-    return data["account"]
+def _avatar_commands(request, credentials, commands):
+    """Bind the caller's original credential to avatar owner commands."""
+    return partial(execute_account, request, credentials, commands)
 
 
 @router.post("/avatar", response_model=UserOut)
@@ -85,13 +74,17 @@ async def _set_avatar(
 async def upload_avatar(
     request: Request,
     file: UploadFile = File(...),
-    _principal: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     commands: AccountCommandsPort = Depends(get_account_commands),
 ):
     """上传自定义头像，服务端校验真实图片并规范化为 256×256 WebP。
 
-    头像引用提交成功后才清理旧上传对象；提交结果未知时保留新字节以便核对。
+    服务端是唯一可信方：声明 MIME 只作早退，真实格式/像素规模由 Pillow 判定。
+    规范化字节写入当前保存的不可变目标后，必须条件创建并完整读回；只有
+    Identity 所有者事务验证同一 pending 回执与冻结的上一个引用后，才会原子地
+    发布 ``users.avatar_ref``、把新回执标记 ready 并退役旧上传。
     """
     declared = (file.content_type or "").lower()
     if declared and declared not in {
@@ -100,44 +93,28 @@ async def upload_avatar(
     }:
         raise HTTPException(status_code=415, detail="仅支持 PNG / JPEG / WebP 格式")
     raw = await file.read(MAX_AVATAR_FILE_BYTES + 1)
+
+    execute = _avatar_commands(request, credentials, commands)
+    # Freeze authentication and the previous reference before normalization can
+    # outlive either. The owner re-authenticates the original credential at
+    # publication; remote transactions never span image processing or S3 IO.
+    authority = await avatar_uploads.capture_authority(db, execute, principal)
     try:
         normalized = await asyncio.to_thread(normalize_avatar, raw)
     except AvatarImageError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-
-    # Reject a stale account before staging bytes, then recheck current credentials
-    # at pointer commit. Remote transactions never span image processing or S3 IO.
-    await execute_account(request, credentials, commands, "read_self_account", {})
-    token = avatar_service.new_upload_token()
-    avatar_ref = avatar_service.build_upload_ref(token)
-    try:
-        await asyncio.to_thread(avatar_service.write_avatar_object, token, normalized)
-    except Exception:
-        await asyncio.to_thread(avatar_service.delete_ref_object, avatar_ref)
-        raise
-    try:
-        return await _set_avatar(
-            request,
-            credentials,
-            commands,
-            avatar_ref,
-            kind="upload",
-            size=len(normalized),
-            operation_id=uuid.uuid4(),
-        )
-    except HTTPException as error:
-        if error.status_code != 503:
-            # A definite rejection has no committed pointer. An unavailable
-            # owner's commit may be unknown: retain those bytes for reconciliation.
-            await asyncio.to_thread(avatar_service.delete_ref_object, avatar_ref)
-        raise
+    data = await avatar_uploads.upload(
+        db, execute, normalized, principal=principal, authority=authority
+    )
+    return data["account"]
 
 
 @router.patch("/avatar", response_model=UserOut)
 async def set_avatar_ref(
     payload: AvatarRefUpdate,
     request: Request,
-    _principal: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     commands: AccountCommandsPort = Depends(get_account_commands),
 ):
@@ -146,22 +123,25 @@ async def set_avatar_ref(
         avatar_ref = avatar_service.validate_client_ref(payload.avatar_ref)
     except avatar_service.InvalidAvatarRef as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return await _set_avatar(
-        request, credentials, commands, avatar_ref, kind="preset_or_clear"
+    data = await avatar_uploads.apply_ref(
+        db, _avatar_commands(request, credentials, commands), avatar_ref, principal
     )
+    return data["account"]
 
 
 @router.delete("/avatar", response_model=UserOut)
 async def clear_avatar(
     request: Request,
-    _principal: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     commands: AccountCommandsPort = Depends(get_account_commands),
 ):
     """恢复默认头像，回退到姓名首字母。"""
-    return await _set_avatar(
-        request, credentials, commands, None, kind="preset_or_clear"
+    data = await avatar_uploads.apply_ref(
+        db, _avatar_commands(request, credentials, commands), None, principal
     )
+    return data["account"]
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)

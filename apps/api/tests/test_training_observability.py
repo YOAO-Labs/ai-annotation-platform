@@ -27,6 +27,7 @@ from app.schemas.training_observability import (
 from app.schemas.training_run import ExecutorFinish
 from app.services import training_observability as observations
 from app.services import training_runs as training
+from app.services import training_run_storage
 from app.services import training_artifacts as artifact_service
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_datasets import bind_training_authority
@@ -720,6 +721,9 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
 ):
     import asyncio
     import threading
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     from sqlalchemy import delete
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.api.v1.training_runs import download_artifact, delete_run
@@ -749,6 +753,7 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
         )
         seed.add(run)
         await seed.flush()
+        await training_run_storage.allocate(seed, run)
         attempt = TrainingAttempt(run_id=run.id, ordinal=1, status="failed")
         seed.add(attempt)
         await seed.flush()

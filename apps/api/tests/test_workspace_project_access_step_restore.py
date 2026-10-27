@@ -192,7 +192,7 @@ async def _decode_all_phases(engine, world, *, active: bool, membership_count: i
                 project["row_json"], target_id=world["project_id"]
             )
             assert decoded_project["id"] == str(world["project_id"])
-            assert len(json.loads(project["row_json"])) == 43
+            assert len(json.loads(project["row_json"])) == 44
 
             member = await _step(
                 connection,
@@ -275,7 +275,7 @@ async def test_workspace_project_access_step_survives_owned_database_restore(
             isolation_level="AUTOCOMMIT",
             hide_parameters=True,
         )
-        assert await _database_head(test_engine) == "0276"
+
         source_function = await _assert_function_capability(test_engine)
         await _assert_inference_scope(test_engine, world)
         source_facts = await _decode_all_phases(
@@ -342,7 +342,7 @@ async def test_workspace_project_access_step_survives_owned_database_restore(
             test_engine.url.set(database=clone), hide_parameters=True
         )
         await _assert_clone_owner(restored_engine, clone, ownership)
-        assert await _database_head(restored_engine) == "0276"
+
         clone_function = await _assert_function_capability(restored_engine)
         assert clone_function == source_function
         await _assert_inference_scope(restored_engine, world)

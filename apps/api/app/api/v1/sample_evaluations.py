@@ -3,11 +3,10 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.sample_evaluation import (
     SampleEvaluationAttempt as Attempt,
@@ -32,20 +31,39 @@ from app.schemas.sample_evaluation import (
     SampleEvaluationOut,
 )
 from app.services import sample_evaluations as service, trained_models
-from app.services.active_learning_references import guard_source
-from app.services.sample_evaluation_sources import resolve_source
-from app.services.labeling_evaluation_source import (
-    SqlAlchemyLabelingEvaluationSourceReader,
-)
-from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
-from app.services.training_authority_contract import TrainingAuthorityPort
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.project_write_guard import lock_project_manager
+from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
 router = APIRouter(
     prefix="/projects/{project_id}/sample-evaluations",
     dependencies=[Depends(require_scopes("annotations:read", "datasets:read"))],
 )
 WRITE = [Depends(require_scopes("datasets:write"))]
+
+
+@router.post(
+    "/{run_id}/storage-pin", response_model=SampleEvaluationOut, dependencies=WRITE
+)
+async def pin_legacy_evaluation_storage(
+    run_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: IdentityActorFacts = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    run = await pin(
+        db,
+        "sample-evaluation",
+        run_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(db, run)
 
 
 async def attempt_for(db, run, attempt_id):
@@ -65,10 +83,11 @@ async def qualification(
     ref, profile = await service.qualification(
         db, project, model_version_id, deployment_id
     )
+    selected_engine = service.engine_for(ref)
     return {
         "model_ref": ref,
         "profile": profile,
-        "evaluator": service.engine.EVALUATOR,
+        "evaluator": selected_engine.EVALUATOR,
         "preprocessing": service.engine.PREPROCESSING,
         "limits": {
             "samples": service.engine.MAX_SAMPLES,
@@ -76,7 +95,15 @@ async def qualification(
             "truth_total": service.engine.MAX_TRUTH_TOTAL,
             "predictions_per_image": service.engine.MAX_PREDICTIONS,
             "raw_bytes": service.engine.MAX_RAW_BYTES,
-            "pixels": service.engine.MAX_PIXELS,
+            "pixels": selected_engine.MAX_PIXELS,
+            **(
+                {
+                    "max_dimension": selected_engine.MAX_DIMENSION,
+                    "mask_evidence_bytes_per_sample": selected_engine.MAX_SAMPLE_RLE_BYTES,
+                }
+                if selected_engine is not service.engine
+                else {}
+            ),
         },
     }
 
@@ -131,20 +158,7 @@ async def create(
             is None
         ):
             raise service.reject("reference_missing", "冻结引用已不可用", 404)
-    from app.services.trained_model_reference_contract import (
-        FreezeModelReferenceError,
-        ValidateFrozenModelReferenceRequest,
-    )
-
-    try:
-        await trained_models.bind_frozen_model_reference(db).validate(
-            ValidateFrozenModelReferenceRequest(
-                project_id=project.id,
-                reference=ref,
-            )
-        )
-    except FreezeModelReferenceError as exc:
-        trained_models.raise_frozen_model_reference_error(exc)
+    await trained_models.validate_frozen_reference(db, project.id, ref)
     identity = uuid.uuid4()
     try:
         spec = await service.frozen_spec(db, project, body, identity, ref, profile)
@@ -156,16 +170,36 @@ async def create(
             else "冻结样本、类别或真值超过支持范围",
             422,
         ) from exc
-    run = await service.create_run(
-        db,
-        project,
-        user,
-        body,
-        evaluation_id=identity,
+    run = Run(
+        id=identity,
+        project_id=project.id,
+        creator_id=user.id,
+        dataset_id=body.dataset_id,
+        model_version_id=body.model_version_id,
+        deployment_id=body.deployment_id,
+        request_id=body.request_id,
         request_digest=digest,
+        name=body.name,
         spec=spec,
-        api_key_id=getattr(request.state, "api_key_id", None),
+        spec_digest=content_digest(spec),
+        authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
+        generation=0,
     )
+    db.add(run)
+    await db.flush()
+    try:
+        await service.owners.allocate(db, run)
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    for frozen in spec["samples"]:
+        db.add(
+            Sample(
+                run_id=run.id,
+                ordinal=frozen["ordinal"],
+                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
+            )
+        )
+    await service.new_attempt(db, run)
     await db.commit()
     from app.workers.sample_evaluations import dispatch
 
@@ -237,6 +271,11 @@ async def compare(
             if left["aggregate"][key] is None or right["aggregate"][key] is None
             else right["aggregate"][key] - left["aggregate"][key]
             for key in ("tp", "fp", "fn", "precision", "recall", "f1")
+            + (
+                ("matched_mean_iou", "matched_mean_dice")
+                if runs[0].spec["schema"] == 2
+                else ()
+            )
         }
         available = {}
         for sample in right["samples"]:
@@ -333,9 +372,22 @@ async def retry(
             api_key_id=run.authorization.get("api_key_id"),
             required_scopes=service.SCOPES,
         )
+        service.owners.resolve(run)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
-    await service.retry_run(db, run)
+    previous = await db.get(Attempt, run.current_attempt_id)
+    previous.claim_id = None
+    if previous.status == "lost":
+        previous.completed_at = service.now()
+        await service.jobs.mark_failed(
+            db,
+            previous.async_job_id,
+            error="旧执行已被新尝试接管；后端请求仍通过同一把锁防止重叠",
+        )
+    for row in await service.sample_rows(db, run):
+        if row.status == "failed":
+            row.status, row.error_code, row.error_message = "pending", None, None
+    await service.new_attempt(db, run)
     await db.commit()
     from app.workers.sample_evaluations import dispatch
 
@@ -368,7 +420,7 @@ async def samples(
     confidence_min: float | None = Query(None, ge=0, le=1),
     confidence_max: float | None = Query(None, ge=0, le=1),
     offset: int = Query(0, ge=0),
-    limit: int = Query(12, ge=1, le=32),
+    limit: int = Query(12, ge=1, le=100),
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):
@@ -456,27 +508,35 @@ async def source(
     project: Project = Depends(require_project_owner),
     user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     run = await service.load_run(db, project.id, evaluation_id)
     await attempt_for(db, run, attempt_id)
     spec = service.validate_spec(run)
     if not 0 <= ordinal < len(spec["samples"]):
         raise service.reject("sample_missing", "冻结样本不存在", 404)
+    from app.services.sample_evaluation_sources import resolve_source
+    from app.services.content_snapshot import ContentError
+    from app.services.original_request import connected_snapshot
 
     try:
-        return await resolve_source(
-            db,
-            run,
-            attempt_id,
-            ordinal,
-            user,
-            getattr(request.state, "api_key_id", None),
-            source_reader=SqlAlchemyLabelingEvaluationSourceReader(db),
-            training_authority=training_authority,
+        result = await connected_snapshot(
+            request,
+            resolve_source(
+                db,
+                run,
+                attempt_id,
+                ordinal,
+                user,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+            ),
+            close_result=False,
         )
+        return result if result is not None else Response(status_code=499)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
 
 
 @router.delete(
@@ -490,11 +550,16 @@ async def delete(
 ):
     await lock_project_manager(db, user.id, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
+    from app.services.active_learning_references import guard_source
 
     await guard_source(db, evaluation_id=run.id)
     if run.status not in service.TERMINAL:
         raise service.reject("evaluation_active", "评估尚未确认结束，不能删除")
-    service.request_deletion(run)
+    try:
+        service.owners.resolve(run)
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    run.deletion_requested_at = run.deletion_requested_at or service.now()
     await db.commit()
     try:
         await service.purge_requested(db, run.id)

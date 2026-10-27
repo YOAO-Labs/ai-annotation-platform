@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any, NoReturn
 
@@ -44,25 +45,7 @@ def _prompt_error(
     )
 
 
-async def resolve_authorized_mask_prompt(
-    db: AsyncSession,
-    *,
-    task: Task,
-    context: dict[str, Any],
-    frame_index: int | None,
-) -> dict[str, Any]:
-    """Replace a source annotation locator with bounded, verified inline RLE."""
-
-    prepared = dict(context)
-    if "mask_prompt" in prepared:
-        _prompt_error(
-            422,
-            "client_mask_prompt_forbidden",
-            "clients must send mask_prompt_source instead of inline Mask content",
-        )
-    raw_source = prepared.pop("mask_prompt_source", None)
-    if raw_source is None:
-        return prepared
+async def _source_annotation(db, task, raw_source):
     try:
         source = MaskPromptSourceLocator.model_validate(raw_source)
     except ValidationError:
@@ -89,6 +72,69 @@ async def resolve_authorized_mask_prompt(
         )
     if annotation.is_locked:
         _prompt_error(409, "annotation_locked", "Mask source is locked")
+    return annotation
+
+
+def _assert_locator_context(context):
+    if "mask_prompt" in context:
+        _prompt_error(
+            422,
+            "client_mask_prompt_forbidden",
+            "clients must send mask_prompt_source instead of inline Mask content",
+        )
+
+
+async def capture_image_mask_prompt_source(db, *, task, context):
+    """Freeze image prompt metadata before original or Mask object I/O."""
+    _assert_locator_context(context)
+    raw_source = context.get("mask_prompt_source")
+    if raw_source is None:
+        return None
+    annotation = await _source_annotation(db, task, raw_source)
+    geometry = annotation.geometry or {}
+    if geometry.get("type") != "raster_mask":
+        reason = (
+            "mask_prompt_frame_required"
+            if geometry.get("type") in {"video_mask", "video_track_mask"}
+            else "mask_prompt_geometry_unsupported"
+        )
+        _prompt_error(422, reason, "Image Mask prompts require a raster_mask source")
+    if not settings.raster_mask_read_enabled:
+        _prompt_error(
+            404, "raster_mask_read_disabled", "Raster Mask reading is disabled"
+        )
+    mask = geometry.get("mask") or {}
+    digest = mask.get("sha256") if isinstance(mask, dict) else None
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        _prompt_error(
+            409, "invalid_mask_prompt_content", "Mask prompt content is invalid"
+        )
+    return {
+        "source_annotation_id": str(annotation.id),
+        "source_version": annotation.version,
+        "source_digest": digest,
+    }
+
+
+async def resolve_authorized_mask_prompt(
+    db: AsyncSession,
+    *,
+    task: Task,
+    context: dict[str, Any],
+    frame_index: int | None,
+    verified_image_size: tuple[int, int] | None = None,
+) -> dict[str, Any]:
+    """Replace a source annotation locator with bounded, verified inline RLE.
+
+    Image consumers may supply dimensions from their fully verified original
+    Snapshot. This read-only prompt path never supplies persistence authority.
+    """
+    prepared = dict(context)
+    _assert_locator_context(prepared)
+    raw_source = prepared.pop("mask_prompt_source", None)
+    if raw_source is None:
+        return prepared
+    annotation = await _source_annotation(db, task, raw_source)
 
     geometry = annotation.geometry or {}
     geometry_type = geometry.get("type")
@@ -137,7 +183,12 @@ async def resolve_authorized_mask_prompt(
         )
 
     try:
-        await validate_mask_geometry_for_task(db, task, geometry)
+        if geometry_type == "raster_mask" and verified_image_size is not None:
+            from app.services.raster_mask_storage import validate_image_mask_dimensions
+
+            validate_image_mask_dimensions(geometry, *verified_image_size)
+        else:
+            await validate_mask_geometry_for_task(db, task, geometry)
     except (KeyError, ValueError, RasterMaskContractError):
         _prompt_error(
             409,
@@ -178,4 +229,8 @@ async def resolve_authorized_mask_prompt(
     return prepared
 
 
-__all__ = ["MaskPromptSourceLocator", "resolve_authorized_mask_prompt"]
+__all__ = [
+    "MaskPromptSourceLocator",
+    "capture_image_mask_prompt_source",
+    "resolve_authorized_mask_prompt",
+]

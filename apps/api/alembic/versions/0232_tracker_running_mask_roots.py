@@ -1,7 +1,7 @@
 """Retain generated tracker Masks while their Job is running.
 
-Revision ID: 0232
-Revises: 0231
+Revision ID: bo0232
+Revises: bo0231
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0232"
-down_revision = "0231"
+revision = "bo0232"
+down_revision = "bo0231"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

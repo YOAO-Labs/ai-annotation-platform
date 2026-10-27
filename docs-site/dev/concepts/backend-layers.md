@@ -1,4 +1,5 @@
 ---
+title: 后端分层
 audience: [dev]
 type: explanation
 status: stable
@@ -37,10 +38,9 @@ flowchart LR
 
 ## 路由（api/v1）
 
-- 薄壳：解析参数、调权限、调服务、序列化响应
-- 不写业务逻辑
-- 必须有 docstring（被 OpenAPI 拾取）
-- 必须给所有响应码写 `responses={}` 类型
+- **薄壳职责**：解析请求参数、执行权限守卫（`resolve_project_access` / `get_current_user`）、调用服务层、序列化响应。
+- **零业务推导**：路由层不直接拼装复杂业务 SQL 或状态迁移分支。
+- **OpenAPI 契约完备**：每个端点必须提供清晰的 docstring，并为所有非 200 状态码显式声明 `responses={}` 类型。
 
 ## 应用工作流（application）
 
@@ -115,13 +115,30 @@ writer lease 后处理；原始 bytes 始终保留，包括不确定提交产生
 
 规模较大的业务不再堆在 `services/` 根目录的单个平铺文件中，而是放入领域 package：
 
-```text
-services/
-├── ml_routing/       # 持久路由 owner 的调用方适配、安全检查和读模型
-├── video_tracking/   # adapter、job 与 runner
-├── exporting/       # 导出服务、打包和格式实现
-└── data_management/  # schema、查询 primitive 和高层服务
-```
+| 领域子包                   | 核心职责                                                         | 内部模块分层与边界                                                                                                                                                   |
+| :------------------------- | :--------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`gpu_arbitration/`**     | GPU 显存契约、租约账本、Redis Fence、静默卸载与抢占编排          | `contracts` / `policy` 为无环叶模块；`fences` / `proofs` / `reconciliation` / `retirement` 居中；`dispatch` / `membership_activation` / `rollout_control` 为高层编排 |
+| **`ml_routing/`**          | 服务池能力指纹、加权轮询（SWRR）、路由租约账本与排空安全校验     | `contracts` / `capability` / `policy` 为纯函数叶模块；`ledger` 维护 Redis 原子租约与被动熔断；`router` / `safety` / `diagnostics` 编排拓扑与快照                     |
+| **`video_tracking/`**      | 视频 AI 追踪适配器、分窗身份与候选暂存审阅                       | `adapter` / `job` / `runner` 单向协作，不反向耦合 WebSocket 路由                                                                                                     |
+| **`exporting/`**           | 项目/批次异步导出缓存、单飞锁与多格式归档打包                    | `cache` / `service` / 格式导出器                                                                                                                                     |
+| **`data_management/`**     | Data Manager 多维过滤、聚合统计与批量任务操作                    | `schemas` / 查询原语 / 高层批量服务                                                                                                                                  |
+| **`mask_formats/`**        | 光栅掩码（Raster Mask）导入导出格式注册表、预检与流式校验        | 统一管理 COCO RLE / PNG 等掩码格式转换契约                                                                                                                           |
+| **`mask_qc/`**             | 提交期与抽样光栅掩码质检（几何连通性、空洞与边界核验）           | 异步质检计算与质检报告持久化                                                                                                                                         |
+| **`point_cloud_quality/`** | 3D 点云场景与立体框质量度量                                      | 点云稀疏度、框体尺寸与跨帧一致性检查                                                                                                                                 |
+| **`sources/`**             | 外部对象存储（S3/MinIO）与 SFTP 适配器（复制导入与严格持续引用） | SSRF 防护、DNS 重绑定校验、固定主机公钥校验与条件读取                                                                                                                |
+
+此外：
+
+- **数据集与受控存储服务群**（`storage_location*.py`、`storage_access.py`、`storage_maintenance*.py`、`dataset_sources.py`、`dataset_scans.py`、`dataset_registration.py`、`dataset_source_sync.py`、`dataset_workbench.py`、`dataset_quality*.py`、`original_sources.py`、`managed_original_*.py`、`original_cache.py`、`site_agents.py`、`agent_transport.py`、`storage_migration_*.py`、`storage_usage*.py`）围绕共享只读原语包 `apps/_shared/filesystem_read` 与站点协议包 `apps/_shared/site_agent_contract` 构建，并与独立守护进程 `apps/storage-agent` 协作（详见[存储位置、连接器与用途绑定](./storage-connections)）。
+- **在线学习与训练相关服务**（`training_datasets.py`、`training_runs.py`、`training_studies.py`、`training_observability.py`、`trained_models.py`、`sample_evaluations.py`、`active_learning.py`、`learning_policies.py`、`model_lineage.py`）围绕共享契约包 `apps/_shared/task_contract` 与 `apps/_shared/training_contract` 构建，并与独立拉取式执行器 `apps/training-executor` 协作。
+- **共享原生媒体原语**：`services/media_process.py` 负责已核验文件描述符与有界子进程收尾，`services/media_probe.py` 负责 ffprobe 探测及解析；导出与媒体 worker 都依赖服务层叶模块，不经 worker 反向调用。
+
+### 领域子包架构守卫
+
+1. **单向导入**：稳定契约（`contracts`）与底层原语不反向导入高层编排模块；子包 `__init__.py` 保持轻量，避免 eager-import 整个依赖图。
+2. **禁止反向依赖**：`app.services.*` 不得导入 `app.api` 或 `app.workers`；派发 Celery 任务时使用稳定任务注册名或由路由层触发。
+3. **服务端角色裁剪**：如 `ml_routing.diagnostics` 构建的 `TopologyResponse` 与 `RuntimeSnapshotResponse` 按角色在服务端完成字段裁剪（非超管隐藏物理权重与底层实例状态），并携带 freshness 信封（`observed_at` / `partial` / `sources[]`），前端只做展示合并而不猜测业务真值。
+4. **移除模块防回流**：历史平铺兼容层已彻底物理删除，由 `tests/test_domain_package_architecture.py`、`tests/test_compat_facades.py` 与 `scripts/check_removed_service_modules.mjs` 在 CI 中强制拦截。
 
 领域内依赖保持单向：稳定契约和 primitive 不反向导入高层 orchestration，package `__init__.py` 不为了使用便利而 eager-import 整个高层图。服务不得反向导入 `app.api`、`app.workers`、`app.application` 或 HTTP 依赖装配 `app.deps`；需要外部执行时注入执行端口，由入口装配传输适配器，不把任务注册名当作传输无关接口。
 
@@ -285,18 +302,15 @@ Identity 自助注销、传统管理员停用／删除与版本化离职仍保�
 
 点云评估晋升也由 `application/point_cloud_quality_promotion.py::promote_point_cloud_quality_evaluation` 组合：HTTP 先复核当前 `project.manage` 权威，工作流保留阻塞式项目 `FOR UPDATE` 与评估项目归属检查，不复用普通配置 PATCH 的 NOWAIT 锁。quality 的 `prepare_evaluation_promotion` 持有已晋升、gate、基线 revision＋digest 校验及下一配置修订；workspace 的 `set_point_cloud_quality_config` 只写项目配置，quality 的 `record_evaluation_promotion` 只写评估晋升元数据。原 flush、审计和 HTTP commit 仍在同一调用者事务内，所有者命令不另行提交；本地 ORM 参数不是跨进程契约。
 
-指南素材的四项无状态命令由 `aap_workspace.configuration.ConfigurationManager` 编排，
-`aap_workspace.guide_asset_policy` 持有纯规则。公共路由通过 Workspace 查询执行管理／可见性预检；
-完成上传仍在无排他锁时 HEAD，之后重取当前授权与项目 UPDATE 围栏，再追加最新登记。
-DELETE 在围栏内尝试对象删除，失败仍移除登记；无效尺寸的清理错误则继续抛出。
-借用端口不提交，HTTP 在提交后完整刷新项目行；独立 DSN／HTTP owner 自行提交后刷新。
-初始化和签名不新增写入或调用方提交。旧 API 工作流、Guide ORM 写入与常量副本已移除。
+指南素材使用受管上传与不可变存储引用。API 的 `guide_asset_uploads` 执行字节校验；
+`guide_asset_references` 将发布、解除引用、列表 CAS 与跨项目复制交给 Workspace Configuration。
+`guide_assets_step` 在同一事务内锁定当前项目／成员权威、存储维护门及相关上传，原子更新
+ready 状态、引用、指南列表和修订。复制只复用已验证引用，并检查源快照；解除最后一个引用
+会退休上传，不在项目事务中直接删除对象。项目删除是单独的引用退休路径。
 
-Assets Source 的受限签名、HEAD 和普通删除端口持有对象凭据；独立 Workspace 运行时只持有
-`WORKSPACE_GUIDE_OBJECTS_URL` 和专用 bearer。默认 API 装配复用现有 S3 客户端，选择字节 HTTP
-提供方后失败不回退。对象操作不提供版本选择、自动重试或跨资源原子性。三绑定冻结回放、
-实际权限锁、独立工件、容器重启与非空登记恢复已通过本地限定验收；完整模块与语言替换仍在推进。范围见
-[指南素材 owner ADR](/dev/adr/0144-workspace-guide-assets-owner)。
+Workspace 不持有对象凭据，旧指南签名／HEAD／删除 RPC 已移除。字节 I/O 与 PostgreSQL
+没有分布式原子提交：pending 状态、发布回执与后续清理承接这一边界。旧指南实现的历史验收
+不覆盖当前受管上传链路，见[模块部署](./module-deployment#指南素材命令与对象能力)。
 
 命名预标编排由 Inference 的 `PipelineManager` 执行 portable 命令、读取和策略，API 的 `services/inference_pipelines.py` 只选择绑定、保留调用方提交边界并装配响应。`project_pipelines.py` 的五个 CRUD 路由与 `projects.py` 的 apply 路由仍是六个公开入口，DTO 与状态码保持原合同；API scope schema 复用 `aap_inference.pipeline_policy.validate_pipeline_scope_owner`。默认 binding 借用调用方 Session，显式 DSN 或 HTTP 则选独立 owner，配置错误不会回退到另一种 binding。独立 HTTP surface 由 `aap_inference.pipeline_server.PipelineHttpServer` 提供，`pipeline_client.PipelineHttpClient` 发送执行、查询和状态请求。
 
@@ -334,9 +348,11 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 数据库提交与 Celery broker 发布仍不原子：受理记录提交后、派发 task ID 落库前崩溃的窗口未解决；本次没有引入 outbox、自动重试或 exactly-once 语义。
 
-历史兼容媒体 outbox relay 仍使用 `services/media_job_dispatch.py::MediaJobDispatcher` 和 `workers/media_dispatch.py::CeleryMediaJobDispatcher`；连接器/扫描工作流的剩余非图片派发由 relay 处理。新的 Dataset/Task 图像上传会在源事务中绑定身份并持久接受 Image 作业，图像尺寸和缩略图回填直接调用 Image owner；这些入口不再派发裸 Item/Task/Project UUID。视频元信息和帧/分块仍由媒体 owner 的各自入口处理。
+历史兼容媒体 outbox relay 仍使用 `services/media_job_dispatch.py::MediaJobDispatcher` 和 `workers/media_dispatch.py::CeleryMediaJobDispatcher`；连接器/扫描工作流的剩余非图片派发由 relay 处理。新的 Dataset 图像上传会在源事务中绑定身份并持久接受 Image 作业，图像尺寸和缩略图回填直接调用 Image owner；独立 Task 上传完成后只派发既有缩略图作业。这些入口不再派发裸 Item/Task/Project UUID。视频元信息和帧/分块仍由媒体 owner 的各自入口处理。
 
-传统直接任务上传由 `application/legacy_file_upload.py::LegacyFileUploadWorkflow` 组合当前管理权限、存储验证与 Labeling 写入。`LabelingTaskService` 持有上传任务创建、不可变 `LabelingUploadTarget` 读取及完成状态提交；来源快照只携带 UUID、批次、对象键、类型和状态。存储 I/O 前的管理检查不持有行锁，完成后复用 `application/task_workflow_locks.lock_current_task_target` 重新取权并锁定当前目标，再核对来源绑定。图像完成在任务状态事务中绑定源身份并接受持久 Image 作业；项目缩略图回填也由同一 Workflow 保留当前管理权检查并接受 owner 任务。原图地址复用完整任务可见性；没有把 UUID/DTO 当权限票据。
+独立任务上传由 `services/task_uploads.py` 组合当前管理权限、独立原件分配与原生状态转移。初始化先分配并验证受管原件，再通过 `create_uploading_task` 的固定列创建 `uploading` Task，提交后才签名 staging URL；完成在存储 I/O 后重新取得身份与 Task 围栏，验证并封存原件，再由 `task_originals.publish` 调用 `publish_task_original` 以捕获状态 CAS 绑定指针。图像任务提交完成后才派发既有缩略图作业；未验证或上下文变化的来源不会发布。原图地址入口先复用完整任务可见性，再拒绝旧签名下载，没有把 UUID/DTO 当权限票。
+
+项目缩略图回填由 `application/project_thumbnail_backfill.py` 持有当前管理权重检，并以幂等操作 ID 直接接受 Image owner 的持久回填作业，不再以裸 Celery UUID 派发。旧应用上传工作流与不可变上传目标已移除，`bo0380` 同时退役旧的创建／完成函数对。
 
 `apps/assets-media` 持有视频和图片的独立控制与执行进程，分别使用 `aap-assets-media/v1` 和 `aap-assets-images/v1`。视频元数据、时间表、海报、播放副本、帧和分块，以及图片尺寸、缩略图、金字塔和回填，都通过原生能力受理、领取、续租和发布。DatasetItem 投影由 Assets 持有；direct Task 的来源与缩略图投影通过 Labeling 窄能力读取和写入。最终发布同时核验来源、作业代次与未过期租约；旧图片结果写端口和 ORM writer 已移除。
 
@@ -394,16 +410,14 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 ## 模型（db/models）
 
-- 仅 SQLAlchemy 模型定义 + 简单的 `@hybrid_property`
-- **不**在模型里写业务方法
+- 仅包含 SQLAlchemy 2.0 表结构定义、索引约束与轻量级 `@hybrid_property`。
+- 不在 ORM 模型内编写跨表查询或业务状态变更方法。
 
 ## Schemas（pydantic）
 
-- 请求模型（`*In`）和响应模型（`*Out`）严格区分
-- 不要复用 SQLAlchemy 模型当响应（避免泄露 ORM 字段）
-- 嵌套响应优先显式定义，不依赖 Pydantic 推导
-
-> 反例：`ProjectOut.batch_summary: dict` → 改为 `ProjectBatchSummary` 显式模型
+- 请求模型（`*In` / `*Create` / `*Update`）与响应模型（`*Out` / `*Response`）严格分离。
+- 禁止直接将 SQLAlchemy ORM 实例原样暴露为未声明 schema 的字典。
+- 嵌套结构必须显式定义为强类型 Pydantic 子模型（例如使用 `ProjectBatchSummary` 而非裸 `dict`），确保 `@hey-api/openapi-ts` 生成精确的前端 TypeScript 类型。
 
 ## Middleware
 
@@ -417,15 +431,16 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 - broker = Redis；result backend = Redis
 - 长任务（导出 / AI 预标注）必走异步
 - 短任务（发邮件）也走异步避免阻塞 HTTP
+- 按 7 类专职 Worker 容器与队列隔离消费（详见[后端基础设施](./backend-infrastructure)）。
 
 ## 测试映射
 
-| 层      | 测试位置                                     |
-| ------- | -------------------------------------------- |
-| 路由    | `tests/test_<feature>.py` 用 `httpx_client`  |
-| 服务    | `tests/test_<service>_service.py` 直接调函数 |
-| 模型    | 不单独测，由路由 / 服务测试覆盖              |
-| Workers | `tests/test_<task>.py`，用 eager mode        |
+| 层级         | 测试位置与方式                                                                            |
+| :----------- | :---------------------------------------------------------------------------------------- |
+| **路由层**   | `apps/api/tests/test_<feature>.py`，使用异步 `httpx.AsyncClient` 测试完整 HTTP 契约与权限 |
+| **服务层**   | `apps/api/tests/test_<service>_service.py`，直接验证业务状态机、锁顺序与边界条件          |
+| **领域架构** | `apps/api/tests/test_domain_package_architecture.py`，静态校验子包依赖方向与无环约束      |
+| **Workers**  | `apps/api/tests/test_<task>.py`，验证任务幂等性、失败回滚与终态通知                       |
 
 领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环，支持 package 内单文件所有者。声明的服务禁止反向导入 API、worker、应用工作流或 HTTP 装配；通用 `async_job` 的应用内依赖限定为自身模型，终态事实与重试策略/端口模块不依赖其他应用模块。SCC 守卫覆盖全服务图，不保留按领域选择的环豁免。该源码约束不证明跨域写入所有权、事务等价或跨语言部署已经完成。已删除实现路径另由 `tests/test_compat_facades.py` 等既有守卫防止回流，不保留兼容 facade。
 

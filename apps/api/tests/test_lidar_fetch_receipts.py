@@ -1,0 +1,640 @@
+"""Run standalone LiDAR fetch scripts against an actual controlled HTTP source."""
+
+from datetime import datetime, timedelta, timezone
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+from app.services.exporting.lidar_fetch import (
+    FETCH_LIDAR_IMAGES_TEMPLATE,
+    FETCH_POINTCLOUDS_TEMPLATE,
+    FETCH_TRUSTED_MEDIA_TEMPLATE,
+)
+
+
+@pytest.fixture
+def media_server():
+    state = SimpleNamespace(
+        body=b"same original media\0\xff" * 200,
+        sent=None,
+        length="actual",
+        status=200,
+        requests=[],
+    )
+
+    class Media(BaseHTTPRequestHandler):
+        def do_GET(self):
+            state.requests.append(self.path)
+            self.send_response(state.status)
+            if state.length is not None:
+                length = len(state.body) if state.length == "actual" else state.length
+                self.send_header("Content-Length", str(length))
+            self.end_headers()
+            try:
+                self.wfile.write(state.body if state.sent is None else state.sent)
+                self.wfile.flush()
+                if state.sent is not None:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            self.close_connection = True
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Media)
+    thread = threading.Thread(
+        target=lambda: server.serve_forever(poll_interval=0.01), daemon=True
+    )
+    thread.start()
+    state.origin = f"http://127.0.0.1:{server.server_port}"
+    state.url = state.origin + "/media?signature=never-print-this-signature"
+    try:
+        yield state
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+@pytest.fixture(params=["pointclouds", "images", "media"])
+def fetcher(tmp_path, media_server, request):
+    yield from _fetcher(tmp_path, media_server, request.param)
+
+
+@pytest.fixture(params=["pointclouds", "images", "media"])
+def origin_fetcher(tmp_path, media_server, request):
+    yield from _fetcher(tmp_path, media_server, request.param)
+
+
+def _fetcher(tmp_path, media_server, kind):
+    root, outside = tmp_path / "export", tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    template = {
+        "pointclouds": FETCH_POINTCLOUDS_TEMPLATE,
+        "images": FETCH_LIDAR_IMAGES_TEMPLATE,
+        "media": FETCH_TRUSTED_MEDIA_TEMPLATE,
+    }[kind]
+    script = root / f"fetch_{kind}.py"
+    script.write_text(template)
+    relative = (
+        "scene-a/lidar/frame.pcd"
+        if kind == "pointclouds"
+        else "front/scene-a/camera/frame.jpg"
+    )
+    if kind == "media":
+        relative = "images/" + relative
+    directory = {"pointclouds": "velodyne", "images": "images", "media": "."}[kind]
+    size_field = "source_file_size" if kind == "media" else "size_bytes"
+    sha_field = "source_sha256" if kind == "media" else "sha256"
+    state = SimpleNamespace(
+        root=root,
+        outside=outside,
+        script=script,
+        template=template,
+        kind=kind,
+        directory=directory,
+        relative=relative,
+        size_field=size_field,
+        sha_field=sha_field,
+        server=media_server,
+        destination=root / directory / relative,
+    )
+
+    def write(*, items=None, expires_at="future", **overrides):
+        item = {
+            "rel_path": relative,
+            "presigned_url": media_server.url,
+            size_field: len(media_server.body),
+            sha_field: hashlib.sha256(media_server.body).hexdigest(),
+            "frame": "scene-a/frame",
+            "camera": "front",
+            "dataset_id": "legacy-compatible",
+            **overrides,
+        }
+        payload = {kind: [item] if items is None else items}
+        if expires_at == "future":
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        if expires_at is not None:
+            payload["expires_at"] = expires_at
+        (root / f"{kind}_manifest.json").write_text(json.dumps(payload))
+        return item
+
+    def run(*arguments):
+        environment = dict(os.environ)
+        environment.update(
+            {
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "NO_PROXY": "127.0.0.1,localhost",
+                "no_proxy": "127.0.0.1,localhost",
+                "http_proxy": "",
+                "https_proxy": "",
+                "HTTP_PROXY": "",
+                "HTTPS_PROXY": "",
+            }
+        )
+        result = subprocess.run(
+            [sys.executable, str(script), *arguments],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=environment,
+        )
+        assert media_server.url not in result.stdout + result.stderr
+        assert "never-print-this-signature" not in result.stdout + result.stderr
+        assert list(root.rglob(".aap-download-*")) == []
+        return result
+
+    state.write, state.run = write, run
+    try:
+        yield state
+    finally:
+        shutil.rmtree(root)
+        shutil.rmtree(outside)
+
+
+@pytest.mark.parametrize("content_length", ["actual", None])
+def test_actual_script_streams_exact_bytes_with_or_without_http_length_and_verifies_existing(
+    fetcher, content_length
+):
+    world = fetcher
+    world.server.body = bytes(range(256)) * 2300  # More than two streaming chunks.
+    world.server.length = content_length
+    world.write()
+    result = world.run()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world.destination.read_bytes() == world.server.body
+    assert len(world.server.requests) == 1
+    result = world.run()
+    assert result.returncode == 0
+    assert (
+        len(world.server.requests) == 1
+    )  # Existing bytes were fully verified locally.
+
+
+def test_existing_same_length_wrong_content_is_replaced_only_after_full_verification(
+    fetcher,
+):
+    world = fetcher
+    world.destination.parent.mkdir(parents=True)
+    world.destination.write_bytes(b"x" * len(world.server.body))
+    foreign = world.destination.with_suffix(".part")
+    foreign.write_bytes(b"unrelated partial download")
+    world.write(
+        **{world.sha_field: hashlib.sha256(world.server.body).hexdigest().upper()}
+    )
+    assert world.run().returncode == 0
+    assert world.destination.read_bytes() == world.server.body
+    assert foreign.read_bytes() == b"unrelated partial download"
+    assert len(world.server.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["hash", "header_length", "eof_short", "overflow", "disconnect", "http_status"],
+)
+def test_failed_transport_or_receipt_never_publishes_or_overwrites_target(
+    fetcher, damage
+):
+    world = fetcher
+    item = world.write()
+    if damage == "hash":
+        item[world.sha_field] = "0" * 64
+    elif damage == "header_length":
+        world.server.length = len(world.server.body) + 1
+    elif damage == "eof_short":
+        item[world.size_field] += 1
+        world.server.length = None
+    elif damage == "overflow":
+        item[world.size_field] -= 1
+        world.server.length = None
+    elif damage == "disconnect":
+        world.server.sent = world.server.body[:10]
+    else:
+        world.server.status = 404
+    world.write(items=[item])
+    assert world.run().returncode == 1
+    assert not world.destination.exists()
+    world.destination.parent.mkdir(parents=True, exist_ok=True)
+    world.destination.write_bytes(b"keep existing target")
+    assert world.run().returncode == 1
+    assert world.destination.read_bytes() == b"keep existing target"
+
+
+@pytest.mark.parametrize(
+    "receipt,value",
+    [
+        ("sha256", None),
+        ("sha256", ""),
+        ("sha256", "g" * 64),
+        ("sha256", "0" * 64 + "\n"),
+        ("sha256", 123),
+        ("size_bytes", None),
+        ("size_bytes", True),
+        ("size_bytes", "10"),
+        ("size_bytes", -1),
+        ("size_bytes", 1.5),
+        ("size_bytes", 256 * 1024 * 1024 + 1),
+    ],
+)
+def test_missing_or_invalid_receipts_are_rejected_before_http_or_target_creation(
+    fetcher, receipt, value
+):
+    world = fetcher
+    receipt = world.sha_field if receipt == "sha256" else world.size_field
+    world.write(**{receipt: value})
+    assert world.run().returncode == 1
+    assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.mark.parametrize("expires_at", [None, "invalid", "2999-01-01T00:00:00", True])
+def test_fixed_manifest_deadline_is_required_and_timezone_aware(fetcher, expires_at):
+    world = fetcher
+    world.write(expires_at=expires_at)
+    assert world.run().returncode == 1
+    assert not world.server.requests
+
+
+def test_expired_manifest_is_refused_even_if_a_local_file_already_matches(fetcher):
+    world = fetcher
+    world.destination.parent.mkdir(parents=True)
+    world.destination.write_bytes(world.server.body)
+    world.write(expires_at="2000-01-01T00:00:00+00:00")
+    assert world.run().returncode == 2
+    assert not world.server.requests
+    assert world.destination.read_bytes() == world.server.body
+
+
+def test_earlier_item_deadline_is_not_extended_by_the_manifest(fetcher):
+    world = fetcher
+    item = world.write()
+    item["expires_at"] = "2000-01-01T00:00:00Z"
+    world.write(items=[item])
+    assert world.run().returncode == 2 and not world.server.requests
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "../escape.pcd",
+        "/absolute.pcd",
+        r"..\escape.pcd",
+        r"C:\escape.pcd",
+        "a//b.pcd",
+        "a/./b.pcd",
+        "a/../b.pcd",
+        "a/\0b.pcd",
+        "//host/share.pcd",
+        "a:b.pcd",
+        "",
+    ],
+)
+def test_unsafe_logical_paths_are_refused_before_any_download(fetcher, relative):
+    world = fetcher
+    world.write(rel_path=relative)
+    assert world.run().returncode == 1
+    assert not world.server.requests and not list(world.outside.iterdir())
+
+
+@pytest.mark.parametrize(
+    "link_kind", ["root", "parent_outside", "parent_inside", "target", "dangling"]
+)
+def test_symlinks_are_never_traversed_including_internal_and_dangling_links(
+    fetcher, link_kind
+):
+    world = fetcher
+    outside_file = world.outside / "do-not-overwrite"
+    outside_file.write_bytes(b"protected")
+    output = world.root / world.directory
+    parts = world.relative.split("/")
+    if world.kind == "media":
+        output /= parts.pop(0)
+    if link_kind == "root":
+        output.symlink_to(world.outside, target_is_directory=True)
+    elif link_kind in {"parent_outside", "parent_inside"}:
+        output.mkdir()
+        target = world.outside
+        if link_kind == "parent_inside":
+            target = world.root / "other-owned-directory"
+            target.mkdir()
+        (output / parts[0]).symlink_to(target, target_is_directory=True)
+    else:
+        world.destination.parent.mkdir(parents=True)
+        target = outside_file if link_kind == "target" else world.outside / "missing"
+        world.destination.symlink_to(target)
+    world.write()
+    assert world.run().returncode == 1
+    assert not world.server.requests and outside_file.read_bytes() == b"protected"
+    assert list(world.outside.iterdir()) == [outside_file]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "/relative",
+        "ftp://host/file",
+        "http://user:secret@host/file",
+        "http://host/\nfile",
+    ],
+)
+def test_only_absolute_http_media_urls_are_accepted(fetcher, url):
+    world = fetcher
+    world.write(presigned_url=url)
+    result = world.run()
+    assert result.returncode == 1
+    assert (
+        not world.server.requests and "user:secret" not in result.stdout + result.stderr
+    )
+
+
+def test_duplicate_destinations_fail_preflight_before_partial_materialization(fetcher):
+    world = fetcher
+    item = world.write()
+    world.write(items=[item, item])
+    assert world.run().returncode == 1 and not world.server.requests
+    assert not world.destination.exists()
+
+
+def _namespace(world):
+    namespace = {
+        "__file__": str(world.script),
+        "__name__": "test_generated_lidar_fetch",
+    }
+    exec(compile(world.template, str(world.script), "exec"), namespace)
+    return namespace
+
+
+def test_failed_exclusive_temp_creation_never_removes_someone_elses_file(
+    fetcher, monkeypatch
+):
+    world = fetcher
+    world.write()
+    world.destination.parent.mkdir(parents=True)
+    foreign = world.destination.parent / ".aap-download-collision"
+    foreign.write_bytes(b"not this attempt")
+    namespace = _namespace(world)
+    monkeypatch.setattr(
+        namespace["uuid"], "uuid4", lambda: SimpleNamespace(hex="collision")
+    )
+    assert namespace["main"]() == 1
+    assert foreign.read_bytes() == b"not this attempt"
+    assert not world.destination.exists() and not world.server.requests
+
+
+def test_atomic_replace_failure_cleans_only_owned_temp_and_keeps_previous_target(
+    fetcher, monkeypatch
+):
+    world = fetcher
+    world.write()
+    world.destination.parent.mkdir(parents=True)
+    world.destination.write_bytes(b"previous verified export")
+    namespace = _namespace(world)
+
+    def failure(*args, **kwargs):
+        raise PermissionError("replace denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(namespace["os"], "replace", failure)
+        assert namespace["main"]() == 1
+    assert world.destination.read_bytes() == b"previous verified export"
+    assert list(world.root.rglob(".aap-download-*")) == []
+    assert len(world.server.requests) == 1
+
+
+def test_file_wrapper_construction_failure_closes_descriptor_and_owned_temp(
+    fetcher, monkeypatch
+):
+    world = fetcher
+    world.write()
+    namespace = _namespace(world)
+    descriptors = []
+
+    def failure(descriptor, mode):
+        descriptors.append(descriptor)
+        raise RuntimeError("file wrapper failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(namespace["os"], "fdopen", failure)
+        assert namespace["main"]() == 1
+    assert len(descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])
+    assert not world.destination.exists() and not world.server.requests
+    assert list(world.root.rglob(".aap-download-*")) == []
+
+
+def test_portable_branch_keeps_receipts_and_static_symlink_protection(fetcher):
+    world = fetcher
+    world.write()
+    namespace = _namespace(world)
+    namespace["_DIRFD"] = False
+    assert namespace["main"]() == 0
+    assert world.destination.read_bytes() == world.server.body
+    world.destination.unlink()
+    target = world.outside / "sentinel"
+    target.write_bytes(b"safe")
+    world.destination.symlink_to(target)
+    assert namespace["main"]() == 1
+    assert target.read_bytes() == b"safe" and len(world.server.requests) == 1
+
+
+def test_root_relative_signed_url_uses_explicit_platform_origin_with_exact_query(
+    origin_fetcher,
+):
+    world = origin_fetcher
+    signed = (
+        "/minio/a%20bucket/objects/a%2fb.bin?X-Amz-Signature=private%2Bvalue%2F"
+        "&X-Amz-Credential=a%252Fb&part=second+value&part=first&empty="
+    )
+    world.write(presigned_url=signed)
+    result = world.run("--base-url", world.server.origin)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world.server.requests == [signed]
+    assert world.destination.read_bytes() == world.server.body
+    assert "private" not in result.stdout + result.stderr
+    if world.kind == "media":
+        assert world.destination == world.root / world.relative
+        assert not (world.root / "images/images").exists()
+
+
+def test_relative_url_without_base_has_actionable_safe_error(origin_fetcher):
+    world = origin_fetcher
+    signed = "/minio/object?X-Amz-Signature=private"
+    world.write(presigned_url=signed)
+    result = world.run()
+    assert result.returncode == 1
+    assert "--base-url https://your-platform" in result.stdout
+    assert signed not in result.stdout + result.stderr
+    assert "private" not in result.stdout + result.stderr
+    assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "",
+        "https://user:private@safe.invalid",
+        "https://@safe.invalid",
+        "https://safe.invalid/path",
+        "https://safe.invalid/",
+        "https://safe.invalid?token=private",
+        "https://safe.invalid#private",
+        "https://safe.invalid?",
+        "https://safe.invalid#",
+        "file:///tmp",
+        "//safe.invalid",
+        "safe.invalid",
+        "http:///empty",
+        "http://safe.invalid:0",
+        "http://safe.invalid:65536",
+        "http://safe.invalid:bad",
+        "http://safe.invalid:",
+        "http://safe.invalid\\@other.invalid",
+        "http://safe.invalid/\n",
+        " http://safe.invalid",
+        "http://safe.invalid ",
+        "http://safe%2einvalid",
+        "http://[::1",
+    ],
+)
+def test_unsafe_base_origins_are_rejected_before_download(origin_fetcher, origin):
+    world = origin_fetcher
+    world.write(presigned_url="/minio/object?signature=private")
+    result = world.run("--base-url", origin)
+    assert result.returncode == 1
+    assert "Invalid --base-url" in result.stdout
+    assert "private" not in result.stdout + result.stderr
+    assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "//other.invalid/minio/object?token=private",
+        "///other.invalid/object?token=private",
+        "/\\other.invalid/object",
+        "/minio/object?token=bad\nprivate",
+        "/minio/object?token=bad\tprivate",
+        "/minio/object?token=bad private",
+        "/minio/object#private",
+        "http://user:private@other.invalid/object",
+        "http://@other.invalid/object",
+        "http://other.invalid:bad/object",
+        "http://other.invalid:0/object",
+        "http://other.invalid\\@safe.invalid/object",
+        "object?token=private",
+    ],
+)
+def test_unsafe_media_urls_cannot_change_platform_origin(origin_fetcher, url):
+    world = origin_fetcher
+    world.write(presigned_url=url)
+    result = world.run("--base-url", world.server.origin)
+    assert result.returncode == 1
+    assert "private" not in result.stdout + result.stderr
+    assert not world.server.requests and not world.destination.exists()
+
+
+def test_absolute_signed_url_keeps_original_origin_when_a_different_base_is_given(
+    origin_fetcher,
+):
+    world = origin_fetcher
+    path = (
+        "/saved/object%2f.bin?signature=never-print-this-signature&v=a%2Bb&v=second+one"
+    )
+    world.write(presigned_url=world.server.origin + path)
+    # A rewrite would connect to an unused endpoint rather than this controlled source.
+    result = world.run("--base-url", "http://127.0.0.1:1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world.server.requests == [path]
+    assert world.destination.read_bytes() == world.server.body
+
+
+def test_validated_items_keeps_single_argument_compatibility_and_does_not_mutate_urls(
+    origin_fetcher,
+):
+    world = origin_fetcher
+    world.write()
+    manifest = json.loads((world.root / f"{world.kind}_manifest.json").read_text())
+    namespace = _namespace(world)
+    assert namespace["validated_items"](manifest)[0][1] == world.server.url
+    relative = "/minio/object%2F.bin?signature=private%2Bvalue&order=2&order=1"
+    manifest[world.kind][0]["presigned_url"] = relative
+    result = namespace["validated_items"](manifest, base_url=world.server.origin)
+    assert result[0][1] == world.server.origin + relative
+    assert manifest[world.kind][0]["presigned_url"] == relative
+    assert not world.server.requests
+
+
+def test_imported_main_accepts_explicit_origin_and_ignores_host_process_arguments(
+    origin_fetcher, monkeypatch
+):
+    world = origin_fetcher
+    world.write(presigned_url="/minio/object?signature=private")
+    namespace = _namespace(world)
+    monkeypatch.setattr(
+        namespace["sys"], "argv", ["pytest", "--unrelated-host-argument"]
+    )
+    assert namespace["main"](["--base-url", world.server.origin]) == 0
+    assert world.destination.read_bytes() == world.server.body
+    world.write()
+    assert namespace["main"]() == 0
+    assert len(world.server.requests) == 1
+
+
+@pytest.mark.parametrize("field", ["source_file_size", "source_sha256"])
+@pytest.mark.parametrize("origin_fetcher", ["media"], indirect=True)
+def test_trusted_media_requires_source_receipts_without_falling_back_to_other_fields(
+    origin_fetcher, field
+):
+    world = origin_fetcher
+    world.write(
+        **{
+            field: None,
+            "size_bytes": len(world.server.body),
+            "sha256": hashlib.sha256(world.server.body).hexdigest(),
+        }
+    )
+    result = world.run("--base-url", world.server.origin)
+    assert result.returncode == 1
+    assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.fixture
+def raw_fetcher(tmp_path, media_server):
+    yield from _fetcher(tmp_path, media_server, "media")
+
+
+@pytest.mark.parametrize("damage", [None, "hash", "extra_body", "length"])
+def test_empty_nuscenes_raw_download_checks_empty_sha_size_and_transport_eof(
+    raw_fetcher, damage
+):
+    world = raw_fetcher
+    world.server.body = b""
+    item = world.write(kind="lidar", rel_path=world.relative)
+    if damage == "hash":
+        item[world.sha_field] = "a" * 64
+    elif damage == "extra_body":
+        world.server.sent, world.server.length = b"x", None
+    elif damage == "length":
+        world.server.length = 1
+    world.write(items=[item])
+    result = world.run()
+    assert result.returncode == (1 if damage else 0)
+    assert len(world.server.requests) == 1
+    if damage:
+        assert not world.destination.exists()
+    else:
+        assert world.destination.read_bytes() == b""
+        assert world.run().returncode == 0 and len(world.server.requests) == 1

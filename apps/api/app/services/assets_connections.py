@@ -18,12 +18,16 @@ from aap_assets_source.connections_contract import (
     CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
     CONNECTION_OPERATIONS,
+    RUNTIME_NATIVE_ARGUMENTS,
+    RUNTIME_NATIVE_SIGNATURES,
     CaptureConnectionRequest,
     ConnectionCapture,
     ConnectionFailure,
     ConnectionMutation,
     ConnectionPolicy,
     ConnectionPolicyRequest,
+    ConnectionProbeFinish,
+    ConnectionProbeLease,
     ConnectionProbeReceipt,
     ConnectionReceiptLookup,
     ConnectionReceiptRequest,
@@ -39,8 +43,9 @@ from aap_assets_source.connections_contract import (
     ReadConnectionRequest,
     RecordConnectionTestRequest,
     TestConnectionRequest,
-    UpdateConnectionNativeRequest,
+    UpdateConnectionAuthorizedRequest,
     UpdateConnectionRequest,
+    decode_connection_probe_reply,
     decode_connection_reply,
     require_connection_scope,
 )
@@ -84,6 +89,19 @@ _FAILURES: dict[str, tuple[int, str, dict[str, str] | None]] = {
     ),
     "crypto_error": (503, "连接器凭据加密或解密失败", None),
     "storage_unavailable": (503, "连接器存储暂不可用", None),
+    "storage_maintenance": (409, {"code": "storage_maintenance"}, None),
+    "storage_maintenance_changed": (
+        409,
+        {"code": "storage_maintenance_changed"},
+        None,
+    ),
+    "operation_missing": (409, {"code": "operation_missing"}, None),
+    "connection_revision_conflict": (
+        409,
+        {"code": "connection_revision_conflict"},
+        None,
+    ),
+    "api_key_authority_revoked": (403, {"code": "api_key_authority_revoked"}, None),
     "service_unavailable": (503, "Assets source service is unavailable", None),
     "invalid_response": (502, "Assets source returned an invalid response", None),
     "resource_budget_exceeded": (422, "连接器请求超出资源预算", None),
@@ -202,6 +220,17 @@ def _reject_json_constant(value: str) -> None:
 
 def _raise_failure(exc: ConnectionFailure, *, operation: str) -> None:
     code = exc.code
+    if operation == "update" and code in {
+        "account_not_active",
+        "manager_required",
+        "connection_management_forbidden",
+    }:
+        raise AssetsConnectionsGatewayError(
+            "access_revoked", {"code": "access_revoked"}, 403
+        ) from None
+    if operation == "update" and code == "validation_failed":
+        message = (exc.message or "连接器配置无效") + "；原配置未修改"
+        raise AssetsConnectionsGatewayError("validation_failed", message, 400) from None
     if code in {
         "connection_missing",
         "connection_management_forbidden",
@@ -414,6 +443,55 @@ class AssetsConnectionsGateway:
     ) -> ConnectionMutation:
         return await self._invoke("update", request, ConnectionMutation, commit=True)
 
+    async def begin_connection_probe(self, request):
+        return await self._runtime_call(
+            "begin_connection_probe", request, ConnectionProbeLease
+        )
+
+    async def finish_connection_probe(self, request):
+        return await self._runtime_call(
+            "finish_connection_probe", request, ConnectionProbeFinish
+        )
+
+    async def _runtime_call(self, name, request, result_type):
+        arguments = RUNTIME_NATIVE_ARGUMENTS[name]
+        kinds = RUNTIME_NATIVE_SIGNATURES[name].split(",")
+        placeholders = ", ".join(
+            f"CAST(:{argument} AS {kind})"
+            for argument, kind in zip(arguments, kinds, strict=True)
+        )
+        parameters = {}
+        for argument, kind in zip(arguments, kinds, strict=True):
+            value = getattr(request, argument)
+            if kind == "jsonb":
+                parameters[argument] = (
+                    None
+                    if value is None
+                    else json.dumps(
+                        _json_value(value), separators=(",", ":"), allow_nan=False
+                    )
+                )
+            elif kind == "text[]":
+                parameters[argument] = list(value)
+            else:
+                parameters[argument] = value
+        statement = text(f"SELECT aap_assets_v1.{name}({placeholders})")
+        if name in {"begin_connection_probe", "finish_connection_probe"}:
+            # The ledger and the accepted-key fence are independently durable:
+            # never hold the caller's publication transaction across physical I/O.
+            from app.services.storage_access import engine
+
+            async with engine(self.db).begin() as connection:
+                payload = await connection.scalar(statement, parameters)
+        else:
+            payload = await self.db.scalar(statement, parameters)
+        try:
+            return decode_connection_probe_reply(payload, result_type)
+        except ConnectionFailure:
+            raise
+        except (ValidationError, ValueError, TypeError):
+            raise ConnectionFailure("invalid_response") from None
+
     async def delete_connection(
         self, request: DeleteConnectionRequest
     ) -> ConnectionMutation:
@@ -443,14 +521,17 @@ class AssetsConnectionsGateway:
             f"CAST(:{name} AS {type_name})"
             for name, type_name in zip(names, casts, strict=True)
         )
-        parameters = {
-            name: (
-                json.dumps(_json_value(value), separators=(",", ":"), allow_nan=False)
-                if type_name == "jsonb"
-                else value
-            )
-            for name, type_name, value in zip(names, casts, arguments, strict=True)
-        }
+        parameters = {}
+        for name, type_name, value in zip(names, casts, arguments, strict=True):
+            # Optional jsonb arguments must stay SQL NULL. Encoding None as the
+            # JSON literal null would reach the owner helpers as a present value
+            # and turn an accepted request into invalid_request.
+            if type_name != "jsonb" or value is None:
+                parameters[name] = value
+            else:
+                parameters[name] = json.dumps(
+                    _json_value(value), separators=(",", ":"), allow_nan=False
+                )
         try:
             result = await self.db.execute(
                 text(f"SELECT aap_assets_v1.{operation}({placeholders})"), parameters
@@ -552,11 +633,11 @@ class AssetsConnectionsGateway:
             NativeConnectionMutation,
         )
 
-    async def update_storage_connection(
-        self, request: UpdateConnectionNativeRequest
+    async def update_storage_connection_authorized(
+        self, request: UpdateConnectionAuthorizedRequest
     ) -> NativeConnectionMutation:
         return await self._native_call(
-            "update_storage_connection",
+            "update_storage_connection_authorized",
             request,
             (
                 request.operation_id,
@@ -569,6 +650,9 @@ class AssetsConnectionsGateway:
                 request.policy_digest,
                 request.fallback_allowlist,
                 request.audit_context,
+                request.api_key_id,
+                request.required_scopes,
+                request.expected_proof,
             ),
             NativeConnectionMutation,
         )

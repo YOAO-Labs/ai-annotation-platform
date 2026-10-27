@@ -14,6 +14,7 @@ from aap_labeling.quality_data_contract import (
     ReadMaskQCRun,
     InsertMaskReviewScope,
     UpsertMaskQCIssue,
+    RecordRepairRollbackShard,
     decode_quality_data_command,
     quality_data_command_json,
 )
@@ -96,6 +97,39 @@ def test_review_scope_write_requires_bound_actor_issue_and_job() -> None:
     raw = json.loads(quality_data_command_json(command))
     assert decode_quality_data_command(raw) == command
     raw["qc_issue_id"] = None
+    with pytest.raises(QualityDataUnavailable):
+        decode_quality_data_command(raw)
+
+
+def test_rollback_shard_command_is_closed_and_carries_the_rollback_checkpoint() -> None:
+    annotation_id = uuid.uuid4()
+    command = RecordRepairRollbackShard(
+        schema=QUALITY_DATA_PROTOCOL,
+        operation="record_rollback_shard",
+        batch_id=uuid.uuid4(),
+        rollback_job_id=uuid.uuid4(),
+        shard_id="a" * 24,
+        result_value={
+            "status": "completed",
+            "mutation_count": 2,
+            "versions": {str(annotation_id): 3},
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "annotation_facts": {},
+        },
+    )
+    encoded = quality_data_command_json(command)
+    assert json.loads(encoded)["operation"] == "record_rollback_shard"
+    assert decode_quality_data_command(encoded) == command
+    raw = json.loads(encoded)
+    raw["shard_id"] = "A" * 24
+    with pytest.raises(QualityDataUnavailable):
+        decode_quality_data_command(raw)
+    raw = json.loads(encoded)
+    raw.pop("rollback_job_id")
+    with pytest.raises(QualityDataUnavailable):
+        decode_quality_data_command(raw)
+    raw = json.loads(encoded)
+    raw["result_value"] = []
     with pytest.raises(QualityDataUnavailable):
         decode_quality_data_command(raw)
 

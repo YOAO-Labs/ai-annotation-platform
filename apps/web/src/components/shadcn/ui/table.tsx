@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { listStyles } from "@/components/ui/listStyles";
 
 // `containerClassName` lets a caller frame the scroll container as a rounded
 // surface (registry tables) without repeating an outer wrapper. The scroll
@@ -18,7 +19,7 @@ function Table({
       <div data-slot="table-container" className="relative w-full overflow-x-auto">
         <table
           data-slot="table"
-          className={cn("w-full caption-bottom text-sm", className)}
+          className={cn(listStyles.table, "caption-bottom", className)}
           {...props}
         />
       </div>
@@ -80,7 +81,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-8 bg-muted px-3 text-left align-middle text-xs font-semibold whitespace-nowrap text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "h-9 bg-muted/50 px-3 py-2 text-left align-middle text-xs font-medium whitespace-nowrap text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className,
       )}
       {...props}

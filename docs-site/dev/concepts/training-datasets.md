@@ -1,208 +1,360 @@
 ---
 title: 在线学习与训练体系
-audience: [developer, ops]
+audience: [dev, ops]
 type: explanation
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-24
 ---
 
 # 在线学习与训练体系
 
-## 任务、格式与来源
+在线学习与模型训练体系（Online Learning & Training Subsystem）为标注平台提供从「人工审核标注沉淀」到「数据集物化」、「独立算力训练」、「模型指标核验与决策」再到「自训权重动态回流预标注」的端到端闭环能力。
 
-`apps/_shared/task_contract` 是任务名称和历史别名的标准库实现。`detect`、`segment`、`classify`、`pose`、`obb` 表示视觉操作；`format` 表示 AAP、COCO、Ultralytics YOLO 等序列化方式；`media_type` 表示输出样本媒体。工作项 `task_id`、Celery 任务及几何中的 `keypoint`/COCO `segmentation` 字段保留各自含义。能力说明仍由 API registry 管理，前端名称/别名由其快照生成。
+---
 
-新数据契约显式固定单一任务、工具/类别范围和来源。混合标注项目按所选任务过滤；其他工具标注单独计数，不作为隐式负样本依据。列表 SQL 投影只派生规范任务和来源摘要，不回写历史 JSONB。
+## 一、体系全景与核心架构
 
-参数定义的新身份与历史身份并存，解析必须匹配完整 schema ID 和摘要。旧快照、数据包、参数定义、模型回执、冻结引用及检查点均不能原地规范化后沿用原摘要。新输出使用规范任务；历史证据先按原身份校验，再生成公开视图。跨镜像恢复仍需精确的已验证镜像/配置允许项。
+### 1.1 闭环数据流全景
 
-视频派生图片应使用 `media_type=image`，来源记录 `media_type=video`。现有视频 JSON/ZIP 共同冻结原始项目采样与协作参数、源对象、绝对零基网格帧号、解析步长和标注解析器；抽帧使用原始视频，不能用播放转码替代。后续物化还需逐图片唯一身份、帧/标注版本与轨迹来源、覆盖范围内的负样本证据，并按原视频内容和场景连通分组划分训练/验证。当前训练物化保持图片项目边界。
+在线学习的核心目标是让高质量标注成果快速转化为算法模型的迭代收益，并通过预标注流水线与主动选样机制反哺标注生产。整个生命周期包含六个关键阶段：
 
-## 项目派生的任务版本流
+<ExcalidrawDiagram
+  src="/diagrams/dev/concepts/online-learning-loop.svg"
+  alt="在线学习端到端闭环架构：从审核标注到数据版本快照、独立执行器训练、逐样本评估、模型注册发布、动态回流预标注，再到主动选样与自动触发策略"
+  caption="在线学习端到端闭环数据流全景"
+/>
 
-项目拥有标注和工具绑定，原始存储数据集只提供可关联的媒体集合。`ProjectTaskDataset` 用 `(project_id, canonical task)` 唯一标识项目派生的任务版本流；类别、标注范围、批次、媒体和格式保留为版本属性，不进入版本流身份。同一项目的检测和分割分别管理版本；分类、关键点、旋转框只声明未开放能力，不因共享任务名称获得训练资格。
+1. **审核标注沉淀**：从业务项目中筛选通过质检审核的有效标注，按任务契约过滤。
+2. **冻结快照与数据物化**：语句级一致性读取，生成不可变数据集版本，物化上传至 MinIO `training` 存储桶。
+3. **独立算力受控训练**：独立拉取式执行器（`apps/training-executor`）获取任务凭据，通过共享状态目录的 `flock` 文件锁协调同一资源的执行器，守护原生训练子进程。
+4. **产物评估与质量核验**：对确切最佳权重执行原生验证，核验 SHA-256 与最终报告；负责人注册候选后可另行发起冻结逐样本评估。
+5. **动态回流预标注**：YOLO Backend 通过认证端点安装已核验的检测权重，完成固定样本试用并人工发布后接入单阶段整图预标注。
+6. **主动选样与自动触发**：通过难例挖掘启发式算法圈选高价值样本推入新批次，或由自动策略监听增量数据自动触发重训，形成自增益闭环。
 
-`task_dataset_version_memberships` 以既有版本 UUID 为主键关联任务数据集与正整数序号。`TrainingDatasetVersion` 仍是快照、清单、状态、请求和包身份的唯一所有者。手动 API、自动策略及回填共用分配助手，先取项目 advisory lock，再推进流的 `next_ordinal`。重放或重试不分配新序号，失败／取消版本仍占号，删除不回收序号。版本序号只在其任务流内唯一；父版本是独立分区继承关系，可从旧分支继承，不自动指向上一序号。
+### 1.2 核心设计哲学与安全边界
+
+为确保高并发生产环境下的稳定性与数据一致性，在线学习体系遵循四项根本设计原则：
+
+- **不可变快照与版本确定性**：数据版本一经发布即进入只读状态，历史快照、标签文件与 ZIP 清单永不原地篡改。所有派生分析与后续训练引用均绑定完整 SHA-256 摘要。
+- **独立执行器与协作锁**：训练任务脱离普通 Web/API 的 Celery 异步队列，运行在独立的拉取式执行器上。使用同一资源的执行器共享持久状态目录，并通过 OS `flock` 防止重复认领。该文件锁不阻止其他进程占用 GPU，部署仍需限制可见设备并管理训练与推理算力。
+- **不可变 Attempt 与断点续训隔离**：失败重试或从检查点续训均沿用原任务配置，但会分配全新的 `TrainingAttempt`，新尝试绝不覆盖历史指标曲线或改写前次权重产物。
+- **严格收据协议与双向凭证校验**：模型回流时推理后端与平台必须双向核验类别映射顺序、家族规格与运行时资格，防止因标签错位导致几何变形或脏数据污染。
+
+### 1.3 核心领域模型速查
+
+| 实体模型                     | 数据库表 / 模块             | 核心职责与生命周期                                                                    |
+| :--------------------------- | :-------------------------- | :------------------------------------------------------------------------------------ |
+| **`ProjectTaskDataset`**     | `project_task_datasets`     | 按 `(project_id, canonical_task)` 唯一标识项目派生的任务版本流，隔离不同视觉任务      |
+| **`TrainingDatasetVersion`** | `training_dataset_versions` | 冻结快照、物化图片与 ZIP 归档包的唯一持久所有者，序号单调递增                         |
+| **`TrainingRun`**            | `training_runs`             | 训练实验配置的不可变载体，锁定训练参数、基础模型与数据版本引用                        |
+| **`TrainingAttempt`**        | `training_attempts`         | 单次物理执行尝试，绑定实际执行器、GPU 租约、指标采样与退出回执                        |
+| **`TrainingResourceLease`**  | `training_resource_leases`  | 物理 GPU / CPU 算力租约，关联 OS 文件锁状态与心跳租期                                 |
+| **`TrainingStudy`**          | `training_studies`          | 有预算约束的串行超参数搜索计划，解析有限参数网格并调度子实验（`TrainingTrial`）       |
+| **`SampleEvaluationRun`**    | `sample_evaluation_runs`    | 针对特定数据版本执行的冻结逐样本一对一匹配评估                                        |
+| **`TrainedModelVersion`**    | `trained_model_versions`    | 训练产出的权威权重资产，记录完整训练来源、评估报告与类别绑定                          |
+| **`ModelRelease`**           | `model_releases`            | 模型在项目中的不可变发布记录，支持版本回退与当前选用锁定（`ProjectModelSelection`）   |
+| **`LearningPolicy`**         | `learning_policies`         | 监听项目增量数据的自动重训策略，维护语义基线、冷却窗口与触发记录（`LearningTrigger`） |
+| **`ActiveLearningRound`**    | `active_learning_rounds`    | 人工审核的主动学习选样轮次，基于难例启发式评分圈选待标任务                            |
+
+---
+
+## 二、训练数据版本化与快照物化
+
+### 2.1 任务契约与格式规范
+
+系统由纯 Python 共享包 `apps/_shared/task_contract` 统一管理任务名称和历史别名的标准库实现：
+
+- **视觉操作契约**：以规范名称标识视觉任务：
+  - `detect`（矩形框目标检测）
+  - `segment`（简单多边形或原生实例掩码分割）
+  - `classify`（图像分类）
+  - `pose`（关键点估计）
+  - `obb`（旋转目标框）
+- **格式与序列化**：统一规范 AAP、COCO、Ultralytics YOLO 等格式转换。能力由 API registry 管理，前端名称及历史别名均由其快照生成。
+- **多边形几何约束**：新简单多边形实例分割采用 `schema 3`（历史 `schema 2` 继续读取），由 `training_contract.dataset` 校验简单多边形：
+  - 强制使用规范起点与闭合方向，拒绝存在自相交、顶点重复或有损降采样的几何。
+  - 严格限制顶点总数与每图实例数量，每一行保留来源标注版本的精确映射。
+- **负样本处理准则**：新数据契约显式固定单一任务、工具与类别范围。混合标注项目在构建时按所选任务过滤，未选工具产生的标注仅作单独统计，绝不隐式视作负样本。
+
+::: warning 视频衍生数据边界
+视频抽帧派生图片标注时，样本媒体标记为 `media_type=image`，来源则明确记录 `media_type=video`。抽帧操作必须直接读取原始视频文件，禁止使用浏览器端播放转码后的衍生素材，以确保逐帧时间戳与绝对零基网格帧号严格精确。
+:::
+
+### 2.2 项目派生任务版本流与序号机制
+
+项目拥有标注数据与标注工具绑定，而底层存储数据集仅提供可关联的媒体资产。
+
+1. **版本流唯一身份**：
+   `ProjectTaskDataset` 采用 `(project_id, canonical_task)` 作为联合唯一键。同一项目内的检测（`detect`）与实例分割（`segment`）各自拥有独立的版本流；分类、旋转框等暂未开放训练的任务仅声明能力，不参与版本流分配。
+2. **单调自增序号（Ordinal）**：
+   - 关系表 `task_dataset_version_memberships` 以版本 UUID 为主键关联任务数据集与正整数序号。
+   - 分配序号前先获取项目级 PostgreSQL Advisory Lock，确保在并发创建时严格按序推进 `next_ordinal`。
+   - **序号占号与不可变性**：失败或取消的版本永久占号，重试构建时更新 `training_dataset_versions.attempt_id` 并沿用既有序号，删除版本不回收历史序号。
+3. **版本继承语义**：
+   父版本代表独立的分区继承关系，允许从旧分支派生，并不自动指向上一自然序号。
 
 手动创建由 `services/training_datasets.create_version` 持有；HTTP 入口只传入当前项目/负责人、认证所带 API Key 身份和注入的派发端口。命令复用 `freeze_selection` 与 `project_task_dataset.ensure_membership`，先按规范请求摘要处理幂等重放，再冻结并校验预检摘要；创建、任务流成员关系和作业入队仍在派发前的同一事务提交，随后按原时序派发、刷新并附加只读元数据。重放只修复缺失的任务流成员关系，不重建快照、不重复派发。
 
-列表用完整认可的冻结契约进行 SQL 任务识别，再执行任务／状态筛选、计数和分页，延迟读取大型 JSON。外连接关联表使旧写入者创建的版本继续可见，未关联时返回空管理字段。任务数据集 GET 只读地返回任务选择、状态计数、最新就绪版本、逐项能力和待关联／无法识别数量；没有版本的已支持任务不必预先创建流。无法识别的记录通过独立诊断列表读取，不经过严格版本摘要模型，也不默认归为检测。
+### 2.3 语句级快照与素材物化流水线
 
-回填只增加管理关联，不改任何历史快照、清单、包、摘要或训练引用。首次关联按创建时间与 UUID 稳定排序；后发现的历史版本追加高水位序号，不重排既有版本。删除最后一个版本后保留空流及高水位，删除项目时才在无保留引用的同一事务清理空流。操作命令见仓库 `DEV.md` 的「任务数据集管理关联与回填」，环境归属见 [独立工作树开发环境](../how-to/worktree-environments)，取舍见 [项目任务版本流](../adr/archive/0087-project-task-dataset-streams)。
+数据版本的导出与物化由 Celery `export` 队列中的 `workers/training_dataset.py`（`run_training_dataset`）驱动：
 
-## 统一训练入口
+```
+[API 准备：单语句选择快照、原件完整核验与解码]
+        │
+        ▼ (重新锁定并复核选择、标注与原件后创建版本)
+[Celery Export Worker]
+        │
+        ├── 1. 优先核验版本保留媒体，缺失时读取已登记原件
+        ├── 2. 完整校验 SHA-256、大小、格式与逻辑图像尺寸
+        ├── 3. training_dataset_bridge 几何归一化与连通分组
+        ├── 4. 组装规范目录，上传媒体、掩码与 ZIP 并完整读回
+        └── 5. 复核版本/Job/权限/来源后原子发布 ready 与通知
+        │
+        ▼
+[版本固定的训练存储位置]
+(projects/{project_id}/datasets/{version_id}/)
+```
 
-`/training` 将训练仓库、可管理项目与实验队列分为独立视图；项目内按实验、数据、模型发布和自动策略分标签。聚合读取使用 `managed_project_scope_clause`，与项目管理权限解析保持一致，成员可见性不会扩大训练管理范围。项目资格只检查结构配置，不在轮询中冻结标注或访问源图片。
+#### 冻结前缀的存储归属
 
-仓库目录复用受控适配器配置，并与资源租约记录的实际镜像、GPU 和框架版本核对。多个框架可共用执行器，不将目录项解释为独立容器。队列读取复用资源锁与 `observe_lost`，失联保持占用，计数和列表使用相同的项目范围。
+`TrainingDatasetVersion.storage_ref` 在新版本创建事务中、首个对象写入前保存平台 Location、配置修订、training 绑定代次、精确 endpoint/bucket/prefix 和物理身份。逻辑前缀为 `projects/{project_id}/datasets/{version_id}/`；schema2 在受控根下保存完整物理前缀，涵盖 `media/`、`masks/` 及各 attempt 的 ZIP；归属与内容 snapshot/manifest 分开，不改变历史训练摘要。`training_dataset_storage` 是共同解析 owner，已有版本不再依据当前 `training_bucket` 解释历史键。
 
-实验监控按项目、实验和执行尝试隔离查询缓存。事件使用递增游标分页加载，之后只请求新事件；切换续训记录不会复用前一次的曲线。最近轮次指标与最佳权重最终评估分开展示，缺失值与原生不可用值不会补零。
+Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图片/掩码读取（包括逐样本评估），训练 assignment 的 dataset URL 和增强 preview 的源 URL 均解析同一归属。解析在 I/O 前核对实际客户端端点和精确子键；当前用途桶变化不改已有归属，同端点凭据仍由原 StorageService 管理。端点变化、未知身份或越界键明确失败，不试探其他桶，也不改冻结 `run.config`、preview.spec 或 input_digest。实验权重由下述 Run 归属解析，预览结果仍保留独立存储 owner。
 
-## 受控训练执行
+旧 NULL 归属通过显式 `storage-pin` 操作核验当前保留副本后一次性固定，迁移和普通 GET 不自动接管。候选只读已持久绑定，版本 advisory 执行锁排除活跃构建；有界完整核验后再次复查当前管理权限、API Key、版本状态/attempt/内容摘要、候选及维护代次，再原子保存归属和核验范围/清单摘要。就绪包与独立媒体/掩码都要验证；失败/取消版本已有副本须有独立输入 SHA，对象自报摘要不能补成历史内容证据。未知键、无法解释的旧 attempt 或核验不确定均不写归属、不删对象。
 
-`TrainingRun` 引用就绪数据版本，固定包摘要、验证摘要、类别、基础权重、训练器版本、镜像身份及有界参数。每次执行保存独立 `TrainingAttempt`；物理 GPU 对应独占 `TrainingResourceLease`。训练运行在独立拉取式执行器，不占普通 Celery worker。
+删除在原业务事务复制完整归属到 `TrainingStorageDeletion`，提交成功后只清理该 bucket/prefix；身份不符和未知旧数据版本意图保持待核对。尝试清理仍先复查 package 引用，发布提交确认丢失不删除已发布包。数据库拒绝普通更新改写已固定归属；离线恢复仅允许表 owner 在显式恢复事务标记下映射 bucket/identity，其余证据保持。含固定事实时拒绝破坏性降级。部署步骤见[存储恢复说明](/ops/deploy/storage-recovery#训练版本存储归属的部署顺序)。
 
-执行器保存 claim 与产物日志，通过共享持久状态目录的 OS 文件锁保护物理 GPU，训练子进程继承锁描述符。心跳超时只标记失联，不释放租约。退出确认、数据库锁与当前执行凭据共同保护完成和续训，拒绝旧执行迟到回报。重启先获得独占锁，再恢复原分配、发布已有检查点与日志。
-
-框架注册表按框架、版本和适配器修订选择实现，先核验数据类别、每张图片与显式标签文件及分区。Ultralytics 与 LibreYOLO 共用资源和产物协议，各自负责原生参数、回调、完整检查点与评估。LibreYOLO 为已验证的数据生成独立原生 YAML，规范化类别索引而不改动冻结包。两框架的平台检查点均保留固定配置摘要和历史最佳权重字节；Ultralytics 只在不可变副本中追加恢复凭据，不改写原生 last/best 文件。恢复前验证内外层版本、任务、类别、轮次、摘要与最佳指标；下载验证完成后先提交输入检查点，首个新轮次完成前再次取消仍可续训。最终评估重新加载确切最佳权重，记录 SHA、评估器和参数；LibreYOLO 的原生训练指标与后续受控推理资格独立，成功训练不自动发布模型。
-
-轮次事件先落盘，再幂等上报；完成前同步补齐最后事件。完整检查点在框架剥离优化器前复制成不可变文件。产物清单固定后使用短期上传 URL，平台流式验证大小与 SHA-256 后发布。上传失败保留本地结果，只重试上传。续训固定原配置、验证集和运行环境，并使用新的输出目录。
-
-`TrainingDatasetVersion` 是项目内持久领域记录，保存冻结快照、父版本、请求幂等身份、执行尝试、清单及训练包校验值。`AsyncJob` 承接进度和通知，清理任务历史不会删除数据版本。
-
-## 有预算的串行搜索
-
-`TrainingStudy` 固定完整有限网格、目标、预算、授权与请求身份；`TrainingTrial` 固定序号、配置及普通子实验引用。ID 从项目／请求和试验序号确定性派生。全部组合经共享参数定义解析，预览与创建对同一计划摘要比较，最大 20 项；不会截断。Study 保留预算／账本计算与协调，普通子实验 `TrainingRun`、首个 `TrainingAttempt` 及入队前 `native_budget` 预留由 `training_runs.create_study_child` 持久化；`reserve_study_budget` 也持有续训预留，`cancel_study_child` 保留 queued 立即终止与 active 进入 cancelling 的区别。子实验继续使用独立 `origin`、初始化 pin、既有 GPU 租约及 lost／upload 恢复。
-
-协调按项目 advisory、授权、Study `FOR NO KEY UPDATE`、Run 的顺序执行。较弱的 Study 非键写锁允许子外键的 KEY SHARE 检查，不会让带所有权凭据的 Run 完成事务反向等待协调器。claim／finish 不获取 Study 锁；Run 的部分唯一索引覆盖全部活动状态，数据库阻止同一搜索重叠。每十秒的 `app.workers.training_study.check_studies` 恢复后续准入，终态关闭 scheduling；停止后的手动续训不重新打开它。
-
-每次 attempt 在入队前固定 `native_budget` 预留。计时账本从所有已围栏提交的 `native_accounting` 派生，不维护容易漂移的消费计数器。所有失败、续训、停止宽限和超额时间计入；未知记录保留并阻止准入与续训。恢复重新在 Study 当前余额及子实验剩余额度内预留，不能重复花费先前释放的额度。排队与 claim 至终态提交占用分别计算。
-
-执行器在 spawn 前持久化意图，Popen 后立即启动独立单调计时 watchdog，早于日志读取和 PID journal 保存；停止调用共用锁并在失败后重试，直到确认整个进程组退出。退出回执先固定保存，再随不可变 finish body 重试提交。当前进程内保留 timer 可恢复精确时间；重启后只有 spawn 意图而无回执时只能报告未知。Supervisor 自身被终止会丢失 watchdog，继承的 GPU flock 仍保护资源，不能把进程不在或墙钟时间当作精确退出证据。
-
-结果每次重新读取、校验最终报告产物，只在 T05 完整兼容身份内排名；最近轮次指标不参与目标排名。长期 RESTRICT 引用保护子实验、数据、初始化模型及项目；当前无 Study 删除 API。部署需应用迁移、更新预算能力的实际执行器镜像并刷新 API、两类 worker 及 beat。设计取舍见 [有预算的串行搜索](../adr/archive/0082-budgeted-training-studies)。
-
-## 受控项目权重初始化
-
-`training_initialization` 解析同项目保留候选的权威 run、成功 attempt、冻结数据、唯一权重与注册 provenance，生成完整 pin 和规范化来源摘要。资格策略由 API 与执行器共享，固定原生框架／Torch／TorchVision／Python／CUDA、同 YOLO11 规格、类别原生顺序和全部状态张量转移边界。来源名、SHA、大小、配置／数据／验证摘要、绑定、运行时及评估证据均成为不可变训练输入。
-
-`base_model` 继续负责受控结构与参数定义；`origin` 负责配置复用；`initialization` 只负责新实验的权重；`resume_from_id` 负责本实验恢复。省略和目录初始化不改变旧 JSON 摘要。实验、配方修订和策略以 nullable RESTRICT FK 保留初始化模型，旧行不回填、不重算摘要。
-
-预检、入队和首次 claim 独立校验完整对象。来源模型 KEY SHARE 锁保护接受窗口，claim 不反向取得项目 advisory、策略或配方独占锁。新能力摘要阻止旧执行器忽略初始化字段。worker 先验证受控结构，再下载独立且有界的项目权重，原生反序列化前重新核对 SHA 和长度。
-
-原生 YOLO 以明确的 weights-only 路径创建新 trainer，在首批次之前核对实际 DetectionModel、规格和类别，并比较来源与载入模型的全部 state tensors。独立证据证明 epoch、优化器、scheduler、scaler、EMA 与最佳成绩均为新状态。成功提交同时校验冻结参数回执与初始化回执。恢复读取本实验检查点，跳过父候选重新下载，保留 pin 和 checkpoint-resume 证据。
-
-前端按会话单调代次、草稿修订、来源／URL 意图和随机查询作用域拒绝迟到及 ABA 结果。仅明确的未固定选择可补齐服务端摘要，自动刷新不改写既有 pin 或未确认请求。配方与策略复用保留完整来源，YAML 格式 2 携带模型 ID／来源摘要；旧格式只替换参数。增强预览仍只负责数据变换。取舍见 [受控项目权重初始化](../adr/archive/0081-controlled-training-initialization)。
-
-## 人工主动选样
-
-`ActiveLearningRound` 固定明确候选窗口、完整历史排除身份、模型／部署／profile、检测策略及推理与审核预算；独立 Attempt 用 generation、claim、heartbeat 围栏所有写入。完整来源窗口由 PoolMember 保留，推理代表由 Candidate 保留，Decision 和 Feedback 只追加。结果 JSON、特征、原生请求与报告均重新核验摘要，不借用 mutable Prediction。
-`active_learning.create_round` 是 Round、PoolMember、Candidate 和首个 Attempt 的写入所有者；`retry_round` 只重置失败候选的状态/错误，并释放旧 Attempt 的 claim、补齐完成时间后创建下一 generation。HTTP 入口保留管理者锁、当前授权、状态/原 24 小时窗口及失败候选请求准入，并保持提交后派发。重试不改写冻结 spec、候选 request UUID、已成功证据或非失败候选。
-
-候选必须是未分派、无人工编辑或处理历史的待标图片。条件读取原图并计算 SHA256，重验前后 Task／Item／Batch 快照；MD5 内容列不是 SHA 证据。全部保留训练清单的完整 split_history 与 held-out 评估规格用于内容／任务／场景排除；缺清单、摘要不符或超过历史资源上限均拒绝。相同内容和场景先形成连通组，排除传播到整组，再选稳定代表。
-
-代表在看分数之前确定性随机分成主动与控制池。主动组用 `max(1-score)` 和不同类别的最大 IoU 作为有名称的检测启发式，并保留向上取整的四分之一随机探索；空检测无确定性分数。控制组只在其独立池内随机取同量成员。没有类别概率向量，不实现 entropy，不跨模型比较，也不声称因果质量收益。
-
-共享 `managed_inference` 仅抽取既有受控推理资格、绑定、固定路由和收据协议，保留逐样本评估的原生哈希合同。Round 在每次 POST 前独立提交预算预扣；重算或超时不能退款，GET／seal 不收费。该额度是派发上限，不能解释为原生时间。恢复保持同一候选请求 UUID、绑定、模型根和原 24 小时窗口。停止对所有持久请求封口，包括尚未执行的 tombstone；失联与 busy 不证明退出。Celery failure／revoke、维护任务与 API 都交给域状态机，旧 job 不影响新尝试。
-
-接纳在媒体 IO 后重新锁定授权、Round、来源批次和整个候选组；任务编辑 advisory 使用 try lock，Item SHARE 使用 NOWAIT，避免和已有编辑／删除的反序等待。最终重验资格、编辑锁和当前全部不可变历史成员，随后复用普通 BatchService 只移动代表任务。所有选样不写标注真值、不改变发布。来源 FK 与存储操作前 guard 保护项目、完整窗口与历史排除记录；新批次 FK 用 SET NULL，名称及身份仍在决策快照。
-
-反馈按当前实际任务／保留标注和审计驳回事件记录，合格会话按人和作业类型去除重叠，并标明部分覆盖。纠正次数与完整工时保持未知；可选后续评估通过既有报告 reader 校验，完整同口径才计算变化，不能归因于选样。迁移后刷新当前 API、worker 和 beat；本次 API 辅助抽取不改变原生协议，无需重建未变化的推理镜像。回退停止新建与派发、确认封存并保留全部历史，不能对有保留来源的数据库降级。取舍见 [人工主动选样](../adr/archive/0083-human-reviewed-active-learning)。
-
-## 冻结逐样本评估
-
-`SampleEvaluationRun` 固定候选／部署、数据与类绑定、成员多重集、用途、阈值、评估器、预处理及实际推理 profile。`SampleEvaluationAttempt` 用 generation、claim 和心跳维护执行所有权；成员 checkpoint 使用稳定 request UUID 保存已验证证据。项目、数据版本、模型和部署引用使用 RESTRICT，源 Task 刻意不设实时外键，AsyncJob 仅作可空的展示引用。
-`sample_evaluations.create_run` 持有 Run、Sample 和首个 Attempt 的创建写入；Sample request ID 仍按 Run UUID 与 ordinal 确定性 UUID5 生成。`retry_run` 持有旧 Attempt claim 清理、失联完成及其通用作业失败回填、仅失败 Sample 的状态/错误清空和新 generation 创建。HTTP 保留请求摘要重放/冲突、引用锁、授权及删除/状态/过期门禁，并先提交再派发；冻结 spec 与样本身份不随重试变化。
-
-现有 `ml.cpu` 队列 worker 在短事务内领取和提交，网络工作不持领域锁。每分钟维护器通过当前尝试关联及轮转维护时间处理未派发、失联、取消中和删除中记录；迟到 worker 不能覆盖新尝试。候选推理使用 `RoutedMLBackendClient` 与原 GPU 准入，固定部署实例和有界响应，收据读取不新申请或释放不确定租约。
-
-Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkpoint、lost/cancel 状态以及 dispatch/maintenance 时间戳，连同 HTTP `deletion_requested_at`，均由 `sample_evaluations` 的命令写入。worker 仍保留围栏、authority 重查、推理/收据与报告 I/O、每个原始 commit 和先提交再派发的窗口；通用 AsyncJob 字段继续通过 `services.async_job` 更新。
-
-受控推理实例的持久 managed 根目录保存 storage UUID、固定数量的 flock 条带及有界请求绑定／收据。锁覆盖真实模型加载、原生预测和原子收据发布，包括加载超时与重复取消；TTL 清理不会删除锁文件。封存使用同一把锁并持久化墓碑，尚未到达的 POST 也不能在取消确认后开始。存储身份变化或请求身份冲突拒绝继续确认。
-
-完整 raw SHA 核验后，Pillow 全量解码、EXIF 校正和 RGB 无元数据 PNG 统一浏览器与推理坐标。固定阈值评估使用稳定置信度优先的同类一对一贪心匹配，不声称原生 COCO AP。报告发布与每次读取验证字节摘要、元数据、规格和可信 checkpoint，再重算匹配与聚合。部分失败不能发布成功整体指标。报告上传后若提交确认丢失，清理器先检查数据库已发布指针，避免删除已成功发布的对象。
-
-源解析以单条 PostgreSQL 语句冻结当前任务／素材引用及有限活跃矩形标注，随后做有界条件对象读取、完整 SHA 和标签规范化，再复查引用、标签及当前授权。ETag／MD5 不替代 SHA；不支持的标签不被静默丢弃。前端以会话单调代次、随机缓存作用域、视图所有权及 AbortSignal 拒绝 ABA 迟到结果，源导航只使用核对后的当前任务与 returnTo。
-
-部署需应用评估迁移、重建受控 YOLO 推理镜像并保留其 managed 状态目录、刷新包含新任务的 worker 与 beat。运行 profile 改变后需新建未完成评估，已经完成的历史报告仍可验证读取。关闭新入口与新派发可回退使用面，不删除有引用的表或历史对象。取舍见 [冻结逐样本评估](../adr/archive/0079-frozen-sample-evaluation)。
-
-## 执行观测与脱敏日志
-
-`training_observability` 服务使用独立采样与日志表，以及 attempt 的小型摘要／结构化失败字段。观测请求复用当前执行器 fence 和项目授权，但不推进状态、不续心跳或租约。两流分别维护持久序号高水位、明确保留缺口和最后请求回执；最新值与峰值从已接受采样派生。原始观测每执行最多 720／512 条，每小时从现有 cleanup 队列分批移除 7 天前的行，保留摘要，删除实验时级联移除。
-
-执行器以原 `Popen` 的 PID、创建时间和进程组确认采样范围，排除并行预览。psutil 提供 CPU 核数与 RSS 求和；两秒超时的 `nvidia-smi` 查询仅表示冻结 UUID 对应的整卡值。PID 命名空间未映射时，进程 GPU 利用率保持不可用。原生回调只在 CUDA 初始化后读取分配器；Ultralytics 批次吞吐使用实际图片计数，LibreYOLO 未提供时不补造。完整周期排除首个预热／恢复样本并保持增强尾段可比，ETA 至少有三个周期且不估评估／上传。
-
-采样与观测 HTTP 各自拥有线程、停止标志和有界超时，不操作训练取消标志。私有 SQLite 以页数限制为 8 MiB，保存流身份、游标、已封存请求及 ACK；空间压力缩短窗口并声明缺口，响应丢失只重放原请求。瞬时授权锁忙继续重试；旧 fence／内容冲突终止观测。观测停止异常保留独立线程所有者，等待退出后关闭，在此期间不新建可选会话，不覆盖训练退出或已确认发布结果。跨 boot 恢复不重新采样旧 PID。
-
-stdout/stderr 由独立管道线程持续读取。整行上限 8192 原始字节，超限后丢弃到分隔符，避免保留凭据后缀；ANSI、控制字符、URL、已知凭据、凭据赋值与主机绝对路径在写任何 spool／head-tail 文件前脱敏。最终日志不超过 8 MiB。确认进程组退出且完成管道读取后才整理日志；整理失败仅重试保存，不重启训练。历史日志下载验证原对象，再生成按内容摘要命名的脱敏副本，实验共享锁覆盖读取／写入以串行删除。
-
-冻结清单前保存可选的 `observability.json`，最多 256 KiB，含身份、收集截止时间、近期最多 120 条采样、来源、峰值、最终原生进度及脱敏／截断证据。上传阶段只继续 live 观测，不改冻结产物。原生失败按类型或明确校验边界生成结构化回执；监督器／平台失联另有来源。完整 finish body 在 HTTP 前落盘，旧请求只省略新加且为空的 failure 字段，原有 null 序列化保持不变。
-
-监控页的操作与恢复资格绑定当前执行，资源、曲线、阶段与失败说明绑定所选执行。查询及迟到确认／下载同时校验账号、捕获的 token、项目、视图修订和 AbortSignal；token 不写入查询 key。客户端分别保留有限窗口，每次刷新最多追赶三页，终态重新读取近期尾页。日志更早分页使用独立游标和可见块滚动锚点，旧流的中止结果不能写入新流。
-
-部署需应用观测迁移、重建独立训练执行器并更新实际目录镜像、刷新 worker 与 beat，检查新 cleanup 注册及真实派发。回退可关闭观测生产／入口并保留加法表，不能释放训练租约或改写旧产物。取舍见 [执行观测与脱敏日志](../adr/archive/0078-attempt-observability-and-redacted-logs)。
-
-## 原生增强预览与 CPU 所有权
-
-`TrainingPreview` 冻结完整配置、镜像／参数定义、数据快照／包、确定性来源池、策略、种子和轮次。来源只取实际包内训练分区，按 seed/task/SHA 排序，在最多 512 个候选中选择满足资源预算的最多 16 张；保留精确图片和重新生成且与清单一致的标签。完整输入摘要包含原生生效参数和来源选择结果，不改变训练配置摘要。
-
-执行器主进程保留 GPU 监督循环，独立 `PreviewSupervisor` 线程持有 CPU HTTP 客户端、取消标志、持久 journal 和继承 flock。预览子进程隐藏 CUDA，在导入原生框架前限制虚拟地址 16 GiB、CPU 30／35 秒、墙钟 45 秒、单核与单线程；服务器在开始后 60 秒请求停止。固定池同时限制字节、像素和对象数量。CPU 和主机内存仍与训练共享，不能据此承诺零训练延迟。
-
-原生执行使用固定镜像中的 `YOLODataset`、增强流水线和 `DetectionTrainer.preprocess_batch`，冻结默认关闭的检测不适用 Copy/Paste，按所选轮次执行 `close_mosaic`。独立进程隔离 RNG、私有缓存与权重，没有优化器和反向传播。观察包装器仅记录原生来源与裁剪／过滤掩码，不改变数组或消耗 RNG；回归验证带观察和无观察的像素／框一致。报告包含完整框、原生参数、镜像／适配器及数据集、构建、变换、实例和预处理源码的联合指纹。
-
-独立 `TrainingPreviewResourceLease` 保护节点 CPU 槽，不使用 `TrainingAttempt` 或 GPU 租约。claim 先持久化再请求，响应丢失恢复同一 claim；finish 收据先落盘再发送，丢失响应只重放原收据。同 boot 重试必须通过保留的 `Popen` 确认进程组退出，PID 落盘失败也不例外。新 boot 重新取得子进程继承的 flock 后才能恢复；不向旧 boot 的可能复用 PID 发信号。取消、撤权、失联与超时均保留未知进程租约。
-
-产物位于 `projects/{project}/previews/{preview}/`。签名 PUT 固定清单、长度和预览／输入／SHA 元数据。发布前验证报告和完整 PNG；授权读取持预览共享行锁直至读取完成，前端以认证 Blob 展示并释放 URL。结果 24 小时过期，最后一次 PUT 授权关闭后才能删除前缀和引用。每分钟 cleanup 先在短事务中处理 CPU 租约／活跃记录，再只锁过期 queued／terminal 行执行存储删除，避免无关清理阻塞心跳。
-
-负责人 DELETE 与周期清理不是同一命令：HTTP 先按原顺序取得当前项目管理权和预览行锁，再由 `training_previews.expire` 记录当前时刻并调用既有取消规则。排队记录及 AsyncJob 在同一事务中进入 cancelled；活动执行只写取消请求并保留 CPU 租约，直至 finish 确认进程退出。读取可按到期时间呈现 expired，但这不表示预览记录已物理删除；周期 cleanup 仍等待最后一次 PUT 授权窗口后独立删除对象和记录。
-
-部署需应用预览迁移、重建受控执行器并更新实际镜像摘要、刷新包含 cleanup 注册的 worker 与 beat。旧执行器没有匹配协议／策略时，能力接口保持不可用，训练入口继续可用。完整取舍见 [原生预览 CPU 所有权](../adr/archive/0077-native-augmentation-preview-cpu-ownership)。
-
-## 冻结和物化
-
-训练任务由不可变快照／清单承载：历史检测 schema 1 保持原序列化，新图片实例分割使用 schema 2、简单多边形几何和独立桥接身份。版本列表通过 SQL 从快照派生任务，无需新增列或回填历史 JSON。共享纯 Python `training_contract.dataset` 以有界顶点／实例数量校验双精度和 float32 简单多边形，规范闭合、起点与方向，拒绝有损几何转换及原生重复实例；每行保留来源标注版本映射。
-
-分割配置使用独立参数定义，只开放已核验的 `yolo11n-seg`，保持检测定义摘要。既有训练进程根据冻结任务选择原生 `SegmentationTrainer`，沿用 GPU 所有权、完整优化器检查点、历史最佳权重及产物发布。独立实例掩码和全分辨率掩码关闭重叠合并；缩放／栅格化仍受训练分辨率限制。最终报告保留框和掩码两套语义，实际处理选项与源码进入评估身份。下载不推导为受控推理或自动策略资格。
-
-镜像更新不改写冻结配置。修订 1 继续使用明确的历史镜像列表；修订 2 仅可通过目录 `compatible_config_images` 中「来源镜像 → 完整既有 schema identity 列表」授权已经实际验证续训的检测组合。不能只凭版本或框架名称放行。共享包变化需重建实际训练／推理镜像，并刷新相应 API、worker 和 beat。取舍见 [简单多边形实例训练](../adr/0085-qualified-polygon-instance-training)。
+#### 快照读取一致性
 
 `dataset_task_facts.ProjectTaskSourceReader` 是不接收 Session 的来源查询端口；请求依赖和策略应用入口将 `labeling_assets.SqlAlchemyProjectTaskSourceReader` 绑定到原事务。它用单条 PostgreSQL 语句固定当前工具配置、任务/素材引用及活跃标注；已审核、当前跳过不可用和已审核空样本资格也由该标注所有者判定。结果按任务 UUID 排序且最多 20,001 项，显式任务选择缺失或越出项目/批次范围时由 learning 拒绝，不能用分页拼接不断变化的来源。查询只聚合所选工具的几何，其他活跃工具只计数，不能因忽略其几何就把样本认定为空。结果经 `dataset_task_facts.py` 的标准库不可变 DTO 交付，嵌套 JSON 不携带 ORM 或可变引用。
 
 `training_datasets.py` 不再查询生产任务/标注表或重算审核轮次资格；它消费固定事实，保留训练选择模式、显式空样本确认、类别/几何规范化、样本预算和摘要。随后记录 S3 ETag、版本和大小。空选择沿用原配置与准备错误；大文件复制在后续构建中完成，不延长此次来源查询的事务。
 
-export 队列执行 `workers/training_dataset.py`。它以条件读取验证源对象，流式落到临时目录，校验 SHA-256、完整解码和逻辑图片尺寸，再保存至训练桶的版本前缀。重试优先读取此前保存的素材，并验证快照身份与字节摘要。
-
-`training_dataset_bridge.py` 只消费冻结快照和经过验证的素材。它按冻结任务严格校验归一化矩形框或简单多边形及类别，按相同内容与 scene 的连通分组分区。清单累计保存祖先 task/content/scene 的分区映射，避免中间版本省略样本后丢失历史划分。训练包内包含真实图片和分开的训练、验证标签。
-
-## 冻结数据分析
-
-手动与自动候选保存独立的 `preparation_report`，绑定创建时快照摘要；旧记录保持空值，不追溯当前任务。报告不参与快照／包／运行摘要。分析连接实际 manifest 成员与冻结标注，自动包去重后被省略的快照任务不会增加图片或实例分母。
-
-`training_dataset_analyses` 保存版本化派生摘要与输入身份，`training_dataset_analyzed_samples` 保存可索引的成员、类别与冻结框。输入指纹包含分析版本、适配器 ID／修订、快照摘要、完整清单内容和包摘要；首次生成／失效重建与删除以数据版本行锁串行，级联清理派生表。普通版本列表和摘要读取延迟加载大型 JSON，分析页在服务端过滤、稳定排序和分页。
-
-分析复用 bridge 重新生成原生标签并核验清单标签 SHA。比较以内容 SHA 为键，以类别名称和原生舍入坐标识别实际修正，将类别重排和任务 ID 噪声分开。已有去重语义分区不改；新增验证多重集身份保留图片重复次数、标签 SHA 与有序类别，用于表达评估权重差异，不改变自动增长或原训练摘要。
-
-`training_dataset_insight_adapters.py` 按规范任务、输出媒体、格式、几何与桥接契约选择进程内适配器，只有图片矩形框检测和已资格简单多边形分割。共同 envelope 保留契约 profile、适配器修订、六项操作能力、分析状态及证据分母；任务统计使用 `task` 判别的类型化 payload。任务相同仍须检查 profile 兼容，不对不支持的媒体、几何或任务生成空检测统计。父版本还检查来源媒体、分组契约及完整累计 task/content/scene 分区历史。
-
-检测在派生原生标签时计算固定大小的服务端聚合：六档图片宽高、20×20 归一化框中心与框宽高、0／1／2–5／6–10／11–20／21+ 个目标的每图分布。图片几何以可测成员为分母，框几何以已知有效实例为分母；未知标注成员不作为负样本或零实例。类别分布不完整时不能用零已知频次断言全版本缺类。前端无需加载全部标签来聚合。
-
-差异计数使用唯一内容，图片成员数单独返回，各变化集合可重叠。精确内容 SHA 筛选允许从两个版本分别取出重复成员，并使用各自类别编码与冻结标注展示前后面板。检测语义保留原生八位小数和标签多重集，不以来源任务变化、类别索引重排或来源标注 ID 推断框移动／改类。原始契约变化单独报告；已认可的历史与现行等价契约使用独立规范 profile 验证比较身份，不改训练的历史 validation digest。
-
-新增／移除是已知 SHA 集合差异，对侧含未知内容身份时前端保留待核实说明，不能从空匹配列表证明真实缺席。共同内容的任一成员分区未知时，训练语义归入 unknown，既不算 unchanged，也不推断分区变更；已确认的其他重叠变化独立保留。未知标注和未知分区都有各自分母，不补零。
-
-媒体接口只读取训练桶中该版本成员的保留字节，以条件 GET 和流式摘要验证完整内容，再输出临时文件流或 EXIF 校正后的有界 PNG。请求重新校验管理权限与 scope，媒体读取与状态提交持有版本共享行锁，与删除串行；预览使用认证 Blob，不缓存签名 URL，也不调用源素材物化。媒体检查状态独立于不可变统计，明确记录检查时间。前端按账号、会话、项目、版本与筛选隔离请求，取消过期请求并回收对象 URL。
-
-`training_dataset_analysis.record_media_observation` 统一写检查状态、检查时间并在原位置提交。完整原字节可用但 PNG 预览不可用时，接口仍返回 `frozen_preview_unavailable`，字节观测保持 verified；冻结字节不存在或校验失败则记为 unavailable。打开响应流后的提交失败会关闭该流，观测事务回滚后不覆盖上次已提交结果。
-
-任务、版本、基线及过滤器归属同时进入视图所有权。新版本弹窗按项目／任务保留表单与未确认幂等请求；从精确版本打开实验时先核对同项目 ready 身份与受控训练配置，再由用户确认采用。兼容草稿保留参数，不兼容配置明确展示重置内容；pending 实验／参数搜索请求保持原始身份，不能被导航覆盖。分析或预览不可用不改变冻结版本及其下载／已资格训练能力。
-
-版本创建在发送前固定完整请求体。网络／服务失败保留该请求并锁定表单与预检，关闭／重开仍原样确认；明确的客户端拒绝清除预检并允许修改。放弃未确认请求必须明确确认可能重复创建的后果。异步所有权使用会话单调代次拒绝账号 A→B→A 的迟到响应，不能仅比较账号或 token 当前值。
-
-## 执行与权限边界
-
-每次重试分配新的 job 与 attempt UUID。执行在独立数据库连接上持有版本 advisory lock，跨领域事务提交保持有效；删除与重试通过相同键的事务锁确认旧执行已退出。领取、进度更新和最终发布均核对当前 attempt、job 与领域状态。
-
-取消先锁领域记录，再同步 job 与版本为取消。worker 在图片边界停止，最终发布前再次核对状态，未发布 attempt 的 ZIP 在退出时清理。失败派发仅能修改本次仍在 pending 的尝试，不能覆盖已经运行或完成的结果。
+`prepare_selection` 在独立读取阶段完成原件读取、完整核验与解码；调用者先释放项目、身份及业务行锁，媒体 helper 不提交调用者的业务修改。`finalize_selection` 不执行对象 I/O，在调用者重新取得串行化锁后复核选择、标注、原件与权限，再由同一业务事务保存版本、版本流关联和 Job。预检后输入变化使创建返回 `409`。
 
 `workers/training_dataset.py` 保留先复核当前权威、再锁定当前版本行的顺序，以及 job/attempt/status 围栏、执行 advisory lock、逐样本提交和对象发布/清理编排；`training_datasets` 的窄领域命令集中写入构建过程的运行状态/进度、ready 包身份/摘要/大小、完成时间及失败字段。worker 仍负责冻结快照物化、S3/ZIP I/O、AsyncJob 终态/通知和事务提交；只有 ready 提交成功后才置 published，未发布 attempt 仍按原时点清理。
 
-创建者的账号和项目权限锁在最终发布前重新获取；API Key 获取共享行锁并校验当前 scope、过期与撤销状态，持续至 ready 提交。下载也重新检查当前项目管理权限与对象存在性。项目删除在任何破坏性操作前检查持久版本引用。
+#### 托管图片的原件身份与物化
 
-## 存储与部署
+新快照声明 `managed_original_contract=1`，托管样本的 `original` 收据固定 `schema=1`、`owner_kind`、内容 UUID、SHA-256、大小和逻辑位置 UUID。`training_dataset_originals` 通过 `original_sources.resolve_task` 解析 direct/primary Item 或独立 TaskOriginal 的真实归属；端点、保存桶、对象键与维护代次仅来自当前规范解析，不按用途桶猜测，不写入安全原件收据。先用登记大小检查版本总量，再完整捕获字节并解码；保持单图 256 MiB、1 亿像素、JPEG/PNG/WebP/BMP/TIFF、EXIF 逻辑尺寸及每版本 20,000 样本、20 GiB 上限。
 
-`MINIO_TRAINING_BUCKET` 默认 `training`，不设置自动过期。版本对象保存在 `projects/{project_id}/datasets/{version_id}/media/` 和 `attempts/{attempt_id}/dataset.zip`。备份需同时覆盖数据库和训练桶。
+HTTP 捕获准确请求凭证，私有 `snapshot.authorization` 保留原 Key 身份指纹，不保存 Bearer 或将短期 JWT 委派给 Worker。读取前后、真实关闭后和发布前复核创建者、原 Key、项目管理权限、原件关系与维护门禁；托管训练保持 `datasets:read`、`annotations:read`，不借用通用下载接口扩大 scope 要求。受信内部调用显式声明调用身份，不能将缺少 Request 解释为 HTTP 已授权。
 
-版本和终态实验删除在同一事务中删除业务记录，并写入独立的 `training_storage_deletions` 清理意图。数据库引用检查及提交先于任何对象删除；意图保存确切 bucket/prefix，不依附项目外键。提交后先尝试清理，故障时由已有 `maintain_evaluations` 周期任务分批重试，只有对象清理及确认提交均成功才移除意图。重复清理同一不可变前缀可恢复存储故障、进程中断和确认提交失败；业务删除成功仍返回 `204`。
+Worker 优先从版本输出 owner 读取保留媒体，除快照归属与实际摘要外，新合同还要求字节 SHA/大小匹配冻结 `original`。仅保留媒体缺失时使用同一原件收据沿保存位置读取；本次完整 OriginalSource 只留在内存，最后发布时重核。命中合格副本不要求源任务或来源仍存在，已冻结标签也不重新选择。旧就绪包和合格历史保留媒体继续可用；旧快照缺少原件事实且保留缺失时，零原件 I/O 拒绝回源，不从现行桶、ETag 或同名键补造身份。
 
-记录删除分别由 `training_datasets.stage_version_deletion`、`training_runs.stage_run_deletion` 持有；存储服务只暂存和清理独立意图。两类调用方都在原提交点合并 SQL 删除与意图，提交失败不进入对象删除。后续运行配置中的训练桶改变，不会改写已提交意图保存的目标桶。
+原件读取使用独立两槽和耐久 `storage_access` 许可，覆盖暂存、解码及真实关闭。所有原生线程工作经 `physical` 等待实际收尾后，才能关闭临时目录或释放执行锁；未知关闭保留许可和容量责任。媒体、mask 与 ZIP 的 PUT 后完整条件读回核对真实 SHA/大小，失败不能置为 ready。Worker 按 Version→Job 加锁，与取消顺序一致；发布同时复核 attempt、Job/Celery 身份、快照摘要、输出 owner、当前权限、原 Key、维护代次及本次回源事实，再统一提交结果与通知。未收尾的版本输出 `StorageOperation` 阻止重试与删除，失败清理仍使用保存位置及耐久许可。
 
-升级部署需应用新增迁移、创建独立训练桶并授予对象读写权限、刷新 export worker，再核验注册任务 `app.workers.training_dataset.run_training_dataset`。局域网生产还需同步受限 MinIO 策略与 Caddy 下载路径。
+#### 原地引用的冻结读取
 
-存储清理意图需应用 `0189` 迁移并刷新消费 `default` 队列的 worker，保持 Celery beat 运行；沿用每分钟的 `app.workers.sample_evaluations.maintain_evaluations`，无需新增任务或调度器。此处的「维护」是该业务任务，消费数据库运维 `maintenance` 队列的专用 worker 不负责此路径。
+组合筛选冻结复用 `dataset_workbench.item_query`，返回数据库关系并在训练的单条 PG 任务/Item/类别/标注查询内限定成员，不先把分页列表搬到客户端。`dataset_filter` 必须绑定已关联数据集；来源和 Scene 的归属/权限验证与工作台共用。新过滤选择在 snapshot.dataset_selection 中固定定义、task/item/version 成员，source 保存定义、数量和证据摘要；它与最终合格样本一起进入原预检摘要。创建重新核对，之后 Worker 只消费原 snapshot，不重跑动态视图。旧请求无过滤字段时 canonical 字节保留，历史快照和包不回填。
 
-## 模型身份与回流
+`training_dataset_sources.py` 将引用样本接入 `dataset_references.reference_snapshot`，固定 DatasetItem、Asset、SHA-256 与字节数。来源身份使用独立的 `asset_source_contract` / `asset_reference` 嵌套 schema（均为 1）；图片/几何训练合同保持原定义。仅新含引用的 snapshot/manifest 写入这些字段，历史内容与摘要不回填。导出清单只记录业务身份和摘要，不包含挂载路径或凭据。
 
-`TrainedModelVersion` 固定权重、完整类别绑定及训练来源；`ModelDeployment` 表示该版本在某物理 registry 实例上的检查回执；`ModelRelease` 保存不可变发布历史；`ProjectModelSelection` 以 generation 比较交换更新当前发布。它们不与服务池或 AsyncJob 共用身份。来源实验删除前先检查引用，数据库外键再次保护。
+新引用快照另保留 `source_lineage_contract={schema:1, scope:accepted-reference}`。每成员 `source_lineage` 只含安全业务ID、路径摘要、采纳修订及前驱、扫描轮次、持久采纳/扫描完成/内容验证时间，以及明确命名的来源/位置配置修订。不序列化resolver的完整context；locator、宿主锚点、路径、名称和凭据不进入此证据。不存在的历史时间保留null，不取预检当前时间，保证相同事实的摘要稳定。读取前捕获、读取后核对当前logical context；预检后事实变化使创建409。
+
+来源证据是不可变版本正文的一部分：两条打包路径均在计算source/content/validation及包摘要前复制。Native Executor验证独立合同后继续核对实际图片与标签。历史无此合同的包保持原字节，不回填；未知合同及额外字段明确拒绝。Worker重试仍以固定Asset/SHA读当前授权locator，不重新捕获来源证据，只消费原snapshot，不因正常重定位改写历史事实。
+
+分析缓存schema更新，历史比较仅读冻结snapshot/manifest。每个SHA保留关系与证据的多重集合，独立产生 `source_relation_changed/source_evidence_updated/source_unknown`，不影响原有标签/切分/重复次数及规范化语义比较。新 `source_comparison_status` 表达来源覆盖程度；旧 `status` 仍表达训练语义可确认性。样本详情新增可空 `source_lineage`；未入包记录保留原详情行为并说明未记录。运行/模型继续绑定既有原始摘要及版本关系，不增加同义血缘资源或内容摘要去重机制。
+
+托管来源说明投影已有 `snapshot.managed_original_contract=1` 和成员 `original` 的六项安全事实，不改写导出清单或训练包。证明须与成员 Task、SHA、大小及清单的 `source_digest` 对应；明确声明却无效的证明拒绝分析，历史未记录保持未知。详情查询只从 JSONB 投影对应成员的证明，不加载整份标注或查询当前原件。来源关系使用带类型的 `owner_kind/content_id/location_id` 身份，保持同 SHA 多成员的次数。分析缓存重建仅为 Task、SHA、大小和入包状态均一致的成员保留最近副本读取观测；来源记录与副本读取结果独立，均不构成当前外部来源健康证明。
+
+API 预检逐项执行有界严格读取并及时关闭临时快照，报告引用数量及预计新增原图字节。Worker 将自身真实 Celery 节点传入 resolver，使用该节点已核验的 anchor，不能借用 API 节点的挂载证明。原图满足固定内容与尺寸后写入既有 training 版本前缀；失败/取消重试先核验已保留媒体的快照摘要、实际字节 SHA 及固定 Asset SHA。没有保留副本时才读取当前来源。
+
+标注和类别仍由同一 PG 语句固定。构建期间来源改写会失败，标注改写不会改变所选快照；ready 后的预览和 ZIP 永远只读取冻结字节。引用单图沿用 E05 严格读取的 64 MiB、3200 万像素、JPEG/PNG/WebP 限额。当前不引入节点缓存或跨版本内容复用。
+
+#### 连通分组与验证集防泄露
+
+`training_dataset_bridge.py` 严格按相同内容与 scene 的连通分组划分训练集（train）与验证集（val）：
+
+- 具有相同内容 SHA 或属于同一连续场景的样本强制分配至同一数据分区。
+- 清单累计保存祖先版本的 task/content/scene 分区映射，防止版本迭代中中间样本被省略后导致历史划分丢失或验证集泄露。
+
+### 2.4 数据版本特征分析与分布度量
+
+数据版本物化完成后，系统在服务端异步生成数据分析报表（`training_dataset_analyses`）：
+
+- **服务端延迟聚合**：
+  派生生成固定大小的统计指标，前端无需加载全量标签：
+  - 图像宽高比（六档分布）
+  - 标注框几何热力图（20×20 归一化中心点与尺寸分布）
+  - 目标频次阶梯（0、1、2–5、6–10、11–20、21+ 实例每图分布）
+- **版本间差异比对**：
+  - 以图像内容 SHA 为唯一比对键，结合类别名称和舍入坐标识别实际修正，将类别重排与标注 ID 变动剥离。
+  - 新增与移除基于已知 SHA 集合差异计算，未决内容或未知分区明确独立标记，禁止在数据不全时将空匹配断言为无修改。
+- **媒体检查安全防护**：
+  媒体预览仅读取 `MINIO_TRAINING_BUCKET` 中的版本保留字节，经 EXIF 校正后输出临时文件流或受限 PNG。预览采用带权限校验的认证 Blob，不向前端暴露长期有效的静态签名 URL。
+
+---
+
+## 三、受控训练执行与算力调度
+
+### 3.1 统一训练入口、项目学习工作区与筛选协议
+
+前端提供全局训练中心与项目内在线学习工作区两层入口，后端由 `/api/v1/training/{catalog,projects,runs}` 与项目级路由提供支撑：
+
+| 入口层级               | 前端路由与标签页                         | 核心职责                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| :--------------------- | :--------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **全局训练中心**       | `/training?tab=start\|queue\|warehouses` | • **开始训练（`start`）**：展示可训练项目列表、训练目录卡片与顶栏共享 GPU 状态徽章<br>• **队列与历史（`queue`）**：按权限范围（`managed_project_scope_clause`）聚合全局实验，支持 `active` / `finished` / `failed` / `all` 状态与框架筛选<br>• **训练仓库（`warehouses`）**：展示 Ultralytics 与 LibreYOLO 框架规格与快速发起入口                                                                                                                                                               |
+| **项目在线学习工作区** | `/projects/:id/learning`（4 个主标签页） | • **训练实验（`training`）**：实验列表、新建实验向导（支持按分组重置推荐值、从历史实验/配方一键复用）及单实验详情路由 `/projects/:id/learning/experiments/:runId`<br>• **训练数据（`data`）**：数据版本列表、版本对比与单版本详情路由 `/projects/:id/learning/data/:datasetId`<br>• **模型与发布（`models`）**：候选模型列表与独立详情、来源与使用记录、逐样本评估及项目当前发布切换<br>• **自动训练（`automation`）**：自动重训策略（`LearningPolicy`）与主动选样轮次（`ActiveLearningRound`） |
+
+#### 列表多维筛选协议
+
+项目内的训练数据版本列表（`GET /projects/{id}/training-datasets`）与训练实验列表（`GET /projects/{id}/training-runs`）共享统一的筛选与计数契约（`services/training_list_filters.py` + `TrainingListControls.tsx`）：
+
+- 支持 `q`（名称/ID 模糊搜索）、`status`、`task`、`framework`（训练实验）、`created_from`、`created_to` 组合查询。
+- 响应同时返回 `filtered_total`、`unfiltered_total` 与 `status_counts`，使前端能够准确区分「筛选条件无匹配」与「项目尚无任何记录」的空状态。
+
+### 3.2 独立拉取式执行器与资源文件锁
+
+训练任务脱离普通异步 Celery 队列，由常驻宿主机的 `apps/training-executor` 独立拉取与执行：
+
+```
+[Platform API (/api/v1/internal/training)]
+        │
+        ▲ (轮询 Claim / 心跳保持 / 状态回执)
+        │
+[apps/training-executor (守护进程)]
+        │
+        ├── 1. 持久目录取得同一 resource_id 的 OS flock 文件锁
+        ├── 2. 子进程 Popen 启动训练并继承文件描述符
+        ├── 3. 立即启动单调时钟 watchdog 监控进程组
+        ├── 4. 实时截获 stdout/stderr 脱敏并落盘采样
+        └── 5. 退出时确认整个进程组消亡，固化退出回执
+```
+
+#### 实验产物的固定归属
+
+新 Run 通过共享 `training_contract.input_membership` 固定加载器成员合同。已有逐图／标签摘要校验继续负责文件完整性；原生适配器另外观察实际成员，防止原生解码或过滤静默缩小训练集。Ultralytics 在训练开始、验证开始与独立训练集评估取得 `im_files`；LibreYOLO 通过实例 trainer 扩展钩子取得包装层底部的 `img_files`，每轮验证后、平台检查点发布前核对懒建验证器，最终验证器另在加载器建立后核对。保留原生采样和训练算法。
+
+本地成员回执由 Supervisor 校验并嵌入已有执行 manifest，成功发布时 API 使用保存桶和现有有界 JSON 读取器核验 Run／Attempt／config／版本与完整集合。合同和能力均显式声明；镜像相同不能绕过能力检查。历史无声明 Run 不回填，续训按新 Attempt 重新观察，配方不复制数据绑定的成员合同，增强预览不附加训练合同。执行器源码烘焙在镜像中，宿主机源码变更不会更新已运行镜像的能力。
+
+`TrainingRun.storage_ref` 固定逻辑 `projects/{project_id}/runs/{run_id}/` 及实际物理前缀，`purpose=training-run`；平台 API、自动策略与参数搜索在新实验创建事务中、首个 attempt 前显式分配。`new_attempt` 和续训不隐式分配。`training_run_storage` 复用归属校验器，并强制键位于该实验下规范的 `attempts/{attempt_id}/` 非空子路径；执行还须通过 `run_id` 外键属于该实验。输入数据使用 `TrainingDatasetVersion` 自己的归属，与产物独立。
+
+上传签名、完成核验、检查点续训、报告及观测日志文件、脱敏副本、模型注册和后续消费均解析 Run owner。`TrainedModelVersion` 通过同项目 Run/Attempt 外键与精确发布清单解析来源，不另存物理归属；模型安装、下载、评估和初始化不从当前 training 桶或目标实验推断来源。冻结配置、初始化 pin、模型 artifact/provenance、内容摘要和共享训练协议保持原合同。
+
+增量迁移 0221 保留旧 NULL，元数据读取仍允许，文件 I/O、签名、上传、领取、续训和注册明确拒绝；停止、失败及资源收尾继续遵守原 fence。显式核验只接收所有 attempt 已终态且无资源租约的实验，从已登记 legacy A 位置及部署 training 桶发现候选，完整验证独立 upload/publication 清单、SHA/大小和 attempt metadata，拒绝未知额外对象。脱敏副本须能从独立核验的原日志按已知规则重建；不反序列化权重、不回读可变输入、不修补产物。读取后复核权限/API Key、配置与清单指纹、legacy 位置及维护代次，再原子固定当前保留副本证据。
+
+删除事务将完整归属复制到独立 `TrainingStorageDeletion`；NULL 旧实验或数据版本清理意图拒绝物理删除。数据库拒绝普通改写和含固定事实的破坏性降级，离线恢复仅允许表 owner 显式映射 bucket/identity。部署与旧执行器收尾见[运维步骤](/ops/deploy/storage-recovery#训练实验产物归属的部署顺序)。增强预览、逐样本评估和主动学习的自身输出仍保留独立合同。training 新分配经[用途映射预览确认](/api/guides/storage-locations#训练文件用途切换)切换，已有及在途 owner 保留原地址；旧 NULL 继续显式核验，不以全历史接管作为切换门槛。带根初始化来源需执行器声明 `training_saved_prefix_schema>=2`，其余训练协议与真实模型资格要求保持。
+
+#### 资源租约与协作文件锁
+
+- 同一 `resource_id` 的执行器通过共享状态目录中的锁文件取得排他锁，不锁定 GPU 设备本身。
+- 训练子进程派生时直接继承该文件描述符。执行器主进程异常后，仍存活的子进程继续持锁，其他遵守该协议的执行器不能重复认领同一资源。
+
+#### 心跳与失联（`lost`）保护
+
+- 当执行器因网络断连超时未能上报心跳时，平台状态机仅将其标记为 `lost`，**绝不立刻释放 GPU 租约**。
+- 系统持续等待执行器重连或管理员人工核实，防止网络抖动时重复派发实验导致显存踩踏。
+
+#### 单调时钟 Watchdog 与退出回执
+
+1. 子进程 `Popen` 后立即拉起独立的单调时钟 watchdog，优先于日志读取管道与 PID 日志的初始化。
+2. 任务终止时先对进程组发送信号，并持续轮询直至确认进程组完全消亡。
+3. 退出回执先在本地固化保存，再随不可变的 `finish body` 向平台重试提交，彻底杜绝迟到汇报或虚假成功。
+
+### 3.3 原生训练框架适配与原生权重初始化
+
+平台内置适配器实现框架抽象，支持 Ultralytics YOLO 与 LibreYOLO：
+
+| 维度                   | Ultralytics YOLO                                                                | LibreYOLO                                                                                                    |
+| :--------------------- | :------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------------- |
+| **支持模型规格**       | `yolo11n/s/m/l/x`（检测）、`yolo11n-seg`（实例分割）                            | `LibreYOLO9t/s/m/c/e`                                                                                        |
+| **支持训练任务**       | `detect`、`segment`                                                             | `detect`                                                                                                     |
+| **模型回流与评估资格** | 检测和已合格的 YOLO11n 实例分割支持受控回流；分割使用独立 RLE、评估及初始化资格 | YOLO9 t/s/m/c 检测权重通过资格核验后可回流、试用与人工发布；e 仅训练与下载，共享逐样本评估和主动选样尚不支持 |
+
+- **受控项目权重初始化**：
+  - `training_initialization` 允许选择同项目内保留的权威候选模型作为初始化起点。
+  - 原生 YOLO 以明确的 `weights-only` 路径构建训练器，在首个批次前核对模型骨干网规格、类别数及全部状态张量（state tensors）。
+  - 独立证据记录证明 epoch 计数、优化器、调度器、标量缩放器与 EMA 均已重置为干净初始态。
+- **平台不可变检查点**：
+  - 完整检查点在框架剥离优化器状态之前即复制为只读文件。
+  - 断点续训时平台直接下载本地不可变检查点，沿用原配置与验证集基准，生成新的 `TrainingAttempt`，保持历史记录完全隔离。
+
+### 3.4 原生增强预览与 CPU 槽位管理
+
+系统为 Ultralytics YOLO11 图片检测提供原生增强预览，帮助在正式训练前检查增强效果；其他任务和框架不因支持训练而自动获得预览能力。
+
+- **CPU 槽位租约**：使用独立的 `TrainingPreviewResourceLease`，不占用宝贵的 GPU 算力租约与 `TrainingAttempt`。
+- **沙箱隔离运行**：
+  - 预览子进程对 CUDA 环境进行屏蔽，在导入训练框架前限制虚拟内存上限为 16 GiB、CPU 软上限 30 秒、硬上限 35 秒、墙钟时间 45 秒、单核单线程运行。
+  - 原生镜像仅运行 `YOLODataset` 增强流水线，剥离优化器与反向传播计算。
+- **产物与缓存回收**：产物输出至 `projects/{project}/previews/{preview}/`，带有 24 小时自动过期机制，由 `cleanup` 队列的后台任务清理过期引用与存储前缀。
+
+负责人 DELETE 与周期清理不是同一命令：HTTP 先按原顺序取得当前项目管理权和预览行锁，再由 `training_previews.expire` 记录当前时刻并调用既有取消规则。排队记录及 AsyncJob 在同一事务中进入 cancelled；活动执行只写取消请求并保留 CPU 租约，直至 finish 确认进程退出。读取可按到期时间呈现 expired，但这不表示预览记录已物理删除；周期 cleanup 仍等待最后一次 PUT 授权窗口后独立删除对象和记录。
+
+### 3.5 有预算的串行超参搜索
+
+针对需要调优学习率、图像尺寸等超参数的场景，系统提供有预算约束的串行搜索（`TrainingStudy` & `TrainingTrial`）：
+
+- **确定性网格解析**：完整参数网格在创建时确定性派生（上限 20 项，禁止随意截断），子实验由 Beat 定时任务 `check_studies`（每 10 秒）驱动推进，并沿用统一的 GPU 资源租约机制。
+- **并发锁与防重保护**：
+  - 协调器按 `项目 advisory lock -> 授权检查 -> Study FOR NO KEY UPDATE -> Run` 的严格顺序加锁。
+  - 非键写锁（`FOR NO KEY UPDATE`）允许子实验外键检查顺利进行，避免与 Run 完成事务产生反向死锁。
+- **单调计时账本**：
+  - 每次尝试在入队前预扣 `native_budget` 额度。
+  - 系统根据已确认提交的 `native_accounting` 动态派生可用余额，失败时间、停止宽限与超时均如实计入，防止额度漂移或透支。
+
+`TrainingStudy` 固定完整有限网格、目标、预算、授权与请求身份；`TrainingTrial` 固定序号、配置及普通子实验引用。ID 从项目／请求和试验序号确定性派生。全部组合经共享参数定义解析，预览与创建对同一计划摘要比较，最大 20 项；不会截断。Study 保留预算／账本计算与协调，普通子实验 `TrainingRun`、首个 `TrainingAttempt` 及入队前 `native_budget` 预留由 `training_runs.create_study_child` 持久化；`reserve_study_budget` 也持有续训预留，`cancel_study_child` 保留 queued 立即终止与 active 进入 cancelling 的区别。子实验继续使用独立 `origin`、初始化 pin、既有 GPU 租约及 lost／upload 恢复。
+
+### 3.6 执行观测与日志安全脱敏
+
+执行过程中的资源利用率与输出日志由 `training_observability` 服务独立管理：
+
+- **双流序号与游标分页**：
+  - 实时采样流与标准输出日志流分别维护单调自增序号。
+  - 客户端通过增量游标拉取，每次最多追赶三页，终态时增量补齐最后轮次，避免提前关闭轮询导致尾部数据丢失。
+- **有界日志管道与凭据脱敏**：
+  - 管道线程按行持续读取，单行上限硬性截断为 8192 原始字节，超限直接丢弃至下一换行符，防止保留长凭据后缀。
+  - 在写入任何临时文件前，自动脱敏 ANSI 转义符、控制字符、外部 URL、已知 API Token、赋值表达式及宿主机绝对路径。单个实验总日志上限限制为 8 MiB。
+
+---
+
+## 四、模型评估、决策与预标注回流
+
+### 4.1 冻结逐样本评估
+
+为衡量模型在真实场景下的泛化能力，系统支持基于冻结数据版本运行离线样本评估（`SampleEvaluationRun`，由 `ml.cpu` 队列执行）：
+
+```
+[已注册模型 / 权威权重] ────┐
+                            │ (同类一对一贪心匹配)
+[冻结数据版本 (验证集)] ────┴──► [SampleEvaluationAttempt] ──► [发布固定评估报告]
+```
+
+- **确定性匹配逻辑**：
+  - 采用固定阈值、置信度优先的同类一对一贪心匹配算法，评估结果与验证集图像顺序无关。
+  - 明确输出精确的精准率（Precision）、召回率（Recall）及各类别漏检/虚警分布，不夸大宣称为原生 COCO AP。
+- **推理端持久受控目录与计量封条**：
+  - 受控推理实例（`yolo-backend`）在 managed 状态目录中维护固定数量的 `flock` 条带锁，覆盖真实模型加载、预测推理与结果写入的全过程。
+  - 推理端暴露 `/managed-evaluation/profile` 与 `/managed-evaluation/requests/{request_id}[/seal]` 端点；封存或取消操作复用同一把条带锁持久化墓碑，防止取消确认后未到达的推理请求再度启动。
+
+`SampleEvaluationRun` 固定候选／部署、数据与类绑定、成员多重集、用途、阈值、评估器、预处理及实际推理 profile。`SampleEvaluationAttempt` 用 generation、claim 和心跳维护执行所有权；成员 checkpoint 使用稳定 request UUID 保存已验证证据。项目、数据版本、模型和部署引用使用 RESTRICT，源 Task 刻意不设实时外键，AsyncJob 仅作可空的展示引用。
+`sample_evaluations.create_run` 持有 Run、Sample 和首个 Attempt 的创建写入；Sample request ID 仍按 Run UUID 与 ordinal 确定性 UUID5 生成。`retry_run` 持有旧 Attempt claim 清理、失联完成及其通用作业失败回填、仅失败 Sample 的状态/错误清空和新 generation 创建。HTTP 保留请求摘要重放/冲突、引用锁、授权及删除/状态/过期门禁，并先提交再派发；冻结 spec 与样本身份不随重试变化。
+
+Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkpoint、lost/cancel 状态以及 dispatch/maintenance 时间戳，连同 HTTP `deletion_requested_at`，均由 `sample_evaluations` 的命令写入。worker 仍保留围栏、authority 重查、推理/收据与报告 I/O、每个原始 commit 和先提交再派发的窗口；通用 AsyncJob 字段继续通过 `services.async_job` 更新。
+
+### 4.2 实验指标比较与横向对齐
+
+比较视图支持多实验横向对比：
+
+- **指标可比性校验**：系统自动比对各实验的验证集快照摘要、类别顺序与评估器语义。仅在验证集与类别空间完全一致的前提下，才允许曲线叠加对比，防止因基准不一致产生误导。
+- **最终报告读取防护**：
+  - 报告解析器施加 32 MiB 输入字节预算，严格限制 JSON 嵌套层级与键名长度，拒绝非有限数（NaN / Infinity）。
+  - 进程级纯解析缓存（上限 64 项）通过 SHA-256 摘要复用，读取时对实验记录持 `FOR SHARE` 锁，避免与删除操作发生竞态。
+
+### 4.3 模型谱系、决策与发布历史
+
+平台通过 `model_lineage` 服务查询训练来源与使用记录，并用 `ModelDecision` 追加保存候选标记和说明：
+
+- **单跳关系投影**：
+  - 谱系查询采用 SQL 显式字段投影，每次仅读取当前授权节点及其直接父子关系，禁止无边界的递归查询，并在页面访问路径中实施环路拦截。
+- **追加式决策记录**：
+  - 负责人在模型详情保存普通候选、待进一步评估、暂不采用或已归档标记及说明时，按自增序号追加写入 `model_decisions` 表。发布独立写入 `model_releases`，候选标记不会自动发布或停用模型。
+  - 记录与模型、项目之间采用 `RESTRICT` 外键保护，即使用户账号被注销，历史操作显示名与审核意见依然完整保留。
+- **发布代次控制**：
+  - 项目当前选用模型通过 `(project_id, task)` 的 `ProjectModelSelection` 记录；发布代次、回滚和 CAS 均限定同任务。更新发布时采用 generation 代次比对与原子交换，防止迟到的旧配置覆盖最新有效发布。
 
 模型加载检查由 `application/trained_model_deployment.py` 组合；`trained_models` 独占检查行及结果，`trained_model_backend` 保留原认证 `/managed-models`、回执核验及固定验证图片预测。它们不新增模型协议或 Celery 任务，注册、检查、候选决策和发布的项目串行化共用 `training_claims.project_lock`，路由之间不再导入锁助手。
 
@@ -215,64 +367,139 @@ export 队列执行 `workers/training_dataset.py`。它以条件读取验证源�
 
 `ModelRelease` 的 generation CAS、不可变发布历史与既有预测冻结身份保持独立，部署检查完成不等于模型已被发布。
 
-预测入队前解析模型与发布，完整引用和摘要写入 AsyncJob，并作为受控参数传给 worker。幂等重放先读取已有任务，沿用旧引用。worker 和路由客户端验证固定引用及当前项目类别，路由只接受部署确切实例，保留原有准入、租约和借用保护。即使路由关闭或只观察，也不绕过版本与健康检查。
+### 4.4 预标注动态回流与收据协议
 
-YOLO 池键和类别缓存包含版本 ID、权重摘要与已核验安装收据摘要，后者固定框架、版本、家族、原生类别顺序及运行时资格。下载流受大小与摘要限制，原生检测任务、类别顺序和训练／推理框架版本匹配后才发布本地目录。实际响应携带版本身份和原生类别索引，平台校验后重建规范矩形框，防止附带字段改变几何或绕过绑定。Prediction 保留完整来源，接受预测时按冻结类别处理，失败重试仍保留来源。
+自训检测（`detect`）和已合格 YOLO11n 实例分割（`segment`）经过核验与发布后，可回流至预标注子系统；分割的原生像素契约与预算见[实例分割闭环](./instance-segmentation-learning)。
 
-LibreYOLO 回流资格由共享 `training_contract.model_return` 定义，独立于训练目录和共享评估 profile。冻结实验详情返回注册资格，不改写历史 config；唯一最佳权重与最终报告校验后，注册 provenance 固定资格。原生 CPU 适配器检查未经库补齐的 metadata、精确主张量和已核验输出，再由既有模型池序列化借用。收据额外固定 YOLO9 家族、t/s/m/c 规格、原生格式、字节数和运行时；旧 Ultralytics 收据及三字段 wire 保持不变。
+- **安装与固定样本试用**：推理服务的 `POST /managed-models` 与 `GET /managed-models/{version_id}` 使用 Backend Bearer 认证。平台发送权威权重下载地址，服务验证字节数、SHA-256、原生检测或分割任务、框架版本和类别顺序，原子保存权重及 `receipt.json`。收据字段以[受控模型部署协议](/dev/reference/ml-backend-protocol#_12-受控自训模型部署协议-managed-models)为准。
+- **明确的人工发布**：平台核对收据后，调用标准 `POST /predict`，携带 `context.model_id = "trained:{version_id}"` 与 `context.frozen_model_ref`，在原冻结版本的一张验证图片上试用。成功将部署置为 `ready`；负责人确认结果后才创建项目发布，不自动发布。
+- **项目发布解析与固定路由**：`trained_models.resolve_reference()` 将检测别名 `project-release`、分割别名 `project-release:segment` 或 `trained:{version_id}` 解析为具体候选和已核验部署。预标注入队保存完整冻结引用，wire 请求携带最小权重身份；返回结果的原生类别索引经验证后映射为项目类别。检测支持已合格的整图或父框裁剪管线；分割仅支持整图源阶段，输出原尺寸实例掩码，不支持裁剪、交互提示或视频。目标实例不可用时不会改用其他权重。
 
-共享样本评估和主动学习资格仍只接受 Ultralytics，API 在 profile 请求前拒绝，推理端在原生请求收据绑定前再次拒绝。原生 LibreYOLO 最终报告通过既有 parser 保留缺口，不将 precision／recall 别名包装成常规指标。更新部署需重建包含共享契约的 YOLO 镜像并刷新 API／预测 worker；无需新增迁移。回退须先显式回滚有效发布并保留所有权重、收据和历史身份。
+实例、服务池、路由模式和访问 Token 的关系见[模型服务接入、路由与认证](./ml-backend-routing-and-auth)，界面验收见[模型回流与默认预标](/user-guide/online-learning/models)。
 
-架构取舍见 [受控训练模型身份与发布](../adr/archive/0076-controlled-trained-model-identity)。 原生适配器取舍见 [LibreYOLO 回流资格](../adr/archive/0084-qualified-libreyolo-model-return)。
+---
 
-工作树环境使用九个独立桶。已保存的八桶环境仍支持 doctor、stop、destroy；显式 init/up 在模式锁内核验旧资源归属后扩展训练桶并原子更新清单。加标签失败时仅尝试删除本次新建的空桶，不清空任何对象。若进程中断留下未标记桶，保留恢复记录并拒绝自动接管，管理员需核对记录与桶内容后处理。
+## 五、持续迭代与运维规范
 
-关闭新建入口不影响既有下载。停止新构建并保留已经就绪的版本；不通过降级迁移或清空训练桶回退功能。
+### 5.1 自动学习策略与语义基线
 
-## 自动策略与语义基线
+对于数据持续流入的业务项目，管理员按任务分别配置自动学习策略（`LearningPolicy`）；两个任务共享项目级自动候选串行限制，默认均关闭：
 
-`LearningPolicy` 保存显式启用状态、修订号、授权主体、固定训练目录身份、检查间隔、变化门槛与冷却时间。`LearningTrigger` 保存候选构建、语义摘要及终态审计；`TrainingRun.auto_trigger_id` 保留来源，部分唯一索引限制每项目一个活跃自动实验，包含失联和取消中状态。自动策略不写模型发布表。
+策略检查先保存本次配置与调度上下文并释放业务锁，调用同一 `prepare_selection` 核验原件；重取项目串行锁后，重新检查策略修订、启用状态、配置、基线、权限和活动 Trigger，再调用 `finalize_selection`。较新的编辑或并发检查优先，旧准备结果不能覆盖它们。内部可信调用仍执行策略自身的 scope 与身份校验。
 
-语义摘要使用有序类别、实际素材 SHA-256 和规范化标签摘要。任务、标注、操作者、路径与时间不参与增长计数。完整内容／场景连通组先分区，再对自动包选择相同图片的单个代表，完整历史分区仍保留。训练分区的新内容或标签变化相对最近成功基线计数；验证集单独产生摘要。失败保留基线，以策略修订和训练摘要阻止重复训练，即使验证集变化也不绕过。
+- **语义基线对账**：
+  - 系统以有序类别、图像实际素材的 SHA-256 及规范化标签计算数据版本的「语义摘要」。
+  - 仅统计训练分区中真正发生图像新增或标签修改的增量样本数，任务分配、标注员身份与元数据变动不计入增长基线。
+- **自动触发约束**：
+  - `LearningTrigger` 记录每次候选构建与终态审计（`building → queued → running → succeeded / failed / cancelled`）。
+  - 数据库部分唯一索引限制每个项目**同时仅允许存在一个活跃的自动实验**（包含排队、准备、训练与失联状态）。
+  - 每次成功训练完成后方可推进语义基线；若实验失败或被取消，系统保留原基线并阻止相同增量数据的重复触发。
 
-策略变更与检查先取得项目 advisory key，再获取授权、策略、触发及实验锁。执行器仍按资源、实验与尝试的顺序领取；在授权共享锁后读取当前策略资格，不反向锁策略。禁用取消未领取实验；已启动实验仍可对账，撤权不阻止终态同步。用户显式续训也取得项目序列锁并检查其他活跃自动候选。
+### 5.2 人工审核主动选样
 
-每分钟的 `app.workers.learning_policy.check_policies` 对到期策略和活跃记录分批检查，以持久检查时间轮换，长时间运行或失联不会固定占据扫描前页。pending 数据身份在派发前提交，后续检查用相同 attempt 恢复派发；构建 worker 的版本锁拒绝重复执行。成功才推进基线，当前运行期间的源数据修改在后续新快照中读取。
+主动学习机制（`ActiveLearningRound`，由 `ml.cpu` 队列执行）用于从海量未标注池中精准筛选高价值样本：
 
-## 版本化参数契约
+```
+[海量未分派图片池]
+        │
+        ▼ (过滤已标注、已分派或存在编辑历史的数据)
+[候选代表连通组筛选]
+        │
+        ├── 75% 难例挖掘：max(1 - score) + 跨类别 IoU 重叠启发式评分
+        └── 25% 随机探索：保留探索子集，避免采样偏置
+        │
+        ▼
+[独立 Batch 生成] ──► [分派至标注员工作台优先作业]
+```
 
-项目训练配方由 `training_recipes` 身份与 `training_recipe_revisions` 不可变快照组成。项目 advisory 锁、当前管理权限、预期 head 与独立请求摘要共同约束创建修订。归档只改变身份的可采用状态，不修改历史修订、策略展开配置或实验。配方存储完整 resolver 结果与受控基础权重、镜像身份，重放 `user_values` 后比较完整快照；不能将包含平台与依赖推导字段的 `effective_values` 作为输入覆盖。
+- **候选图片资格边界**：
+  - 候选必须是未分派、无任何人工编辑或处理历史的待标图片，严格核验 Task、Item 与 Batch 初始快照。
+  - 相同 content SHA 或同场景的图片先形成连通组，排除规则向整组扩散，再选出稳定代表图片。
+- **启发式评分机制**：
+  - 难例组采用 `max(1 - score)`（低置信度检测）结合不同类别的最大 IoU（高重叠冲突）作为综合不确定性启发式指标。
+  - 系统保留向上取整的四分之一比例用于纯随机探索，不依赖未知的类别概率分布向量，确保选样客观性。
+- **零标注污染流转**：
+  - 选样过程仅调用 `BatchService` 移动代表任务切片至新批次，绝不向任务写入任何模型伪真值或改变既有发布。
+
+`active_learning.create_round` 是 Round、PoolMember、Candidate 和首个 Attempt 的写入所有者；`retry_round` 只重置失败候选的状态/错误，并释放旧 Attempt 的 claim、补齐完成时间后创建下一 generation。HTTP 入口保留管理者锁、当前授权、状态/原 24 小时窗口及失败候选请求准入，并保持提交后派发。重试不改写冻结 spec、候选 request UUID、已成功证据或非失败候选。
+
+### 5.3 版本化参数契约
+
+为保证超参数配置的确定性与可复现性，体系引入静态参数快照：
+
+- **AST 静态源码解析**：
+  - 开发阶段运行 `tools/snapshot_native.py`，通过 AST 静态分析已安装训练框架的原生源码，提取可用参数字段、类型范围与默认值。
+  - 参数定义生成不可变快照纳入 `apps/_shared/training_contract`。运行时执行器完全脱机工作，禁止联网动态发现或猜测参数。
+- **配方版本化快照**：
+  - 训练配方由 `training_recipes` 身份与 `training_recipe_revisions` 不可变快照构成。
+  - 配方保存用户显式指定的原始入参（`user_values`），重放时不将平台派生的生效参数（`effective_values`）回写覆盖，保障历史重放精确一致。
 
 创建、追加修订的管理权威/项目锁、请求摘要重放、预期 head CAS、来源解析与 revision/head 写入归 `services/training_recipes.write_revision`。归档命令由同模块 `archive_recipe` 持有，保留当前管理权威、配方行锁和 head CAS，HTTP 在原位置提交。HTTP 保留现有路由权限与状态码并适配 schema；失败由请求事务回滚，不留下预建配方身份或半个 head。这些命令仍是进程内 Session/ORM 操作，不是新远程协议。
 
-克隆与配方的来源元数据保存在独立 `training_runs.origin` JSON 中，策略则保存在 `config.origin`，与执行模板分离。来源记录原始标识、名称与摘要，不添加限制原实验删除的外键。配方应用不再依赖原实验存在，原实验删除后仍能显示保存时的来源。来源不参与执行配置摘要；新增可选请求字段为空时逐项移除，保持历史幂等序列化。创建先回放已接受请求，再解析来源，避免归档或删除破坏重试。
+### 5.4 存储生命周期、队列拓扑与本地联调
 
-配置工作区先解析当前及目标的完整生效值，接受时重新核验 owner/session、草稿修订、来源修订、目录及参数定义，再一次更新草稿、轮换请求身份和清除预检。持久化来源保留原始基础权重与定义身份，刷新或目录更新不能把同 ID 的另一份权重当作原来源。自动策略只在显式保存采用新修订时取消旧的未开始工作；执行资格不查询配方 head 或归档状态。
+#### 存储桶规划与前缀布局
 
-`apps/_shared/training_contract` 是 API 与独立执行器共同安装的纯 Python 包，包含锁定原生源码的字段快照、人工审核分类、类型范围、默认值、依赖解析及观测校验。开发期的 `tools/snapshot_native.py` 通过 AST/YAML 读取已安装源码，不导入训练框架；`--check` 对比完整字段、默认值和来源摘要，新增字段必须重新分类。运行时不访问互联网发现参数。
+训练数据版本、实验、预览、逐样本评估和主动学习轮次分别持有不可变内部 `storage_ref`。schema2 沿原11字段增加 `key_prefix`，由 Connection→Location→Binding 顺序短事务固定目标，首次 I/O 前保存；原 schema1、origin/evidence 与旧 NULL 保留。共享 owner 领域校验实际 endpoint、物理身份、purpose 与规范根前缀；薄适配器再约束预览文件名、评估 attempt+内容 SHA、选样 ordinal。只有新建事务显式分配，重试／重放不为旧 NULL 自动补齐。输出与输入数据版本、来源模型的 owner 独立，冻结 spec、内容摘要与执行器 wire 不携带物理信息。
 
-适配器修订 1 保留原六字段序列化、固定选项和检查点摘要。修订 2 从 `configuration` 唯一派生有效原生参数，并投影 canonical 六字段给既有进度、恢复和评估读取器；不以旧表单的默认值覆盖扩展输入。固定配置包含 schema 身份、用户值、有效值、来源和暂不生效字段。未知或保留键在入队前失败。
+辅助输出的历史接管复用有界 Reader、共享进程容量和耐久 `storage_access` permit：终态及封存代际围栏、预览全部 CPU 租约与签名 PUT 期限通过后，仅从持久绑定的当前副本核验。完整条件读取与读后清单／HEAD重核完成，再复核权限／Key、全部父子行指纹、绑定及 Gate 代次。取消等物理关闭；未知关闭不释放责任。旧评估报告的独立发布回执与当前共享 Sample 证据分开，不能重写旧语义状态来通过接管。
 
-Ultralytics 在 `on_train_start` 读取 setup/resume 后的 `trainer.args`；LibreYOLO 读取公开事件的 `event.config`，不以调用 kwargs 冒充生效证据。路径、输出目录、类别数、模型规格和 attempt resume 由平台物化，与算法字段分开校验。矩形批关闭增强、预热截断和短训练尾段在预检中显式处理。执行器保存原生观测和核验报告，监督器将其上传为受校验产物；API 对扩展成功再次验证身份和关键值。
+Preview 原行、EvaluationRun 的删除意图行分别承担耐久清理责任；I/O 前释放 CPU／业务锁，删除失败或未知归属保留原行。主动学习只保留现有报告、图片与引用，没有物理删除入口。受控离线恢复对五类 owner 只映射 bucket／storage_identity，其他嵌套事实不变；完整用途切换仍未开放。
 
-能力握手只能缩小受控定义的资格交集。claim 和目录状态共用判定：框架版本、镜像、资源及 schema/revision 均匹配后才能领取。升级后的镜像可通过受控目录 `legacy_images` 单向资格列表执行历史修订 1；必须明确声明 v1 能力，实际镜像记录在 attempt runtime，历史配置和摘要不改。该列表只保障历史实验/续训，不维持旧自动策略的目录等价。生产默认仍严格匹配镜像，任何映射都应有两框架原生资格与旧恢复证据。
+`MINIO_TRAINING_BUCKET` 环境变量默认配置为 `training`，存储桶内部禁止配置自动过期删除，共包含五类受管对象前缀：
 
-## 实验比较与评估证据
+- **数据版本素材**：`projects/{project_id}/datasets/{version_id}/media/`
+- **数据版本打包产物**：`projects/{project_id}/datasets/{version_id}/attempts/{attempt_id}/dataset.zip`
+- **训练产物与权重**：`projects/{project_id}/runs/{run_id}/attempts/{attempt_id}/`
+- **增强预览临时图**：`projects/{project_id}/previews/{preview_id}/`
+- **逐样本评估与主动学习产物**：`projects/{project_id}/sample-evaluations/{run_id}/{attempt_id}/{sha}.json` 与 `projects/{project_id}/active-learning/{round_id}/media/{ordinal}.png`
 
-项目比较页固定有序的实验／执行选择，每项独立读取、报错并绑定账号、token 会话与项目作用域。事件查询通过 AbortSignal 取消迟到请求；超过 100 条持续分页，游标严格推进。执行变成终态时再次增量读取尾部事件，避免详情先结束轮询而漏掉最后轮次。新执行清空 `run.metrics`，历史比较仍读取具体执行的事件，不把执行时间当作 GPU 时间或早停原因。
+#### 两阶段存储清理意图
 
-最终报告读取沿用当前管理权限和 read scopes，在授权共享锁后对实验取得 `FOR SHARE`，直到读取完成才提交；删除的 `FOR UPDATE` 因而不能先删除正在核验的对象。报告解析器限制字节、层级、节点和键长并拒绝非有限数。32 MiB 输入字节预算、最多 64 项的进程缓存只复用 SHA／解析修订下的纯解析对象；每次请求仍读取并校验对象及 attempt 元数据，重新绑定冻结配置、权重、验证摘要与类别。
+当用户发起删除数据版本或终态实验时，系统遵循两阶段安全清理机制：
 
-原生适配器新增独立的报告 `comparison` 描述，保留旧 `evaluation` 对象，避免候选 SHA 或来源 ID 进入现有严格模型比较键。Ultralytics 读取原生最终 `best.pt` 验证器的实际参数、精度和 dataloader 属性；LibreYOLO 记录显式最终 val 选项、实际 COCO backend、安装版本及源码摘要。候选身份包含精确权重 SHA；可比条件包含冻结验证、类别顺序及覆盖、评估器、实际选项和指标语义，排除候选及来源。旧报告可读但不补造缺失的 evaluator 证据。
+1. **第一阶段（事务提交）**：在同一事务中删除业务数据库记录，并向 `training_storage_deletions` 写入包含确切存储桶与前缀的清理意图。
+2. **第二阶段（异步确认）**：事务提交后尝试物理删除对象。若遇存储故障或网络中断，后台每分钟运行的 `maintain_evaluations` 与 `maintain_rounds` 周期任务会自动按 `FOR UPDATE SKIP LOCKED` 重试清理（每次最多 100 条），仅在对象完全删除后才移除清理意图行。
 
-配置差异读取冻结的 `effective_values`、`origins`、`inactive_fields` 与定义身份；原始 base 与当前执行恢复检查点分别展示。曲线在最终评估及冻结轮次评估／损失参数兼容时叠加，按数值轮次排序。空值仅作断线标记，不生成指标值；平滑重置于缺失或轮次间断，原始表和最终报告保持不变。未注册实验明确使用冻结原生类别空间，不能借当前项目类别补造模型绑定。
+记录删除分别由 `training_datasets.stage_version_deletion`、`training_runs.stage_run_deletion` 持有；存储服务只暂存和清理独立意图。两类调用方都在原提交点合并 SQL 删除与意图，提交失败不进入对象删除。后续运行配置中的训练桶改变，不会改写已提交意图保存的目标桶。
 
-## 来源导航与候选决策
+#### Celery 队列与周期任务拓扑
 
-谱系服务使用 SQL 显式字段投影，每次读取一个授权节点、有限直接来源和至多一个后续关系页。JSON 字段先检查类型，只接受约定的字符串身份；不加载完整配置、运行时、授权、收据或评估 spec。每条来源单独检查项目和父子归属，不能因两个外键都存在就声称关联有效。列表时间／ID 游标绑定关系，反向关系索引同时覆盖引用、时间和 ID；页面访问路径标记循环，不执行递归查询。
+在线学习后台任务分布在四个 Celery 队列中：
 
-`ModelDecision` API 只追加序号和说明，模型／项目使用 RESTRICT，作者被删除后仍保留当时显示名。追加与发布共用项目 advisory 锁，并重新核对 owner 权限、锁定候选行；重试通过请求 UUID 和摘要幂等。列表从最新序号派生处置，默认隐藏归档但动态保留当前发布。项目选择与发布代次始终由既有发布服务维护。
+| 队列          | 任务函数（模块）                                                                                                                                                                                                 | 触发方式 / 周期                        | 核心职责                                                                                    |
+| :------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------- | :------------------------------------------------------------------------------------------ |
+| **`export`**  | `run_training_dataset` (`workers/training_dataset.py`)                                                                                                                                                           | 按需异步触发                           | 冻结快照校验、原图拉取与训练数据集 ZIP 物化                                                 |
+| **`ml.cpu`**  | `run_sample_evaluation` (`workers/sample_evaluations.py`)<br>`run_round` (`workers/active_learning.py`)                                                                                                          | 按需异步触发                           | 执行冻结逐样本评估、主动学习候选推理与选样评分                                              |
+| **`default`** | `check_policies` (`workers/learning_policy.py`)<br>`check_studies` (`workers/training_study.py`)<br>`maintain_evaluations` (`workers/sample_evaluations.py`)<br>`maintain_rounds` (`workers/active_learning.py`) | Beat 周期调度（60s / 10s / 60s / 60s） | 自动学习策略巡检、超参搜索 Trial 推进、孤儿作业回收与 `training_storage_deletions` 补偿清理 |
+| **`cleanup`** | `purge_expired_previews` (`workers/training_preview_cleanup.py`)<br>`purge_observations` (`workers/training_observability_cleanup.py`)                                                                           | Beat 周期调度（60s / 3600s）           | 清理过期增强预览与过期训练观测事件                                                          |
 
-预测使用量只表示匹配完整受控候选身份的现存可归属记录。连接同时包含预测 ID 和分区时间，限制项目、权重及类别／绑定摘要；最多取 1,001 条后返回 1,000 的上限与截断标记。候选身份不足返回不可计数，不能用两个缺失 SHA 相等来推断使用。
+#### 本地联调与开箱即用种子
 
-删除实验时同时检查模型的实验和尝试引用，项目删除也先检查候选与决策。所有引用检查先于对象存储删除。导航与候选写入使用项目、认证修订和查看位置所有权；迟到读取、决策和发布确认不能清空或跳转新的查看位置。设计决策见 [模型谱系与候选决策 ADR](/dev/adr/0080-model-lineage-and-decisions)。
+本地验证前先按[在线训练执行器部署](/ops/deploy/docker-compose#_8-5-受控训练执行器-training-executor)准备固定镜像、基础权重、凭据文件、节点与 GPU 身份，令 API 训练目录和实际执行器一致。执行器不通过 Celery 启动，Compose 只运行已准备的镜像，不承担训练镜像构建。
+
+在确认目标开发数据库与对象存储后，运行 `cd apps/api`，再运行 `PYTHONPATH=. uv run python scripts/seed.py --profile online-training`。这个显式 profile 创建 8 张已审核检测图片和初始数据版本，保留原始 4 张训练图 / 4 张验证图。默认 `demo` profile 不创建这份在线训练基线；夹具也不会自动创建实验、策略或模型发布。失败、取消或中断后可重跑同一命令修复初始版本，仍有执行或清理时按提示等待。
+
+在线训练种子先提交已登记的原图与业务事实，再以显式可信身份执行准备阶段；重新取得项目锁后复查固定请求是否已创建，并完成最终复核。种子不持有源事务锁跨越图片 I/O，也不由媒体 helper 隐式提交种子修改。
+
+配置与命令见[本地开发](../tutorials/local-dev#在线学习与训练执行器联调-可选)；验收过程按[模型回流链路排查](../how-to/debug-model-return)逐段核对。
+
+---
+
+## 六、深入阅读与相关架构决策
+
+- [状态机总览](./state-machines) — 批次、任务与在线学习多套状态机流转
+- [仓库地图与模块归属](./repository-map) — 在线学习调用链与组件代码位置
+- [ML Backend 协议规范](/dev/reference/ml-backend-protocol) — `/managed-models` 与 `/managed-evaluation/*` 协议详细规范
+- [内部 API 端点参考](/dev/reference/internal-api-endpoints) — 执行器与平台内部通信端点
+- [ADR 0076: 受控训练模型身份与发布](/dev/adr/archive/0076-controlled-trained-model-identity)
+- [ADR 0078: 执行观测与脱敏日志](/dev/adr/archive/0078-attempt-observability-and-redacted-logs)
+- [ADR 0079: 冻结逐样本评估](/dev/adr/archive/0079-frozen-sample-evaluation)
+- [ADR 0080: 模型谱系与决策](/dev/adr/0080-model-lineage-and-decisions)
+- [ADR 0081: 受控项目权重初始化](/dev/adr/archive/0081-controlled-training-initialization)
+- [ADR 0082: 有预算的串行搜索](/dev/adr/archive/0082-budgeted-training-studies)
+- [ADR 0083: 人工主动选样](/dev/adr/archive/0083-human-reviewed-active-learning)
+- [ADR 0084: LibreYOLO 模型回流资格](/dev/adr/archive/0084-qualified-libreyolo-model-return)
+- [ADR 0085: 简单多边形实例训练](/dev/adr/0085-qualified-polygon-instance-training)
+- [ADR 0086: 规范任务数据契约](/dev/adr/0086-canonical-task-data-contracts)
+- [ADR 0087: 项目任务版本流](/dev/adr/archive/0087-project-task-dataset-streams)

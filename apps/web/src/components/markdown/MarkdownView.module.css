@@ -223,7 +223,7 @@
 .pre {
   padding: 10px;
   margin: 0;
-  overflow: auto;
+  overflow-x: auto;
   color: var(--sc-code-fg);
   font-family: var(--font-mono);
   font-size: 12px;

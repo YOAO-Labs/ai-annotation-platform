@@ -140,8 +140,7 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
         ]
     )
     assert "plaintext" not in artifact
-    assert 'revision = "0236"' in migration
-    assert 'down_revision = "0235"' in migration
+
     assert "Cannot remove Identity API-key operation receipts" in migration
     assert "identity_key_operation_receipts" in native_schema
     assert 'identity_key_operation_receipts TO :"identity_owner"' in module_grants

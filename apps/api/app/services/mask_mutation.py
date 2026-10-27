@@ -72,17 +72,20 @@ from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
+from app.services.content_snapshot import ContentError
 from app.services.mask_mutation_contract import MaskMutationError as _MaskMutationError
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
+    raster_mask_storage_contract_error,
 )
 from app.services.labeling_write_scope import (
     capture_task_source_binding,
     task_source_binding_matches,
 )
+from app.services.raster_object_storage import RasterObjectStorageError
 from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
@@ -134,6 +137,15 @@ def _raise_mask_mutation_contract_error(exc: RasterMaskContractError) -> None:
         reason=reason,
         message=str(exc.detail.get("message") or exc),
     ) from exc
+
+
+def _mutation_storage_error(exc):
+    error = (
+        exc
+        if isinstance(exc, RasterMaskContractError)
+        else raster_mask_storage_contract_error(exc)
+    )
+    return _MaskMutationError(status_code=error.status_code, **error.detail)
 
 
 class _AlgebraBudget:
@@ -689,7 +701,29 @@ class MaskMutationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _lock_task(self, task_id: uuid.UUID) -> Task:
+    async def _lock_task(
+        self,
+        task_id: uuid.UUID,
+        *,
+        reference_receipt=None,
+        payload=None,
+        actor=None,
+    ) -> Task:
+        from app.services.reference_access import reject_reference_scope
+
+        if reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[task_id])
+        else:
+            from app.services.reference_mask_repair import validate_receipt
+
+            await validate_receipt(
+                self.db,
+                task_id,
+                actor.id,
+                reference_receipt,
+                "mutation",
+                payload.model_dump(mode="json"),
+            )
         task = await lock_task_for_core_read(
             self.db, task_id, lock_mode="update", nowait=False, populate_existing=True
         )
@@ -1310,6 +1344,12 @@ class MaskMutationService:
                     materialized.append((annotation, rle, bbox))
             except _MaskMutationError:
                 raise
+            except (
+                RasterMaskContractError,
+                RasterObjectStorageError,
+                ContentError,
+            ) as exc:
+                raise _mutation_storage_error(exc) from exc
             except Exception as exc:
                 raise _MaskMutationError(
                     status_code=422,
@@ -1369,9 +1409,36 @@ class MaskMutationService:
         *,
         origin: AuditOriginContext | None = None,
         access: Any = None,
+        reference_repair_receipt=None,
+        repair_original_receipt=None,
     ) -> MaskMutationCommitResponse:
         digest = request_digest(payload)
         from app.services import task_access
+
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if reference_repair_receipt is not None:
+                raise ContentError("repair_original_receipt_invalid")
+            await validate_receipt(
+                self.db,
+                task_id,
+                actor.id,
+                repair_original_receipt,
+                "mutation",
+                payload.model_dump(mode="json"),
+            )
+        task = (
+            await self._lock_task(task_id)
+            if reference_repair_receipt is None
+            else await self._lock_task(
+                task_id,
+                reference_receipt=reference_repair_receipt,
+                payload=payload,
+                actor=actor,
+            )
+        )
 
         preflight_task = await get_core_row(
             self.db, task_row, task_id, populate_existing=True
@@ -1587,10 +1654,15 @@ class MaskMutationService:
                     message="mask mutation references too many RLE objects",
                 )
             try:
+                # The repair owner already qualifies frozen source geometries.
+                # Its write receipt covers only mutations; reference_value still
+                # verifies every source and result RLE before the write.
                 verified_mask_content = await preflight_mask_payload_for_write(
                     self.db,
                     preflight_task,
-                    [
+                    preflight_geometries
+                    if repair_original_receipt is not None
+                    else [
                         *preflight_geometries,
                         *(
                             preflight_annotation_map[source_id].geometry
@@ -1599,13 +1671,19 @@ class MaskMutationService:
                         ),
                     ],
                     reference_value=preflight_rle_references,
+                    repair_original_receipt=repair_original_receipt,
                 )
             except RasterMaskContractError as exc:
                 _raise_mask_mutation_contract_error(exc)
         access = await task_access.resolve_task_access(
             self.db, preflight_task, actor.id, lock_membership=True
         )
-        task = await self._lock_task(task_id)
+        task = await self._lock_task(
+            task_id,
+            reference_receipt=reference_repair_receipt,
+            payload=payload,
+            actor=actor,
+        )
         await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_annotation_write_allowed(task, access)
         # The FastAPI dependency precheck is not authoritative: re-read the
@@ -1922,6 +2000,7 @@ class MaskMutationService:
                 required_upload_keys=submitted_keys - source_keys,
                 verified_content=verified_mask_content,
                 require_verified_content=True,
+                repair_original_receipt=repair_original_receipt,
             )
         except RasterMaskContractError as exc:
             _raise_mask_mutation_contract_error(exc)
@@ -2345,4 +2424,8 @@ class MaskMutationService:
             )
         )
         await self.db.flush()
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
         return response

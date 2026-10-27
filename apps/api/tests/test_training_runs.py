@@ -38,6 +38,9 @@ IMAGE = "sha256:" + "1" * 64
 
 @pytest.fixture
 def training_config(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     monkeypatch.setattr(settings, "training_enabled", True)
     monkeypatch.setattr(settings, "training_executor_token", TOKEN)
     monkeypatch.setattr(settings, "training_gpu_uuid", GPU)
@@ -56,7 +59,9 @@ def training_config(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        service, "internal_download", lambda key: "http://owned-storage/" + key
+        service,
+        "internal_download",
+        lambda key, **kwargs: "http://owned-storage/" + key,
     )
 
 
@@ -82,6 +87,10 @@ async def ready_dataset(db, owner):
     )
     db.add(dataset)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    ref = await allocate(db, dataset)
+    dataset.package_key = ref["prefix"] + "dataset.zip"
     return project, dataset
 
 
@@ -261,7 +270,7 @@ async def test_executor_http_responses_match_worker_contract(
     assert assignment["attempt_id"] == run_data["current_attempt_id"]
     assert assignment["lease_token"]
     assert assignment["config_digest"] == run_data["config_digest"]
-    assert assignment["dataset_url"] == "http://owned-storage/owned/dataset.zip"
+    assert assignment["dataset_url"] == ("http://owned-storage/" + dataset.package_key)
     assert assignment["resume"] is None
     assert "native_budget" not in assignment
     assert "initialization" not in assignment

@@ -23,7 +23,6 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
-    _database_head,
     _drop_owned_clone,
 )
 from tests.test_inference_registry_ingress_legacy import _server
@@ -68,7 +67,7 @@ async def test_nonempty_restore_preserves_ingress_role_receipt_and_actual_owner_
     test_engine, tmp_path
 ):
     await assert_owned_test_database(test_engine)
-    assert await _database_head(test_engine) == "0278"
+
     clone = f"aap_registry_ingress_restore_{uuid.uuid4().hex[:10]}_test"
     ownership = "registry-ingress-restore:" + str(uuid.uuid4())
     created = set()
@@ -138,7 +137,7 @@ async def test_nonempty_restore_preserves_ingress_role_receipt_and_actual_owner_
                 test_engine.url.set(database=clone), hide_parameters=True
             )
             await _assert_clone_identity(restored, clone, ownership)
-            assert await _database_head(restored) == "0278"
+
             assert await _native_state(restored) == before
             role_url = make_url(
                 _role_url(

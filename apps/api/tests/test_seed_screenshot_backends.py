@@ -227,8 +227,15 @@ async def test_reconcile_creates_exact_primary_and_enabled_bindings(
     assert projects["pointcloud_demo"].ml_backend_pool_id is None
     assert await db_session.get(MLBackendRegistry, owned_stub.id) is owned_stub
     assert (await svc.get_pool(owned_stub_pool.id)).legacy_instance_id == owned_stub.id
+    project_ids = [project.id for project in projects.values()]
     associations = list(
-        (await db_session.execute(select(ProjectMLBackendPool))).scalars()
+        (
+            await db_session.execute(
+                select(ProjectMLBackendPool).where(
+                    ProjectMLBackendPool.project_id.in_(project_ids)
+                )
+            )
+        ).scalars()
     )
     assert {
         (association.project_id, association.pool_id) for association in associations

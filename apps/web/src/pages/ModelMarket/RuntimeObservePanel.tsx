@@ -1,3 +1,7 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · runtime observation orchestrator (plan §6.2 / §9.3).
  *
@@ -225,7 +229,9 @@ export function RuntimeObservePanel(): React.ReactElement {
               <Alert variant="destructive">
                 <AlertTriangle aria-hidden="true" />
                 <AlertTitle>运行时状态加载失败</AlertTitle>
-                <AlertDescription>{(hardError as Error).message ?? "未知错误"}</AlertDescription>
+                <AlertDescription>
+                  <CopyableError message={(hardError as Error).message ?? "未知错误"} />
+                </AlertDescription>
               </Alert>
             ) : topology ? (
               <ServicePoolRuntimeTable topology={topology} lookup={lookup} onWarm={onWarm} />
@@ -394,8 +400,18 @@ function DataSourceRegion({
                   {topology.partial_reason ?? "原因未知"}。页面已保留其它可信来源，
                   不会把缺失指标显示为 0。
                 </p>
-                {snapshotError && <p>runtime-snapshot：{snapshotError}</p>}
-                {observeError && <p>observe：{observeError}</p>}
+                {snapshotError && (
+                  <p>
+                    runtime-snapshot：
+                    <CopyableError message={snapshotError} />
+                  </p>
+                )}
+                {observeError && (
+                  <p>
+                    observe：
+                    <CopyableError message={observeError} />
+                  </p>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -408,10 +424,16 @@ function DataSourceRegion({
             ))}
           </div>
           {!topology.partial && snapshotError && (
-            <div className="text-2xs text-status-danger">runtime-snapshot：{snapshotError}</div>
+            <div className="text-2xs text-status-danger">
+              runtime-snapshot：
+              <CopyableError message={snapshotError} />
+            </div>
           )}
           {!topology.partial && observeError && (
-            <div className="text-2xs text-status-danger">observe：{observeError}</div>
+            <div className="text-2xs text-status-danger">
+              observe：
+              <CopyableError message={observeError} />
+            </div>
           )}
         </div>
       )}
@@ -441,6 +463,7 @@ function EnvOnlySection({
   onRegister: (url: string) => void;
 }): React.ReactElement {
   const [collapsed, setCollapsed] = useState(true);
+  const pagination = useListPagination(targets);
   return (
     <section className="flex flex-col gap-2.5">
       <button
@@ -458,10 +481,18 @@ function EnvOnlySection({
         <span className="text-2xs font-normal">来自 ML_BACKEND_OBSERVE_URLS，未注册到全局表</span>
       </button>
       {!collapsed && (
-        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-          {targets.map((t) => (
-            <EnvOnlyContainerCard key={t.url} target={t} onRegister={onRegister} />
+        <div className={listStyles.surface}>
+          {pagination.items.map((t) => (
+            <div key={t.url} className={listStyles.row}>
+              <EnvOnlyContainerCard target={t} onRegister={onRegister} />
+            </div>
           ))}
+          <ListPagination
+            label="未纳管容器"
+            {...pagination}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </div>
       )}
     </section>

@@ -1,7 +1,7 @@
 """Add caller-transactional Assets catalog capabilities and frozen receipts.
 
-Revision ID: 0211
-Revises: 0210
+Revision ID: bo0211
+Revises: bo0210
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0211"
-down_revision = "0210"
+revision = "bo0211"
+down_revision = "bo0210"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0211_dataset_catalog.sql"

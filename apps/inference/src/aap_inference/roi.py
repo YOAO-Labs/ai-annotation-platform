@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 from PIL import Image
 
+from aap_assets_mask_content.codec import validate_coco_rle, validate_reference_for_rle
+
 
 @dataclass
 class CropBatch:
@@ -33,13 +35,39 @@ class CropBatch:
     inputs: list[dict] = field(default_factory=list)
     skipped_geometry: int = 0
     transforms: dict[str, dict] = field(default_factory=dict)
+    contents: dict[str, bytes] = field(default_factory=dict, repr=False)
+
+
+MAX_CROP_BYTES = 64 * 1024 * 1024
+
+
+class RoIContentTooLarge(ValueError):
+    """A deferred crop exceeded the portable content envelope."""
+
+    code = "prediction_input_too_large"
+    status_code = 413
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
+class _CropBuffer(io.BytesIO):
+    """Reject an oversized pending crop before buffering more encoded bytes."""
+
+    def write(self, content):
+        if self.tell() + len(content) > MAX_CROP_BYTES:
+            raise RoIContentTooLarge()
+        return super().write(content)
 
 
 def box_class_name(box: Mapping) -> str | None:
-    """从 LS 标准 shape 提取 class_name (rectanglelabels / polygonlabels / labels[0])。
+    """从 LS 标准 shape 或原生 raster-mask 父框提取 class_name。
 
-    v0.18.2 · parent_class_filter 类别路由用。v0.18.15 · 兼容 polygon 父框。取不到返回 None。
+    v0.18.2 · parent_class_filter 类别路由用。v0.18.15 · 兼容 polygon 父框。
+    原生 ``geometry.type == "raster_mask"`` 父框读映射后的 ``class_name``。取不到返回 None。
     """
+    if (box.get("geometry") or {}).get("type") == "raster_mask":
+        return box.get("class_name")
     value = box.get("value") or {}
     labels = (
         value.get("rectanglelabels")
@@ -69,12 +97,66 @@ def _polygon_bbox_pct(value: Mapping) -> tuple[float, float, float, float] | Non
     return x0, y0, x1 - x0, y1 - y0
 
 
-def _box_bbox_pct(box: Mapping) -> tuple[float, float, float, float] | None:
+def _coco_rle_bbox_pixels(
+    rle: Mapping,
+) -> tuple[float, float, float, float] | None:
+    """Tight pixel AABB (left, top, right, bottom) of a verified COCO RLE mask."""
+    height, width, counts = validate_coco_rle(rle)
+    offset = 0
+    foreground = False
+    min_x, min_y = width, height
+    max_x = max_y = -1
+    for run_length in counts:
+        if foreground and run_length:
+            start = offset
+            end = offset + run_length - 1
+            start_x, start_y = divmod(start, height)
+            end_x, end_y = divmod(end, height)
+            min_x = min(min_x, start_x)
+            max_x = max(max_x, end_x)
+            if start_x == end_x:
+                min_y = min(min_y, start_y)
+                max_y = max(max_y, end_y)
+            else:
+                min_y = 0
+                max_y = height - 1
+        offset += run_length
+        foreground = not foreground
+    if max_x < min_x or max_y < min_y:
+        return None
+    return (float(min_x), float(min_y), float(max_x + 1), float(max_y + 1))
+
+
+def _raster_bounds(box: Mapping, mask_objects: Mapping | None):
+    """Use the exact verified RLE, never a response-provided approximate box."""
+    reference = (box.get("geometry") or {}).get("mask") or {}
+    rle = (mask_objects or {}).get(reference.get("sha256"))
+    if rle is None:
+        raise ValueError("Native ROI requires the portable mask object")
+    validate_reference_for_rle(reference, rle)
+    bounds = _coco_rle_bbox_pixels(rle)
+    if bounds is None:
+        raise ValueError("Native ROI requires foreground pixels")
+    return list(rle["size"]), bounds
+
+
+def _box_bbox_pct(
+    box: Mapping, mask_objects: Mapping | None = None
+) -> tuple[float, float, float, float] | None:
     """父框 → 外接框 (x, y, w, h) 百分比 (0-100)。
 
     v0.18.15 · 统一 rectanglelabels (轴对齐 bbox, 旋转框跳过) 与 polygonlabels (取外接框)。
+    原生 raster-mask 父框取已校验 RLE 的精确前景外接框。
     其余几何 / 非法返回 None (调用方计入 skipped_geometry)。
     """
+    if (box.get("geometry") or {}).get("type") == "raster_mask":
+        (height, width), (left, top, right, bottom) = _raster_bounds(box, mask_objects)
+        return (
+            left / width * 100,
+            top / height * 100,
+            (right - left) / width * 100,
+            (bottom - top) / height * 100,
+        )
     btype = box.get("type")
     value = box.get("value") or {}
     if btype == "rectanglelabels":
@@ -94,9 +176,14 @@ def _box_bbox_pct(box: Mapping) -> tuple[float, float, float, float] | None:
 
 
 def _box_bbox_pixels(
-    box: Mapping, img_w: int, img_h: int
+    box: Mapping, img_w: int, img_h: int, mask_objects: Mapping | None = None
 ) -> tuple[float, float, float, float] | None:
     """父框 → 像素外接框 (left, top, right, bottom); 委托 :func:`_box_bbox_pct`。"""
+    if (box.get("geometry") or {}).get("type") == "raster_mask":
+        size, bounds = _raster_bounds(box, mask_objects)
+        if size != [img_h, img_w]:
+            raise ValueError("Native ROI mask size differs from the source image")
+        return bounds
     pct = _box_bbox_pct(box)
     if pct is None:
         return None
@@ -120,12 +207,15 @@ def crop_inputs_from_boxes(
     upload_fn: Callable[[int, bytes], str] | None = None,
     cache: dict | None = None,
     min_crop_side_px: int = 0,
+    mask_objects: Mapping | None = None,
 ) -> CropBatch:
     """对 boxes 里的 bbox 框逐个裁 ROI crop, 返回喂下游 /predict 的 inputs + 几何跳过统计。
 
     Args:
         image: 任务原图 (PIL Image)。
         boxes: 上游 stage 返回的 LS 标准 result 列表 (每项 ``{type, value, ...}``)。
+            原生 raster-mask 父框保留内部 ``geometry`` 与映射后的 ``class_name``。
+        mask_objects: 原生父框已校验的可移植 RLE 对象, 按 sha256 索引。
         pad: 按框宽高比例外扩的边界 padding (0.05 = 各边外扩 5%)。
         jpeg_quality: crop 重编码 JPEG 质量。
         parent_class_filter: v0.18.2 · 只对 class_name 在此集合的父框裁 crop (空/None=全部)。
@@ -144,11 +234,14 @@ def crop_inputs_from_boxes(
         ``id`` 即 boxes 中的下标 (字符串, **保留原下标**即使被类别过滤), 供下游结果回写到对应父框;
         ``skipped_geometry`` 为命中路由但几何不支持被跳过的父框数。类别不匹配的父框是路由跳过, 不计入。
     """
+    if delivery == "deferred" and cache is not None:
+        raise ValueError("Deferred crops use the async caller's URL cache")
     img_w, img_h = image.size
     filter_set = set(parent_class_filter) if parent_class_filter else None
     inputs: list[dict] = []
     skipped_geometry = 0
     transforms: dict[str, dict] = {}
+    contents: dict[str, bytes] = {}
     for idx, box in enumerate(boxes):
         if not isinstance(box, Mapping):
             continue
@@ -162,7 +255,7 @@ def crop_inputs_from_boxes(
             transforms[str(idx)] = cached["transform"]
             continue
         # 几何门控: 非 bbox/polygon / 旋转框 / 退化框 → 无法裁 crop, 计入 skipped_geometry。
-        px = _box_bbox_pixels(box, img_w, img_h)
+        px = _box_bbox_pixels(box, img_w, img_h, mask_objects)
         if px is None:
             skipped_geometry += 1
             continue
@@ -189,10 +282,13 @@ def crop_inputs_from_boxes(
         ):
             skipped_geometry += 1
             continue
-        buf = io.BytesIO()
+        buf = _CropBuffer() if delivery == "deferred" else io.BytesIO()
         crop.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality)
         jpeg_bytes = buf.getvalue()
-        if delivery == "presigned":
+        if delivery == "deferred":
+            contents[str(idx)] = jpeg_bytes
+            file_path = None
+        elif delivery == "presigned":
             if upload_fn is None:
                 raise ValueError("delivery='presigned' 需要 upload_fn")
             file_path = upload_fn(idx, jpeg_bytes)
@@ -213,7 +309,10 @@ def crop_inputs_from_boxes(
             cache[cache_key] = {"input": inp, "transform": transform}
         inputs.append(inp)
     return CropBatch(
-        inputs=inputs, skipped_geometry=skipped_geometry, transforms=transforms
+        inputs=inputs,
+        skipped_geometry=skipped_geometry,
+        transforms=transforms,
+        contents=contents,
     )
 
 
@@ -233,6 +332,7 @@ def geometry_prompts_from_boxes(
     boxes: list[Mapping],
     *,
     parent_class_filter: list[str] | None = None,
+    mask_objects: Mapping | None = None,
 ) -> GeometryPromptBatch:
     """把上游父框转成 geometry-prompt 列表 (全图 + 归一化框), 喂下游 box-seg 原子。
 
@@ -243,6 +343,7 @@ def geometry_prompts_from_boxes(
     Args:
         boxes: 上游 stage 的 LS 标准 result 列表。
         parent_class_filter: 只对 class_name 在此集合的父框生成 prompt (空/None=全部)。
+        mask_objects: 原生 raster-mask 父框已校验的可移植 RLE 对象, 按 sha256 索引。
 
     Returns:
         :class:`GeometryPromptBatch` —— ``prompts`` 每项 ``{"box": [x1,y1,x2,y2], "parent_box_idx": idx}``,
@@ -256,8 +357,9 @@ def geometry_prompts_from_boxes(
             continue
         if filter_set is not None and box_class_name(box) not in filter_set:
             continue
-        # v0.18.15 · 统一支持 rectanglelabels (旋转框跳过) 与 polygonlabels (取外接框)。
-        pct = _box_bbox_pct(box)
+        # v0.18.15 · 统一支持 rectanglelabels (旋转框跳过) 与 polygonlabels (取外接框);
+        # 原生 raster-mask 父框取已校验 RLE 的精确外接框。
+        pct = _box_bbox_pct(box, mask_objects)
         if pct is None:
             skipped_geometry += 1
             continue
@@ -393,7 +495,13 @@ def remap_geometry_to_image(shapes: list[Mapping], transform: Mapping) -> list[d
             if any(value.get(k) is None for k in ("x", "y", "width", "height")):
                 continue
             xywh = [float(value[k]) for k in ("x", "y", "width", "height")]
-            scale = batch_scale
+            scale = (
+                100.0
+                if s.get("coordinate_units") == "percent"
+                else 1.0
+                if s.get("coordinate_units") == "normalized"
+                else batch_scale
+            )
             x, y, w, h = (v / scale for v in xywh)
             value["x"] = (ox + x * sx) * 100.0
             value["y"] = (oy + y * sy) * 100.0
@@ -406,7 +514,13 @@ def remap_geometry_to_image(shapes: list[Mapping], transform: Mapping) -> list[d
             rings = _polygon_rings(value)
             if not rings:
                 continue
-            scale = batch_scale
+            scale = (
+                100.0
+                if s.get("coordinate_units") == "percent"
+                else 1.0
+                if s.get("coordinate_units") == "normalized"
+                else batch_scale
+            )
 
             def _remap_ring(ring: list) -> list[list[float]]:
                 return [

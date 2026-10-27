@@ -11,6 +11,7 @@ const scrollRef: RefObject<HTMLDivElement | null> = { current: null };
 const state = vi.hoisted(() => ({
   schemaError: false,
   schemaRefetch: vi.fn(),
+  objectTrackIds: [] as (string | null)[],
 }));
 
 vi.mock("@/hooks/usePermissions", () => ({
@@ -49,7 +50,7 @@ vi.mock("@/hooks/useTaskViews", () => {
     entity_scope: "objects",
     filter_json: { field: "annotation.annotation_count", op: "eq", value: 1 },
     sort_json: [{ field: "annotation.updated_at", direction: "desc" }],
-    columns_json: ["class_name"],
+    columns_json: ["class_name", "annotation_id"],
     builtin: true,
     task_count: 1,
     result_count: 1,
@@ -97,6 +98,15 @@ vi.mock("@/hooks/useTaskViews", () => {
     ],
     columns: [
       {
+        key: "track_id",
+        label: "轨迹 ID",
+        group: "标注",
+        default: false,
+        expensive: false,
+        sortable: false,
+        sort_field: null,
+      },
+      {
         key: "class_name",
         label: "类别",
         group: "标注",
@@ -105,8 +115,17 @@ vi.mock("@/hooks/useTaskViews", () => {
         sortable: false,
         sort_field: null,
       },
+      {
+        key: "annotation_id",
+        label: "标注 ID",
+        group: "标注",
+        default: true,
+        expensive: false,
+        sortable: false,
+        sort_field: null,
+      },
     ],
-    default_columns: ["class_name"],
+    default_columns: ["class_name", "annotation_id"],
     sort_fields: [{ value: "annotation.updated_at", label: "更新时间" }],
     metrics: [],
     builtin_views: ["all"],
@@ -167,7 +186,22 @@ vi.mock("@/hooks/useTaskViews", () => {
     },
   };
   const query = () => ({
-    data: { pages: [page] },
+    data: {
+      pages: [
+        state.objectTrackIds.length
+          ? {
+              ...page,
+              items: state.objectTrackIds.map((trackId, index) => ({
+                ...page.items[0],
+                entity_key: `a${index + 1}`,
+                annotation_id: `a${index + 1}`,
+                track_id: trackId,
+              })),
+              total: state.objectTrackIds.length,
+            }
+          : page,
+      ],
+    },
     hasNextPage: false,
     isFetchingNextPage: false,
     isLoading: false,
@@ -198,6 +232,7 @@ describe("EntityDataManagerLens", () => {
   beforeEach(() => {
     state.schemaError = false;
     state.schemaRefetch.mockReset();
+    state.objectTrackIds = [];
   });
 
   it("keeps an incomplete numeric condition out of the applied URL filter", async () => {
@@ -315,6 +350,88 @@ describe("EntityDataManagerLens", () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId("entity-selected")).toHaveTextContent(""));
+  });
+
+  it("copies an annotation ID without selecting its row", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const scrollElement = document.createElement("div");
+    Object.defineProperties(scrollElement, {
+      offsetHeight: { value: 600 },
+      offsetWidth: { value: 1000 },
+    });
+    document.body.appendChild(scrollElement);
+    try {
+      render(
+        <MemoryRouter initialEntries={["/projects/p1?lens=objects"]}>
+          <EntityDataManagerLens
+            projectId="p1"
+            projectName="Project"
+            projectDisplayId="P-1"
+            projectOwnerId="u1"
+            scope="objects"
+            availableScopes={["tasks", "objects"]}
+            onScopeChange={vi.fn()}
+            scrollContainerRef={{ current: scrollElement }}
+          />
+        </MemoryRouter>,
+      );
+      expect(await screen.findByText("对象 1")).toBeVisible();
+      await user.click(await screen.findByRole("button", { name: "复制标注 ID" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("a1"));
+      expect(screen.getByTestId("entity-selected")).toHaveTextContent("");
+    } finally {
+      scrollElement.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("distinguishes object tracks while giving repeated tracks the same visible ordinal", async () => {
+    state.objectTrackIds = ["track-a", "track-b", "track-a", null];
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const scrollElement = document.createElement("div");
+    Object.defineProperties(scrollElement, {
+      offsetHeight: { value: 600 },
+      offsetWidth: { value: 1000 },
+    });
+    document.body.appendChild(scrollElement);
+    const content = () => (
+      <MemoryRouter
+        initialEntries={[
+          `/projects/p1?lens=objects&columns=${encodeURIComponent(JSON.stringify({ v: 1, value: ["class_name", "track_id"] }))}`,
+        ]}
+      >
+        <EntityDataManagerLens
+          projectId="p1"
+          projectName="Project"
+          projectDisplayId="P-1"
+          projectOwnerId="u1"
+          scope="objects"
+          availableScopes={["tasks", "objects"]}
+          onScopeChange={vi.fn()}
+          scrollContainerRef={{ current: scrollElement }}
+        />
+      </MemoryRouter>
+    );
+    try {
+      const view = render(content());
+      expect(await screen.findAllByText("轨迹 1")).toHaveLength(2);
+      expect(screen.getByText("轨迹 2")).toBeVisible();
+      expect(screen.queryByText("对象 1")).not.toBeInTheDocument();
+      const copy = screen.getByRole("button", { name: "复制对象轨迹 2 ID" });
+      await user.click(copy);
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("track-b"));
+      expect(screen.getByTestId("entity-selected")).toHaveTextContent("");
+      await user.click(copy.closest('[role="row"]')!);
+      expect(screen.getByTestId("entity-selected")).toHaveTextContent("a2");
+      state.objectTrackIds = [...state.objectTrackIds, "track-c"];
+      view.rerender(content());
+      expect(await screen.findByText("轨迹 3")).toBeVisible();
+      expect(screen.getAllByText("轨迹 1")).toHaveLength(2);
+    } finally {
+      scrollElement.remove();
+    }
   });
 
   it("offers a retry action when the entity schema request fails", () => {

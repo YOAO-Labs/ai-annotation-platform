@@ -10,6 +10,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 import { classColor } from "@/pages/Workbench/stage/colors";
 import type { ClassRefLite } from "./resolveClassVisual";
+import { cn } from "@/lib/utils";
 
 // UA-safe 表单基线 + token 化(无全局 preflight)。
 const CONTROL_CLASS =
@@ -63,6 +64,7 @@ export function defaultColorFor(name: string): string {
 }
 
 interface Props {
+  className?: string;
   value: ClassRow[];
   onChange: (next: ClassRow[]) => void;
   /** 限定最大数量（向导限 50 防止失误）；0 = 无限制 */
@@ -83,6 +85,7 @@ interface Props {
 }
 
 export function ClassEditor({
+  className,
   value,
   onChange,
   max = 0,
@@ -175,7 +178,7 @@ export function ClassEditor({
   };
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className={cn("flex flex-col gap-2.5", className)}>
       {value.length === 0 && (
         <div className="rounded-md border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
           {emptyHint}
@@ -183,9 +186,8 @@ export function ClassEditor({
       )}
 
       {value.length > 0 && (
-        // B-59 · 类别行过多时纵向滚动, 最多约 20 行可见(单行 ≈ 48px + gap 10px)；
-        // 「新增类别」输入框留在滚动容器外, 始终可见。
-        <div className="flex max-h-[1150px] flex-col gap-2.5 overflow-y-auto pr-0.5">
+        // Let constrained dialogs shrink the list while keeping the add controls visible.
+        <div className="flex min-h-0 max-h-[1150px] flex-col gap-2.5 overflow-y-auto pr-0.5">
           {value.map((r, i) => {
             const linked = !!r.aliasTo;
             const linkedVisual = linked && resolveLinked ? resolveLinked(r.aliasTo!) : undefined;
@@ -193,7 +195,7 @@ export function ClassEditor({
             return (
               <div
                 key={r.name}
-                className="grid grid-cols-[auto_24px_minmax(0,1.4fr)_minmax(0,1.2fr)_70px_auto] items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5"
+                className="grid shrink-0 grid-cols-[auto_24px_minmax(0,1.4fr)_minmax(0,1.2fr)_70px_auto] items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5"
               >
                 <span className="w-5 text-right text-xs text-muted-foreground">{i + 1}</span>
                 <svg
@@ -344,7 +346,7 @@ export function ClassEditor({
         </div>
       )}
 
-      <div className="mt-1 flex gap-1.5">
+      <div className="mt-1 flex shrink-0 gap-1.5">
         <input
           value={classInput}
           onChange={(e) => setClassInput(e.target.value)}

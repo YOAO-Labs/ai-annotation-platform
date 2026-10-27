@@ -6,7 +6,7 @@ import { annotationPaintedPixels } from "../fixtures/annotation-canvas-pixels";
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:18110";
 const test = base.extend<{ filtering: FilteringSeedManifest }>({
   filtering: async ({ seed }, provideFixture) => {
-    await provideFixture(await resetFiltering(seed));
+    await provideFixture(await resetFiltering(seed, { videoReady: true }));
   },
 });
 test.setTimeout(120_000);

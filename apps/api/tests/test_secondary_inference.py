@@ -1,6 +1,6 @@
 """v0.20.11 · 选中框单框二次推理 service 层覆盖 (Q1b).
 
-mock 掉图像加载 / 对象存储 / ml_client.predict, 只验编排 + 产物归位:
+mock 掉图像加载 / 对象存储 / 模型执行端口, 只验编排 + 产物归位:
 - attributes 型: 属性 union 回原框, attributes_meta 标 origin=ai
 - geometry 型: crop 检出几何回映后建子框 (parent=选中框)
 - crop 被守卫跳过 (框太小) → 无产物
@@ -29,8 +29,51 @@ from aap_inference_contract.execution import (
 )
 from app.services.annotation import AnnotationService
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from app.services.secondary_inference import run_secondary_inference
+from app.services.secondary_inference import (
+    run_secondary_inference as _run_secondary_inference,
+)
 from tests.factory import create_project, create_task
+
+
+class _FakeManagedOperation:
+    """Minimal managed-image owner: prepare an unpersisted crop batch."""
+
+    def __init__(self, task):
+        self.task = task
+        self.closed = False
+
+    async def prepare_crop(self, ls_box, *, pad):
+        from aap_inference.roi import crop_inputs_from_boxes
+
+        batch = crop_inputs_from_boxes(
+            Image.new("RGB", (200, 200)),
+            [dict(ls_box)],
+            pad=pad,
+            delivery="deferred",
+            min_crop_side_px=32,
+        )
+        for item in batch.inputs:
+            item["file_path"] = f"http://fake-managed/{item['id']}"
+        return batch
+
+    async def before_dispatch(self):
+        return None
+
+    async def final(self):
+        return self.task, None
+
+
+async def run_secondary_inference(db, *, task, annotation, **kwargs):
+    """Exercise the managed-original owner for every image-task case."""
+    if (
+        task is not None
+        and task.file_type == "image"
+        and kwargs.get("original_operation") is None
+    ):
+        kwargs["original_operation"] = _FakeManagedOperation(task)
+    return await _run_secondary_inference(
+        db, task=task, annotation=annotation, **kwargs
+    )
 
 
 class _FakeStorage:

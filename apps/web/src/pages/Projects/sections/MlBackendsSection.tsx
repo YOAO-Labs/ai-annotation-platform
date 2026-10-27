@@ -1,3 +1,7 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
@@ -123,6 +127,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
   const { data, isLoading, isError, error } = useAvailableMLBackends(project.id);
   const items = data?.items ?? [];
   const enabledItems = items.filter((it) => it.enabled);
+  const pagination = useListPagination(enabledItems, project.id);
   const enabledBackends = enabledItems.map((it) => it.backend);
 
   const setEnablement = useSetMLBackendEnablement(project.id);
@@ -283,7 +288,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
               }}
               className={cn(CONTROL_CLASS, "cursor-pointer")}
             >
-              <option value="">未设项目主后端（项目按肉眼标注运行，AI 待接入）</option>
+              <option value="">不设置项目主后端</option>
               {enabledBackends.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -364,7 +369,8 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         {isError && (
           <div className="p-6 text-center text-sm text-status-danger">
             <Icon name="warning" size={14} className="mr-1.5" />
-            加载失败：{(error as Error)?.message ?? "未知错误"}
+            加载失败：
+            <CopyableError message={(error as Error)?.message ?? "未知错误"} />
           </div>
         )}
         {!isLoading && !isError && enabledItems.length === 0 && (
@@ -380,7 +386,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         )}
         {!isLoading && !isError && enabledItems.length > 0 && (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[920px] border-separate border-spacing-0 text-sm">
+            <table className={cn(listStyles.table, "min-w-[920px]")}>
               <thead>
                 <tr>
                   {["名称", "URL", "类型", "能力", "状态", "操作"].map((h) => (
@@ -391,7 +397,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                 </tr>
               </thead>
               <tbody>
-                {enabledItems.map((item) => {
+                {pagination.items.map((item) => {
                   const b = item.backend;
                   const capQ = capById.get(b.id);
                   const cap = capQ?.data as MLBackendCapability | undefined;
@@ -480,6 +486,15 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         )}
       </div>
 
+      <ListPagination
+        label="推理服务"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        loading={isLoading}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
       <ManageBackendsPanel
         open={manageOpen}
         onClose={() => setManageOpen(false)}

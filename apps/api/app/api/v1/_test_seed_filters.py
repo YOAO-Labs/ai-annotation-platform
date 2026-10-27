@@ -416,6 +416,7 @@ async def _create_item(
     scene_id: UUID | None = None,
     frame_index: int | None = None,
     metadata: dict[str, Any] | None = None,
+    original_payload: bytes | None = None,
 ):
     from app.db.models.dataset import DatasetItem
 
@@ -433,6 +434,10 @@ async def _create_item(
     )
     db.add(item)
     await db.flush()
+    if original_payload is not None:
+        from app.api.v1._test_seed import _register_fixture_original
+
+        await _register_fixture_original(db, item, original_payload)
     return item
 
 
@@ -522,7 +527,11 @@ def _bbox_annotation(
 
 
 async def _seed_image_semantics(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
+    db: AsyncSession,
+    ids: _FilterIds,
+    users: dict[str, Any],
+    image_key: str,
+    image_payload: bytes,
 ) -> FilteringImageManifest:
     from app.db.models.project_task_view import ProjectTaskView
 
@@ -635,6 +644,7 @@ async def _seed_image_semantics(
             file_name=f"{key}.svg",
             file_path=image_key,
             file_type="image",
+            original_payload=image_payload,
         )
         task = await _create_task(
             db,
@@ -851,8 +861,72 @@ async def _create_seed_prediction(
     )
 
 
+async def _materialize_filtering_video(db: AsyncSession, item_ids: list[UUID]) -> None:
+    """Complete real derivative owners for filtering videos inside the API process.
+
+    The E2E deployment runs the API without a celery worker. Lazily requested
+    manifests would therefore stay in ``video_metadata_preparing`` forever. Each
+    output is built by the same worker entry point a broker delivery would use,
+    and the fixture fails loudly when an output did not become ready.
+    """
+    from fastapi import HTTPException
+
+    from app.config import settings
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives as derivatives
+    from app.workers import media_derivatives as worker
+
+    async def require_ready(identifier: UUID) -> None:
+        output = await db.get(VideoDerivativeOutput, identifier, populate_existing=True)
+        if output is None or output.state != "ready":
+            code = output.error_code if output is not None else "missing"
+            raise HTTPException(
+                500,
+                detail=f"filtering video derivative {identifier} not ready: {code}",
+            )
+
+    await db.commit()
+    for item_id in item_ids:
+        source = await originals.pin(db, "dataset_item", item_id)
+        authority = await originals.delegated(
+            db, originals.system_authorization("dataset_item", item_id, source)
+        )
+        metadata, _ = await derivatives.prepare(db, item_id, authority, "metadata")
+        metadata_id = metadata.id
+        await db.commit()
+        await worker.run_outputs([str(metadata_id)])
+        await require_ready(metadata_id)
+        item = await db.get(DatasetItem, item_id, populate_existing=True)
+        source = await originals.pin(db, "dataset_item", item_id)
+        metadata = await derivatives.metadata(db, item, source)
+        info, _ = derivatives.metadata_result(metadata)
+        size = max(1, settings.video_chunk_size_frames)
+        specs = [
+            derivatives.chunk_spec(metadata, chunk_id)
+            for chunk_id in range((info.frame_count + size - 1) // size)
+        ]
+        chunk_ids: list[UUID] = []
+        for spec in specs:
+            output, _ = await derivatives.prepare(
+                db, item_id, authority, "chunk", spec=spec
+            )
+            chunk_ids.append(output.id)
+            await db.commit()
+        await worker.run_outputs([str(identifier) for identifier in chunk_ids])
+        for identifier in chunk_ids:
+            await require_ready(identifier)
+
+
 async def _seed_video_review(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], video_key: str
+    db: AsyncSession,
+    ids: _FilterIds,
+    users: dict[str, Any],
+    video_key: str,
+    video_payload: bytes,
+    *,
+    video_ready: bool = False,
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
@@ -903,6 +977,7 @@ async def _seed_video_review(
     )
     names = ["detection_only", "tracker_only", "both", "neither"]
     tasks: dict[str, Any] = {}
+    video_item_ids: list[UUID] = []
     for index, name in enumerate(names):
         item = await _create_item(
             db,
@@ -912,6 +987,7 @@ async def _seed_video_review(
             file_type="video",
             width=1280,
             height=720,
+            original_payload=video_payload,
             metadata={
                 "video": {
                     "duration_ms": 9600,
@@ -933,8 +1009,11 @@ async def _seed_video_review(
             file_type="video",
             sequence_order=index,
         )
+        video_item_ids.append(item.id)
     fixture_writes = LabelingE2EFixtureWrites(db)
-    await fixture_writes.patch_batch(batch, total_tasks=4)
+    await fixture_writes.patch_batch(batch, total_tasks=len(tasks))
+    if video_ready:
+        await _materialize_filtering_video(db, video_item_ids)
     # ponytail: metric-only candidate payloads omit render geometry; Workbench coverage
     # imports valid framed shapes through the product API when geometry is required.
     predictions: dict[str, Any] = {}
@@ -1053,7 +1132,11 @@ async def _seed_video_review(
 
 
 async def _seed_paging(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
+    db: AsyncSession,
+    ids: _FilterIds,
+    users: dict[str, Any],
+    image_key: str,
+    image_payload: bytes,
 ) -> FilteringPagingManifest:
 
     admin, annotator = users["admin"], users["anno"]
@@ -1106,6 +1189,7 @@ async def _seed_paging(
         file_name="paging.svg",
         file_path=image_key,
         file_type="image",
+        original_payload=image_payload,
     )
     task = await _create_task(
         db,
@@ -1267,6 +1351,9 @@ async def _seed_lidar(
             file_type="point_cloud",
             width=None,
             height=None,
+            scene_id=scene.id,
+            frame_index=frame_index,
+            original_payload=frames[frame_index if frame_index < 2 else 1],
         )
         camera_item = await _create_item(
             db,
@@ -1277,6 +1364,7 @@ async def _seed_lidar(
             width=640,
             height=480,
             metadata={"calibration": calibration},
+            original_payload=camera,
         )
         batch = visible_batch if frame_index < 2 else hidden_batch
         task = await _create_task(
@@ -1709,7 +1797,10 @@ async def _seed_operations(
 
 
 async def build_filtering_seed(
-    db: AsyncSession, namespace: str | None = None
+    db: AsyncSession,
+    namespace: str | None = None,
+    *,
+    video_ready: bool = False,
 ) -> FilteringSeedManifest:
     """Build all filtering scenarios for the shared fixture or one owned namespace."""
     from app.services.storage import storage_service
@@ -1731,15 +1822,18 @@ async def build_filtering_seed(
             api_root.parent.parent / "docs-site/public/home/sam-tools/smart-point.webm"
         )
     video_key = f"{ids.storage_prefix}video.webm"
+    video_payload = video_source.read_bytes()
     storage_service.client.put_object(
         Bucket=storage_service.datasets_bucket,
         Key=video_key,
-        Body=video_source.read_bytes(),
+        Body=video_payload,
         ContentType="video/webm",
     )
-    image = await _seed_image_semantics(db, ids, users, image_key)
-    video = await _seed_video_review(db, ids, users, video_key)
-    paging = await _seed_paging(db, ids, users, image_key)
+    image = await _seed_image_semantics(db, ids, users, image_key, image_svg)
+    video = await _seed_video_review(
+        db, ids, users, video_key, video_payload, video_ready=video_ready
+    )
+    paging = await _seed_paging(db, ids, users, image_key, image_svg)
     lidar = await _seed_lidar(db, ids, users, ids.storage_prefix)
     operations = await _seed_operations(db, ids, users)
     await db.commit()

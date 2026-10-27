@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from aap_assets_images import contract as image_contract
@@ -28,6 +28,11 @@ from aap_assets_source.upload_contract import (
     DatasetUploadIntent,
     DatasetUploadReserve,
 )
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+    ManagedOriginalProof,
+)
+from aap_assets_source_runtime.managed_storage import ManagedWrite
 from aap_assets_source_runtime.workflow import UploadWorkflow
 
 
@@ -39,6 +44,75 @@ class _Uploads:
         self.duplicate_of = None
         self.acceptance = None
         self.discarded = None
+        self.operation_mode = "write"
+        self.material_override = None
+        self.allocation = None
+        self.material = None
+
+    async def allocate(self, request):
+        from uuid import UUID, uuid4
+
+        self.allocation = request
+        if self.material_override is not None:
+            self.material = self.material_override
+            return self.material
+        file_path = request["file_path"]
+        staging = request.get("staging")
+        self.material = ManagedOriginalMaterial(
+            creation_id=uuid4(),
+            dataset_id=UUID(request["dataset_id"]),
+            location_id=UUID("4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"),
+            bucket="datasets",
+            object_key=file_path,
+            key_prefix="",
+            endpoint_url="http://s3",
+            storage_identity="a" * 64,
+            config_revision=1,
+            binding_generation=1,
+            max_bytes=request["max_bytes"],
+            content_type=request["content_type"],
+            origin=request["origin"],
+            mode=request["mode"],
+            staging=(
+                {"bucket": "imports", "key": staging["key"]}
+                if staging is not None
+                else None
+            ),
+            publication_id=UUID(request["publication_id"]),
+            file_path=file_path,
+            status="allocated",
+        )
+        return self.material
+
+    async def open_operation(self, creation_id):
+        from uuid import uuid4
+
+        from aap_assets_source.managed_original_contract import (
+            ManagedOriginalOperation,
+        )
+
+        self.events.append("open_operation")
+        return ManagedOriginalOperation(operation_id=uuid4(), mode=self.operation_mode)
+
+    async def close_operation(
+        self, creation_id, operation_id, physical_settled
+    ) -> None:
+        self.events.append("close_operation")
+
+    async def original_prepared(self, creation_id, prepared) -> None:
+        self.events.append("original_prepared")
+
+    async def original_writing(self, creation_id) -> None:
+        self.events.append("original_writing")
+
+    async def original_written(self, creation_id, receipt) -> None:
+        self.events.append("original_written")
+
+    async def original_verified(self, creation_id, verification) -> None:
+        self.events.append("original_verified")
+
+    async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
+        self.events.append("fail_original")
 
     async def reserve(self, request: DatasetUploadReserve):
         self.events.append("reserve")
@@ -113,6 +187,7 @@ class _Storage:
             "ETag": '"0123456789abcdef0123456789abcdef"',
         }
         self.dimensions = (20, 10)
+        self.publish_error = None
 
     async def generate_upload_url(self, key, content_type):
         self.events.append("presign")
@@ -134,8 +209,77 @@ class _Storage:
         self.events.append("dimensions_legacy")
         return self.dimensions
 
-    async def publish_dataset_upload(self, staging_key, final_key, *, etag):
+    async def verify_managed_original(self, target, *, sha256, size_bytes, image=False):
+        from types import SimpleNamespace
+
+        self.events.append("verify_managed")
+        body_sha = __import__("hashlib").sha256(b"0123456789").hexdigest()
+        md5 = (
+            __import__("hashlib").md5(b"0123456789", usedforsecurity=False).hexdigest()
+        )
+        return SimpleNamespace(
+            sha256=body_sha,
+            md5=md5,
+            size_bytes=len(b"0123456789"),
+            head_bytes=b"",
+            dimensions=self.dimensions if image else None,
+            etag="published",
+            version_id="v1",
+            observation={"etag": "published", "version_id": "v1"},
+        )
+
+    async def publish_managed_upload(
+        self,
+        target,
+        *,
+        staging_key,
+        staging_etag,
+        staging_version_id,
+        max_bytes,
+        image,
+        content_type,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ):
+        import hashlib as _hashlib
+
+        from aap_assets_images.contract import ObjectIdentity as _Identity
+
         self.events.append("copy")
+        if self.publish_error is not None:
+            raise self.publish_error
+        body = b"0123456789"
+        sha256 = _hashlib.sha256(body).hexdigest()
+        md5 = _hashlib.md5(body, usedforsecurity=False).hexdigest()
+        proof = ManagedOriginalProof.verified(
+            mode="write",
+            sha256=sha256,
+            md5=md5,
+            size_bytes=len(body),
+            etag='"published"',
+            version_id="v1",
+            request_id="request",
+            prepared={"mode": "write"},
+            verification={
+                "sha256": sha256,
+                "md5": md5,
+                "size_bytes": len(body),
+                "etag": '"published"',
+                "version_id": "v1",
+            },
+        )
+        return ManagedWrite(
+            file_size=len(body),
+            content_hash=md5,
+            dimensions=self.dimensions if image else None,
+            object_identity=(
+                _Identity(etag="published", byte_size=len(body), version_id="v1")
+                if image
+                else None
+            ),
+            proof=proof,
+        )
 
 
 def _workflow(events):
@@ -269,12 +413,120 @@ async def test_upload_init_reserves_before_signing_and_echoes_frozen_scope() -> 
     result = await workflow.init_upload(request)
 
     assert events == ["reserve", "presign"]
+    # Initialization allocates durable responsibility but starts no physical work.
+    assert uploads.allocation is not None
+    assert "open_operation" not in events
     assert (result.actor_id, result.dataset_id, result.item_id) == (
         actor_id,
         dataset_id,
         item_id,
     )
     assert result.expires_in == 900
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_acquires_one_write_permit_then_verifies() -> None:
+    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
+    request = _complete_request(actor_id, dataset_id, item_id)
+    events = []
+    workflow, uploads, *_ = _workflow(events)
+    intent = _intent(actor_id, dataset_id, item_id)
+    uploads.intent = intent
+    uploads.acceptance = _acceptance(intent)
+
+    await workflow.complete_upload(request)
+
+    assert events.count("open_operation") == 1
+    assert events.index("open_operation") < events.index("copy")
+    assert events.index("copy") < events.index("original_verified")
+    assert "close_operation" not in events
+
+
+@pytest.mark.asyncio
+async def test_verified_replay_reads_back_before_settling_its_read_permit() -> None:
+    from aap_assets_source.managed_original_contract import ManagedOriginalMaterial
+
+    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
+    request = _complete_request(actor_id, dataset_id, item_id)
+    events = []
+    workflow, uploads, *_ = _workflow(events)
+    intent = _intent(actor_id, dataset_id, item_id)
+    uploads.intent = intent
+    uploads.acceptance = _acceptance(intent)
+    body_sha = __import__("hashlib").sha256(b"0123456789").hexdigest()
+    uploads.material_override = ManagedOriginalMaterial(
+        creation_id=uuid4(),
+        dataset_id=dataset_id,
+        location_id=UUID("4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"),
+        bucket="datasets",
+        object_key=intent.file_path,
+        key_prefix="",
+        endpoint_url="http://s3",
+        storage_identity="a" * 64,
+        config_revision=1,
+        binding_generation=1,
+        max_bytes=5 * 1024**3,
+        content_type="image/png",
+        origin="direct",
+        mode="write",
+        staging={"bucket": "imports", "key": intent.staging_key},
+        publication_id=intent.publication_id,
+        file_path=intent.file_path,
+        status="verified",
+        sha256=body_sha,
+        size_bytes=10,
+        etag="published",
+        version_id="v1",
+    )
+    uploads.operation_mode = "read"
+
+    result = await workflow.complete_upload(request)
+
+    assert result.result == DatasetUploadCompletedResult(
+        item_id=item_id, linked_tasks=2
+    )
+    assert "copy" not in events
+    assert "original_verified" not in events
+    assert events.index("verify_managed") < events.index("close_operation")
+    assert events.count("open_operation") == 1
+    assert "fail_original" not in events
+
+
+@pytest.mark.asyncio
+async def test_unknown_close_keeps_responsibility_instead_of_claiming_settlement() -> (
+    None
+):
+    from aap_assets_source.contract import SourceFailure
+
+    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
+    request = _complete_request(actor_id, dataset_id, item_id)
+    events = []
+    failures = []
+    workflow, uploads, _legacy, _deletions, storage = _workflow(events)
+    intent = _intent(actor_id, dataset_id, item_id)
+    uploads.intent = intent
+    uploads.acceptance = _acceptance(intent)
+    error = SourceFailure("storage_unavailable")
+    error.storage_operation_unsettled = True
+    storage.publish_error = error
+
+    original_fail = uploads.fail_original
+
+    async def record_fail(creation_id, outcome, error_code, evidence):
+        failures.append((outcome, error_code, evidence))
+        await original_fail(creation_id, outcome, error_code, evidence)
+
+    uploads.fail_original = record_fail
+    with pytest.raises(SourceFailure):
+        await workflow.complete_upload(request)
+
+    assert len(failures) == 1
+    outcome, code, evidence = failures[0]
+    assert outcome == "unknown"
+    assert code == "upload_storage_unavailable"
+    assert evidence["physical_settled"] is False
+    assert evidence["physical_outcome"] == "unknown"
+    assert "original_verified" not in events
 
 
 @pytest.mark.asyncio
@@ -360,9 +612,10 @@ async def test_modern_upload_copies_conditionally_before_native_acceptance() -> 
         "lock",
         "head_staging",
         "find_duplicate",
+        "open_operation",
         "dimensions_staging",
         "copy",
-        "head_legacy",
+        "original_verified",
         "complete",
         "image_admit",
     ]
@@ -371,7 +624,7 @@ async def test_modern_upload_copies_conditionally_before_native_acceptance() -> 
     assert admission["item_id"] == item_id
     assert admission["publication_id"] == intent.publication_id
     assert admission["file_path"] == intent.file_path
-    assert admission["object_identity"].etag == "0123456789abcdef0123456789abcdef"
+    assert admission["object_identity"].etag == "published"
 
 
 @pytest.mark.asyncio

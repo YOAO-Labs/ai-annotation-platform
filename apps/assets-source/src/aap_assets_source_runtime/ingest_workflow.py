@@ -6,7 +6,9 @@ import asyncio
 import hashlib
 import mimetypes
 from pathlib import PurePosixPath
-from typing import BinaryIO
+import logging
+import re
+from typing import Any, BinaryIO
 from uuid import UUID, uuid4
 
 from aap_assets_source.archive import ArchiveLimits, ArchiveSafetyError, SafeZipArchive
@@ -17,6 +19,12 @@ from aap_assets_source.scene_layout import (
     SceneLayoutInput,
     is_role_dir_name,
     plan_scenes,
+)
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalFailure,
+    ManagedOriginalFailureEvidence,
+    ManagedOriginalMaterial,
+    observed_current_head_match,
 )
 from aap_assets_source.ingest_contract import (
     INGEST_BATCH_SIZE,
@@ -53,6 +61,8 @@ from .ingest_storage import (
     run_in_thread,
 )
 from .image_admission import ImageAdmissionPort
+
+logger = logging.getLogger("aap_assets_source_runtime.ingest_workflow")
 
 _READ_BYTES = 8 * 1024 * 1024
 _SCAN_IMAGE_EXTENSIONS = frozenset(
@@ -159,23 +169,75 @@ class IngestWorkflow:
                         continue
                     if planned.status != "pending":
                         continue
+                    target: ManagedOriginalMaterial | None = None
+                    operation = None
                     try:
-                        with archive.open(archive_entry.normalized_path) as member:
-                            facts = await self._storage.publish(
-                                member,
-                                key=planned.file_path,
-                                content_type=planned.content_type,
-                                expected_size=proposal.file_size,
-                                expected_hash=proposal.content_hash,
+                        target = await self._data.allocate(
+                            _ingest_original_request(command, planned, batch_id)
+                        )
+                        operation = await self._data.open_operation(target.creation_id)
+                        if operation.mode == "read":
+                            facts = await self._storage.verify_managed(
+                                target,
+                                sha256=target.sha256,
+                                size_bytes=target.size_bytes,
                                 image=proposal.file_type == "image",
                             )
-                        _validate_published_facts(proposal, facts)
+                            _validate_published_facts(proposal, facts)
+                            await self._close_read_operation(target, operation)
+                        else:
+                            with archive.open(archive_entry.normalized_path) as member:
+                                facts, proof = await self._storage.publish(
+                                    member,
+                                    target,
+                                    content_type=planned.content_type,
+                                    expected_size=proposal.file_size,
+                                    expected_hash=proposal.content_hash,
+                                    image=proposal.file_type == "image",
+                                    on_prepared=lambda prepared: (
+                                        self._data.original_prepared(
+                                            target.creation_id, prepared.evidence()
+                                        )
+                                    ),
+                                    on_writing=lambda: self._data.original_writing(
+                                        target.creation_id
+                                    ),
+                                    on_written=lambda receipt: (
+                                        self._data.original_written(
+                                            target.creation_id,
+                                            {
+                                                "etag": receipt.etag,
+                                                "version_id": receipt.version_id,
+                                                "request_id": receipt.request_id,
+                                                "response": receipt.response,
+                                            },
+                                        )
+                                    ),
+                                )
+                            _validate_published_facts(proposal, facts)
+                            await self._finish_original(target, proof)
+                    except ManagedOriginalFailure as exc:
+                        completions.append(
+                            _failed_completion(planned, "storage_write_failed")
+                        )
+                        expected_errors.append(
+                            (_safe_label(proposal.source_name), "storage_write_failed")
+                        )
+                        logger.info(
+                            "Ingest original refused operation=%s code=%s",
+                            command.operation_id,
+                            exc.code,
+                        )
                     except IngestEntryFailure as exc:
+                        await self._fail_original(target, "write", exc.code, exc)
                         completions.append(_failed_completion(planned, exc.code))
                         expected_errors.append(
                             (_safe_label(proposal.source_name), exc.code)
                         )
-                    except Exception:  # noqa: BLE001 - ZIP reader failures are per-entry.
+                    except Exception as exc:  # noqa: BLE001 - ZIP reader failures are per-entry.
+                        await self._fail_original(
+                            target, "write", "archive_entry_read_failed", exc
+                        )
                         completions.append(
                             _failed_completion(planned, "archive_entry_read_failed")
                         )
@@ -300,17 +362,82 @@ class IngestWorkflow:
                 continue
             if key != proposal.source_key or planned.file_path != key:
                 raise IngestFailure("invalid_response")
+            target: ManagedOriginalMaterial | None = None
+            operation = None
             try:
-                facts = await self._storage.observe_legacy(
-                    key,
-                    prefix=prefix,
-                    etag=etag,
-                    size=size,
-                    image=proposal.file_type == "image",
+                target = await self._data.allocate(
+                    _ingest_original_request(command, planned, batch_id)
                 )
-                _validate_observed_facts(proposal, facts)
+                operation = await self._data.open_operation(target.creation_id)
+                if operation.mode == "read":
+                    facts = await self._storage.verify_managed(
+                        target,
+                        sha256=target.sha256,
+                        size_bytes=target.size_bytes,
+                        image=proposal.file_type == "image",
+                    )
+                    _validate_observed_facts(proposal, facts)
+                    await self._close_read_operation(target, operation)
+                else:
+                    if target.mode == "adopt":
+                        facts, proof = await self._storage.adopt(
+                            target,
+                            expected_size=proposal.file_size,
+                            image=proposal.file_type == "image",
+                        )
+                    else:
+                        facts, proof = await self._storage.publish_from_existing(
+                            proposal.source_key,
+                            target,
+                            content_type=proposal.content_type,
+                            expected_size=proposal.file_size,
+                            expected_hash=proposal.content_hash,
+                            image=proposal.file_type == "image",
+                            on_prepared=lambda prepared: self._data.original_prepared(
+                                target.creation_id, prepared.evidence()
+                            ),
+                            on_writing=lambda: self._data.original_writing(
+                                target.creation_id
+                            ),
+                            on_written=lambda receipt: self._data.original_written(
+                                target.creation_id,
+                                {
+                                    "etag": receipt.etag,
+                                    "version_id": receipt.version_id,
+                                    "request_id": receipt.request_id,
+                                    "response": receipt.response,
+                                },
+                            ),
+                        )
+                    _validate_observed_facts(proposal, facts)
+                    if target.mode == "adopt":
+                        await self._data.original_prepared(
+                            target.creation_id, proof.prepared
+                        )
+                        await self._data.original_writing(target.creation_id)
+                        await self._data.original_written(
+                            target.creation_id,
+                            {
+                                "etag": proof.etag,
+                                "version_id": proof.version_id,
+                                "request_id": proof.request_id,
+                                "response": {},
+                            },
+                        )
+                    await self._finish_original(target, proof)
+            except ManagedOriginalFailure as exc:
+                logger.info(
+                    "Ingest adoption refused operation=%s code=%s",
+                    command.operation_id,
+                    exc.code,
+                )
+                completions.append(_failed_completion(planned, "source_read_failed"))
             except IngestEntryFailure as exc:
+                await self._fail_original(target, "write", exc.code, exc)
                 completions.append(_failed_completion(planned, exc.code))
+            except Exception as exc:  # noqa: BLE001 - per-entry storage failures
+                await self._fail_original(target, "write", "source_read_failed", exc)
+                completions.append(_failed_completion(planned, "source_read_failed"))
             else:
                 completions.append(_ready_completion(planned, facts))
                 if proposal.file_type == "image":
@@ -319,6 +446,50 @@ class IngestWorkflow:
         _validate_completion(command, batch_id, plan, completions, settled)
         await self._admit_batch_images(plan, completions, image_facts)
         return settled.progress
+
+    async def _finish_original(self, target, proof) -> None:
+        verification = {
+            "sha256": proof.sha256,
+            "md5": proof.md5,
+            "size_bytes": proof.size_bytes,
+            "etag": proof.etag,
+            "version_id": proof.version_id,
+            "observation": (proof.verification or {}).get("observation"),
+            "physical_settled": True,
+        }
+        matched = observed_current_head_match(
+            proof.verification, size_bytes=proof.size_bytes
+        )
+        if matched is not None:
+            verification["current_head_matches"] = matched
+        await self._data.original_verified(target.creation_id, verification)
+
+    async def _close_read_operation(self, target, operation) -> None:
+        """Settle the read permit only after the readback handle has drained."""
+        await self._data.close_operation(
+            target.creation_id, operation.operation_id, True
+        )
+
+    async def _fail_original(
+        self,
+        target: ManagedOriginalMaterial | None,
+        stage: str,
+        code: str,
+        exc: BaseException | None,
+    ) -> None:
+        """Durably settle a failed attempt; never publish its bytes."""
+        if target is None:
+            return
+        evidence = _failure_evidence(stage, exc)
+        try:
+            await self._data.fail_original(
+                target.creation_id,
+                "unknown" if not evidence["physical_settled"] else "failed",
+                _safe_error_code("ingest_" + code),
+                evidence,
+            )
+        except Exception:
+            logger.warning("Ingest creation failure could not be settled code=%s", code)
 
     async def _admit_batch_images(
         self,
@@ -785,6 +956,84 @@ def _validate_zip_target(
         or planned.file_name != PurePosixPath(source.relpath).name
     ):
         raise IngestFailure("invalid_response")
+
+
+def _safe_error_code(code: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", (code or "").lower()).strip("_")
+    if not cleaned or not cleaned[0].isalpha():
+        cleaned = f"ingest_{cleaned or 'io_failed'}"
+    return cleaned[:80]
+
+
+def _failure_evidence(
+    stage: str,
+    exc: BaseException | None,
+    *,
+    receipt: dict[str, Any] | None = None,
+    observation: dict[str, Any] | None = None,
+    sha256: str | None = None,
+    md5: str | None = None,
+    size_bytes: int | None = None,
+    current_head_matches: bool | None = None,
+) -> dict[str, Any]:
+    uncertain = bool(
+        exc is not None
+        and (
+            getattr(exc, "storage_operation_unsettled", False)
+            or getattr(exc, "outcome", None) == "unknown"
+        )
+    )
+    if uncertain:
+        physical_outcome = "unknown"
+    elif receipt is not None:
+        physical_outcome = "written"
+    else:
+        physical_outcome = "not_written"
+    return ManagedOriginalFailureEvidence.build(
+        physical_settled=not uncertain,
+        physical_outcome=physical_outcome,
+        stage=stage,
+        receipt=receipt,
+        observation=observation,
+        sha256=sha256,
+        md5=md5,
+        size_bytes=size_bytes,
+        physical_size_bytes=size_bytes,
+        current_head_matches=current_head_matches,
+    )
+
+
+def _ingest_original_request(
+    command: IngestCommand,
+    planned: IngestPlannedEntry,
+    batch_id: UUID,
+) -> dict[str, Any]:
+    mode = "write" if planned.source_key is None else "adopt"
+    publication_id = planned.publication_id or uuid4()
+    authority = {
+        "kind": "dataset_source_ingest",
+        "operation_id": str(command.operation_id),
+        "batch_id": str(batch_id),
+        "entry_index": planned.index,
+        "item_id": str(planned.item_id),
+    }
+    if planned.publication_id is not None:
+        authority["publication_id"] = str(planned.publication_id)
+    return {
+        "dataset_id": str(command.dataset_id),
+        "item_id": str(planned.item_id),
+        "publication_id": str(publication_id),
+        "origin": "zip" if mode == "write" else "directory_copy",
+        "mode": mode,
+        "file_path": planned.file_path,
+        "logical_path": planned.relpath,
+        "file_type": planned.file_type,
+        "content_type": planned.content_type,
+        "max_bytes": planned.file_size,
+        "authority": authority,
+        "staging": None,
+        "requested_by": str(command.actor_id),
+    }
 
 
 def _ready_completion(

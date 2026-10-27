@@ -1,6 +1,3 @@
-import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "../fixtures/seed";
 import { startAiRequestBackend } from "../fixtures/ai-request-backend";
 import {
@@ -10,106 +7,6 @@ import {
 } from "../fixtures/context-toolbar";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
-const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../api");
-
-function prepareRasterImage(taskId: string) {
-  // The seed fixture uses SVGs; the actual ROI pipeline needs a decodable raster.
-  execFileSync(
-    "uv",
-    [
-      "run",
-      "python",
-      "-c",
-      `
-import asyncio, io, os, re, sys, uuid
-from PIL import Image
-from sqlalchemy import text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
-from app.services.storage import StorageService
-task_id = str(uuid.UUID(sys.argv[1]))
-url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
-assert (url.database or "").endswith(("_e2e", "_test"))
-async def prepare():
-    engine = create_async_engine(url)
-    try:
-        async with engine.begin() as connection:
-            row = (await connection.execute(text("SELECT dataset_item_id, file_path FROM tasks WHERE id=:id FOR UPDATE"), {"id": task_id})).one()
-            # Owned fixtures name the seed SVG after their namespace; derive the
-            # directory from the task itself so the replacement PNG stays inside
-            # the same owned prefix and owned-cleanup removes it.
-            owned = re.fullmatch(r"e2e/owned/([a-z0-9]{4,12})/image/task-[0-9]+[.]svg", row.file_path or "")
-            assert owned, f"expected an owned image fixture task path, got {row.file_path!r}"
-            storage = StorageService()
-            buffer = io.BytesIO()
-            Image.new("RGB", (256, 256), "#d7e4ee").save(buffer, format="PNG")
-            key = f"e2e/owned/{owned.group(1)}/image/context-toolbar-{task_id}.png"
-            storage.client.put_object(Bucket=storage.datasets_bucket, Key=key, Body=buffer.getvalue(), ContentType="image/png")
-            await connection.execute(text("UPDATE tasks SET file_path=:key, file_name='context-toolbar.png' WHERE id=:id"), {"id": task_id, "key": key})
-            await connection.execute(text("UPDATE dataset_items SET file_path=:key, file_name='context-toolbar.png', width=256, height=256, file_size=:size WHERE id=:id"), {"id": row.dataset_item_id, "key": key, "size": buffer.tell()})
-    finally:
-        await engine.dispose()
-asyncio.run(prepare())
-`,
-      taskId,
-    ],
-    { cwd: apiRoot, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", DEBUG: "false" } },
-  );
-}
-
-// The real secondary endpoint creates this exact temporary crop. Delete only
-// this test's source annotation key, never another session's ROI prefix.
-function removeTestImages(taskId: string, annotationId?: string) {
-  execFileSync(
-    "uv",
-    [
-      "run",
-      "python",
-      "-c",
-      `
-import asyncio, os, re, sys, uuid
-from sqlalchemy import text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
-from app.services.storage import StorageService
-task_id = str(uuid.UUID(sys.argv[1]))
-annotation_id = str(uuid.UUID(sys.argv[2])) if len(sys.argv) > 2 else None
-url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
-assert (url.database or "").endswith(("_e2e", "_test"))
-def assert_absent(storage, bucket, key):
-    assert not storage.client.list_objects_v2(Bucket=bucket, Prefix=key).get("Contents"), f"leftover {bucket}/{key}"
-async def cleanup():
-    engine = create_async_engine(url)
-    # One shared client for every deletion and postcondition check in this run.
-    storage = StorageService()
-    try:
-        async with engine.begin() as connection:
-            file_path = await connection.scalar(text("SELECT file_path FROM tasks WHERE id=:id"), {"id": task_id})
-        if file_path:
-            # Delete only this test's replacement PNG, at the exact owned
-            # namespace and exact taskId filename derived from the row; the seed
-            # SVG is left to fixture teardown.
-            replacement = re.fullmatch(
-                rf"e2e/owned/([a-z0-9]{{4,12}})/image/context-toolbar-{re.escape(task_id)}[.]png",
-                file_path,
-            )
-            if replacement:
-                storage.client.delete_object(Bucket=storage.datasets_bucket, Key=file_path)
-                assert_absent(storage, storage.datasets_bucket, file_path)
-        if annotation_id is not None:
-            key = f"roi-crops/secondary/{annotation_id}/0.jpg"
-            storage.client.delete_object(Bucket=storage.import_bucket, Key=key)
-            assert_absent(storage, storage.import_bucket, key)
-    finally:
-        await engine.dispose()
-asyncio.run(cleanup())
-`,
-      taskId,
-      ...(annotationId ? [annotationId] : []),
-    ],
-    { cwd: apiRoot, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", DEBUG: "false" } },
-  );
-}
 
 test("secondary capsule preserves configuration and real child writes across collapse and reload", async ({
   page,
@@ -122,7 +19,6 @@ test("secondary capsule preserves configuration and real child writes across col
   const taskId = data.task_ids[0];
   const backend = await startAiRequestBackend({ secondary: true });
   let detach: (() => Promise<void>) | undefined;
-  let annotationId: string | undefined;
   const errors: string[] = [];
   const apiErrors: Array<{ status: number; path: string }> = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -138,7 +34,6 @@ test("secondary capsule preserves configuration and real child writes across col
       token,
       defaultBackendId: data.ml_backend_id,
     });
-    prepareRasterImage(taskId);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
     const parent = await seed.createTaskAnnotation(taskId, data.admin_email, {
       annotation_type: "bbox",
@@ -146,7 +41,6 @@ test("secondary capsule preserves configuration and real child writes across col
       class_name: "car",
       geometry: { type: "bbox", x: 0.1, y: 0.1, w: 0.7, h: 0.7 },
     });
-    annotationId = parent.id;
     await seed.injectToken(page, data.admin_email);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
@@ -295,14 +189,9 @@ test("secondary capsule preserves configuration and real child writes across col
     backend.release();
     await page.goto("about:blank", { timeout: 5_000 }).catch(() => {});
     try {
-      removeTestImages(taskId, annotationId);
+      await detach?.();
     } finally {
-      try {
-        await detach?.();
-      } finally {
-        await backend.close();
-        await seed.owned();
-      }
+      await backend.close();
     }
   }
 });

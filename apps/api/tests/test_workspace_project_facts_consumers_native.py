@@ -130,9 +130,9 @@ async def test_node_reads_workspace_and_labeling_project_facts_without_private_s
             if column not in PROJECT_COUNTER_COLUMNS
         ]
         counter_columns = ["project_id", *sorted(PROJECT_COUNTER_COLUMNS)]
-        assert len(workspace_columns) == 38
+        assert len(workspace_columns) == 39
         assert len(counter_columns) == 6
-        assert len(PROJECT_ROW_COLUMNS) == 43
+        assert len(PROJECT_ROW_COLUMNS) == 44
 
         process = await asyncio.create_subprocess_exec(
             "node",
@@ -161,9 +161,9 @@ async def test_node_reads_workspace_and_labeling_project_facts_without_private_s
         assert process.returncode == 0, stderr.decode()
         assert json.loads(stdout) == {
             "ok": True,
-            "workspace_columns": 38,
+            "workspace_columns": 39,
             "counter_columns": 6,
-            "project_columns": 43,
+            "project_columns": 44,
             "read_only": True,
             "same_transaction": True,
         }

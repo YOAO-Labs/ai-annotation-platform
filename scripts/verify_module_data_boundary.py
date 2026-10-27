@@ -93,6 +93,8 @@ JOBS_ROW_LOCK_FUNCTIONS = (
     "aap_jobs_v1.read_job_for_share_nowait(uuid)",
 )
 JOBS_LIFECYCLE_FUNCTIONS = (
+    "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
+    "aap_jobs_v1.read_job_execution_snapshot(uuid)",
     "aap_jobs_v1.read_job(uuid)",
     "aap_jobs_v1.jobs_by_execution_id(text)",
     "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
@@ -116,6 +118,9 @@ NOTIFICATION_DELIVERY_READ_FUNCTIONS = (
     "aap_notifications_v1.delivery_super_pairs(jsonb)",
 )
 NOTIFICATION_INBOX_FUNCTIONS = (
+    "aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
+    "aap_notifications_v1.inbox_total_count_scoped(uuid,text)",
+    "aap_notifications_v1.inbox_unread_count_scoped(uuid,text)",
     "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
     "aap_notifications_v1.inbox_total_count(uuid,text)",
     "aap_notifications_v1.inbox_unread_count(uuid,text)",
@@ -131,7 +136,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
     "aap_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
     "aap_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
-    "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0369_inference_backend_endpoint.sql",
+    "aap_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])": "0386_inference_repair_model_lock.sql",
+    "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0371_inference_backend_endpoint_auth_revision.sql",
     "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)": "0369_inference_backend_endpoint.sql",
     "aap_inference_gpu_v1.gpu_authority_step(text,text)": "0370_inference_gpu.sql",
     "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
@@ -142,10 +148,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])": "0361_labeling_compatibility_reads.sql",
-    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0361_labeling_compatibility_reads.sql",
+    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0371_labeling_core_main_integration.sql",
     "aap_labeling_v1.next_batch_display_id()": "0361_labeling_compatibility_reads.sql",
     "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)": "0352_labeling_core_read.sql",
-    "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0371_labeling_core_main_integration.sql",
     "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
     "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
     "aap_labeling_v1.video_segment_lifecycle_command(jsonb)": "0360_labeling_video_segment_lifecycle.sql",
@@ -154,16 +160,16 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_without_suffix(text)": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)": "0351_labeling_annotation_transfer.sql",
-    "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)": "0371_labeling_core_main_integration.sql",
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
     "aap_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
-    "aap_labeling_v1.mask_repair_command(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
     "aap_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
     "aap_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
     "aap_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
     "aap_labeling_v1.spatial_quality_command(jsonb)": "0354_labeling_spatial_quality.sql",
-    "aap_labeling_v1.task_maintenance_command(jsonb)": "0355_labeling_task_maintenance.sql",
+    "aap_labeling_v1.task_maintenance_command(jsonb)": "0383_labeling_task_delete_retention.sql",
     "aap_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
@@ -173,15 +179,13 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)": "0349_labeling_scene_read.sql",
-    "aap_labeling_v1.prediction_record_command(jsonb)": "0342_labeling_prediction_records.sql",
+    "aap_labeling_v1.prediction_record_command(jsonb)": "0372_prediction_failure_snapshot.sql",
     "aap_labeling_v1.prediction_partition_command(jsonb)": "0357_labeling_prediction_partitions.sql",
-    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text)": "0359_labeling_upload_tasks.sql",
-    "aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text)": "0359_labeling_upload_tasks.sql",
     "aap_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
     "aap_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
     "aap_labeling_v1.annotation_prediction_command(jsonb)": "0345_labeling_annotation_prediction.sql",
     "aap_labeling_v1.annotation_maintenance_command(jsonb)": "0346_labeling_annotation_maintenance.sql",
-    "aap_labeling_v1.annotation_bulk_command(jsonb)": "0339_labeling_annotation_bulk.sql",
+    "aap_labeling_v1.annotation_bulk_command(jsonb)": "0387_labeling_annotation_lineage.sql",
     "aap_labeling_v1.video_bbox_editing_command(jsonb)": "0340_labeling_video_bbox_editing.sql",
     "aap_labeling_v1.batch_control_command(jsonb)": "0341_labeling_batch_control.sql",
     "aap_labeling_v1.annotation_statistics_command(jsonb)": "0336_labeling_annotation_statistics.sql",
@@ -227,12 +231,108 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_audit_v1.maintenance_command(jsonb)": "0366_audit_fixture_cleanup.sql",
     "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
     "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
-    "aap_notifications_v1.delete_command(pg_catalog.jsonb)": "0318_notifications_delete.sql",
+    "aap_notifications_v1.delete_command(pg_catalog.jsonb)": "0371_notifications_main_integration.sql",
     **{
         signature: "0324_notifications_inbox_query.sql"
         for signature in (
             *NOTIFICATION_INBOX_FUNCTIONS,
             NOTIFICATION_INBOX_PRIVATE_HELPER,
+        )
+    },
+    "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)": "0373_prediction_execution_snapshot_binding.sql",
+    "aap_notifications_v1._visible_inbox_rows(uuid,text)": "0371_notifications_main_integration.sql",
+    **{
+        signature: "0371_notifications_main_integration.sql"
+        for signature in (
+            "aap_notifications_v1._notification_is_migration_inventory(uuid)",
+            "aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)",
+            "aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
+            "aap_notifications_v1.inbox_total_count_scoped(uuid,text)",
+            "aap_notifications_v1.inbox_unread_count_scoped(uuid,text)",
+            "aap_notifications_v1.read_state_command(jsonb)",
+            "aap_notifications_v1.read_state_command_scoped(jsonb)",
+            "aap_notifications_v1.delete_command_scoped(jsonb)",
+        )
+    },
+    **{
+        signature: "0374_workspace_guide_publication.sql"
+        for signature in (
+            "aap_workspace_configuration_v1._guide_entry_matches(jsonb,uuid,uuid,text,text,integer,timestamptz)",
+            "aap_workspace_configuration_v1._guide_lock_project(uuid,text)",
+            "aap_workspace_configuration_v1._guide_authority(uuid,uuid)",
+            "aap_workspace_configuration_v1._guide_storage_gate(uuid,bigint)",
+            "aap_workspace_configuration_v1._guide_failure(jsonb,text,integer,text)",
+            "aap_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb)",
+            "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])",
+        )
+    },
+    **{
+        signature: "0375_original_authority_receipts.sql"
+        for signature in (
+            "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+            "aap_jobs_v1.read_job_execution_snapshot(uuid)",
+            "aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)",
+            "aap_assets_v1.read_task_original_binding(uuid)",
+            "aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)",
+            "aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)",
+            "aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)",
+            "aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)",
+        )
+    },
+    **{
+        signature: "0376_assets_connection_runtime.sql"
+        for signature in (
+            "aap_assets_v1._connection_probe_reply(jsonb,text)",
+            "aap_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb)",
+            "aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])",
+            "aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)",
+            "aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)",
+        )
+    },
+    "aap_identity_accounts_v1.apply_account_command(jsonb)": "0378_identity_avatar_authority.sql",
+    **{
+        signature: "0377_workspace_project_snapshots.sql"
+        for signature in (
+            "aap_workspace_project_query_v1._project_row_json(jsonb,integer,integer,integer,integer,text)",
+            "aap_workspace_configuration_v1._class_rename_project_row(uuid,text)",
+            "aap_workspace_configuration_v1._guide_asset_read_project_row(uuid)",
+            "aap_workspace_project_query_v1._project_query_step_impl(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
+        )
+    },
+    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)": "0380_labeling_upload_task_retirement.sql",
+    "aap_jobs_v1.read_job_progress(uuid)": "0382_jobs_row_progress_facts.sql",
+    "aap_jobs_v1.read_job_progress_for_update(uuid,text,text)": "0384_jobs_row_progress_write.sql",
+    "aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)": "0384_jobs_row_progress_write.sql",
+    **{
+        signature: "0379_operator_item_locator.sql"
+        for signature in (
+            "aap_assets_v1.publish_operator_item_original(jsonb)",
+            "aap_assets_v1.operator_item_original_facts(uuid,uuid)",
+            "aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0379_operator_auxiliary.sql"
+        for signature in (
+            "aap_assets_v1._managed_original_import_prefix(text)",
+            "aap_assets_v1._managed_original_scope_key(text,text)",
+            "aap_assets_v1._operator_read_permit_purpose(uuid)",
+            "aap_assets_v1.begin_operator_auxiliary(jsonb)",
+            "aap_assets_v1.publish_operator_auxiliary(uuid)",
+            "aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)",
+            "aap_assets_v1.operator_auxiliary_material(uuid,uuid)",
+            "aap_assets_v1.operator_item_original_material(uuid,uuid)",
+            "aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)",
+            "aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid)",
+            "aap_assets_v1.operator_dataset_state(uuid)",
+            "aap_assets_v1.operator_scene_state(uuid,uuid)",
+            "aap_assets_v1.open_operator_storage_operation(uuid)",
+            "aap_assets_v1.record_operator_original_prepared(uuid,jsonb)",
+            "aap_assets_v1.mark_operator_original_writing(uuid)",
+            "aap_assets_v1.record_operator_original_written(uuid,jsonb)",
+            "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
+            "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
+            "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
         )
     },
 }
@@ -331,7 +431,7 @@ READ_RELATION_SPECS = {
         ],
     },
     "aap_labeling_v1.task_rows": {
-        "sql": "0352_labeling_core_read.sql",
+        "sql": "0371_labeling_core_main_integration.sql",
         "owner": "labeling_code",
         "columns": [
             ("id", "uuid"),
@@ -380,6 +480,8 @@ READ_RELATION_SPECS = {
             ("last_reopened_at", "timestamp with time zone"),
             ("created_at", "timestamp with time zone"),
             ("updated_at", "timestamp with time zone"),
+            ("thumbnail_output_id", "uuid"),
+            ("original_id", "uuid"),
         ],
     },
     "aap_labeling_v1.batch_rows": {
@@ -494,7 +596,7 @@ READ_RELATION_SPECS = {
         ],
     },
     "aap_labeling_v1.failed_prediction_rows": {
-        "sql": "0352_labeling_core_read.sql",
+        "sql": "0371_labeling_core_main_integration.sql",
         "owner": "labeling_code",
         "columns": [
             ("id", "uuid"),
@@ -510,6 +612,7 @@ READ_RELATION_SPECS = {
             ("dismissed_at", "timestamp with time zone"),
             ("extra", "jsonb"),
             ("created_at", "timestamp with time zone"),
+            ("execution_snapshot_id", "uuid"),
         ],
     },
     "aap_labeling_v1.task_lock_rows": {
@@ -1038,8 +1141,39 @@ SQL_ARTIFACTS = (
     "0369_inference_health.sql",
     "0369_inference_gpu.sql",
     "0370_inference_gpu.sql",
+    "0371_labeling_core_main_integration.sql",
+    "0371_assets_owner_main_integration.sql",
+    "0371_assets_publication_storage_gate.sql",
+    "0371_identity_avatar_account_command.sql",
+    "0371_notifications_main_integration.sql",
+    "0371_project_deletion_storage_retirement.sql",
+    "0371_inference_backend_endpoint_auth_revision.sql",
+    "0371_inference_routing_auth_rotation.sql",
+    "0371_media_owner_item_links.sql",
+    "0372_prediction_failure_snapshot.sql",
+    "0373_prediction_execution_snapshot_binding.sql",
+    "0374_workspace_guide_publication.sql",
+    "0375_original_authority_receipts.sql",
+    "0376_assets_connection_runtime.sql",
+    "0377_workspace_project_snapshots.sql",
+    "0378_identity_avatar_authority.sql",
+    "0379_operator_item_locator.sql",
+    "0379_operator_auxiliary.sql",
+    "0380_labeling_upload_task_retirement.sql",
+    "0381_main_storage_invariant_search_path.sql",
+    "0382_jobs_row_progress_facts.sql",
+    "0383_labeling_task_delete_retention.sql",
+    "0384_jobs_row_progress_write.sql",
+    "0385_labeling_repair_rollback_shard.sql",
+    "0386_inference_repair_model_lock.sql",
+    "0387_labeling_annotation_lineage.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0371_assets_owner_main_integration.schema.json",
+    "0371_assets_managed_originals.schema.json",
+    "0377_workspace_project_snapshots.schema.json",
+    "0377_asset_association_reads.schema.json",
+    "0379_operator_item_locator.schema.json",
     "0362_labeling_e2e_fixture_writes.schema.json",
     "0367_labeling_filtering_rendering.schema.json",
     "0368_jobs_dispatch_ledger.schema.json",
@@ -1226,7 +1360,7 @@ TEST_FILES = (
     "tests/test_video_frame_service.py",
     "tests/test_video_control_worker_binding.py",
     "tests/test_jobs_fixture_cleanup_binding.py",
-    "tests/test_legacy_files_upload.py",
+    "tests/test_task_upload_managed_contract.py",
     "tests/test_inference_pool_reference_native.py",
     "tests/test_labeling_video_control_native.py",
     "tests/test_labeling_annotation_transfer_native.py",
@@ -1240,7 +1374,6 @@ TEST_FILES = (
     "tests/test_audit_metadata_delivery_live.py",
     "tests/test_audit_consumers_cold.py",
     "tests/test_audit_maintenance_consumers_cold.py",
-    "tests/test_labeling_scale_seed_operations.py",
     "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
     "tests/test_gpu_registry_delete_noop_native.py",
@@ -4407,7 +4540,8 @@ def main(argv: list[str] | None = None) -> int:
             "read_relations_frozen_sql_transaction": None,
             "read_relations_after_upgrade": None,
             "read_relations_after_owner_grants": None,
-            "downgraded_to_0189": False,
+            "base_revision": "0267",
+            "downgraded_to_main_base": False,
             "frozen_sql_installed_and_rolled_back": False,
             "upgraded_to_head": False,
             "head_after_upgrade": None,
@@ -5344,8 +5478,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0370"]:
-            raise RuntimeError("module-data acceptance requires migration head 0370")
+        if len(heads) != 1:
+            raise RuntimeError("module-data acceptance requires one migration head")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -5375,14 +5509,15 @@ def main(argv: list[str] | None = None) -> int:
         evidence["migrations"]["installed_function_body_sha256"] = (
             installed_function_bodies
         )
-        phase = "downgrade-to-0189"
+        phase = "downgrade-to-main-base"
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
-        _run_alembic(backend, "downgrade", "0189")
-        if asyncio.run(backend.revisions()) != ["0189"]:
-            raise RuntimeError("disposable database did not reach revision 0189")
-        evidence["migrations"]["downgraded_to_0189"] = True
+        base_revision = evidence["migrations"]["base_revision"]
+        _run_alembic(backend, "downgrade", base_revision)
+        if asyncio.run(backend.revisions()) != [base_revision]:
+            raise RuntimeError("disposable database did not reach the main schema base")
+        evidence["migrations"]["downgraded_to_main_base"] = True
         phase = "native-frozen-sql-roundtrip"
         _container_details(
             container_id, container_name, container_identity, require_running=True
@@ -6111,9 +6246,11 @@ def main(argv: list[str] | None = None) -> int:
                     connection,
                     schema="aap_notifications_v1",
                     functions={
-                        ("inbox_page", "uuid, text, boolean, integer, integer"),
-                        ("inbox_total_count", "uuid, text"),
-                        ("inbox_unread_count", "uuid, text"),
+                        (
+                            signature.split(".", 1)[1].split("(", 1)[0],
+                            signature.split("(", 1)[1][:-1].replace(",", ", "),
+                        )
+                        for signature in NOTIFICATION_INBOX_FUNCTIONS
                     },
                     role=NOTIFICATION_INBOX_ROLE,
                 )
@@ -8782,7 +8919,10 @@ SELECT pg_catalog.jsonb_build_object(
             'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
         'check_accepted_api_key', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'))
+            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
+        'read_accepted_api_key_facts', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)', 'EXECUTE'))
 )::text;
 """,
             ).strip()
@@ -8796,6 +8936,7 @@ SELECT pg_catalog.jsonb_build_object(
             "lock_accounts_update": True,
             "lock_accounts_key_share": True,
             "check_accepted_api_key": True,
+            "read_accepted_api_key_facts": True,
         }:
             raise RuntimeError(
                 "Identity API consumer is missing an approved read capability"

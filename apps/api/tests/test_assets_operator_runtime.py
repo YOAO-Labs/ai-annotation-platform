@@ -354,7 +354,8 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
             == receipts_before
         )
         retained = storage.client.list_objects_v2(
-            Bucket=storage.datasets_bucket, Prefix=failed_dataset.root + "/"
+            Bucket=storage.datasets_bucket,
+            Prefix=f"__aap_managed_datasets__/{failed_dataset.id}/",
         )
         assert retained["KeyCount"] > 0
         _evidence(

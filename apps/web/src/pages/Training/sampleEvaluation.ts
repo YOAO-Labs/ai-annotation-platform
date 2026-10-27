@@ -1,3 +1,4 @@
+import { listPageSize } from "@/components/ui/ListPagination";
 import type {
   EvaluationFilters,
   EvaluationSourceOut,
@@ -54,6 +55,7 @@ export function parseEvaluationState(params: URLSearchParams) {
   const secondId = identity("second");
   const classIndex = number("class", 999, true);
   const page = number("page", 1000000, true) ?? 0;
+  const pageSize = listPageSize(params.get("page_size"));
   const ordinal = number("sample", 31, true);
   const confidenceMin = number("confidence_min", 1, false);
   const confidenceMax = number("confidence_max", 1, false);
@@ -72,8 +74,8 @@ export function parseEvaluationState(params: URLSearchParams) {
       error: error === null ? undefined : (error as EvaluationFilters["error"]),
       confidence_min: confidenceMin,
       confidence_max: confidenceMax,
-      offset: page * 12,
-      limit: 12,
+      offset: page * pageSize,
+      limit: pageSize,
     } satisfies EvaluationFilters,
     error: errors.join("；"),
   };

@@ -1,7 +1,7 @@
 """Add versioned identity, workspace, and dataset-link authority capabilities.
 
-Revision ID: 0192
-Revises: 0191
+Revision ID: bo0192
+Revises: bo0191
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0192"
-down_revision = "0191"
+revision = "bo0192"
+down_revision = "bo0191"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0192_creation_authority.sql"

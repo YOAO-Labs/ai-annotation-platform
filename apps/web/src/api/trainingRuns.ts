@@ -9,7 +9,6 @@ import type {
   TrainingEvaluationOut,
   TrainingInitialization,
   TrainingInitializationEligibility,
-  FrozenTrainingInitialization,
   TrainingRunDetail,
 } from "./generated/types.gen";
 
@@ -21,7 +20,17 @@ export type {
   TrainingEvaluationOut,
   TrainingInitialization,
   TrainingInitializationEligibility,
-  FrozenTrainingInitialization,
+};
+
+export type FrozenTrainingInitialization = NonNullable<TrainingInitializationEligibility["pin"]>;
+
+export type TrainingCatalogModel = TrainingTemplate["base_models"][number] & {
+  model_family?: string | null;
+  model_size?: string | null;
+};
+
+export type TrainingCatalogTemplate = Omit<TrainingTemplate, "base_models"> & {
+  base_models: TrainingCatalogModel[];
 };
 
 export interface TrainingCatalog {
@@ -31,7 +40,7 @@ export interface TrainingCatalog {
   resource_id: string | null;
   initialization_policy_digest?: string | null;
   native_budget_policy_digest?: string | null;
-  items: TrainingTemplate[];
+  items: TrainingCatalogTemplate[];
 }
 
 export interface TrainingEpochEvent {
@@ -40,6 +49,15 @@ export interface TrainingEpochEvent {
   epoch: number | null;
   metrics: Record<string, number>;
 }
+
+export type TrainingRunFilters = {
+  q?: string;
+  status?: string;
+  task?: string;
+  framework?: string;
+  created_from?: string;
+  created_to?: string;
+};
 
 const base = (projectId: string) => `/projects/${projectId}/training-runs`;
 export const trainingRunsApi = {
@@ -70,11 +88,22 @@ export const trainingRunsApi = {
     ),
   catalog: (projectId: string, options?: RequestInit) =>
     apiClient.get<TrainingCatalog>(`${base(projectId)}/catalog`, options),
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
-    apiClient.get<{ total: number; items: TrainingRunOut[] }>(
-      `${base(projectId)}?limit=20&offset=${offset}`,
+  list: (
+    projectId: string,
+    offset = 0,
+    options?: RequestInit,
+    filters: TrainingRunFilters = {},
+    limit = 20,
+  ) => {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    return apiClient.get<{ total: number; items: TrainingRunOut[] }>(
+      `${base(projectId)}?${query}`,
       options,
-    ),
+    );
+  },
   get: (projectId: string, id: string, options?: RequestInit) =>
     apiClient.get<TrainingRunDetail>(`${base(projectId)}/${id}`, options),
   events: (projectId: string, id: string, attemptId?: string, after = 0, options?: RequestInit) =>
@@ -88,9 +117,10 @@ export const trainingRunsApi = {
     attemptId: string,
     offset = 0,
     options?: RequestInit,
+    limit = 20,
   ) =>
     apiClient.get<TrainingEvaluationOut>(
-      `${base(projectId)}/${id}/attempts/${attemptId}/evaluation?limit=50&offset=${offset}`,
+      `${base(projectId)}/${id}/attempts/${attemptId}/evaluation?limit=${limit}&offset=${offset}`,
       options,
     ),
   preflight: (projectId: string, body: TrainingRunCreate, options?: RequestInit) =>
@@ -120,8 +150,20 @@ export const trainingRunsApi = {
       size_bytes: number;
       source_sha256?: string;
       redaction_revision?: number;
+      requires_authentication?: boolean;
     }>(
       `${base(projectId)}/${id}/attempts/${attemptId}/artifacts/${encodeURIComponent(name)}/download`,
+      options,
+    ),
+  downloadContent: (
+    projectId: string,
+    id: string,
+    attemptId: string,
+    name: string,
+    options?: RequestInit,
+  ) =>
+    apiClient.getBlob(
+      `${base(projectId)}/${id}/attempts/${attemptId}/artifacts/${encodeURIComponent(name)}/content`,
       options,
     ),
 };

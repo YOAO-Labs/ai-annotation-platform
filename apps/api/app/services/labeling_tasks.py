@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 import json
 from datetime import datetime
 
@@ -69,28 +68,6 @@ from app.services.labeling_core_read_relations import (
     get_core_row,
     task_row,
 )
-
-
-class LabelingUploadTaskNotFound(LookupError):
-    pass
-
-
-class LabelingUploadTaskNotUploading(ValueError):
-    pass
-
-
-class LabelingUploadTargetChanged(ValueError):
-    pass
-
-
-@dataclass(frozen=True)
-class LabelingUploadTarget:
-    task_id: uuid.UUID
-    project_id: uuid.UUID
-    batch_id: uuid.UUID | None
-    file_path: str
-    file_type: str
-    status: str
 
 
 class LabelingTaskService(LabelingTaskCreationPort):
@@ -668,79 +645,6 @@ class LabelingTaskService(LabelingTaskCreationPort):
             batch.completed_tasks = counts.completed_tasks
             batch.review_tasks = counts.review_tasks
             register_source_less_batch_counter_projection(self.db, project_id, batch)
-
-    async def create_uploading_task(
-        self,
-        *,
-        task_id: uuid.UUID,
-        project_id: uuid.UUID,
-        file_name: str,
-        file_path: str,
-        file_type: str,
-    ) -> None:
-        await self.db.flush()
-        created = await self.db.scalar(
-            text(
-                "SELECT aap_labeling_v1.create_uploading_task("
-                ":task_id, :project_id, :file_name, :file_path, :file_type)"
-            ),
-            {
-                "task_id": task_id,
-                "project_id": project_id,
-                "file_name": file_name,
-                "file_path": file_path,
-                "file_type": file_type,
-            },
-        )
-        if not isinstance(created, uuid.UUID) or created != task_id:
-            raise TaskWorkflowError(503, {"reason": "upload_task_unavailable"})
-        await self.db.commit()
-
-    async def read_upload_target(self, task_id: uuid.UUID) -> LabelingUploadTarget:
-        row = (
-            await self.db.execute(
-                select(
-                    task_row.id,
-                    task_row.project_id,
-                    task_row.batch_id,
-                    task_row.file_path,
-                    task_row.file_type,
-                    task_row.status,
-                ).where(task_row.id == task_id)
-            )
-        ).one_or_none()
-        if row is None:
-            raise LabelingUploadTaskNotFound
-        return LabelingUploadTarget(*row)
-
-    async def complete_uploading_task(
-        self, task: Task, target: LabelingUploadTarget
-    ) -> None:
-        """Keep the native transition and media admission in the caller transaction."""
-        await self.db.flush()
-        result = await self.db.scalar(
-            text(
-                "SELECT aap_labeling_v1.complete_uploading_task("
-                ":task_id, :project_id, :batch_id, :file_path, :file_type)"
-            ),
-            {
-                "task_id": target.task_id,
-                "project_id": target.project_id,
-                "batch_id": target.batch_id,
-                "file_path": target.file_path,
-                "file_type": target.file_type,
-            },
-        )
-        if result == "task_not_found":
-            raise LabelingUploadTaskNotFound
-        if result == "task_not_uploading":
-            raise LabelingUploadTaskNotUploading
-        if result == "task_target_changed":
-            raise LabelingUploadTargetChanged
-        if result != "pending":
-            raise TaskWorkflowError(503, {"reason": "upload_task_unavailable"})
-        set_committed_value(task, "status", "pending")
-        self.db.expire(task, ["updated_at"])
 
     async def set_task_thumbnail(
         self, task_id: uuid.UUID, thumbnail_path: str, blurhash: str | None

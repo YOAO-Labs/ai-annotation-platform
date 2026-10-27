@@ -37,6 +37,7 @@ export interface UsePipelineComposerArgs {
    * <2 时不允许加子 (下游须用不同于源检测的 backend).
    */
   availableBackendCount: number;
+  hasCompatibleDownstream?: boolean;
   /**
    * 加子超深/其他 UI 兜底提示 (可选). 未传时静默拒绝.
    */
@@ -105,7 +106,7 @@ export function usePipelineComposer(args: UsePipelineComposerArgs): UsePipelineC
     setStageTick((n) => n + 1);
   }, []);
 
-  const canAddBackend = availableBackendCount >= 2;
+  const canAddBackend = args.hasCompatibleDownstream ?? availableBackendCount >= 2;
 
   const addStage = useCallback(
     (parentSid: string) => {

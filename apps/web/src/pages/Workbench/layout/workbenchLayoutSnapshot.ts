@@ -21,7 +21,7 @@ export const PANEL_TITLES: Record<PanelId, string> = {
   "class-palette": "类别面板",
   inspector: "标注详情",
   discussion: "讨论",
-  "ai-task": "当前题 AI",
+  "ai-task": "单图 AI",
   "video-tracker": "视频追踪",
   "tri-view": "三视图精修",
   "camera-view": "相机视图",

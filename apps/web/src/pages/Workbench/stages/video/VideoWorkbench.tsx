@@ -1,6 +1,8 @@
 import type { TrackerReviewProjection } from "@/hooks/videoTrackerReviewScope";
 import type { VideoTrackContextBarProps } from "../../stage/VideoTrackContextBar";
-import { forwardRef, useMemo, type ReactNode } from "react";
+import { forwardRef, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuthStore } from "@/stores/authStore";
+import { useOriginalVideoPlayback } from "@/hooks/useOriginalVideoPlayback";
 import type {
   AnnotationResponse,
   TaskVideoFrameTimetableResponse,
@@ -57,6 +59,7 @@ type VideoGeometry =
   | VideoTrackPolylineGeometry;
 
 export interface VideoWorkbenchProps {
+  taskId: string | null;
   overlays?: ReactNode;
   maskCompareStore?: MaskCompareTileStore | null;
   manifest: TaskVideoManifestResponse | undefined;
@@ -151,12 +154,13 @@ export interface VideoWorkbenchProps {
   onSeekIssueFrame?: (frame: number) => void;
 }
 
-export const VideoWorkbench = forwardRef<VideoStageControls, VideoWorkbenchProps>(
-  function VideoWorkbench(
+const VideoWorkbenchSession = forwardRef<VideoStageControls, VideoWorkbenchProps>(
+  function VideoWorkbenchSession(
     {
       maskCompareStore,
       overlays,
-      manifest,
+      taskId,
+      manifest: incomingManifest,
       frameTimetable,
       isLoading,
       error,
@@ -231,6 +235,24 @@ export const VideoWorkbench = forwardRef<VideoStageControls, VideoWorkbenchProps
   ) {
     const { config: workbenchConfig } = useWorkbenchConfig();
     const workbenchVideo = workbenchConfig.video;
+    // Query cache refreshes can temporarily remove metadata without changing its owner.
+    // The keyed session must keep the same stage and draft during that interval.
+    const confirmedManifest = useRef<TaskVideoManifestResponse>();
+    const currentManifest = incomingManifest?.task_id === taskId ? incomingManifest : undefined;
+    useLayoutEffect(() => {
+      if (currentManifest) confirmedManifest.current = currentManifest;
+    }, [currentManifest]);
+    const manifest = currentManifest ?? confirmedManifest.current;
+    const [video, setVideo] = useState<HTMLVideoElement | null>(null);
+    const original = useOriginalVideoPlayback({
+      resource: taskId ? { kind: "task", taskId } : null,
+      identityPath: manifest?.original_identity_path,
+      video,
+    });
+    const playbackManifest = useMemo(
+      () => manifest && { ...manifest, video_url: original.mediaPath ?? "" },
+      [manifest, original.mediaPath],
+    );
     // v0.15.27 · 共享标注视觉规格(线宽/填充/字号/标签显隐);与图片工作台共用 common 子集。
     const annotationVisual = useMemo(
       () => resolveAnnotationVisual(workbenchConfig.common),
@@ -239,12 +261,27 @@ export const VideoWorkbench = forwardRef<VideoStageControls, VideoWorkbenchProps
     // v0.16.5 · 视频渲染栈统一到 Konva(删旧 SVG 栈,见 ADR-0041):唯一实现,无 flag 分支。
     return (
       <VideoKonvaStage
+        key={original.contentKey ?? "pending-original"}
         maskCompareStore={maskCompareStore}
         overlays={overlays}
         ref={ref}
-        manifest={manifest}
+        manifest={playbackManifest}
+        onVideoNode={setVideo}
+        sourceStatus={original.status}
+        sourceContentKey={original.contentKey}
+        sourceError={
+          original.error ??
+          (manifest && !manifest.original_identity_path
+            ? "视频原件身份地址不可用，请刷新后重试"
+            : null)
+        }
+        onSourceRetry={original.retry}
+        onSourceRecover={original.recover}
+        onSourcePrimed={original.onPrimed}
+        onPauseIntent={original.cancelResume}
+        isSourceReady={original.isSourceReady}
         frameTimetable={frameTimetable}
-        isLoading={isLoading}
+        isLoading={isLoading && !manifest}
         error={error}
         frameIndex={frameIndex}
         autoFitOnResize={workbenchVideo.autoFitOnResize}
@@ -321,6 +358,17 @@ export const VideoWorkbench = forwardRef<VideoStageControls, VideoWorkbenchProps
         defaultPlaybackRate={workbenchVideo.defaultPlaybackRate}
         largeFrameStep={workbenchVideo.largeFrameStep}
       />
+    );
+  },
+);
+
+export const VideoWorkbench = forwardRef<VideoStageControls, VideoWorkbenchProps>(
+  function VideoWorkbench(props, ref) {
+    const owner = useAuthStore((state) =>
+      JSON.stringify([state.user?.id ?? null, state.sessionId]),
+    );
+    return (
+      <VideoWorkbenchSession key={JSON.stringify([owner, props.taskId])} {...props} ref={ref} />
     );
   },
 );

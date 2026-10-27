@@ -1088,6 +1088,30 @@ class TestBatchAuditLogs:
         assert "batch.status_changed" in actions  # 直接 transition
         assert "batch.bulk_archive" in actions  # bulk 也会进来
 
+        # Pagination preserves the legacy array response and stable time/id order.
+        paged = []
+        for offset in range(len(logs)):
+            page = await httpx_client.get(
+                f"/api/v1/projects/{p.id}/batches/{batches[0].id}/audit-logs",
+                params={"limit": 1, "offset": offset},
+                headers=_bearer(owner_token),
+            )
+            assert page.status_code == 200, page.text
+            paged.extend(page.json())
+        assert [row["id"] for row in paged] == [row["id"] for row in logs]
+        empty = await httpx_client.get(
+            f"/api/v1/projects/{p.id}/batches/{batches[0].id}/audit-logs",
+            params={"limit": 20, "offset": len(logs)},
+            headers=_bearer(owner_token),
+        )
+        assert empty.json() == []
+        invalid = await httpx_client.get(
+            f"/api/v1/projects/{p.id}/batches/{batches[0].id}/audit-logs",
+            params={"offset": -1},
+            headers=_bearer(owner_token),
+        )
+        assert invalid.status_code == 422
+
 
 # ── 9. v0.9.15 · ADR-0008 admin-lock ────────────────────────────────────────
 

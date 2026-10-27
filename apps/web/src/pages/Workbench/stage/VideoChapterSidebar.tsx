@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
@@ -429,7 +430,11 @@ export function VideoChapterSidebar({
               ))}
             </div>
           </label>
-          {error && <div className="text-status-danger text-xs">{error}</div>}
+          {error && (
+            <div className="text-status-danger text-xs">
+              <CopyableError message={error} />
+            </div>
+          )}
           <div className="flex gap-1.5 justify-end">
             <Button size="sm" className="!rounded-md" variant="ghost" onClick={cancelForm}>
               取消

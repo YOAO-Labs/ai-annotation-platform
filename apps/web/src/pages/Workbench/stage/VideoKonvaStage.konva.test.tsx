@@ -5,7 +5,7 @@
  * manifest 固有宽高),并经转发的 VideoStageControls 暴露播放控制(供工作台热键驱动)。
  * 真实 canvas 渲染 / 播放重绘交给 Playwright,本测试只验装配与 props(决策 C)。
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { DEFAULT_ANNOTATION_VISUAL } from "./annotationVisual";
@@ -78,6 +78,28 @@ vi.mock("./useVideoPreciseFrame", () => ({
 
 const playMock = vi.fn();
 const pauseMock = vi.fn();
+const viewportObservers = new Map<Element, ResizeObserverCallback>();
+
+function resizeViewport(stage: HTMLElement) {
+  const rect = new DOMRect(0, 0, 800, 600);
+  vi.spyOn(stage, "getBoundingClientRect").mockReturnValue(rect);
+  const callback = viewportObservers.get(stage);
+  expect(callback).toBeDefined();
+  act(() =>
+    callback!(
+      [
+        {
+          target: stage,
+          contentRect: rect,
+          borderBoxSize: [],
+          contentBoxSize: [],
+          devicePixelContentBoxSize: [],
+        },
+      ],
+      {} as ResizeObserver,
+    ),
+  );
+}
 
 function makeMaskEditor(overrides: Partial<UseMaskEditorReturn> = {}) {
   return {
@@ -126,6 +148,34 @@ const manifest: TaskVideoManifestResponse = {
 };
 
 describe("VideoKonvaStage · konva mock", () => {
+  beforeEach(() => {
+    // The viewport hook uses observer notifications, not window resize, when available.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private target: Element | null = null;
+        constructor(private callback: ResizeObserverCallback) {}
+        observe(target: Element) {
+          if (target.getAttribute("data-testid") === "video-konva-stage") {
+            this.target = target;
+            viewportObservers.set(target, this.callback);
+          }
+        }
+        unobserve(target: Element) {
+          if (target === this.target) this.disconnect();
+        }
+        disconnect() {
+          if (this.target) viewportObservers.delete(this.target);
+          this.target = null;
+        }
+      },
+    );
+  });
+  afterEach(() => {
+    viewportObservers.clear();
+    vi.unstubAllGlobals();
+  });
+
   beforeAll(() => {
     Object.defineProperty(HTMLMediaElement.prototype, "pause", {
       configurable: true,
@@ -240,8 +290,7 @@ describe("VideoKonvaStage · konva mock", () => {
     };
     const view = render(<VideoKonvaStage {...props} ref={ref} />);
     const stage = view.getByTestId("video-konva-stage");
-    vi.spyOn(stage, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 600));
-    fireEvent(window, new Event("resize"));
+    resizeViewport(stage);
     expect(stage).toHaveAttribute("data-video-view-ready", "true");
     expect(await ref.current!.waitForIssueViewReady!(new AbortController().signal)).toBe(true);
     let restored!: Promise<VideoIssueViewRestoreResult>;
@@ -273,8 +322,7 @@ describe("VideoKonvaStage · konva mock", () => {
     const noSize = { ...manifest, metadata: { ...manifest.metadata, width: null, height: null } };
     const view = render(<VideoKonvaStage manifest={noSize} ref={ref} />);
     const stage = view.getByTestId("video-konva-stage");
-    vi.spyOn(stage, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 600));
-    fireEvent(window, new Event("resize"));
+    resizeViewport(stage);
     expect(ref.current!.captureIssueView!()).toBeNull();
     expect(stage).toHaveAttribute("data-video-view-ready", "false");
     const video = view.getByTestId("video-konva-source");
@@ -301,8 +349,7 @@ describe("VideoKonvaStage · konva mock", () => {
     const ref = createRef<VideoStageControls>();
     const view = render(<VideoKonvaStage manifest={manifest} ref={ref} />);
     const stage = view.getByTestId("video-konva-stage");
-    vi.spyOn(stage, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 600));
-    fireEvent(window, new Event("resize"));
+    resizeViewport(stage);
     const listener = vi.fn();
     const unsubscribe = ref.current!.subscribeIssueNavigationInterrupt!(listener);
     let seeking!: ReturnType<VideoStageControls["seekToFrameReady"]>;

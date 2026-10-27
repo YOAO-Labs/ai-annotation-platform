@@ -1,3 +1,7 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState, type ComponentProps } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
@@ -159,6 +163,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   // v0.9.13 · 后端 batch 状态变更 (transition / auto_transition) 实时刷新本页列表
   useBatchEventsSocket(project.id);
   const { data: batches = [], isLoading } = useBatches(project.id);
+  const pagination = useListPagination(batches, project.id);
   const deleteBatch = useDeleteBatch(project.id);
   const transitionBatch = useTransitionBatch(project.id);
   const submitBatchReview = useSubmitBatch(project.id);
@@ -221,8 +226,8 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   };
 
   const selectableBatches = useMemo(
-    () => batches.filter((b) => b.display_id !== "B-DEFAULT"),
-    [batches],
+    () => pagination.items.filter((b) => b.display_id !== "B-DEFAULT"),
+    [pagination.items],
   );
   const selectedCount = selectedIds.size;
   const allSelected =
@@ -238,7 +243,14 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   };
 
   const toggleAll = () => {
-    setSelectedIds(allSelected ? new Set() : new Set(selectableBatches.map((b) => b.id)));
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      for (const batch of selectableBatches) {
+        if (allSelected) next.delete(batch.id);
+        else next.add(batch.id);
+      }
+      return next;
+    });
   };
 
   const clearSelection = () => setSelectedIds(new Set());
@@ -349,7 +361,17 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
       <li key={item.batch_id} className="text-xs text-muted-foreground">
         <span className="mono">{b?.display_id ?? item.batch_id.slice(0, 8)}</span>
         {b ? <span className="ml-1.5">· {b.name}</span> : null}
-        <span className="ml-1.5 text-muted-foreground">— {reason}</span>
+        <span className="ml-1.5 text-muted-foreground">
+          —{" "}
+          {item.reason === "requires_force" ? (
+            reason
+          ) : (
+            <CopyableError
+              message={`${b?.display_id ?? item.batch_id}：${reason}`}
+              preview={reason}
+            />
+          )}
+        </span>
       </li>
     );
   };
@@ -747,12 +769,21 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         )}
 
         {!isLoading && batches.length > 0 && view === "kanban" && (
-          <BatchesKanbanView batches={batches} isOwner={isOwner} onTransition={handleTransition} />
+          <BatchesKanbanView
+            batches={pagination.items}
+            isOwner={isOwner}
+            onTransition={handleTransition}
+          />
         )}
 
         {!isLoading && batches.length > 0 && view === "list" && (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[1080px] border-collapse text-sm [&_td:last-child]:min-w-[360px] [&_th:last-child]:min-w-[360px]">
+            <table
+              className={cn(
+                listStyles.table,
+                "min-w-[1080px] [&_td:last-child]:min-w-[360px] [&_th:last-child]:min-w-[360px]",
+              )}
+            >
               <thead>
                 <tr className="border-b border-border">
                   {isOwner && (
@@ -777,7 +808,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                 </tr>
               </thead>
               <tbody>
-                {batches.map((b) => (
+                {pagination.items.map((b) => (
                   <tr key={b.id} className="border-b border-border">
                     {isOwner && (
                       <td className="w-7 py-2.5 pr-0 pl-3">
@@ -1006,6 +1037,15 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
             </table>
           </div>
         )}
+        <ListPagination
+          label="批次"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          loading={isLoading}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </Card>
 
       {/* 创建批次 Modal */}

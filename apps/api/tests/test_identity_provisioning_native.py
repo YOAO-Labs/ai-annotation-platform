@@ -168,8 +168,7 @@ def test_provisioning_schema_sql_and_function_allowlist_are_frozen():
     assert _SCHEMA.read_bytes() != _CANONICAL_SCHEMA.read_bytes()
     assert canonical.get("x-postgresql-functions") is None
     assert snapshot["$id"] == "aap-identity-provisioning/v1"
-    assert 'revision = "0252"' in migration
-    assert 'down_revision = "0251"' in migration
+
     assert migration.index(
         '"0252_identity_provisioning_support.sql"'
     ) < migration.index('"0252_identity_provisioning.sql"')

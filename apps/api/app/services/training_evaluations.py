@@ -1,6 +1,6 @@
 """Final best-weight evidence for one authorized, immutable execution attempt."""
 
-import asyncio
+from app.services import training_storage_io as storage_io
 import math
 
 from fastapi import HTTPException
@@ -8,7 +8,13 @@ from fastapi import HTTPException
 from app.schemas.training_run import TrainingEvaluationDescriptor
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_dataset_bridge import content_digest
-from training_contract.dataset import SEGMENTATION, config_task
+from training_contract.dataset import (
+    SEGMENTATION,
+    config_task,
+    is_instance_rle,
+    INSTANCE_RLE_CONTRACT,
+    INSTANCE_RLE_LIMITS,
+)
 
 METRICS = {"mAP50-95", "mAP50", "mAP75", "precision", "recall", "AR100"}
 SEMANTICS = dict(
@@ -49,6 +55,7 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
     framework = run.config["framework"]
     classes = run.config["classes"]
     segmentation = config_task(run.config) == SEGMENTATION
+    raster = is_instance_rle(run.config.get("data_contract", {}))
     task = "instance-segmentation" if segmentation else "detection"
     legacy = report.get("evaluation", {})
     if report.get("validation_digest") != run.config["validation_digest"] or (
@@ -109,7 +116,7 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
             or d["evaluator"]["framework"] != framework
             or d["evaluator"]["version"] != run.config["framework_version"]
             or d["evaluator"]["task"] != task
-            or d["revision"] != (2 if segmentation else 1)
+            or d["revision"] != (3 if raster else 2 if segmentation else 1)
             or d["candidate"]["best_epoch"] is not None
             and d["candidate"]["best_epoch"] > run.config["parameters"]["epochs"]
         ):
@@ -142,6 +149,28 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
                 != "ultralytics.utils.ops.process_mask"
             ):
                 raise ValueError("Unqualified actual segmentation evaluator options")
+        if raster:
+            consumer = options.get("mask_consumer", {})
+            if (
+                options.get("data_contract") != INSTANCE_RLE_CONTRACT
+                or d["evaluator"]["implementation"]
+                != "training_executor.instance_rle.InstanceRLEValidator"
+                or options.get("workers") != 0
+                or options.get("rect") is not False
+                or consumer.get("bridge") != INSTANCE_RLE_CONTRACT["bridge"]
+                or consumer.get("workers") != 0
+                or consumer.get("prefetch") is not False
+                or consumer.get("limits") != INSTANCE_RLE_LIMITS
+                or consumer.get("loss_mask_processing")
+                != "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false"
+                or consumer.get("validator_mask_processing")
+                != "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter"
+                or any(
+                    not isinstance(consumer.get(key), str) or len(consumer[key]) != 64
+                    for key in ("loss_source_sha256", "validator_source_sha256")
+                )
+            ):
+                raise ValueError("Unqualified actual native RLE evaluator options")
         if (
             not required <= options.keys()
             or options["split"] != "val"
@@ -192,7 +221,7 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
     )
 
 
-async def read_evaluation(run, attempt, offset, limit):
+async def read_evaluation(run, attempt, offset, limit, *, db):
     if attempt.status != "succeeded":
         raise HTTPException(status_code=409, detail="本次执行尚无成功发布的最终评估")
     artifacts = list(attempt.artifacts.values())
@@ -202,8 +231,21 @@ async def read_evaluation(run, attempt, offset, limit):
         raise HTTPException(
             status_code=409, detail="本次执行缺少唯一的已验证评估与最佳权重"
         )
+    from app.services.trained_models import owner_for_attempt
+
+    owner = owner_for_attempt(run, attempt, metrics[0], weights[0])
     try:
-        report = await asyncio.to_thread(read_json_artifact, metrics[0], attempt.id)
+        report = await storage_io.read(
+            db,
+            owner,
+            "training_evaluation_read",
+            lambda transport: read_json_artifact(
+                metrics[0], attempt.id, bucket=owner.bucket, transport=transport
+            ),
+            object_key=metrics[0]["key"],
+            sha256=metrics[0]["sha256"],
+            size_bytes=metrics[0]["size_bytes"],
+        )
         return parse_evaluation(
             report, run, attempt, metrics[0], weights[0], offset, limit
         )

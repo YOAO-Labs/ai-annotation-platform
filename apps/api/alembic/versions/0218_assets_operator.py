@@ -1,7 +1,7 @@
 """Add trusted Assets operator registration capabilities and receipts.
 
-Revision ID: 0218
-Revises: 0217
+Revision ID: bo0218
+Revises: bo0217
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0218"
-down_revision = "0217"
+revision = "bo0218"
+down_revision = "bo0217"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

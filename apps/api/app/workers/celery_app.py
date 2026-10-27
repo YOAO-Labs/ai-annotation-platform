@@ -18,6 +18,8 @@ celery_app = Celery(
         "app.workers.identity_mail_v2_delivery",
         "app.workers.notification_delivery",
         "app.workers.cleanup",
+        "app.workers.avatar_cleanup",
+        "app.workers.bug_attachment_cleanup",
         "app.workers.audit",
         "app.workers.deactivation",
         "app.workers.audit_partition",
@@ -25,6 +27,8 @@ celery_app = Celery(
         "app.workers.presence",
         "app.workers.ml_health",
         "app.workers.predictions_retry",
+        "app.workers.prediction_input_cleanup",
+        "app.workers.original_cache",
         "app.workers.video_tracker",
         "app.workers.video_track_quality",
         "app.workers.mask_qc",
@@ -45,6 +49,18 @@ celery_app = Celery(
         "app.workers.learning_policy",
         "app.workers.training_study",
         "app.workers.export_cleanup",
+        # v0.11.15 · 外部连接器数据集导入
+        "app.workers.storage_probe",
+        "app.workers.storage_usage",
+        "app.workers.managed_original_verification",
+        "app.workers.managed_original_reclaim",
+        "app.workers.storage_migration_inventory",
+        "app.workers.storage_migration_copy",
+        "app.workers.dataset_scan",
+        "app.workers.dataset_registration",
+        "app.workers.dataset_quality",
+        "app.workers.dataset_quality_review",
+        "app.workers.dataset_source_sync",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",
@@ -64,24 +80,26 @@ celery_app.conf.update(
     timezone="UTC",
     task_track_started=True,
     worker_max_memory_per_child=512_000,
+    worker_direct=True,
+    # v0.10.25 · 默认队列从 Celery 内置 "celery" 改为 "default"。worker 订阅
+    # default,ml,media,gpu,cleanup,audit —— 不含 "celery", 故任何未在 task_routes 显式
+    # 路由的任务(beat 的 ensure_future_*_partitions / mark_inactive_offline
+    # / process_deactivation_requests / refresh_user_perf_mv 等)此前都落进无人消费的 "celery"
+    # 队列堆积、永不执行。收口到 default 让兜底任务真正跑起来。
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
-        "relay-credential-mail": {
-            "task": "app.workers.identity_mail_delivery.relay_credential_mail",
-            "schedule": timedelta(seconds=10),
+        "maintain-original-cache": {
+            "task": "app.workers.original_cache.maintain_original_cache",
+            "schedule": 60.0,
         },
-        "relay-invitation-mail": {
-            "task": "app.workers.identity_mail_v2_delivery.relay_invitation_mail",
-            "schedule": timedelta(seconds=10),
+        "recover-prediction-inputs": {
+            "task": "app.workers.prediction_input_cleanup.recover_prediction_inputs",
+            "schedule": 60.0,
         },
-        "relay-identity-notifications": {
-            "task": "app.workers.notification_delivery.relay_identity_notifications",
-            "schedule": timedelta(seconds=10),
-        },
-        "relay-prediction-retry-deliveries": {
-            "task": "app.workers.predictions_retry.relay_prediction_retry_deliveries",
-            "schedule": timedelta(seconds=10),
+        "check-source-sync-schedules": {
+            "task": "app.workers.dataset_source_sync.tick_source_syncs",
+            "schedule": 60.0,
         },
         "maintain-active-learning-rounds": {
             "task": "app.workers.active_learning.maintain_rounds",
@@ -107,9 +125,21 @@ celery_app.conf.update(
             "task": "app.workers.training_study.check_studies",
             "schedule": timedelta(seconds=10),
         },
+        "purge-retired-avatars": {
+            "task": "app.workers.avatar_cleanup.purge_retired_avatars",
+            "schedule": 300.0,
+        },
+        "purge-bug-attachments": {
+            "task": "app.workers.bug_attachment_cleanup.purge_bug_attachments",
+            "schedule": crontab(hour=3, minute=20),
+        },
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",
             "schedule": crontab(hour=3, minute=0),  # 每日 03:00 UTC
+        },
+        "purge-guide-assets": {
+            "task": "app.workers.cleanup.purge_guide_assets",
+            "schedule": 300.0,
         },
         "purge-unreferenced-raster-masks": {
             "task": "app.workers.cleanup.purge_unreferenced_raster_masks",
@@ -195,6 +225,26 @@ celery_app.conf.update(
             "schedule": crontab(hour=2, minute=30),
         },
         # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        "reconcile-managed-original-references": {
+            "task": "app.workers.managed_original_reclaim.schedule_reference_reconciliation",
+            "schedule": crontab(hour=3, minute=45),
+        },
+        "recover-storage-usage": {
+            "task": "app.workers.storage_usage.recover_usage_inventories",
+            "schedule": 30.0,
+        },
+        "recover-dataset-quality-reviews": {
+            "task": "app.workers.dataset_quality_review.recover_quality_reviews",
+            "schedule": 30.0,
+        },
+        "recover-dataset-quality": {
+            "task": "app.workers.dataset_quality.recover_quality",
+            "schedule": 30.0,
+        },
+        "recover-dataset-registrations": {
+            "task": "app.workers.dataset_registration.recover_registrations",
+            "schedule": 30.0,
+        },
         "purge-old-async-jobs": {
             "task": "app.workers.async_jobs_cleanup.purge_old_async_jobs",
             "schedule": crontab(hour=4, minute=15),

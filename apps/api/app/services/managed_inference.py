@@ -9,11 +9,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import HTTPException
+from pydantic import ValidationError
+from training_contract.models import model_spec
 
 from app.db.models.trained_model import ModelDeployment
 from app.schemas.sample_evaluation import EvaluationProfile
 from app.services import sample_evaluation_engine as engine, trained_models
 from aap_inference.backend_transport import PredictionResult
+from aap_task_contract import normalize_task
 from app.services.training_dataset_bridge import content_digest
 from app.services.trained_model_reference_contract import (
     FreezeModelReferenceError,
@@ -23,6 +26,14 @@ from app.services.trained_model_reference_contract import (
 
 class RemoteUncertain(Exception):
     """The fixed remote request has no confirmed final receipt."""
+
+
+def segmentation_spec(spec):
+    task = spec.get("model_ref", {}).get("task") or spec.get("task")
+    return (
+        normalize_task(task or ("segment" if spec.get("schema") == 2 else "detect"))
+        == "segment"
+    )
 
 
 def reject(code, message, status=409):
@@ -53,6 +64,22 @@ async def qualification(db, project, model_id, deployment_id):
             422,
         )
     await trained_models.enabled_backend(db, project.id, deployment.registry_id)
+    segment = normalize_task(ref.get("task") or "detect") == "segment"
+    framework_version = ref.get("framework_version")
+    if framework_version not in {"8.4.177", "8.4.183"}:
+        raise reject("runtime_unqualified", "模型缺少已核验的冻结训练器版本")
+    runtime_version = trained_models.inference_version(ref)
+    selected_model = None
+    if runtime_version != "8.4.177":
+        try:
+            base_model = ref["provenance"]["base_model"]["id"]
+            selected_model = model_spec("ultralytics", base_model)
+            if selected_model.task != ("segment" if segment else "detect"):
+                raise ValueError("Frozen model task differs")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise reject(
+                "runtime_unqualified", "模型缺少已核验的家族及规格身份"
+            ) from exc
     from app.services import inference_backend_control
 
     try:
@@ -61,13 +88,32 @@ async def qualification(db, project, model_id, deployment_id):
         ).managed_evaluation_profile(deployment.registry_id)
     except inference_backend_control.BackendControlOperationError as exc:
         raise trained_models.backend_control_http_exception(exc) from exc
-    checked = EvaluationProfile.model_validate(profile).model_dump(
-        mode="json", by_alias=True
-    )
+    try:
+        checked = EvaluationProfile.model_validate(profile).model_dump(
+            mode="json", by_alias=True
+        )
+    except ValidationError as exc:
+        raise reject(
+            "evaluation_protocol_unqualified",
+            "推理实例返回了不支持的评估协议，请检查推理服务版本",
+            502,
+        ) from exc
+    if checked["ultralytics_version"] != runtime_version:
+        raise reject(
+            "deployment_runtime_changed",
+            "推理环境已变化，请在模型详情重新加载并试用，再创建评估",
+        )
     if (
         checked["profile_digest"]
         != content_digest({k: v for k, v in checked.items() if k != "profile_digest"})
-        or checked["ultralytics_version"] != "8.4.177"
+        or checked["revision"] != {"8.4.177": 1, "8.4.183": 2}.get(runtime_version)
+        or (
+            selected_model is not None
+            and selected_model.end2end
+            and checked["options"].get("nms") is not False
+        )
+        or checked["implementation"]
+        != ("aap-ultralytics-instance-mask" if segment else "aap-ultralytics-detection")
     ):
         raise reject("runtime_unqualified", "推理环境尚未通过逐样本评估资格检查")
     return ref, checked
@@ -82,10 +128,7 @@ def request_identity(spec, row, preprocessing):
         "issued_at": spec["issued_at"],
         "expires_at": spec["expires_at"],
     }
-    wire_ref = {
-        k: spec["model_ref"][k]
-        for k in ("model_version_id", "sha256", "classes_digest")
-    }
+    wire_ref = trained_models.wire_reference(spec["model_ref"])
     request["binding_digest"] = content_digest(
         {
             "task_id": str(spec["samples"][row.ordinal]["task_id"]),
@@ -98,7 +141,11 @@ def request_identity(spec, row, preprocessing):
             "evaluation": request,
         }
     )
-    return {"evaluation": request, "preprocessing": preprocessing}
+    return {
+        "evaluation": request,
+        "preprocessing": preprocessing,
+        **({"task": "segment"} if segmentation_spec(spec) else {}),
+    }
 
 
 def verify_inference(spec, row, inference):
@@ -113,11 +160,30 @@ def verify_inference(spec, row, inference):
         "conf": spec["confidence"],
         "nms_iou": spec["nms_iou"],
     }
+    expected_end2end = None
+    if spec["profile"]["ultralytics_version"] != "8.4.177":
+        ref = spec["model_ref"]
+        try:
+            native = model_spec("ultralytics", ref["provenance"]["base_model"]["id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Frozen inference model identity is unavailable") from exc
+        if (
+            trained_models.inference_version(ref)
+            != spec["profile"]["ultralytics_version"]
+            or native.task != ("segment" if segmentation_spec(spec) else "detect")
+            or (native.end2end and expected["options"].get("nms") is not False)
+        ):
+            raise ValueError("Inference profile differs from the frozen native head")
+        expected_end2end = native.end2end
     if (
         not isinstance(inference, dict)
         or set(inference) != {*expected, "end2end"}
         or any(inference.get(k) != v for k, v in expected.items())
         or type(inference.get("end2end")) is not bool
+        or (
+            expected_end2end is not None
+            and inference.get("end2end") != expected_end2end
+        )
     ):
         raise ValueError("Inference execution identity differs from the frozen request")
 

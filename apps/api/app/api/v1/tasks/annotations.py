@@ -1,5 +1,6 @@
 import base64
 import uuid
+from contextlib import nullcontext
 from datetime import datetime
 from typing import NoReturn
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -9,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import (
     get_db,
     get_current_user,
+    get_prediction_input_session_factory,
     require_scopes,
 )
 from app.db.models.annotation import Annotation
+from app.db.models.task import Task
 from app.schemas.annotation import (
     AnnotationCreate,
     AnnotationListPage,
@@ -78,7 +81,11 @@ from app.services.labeling_write_scope import (
     capture_task_source_binding,
     task_source_binding_matches,
 )
-from app.services.secondary_inference import run_secondary_inference
+from app.services.secondary_inference import (
+    prepare_secondary_request,
+    run_secondary_inference,
+)
+from app.services.content_snapshot import ContentError
 from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
     collaboration_enabled,
@@ -463,6 +470,7 @@ async def secondary_inference(
     data: SecondaryInferenceRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    input_session_factory=Depends(get_prediction_input_session_factory),
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_strict),
 ):
@@ -533,46 +541,87 @@ async def secondary_inference(
         source_annotation=annotation,
     )
 
+    # Validate the model and selected geometry before acquiring any physical
+    # source input or releasing the current read transaction.
+    prepared_request = prepare_secondary_request(
+        annotation,
+        backend,
+        model_id=data.model_id,
+        model_variants=data.model_variants,
+        params=data.params,
+        prompt=data.prompt,
+        class_filter=data.class_filter,
+        visual_task=data.task,
+        prompt_type=data.prompt_type,
+    )
+
     # 释放当前只读事务再进入 10-30s 的远程 predict, 避免 async 连接池在高并发下饥饿
     # (expire_on_commit=False, annotation / task / backend 对象保持 attached 可继续使用)。
     await db.commit()
 
-    inference_result = await run_secondary_inference(
-        db,
-        annotation=annotation,
-        task=task,
-        backend=backend,
-        write_target=data.write_target,
-        write_keys=data.write_keys,
-        label=data.label,
-        model_id=data.model_id,
-        model_variants=data.model_variants,
-        params=data.params,
-        visual_task=data.task,
-        prompt_type=data.prompt_type,
-        prompt=data.prompt,
-        class_filter=data.class_filter,
-        pad=data.pad,
-    )
-    write_port: SecondaryInferenceWritePort = _AnnotationSecondaryInferenceSqlAdapter(
-        db,
-        task=task,
-        annotation=annotation,
-        actor=current_user,
-    )
-    try:
-        return await write_port.apply_secondary_inference(
-            write_scope=write_scope,
-            result=inference_result,
-            write_target=data.write_target,
-            audit_origin=audit_origin_from_request(request),
+    if task.file_type == "image":
+        from app.services.managed_secondary_inference import (
+            managed_secondary_operation,
         )
+
+        operation = managed_secondary_operation(
+            db, task, current_user, request, annotation, input_session_factory
+        )
+    else:
+        # The temporary input lease owns delivery; it claims no original provenance.
+        operation = nullcontext(None)
+
+    try:
+        async with operation as original_operation:
+            inference_result = await run_secondary_inference(
+                db,
+                annotation=annotation,
+                task=task,
+                backend=backend,
+                write_target=data.write_target,
+                write_keys=data.write_keys,
+                label=data.label,
+                model_id=data.model_id,
+                model_variants=data.model_variants,
+                params=data.params,
+                visual_task=data.task,
+                prompt_type=data.prompt_type,
+                prompt=data.prompt,
+                class_filter=data.class_filter,
+                pad=data.pad,
+                input_session_factory=input_session_factory,
+                original_operation=original_operation,
+                prepared_request=prepared_request,
+            )
+            if original_operation is not None:
+                task = await db.get(Task, task_id, populate_existing=True)
+            write_port: SecondaryInferenceWritePort = (
+                _AnnotationSecondaryInferenceSqlAdapter(
+                    db,
+                    task=task,
+                    annotation=annotation,
+                    actor=current_user,
+                    original_operation=original_operation,
+                )
+            )
+            return await write_port.apply_secondary_inference(
+                write_scope=write_scope,
+                result=inference_result,
+                write_target=data.write_target,
+                audit_origin=audit_origin_from_request(request),
+            )
     except AnnotationMutationError as exc:
         raise HTTPException(
             status_code=exc.status_code,
             detail=exc.detail,
             headers=exc.headers,
         ) from exc
+    except ContentError as exc:
+        from app.services.managed_image_inference import (
+            managed_inference_http_error,
+        )
+
+        raise managed_inference_http_error(exc) from None
 
 
 @router.post(

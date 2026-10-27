@@ -25,9 +25,13 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1._mask_content import (
+    MASK_CONTENT_RESPONSES as _MASK_CONTENT_RESPONSES,
+    mask_content_response,
+)
 from app.services import task_access
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -60,7 +64,6 @@ from app.services.raster_mask_storage import (
     assert_raster_mask_write_enabled,
     build_rle_gzip_reference,
     build_rle_reference,
-    classify_raster_mask_content_error,
     count_unlinked_mask_uploads,
     load_coco_rle,
     lock_raster_mask_references,
@@ -86,7 +89,12 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 
-router = APIRouter(dependencies=[Depends(require_active_task_actor)])
+from app.services.reference_access import reference_task_guard
+from app.services.content_snapshot import ContentError
+
+router = APIRouter(
+    dependencies=[Depends(require_active_task_actor), Depends(reference_task_guard)]
+)
 logger = logging.getLogger(__name__)
 
 # v0.23.5 · WS-D · D3 · per-task cap on unclaimed raster-mask uploads.
@@ -103,28 +111,12 @@ async def _count_task_mask_references(db: AsyncSession, task_id: uuid.UUID) -> i
     return await count_unlinked_mask_uploads(db, task_id)
 
 
-_MASK_CONTENT_RESPONSES = {
-    304: {"description": "Not Modified"},
-    409: {"description": "Mask reference or task context is invalid"},
-    503: {"description": "Mask object storage is unavailable"},
-}
-
-
-def _mask_etag_matches(request: Request, etag: str) -> bool:
-    raw = request.headers.get("if-none-match")
-    if not raw:
-        return False
-    normalized = etag.removeprefix("W/")
-    return any(
-        candidate == "*" or candidate.removeprefix("W/") == normalized
-        for candidate in (part.strip() for part in raw.split(","))
-    )
-
-
 async def _load_visible_mask_annotation(
     annotation_id: uuid.UUID,
     db: AsyncSession,
     user: User | IdentityActorFacts,
+    request: Request | None = None,
+    frame_index: int | None = None,
 ) -> tuple[Annotation, Task, dict]:
     annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None or not annotation.is_active:
@@ -139,7 +131,69 @@ async def _load_visible_mask_annotation(
             status_code=404, detail={"reason": "raster_mask_read_disabled"}
         )
     try:
-        await validate_mask_geometry_for_task(db, task, geometry)
+        repair_read_receipt = None
+        video_read_receipt = None
+        from app.services.reference_keys import is_reference
+
+        qualified_read = task.dataset_item_id is None
+        if annotation.parent_prediction_id and task.file_type == "image":
+            from app.db.models.prediction import Prediction, PredictionMeta
+
+            parent_prediction = await db.scalar(
+                select(Prediction).where(
+                    Prediction.id == annotation.parent_prediction_id,
+                    Prediction.task_id == task.id,
+                )
+            )
+            parent_meta = await db.scalar(
+                select(PredictionMeta).where(
+                    PredictionMeta.prediction_id == annotation.parent_prediction_id
+                )
+            )
+            qualified_read = qualified_read or (
+                parent_prediction is not None
+                and (
+                    parent_prediction.source == "mask_repair"
+                    or (
+                        parent_meta is not None
+                        and (parent_meta.extra or {}).get("original_input") is not None
+                    )
+                )
+            )
+        if (
+            qualified_read
+            and task.file_type == "image"
+            and geometry.get("type") == "raster_mask"
+            and not is_reference(task.file_path)
+        ):
+            from app.services.managed_repair_acceptance import qualify_annotation_read
+
+            if request is None:
+                raise ContentError("repair_original_receipt_invalid")
+            repair_read_receipt = await qualify_annotation_read(
+                db, task, user, request, annotation
+            )
+        if task.file_type == "video" and geometry.get("type") == "video_track_mask":
+            from app.services import video_prediction_reads as video_reads
+
+            if await video_reads.requires_annotation_read(db, annotation):
+                if request is None:
+                    raise ContentError("prediction_video_read_receipt_invalid")
+                video_read_receipt = await video_reads.qualify_annotation_read(
+                    db, task, user, request, annotation.id, frame_index
+                )
+                request.state.video_mask_read = (db, task, video_read_receipt)
+        await validate_mask_geometry_for_task(
+            db,
+            task,
+            geometry,
+            repair_read_receipt=repair_read_receipt,
+            video_read_receipt=video_read_receipt,
+        )
+    except ContentError as exc:
+        from app.services.managed_mask_repair import repair_http_error
+
+        raise repair_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
@@ -156,36 +210,25 @@ async def _mask_content_response(
     mask_ref: dict,
     request: Request,
 ) -> Response:
-    etag = f'"{mask_ref.get("sha256")}"'
-    # Annotation and frame URLs are mutable aliases, including slice restore.
-    # Revalidate the current reference before reusing an earlier response body.
-    headers = {"Cache-Control": "private, no-cache", "ETag": etag}
-    if _mask_etag_matches(request, etag):
-        return Response(status_code=304, headers=headers)
-    try:
-        payload = await load_coco_rle(mask_ref)
-    except (KeyError, ValueError) as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": classify_raster_mask_content_error(exc),
-                "retryable": True,
-                "message": f"mask object is invalid: {exc}",
-            },
-        ) from exc
-    except Exception as exc:
-        logger.warning(
-            "mask object read failed for annotation %s", annotation_id, exc_info=True
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "reason": "mask_storage_unavailable",
-                "retryable": True,
-                "message": "Mask object storage is unavailable",
-            },
-        ) from exc
-    return JSONResponse(payload, headers=headers)
+    loader = load_coco_rle
+    qualified_read = getattr(request.state, "video_mask_read", None)
+    if qualified_read is not None:
+        from app.services.video_prediction_reads import read_content
+
+        db, task, receipt = qualified_read
+        try:
+            payload = await read_content(db, task, receipt, mask_ref)
+        except ContentError as exc:
+            from app.services.dataset_content import content_http_error
+
+            raise content_http_error(exc) from None
+
+        async def loader(reference):
+            return payload
+
+    return await mask_content_response(
+        owner_id=annotation_id, mask_ref=mask_ref, request=request, loader=loader
+    )
 
 
 @router.get(
@@ -206,7 +249,7 @@ async def get_annotation_mask_content(
     返回标准 COCO RLE 格式，带 ETag 支持条件请求。
     """
     annotation, _task, geometry = await _load_visible_mask_annotation(
-        annotation_id, db, user
+        annotation_id, db, user, request
     )
     geom_type = geometry.get("type")
 
@@ -238,7 +281,7 @@ async def get_annotation_mask_content_frame(
     user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
     annotation, _task, geometry = await _load_visible_mask_annotation(
-        annotation_id, db, user
+        annotation_id, db, user, request, frame_index=frame_index
     )
     if geometry.get("type") in {"raster_mask", "video_mask"}:
         if (
@@ -412,9 +455,9 @@ async def upload_task_mask_content(
             ) from None
         try:
             reference = (
-                await store_coco_rle_gzip(body)
+                await store_coco_rle_gzip(body, db=db)
                 if requested_storage == RLE_STORAGE_GZIP
-                else await store_coco_rle(body)
+                else await store_coco_rle(body, db=db)
             )
         except Exception:
             # Reservation and quota consumption are transactional. A storage
@@ -423,6 +466,8 @@ async def upload_task_mask_content(
             raise
         if reference["object_key"] != expected["object_key"]:
             raise RuntimeError("mask storage selection changed after reservation")
+        # Settle publication with the anonymous reservation, without linking it.
+        await lock_raster_mask_references(db, reference, verify=True)
         await db.commit()
         return reference
     except HTTPException:
@@ -497,6 +542,9 @@ async def import_annotations(
     from app.services.async_job_notify import notify_job_terminal
     from app.services.annotations_import import import_aap_json_annotations
 
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, project_id=project.id)
     max_import_bytes = 64 * 1024 * 1024
     raw = await file.read(max_import_bytes + 1)
     if len(raw) > max_import_bytes:
@@ -534,6 +582,17 @@ async def import_annotations(
             overwrite=overwrite,
             dry_run=dry_run,
         )
+    except RasterMaskContractError as exc:
+        # Roll back business writes before committing only the failure receipt.
+        await db.rollback()
+        if aj_id is not None:
+            try:
+                await async_job_svc.mark_failed(db, aj_id, error=str(exc))
+                await notify_job_terminal(db, job_id=aj_id)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except ValueError as exc:
         if aj_id is not None:
             try:

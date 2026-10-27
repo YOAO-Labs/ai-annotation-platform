@@ -40,6 +40,9 @@ async def add_run(
     )
     db.add(run)
     await db.flush()
+    from app.services.training_run_storage import allocate
+
+    await allocate(db, run)
     return run
 
 
@@ -197,7 +200,9 @@ async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_ca
                 "frameworks": {"ultralytics": "8.4.177"},
                 "executor_protocol": 2,
                 "supported_configs": [
-                    schema_identity(definition("ultralytics", "yolo11n-seg"))
+                    schema_identity(
+                        definition("ultralytics", "yolo11n-seg", version="8.4.177")
+                    )
                 ],
             },
         )
@@ -210,7 +215,7 @@ async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_ca
     item = response.json()["items"][0]
     assert item["compatible"] and item["parameter_schemas"][0]["compatible"]
     assert item["capabilities"]["tasks"] == [SEGMENTATION]
-    assert not item["capabilities"]["model_registration"]
+    assert item["capabilities"]["model_registration"]
     assert item["base_models"][0]["task"] == SEGMENTATION
 
 

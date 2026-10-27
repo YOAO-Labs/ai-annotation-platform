@@ -1,4 +1,4 @@
--- Grant the three Notifications inbox reads to an API and function-only LOGIN.
+-- Grant authority-scoped Notifications inbox reads to an API and function-only LOGIN.
 -- Run after current migrations and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v notifications_owner=notifications_code -v api_role=api_runtime \
@@ -49,6 +49,13 @@ BEGIN
                 'aap_notifications_v1.notification_facts', true),
             ('aap_notifications_v1.inbox_total_count(uuid,text)', 'bigint', false),
             ('aap_notifications_v1.inbox_unread_count(uuid,text)', 'bigint', false),
+            ('aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)',
+                'aap_notifications_v1.notification_facts', true),
+            ('aap_notifications_v1.inbox_total_count_scoped(uuid,text)', 'bigint', false),
+            ('aap_notifications_v1.inbox_unread_count_scoped(uuid,text)', 'bigint', false),
+            ('aap_notifications_v1._notification_is_migration_inventory(uuid)', 'boolean', false),
+            ('aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)',
+                'aap_notifications_v1.notification_facts', true),
             ('aap_notifications_v1._visible_inbox_rows(uuid,text)',
                 'aap_notifications_v1.notification_facts', true)
         ) AS expected(signature, return_type, returns_set)
@@ -95,9 +102,14 @@ BEGIN
     END LOOP;
 END;
 $revoke_columns$;
-REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text)
+REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text),
+    aap_notifications_v1._visible_inbox_rows_scoped(uuid,text),
+    aap_notifications_v1._notification_is_migration_inventory(uuid)
     FROM :"api_role", :"query_client", PUBLIC;
 REVOKE EXECUTE ON FUNCTION
+    aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
+    aap_notifications_v1.inbox_total_count_scoped(uuid,text),
+    aap_notifications_v1.inbox_unread_count_scoped(uuid,text),
     aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
     aap_notifications_v1.inbox_total_count(uuid,text),
     aap_notifications_v1.inbox_unread_count(uuid,text)
@@ -105,6 +117,9 @@ REVOKE EXECUTE ON FUNCTION
 GRANT CONNECT ON DATABASE :"expected_database" TO :"query_client";
 GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"query_client", :"api_role";
 GRANT EXECUTE ON FUNCTION
+    aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
+    aap_notifications_v1.inbox_total_count_scoped(uuid,text),
+    aap_notifications_v1.inbox_unread_count_scoped(uuid,text),
     aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
     aap_notifications_v1.inbox_total_count(uuid,text),
     aap_notifications_v1.inbox_unread_count(uuid,text)
@@ -116,6 +131,9 @@ DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.query_client'));
     v_allowed oid[] := ARRAY[
+        'aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)'::regprocedure::oid,
+        'aap_notifications_v1.inbox_total_count_scoped(uuid,text)'::regprocedure::oid,
+        'aap_notifications_v1.inbox_unread_count_scoped(uuid,text)'::regprocedure::oid,
         'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)'::regprocedure::oid,
         'aap_notifications_v1.inbox_total_count(uuid,text)'::regprocedure::oid,
         'aap_notifications_v1.inbox_unread_count(uuid,text)'::regprocedure::oid
@@ -134,6 +152,8 @@ BEGIN
         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function.proacl,
             pg_catalog.acldefault('f',function.proowner))) AS acl
         WHERE function.oid=ANY(v_allowed || ARRAY[
+            'aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)'::regprocedure::oid,
+            'aap_notifications_v1._notification_is_migration_inventory(uuid)'::regprocedure::oid,
             'aap_notifications_v1._visible_inbox_rows(uuid,text)'::regprocedure::oid
         ]) AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
     ) THEN
@@ -141,6 +161,10 @@ BEGIN
     END IF;
     IF pg_catalog.has_function_privilege(v_api,
             'aap_notifications_v1._visible_inbox_rows(uuid,text)','EXECUTE')
+       OR pg_catalog.has_function_privilege(v_api,
+            'aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)','EXECUTE')
+       OR pg_catalog.has_function_privilege(v_api,
+            'aap_notifications_v1._notification_is_migration_inventory(uuid)','EXECUTE')
        OR pg_catalog.has_table_privilege(v_api,
             'aap_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_any_column_privilege(v_api,
@@ -195,7 +219,7 @@ BEGIN
                OR (relation.relkind='S' AND pg_catalog.has_sequence_privilege(
                     v_client,relation.oid,'SELECT,UPDATE,USAGE')))
     ) THEN
-        RAISE EXCEPTION 'Inbox LOGIN has data or capabilities beyond three reads';
+        RAISE EXCEPTION 'Inbox LOGIN has data or capabilities beyond fixed inbox reads';
     END IF;
     FOREACH v_private IN ARRAY ARRAY[
         'public.users','public.projects','public.project_members','public.async_jobs'

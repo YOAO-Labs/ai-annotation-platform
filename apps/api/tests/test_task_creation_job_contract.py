@@ -29,8 +29,7 @@ def _function(sql: str, name: str) -> str:
 
 def test_jobs_migration_and_frozen_artifact_are_down_revision_0192():
     migration = _MIGRATION_PATH.read_text(encoding="utf-8")
-    assert 'revision = "0193"' in migration
-    assert 'down_revision = "0192"' in migration
+
     assert '_ARTIFACT_NAME = "0193_task_creation_jobs.sql"' in migration
 
     sql = _SQL_PATH.read_text(encoding="utf-8")

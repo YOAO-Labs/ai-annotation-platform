@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingPreviewsApi, type PreviewBox } from "@/api/trainingPreviews";
@@ -66,7 +67,9 @@ export function TrainingPreviewImage(props: Props) {
       )}
       {error && (
         <div role="alert" className="text-xs text-status-danger">
-          <p>{error}</p>
+          <p>
+            <CopyableError message={error} />
+          </p>
           <Button size="sm" className="mt-2" onClick={() => setRetry((value) => value + 1)}>
             重试图片
           </Button>

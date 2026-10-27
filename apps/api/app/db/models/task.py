@@ -172,3 +172,13 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    thumbnail_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("thumbnail_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    original_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("task_originals.id", ondelete="RESTRICT"),
+        nullable=True,
+    )

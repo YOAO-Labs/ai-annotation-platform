@@ -386,6 +386,30 @@ def _ensure_source_object(fixture: LargeImageFixture, path: Path) -> bool:
 async def _ensure_fixture_item(
     dataset_id, fixture: LargeImageFixture, path: Path
 ) -> tuple[DatasetItem, bool]:
+    from app.services import managed_original_reader as reader, storage_access
+    from app.services.dataset_assets import (
+        ensure_legacy_bindings,
+        register_item_asset,
+    )
+    from app.services.image_pyramid_originals import Admission, physical
+    from app.services.original_binary_response import close_stage
+
+    def assert_fixture_item(item):
+        if (
+            item is None
+            or (item.metadata_ or {}).get("seed") != _fixture_metadata(fixture)["seed"]
+            or item.file_path != fixture.storage_key
+            or item.file_type != "image"
+            or item.file_size != fixture.byte_size
+            or item.content_hash != fixture.sha256
+            or item.width != fixture.width
+            or item.height != fixture.height
+        ):
+            raise LargeImageSeedError(
+                f"{fixture.id}: existing dataset item does not match the pinned fixture"
+            )
+
+    verify_fixture_file(fixture, path)
     async with async_session() as db:
         rows = list(
             (
@@ -401,20 +425,56 @@ async def _ensure_fixture_item(
             raise LargeImageSeedError(f"{fixture.id}: duplicate dataset items")
         if rows:
             item = rows[0]
-            marker = (item.metadata_ or {}).get("seed")
-            if (
-                marker != _fixture_metadata(fixture)["seed"]
-                or item.file_path != fixture.storage_key
-                or item.file_type != "image"
-                or item.file_size != fixture.byte_size
-                or item.content_hash != fixture.sha256
-                or item.width != fixture.width
-                or item.height != fixture.height
-            ):
-                raise LargeImageSeedError(
-                    f"{fixture.id}: existing dataset item does not match the pinned fixture"
+            assert_fixture_item(item)
+        binding = await ensure_legacy_bindings(db)
+        # Publish only storage bootstrap metadata before independent admission.
+        await db.commit()
+        stage, failure = None, None
+        admission = Admission()
+        async with await storage_access.acquire(
+            db, binding.location_id, "image_pyramid_seed_source"
+        ) as permit:
+            uploaded = await physical(_ensure_source_object, fixture, path)
+            try:
+                stage = await reader.capture(
+                    reader.ObjectSpec(
+                        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}",
+                        binding.bucket,
+                        fixture.storage_key,
+                        fixture.sha256,
+                        fixture.byte_size,
+                    ),
+                    max_bytes=settings.image_pyramid_max_source_bytes,
+                    timeout_seconds=settings.image_pyramid_job_timeout_seconds,
+                    transport_timeout_seconds=30,
+                    admission=admission,
                 )
-        uploaded = _ensure_source_object(fixture, path)
+                etag = stage.observation["etag"]
+            except BaseException as exc:
+                failure = exc
+                if getattr(exc, "storage_operation_unsettled", False):
+                    admission.retained = True
+                raise
+            finally:
+                if stage is not None:
+                    try:
+                        await close_stage(stage)
+                    except BaseException as closing:
+                        if getattr(failure, "storage_operation_unsettled", False):
+                            storage_access.mark_unsettled(closing)
+                        raise
+        await storage_access.check(
+            db, binding.location_id, expected_revision=permit.revision, lock=True
+        )
+        binding = await ensure_legacy_bindings(db)
+        if rows:
+            item = await db.scalar(
+                select(DatasetItem)
+                .where(DatasetItem.id == item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            assert_fixture_item(item)
         if not rows:
             item = DatasetItem(
                 dataset_id=dataset_id,
@@ -429,6 +489,14 @@ async def _ensure_fixture_item(
             )
             db.add(item)
             await db.flush()
+        await register_item_asset(
+            db,
+            item,
+            sha256=fixture.sha256,
+            size_bytes=fixture.byte_size,
+            etag=etag,
+            binding=binding,
+        )
         dataset = await db.get(Dataset, dataset_id)
         if dataset is not None:
             dataset.file_count = int(

@@ -98,8 +98,9 @@ class ModelRelease(Base):
     __table_args__ = (
         UniqueConstraint("project_id", "request_id", name="uq_model_release_request"),
         UniqueConstraint(
-            "project_id", "generation", name="uq_model_release_generation"
+            "project_id", "task", "generation", name="uq_model_release_generation"
         ),
+        CheckConstraint("task IN ('detect','segment')", name="ck_model_release_task"),
         CheckConstraint("generation > 0", name="ck_model_release_generation"),
         CheckConstraint(
             "(model_version_id IS NULL) = (deployment_id IS NULL)",
@@ -132,6 +133,9 @@ class ModelRelease(Base):
     request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     request_digest: Mapped[str] = mapped_column(String(64))
     generation: Mapped[int] = mapped_column(Integer)
+    task: Mapped[str] = mapped_column(
+        String(20), default="detect", server_default="detect"
+    )
     snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -140,11 +144,17 @@ class ModelRelease(Base):
 
 class ProjectModelSelection(Base):
     __tablename__ = "project_model_selections"
+    __table_args__ = (
+        CheckConstraint("task IN ('detect','segment')", name="ck_model_selection_task"),
+    )
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("projects.id", ondelete="RESTRICT"),
         primary_key=True,
+    )
+    task: Mapped[str] = mapped_column(
+        String(20), primary_key=True, default="detect", server_default="detect"
     )
     generation: Mapped[int] = mapped_column(Integer, default=0)
     release_id: Mapped[uuid.UUID | None] = mapped_column(

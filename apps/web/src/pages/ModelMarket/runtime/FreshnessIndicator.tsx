@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · per-source freshness chip.
  *
@@ -40,7 +41,11 @@ export function FreshnessIndicator({ source }: FreshnessIndicatorProps): ReactNo
       <TooltipTrigger asChild>
         <Badge variant={variant} className="cursor-help">
           <Icon name={icon} size={11} />
-          <span>{source.label}</span>
+          {source.error ? (
+            <CopyableError message={source.error} preview={source.label} />
+          ) : (
+            <span>{source.label}</span>
+          )}
           <span className="text-muted-foreground">{time}</span>
         </Badge>
       </TooltipTrigger>

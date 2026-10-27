@@ -93,7 +93,11 @@ class BugReportService:
         if filters:
             q = q.where(*filters)
             count_q = count_q.where(*filters)
-        q = q.order_by(BugReport.created_at.desc()).offset(offset).limit(limit)
+        q = (
+            q.order_by(BugReport.created_at.desc(), BugReport.id)
+            .offset(offset)
+            .limit(limit)
+        )
         result = await self.db.execute(q)
         items = list(result.scalars().all())
         total_result = await self.db.execute(count_q)

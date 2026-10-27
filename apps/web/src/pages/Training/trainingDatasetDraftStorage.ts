@@ -1,4 +1,6 @@
-import type { TrainingDatasetCreate } from "@/api/generated/types.gen";
+import { validDatasetTrainingFilter } from "../Datasets/datasetTrainingSelection";
+import type { TrainingDatasetCreate } from "@/api/trainingDatasets";
+import { instanceMaskBridge } from "./trainingDatasetBridges";
 import { trainingDraftOwner } from "./trainingDraftStorage";
 
 export type TrainingDatasetDraftOwner = {
@@ -6,6 +8,7 @@ export type TrainingDatasetDraftOwner = {
   sessionId: string;
   projectId: string;
   task: "detect" | "segment";
+  bridge?: typeof instanceMaskBridge;
 };
 
 const prefix = "aap-training-dataset-request:1:";
@@ -15,7 +18,12 @@ const restoreError = "无法恢复本地创建请求，请检查浏览器存储�
 
 export const trainingDatasetDraftKey = (owner: TrainingDatasetDraftOwner) =>
   prefix +
-  JSON.stringify([owner.sessionId, trainingDraftOwner(owner.userId, owner.projectId), owner.task]);
+  JSON.stringify([
+    owner.sessionId,
+    trainingDraftOwner(owner.userId, owner.projectId),
+    owner.task,
+    ...(owner.bridge ? [owner.bridge] : []),
+  ]);
 
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -32,7 +40,7 @@ function identifiers(value: unknown): boolean {
 
 function validBody(
   value: unknown,
-  task: TrainingDatasetDraftOwner["task"],
+  owner: TrainingDatasetDraftOwner,
 ): value is TrainingDatasetCreate {
   if (
     !object(value) ||
@@ -43,7 +51,10 @@ function validBody(
           "request_id",
           "preflight_digest",
           "task",
+          "bridge",
           "batch_id",
+          "dataset_id",
+          "dataset_filter",
           "parent_id",
           "mode",
           "seed",
@@ -62,8 +73,11 @@ function validBody(
     uuid.test(value.request_id) &&
     typeof value.preflight_digest === "string" &&
     /^[0-9a-f]{64}$/.test(value.preflight_digest) &&
-    (value.task ?? "detect") === task &&
-    ["batch_id", "parent_id"].every(
+    (value.task ?? "detect") === owner.task &&
+    (value.bridge ?? undefined) === owner.bridge &&
+    (value.bridge === undefined ||
+      (owner.task === "segment" && value.bridge === instanceMaskBridge)) &&
+    ["batch_id", "parent_id", "dataset_id"].every(
       (key) =>
         value[key] == null ||
         (typeof value[key] === "string" && value[key].length > 0 && value[key].length <= 100),
@@ -77,6 +91,8 @@ function validBody(
       (typeof value.validation_fraction === "number" &&
         value.validation_fraction >= 0.05 &&
         value.validation_fraction <= 0.5)) &&
+    (value.dataset_filter == null ||
+      (typeof value.dataset_id === "string" && validDatasetTrainingFilter(value.dataset_filter))) &&
     identifiers(value.task_ids) &&
     identifiers(value.confirmed_negative_ids)
   );
@@ -98,7 +114,7 @@ export function readTrainingDatasetDraft(
       Object.keys(value).length !== 3 ||
       value.version !== 1 ||
       value.ownerKey !== key ||
-      !validBody(value.body, owner.task)
+      !validBody(value.body, owner)
     )
       throw new Error("Invalid request owner or body");
     return { body: value.body, error: null };
@@ -118,7 +134,7 @@ export function saveTrainingDatasetDraft(
     if (existing.error) return existing.error;
     if (existing.body && JSON.stringify(existing.body) !== JSON.stringify(body))
       return "另一个页面保留了尚未确认的创建请求，请刷新后确认原请求。";
-    if (!validBody(body, owner.task)) throw new Error("Invalid request");
+    if (!validBody(body, owner)) throw new Error("Invalid request");
     const key = trainingDatasetDraftKey(owner);
     const source = JSON.stringify({ version: 1, ownerKey: key, body });
     if (source.length > maxLength) throw new Error("Request too large");

@@ -20,6 +20,28 @@ function defineAsset(spec: MarketingAssetSpec): MarketingAssetSpec {
 
 const assetSpecs = [
   defineAsset({
+    assetId: "detection-online-training",
+    title: "目标检测在线训练完整流程",
+    theme: "冻结数据、真实训练、模型回流与预标注迭代",
+    objective:
+      "在独立演示环境使用真实检测数据和执行器，展示数据版本、配置实验、训练与验证指标、注册模型、加载试用、默认预标和人工修正回流。",
+    duration: { minSeconds: 90, targetSeconds: 240, maxSeconds: 900 },
+    shots: [
+      "核对已审核图片，创建冻结数据版本并继承固定训练／验证划分。",
+      "选择检测任务、YOLO11n 和预训练初始化，配置轮次与训练集评估后开始真实训练。",
+      "查看逐轮训练表现、训练损失、验证表现、验证损失和训练产物。",
+      "将成功执行添加为项目候选，绑定类别，加载模型并查看固定验证样本。",
+      "设为检测默认预标，在工作台使用回流模型生成候选并人工处理。",
+      "准备修正后的下一版数据，用项目候选初始化下一轮实验。",
+    ],
+    editingNotes: [
+      "全部训练和推理均为真实执行，不拦截响应或注入指标。",
+      "仅在专用测试数据库、Redis、存储桶和受管演示容器中运行。",
+      "COCO8 仅用于本次私有开发演示，不自动发布到公共文档素材。",
+      "这是流程演示，不代表业务精度提升或目标部署 GPU 生命周期验收。",
+    ],
+  }),
+  defineAsset({
     assetId: "project-onboarding",
     title: "登录、创建项目并进入工作台",
     theme: "首次创建可标注图片项目的完整入门流程",

@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockCreateDataset, mockUpdateDataset, mockUnlinkProject } = vi.hoisted(() => ({
   mockCreateDataset: vi.fn(),
@@ -17,6 +17,8 @@ vi.mock("@/api/datasets", () => ({
   },
 }));
 
+import { useAuthStore } from "@/stores/authStore";
+import type { MeResponse } from "@/api/auth";
 import { useCreateDataset, useUnlinkProject, useUpdateDataset } from "./useDatasets";
 
 function makeWrapper(client: QueryClient) {
@@ -24,8 +26,13 @@ function makeWrapper(client: QueryClient) {
     createElement(QueryClientProvider, { client }, children);
 }
 
+beforeEach(() => {
+  useAuthStore.getState().setAuth("token-a", { id: "owner-a" } as MeResponse);
+});
+
 afterEach(() => {
   cleanup();
+  useAuthStore.getState().logout();
   vi.clearAllMocks();
 });
 

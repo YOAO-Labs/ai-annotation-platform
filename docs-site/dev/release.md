@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-17
+last_reviewed: 2026-10-19
 ---
 
 # 发布流程

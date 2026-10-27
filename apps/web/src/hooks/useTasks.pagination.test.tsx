@@ -65,4 +65,21 @@ describe("useTaskList pagination plumbing", () => {
     expect(firstSignal.aborted).toBe(true);
     resolveFirst?.({ items: [], total: 0, limit: 100, offset: 0, next_cursor: null });
   });
+  it("allows business lists to request their selected row count", async () => {
+    mockListByProject.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+      next_cursor: null,
+    });
+    renderHook(() => useTaskList("p1", { batch_id: "b1", limit: 20 }), { wrapper });
+    await waitFor(() =>
+      expect(mockListByProject).toHaveBeenCalledWith(
+        "p1",
+        { batch_id: "b1", limit: 20, cursor: undefined },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
 });

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from sqlalchemy import String, cast, func, select
 
 from app.db.models.sample_evaluation import SampleEvaluationRun as Evaluation
 from app.db.models.training_dataset import TrainingDatasetVersion as Version
 from app.services import active_learning_engine as strategy
+from app.services import active_learning_originals as originals
 from app.services import sample_evaluation_engine as detection
 from app.services.labeling_active_learning_source_contract import (
     CandidateSourceError,
@@ -16,18 +15,17 @@ from app.services.labeling_active_learning_source_contract import (
     LabelingActiveLearningSources,
 )
 from app.services.managed_inference import qualification, reject
-from app.services.sample_evaluation_sources import read_current_media
+from app.services.training_authority_contract import TrainingAuthorityPort
 from app.services.training_dataset_bridge import (
     content_digest,
     sample_identities,
     split_history,
 )
-from app.services.training_authority_contract import TrainingAuthorityPort
 
 MAX_TOTAL_RAW = 128 * 1024 * 1024
 MAX_HISTORICAL_BYTES = 16 * 1024 * 1024
 MAX_HISTORICAL_SOURCES = 256
-SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
+SCOPES = originals.SCOPES
 
 
 async def exclusions(db, project_id, *, lock=False):
@@ -164,18 +162,21 @@ async def exclusions(db, project_id, *, lock=False):
     return {**result, "digest": content_digest(result)}
 
 
-def read_input(snapshot):
-    media = read_current_media(snapshot, include_raw=True)
-    png, preprocessing = detection.normalize_image(
-        media.pop("raw"), width=media["width"], height=media["height"]
-    )
-    if preprocessing["raw_sha256"] != media["sha256"]:
-        raise ValueError("Conditional source digest differs")
-    return png, {
-        **media,
-        "derived_sha256": preprocessing["derived_sha256"],
-        "preprocessing": preprocessing,
-    }
+async def current_sources(
+    db,
+    project_id,
+    task_ids,
+    *,
+    candidate_sources: LabelingActiveLearningSources,
+):
+    """Read the Labeling-owned facts and pin each original input receipt."""
+    try:
+        snapshots = await candidate_sources.read_candidate_sources(
+            CandidateSourcesRead(project_id, tuple(task_ids))
+        )
+    except CandidateSourceError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
+    return [await originals.pin(db, snapshot) for snapshot in snapshots]
 
 
 async def prepare(
@@ -185,9 +186,11 @@ async def prepare(
     actor_id,
     api_key_id=None,
     *,
+    request,
     candidate_sources: LabelingActiveLearningSources,
     training_authority: TrainingAuthorityPort,
 ):
+    context = await originals.authorize(db, project.id, actor_id, request, api_key_id)
     # External qualification and media IO precede final domain locks.
     ref, profile = await qualification(
         db, project, body.model_version_id, body.deployment_id
@@ -198,25 +201,35 @@ async def prepare(
         api_key_id=api_key_id,
         required_scopes=SCOPES,
     )
-    try:
-        before = await candidate_sources.read_candidate_sources(
-            CandidateSourcesRead(project.id, tuple(body.sample_task_ids))
-        )
-    except CandidateSourceError as exc:
-        raise reject(exc.code, str(exc), exc.status_code) from exc
+    before = await current_sources(
+        db, project.id, body.sample_task_ids, candidate_sources=candidate_sources
+    )
     history = await exclusions(db, project.id)
     await db.commit()
-    verified, total = [], 0
+    verified, live_sources, total = [], [], 0
     for snapshot in before:
         try:
-            _png, media = await asyncio.to_thread(read_input, snapshot)
-        except Exception as exc:
+            _png, media, source = await originals.read_input(db, context, snapshot)
+            live_sources.append(source)
+        except originals.ContentError:
+            raise
+        except (ValueError, OSError) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise reject(
                 "source_unavailable",
                 "候选图片未通过条件读取、解码、大小或身份检查",
                 422,
             ) from exc
         total += media["size_bytes"]
+        if strategy.strategy_for(ref) == strategy.MASK_STRATEGY:
+            from app.services import sample_evaluation_masks as masks
+
+            if (
+                media["width"] * media["height"] > masks.MAX_PIXELS
+                or max(media["width"], media["height"]) > masks.MAX_DIMENSION
+            ):
+                raise reject("source_budget", "候选原图超过分割评估协议的像素预算", 422)
         if total > MAX_TOTAL_RAW:
             raise reject("source_budget", "候选图片总量超过 128 MiB", 422)
         verified.append(
@@ -233,20 +246,20 @@ async def prepare(
         api_key_id=api_key_id,
         required_scopes=SCOPES,
     )
-    try:
-        after = await candidate_sources.read_candidate_sources(
-            CandidateSourcesRead(project.id, tuple(body.sample_task_ids))
-        )
-    except CandidateSourceError as exc:
-        raise reject(exc.code, str(exc), exc.status_code) from exc
+    after = await current_sources(
+        db, project.id, body.sample_task_ids, candidate_sources=candidate_sources
+    )
     if before != after or history != await exclusions(db, project.id):
         raise reject("pool_stale", "核验期间候选来源或历史成员已变化，请重新预览")
+    for source in live_sources:
+        await originals.recheck(db, context, source, commit=False)
     samples, omitted = strategy.grouped_pool(verified, history["identities"])
     samples = strategy.partition(samples, body.seed, body.batch_size)
     if body.max_inference_dispatches < len(samples):
         raise reject("inference_budget", "推理预算至少须覆盖去重后的全部独立候选", 422)
     result = {
         "schema": 1,
+        "original_contract": 1,
         "pool": verified,
         "pool_digest": content_digest(verified),
         "samples": samples,
@@ -255,7 +268,7 @@ async def prepare(
         "model_ref": ref,
         "profile": profile,
         "profile_digest": profile["profile_digest"],
-        "strategy": strategy.STRATEGY,
+        "strategy": strategy.strategy_for(ref),
         "preprocessing": detection.PREPROCESSING,
         **body.model_dump(
             mode="json",
@@ -269,5 +282,13 @@ async def prepare(
             },
         ),
     }
+    if strategy.strategy_for(ref) == strategy.MASK_STRATEGY:
+        result.update(schema=2, schema_version=2, task="segment")
     await db.commit()
-    return {**result, "preview_digest": content_digest(result)}
+    originals.access.check_clock(context.proof, context.key)
+    return {
+        **result,
+        "preview_digest": content_digest(result),
+        "_authority": context,
+        "_live_sources": live_sources,
+    }

@@ -65,6 +65,42 @@ async def test_preannotate_queue_returns_pre_annotated_batches(
     assert item["can_retry"] is False
 
 
+@pytest.mark.asyncio
+async def test_preannotate_queue_project_filter_and_offset_cover_all_batches(
+    httpx_client, db_session, super_admin
+):
+    user, token = super_admin
+    project = await create_project(db_session, owner_id=user.id, name="Paged queue")
+    other = await create_project(db_session, owner_id=user.id, name="Other queue")
+    expected = set()
+    for index in range(53):
+        batch = await create_batch(
+            db_session,
+            project_id=project.id,
+            name=f"ready-{index}",
+            status="pre_annotated",
+        )
+        expected.add(str(batch.id))
+    await create_batch(db_session, project_id=other.id, status="pre_annotated")
+    headers = {"Authorization": f"Bearer {token}"}
+    pages = []
+    for offset in (0, 50):
+        response = await httpx_client.get(
+            "/api/v1/admin/preannotate-queue",
+            params={"project_id": str(project.id), "limit": 50, "offset": offset},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        pages.append(response.json()["items"])
+    assert [len(page) for page in pages] == [50, 3]
+    assert {item["batch_id"] for page in pages for item in page} == expected
+    assert all(item["project_id"] == str(project.id) for page in pages for item in page)
+    invalid = await httpx_client.get(
+        "/api/v1/admin/preannotate-queue", params={"offset": -1}, headers=headers
+    )
+    assert invalid.status_code == 422
+
+
 # ── v0.9.12 · bulk-clear (B-16) ───────────────────────────────────────────────
 
 

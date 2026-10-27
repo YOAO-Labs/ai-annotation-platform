@@ -244,6 +244,13 @@ async def export_data_manager_tasks(
             }
         )
     if job is None:
+        from app.services.exporting.reference_media import capture_export_authority
+
+        from app.services.exporting import output_authority
+
+        job_payload["output_authority"] = await output_authority.capture(
+            db, project, actor, request
+        )
         job = await async_job_service.create_job(
             db,
             kind=AsyncJobKind.EXPORT.value,
@@ -251,6 +258,31 @@ async def export_data_manager_tasks(
             project_id=project_id,
             payload=job_payload,
         )
+        from app.services.content_snapshot import ContentError
+        from app.services.exporting.media_jobs import capture_job
+
+        try:
+            media_bundle = await capture_job(
+                db,
+                job,
+                project,
+                batch_id=None,
+                targets=targets,
+                opts=options,
+                task_ids=payload.task_ids,
+            )
+        except ContentError as exc:
+            raise HTTPException(exc.status, detail={"code": exc.code}) from None
+        authority = await capture_export_authority(
+            db,
+            project,
+            actor,
+            request,
+            task_ids=payload.task_ids,
+            frozen_snapshot=media_bundle.input_snapshot if media_bundle else None,
+        )
+        if authority:
+            job.payload = {**job.payload, "export_authority": authority}
     execution_id = str(uuid.uuid4())
     dispatch_args = []
     dispatch_kwargs = {
@@ -297,10 +329,10 @@ async def export_data_manager_tasks(
                 kwargs=dispatch_kwargs,
             ),
         )
-    except Exception as exc:
-        await async_job_service.mark_failed(
-            db, job.id, error=f"dispatch failed: {type(exc).__name__}: {exc}"
-        )
+    except Exception:
+        from app.services.exporting.media_jobs import fail_dispatch
+
+        await fail_dispatch(db, job.id)
         await db.commit()
         raise
     async_job_service.bind_execution_id(job, published_execution_id)

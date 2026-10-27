@@ -1,32 +1,35 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-20
+last_reviewed: 2026-10-20
 ---
 
 # AI 模型集成
 
 协议契约见 [`ml-backend-protocol.md`](../reference/ml-backend-protocol)。本页说明当前模型服务的部署拓扑、显存预算、缓存、并发控制和能力协商。
 
-<!-- history: the original v0.9/v0.10 release-slice notes are folded into the current model integration guide. -->
+服务实例、模型、服务池和项目发布之间的关系，以及请求如何选路、Token 如何认证，见[模型服务接入、路由与认证](./ml-backend-routing-and-auth)。该文也说明训练结果回流、默认凭据的生成与同步，以及初始化和重建容器各自解决的问题。
+
+内置服务以固定服务 ID 和部署指定的唯一 URL 绑定系统托管认证，registry 的 `managed:<provider>` 与凭据一起参与既有认证修订围栏。API 只向该映射内的对应地址发送该服务凭据，禁用环境代理与重定向；URL 或认证并发变更会在短行锁下复核，防止把共享凭据绑定到另一个地址。凭据文件各自持久保存，服务只读自身子目录；启动生成默认值不改写已有实例认证，也不宣告服务可用。业务 Bearer 与 GPU 控制签名是独立校验，普通健康检查保持公开。外部服务保留 `none`／手动 `token`，`none` 不发送任何认证信息。
 
 ---
 
 ## 0. Backend 名录
 
-平台当前自维护 **5 个 ML backend**(各为独立 FastAPI 微服务、独立 docker-compose profile,按显存预算自由组合启动)。所有 backend 走同一套[能力声明协议](../reference/ml-backend-protocol),由平台经 `/setup` 探能力 + `/predict` 调推理。
+平台当前自维护 **5 个 ML backend**（各为独立 FastAPI 微服务、独立 `docker-compose.ml.yml` profile，按显存预算自由组合启动）。所有 backend 走同一套[能力声明协议](../reference/ml-backend-protocol)，由平台经 `/setup` 探能力 + `/predict` 调推理。
 
-| Backend                 | 端口 | profile         | 模型族                                         | 主用途                                                                                     | composition                  |
-| ----------------------- | ---- | --------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------- |
-| `grounded-sam2-backend` | 8001 | `gpu`           | GroundingDINO + SAM 2.1                        | 文本/点/框交互式实例分割;暴露 `box-seg` 几何原子(多阶段下游)                               | `composite` + `atom`         |
-| `sam3-backend`          | 8002 | `gpu-sam3`      | SAM 3                                          | 交互式分割(下一代 SAM)                                                                     | `composite`                  |
-| `yolo-backend`          | 8003 | `gpu-yolo`      | ultralytics(v8/v11/v12 × det/seg/pose/obb/cls) | 纯批量预标(`supported_prompts=["none"]`),不挤占交互式工具栏                                | `composite`                  |
-| `onnxtools-backend`     | 8004 | `gpu-onnxtools` | rtdetr + va                                    | 二阶段车辆属性预标注;多阶段编排原子组合(上游纯检测 + 下游纯分类)                           | `atom` × 2 + `composite` × 1 |
-| `rapidocr-backend`      | 8005 | `gpu-rapidocr`  | RapidOCR(ONNX)PP-OCRv5/v6                      | OCR 文本检测 / 识别;`det → cls → rec` 拆原子 + 端到端,落点 `text`/`orientation`/`language` | `atom` × 2 + `composite` × 1 |
+| Backend                 | 端口 | profile         | 模型族                                                        | 主用途                                                                                        | composition                  |
+| ----------------------- | ---- | --------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------- |
+| `grounded-sam2-backend` | 8001 | `gpu`           | GroundingDINO + SAM 2.1                                       | 文本/点/框交互式实例分割；暴露 `box-seg` 几何原子（多阶段下游）                               | `composite` + `atom`         |
+| `sam3-backend`          | 8002 | `gpu-sam3`      | SAM 3                                                         | 交互式分割（下一代 SAM）                                                                      | `composite`                  |
+| `yolo-backend`          | 8003 | `gpu-yolo`      | Ultralytics（v8/v11/v12）+ LibreYOLO（YOLO9/YOLOX）+ 受管模型 | 纯批量预标（`supported_prompts=["none"]`）+ 在线训练受管模型热加载（`/managed-models`）与评估 | `composite`                  |
+| `onnxtools-backend`     | 8004 | `gpu-onnxtools` | rtdetr + va                                                   | 二阶段车辆属性预标注；多阶段编排原子组合（上游纯检测 + 下游纯分类）                           | `atom` × 2 + `composite` × 1 |
+| `rapidocr-backend`      | 8005 | `gpu-rapidocr`  | RapidOCR（ONNX）PP-OCRv5/v6                                   | OCR 文本检测 / 识别；`det → cls → rec` 拆原子 + 端到端，落点 `text`/`orientation`/`language`  | `atom` × 2 + `composite` × 1 |
 
-SAM 系列特化(image embedding 缓存、prompt 路由)集中在 §1–§5。`yolo-backend` / `onnxtools-backend` / `rapidocr-backend` 的差异化说明放在 §6。
+SAM 系列特化（image embedding 缓存、prompt 路由）集中在 §1–§5。`yolo-backend` / `onnxtools-backend` / `rapidocr-backend` 的差异化说明放在 §6。
+
+全局注册实例的认证可独立轮换：数据库维护单调 `auth_revision`，认证变化时原子清除健康缓存，健康探测与携带端点快照的 GPU 控制证明按该修订号复核，阻断凭据改回原值后的旧结果回写。认证更新遵守 registry → resource → promotion barrier → current membership 锁序，但不改变 GPU membership 或 fence 计数；GPU 控制签名凭据独立于实例访问 Token。URL、GPU claim 与运行参数的变更仍走原退役保护。取消意图的持久指纹在认证修订号为零时保留原格式，以兼容迁移前尚未完成的恢复。
 
 ---
 
@@ -44,30 +47,29 @@ apps/api (FastAPI 3.11) ──HTTP /predict──▶ grounded-sam2-backend
 
 **SAM 系列必须独立服务进程**：grounded-sam2-backend 与 sam3-backend 使用不同 Python、torch、CUDA 与权重依赖；GroundingDINO Deformable Attention 算子还需要 nvcc 现场编译。共用进程会触发 ABI 冲突（TORCH_CUDA_ARCH_LIST、cudnn 版本）。
 
-### 1.1 docker-compose profile + nvidia 资源预留
+### 1.1 docker-compose.ml.yml profile + nvidia 资源预留
 
-每个 backend service 必备四项：① 独立 service + 独立端口；② `profiles: ["gpu"]` opt-in（dev 默认 CPU mock 不启 GPU profile，避免开发机被占用）；③ `deploy.resources.reservations.devices` 申请 nvidia GPU；④ `healthcheck start_period=120s`（首次冷启 ~900MB checkpoint 下载）。
+所有 GPU 推理后端定义在独立的 `docker-compose.ml.yml` 中，每个 service 具备四项核心配置：① 独立 service + 独立端口；② `profiles: ["gpu*"]` opt-in（默认开发栈不启动 GPU profile，避免占用开发机显存）；③ `deploy.resources.reservations.devices` 申请 NVIDIA GPU；④ `healthcheck start_period=180s`（覆盖首次冷启与 checkpoint 加载）。
 
 ```yaml
-# docker-compose.yml 节选
+# docker-compose.ml.yml 节选
 services:
   grounded-sam2-backend:
-    profiles: ["gpu"] # 默认不启, --profile gpu opt-in
+    profiles: ["gpu"] # 默认不启, -f docker-compose.yml -f docker-compose.ml.yml --profile gpu opt-in
     build:
-      context: ./apps/grounded-sam2-backend
-      dockerfile: Dockerfile
-    image: ai-annotation/grounded-sam2-backend:0.9
+      context: ./apps
+      dockerfile: grounded-sam2-backend/Dockerfile
     ports:
-      - "8001:8000" # host:container
+      - "8001:8001"
     environment:
-      SAM_VARIANT: tiny # tiny|small|base_plus|large; 显存预算见 §1.2
-      DINO_VARIANT: T # T|B
-      CHECKPOINT_DIR: /app/checkpoints
+      SAM_VARIANT: ${SAM_VARIANT:-tiny} # tiny|small|base_plus|large; 显存预算见 §1.2
+      DINO_VARIANT: ${DINO_VARIANT:-T} # T|B
+      CHECKPOINT_DIR: /data/checkpoints
     volumes:
-      - ./checkpoints:/app/checkpoints # 持久化, 避免 image 重建拉权重
+      - gsam2_checkpoints:/data/checkpoints # 持久化命名卷, 避免镜像重建重拉权重
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      start_period: 120s # 首次冷启 + checkpoint 加载
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
+      start_period: 180s # 首次冷启 + checkpoint 加载
       interval: 30s
       timeout: 10s
       retries: 3
@@ -80,14 +82,14 @@ services:
               capabilities: [gpu]
 ```
 
-**dev vs 生产差异**（下表 `--profile gpu` 命令省略了叠加文件前缀；GPU backend 在 `docker-compose.ml.yml`，实际须 `docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu ...`，或设 `COMPOSE_FILE` 固化）：
+**dev vs 生产差异**（GPU backend 定义在 `docker-compose.ml.yml`，启动时需叠加 `-f docker-compose.yml -f docker-compose.ml.yml` 或配置 `COMPOSE_FILE`）：
 
 | 场景                  | 启动命令                                                | GPU 需求                     | 显存预算    | 备注                                                                 |
 | --------------------- | ------------------------------------------------------- | ---------------------------- | ----------- | -------------------------------------------------------------------- |
 | **dev (无 GPU 机)**   | `docker compose up`                                     | 0                            | 0           | GPU backend 不启动，注册表实例不可用，标注页前端走 disabled UI       |
 | **dev (有 GPU)**      | `docker compose --profile gpu up`                       | 1 卡                         | ~3GB (tiny) | 默认启动 grounded-sam2 主变体，额外变体按 prefetch / model pool 配置 |
 | **生产 (单租户)**     | `docker compose --profile gpu up -d`                    | ≥ 1 卡                       | 见 §1.2     | 按显存档位选 SAM_VARIANT                                             |
-| **生产 (多变体并存)** | 拆 service: `gsam2-tiny` / `gsam2-large` (各自 profile) | ≥ 2 卡 (推荐) 或 1 张 ≥ 24GB | 累加 §1.2   | C → B 升级路径见 ROADMAP §A 注册 backend 选变体                      |
+| **生产 (多变体并存)** | 拆 service: `gsam2-tiny` / `gsam2-large` (各自 profile) | ≥ 2 卡 (推荐) 或 1 张 ≥ 24GB | 累加 §1.2   | 按显存预算拆分独立容器或使用单容器 ModelPool                         |
 
 ### 1.2 显存预算 + variant 选型
 
@@ -121,7 +123,7 @@ embedding cache buffer：`EMBEDDING_CACHE_SIZE` 默认 16 entries；按 GPU 显�
 
 镜像基于 `pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel`（**devel** 必需，runtime 镜像缺 nvcc 触发 GroundingDINO 编译失败）。Dockerfile 末段 `pip install -e ../_shared/mask_utils` 把共享 mask 转换包链入容器，避免 grounded-sam2 与 sam3 各自维护 mask → polygon 转换逻辑。
 
-checkpoint 同步：`apps/grounded-sam2-backend/scripts/download_checkpoints.py` 按 SAM_VARIANT / DINO_VARIANT env 拉 hf-mirror 镜像；首次冷启或换 variant 时跑一次。生产环境推荐挂 PV / EBS 把 `/app/checkpoints` 持久化（~900MB-2GB），避免 image rebuild 重新下载。
+checkpoint 同步：`apps/grounded-sam2-backend/scripts/download_checkpoints.py` 按 SAM_VARIANT / DINO_VARIANT env 拉 hf-mirror 镜像；首次冷启或换 variant 时跑一次。生产环境推荐挂 PV / EBS 把 `/data/checkpoints` 持久化（~900MB-2GB），避免 image rebuild 重新下载。
 
 ---
 
@@ -186,7 +188,7 @@ SAM2ImagePredictor `set_image()` 之后状态写在 `_features` / `_orig_hw` / `
 
 ### 3.5 vendor 升级风险
 
-`_features` / `_orig_hw` / `_is_image_set` / `_is_batch` 是 vendor `IDEA-Research/Grounded-SAM-2` 的内部 API（commit `b7a9c29`）。`scripts/sync_vendor.sh` 升级后必须人肉跑 5-clicks 集成验收（README §性能参考）。
+`_features` / `_orig_hw` / `_is_image_set` / `_is_batch` 是 vendor `IDEA-Research/Grounded-SAM-2` 的内部 API（commit `b7a9c29`）。执行 `apps/{grounded-sam2,sam3}-backend/scripts/sync_vendor.sh` 升级后必须运行 5-clicks 集成验收（README §性能参考）。
 
 ---
 
@@ -242,16 +244,16 @@ histogram_quantile(0.95,
 
 ## 4.5 per-backend max_concurrency 限速
 
-`ml_backend_registry.extra_params.max_concurrency` (JSONB 字段, 默认 4) 控制平台到该 backend 的并发 `/predict` 上限. 实现:
+`ml_backend_registry.extra_params.max_concurrency`（JSONB 字段，默认 4）控制平台到该 backend 的并发 `/predict` 上限。实现：
 
-- `apps/api/app/services/ml_client.py` 把 backend id → semaphore 的缓存挂在当前 event loop 自身；loop 退出后缓存与已绑定 semaphore 作为同一循环对象图一起回收，不会被模块级容器反向保活，也不会交给后续 `asyncio.run()`.
-- `MLBackendClient.__init__` 读取 `extra_params.max_concurrency`；真正进入预测时，`_get_semaphore(backend_id, max_cc)` 在当前 event loop 中取得或创建信号量.
-- `predict()` / `predict_interactive()` 在 `async with await self._acquire():` 内调 httpx, 信号量 acquire/release 自动绕在请求 IO 外.
-- 同一 event loop 内的多个 `MLBackendClient` 实例共享同 backend id 的信号量，跨 task / 跨请求生效；API 与不同 Celery loop 之间仍不共享，本地闸不能替代 Redis 全局 lease.
+- `apps/api/app/services/ml_client.py` 把 backend id → semaphore 的缓存挂在当前 event loop 自身；loop 退出后缓存与已绑定 semaphore 作为同一循环对象图一起回收，不会被模块级容器反向保活，也不会交给后续 `asyncio.run()`。
+- `MLBackendClient.__init__` 读取 `extra_params.max_concurrency`；真正进入预测时，`_get_semaphore(backend_id, max_cc)` 在当前 event loop 中取得或创建信号量。
+- `predict()` / `predict_interactive()` 在 `async with await self._acquire():` 内调 httpx，信号量 acquire/release 自动绕在请求 IO 外。
+- 同一 event loop 内的多个 `MLBackendClient` 实例共享同 backend id 的信号量，跨 task / 跨请求生效；API 与不同 Celery loop 之间仍不共享，本地闸不能替代 Redis 全局 lease。
 
 当 `ML_BACKEND_ROUTER_MODE=enforce` 时，服务池路由 ledger 会在选定物理实例前按同一 `max_concurrency` 发放 Redis route lease，因此 API 与多个 Celery worker 共享实例级上限；off/observe 仍只依赖各进程本地 semaphore。GPU 仲裁的逐资源 effective mode 负责显存准入与驱逐，不决定 route lease 是否生效。
 
-**配置示例** (DB JSONB):
+**配置示例**（DB JSONB）：
 
 ```json
 // ml_backend_registry 行
@@ -266,11 +268,11 @@ histogram_quantile(0.95,
 
 **调整后必须重启 worker**：每个存活 event loop 仍按 backend id 缓存既有信号量，改字段后须 `docker compose restart api celery-worker` 才能生效。若要运行期热更新，需要把 cache key 纳入 `max_cc` 或增加 invalidation 机制。
 
-**注册表单 UI**：全局注册表单 `GlobalBackendFormModal`（模型市场 → 注册管理，仅超管）在「认证方式」下方提供「最大并发」number input（1-32，留空走默认 4），提交时合并到 `extra_params.max_concurrency`（覆盖 textarea JSON 同名键）。`RegisteredBackendsTab` 全局注册表行的类型列旁显示 `≤N 并发` chip，缺省值不渲染避免列表噪音——限速真正 per-物理-backend 生效，此 chip 即该物理 backend 的全局并发闸。不再需要直接手改 DB JSONB 字段。 <!-- since v0.19.0 · ADR-0044 限速上提全局 -->
+**注册表单 UI**：全局注册表单 `GlobalBackendFormModal`（模型市场 → 注册管理，仅超管）在「认证方式」下方提供「最大并发」number input（1-32，留空走默认 4），提交时合并到 `extra_params.max_concurrency`（覆盖 textarea JSON 同名键）。`RegisteredBackendsTab` 全局注册表行的类型列旁显示 `≤N 并发` chip，缺省值不渲染避免列表噪音——限速真正 per-物理-backend 生效，此 chip 即该物理 backend 的全局并发闸。不再需要直接手改 DB JSONB 字段。
 
-**前端可见性**: `/admin/preannotate-summary` 透传 `ml_backend_max_concurrency` 给 `ProjectCardGrid` 卡片 + `ProjectDetailPanel` 头部展示「最多 N 并发」, 多 batch 并行预标时给 admin 心理预期.
+**前端可见性**：`/admin/preannotate-summary` 透传 `ml_backend_max_concurrency` 给 `ProjectCardGrid` 卡片 + `ProjectDetailPanel` 头部展示「最多 N 并发」，多 batch 并行预标时给 admin 心理预期。
 
-**触发**: B-17 admin 反馈「多 batch 并行预标」需要并发护盾, 否则单 backend 被打爆 → grounded-sam2 GPU OOM 风险.
+**触发**：admin 反馈「多 batch 并行预标」需要并发护盾，否则单 backend 被打爆会导致 grounded-sam2 GPU OOM 风险。
 
 ---
 
@@ -282,53 +284,60 @@ histogram_quantile(0.95,
 
 ## 6. YOLO / ONNX / OCR 通用推理 backend
 
-`grounded-sam2-backend` / `sam3-backend` 之外平台还自维护三个**通用推理 backend**——`yolo-backend`、`onnxtools-backend` 与 `rapidocr-backend`。三者共性:不交互式(`supported_prompts=["none"]` 或仅 `bbox`),走纯批量预标;镜像与权重均按 backend 自治(`docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile <profile> up`),不影响 SAM 系列。
+`grounded-sam2-backend` / `sam3-backend` 之外平台还自维护三个**通用推理 backend**——`yolo-backend`、`onnxtools-backend` 与 `rapidocr-backend`。三者共性：不交互式（`supported_prompts=["none"]` 或仅 `bbox`），走纯批量预标；镜像与权重均按 backend 自治（`docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile <profile> up`），不影响 SAM 系列。
 
-### 6.1 yolo-backend(8003 / `gpu-yolo`)
+### 6.1 yolo-backend（8003 / `gpu-yolo`）
 
-ultralytics 多任务多系列(`detection` / `segmentation` / `pose` / `obb` / `classification`)。协议 v2 多模型目录(详 [ADR-0036](../adr/archive/0036-ml-backend-capability-protocol-v2-multi-model))暴露所有上百权重,前端模型市场按 `task` × `series` × `size` 分组渲染。权重经 `yolo_checkpoints` 卷持久化。
+- **内置模型目录（Ultralytics + LibreYOLO）**：
+  - 覆盖 Ultralytics 多任务多系列（`detection` / `segmentation` / `pose` / `obb` / `classification`，含 YOLOv8 / YOLOv11 / YOLOv12）以及 LibreYOLO 检测模型族（`YOLO9` / `YOLOX`）。
+  - 协议 v2 多模型目录（详 [ADR-0036](../adr/archive/0036-ml-backend-capability-protocol-v2-multi-model)）暴露全部预置权重，前端模型市场按 `task` × `series` × `size` 分组渲染。权重经 `yolo_checkpoints` 卷持久化。
+- **在线训练受控模型安装（`/managed-models`）**：
+  - `apps/yolo-backend/managed_models.py` 的 `ManagedModelStore` 接收 `POST /managed-models`，下载受控原生权重并核验字节数、SHA-256、任务、框架、架构和类别顺序，在 checkpoint 目录的 `managed/{version_id}` 原子保存 `weights.pt` 与 `receipt.json`。
+  - 平台用 `trained:{version_id}` 和冻结引用访问具体部署。安装后须完成固定图片试用，再由负责人按任务人工发布，才能用于普通预标；候选评估与主动选样有各自的资格检查。受控实例分割首批限定 `yolo11n-seg`，输出原图逐实例 RLE。详见[受控模型部署协议](../reference/ml-backend-protocol)与[实例分割闭环](./instance-segmentation-learning)。
+- **逐样本评估收据端点（`/managed-evaluation/*`）**：
+  - 真实推理复用 `POST /predict` 的 `context.sample_evaluation`；辅助 GET profile、GET requests 和 POST seal 用于环境核验、持久收据和停止／恢复。分割使用独立 `/managed-evaluation/segment/*` 命名空间。平台评估器从冻结真值及预测计算 TP／FP／FN、mask IoU／Dice 与错误诊断；LibreYOLO 尚未开放共享逐样本评估。
 
-### 6.2 onnxtools-backend(8004 / `gpu-onnxtools`)
+### 6.2 onnxtools-backend（8004 / `gpu-onnxtools`）
 
-**二阶段车辆属性预标注**:rtdetr 检测出框 → 对机动车框跑 va 分类出**车型(13 类)+ 颜色(11 类)**→ 写入框 `attributes`。基于 [onnxtools `VehicleAttributePipeline`](https://github.com/yyq19990828/onnxtools) 封装。
+**二阶段车辆属性预标注**：rtdetr 检测出框 → 对机动车框跑 va 分类出**车型（13 类）+ 颜色（11 类）** → 写入框 `attributes`。基于 [onnxtools `VehicleAttributePipeline`](https://github.com/yyq19990828/onnxtools) 封装。
 
-**镜像基础**:`pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel`(cuda12.8 + cudnn9 满足 onnxruntime-gpu 1.22;cudnn8 base 会静默退 CPU)。Dockerfile entrypoint 把 torch 自带的 `nvidia/*/lib` 加进 `LD_LIBRARY_PATH`,否则 CUDAExecutionProvider 找不到 cudnn 静默退 CPU(实测 GPU ~35ms/图 vs CPU ~940ms)。缺 GPU 时自动 fallback CPU,功能仍可用。
+**镜像基础**：`pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel`（cuda12.8 + cudnn9 满足 onnxruntime-gpu 1.22；cudnn8 base 会静默退 CPU）。Dockerfile entrypoint 把 torch 自带的 `nvidia/*/lib` 加进 `LD_LIBRARY_PATH`，否则 CUDAExecutionProvider 找不到 cudnn 静默退 CPU（实测 GPU ~35ms/图 vs CPU ~940ms）。缺 GPU 时自动 fallback CPU，功能仍可用。
 
-**模型注入**:不打进镜像,经 bind mount(`./apps/onnxtools-backend/models:/app/models:ro`)。起栈前需手动复制(rtdetr-2024080100 + va_260612)到该目录。
+**模型注入**：不打进镜像，经 bind mount（`./apps/onnxtools-backend/models:/app/models:ro`）。起栈前需手动复制（rtdetr-2024080100 + va_260612）到该目录。
 
-**三 model 暴露(原子化范式)**:`/setup` 广播三个 model,各架在自己的单模型推理类上、按需懒加载——detect-only 部署只加载 `RtdetrORT`、classify-only 只加载 `VehicleAttributeORT`。
+**三 model 暴露（原子化范式）**：`/setup` 广播三个 model，各架在自己的单模型推理类上、按需懒加载——detect-only 部署只加载 `RtdetrORT`、classify-only 只加载 `VehicleAttributeORT`。
 
-| `model_id`              | `task`           | `composition` | 推理类                                               | 编排定位                                                   |
-| ----------------------- | ---------------- | ------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
-| `vehicle-detect`        | `detection`      | `atom`        | 独立 `RtdetrORT`                                     | 多阶段编排**上游**(只出 bbox,属性留空交下游)               |
-| `vehicle-attr-classify` | `classification` | `atom`        | 独立 `VehicleAttributeORT`                           | 多阶段编排**下游**(整图当一辆车,跳过 rtdetr,写车型 / 颜色) |
-| `vehicle-attr`          | `detection`      | `composite`   | `VehicleAttributePipeline`(内部串 detect + classify) | 单阶段一锅端(开箱即用,内部编排复合)                        |
+| `model_id`              | `task`           | `composition` | 推理类                                                 | 编排定位                                                     |
+| ----------------------- | ---------------- | ------------- | ------------------------------------------------------ | ------------------------------------------------------------ |
+| `vehicle-detect`        | `detection`      | `atom`        | 独立 `RtdetrORT`                                       | 多阶段编排**上游**（只出 bbox，属性留空交下游）              |
+| `vehicle-attr-classify` | `classification` | `atom`        | 独立 `VehicleAttributeORT`                             | 多阶段编排**下游**（整图当一辆车，跳过 rtdetr，写车型/颜色） |
+| `vehicle-attr`          | `detection`      | `composite`   | `VehicleAttributePipeline`（内部串 detect + classify） | 单阶段一锅端（开箱即用，内部编排复合）                       |
 
-`composition` 由能力声明协议(详 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline))引入:`atom` 才能进**编排下游 stage** 选择器(只组合 atom,避免重复编排);`composite` 在单阶段配置可直接选用。模型市场目录 ModelCard / 列表视图均补「原子 / 内置流程」徽标。
+`composition` 由能力声明协议（详 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)）引入：`atom` 才能进**编排下游 stage** 选择器（只组合 atom，避免重复编排）；`composite` 在单阶段配置可直接选用。模型市场目录 ModelCard / 列表视图均补「原子 / 内置流程」徽标。
 
-**`/unload` + idle-unload**:`POST /unload` 释放全部已加载句柄(模型市场卸载按钮直接生效,UI 零改动);末次推理后空闲 `ONNXTOOLS_IDLE_UNLOAD_SECONDS`(默认 600s)自动卸载。按 model 句柄粒度释放显存——原子化让 detect-only 工作流不再背 va 分类器显存。与 yolo 体验对齐。
+**`/unload` + idle-unload**：`POST /unload` 释放全部已加载句柄（模型市场卸载按钮直接生效，UI 零改动）；末次推理后空闲 `ONNXTOOLS_IDLE_UNLOAD_SECONDS`（默认 600s）自动卸载。按 model 句柄粒度释放显存——原子化让 detect-only 工作流不再背 va 分类器显存。与 yolo 体验对齐。
 
-**协议 `output_attribute_schema`**:`vehicle-attr` / `vehicle-attr-classify` 在 `/setup` 自报输出属性 schema(含每个 select 字段的 `options`,value + 中文 label),沿 `ml_capabilities` 透传到前端,供「从 ML Backend 导入属性」一键合并进项目工具单位的 `attribute_schema`。`vehicle-detect` 纯检测不写 `attributes`,不声明 `output_attribute_schema`。
+**协议 `output_attribute_schema`**：`vehicle-attr` / `vehicle-attr-classify` 在 `/setup` 自报输出属性 schema（含每个 select 字段的 `options`，value + 中文 label），沿 `ml_capabilities` 透传到前端，供「从 ML Backend 导入属性」一键合并进项目工具单位的 `attribute_schema`。`vehicle-detect` 纯检测不写 `attributes`，不声明 `output_attribute_schema`。
 
-### 6.3 rapidocr-backend(8005 / `gpu-rapidocr`)
+### 6.3 rapidocr-backend（8005 / `gpu-rapidocr`）
 
-**平台首个真实 OCR backend**:基于 RapidOCR(ONNX),把 `det → cls → rec` 三段拆为「原子能力 + 端到端编排」,对外自报三个 model,激活协议早留好的 `ocr` 任务族,并成为 `attributes.text` / `orientation` / `language` 落点校验的首个真实 producer。
+**平台首个真实 OCR backend**：基于 RapidOCR（ONNX），把 `det → cls → rec` 三段拆为「原子能力 + 端到端编排」，对外自报三个 model，激活协议早留好的 `ocr` 任务族，并成为 `attributes.text` / `orientation` / `language` 落点校验的首个真实 producer。
 
-| `model_id` | `task`      | `composition` | `supported_inputs` | 编排定位                                                                  |
-| ---------- | ----------- | ------------- | ------------------ | ------------------------------------------------------------------------- |
-| `ocr-det`  | `detection` | `atom`        | `full_image`       | 整图文本检测,出文本 polygon 框,不写 `attributes`                          |
-| `ocr-rec`  | `ocr`       | `atom`        | `crop`             | 吃裁剪图,内部跑 cls 做 180° 校正,写回 `text` / `orientation` / `language` |
-| `ocr-e2e`  | `ocr`       | `composite`   | `full_image`       | 单阶段一锅端 det + cls + rec,出 polygon + 文本属性                        |
+| `model_id` | `task`      | `composition` | `supported_inputs` | 编排定位                                                                    |
+| ---------- | ----------- | ------------- | ------------------ | --------------------------------------------------------------------------- |
+| `ocr-det`  | `detection` | `atom`        | `full_image`       | 整图文本检测，出文本 polygon 框，不写 `attributes`                          |
+| `ocr-rec`  | `ocr`       | `atom`        | `crop`             | 吃裁剪图，内部跑 cls 做 180° 校正，写回 `text` / `orientation` / `language` |
+| `ocr-e2e`  | `ocr`       | `composite`   | `full_image`       | 单阶段一锅端 det + cls + rec，出 polygon + 文本属性                         |
 
-cls(文本行方向 0/180)**语言/版本无关**,内化进 rec 与 e2e,不单独暴露 model 条目。
+cls（文本行方向 0/180）**语言/版本无关**，内化进 rec 与 e2e，不单独暴露 model 条目。
 
-**下游识别原子可作跨 backend 编排**:`ocr-rec` 吃 crop,可以做任何上游检测器(YOLO / gsam2 / onnxtools 等)的下游识别阶段——「上游任意 backend 出框 → 裁 crop → 下游 rec 认字写回 `text`」是平台支持的跨 backend 流水线形态。 <!-- since v0.20.5 -->
+**下游识别原子可作跨 backend 编排**：`ocr-rec` 吃 crop，可以做任何上游检测器（YOLO / gsam2 / onnxtools 等）的下游识别阶段——「上游任意 backend 出框 → 裁 crop → 下游 rec 认字写回 `text`」是平台支持的跨 backend 流水线形态。
 
-**变体轴 PP-OCRv5/v6 × 尺寸档 × 通用(中英)/英文**:`ocr-det` / `ocr-rec` / `ocr-e2e` 自报 `supported_variants`(version / size / lang),`/predict context.model_variants` 选档落到 RapidOCR 的 `Det.ocr_version` / `Rec.ocr_version` / `Rec.model_path`。
+**变体轴 PP-OCRv5/v6 × 尺寸档 × 通用（中英）/英文**：`ocr-det` / `ocr-rec` / `ocr-e2e` 自报 `supported_variants`（version / size / lang），`/predict context.model_variants` 选档落到 RapidOCR 的 `Det.ocr_version` / `Rec.ocr_version` / `Rec.model_path`。
 
-**引擎池 + 阈值显式下发**:`det` / `rec` / `e2e` 同 variant 共享池化 `RapidOCR` 实例(`pool_key = det+cls+rec` 三件套路径);`update_params` 对 `None` 是跳过不重置,缺参传 `None` 会让上一次请求的 `text_score` / `box_thresh` / `unclip_ratio` 粘在引擎上污染后续请求(含跨原子类型、跨项目)——预测器缺参显式回落 catalog 默认值并每次写定,跨请求泄漏从结构上消除。
+**引擎池 + 阈值显式下发**：`det` / `rec` / `e2e` 同 variant 共享池化 `RapidOCR` 实例（`pool_key = det+cls+rec` 三件套路径）；`update_params` 对 `None` 是跳过不重置，缺参传 `None` 会让上一次请求的 `text_score` / `box_thresh` / `unclip_ratio` 粘在引擎上污染后续请求（含跨原子类型、跨项目）——预测器缺参显式回落 catalog 默认值并每次写定，跨请求泄漏从结构上消除。
 
-**镜像基础**:`nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04`(与瘦身后的 onnxtools 共享 nvidia/cuda runtime base);GPU 可选,缺 GPU 自动 fallback CPU 仍可用。
+**镜像基础**：`nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04`（与瘦身后的 onnxtools 共享 nvidia/cuda runtime base）；GPU 可选，缺 GPU 自动 fallback CPU 仍可用。
 
 ---
 

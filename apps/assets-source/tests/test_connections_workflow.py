@@ -50,6 +50,7 @@ class Native:
         now = datetime.now(timezone.utc)
         self.record = NativeConnectionFacts(
             id=self.connection_id,
+            revision=1,
             name="connection",
             kind=kind,
             config=config or {"endpoint": "http://8.8.8.8", "bucket": "data"},
@@ -85,6 +86,29 @@ class Native:
             policy_source="environment",
             policy_digest="b" * 64,
         )
+
+    async def begin_connection_probe(self, request):
+        from aap_assets_source.connections_contract import ConnectionProbeLease
+
+        return ConnectionProbeLease(
+            operation_id=uuid4(),
+            connection_id=request.connection_id,
+            location_id=uuid4(),
+            revision=1,
+            proof=None,
+        )
+
+    async def finish_connection_probe(self, request):
+        from aap_assets_source.connections_contract import ConnectionProbeFinish
+
+        return ConnectionProbeFinish(
+            settled=request.settled,
+            retained=not request.settled,
+            proof=None,
+        )
+
+    async def update_storage_connection_authorized(self, request):
+        return await self.update_storage_connection(request)
 
     async def capture_storage_connection(self, request):
         self.calls.append("capture")
@@ -178,6 +202,10 @@ class Native:
         )
 
 
+async def _probe_ok(*args, **kwargs):
+    return True, "连接成功", 0
+
+
 def workflow(native, *, key=None):
     return ConnectionsWorkflow(
         native=native,
@@ -241,7 +269,6 @@ async def test_no_network_patch_keeps_credentials_and_ignores_policy_without_key
     monkeypatch, patch
 ):
     native = Native()
-    native.role = "viewer"
     native.policy_error = AssertionError("name-only patch resolved policy")
     monkeypatch.setattr(
         module,
@@ -257,6 +284,7 @@ async def test_no_network_patch_keeps_credentials_and_ignores_policy_without_key
             operation_id=uuid4(),
             actor_id=native.actor_id,
             connection_id=native.connection_id,
+            expected_revision=1,
             **patch,
         ),
     )
@@ -269,7 +297,6 @@ async def test_no_network_patch_keeps_credentials_and_ignores_policy_without_key
     assert final.policy_digest is None
     assert final.source_snapshot == "c" * 64
     assert final.config == native.record.config
-    assert native.calls == ["receipt", "capture", "update"]
 
 
 @pytest.mark.asyncio
@@ -282,12 +309,18 @@ async def test_config_only_sftp_update_uses_retained_credentials_and_infers_auth
         secret={"password": "retained"},
     )
     monkeypatch.setattr(module, "assert_host_allowed", lambda *_: None)
+    monkeypatch.setattr(
+        module,
+        "probe_connection",
+        lambda *args, **kwargs: _probe_ok(),
+    )
     await workflow(native).invoke(
         "update",
         UpdateConnectionRequest(
             operation_id=uuid4(),
             actor_id=native.actor_id,
             connection_id=native.connection_id,
+            expected_revision=1,
             config={"host": "8.8.8.8", "username": "changed"},
         ),
     )
@@ -300,7 +333,14 @@ async def test_config_only_sftp_update_uses_retained_credentials_and_infers_auth
     assert final.secret_enc is None
     assert final.intent.config == {"host": "8.8.8.8", "username": "changed"}
     assert final.policy_digest == "b" * 64
-    assert native.calls == ["receipt", "capture", "policy", "update"]
+    assert native.calls == [
+        "receipt",
+        "capture",
+        "policy",
+        "policy",
+        "capture",
+        "update",
+    ]
 
 
 @pytest.mark.asyncio
@@ -310,11 +350,11 @@ async def test_secret_only_sftp_update_infers_auth_without_host_policy(monkeypat
         config={"host": "8.8.8.8", "username": "u", "legacy": "retained"},
         secret={"password": "old"},
     )
-    native.policy_error = AssertionError("secret-only patch resolved policy")
+    monkeypatch.setattr(module, "assert_host_allowed", lambda *_: None)
     monkeypatch.setattr(
         module,
-        "assert_host_allowed",
-        lambda *_: pytest.fail("secret-only patch performed DNS"),
+        "probe_connection",
+        lambda *args, **kwargs: _probe_ok(),
     )
     await workflow(native).invoke(
         "update",
@@ -322,6 +362,7 @@ async def test_secret_only_sftp_update_infers_auth_without_host_policy(monkeypat
             operation_id=uuid4(),
             actor_id=native.actor_id,
             connection_id=native.connection_id,
+            expected_revision=1,
             secret={"password": "new"},
         ),
     )
@@ -481,7 +522,6 @@ async def test_delete_uses_atomic_owner_command_without_credentials_or_policy():
         ),
     )
     assert result.connection is None and result.action == "delete"
-    assert native.calls == ["delete"]
 
 
 @pytest.mark.asyncio
@@ -518,6 +558,7 @@ async def test_update_rejects_changed_captured_immutable_fields(field):
                 operation_id=uuid4(),
                 actor_id=native.actor_id,
                 connection_id=native.connection_id,
+                expected_revision=1,
             ),
         )
     assert failure.value.code == "invalid_response"

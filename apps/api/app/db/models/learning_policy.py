@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -21,14 +22,22 @@ from app.db.base import Base
 
 class LearningPolicy(Base):
     __tablename__ = "learning_policies"
+    __table_args__ = (
+        UniqueConstraint("project_id", "task", name="uq_learning_policy_task"),
+        CheckConstraint(
+            "task IN ('detect', 'segment')", name="ck_learning_policy_task"
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("projects.id", ondelete="RESTRICT"),
-        unique=True,
         nullable=False,
+    )
+    task: Mapped[str] = mapped_column(
+        String(20), default="detect", server_default="detect", nullable=False
     )
     creator_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
@@ -67,7 +76,7 @@ class LearningTrigger(Base):
     __tablename__ = "learning_triggers"
     __table_args__ = (
         UniqueConstraint(
-            "project_id",
+            "policy_id",
             "policy_revision",
             "candidate_digest",
             name="uq_learning_candidate",

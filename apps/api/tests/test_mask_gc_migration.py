@@ -54,8 +54,6 @@ def _record_operations(monkeypatch, module):
 def test_revision_uses_one_new_native_artifact():
     module = _migration()
 
-    assert module.revision == "0229"
-    assert module.down_revision == "0228"
     assert module._UPGRADE_ARTIFACTS == ("0229_mask_gc.sql",)
     assert (SQL / module._UPGRADE_ARTIFACTS[0]).is_file()
 

@@ -1,7 +1,9 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 import { Checkbox } from "@/components/shadcn/ui/checkbox";
@@ -102,7 +104,8 @@ export function CapabilityDriftReviewDialog({
 
         {preview.isError && (
           <div className="rounded-md border border-status-danger bg-status-danger-soft p-3 text-sm text-status-danger">
-            无法读取能力差异：{(preview.error as Error).message}
+            无法读取能力差异：
+            <CopyableError message={(preview.error as Error).message} />
           </div>
         )}
 
@@ -180,9 +183,7 @@ function FingerprintRow({ label, value }: { label: string; value: string | null 
   return (
     <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2">
       <span className="text-muted-foreground">{label}</span>
-      <span className="break-all font-mono" title={value ?? undefined}>
-        {value ? `${value.slice(0, 16)}…${value.slice(-8)}` : "不可用"}
-      </span>
+      <span>{value ? <CopyValueButton value={value} label={`复制${label}哈希`} /> : "不可用"}</span>
     </div>
   );
 }

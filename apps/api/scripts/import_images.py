@@ -20,6 +20,7 @@
 
 import argparse
 import asyncio
+import mimetypes
 from pathlib import Path
 from uuid import uuid4
 
@@ -42,12 +43,20 @@ Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False
 
 
 def get_s3_client():
+    from botocore.config import Config
+
     scheme = "https" if settings.minio_use_ssl else "http"
     return boto3.client(
         "s3",
         endpoint_url=f"{scheme}://{settings.minio_endpoint}",
         aws_access_key_id=settings.minio_access_key,
         aws_secret_access_key=settings.minio_secret_key,
+        config=Config(
+            connect_timeout=2,
+            read_timeout=60,
+            retries={"total_max_attempts": 1, "mode": "standard"},
+            proxies={},
+        ),
     )
 
 
@@ -113,28 +122,37 @@ async def import_to_dataset(
 
         imported = 0
         pending_entries: list[OperatorSourceEntry] = []
+        operation_id = uuid4()
         for img_path in images:
             # 保留 image_dir 下的相对目录结构 (posix `/` 分隔, Windows 兼容),
             # 与 Web 数据集扫描入口的「file_path = 完整 key 保留嵌套」对齐。
             rel = img_path.relative_to(folder).as_posix()
-            storage_key = f"{bucket_folder}/{rel}"
-
-            s3.upload_file(
-                str(img_path),
-                bucket,
-                storage_key,
-                ExtraArgs={"ContentType": "image/jpeg"},
+            data = img_path.read_bytes()
+            content_type = (
+                mimetypes.guess_type(img_path.name)[0] or "application/octet-stream"
             )
-
-            file_size = img_path.stat().st_size
+            file_type = infer_file_type(img_path.suffix.lower())
+            item_id = uuid4()
+            material, written = await assets.create_item_original(
+                dataset_id=ds.id,
+                item_id=item_id,
+                publication_id=uuid4(),
+                operation_id=operation_id,
+                logical_path=rel,
+                file_type=file_type,
+                content_type=content_type,
+                data=data,
+                requested_by=owner[0],
+            )
             pending_entries.append(
                 OperatorSourceEntry(
-                    id=uuid4(),
+                    id=item_id,
                     file_name=img_path.name,
-                    file_path=storage_key,
-                    file_type=infer_file_type(img_path.suffix.lower()),
-                    file_size=file_size,
-                    metadata={},
+                    file_path=material.object_key,
+                    file_type=file_type,
+                    file_size=written.size_bytes,
+                    content_hash=written.sha256,
+                    metadata={"storage_relative_path": rel},
                 )
             )
             imported += 1
@@ -142,7 +160,7 @@ async def import_to_dataset(
                 await assets.append_all_items(ds.id, pending_entries)
                 pending_entries.clear()
             print(
-                f"  [{imported:>3}/{len(images)}] {img_path.name} → {bucket}/{storage_key}"
+                f"  [{imported:>3}/{len(images)}] {img_path.name} → {bucket}/{material.object_key}"
             )
 
         if pending_entries:

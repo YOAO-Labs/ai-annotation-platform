@@ -9,7 +9,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, defer
 
-from app.config import settings
 from app.db.enums import MANAGER_PLATFORM_ROLES
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -50,51 +49,7 @@ async def catalog(db: AsyncSession = Depends(get_db)):
         and lease.last_seen_at
         and lease.last_seen_at > service.now() - timedelta(seconds=30)
     )
-    for item in result["items"]:
-        legacy = {
-            "framework": item["framework"],
-            "framework_version": item["version"],
-            "image_digest": item["image_digest"],
-            "base_model": item["base_models"][0],
-            "adapter_revision": 1,
-        }
-        item["compatible"] = (
-            bool(
-                lease.runtime.get("gpu_uuid") == settings.training_gpu_uuid
-                and service.runtime_compatible(legacy, lease.runtime)
-            )
-            if online
-            else None
-        )
-        for schema in item["parameter_schemas"]:
-            base = next(
-                base for base in item["base_models"] if base["task"] == schema["task"]
-            )
-            identity = {
-                key: value
-                for key, value in schema.items()
-                if key not in {"field_count", "editable_count"}
-            }
-            schema["compatible"] = (
-                bool(
-                    lease.runtime.get("gpu_uuid") == settings.training_gpu_uuid
-                    and service.runtime_compatible(
-                        {
-                            **legacy,
-                            "base_model": base,
-                            "adapter_revision": 2,
-                            "configuration": {"identity": identity},
-                        },
-                        lease.runtime,
-                    )
-                )
-                if online
-                else None
-            )
-        if online:
-            item["compatible"] = item["compatible"] or any(
-                schema["compatible"] for schema in item["parameter_schemas"]
-            )
+    service.annotate_readiness(result, lease.runtime if lease else {}, online=online)
     return {
         **result,
         "online": online,

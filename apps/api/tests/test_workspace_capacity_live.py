@@ -17,10 +17,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-from tests.project_guide_asset_owner_helpers import (
-    assert_workspace_identity,
-    create_guide_storage_scope,
-)
+from tests.project_guide_asset_owner_helpers import assert_workspace_identity
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_workspace_module_assembly_live import (
     _assert_restricted_api_consumer,
@@ -332,19 +329,11 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
-    resources, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    await assert_workspace_identity(test_engine)
     await _assert_restricted_api_consumer(test_engine)
     maker, actors = await _seed_users(test_engine)
     api_secret = secrets.token_urlsafe(32)
-    control_token, inference_token, guide_token = [
-        secrets.token_urlsafe(32) for _ in range(3)
-    ]
-    guide_scope, guide_destroy = create_guide_storage_scope(
-        resources,
-        owner_s3,
-        guide_bucket,
-        f"outside-guide/{uuid.uuid4()}.png",
-    )
+    control_token, inference_token = [secrets.token_urlsafe(32) for _ in range(2)]
     stack = None
     lanes: list[dict] = []
     revoked_project_id = None
@@ -358,10 +347,6 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
             api_secret=api_secret,
             control_token=control_token,
             inference_token=inference_token,
-            guide_token=guide_token,
-            guide_bucket=guide_bucket,
-            guide_access_key=guide_scope["access_key"],
-            guide_secret_key=guide_scope["secret_key"],
         )
         await stack.start()
         record_property("workspace_capacity_services", stack.inspection_evidence)
@@ -857,6 +842,5 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
             if stack is not None:
                 await stack.stop()
         finally:
-            guide_destroy(guide_scope)
             if stack is not None:
                 await _wait_for_service_connections_to_drain(test_engine)

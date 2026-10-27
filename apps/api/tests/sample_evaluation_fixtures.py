@@ -9,16 +9,18 @@ from types import SimpleNamespace
 from botocore.exceptions import ClientError
 from PIL import Image
 
-from app.db.models.sample_evaluation import SampleEvaluationAttempt as Attempt
+from app.db.models.sample_evaluation import (
+    SampleEvaluationRun as Run,
+    SampleEvaluationSample as Sample,
+)
 from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.sample_evaluation import SampleEvaluationCreate
-from app.services import sample_evaluations as service
+from app.services import sample_evaluations as service, trained_models
 from aap_inference.backend_transport import PredictionResult
 from app.services.training_dataset_bridge import content_digest
 from tests.test_trained_models import ready_deployment, seed_source
 from tests.test_training_dataset_analysis import inputs
-from tests.trained_model_reference_fixtures import build_reference
 
 
 class Body(io.BytesIO):
@@ -29,6 +31,11 @@ class Body(io.BytesIO):
 
 class Objects:
     def __init__(self):
+        from app.config import settings
+
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+        )
         self.objects = {}
         self.deleted = []
 
@@ -136,6 +143,11 @@ async def seed(db, owner, objects, *, count=2):
         content_digest(snapshot),
         manifest,
     )
+    # Creation already pinned the version; frozen bytes are written and read
+    # back through that saved owner only.
+    from app.services import training_dataset_storage
+
+    frozen_owner = training_dataset_storage.resolve(dataset)
     model = TrainedModelVersion(
         project_id=project.id,
         creator_id=owner.id,
@@ -161,7 +173,7 @@ async def seed(db, owner, objects, *, count=2):
     db.add(model)
     await db.flush()
     backend, deployment = await ready_deployment(db, project, model)
-    ref = build_reference(model, deployment)
+    ref = trained_models.frozen_reference(model, deployment)
     qualified = profile()
     body = SampleEvaluationCreate(
         request_id=uuid.uuid4(),
@@ -173,8 +185,8 @@ async def seed(db, owner, objects, *, count=2):
     )
     for member, raw in zip(manifest["samples"], raw_images, strict=True):
         objects.put_object(
-            Bucket=service.storage.training_bucket,
-            Key=f"projects/{project.id}/datasets/{dataset.id}/media/{member['task_id']}",
+            Bucket=frozen_owner.bucket,
+            Key=frozen_owner.key(f"media/{member['task_id']}"),
             Body=raw,
             Metadata={
                 "snapshot-digest": dataset.snapshot_digest,
@@ -197,24 +209,41 @@ async def seed(db, owner, objects, *, count=2):
 
 
 async def evaluation(db, owner, world):
-    body = world.body.model_copy(
-        update={"name": "Evaluation", "request_id": uuid.uuid4()}
-    )
     identity = uuid.uuid4()
     spec = await service.frozen_spec(
-        db, world.project, body, identity, world.ref, world.profile
+        db, world.project, world.body, identity, world.ref, world.profile
     )
-    run = await service.create_run(
-        db,
-        world.project,
-        owner,
-        body,
-        evaluation_id=identity,
-        request_digest=content_digest(body.model_dump(mode="json")),
+    run = Run(
+        id=identity,
+        project_id=world.project.id,
+        creator_id=owner.id,
+        dataset_id=world.dataset.id,
+        model_version_id=world.model.id,
+        deployment_id=world.deployment.id,
+        request_id=uuid.uuid4(),
+        request_digest="a" * 64,
+        name="Evaluation",
         spec=spec,
+        spec_digest=content_digest(spec),
+        authorization={},
+        generation=0,
     )
+    db.add(run)
     await db.flush()
-    return run, await db.get(Attempt, run.current_attempt_id)
+    from app.services.sample_evaluation_storage import allocate
+
+    await allocate(db, run)
+    for frozen in spec["samples"]:
+        db.add(
+            Sample(
+                run_id=run.id,
+                ordinal=frozen["ordinal"],
+                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
+            )
+        )
+    attempt = await service.new_attempt(db, run)
+    await db.flush()
+    return run, attempt
 
 
 def prediction(run, row, *, boxes=None):

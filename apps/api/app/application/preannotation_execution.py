@@ -30,6 +30,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import prediction_retry
+from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
@@ -849,6 +850,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
     from app.services.labeling_core_read_relations import get_core_row, task_row
     from app.services import async_job as async_job_svc
     from app.services.accepted_inputs import input_gateway
+    from app.services.prediction_references import frozen_reference_task
 
     protocol = request.accepted_inputs_protocol
     raw_map = request.accepted_input_ids
@@ -906,6 +908,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
 
     already_claimed = False
     task_is_image = False
+    frozen_reference = False
     input_ids: dict[str, str] | None = None
     input_id: uuid.UUID | None = None
     async with SessionLocal() as db:
@@ -930,6 +933,9 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
                 task is not None
                 and task.project_id == project_id
                 and task.file_type == "image"
+            )
+            frozen_reference = bool(
+                task_is_image and frozen_reference_task(job.payload, task_id)
             )
             if protocol is not None:
                 if task is None or not task_is_image or actor_id is None:
@@ -964,7 +970,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
         yield None
         return
     if protocol is None:
-        if candidate and task_is_image:
+        if candidate and task_is_image and not frozen_reference:
             raise ValueError(
                 "legacy Workbench image job has no accepted input identity"
             )
@@ -1045,11 +1051,17 @@ async def _run_task_pipeline(
     upload_crop=None,
     stage_modes=None,
     input_image_path: Path | None = None,
+    load_image=None,
+    before_dispatch=None,
+    dispatch_boundary=None,
+    validate_results=None,
+    max_response_bytes=None,
     project_id: uuid.UUID,
     owner_prefix: str,
     route_operation: str,
     correlation=None,
     input_provenance=None,
+    execution_snapshot_id=None,
 ):
     """Adapt verified application inputs to the portable pipeline owner."""
     from sqlalchemy import inspect
@@ -1065,26 +1077,38 @@ async def _run_task_pipeline(
 
             with Image.open(input_image_path) as opened:
                 source_image = opened.convert("RGB")
+        elif load_image is not None:
+            source_image = load_image(task)
         else:
             from app.services.prediction_context import load_task_image
 
             source_image = load_task_image(task)
+    if before_dispatch is not None:
+        await before_dispatch()
     crop_publisher = _CropPublishPort(upload_crop) if upload_crop is not None else None
-    return await execute_task_pipeline(
-        task_id,
-        stages,
-        model_ports,
-        stage_contexts,
-        source_url=source_url,
-        project_id=project_id,
-        owner_prefix=owner_prefix,
-        route_operation=route_operation,
-        stage_modes=modes,
-        source_image=source_image,
-        crop_publisher=crop_publisher,
-        correlation=correlation,
-        input_provenance=input_provenance,
-    )
+    try:
+        return await execute_task_pipeline(
+            task_id,
+            stages,
+            model_ports,
+            stage_contexts,
+            source_url=source_url,
+            project_id=project_id,
+            owner_prefix=owner_prefix,
+            route_operation=route_operation,
+            stage_modes=modes,
+            source_image=source_image,
+            crop_publisher=crop_publisher,
+            correlation=correlation,
+            input_provenance=input_provenance,
+            before_dispatch=dispatch_boundary,
+            validate_results=validate_results,
+            max_response_bytes=max_response_bytes,
+            execution_snapshot_id=execution_snapshot_id,
+        )
+    finally:
+        if source_image is not None:
+            source_image.close()
 
 
 def _execution_provenance(value):
@@ -1564,6 +1588,114 @@ async def _execute_preannotation(
             # Release the initial row lock before video source verification and
             # timebase paging. The video Job is claimed only after that barrier.
             await db.commit()
+
+        reference_job = None
+        video_owner = None
+        execution_snapshot_payload = None
+        execution_snapshot_digest = None
+        execution_snapshot_id = None
+        box_threshold_snapshot = None
+        text_threshold_snapshot = None
+        if precreated_job is not None and precreated_job.execution_snapshot_id:
+            from app.services.prediction_execution import load_snapshot
+
+            execution_snapshot_id = precreated_job.execution_snapshot_id
+            execution_snapshot_payload, execution_snapshot_digest = await load_snapshot(
+                db, execution_snapshot_id, project_uuid
+            )
+            root = next(
+                (
+                    stage
+                    for stage in execution_snapshot_payload["stages"]
+                    if stage.get("parent_stage") is None
+                ),
+                None,
+            )
+            if root is None or str(root.get("ml_backend_id")) != str(
+                requested_backend_id
+            ):
+                raise ValueError("Queued backend differs from the execution snapshot")
+            # The durable snapshot, not the replayed request, owns execution identity.
+            pipeline_stages = execution_snapshot_payload["stages"]
+            prompt = execution_snapshot_payload["prompt"]
+            output_mode = execution_snapshot_payload["output_mode"]
+            execution_scope = execution_snapshot_payload["execution_scope"]
+            execution_unit = execution_snapshot_payload["execution_unit"]
+            predict_mode = execution_snapshot_payload.get("predict_mode", predict_mode)
+            frozen_model_ref = root.get("frozen_model_ref")
+            model_id = root.get("model_id")
+            visual_task = root.get("task")
+            params = root.get("params")
+            model_variants = root.get("model_variants")
+            class_filter = root.get("class_filter")
+            prompt_type = root.get("prompt_type")
+            box_threshold_snapshot = execution_snapshot_payload.get("box_threshold")
+            text_threshold_snapshot = execution_snapshot_payload.get("text_threshold")
+        if precreated_job is not None:
+            durable_payload = precreated_job.payload or {}
+            image_authority = durable_payload.get("prediction_authority")
+            video_authority = durable_payload.get("video_prediction_authority")
+            if image_authority is not None and video_authority is not None:
+                raise ValueError("prediction authority is ambiguous")
+            if image_authority is not None:
+                from app.services.prediction_references import (
+                    ReferencePredictionJob,
+                )
+                from app.services.storage_location import api_node_id
+
+                if execution_snapshot_payload is None:
+                    raise ValueError(
+                        "prediction authority requires a frozen execution snapshot"
+                    )
+                reference_job = ReferencePredictionJob(
+                    db,
+                    precreated_job.id,
+                    image_authority,
+                    project_id=project_uuid,
+                    actor_id=actor.id if actor is not None else None,
+                    task_ids=requested_task_ids,
+                    batch_id=uuid.UUID(batch_id) if batch_id else None,
+                    scope=execution_scope,
+                    predict_mode=predict_mode,
+                    snapshot_id=execution_snapshot_id,
+                    snapshot_digest=execution_snapshot_digest,
+                    node_id=api_node_id(),
+                    execution_unit=execution_unit,
+                )
+                await reference_job.authorize(db)
+            elif video_authority is not None:
+                from app.services.storage_location import api_node_id
+                from app.services.video_prediction_references import (
+                    VideoPredictionJob,
+                )
+
+                if execution_snapshot_payload is None:
+                    raise ValueError(
+                        "video prediction authority requires a frozen snapshot"
+                    )
+                if accepted_video_manifest is not None:
+                    # Frame execution owns retained frame inputs and write plans.
+                    logger.info(
+                        "frame preannotation retains its accepted video manifest"
+                    )
+                else:
+                    video_owner = VideoPredictionJob(
+                        db,
+                        precreated_job.id,
+                        video_authority,
+                        project_id=project_uuid,
+                        actor_id=actor.id if actor is not None else None,
+                        task_ids=requested_task_ids,
+                        batch_id=uuid.UUID(batch_id) if batch_id else None,
+                        scope=execution_scope,
+                        predict_mode=predict_mode,
+                        snapshot_id=execution_snapshot_id,
+                        snapshot_digest=execution_snapshot_digest,
+                        node_id=api_node_id(),
+                        celery_task_id=precreated_job.celery_task_id,
+                        execution_unit=execution_unit,
+                    )
+                    await video_owner.authorize(db)
         if batch_id and not resuming_results:
             selected_batch = await get_core_row(db, batch_core_row, uuid.UUID(batch_id))
             if (
@@ -1671,8 +1803,20 @@ async def _execute_preannotation(
             except FreezeModelReferenceError as exc:
                 trained_models.raise_frozen_model_reference_error(exc)
             model_id = f"trained:{frozen_model_ref['model_version_id']}"
-        box_thr = float(project.box_threshold) if project is not None else None
-        text_thr = float(project.text_threshold) if project is not None else None
+        box_thr = (
+            float(box_threshold_snapshot)
+            if box_threshold_snapshot is not None
+            else float(project.box_threshold)
+            if project is not None
+            else None
+        )
+        text_thr = (
+            float(text_threshold_snapshot)
+            if text_threshold_snapshot is not None
+            else float(project.text_threshold)
+            if project is not None
+            else None
+        )
         context = build_predict_context(
             prompt=prompt,
             output_mode=output_mode,
@@ -2744,6 +2888,7 @@ async def _execute_preannotation(
                     route_operation="batch_predict",
                     correlation={"job_id": str(async_job_id), "ordinal": ordinal},
                     input_provenance=input_facts or None,
+                    execution_snapshot_id=execution_snapshot_id,
                 )
                 results, pipeline_extra, stage_stats = _plain_pipeline_output(output)
                 if input_metadata is not None:
@@ -3100,6 +3245,8 @@ async def _execute_preannotation(
             )
             final_write_started = False
             pipeline_output = None
+            reference_inputs = None
+            video_inputs = None
 
             try:
                 if accepted_manifest is not None and manifest_member is not None:
@@ -3138,28 +3285,110 @@ async def _execute_preannotation(
                         [task.id], actor_id=actor.id
                     )
                     await db.commit()
+                if video_owner is not None:
+                    # Open the retained original through the video owner so the
+                    # dispatch boundary can prove the exact delivered version.
+                    if db.in_transaction():
+                        await db.commit()
+                    video_inputs = await video_owner.open_inputs(task, SessionLocal)
+                elif reference_job is not None:
+                    await reference_job.validate(task)
+                    reference_inputs = await reference_job.open_inputs(
+                        task, SessionLocal
+                    )
+
+                dispatch_boundary = None
+                validate_video_results = None
+                if video_owner is not None:
+
+                    async def dispatch_boundary(stage_id, dispatch):
+                        if db.in_transaction():
+                            await db.commit()
+                        await video_owner.before_dispatch(
+                            task, dispatch, stage_id=stage_id
+                        )
+                        await db.commit()
+
+                    async def validate_video_results(stage_id, operation, context):
+                        from app.services.video_prediction_results import (
+                            adapt_results,
+                        )
+
+                        video_owner.check_execution(task.id, stage_id, operation)
+                        frozen = context or {}
+                        window = (
+                            (frozen.get("from_frame"), frozen.get("to_frame"))
+                            if "from_frame" in frozen or "to_frame" in frozen
+                            else None
+                        )
+                        direction = frozen.get("direction") or "forward"
+                        qualified = await adapt_results(
+                            operation.results,
+                            task.id,
+                            video_owner.video_probe(task.id),
+                            window=window,
+                            direction=direction,
+                        )
+                        await video_owner.register_results(
+                            task.id,
+                            stage_id,
+                            qualified,
+                            window=window,
+                            direction=direction,
+                        )
+                        return qualified.results
+
                 pipeline_output = await _run_task_pipeline(
                     task,
                     stages,
                     model_ports,
                     stage_contexts,
                     resolve_url=(
-                        (lambda _task: prepared_manifest_member.reference.url)
+                        video_owner.resolve_url
+                        if video_inputs is not None
+                        else reference_job.resolve_url
+                        if reference_inputs is not None
+                        else (lambda _task: prepared_manifest_member.reference.url)
                         if prepared_manifest_member is not None
                         and prepared_manifest_member.reference is not None
                         else (lambda _task: accepted_input.reference.url)
                         if accepted_input is not None
                         else _resolve_task_url
                     ),
-                    upload_crop=crop_uploader,
+                    upload_crop=(
+                        video_inputs.upload_crop
+                        if video_inputs is not None
+                        else reference_inputs.upload_crop
+                        if reference_inputs is not None
+                        else crop_uploader
+                    ),
                     stage_modes=stage_modes,
                     input_image_path=(
-                        prepared_manifest_member.local_path
+                        None
+                        if video_inputs is not None or reference_inputs is not None
+                        else prepared_manifest_member.local_path
                         if prepared_manifest_member is not None
                         else accepted_input.local_path
                         if accepted_input is not None
                         else None
                     ),
+                    load_image=(
+                        video_inputs.load_image
+                        if video_inputs is not None
+                        else reference_inputs.load_image
+                        if reference_inputs is not None
+                        else None
+                    ),
+                    before_dispatch=(
+                        (lambda: reference_job.before_dispatch(task))
+                        if reference_job is not None and video_owner is None
+                        else None
+                    ),
+                    dispatch_boundary=dispatch_boundary,
+                    validate_results=validate_video_results,
+                    max_response_bytes=64 * 1024**2
+                    if video_owner is not None
+                    else None,
                     project_id=project_uuid,
                     owner_prefix=f"batch:{async_job_id}",
                     route_operation="batch_predict",
@@ -3181,10 +3410,15 @@ async def _execute_preannotation(
                         ),
                     }
                     or None,
+                    execution_snapshot_id=execution_snapshot_id,
                 )
                 results, pipeline_extra, stage_stats = _plain_pipeline_output(
                     pipeline_output
                 )
+                if video_owner is not None:
+                    # The retained original and delivery permit must settle
+                    # before cancellation/account/task/candidate write locks.
+                    await video_owner.finish_source(task.id)
                 if prepared_manifest_member is not None:
                     if accepted_input_metadata is None:
                         raise ValueError("manifest member has no retained Input")
@@ -3206,6 +3440,22 @@ async def _execute_preannotation(
                         **(pipeline_extra or {}),
                         "accepted_input": accepted_input_metadata,
                     }
+                if (
+                    execution_snapshot_id is not None
+                    and execution_snapshot_payload is not None
+                ):
+                    from app.services.prediction_execution import execution_summary
+
+                    pipeline_extra = {
+                        **(pipeline_extra or {}),
+                        "execution_snapshot": {
+                            "id": str(execution_snapshot_id),
+                            "digest": execution_snapshot_digest,
+                            "stages": execution_summary(
+                                execution_snapshot_payload["stages"]
+                            ),
+                        },
+                    }
                 _accumulate_stage_stats(stage_stats)
                 gpu_arbiter_failures.extend(
                     (pipeline_extra or {})
@@ -3219,23 +3469,72 @@ async def _execute_preannotation(
                 )
                 final_write_started = True
                 from app.services.prediction import remap_prediction_track_ids
+                from datetime import datetime, timezone
+                from app.services.labeling_prediction_contract import (
+                    BatchResultPredictionIdentity,
+                )
 
+                write_results = [
+                    remap_prediction_track_ids(thaw_json(pred_result.result))
+                    for pred_result in results
+                ]
+                write_metas = [
+                    thaw_json(pred_result.meta)
+                    if pred_result.meta is not None
+                    else None
+                    for pred_result in results
+                ]
+                write_payloads = [
+                    dict(
+                        task_id=task_id,
+                        project_id=project_uuid,
+                        ml_backend_id=executed_backend_id,
+                        result=written,
+                        score=pred_result.score,
+                        model_version=pred_result.model_version,
+                        inference_time_ms=pred_result.inference_time_ms,
+                        token_meta=meta,
+                        source="ml_backend",
+                        pipeline_extra=pipeline_extra,
+                        ml_backend_pool_id=executed_pool_id,
+                        model_provenance=frozen_model_ref,
+                    )
+                    for pred_result, written, meta in zip(
+                        results, write_results, write_metas, strict=True
+                    )
+                ]
+                receipt_kwargs: dict = {}
+                native_receipts: list = [None] * len(results)
+                if video_owner is not None:
+                    # Reauthorize and issue the opaque input/result receipts in
+                    # the exact transaction that will persist the predictions.
+                    if not db.in_transaction():
+                        await db.begin()
+                    video_input_receipt = await video_owner.final_receipt(task)
+                    native_receipts = await video_owner.qualify_native_results(
+                        task, video_input_receipt, write_payloads
+                    )
+                    receipt_kwargs = {"video_input_receipt": video_input_receipt}
+                elif reference_job is not None:
+                    await reference_job.lock_key()
+                    reference_receipt = await reference_job.final_receipt(task)
+                    if reference_job.is_managed(task.id):
+                        receipt_kwargs = {"original_receipt": reference_receipt}
+                    elif reference_receipt is not None:
+                        receipt_kwargs = {"reference_receipt": reference_receipt}
+                    native_receipts = await reference_job.qualify_native_results(
+                        task, reference_receipt, write_payloads
+                    )
                 write_requests = tuple(
                     ApplyPredictionResultRequest(
                         task_id=task_id,
                         project_id=project_uuid,
                         ml_backend_id=executed_backend_id,
-                        result=remap_prediction_track_ids(
-                            thaw_json(pred_result.result)
-                        ),
+                        result=written,
                         score=pred_result.score,
                         model_version=pred_result.model_version,
                         inference_time_ms=pred_result.inference_time_ms,
-                        token_meta=(
-                            thaw_json(pred_result.meta)
-                            if pred_result.meta is not None
-                            else None
-                        ),
+                        token_meta=meta,
                         pipeline_extra=pipeline_extra,
                         ml_backend_pool_id=executed_pool_id,
                         write_scope=write_scope,
@@ -3250,10 +3549,47 @@ async def _execute_preannotation(
                             if frozen_model_ref
                             else {}
                         ),
+                        **receipt_kwargs,
+                        **(
+                            {"video_result_receipt": native}
+                            if video_owner is not None and native is not None
+                            else {
+                                "batch_result_identity": BatchResultPredictionIdentity(
+                                    uuid.uuid4(), datetime.now(timezone.utc)
+                                ),
+                                "background_native_reference_receipt": native,
+                            }
+                            if native is not None
+                            else {}
+                        ),
                     )
-                    for pred_result in results
+                    for pred_result, written, meta, native in zip(
+                        results,
+                        write_results,
+                        write_metas,
+                        native_receipts,
+                        strict=True,
+                    )
                 )
-                if len(write_requests) > 1:
+                provenance_bound = any(
+                    request.original_receipt is not None
+                    or request.reference_receipt is not None
+                    or request.background_native_reference_receipt is not None
+                    or request.video_input_receipt is not None
+                    for request in write_requests
+                )
+                if provenance_bound:
+                    # Receipts are bound to the current transaction; a rollback
+                    # retry would need fresh evidence, so apply exactly once.
+                    if len(write_requests) > 1:
+                        await prediction_writer.apply_prediction_result_bundle(
+                            write_requests
+                        )
+                    elif write_requests:
+                        await prediction_writer.apply_prediction_result(
+                            write_requests[0]
+                        )
+                elif len(write_requests) > 1:
                     await _apply_prediction_result_bundle_with_retries(
                         prediction_writer, db, write_requests
                     )
@@ -3261,6 +3597,10 @@ async def _execute_preannotation(
                     await _apply_prediction_result_with_retries(
                         prediction_writer, db, write_requests[0]
                     )
+                if video_owner is not None:
+                    # The write, its receipts and the reauthorized origin commit
+                    # or roll back together.
+                    await video_owner.recheck_credentials()
                 for pred_result in results:
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
@@ -3313,6 +3653,25 @@ async def _execute_preannotation(
                 failure_extra["execution_scope"] = execution_scope
                 failure_extra["execution_unit"] = execution_unit
                 failure_extra["task"] = visual_task
+                if execution_snapshot_id is not None:
+                    failure_extra["execution_snapshot"] = {
+                        "id": str(execution_snapshot_id),
+                        "digest": execution_snapshot_digest,
+                    }
+                if video_owner is not None:
+                    try:
+                        failure_extra.update(video_owner.failure_evidence(task_id))
+                    except ContentError:
+                        pass
+                elif reference_job is not None:
+                    try:
+                        binding = reference_job.failure_binding(task_id)
+                        if "original" in binding:
+                            failure_extra["original_input"] = binding
+                        elif "reference" in binding:
+                            failure_extra["reference_input"] = binding
+                    except ContentError:
+                        pass
                 if retry_request_context is not None:
                     failure_extra["request_context"] = retry_request_context
                 if gpu_arbiter_error is not None:
@@ -3333,6 +3692,7 @@ async def _execute_preannotation(
                     ),
                     extra=failure_extra or None,
                     ml_backend_pool_id=executed_pool_id,
+                    execution_snapshot_id=execution_snapshot_id,
                 )
                 failed_prediction_ids.append(str(failed.id))
                 await db.commit()
@@ -3340,6 +3700,16 @@ async def _execute_preannotation(
             finally:
                 if manifest_input_cm is not None:
                     await manifest_input_cm.__aexit__(None, None, None)
+                if video_owner is not None:
+                    # Release business locks before independent storage cleanup.
+                    if db.in_transaction():
+                        await db.rollback()
+                    await video_owner.close_inputs(task_id)
+                elif reference_job is not None:
+                    # Release business locks before independent storage cleanup.
+                    if db.in_transaction():
+                        await db.rollback()
+                    await reference_job.close_inputs(task_id)
 
             if manifest_member is not None:
                 last_completed_ordinal = manifest_member.ordinal

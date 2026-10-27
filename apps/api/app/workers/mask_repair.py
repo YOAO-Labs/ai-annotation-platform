@@ -18,6 +18,7 @@ async def _run_mask_repair(
     celery_task_id: str | None,
     *,
     tracker_dispatcher,
+    worker_node_id: str | None,
 ) -> None:
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(
@@ -31,6 +32,7 @@ async def _run_mask_repair(
             celery_task_id,
             session_factory=session_factory,
             tracker_dispatcher=tracker_dispatcher,
+            worker_node_id=worker_node_id,
         )
     finally:
         await engine.dispose()
@@ -39,6 +41,8 @@ async def _run_mask_repair(
 async def _rollback_mask_repair(
     batch_id: str,
     celery_task_id: str | None,
+    *,
+    worker_node_id: str | None,
 ) -> None:
     engine = create_async_engine(settings.database_url, echo=False)
     session_factory = async_sessionmaker(
@@ -51,6 +55,7 @@ async def _rollback_mask_repair(
             batch_id,
             celery_task_id,
             session_factory=session_factory,
+            worker_node_id=worker_node_id,
         )
     finally:
         await engine.dispose()
@@ -64,6 +69,11 @@ def run_mask_repair(self, batch_id: str) -> None:
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
             tracker_dispatcher=tracker_dispatcher,
+            worker_node_id=(
+                f"worker:{self.request.hostname}"
+                if getattr(self.request, "hostname", None)
+                else None
+            ),
         )
     )
 
@@ -74,5 +84,10 @@ def rollback_mask_repair(self, batch_id: str) -> None:
         _rollback_mask_repair(
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
+            worker_node_id=(
+                f"worker:{self.request.hostname}"
+                if getattr(self.request, "hostname", None)
+                else None
+            ),
         )
     )

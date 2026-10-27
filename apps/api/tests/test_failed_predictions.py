@@ -13,8 +13,9 @@ import uuid
 import pytest
 from unittest.mock import patch
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import attributes
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
@@ -25,14 +26,17 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 
 
-async def _seed_project(db: AsyncSession, owner_id: uuid.UUID) -> Project:
+async def _seed_project(
+    db: AsyncSession, owner_id: uuid.UUID, *, data_type: str = "image"
+) -> Project:
     suffix = uuid.uuid4().hex[:8]
     proj = Project(
         id=uuid.uuid4(),
         display_id=f"P-FP-{suffix}",
         name=f"fp-{suffix}",
-        type_label="image-det",
-        type_key="image-det",
+        type_label="image-det" if data_type == "image" else "scene-3d",
+        type_key="image-det" if data_type == "image" else "scene-3d",
+        data_type=data_type,
         owner_id=owner_id,
     )
     db.add(proj)
@@ -40,15 +44,18 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID) -> Project:
     return proj
 
 
-async def _seed_task(db: AsyncSession, project_id: uuid.UUID) -> Task:
+async def _seed_task(
+    db: AsyncSession, project_id: uuid.UUID, *, file_type: str = "image"
+) -> Task:
     suffix = uuid.uuid4().hex[:8]
+    image = file_type == "image"
     t = Task(
         id=uuid.uuid4(),
         project_id=project_id,
         display_id=f"T-FP-{suffix}",
-        file_name="x.jpg",
-        file_path="/tmp/x.jpg",
-        file_type="image",
+        file_name="x.jpg" if image else "x.txt",
+        file_path="/tmp/x.jpg" if image else "/tmp/x.txt",
+        file_type=file_type,
         tags=[],
         status="in_progress",
     )
@@ -152,8 +159,9 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     httpx_client, super_admin, db_session, controlled
 ):
     user, token = super_admin
-    proj = await _seed_project(db_session, user.id)
-    task = await _seed_task(db_session, proj.id)
+    # A legacy eligible retry is one without retained image/video evidence.
+    proj = await _seed_project(db_session, user.id, data_type="scene")
+    task = await _seed_task(db_session, proj.id, file_type="text")
     backend = await _seed_backend(db_session, proj.id)
     fp = await _seed_failed(
         db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
@@ -201,12 +209,13 @@ async def test_retry_dispatch_uncertainty_keeps_durable_claim_without_spending_a
     db_session, super_admin, monkeypatch
 ):
     from app.application.prediction_retry import SqlPredictionRetry
+    from app.application.async_job_contracts import RetryCredentialAuthority
     from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
     from app.workers import predictions_retry
 
-    user, _ = super_admin
-    project = await _seed_project(db_session, user.id)
-    task = await _seed_task(db_session, project.id)
+    user, token = super_admin
+    project = await _seed_project(db_session, user.id, data_type="scene")
+    task = await _seed_task(db_session, project.id, file_type="text")
     backend = await _seed_backend(db_session, project.id)
     fp = await _seed_failed(
         db_session, project_id=project.id, task_id=task.id, backend_id=backend.id
@@ -223,13 +232,154 @@ async def test_retry_dispatch_uncertainty_keeps_durable_claim_without_spending_a
     )
     await SqlPredictionRetry(
         db_session, dispatcher=CeleryPredictionRetryDispatcher()
-    ).retry_prediction(failed_id=fp.id, actor_id=user.id)
+    ).retry_prediction(
+        failed_id=fp.id,
+        actor_id=user.id,
+        credential=RetryCredentialAuthority(
+            actor_id=user.id, authorization=f"Bearer {token}"
+        ),
+    )
 
     await db_session.refresh(fp)
     assert fp.extra.get("retry_pending") is True
     assert uuid.UUID(fp.extra["retry_job_id"])
     assert fp.extra["request_context"] == context
     assert fp.retry_count == 0
+
+
+async def test_retry_rejects_legacy_image_failure_without_retained_input(
+    httpx_client, super_admin, db_session
+):
+    """An image failure without owner evidence must ask for a new preannotation."""
+    user, token = super_admin
+    proj = await _seed_project(db_session, user.id)
+    task = await _seed_task(db_session, proj.id)
+    backend = await _seed_backend(db_session, proj.id)
+    fp = await _seed_failed(
+        db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
+    )
+    await db_session.commit()
+
+    resp = await httpx_client.post(
+        f"/api/v1/admin/failed-predictions/{fp.id}/retry",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "prediction_original_requires_new_request"
+    await db_session.refresh(fp)
+    assert not (fp.extra or {}).get("retry_pending")
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(AsyncJob)
+            .where(AsyncJob.kind == "prediction_retry")
+        )
+        == 0
+    )
+
+
+async def test_retry_binds_owner_authority_into_the_admitted_job_once(
+    httpx_client, super_admin, db_session, monkeypatch
+):
+    """Admission writes the captured proof and snapshot into the native Job."""
+    from app.services import async_job as async_job_svc
+    from app.services.prediction_execution import create_snapshot
+
+    user, token = super_admin
+    proj = await _seed_project(db_session, user.id)
+    task = await _seed_task(db_session, proj.id)
+    backend = await _seed_backend(db_session, proj.id)
+    snapshot = await create_snapshot(
+        db_session,
+        proj.id,
+        {
+            "execution_scope": "bulk",
+            "execution_unit": "image",
+            "stages": [
+                {
+                    "stage": 0,
+                    "parent_stage": None,
+                    "ml_backend_id": str(backend.id),
+                    "model_id": None,
+                }
+            ],
+            "prompt": None,
+            "output_mode": "boxes",
+        },
+    )
+    binding = {"task_id": str(task.id), "original": {"sha256": "a" * 64}}
+    fp = await _seed_failed(
+        db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
+    )
+    fp.extra = {
+        "original_input": binding,
+        "execution_scope": "bulk",
+        "execution_unit": "image",
+        "execution_snapshot": {"id": str(snapshot.id), "digest": snapshot.digest},
+    }
+    fp.execution_snapshot_id = snapshot.id
+    await db_session.commit()
+
+    proof = {
+        "schema": 1,
+        "job_kind": "prediction_retry",
+        "snapshot_id": str(snapshot.id),
+        "snapshot_digest": snapshot.digest,
+        "execution_scope": "bulk",
+        "execution_unit": "image",
+        "actor_id": str(user.id),
+        "project_id": str(proj.id),
+        "batch_id": None,
+        "tasks": [binding],
+    }
+    captured = []
+
+    async def capture(*_args, **_kwargs):
+        captured.append(proof)
+        return proof
+
+    async def managed_binding(_db, selected):
+        assert selected.id == task.id
+        return binding["original"]
+
+    bound = []
+
+    async def bind_snapshot(_db, job, *, actor_id, snapshot_id):
+        bound.append((job.id, actor_id, snapshot_id))
+        attributes.set_committed_value(job, "execution_snapshot_id", snapshot_id)
+
+    monkeypatch.setattr("app.services.prediction_references.capture_authority", capture)
+    monkeypatch.setattr(
+        "app.services.prediction_originals.managed_binding", managed_binding
+    )
+    monkeypatch.setattr(async_job_svc, "bind_execution_snapshot", bind_snapshot)
+
+    headers = {"Authorization": f"Bearer {token}"}
+    with patch(
+        "app.workers.predictions_retry.retry_failed_prediction.apply_async"
+    ) as mock_apply:
+        resp = await httpx_client.post(
+            f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
+        )
+        repeated = await httpx_client.post(
+            f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
+        )
+
+    assert resp.status_code == 202, resp.text
+    assert repeated.status_code == 409
+    assert mock_apply.call_count == 1
+    assert len(captured) == 1 and bound and bound[0][1] == user.id
+    assert bound[0][2] == snapshot.id
+    jobs = (
+        await db_session.scalars(
+            select(AsyncJob).where(AsyncJob.kind == "prediction_retry")
+        )
+    ).all()
+    assert len(jobs) == 1
+    payload = jobs[0].payload
+    assert payload["prediction_authority"] == proof
+    assert "video_prediction_authority" not in payload
 
 
 async def test_retry_blocked_when_max_exceeded(httpx_client, super_admin, db_session):

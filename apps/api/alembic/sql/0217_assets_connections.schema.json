@@ -43,12 +43,19 @@
           "type": "string"
         },
         "access": {
-          "enum": ["use", "admin"],
+          "enum": [
+            "use",
+            "admin"
+          ],
           "title": "Access",
           "type": "string"
         }
       },
-      "required": ["actor_id", "connection_id", "access"],
+      "required": [
+        "actor_id",
+        "connection_id",
+        "access"
+      ],
       "title": "CaptureConnectionRequest",
       "type": "object"
     },
@@ -61,7 +68,12 @@
           "type": "string"
         },
         "platform_role": {
-          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "enum": [
+            "super_admin",
+            "project_admin",
+            "employee",
+            "viewer"
+          ],
           "title": "Platform Role",
           "type": "string"
         },
@@ -71,7 +83,10 @@
           "type": "string"
         },
         "access": {
-          "enum": ["use", "admin"],
+          "enum": [
+            "use",
+            "admin"
+          ],
           "title": "Access",
           "type": "string"
         },
@@ -123,7 +138,10 @@
           "type": "string"
         }
       },
-      "required": ["created_at", "id"],
+      "required": [
+        "created_at",
+        "id"
+      ],
       "title": "ConnectionCursor",
       "type": "object"
     },
@@ -141,7 +159,11 @@
           "type": "string"
         },
         "action": {
-          "enum": ["create", "update", "delete"],
+          "enum": [
+            "create",
+            "update",
+            "delete"
+          ],
           "title": "Action",
           "type": "string"
         },
@@ -161,7 +183,13 @@
           ]
         }
       },
-      "required": ["operation_id", "actor_id", "action", "connection_id", "connection"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "action",
+        "connection_id",
+        "connection"
+      ],
       "title": "ConnectionMutation",
       "type": "object"
     },
@@ -174,7 +202,12 @@
           "type": "string"
         },
         "platform_role": {
-          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "enum": [
+            "super_admin",
+            "project_admin",
+            "employee",
+            "viewer"
+          ],
           "title": "Platform Role",
           "type": "string"
         },
@@ -187,7 +220,10 @@
           "type": "array"
         },
         "policy_source": {
-          "enum": ["database", "environment"],
+          "enum": [
+            "database",
+            "environment"
+          ],
           "title": "Policy Source",
           "type": "string"
         },
@@ -197,7 +233,13 @@
           "type": "string"
         }
       },
-      "required": ["actor_id", "platform_role", "allowlist", "policy_source", "policy_digest"],
+      "required": [
+        "actor_id",
+        "platform_role",
+        "allowlist",
+        "policy_source",
+        "policy_digest"
+      ],
       "title": "ConnectionPolicy",
       "type": "object"
     },
@@ -218,7 +260,10 @@
           "type": "array"
         }
       },
-      "required": ["actor_id", "fallback_allowlist"],
+      "required": [
+        "actor_id",
+        "fallback_allowlist"
+      ],
       "title": "ConnectionPolicyRequest",
       "type": "object"
     },
@@ -270,7 +315,14 @@
           "type": "string"
         }
       },
-      "required": ["ok", "message", "sample_count", "operation_id", "actor_id", "connection_id"],
+      "required": [
+        "ok",
+        "message",
+        "sample_count",
+        "operation_id",
+        "actor_id",
+        "connection_id"
+      ],
       "title": "ConnectionProbeReceipt",
       "type": "object"
     },
@@ -301,7 +353,11 @@
           "title": "Sample Count"
         }
       },
-      "required": ["ok", "message", "sample_count"],
+      "required": [
+        "ok",
+        "message",
+        "sample_count"
+      ],
       "title": "ConnectionProbeResult",
       "type": "object"
     },
@@ -322,7 +378,11 @@
           "$ref": "#/$defs/ConnectionRecord"
         }
       },
-      "required": ["actor_id", "connection_id", "connection"],
+      "required": [
+        "actor_id",
+        "connection_id",
+        "connection"
+      ],
       "title": "ConnectionRead",
       "type": "object"
     },
@@ -340,7 +400,12 @@
           "type": "string"
         },
         "action": {
-          "enum": ["create", "update", "delete", "test"],
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "test"
+          ],
           "title": "Action",
           "type": "string"
         },
@@ -364,7 +429,13 @@
           "title": "Result"
         }
       },
-      "required": ["operation_id", "actor_id", "action", "connection_id", "result"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "action",
+        "connection_id",
+        "result"
+      ],
       "title": "ConnectionReceiptLookup",
       "type": "object"
     },
@@ -382,7 +453,12 @@
           "type": "string"
         },
         "action": {
-          "enum": ["create", "update", "delete", "test"],
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "test"
+          ],
           "title": "Action",
           "type": "string"
         },
@@ -406,7 +482,13 @@
           "title": "Intent"
         }
       },
-      "required": ["operation_id", "actor_id", "action", "connection_id", "intent"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "action",
+        "connection_id",
+        "intent"
+      ],
       "title": "ConnectionReceiptRequest",
       "type": "object"
     },
@@ -418,12 +500,20 @@
           "title": "Id",
           "type": "string"
         },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
         "name": {
           "title": "Name",
           "type": "string"
         },
         "kind": {
-          "enum": ["s3", "sftp"],
+          "enum": [
+            "s3",
+            "sftp"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -433,7 +523,10 @@
           "type": "object"
         },
         "scope": {
-          "enum": ["global", "owner"],
+          "enum": [
+            "global",
+            "owner"
+          ],
           "title": "Scope",
           "type": "string"
         },
@@ -478,6 +571,7 @@
       },
       "required": [
         "id",
+        "revision",
         "name",
         "kind",
         "config",
@@ -563,7 +657,10 @@
           "type": "string"
         },
         "kind": {
-          "enum": ["s3", "sftp"],
+          "enum": [
+            "s3",
+            "sftp"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -573,7 +670,10 @@
           "type": "object"
         },
         "scope": {
-          "enum": ["global", "owner"],
+          "enum": [
+            "global",
+            "owner"
+          ],
           "title": "Scope",
           "type": "string"
         },
@@ -583,7 +683,13 @@
           "type": "string"
         }
       },
-      "required": ["name", "kind", "config", "scope", "secret_digest"],
+      "required": [
+        "name",
+        "kind",
+        "config",
+        "scope",
+        "secret_digest"
+      ],
       "title": "CreateConnectionIntent",
       "type": "object"
     },
@@ -663,7 +769,10 @@
           "type": "string"
         },
         "kind": {
-          "enum": ["s3", "sftp"],
+          "enum": [
+            "s3",
+            "sftp"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -679,7 +788,10 @@
         },
         "scope": {
           "default": "owner",
-          "enum": ["global", "owner"],
+          "enum": [
+            "global",
+            "owner"
+          ],
           "title": "Scope",
           "type": "string"
         },
@@ -687,7 +799,14 @@
           "$ref": "#/$defs/ProjectDeletionAuditContext"
         }
       },
-      "required": ["operation_id", "actor_id", "name", "kind", "config", "secret"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "name",
+        "kind",
+        "config",
+        "secret"
+      ],
       "title": "CreateConnectionRequest",
       "type": "object"
     },
@@ -713,7 +832,11 @@
           "$ref": "#/$defs/ProjectDeletionAuditContext"
         }
       },
-      "required": ["operation_id", "actor_id", "connection_id"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "connection_id"
+      ],
       "title": "DeleteConnectionRequest",
       "type": "object"
     },
@@ -750,7 +873,9 @@
           "type": "integer"
         }
       },
-      "required": ["actor_id"],
+      "required": [
+        "actor_id"
+      ],
       "title": "ListConnectionsRequest",
       "type": "object"
     },
@@ -762,12 +887,20 @@
           "title": "Id",
           "type": "string"
         },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
         "name": {
           "title": "Name",
           "type": "string"
         },
         "kind": {
-          "enum": ["s3", "sftp"],
+          "enum": [
+            "s3",
+            "sftp"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -777,7 +910,11 @@
           "type": "object"
         },
         "scope": {
-          "enum": ["global", "owner", "project"],
+          "enum": [
+            "global",
+            "owner",
+            "project"
+          ],
           "title": "Scope",
           "type": "string"
         },
@@ -822,6 +959,7 @@
       },
       "required": [
         "id",
+        "revision",
         "name",
         "kind",
         "config",
@@ -849,7 +987,11 @@
           "type": "string"
         },
         "action": {
-          "enum": ["create", "update", "delete"],
+          "enum": [
+            "create",
+            "update",
+            "delete"
+          ],
           "title": "Action",
           "type": "string"
         },
@@ -869,7 +1011,13 @@
           ]
         }
       },
-      "required": ["operation_id", "actor_id", "action", "connection_id", "connection"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "action",
+        "connection_id",
+        "connection"
+      ],
       "title": "NativeConnectionMutation",
       "type": "object"
     },
@@ -890,7 +1038,11 @@
           "$ref": "#/$defs/NativeConnectionFacts"
         }
       },
-      "required": ["actor_id", "connection_id", "connection"],
+      "required": [
+        "actor_id",
+        "connection_id",
+        "connection"
+      ],
       "title": "NativeConnectionRead",
       "type": "object"
     },
@@ -1029,7 +1181,10 @@
           "type": "string"
         }
       },
-      "required": ["actor_id", "connection_id"],
+      "required": [
+        "actor_id",
+        "connection_id"
+      ],
       "title": "ReadConnectionRequest",
       "type": "object"
     },
@@ -1110,7 +1265,11 @@
           "$ref": "#/$defs/ProjectDeletionAuditContext"
         }
       },
-      "required": ["operation_id", "actor_id", "connection_id"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "connection_id"
+      ],
       "title": "TestConnectionRequest",
       "type": "object"
     },
@@ -1155,7 +1314,11 @@
           "title": "Secret Digest"
         }
       },
-      "required": ["name", "config", "secret_digest"],
+      "required": [
+        "name",
+        "config",
+        "secret_digest"
+      ],
       "title": "UpdateConnectionIntent",
       "type": "object"
     },
@@ -1259,6 +1422,11 @@
           "title": "Connection Id",
           "type": "string"
         },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
         "name": {
           "anyOf": [
             {
@@ -1303,7 +1471,12 @@
           "$ref": "#/$defs/ProjectDeletionAuditContext"
         }
       },
-      "required": ["operation_id", "actor_id", "connection_id"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "connection_id",
+        "expected_revision"
+      ],
       "title": "UpdateConnectionRequest",
       "type": "object"
     }
@@ -1311,31 +1484,52 @@
   "native": {
     "list_storage_connections": {
       "signature": "aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer)",
-      "arguments": ["actor_id", "after_created_at", "after_id", "page_size"],
+      "arguments": [
+        "actor_id",
+        "after_created_at",
+        "after_id",
+        "page_size"
+      ],
       "request": "ListConnectionsRequest",
       "result": "NativeConnectionsPage"
     },
     "read_storage_connection": {
       "signature": "aap_assets_v1.read_storage_connection(uuid,uuid)",
-      "arguments": ["actor_id", "connection_id"],
+      "arguments": [
+        "actor_id",
+        "connection_id"
+      ],
       "request": "ReadConnectionRequest",
       "result": "NativeConnectionRead"
     },
     "read_storage_connection_policy": {
       "signature": "aap_assets_v1.read_storage_connection_policy(uuid,jsonb)",
-      "arguments": ["actor_id", "fallback_allowlist"],
+      "arguments": [
+        "actor_id",
+        "fallback_allowlist"
+      ],
       "request": "ConnectionPolicyRequest",
       "result": "ConnectionPolicy"
     },
     "capture_storage_connection": {
       "signature": "aap_assets_v1.capture_storage_connection(uuid,uuid,text)",
-      "arguments": ["actor_id", "connection_id", "access"],
+      "arguments": [
+        "actor_id",
+        "connection_id",
+        "access"
+      ],
       "request": "CaptureConnectionRequest",
       "result": "ConnectionCapture"
     },
     "read_storage_connection_receipt": {
       "signature": "aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)",
-      "arguments": ["operation_id", "actor_id", "action", "connection_id", "intent"],
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "action",
+        "connection_id",
+        "intent"
+      ],
       "request": "ConnectionReceiptRequest",
       "result": "ConnectionReceiptLookup"
     },
@@ -1373,7 +1567,12 @@
     },
     "delete_storage_connection": {
       "signature": "aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)",
-      "arguments": ["operation_id", "actor_id", "connection_id", "audit_context"],
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "connection_id",
+        "audit_context"
+      ],
       "request": "DeleteConnectionRequest",
       "result": "NativeConnectionMutation"
     },

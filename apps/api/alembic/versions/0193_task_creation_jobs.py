@@ -1,7 +1,7 @@
 """Add the Jobs-owned task creation command contract.
 
-Revision ID: 0193
-Revises: 0192
+Revision ID: bo0193
+Revises: bo0192
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0193"
-down_revision = "0192"
+revision = "bo0193"
+down_revision = "bo0192"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0193_task_creation_jobs.sql"

@@ -1,3 +1,7 @@
+import { useListPagination } from "@/hooks/useListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
 import { FilterTrigger } from "@/components/filters/FilterTrigger";
@@ -135,7 +139,7 @@ function UsersPageContent() {
     projectId: filters.projectId,
     groupId: filters.groupId,
   });
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(20);
   const [editing, setEditing] = useState<UserResponse | null>(null);
   const [deleting, setDeleting] = useState<UserResponse | null>(null);
   const [resettingPwd, setResettingPwd] = useState<UserResponse | null>(null);
@@ -238,16 +242,28 @@ function UsersPageContent() {
     page_size: pageSize,
   });
   const { data: groupsData = [] } = useGroups();
+  const groupPagination = useListPagination(groupsData);
   const { data: usersStats } = useUsersStats(memberParams);
   const usersPaused = usersFetchStatus === "paused";
 
   const allUsers = pageData?.items ?? [];
   const filtered = allUsers;
   const pageMeta = pageData;
+  useEffect(() => {
+    if (!pageData || usersFetching) return;
+    const lastPage = Math.max(1, Math.ceil(pageData.total / pageSize));
+    if (page > lastPage) patch({ page: lastPage }, { replace: true });
+  }, [pageData, usersFetching, pageSize, page, patch]);
   const { data: projects = [] } = useProjects();
   const { data: transferUsers = [] } = useUsers(
     { status: "active" },
     !!deleting && !!transferStage,
+  );
+  const eligibleTransferUsers = transferUsers.filter(
+    (user) =>
+      user.id !== deleting?.id &&
+      user.is_active &&
+      (user.role === "employee" || user.role === "project_admin"),
   );
   const selectedUsers = useMemo(() => Object.values(selectedUsersById), [selectedUsersById]);
   const pageUserIds = filtered.map((user) => user.id);
@@ -304,8 +320,8 @@ function UsersPageContent() {
 
   return (
     <PageContainer>
-      <div className="mb-5 flex items-end justify-between gap-6">
-        <div>
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
           <h1 className="mb-1 text-xl font-semibold">用户与权限</h1>
           <p className="text-sm text-muted-foreground">管理团队成员、角色权限与数据组分配</p>
           {!!issues.length && (
@@ -314,7 +330,7 @@ function UsersPageContent() {
             </div>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <Can permission="user.export">
             <Button onClick={handleExport} disabled={exporting}>
               <Icon name="download" size={13} />
@@ -322,7 +338,7 @@ function UsersPageContent() {
             </Button>
           </Can>
           <Can permission="user.invite">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={() => setBulkInviteOpen(true)}>
                 <Icon name="users" size={13} />
                 批量邀请
@@ -336,7 +352,7 @@ function UsersPageContent() {
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           icon="users"
           label="团队成员"
@@ -355,14 +371,16 @@ function UsersPageContent() {
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <TabRow
-            tabs={tabLabels.map(([, l]) => l)}
-            active={activeLabel}
-            onChange={(t) => {
-              const found = tabLabels.find(([, l]) => l === t);
-              if (found) patch({ tab: found[0] }, { replace: false });
-            }}
-          />
+          <div className="max-w-full overflow-x-auto [&_button]:whitespace-nowrap">
+            <TabRow
+              tabs={tabLabels.map(([, l]) => l)}
+              active={activeLabel}
+              onChange={(t) => {
+                const found = tabLabels.find(([, l]) => l === t);
+                if (found) patch({ tab: found[0] }, { replace: false });
+              }}
+            />
+          </div>
           {tab === "members" && (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <FilterGroup label="账号" hideLabel compact>
@@ -559,7 +577,7 @@ function UsersPageContent() {
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
+              <table className={`${listStyles.table} min-w-[1040px]`}>
                 <thead>
                   <tr>
                     <th className={TH_CLASS}>
@@ -640,7 +658,7 @@ function UsersPageContent() {
                           />
                           <span className="font-medium">{userQueryTitle}</span>
                           <span className="text-xs text-muted-foreground">
-                            {userQueryErrorCopy}
+                            <CopyableError message={userQueryErrorCopy} />
                           </span>
                           <Button
                             size="sm"
@@ -852,29 +870,18 @@ function UsersPageContent() {
                 </tbody>
               </table>
             </div>
-            {pageMeta && pageMeta.pages > 1 && (
-              <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground">
-                <span>
-                  第 {pageMeta.page} / {pageMeta.pages} 页 · 共 {pageMeta.total} 名成员
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => patch({ page: Math.max(1, page - 1) }, { replace: false })}
-                  >
-                    上一页
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={page >= pageMeta.pages}
-                    onClick={() => patch({ page: page + 1 }, { replace: false })}
-                  >
-                    下一页
-                  </Button>
-                </div>
-              </div>
-            )}
+            <ListPagination
+              label="成员"
+              page={page - 1}
+              pageSize={pageSize}
+              total={pageMeta?.total ?? 0}
+              loading={isLoading}
+              onPageChange={(next) => patch({ page: next + 1 }, { replace: false })}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                patch({ page: 1 }, { replace: false });
+              }}
+            />
           </div>
         )}
 
@@ -937,7 +944,7 @@ function UsersPageContent() {
                 </Can>
               </div>
             )}
-            {groupsData.map((g) => {
+            {groupPagination.items.map((g) => {
               return (
                 <div
                   key={g.id}
@@ -966,6 +973,14 @@ function UsersPageContent() {
                 </div>
               );
             })}
+            <ListPagination
+              label="数据组"
+              page={groupPagination.page}
+              pageSize={groupPagination.pageSize}
+              total={groupPagination.total}
+              onPageChange={groupPagination.setPage}
+              onPageSizeChange={groupPagination.setPageSize}
+            />
           </div>
         )}
 
@@ -1145,19 +1160,20 @@ function UsersPageContent() {
                     onChange={(e) => setTransferToId(e.target.value)}
                     className={`${SELECT_BASE} w-full cursor-pointer px-2.5 py-2 text-sm`}
                   >
-                    <option value="">— 选择接收用户 —</option>
-                    {transferUsers
-                      .filter(
-                        (u: UserResponse) =>
-                          u.id !== deleting.id &&
-                          u.is_active &&
-                          (u.role === "employee" || u.role === "project_admin"),
-                      )
-                      .map((u: UserResponse) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} ({ROLE_LABELS[u.role as UserRole] ?? u.role}) · {u.email}
+                    <option value="" disabled hidden>
+                      选择接收用户
+                    </option>
+                    {transferToId &&
+                      !eligibleTransferUsers.some((user) => user.id === transferToId) && (
+                        <option value={transferToId} disabled hidden>
+                          已选接收用户（暂不可用）
                         </option>
-                      ))}
+                      )}
+                    {eligibleTransferUsers.map((u: UserResponse) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({ROLE_LABELS[u.role as UserRole] ?? u.role}) · {u.email}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </>
@@ -1166,7 +1182,7 @@ function UsersPageContent() {
             {deleteUser.error && (
               <div className="flex items-center gap-2 rounded-md border border-status-danger bg-status-danger-soft px-3 py-2 text-sm text-status-danger">
                 <Icon name="warning" size={12} />{" "}
-                {(deleteUser.error as Error)?.message ?? "删除失败"}
+                <CopyableError message={(deleteUser.error as Error)?.message ?? "删除失败"} />
               </div>
             )}
             <div className="flex justify-end gap-2">
@@ -1184,6 +1200,11 @@ function UsersPageContent() {
               <Button
                 variant="danger"
                 onClick={async () => {
+                  if (
+                    transferStage &&
+                    !eligibleTransferUsers.some((user) => user.id === transferToId)
+                  )
+                    return;
                   try {
                     await deleteUser.mutateAsync({
                       userId: deleting.id,
@@ -1222,7 +1243,11 @@ function UsersPageContent() {
                     void err;
                   }
                 }}
-                disabled={deleteUser.isPending || (transferStage !== null && !transferToId)}
+                disabled={
+                  deleteUser.isPending ||
+                  (transferStage !== null &&
+                    !eligibleTransferUsers.some((user) => user.id === transferToId))
+                }
               >
                 <Icon name="trash" size={12} />
                 {deleteUser.isPending

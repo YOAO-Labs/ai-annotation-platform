@@ -1,7 +1,7 @@
 """Add Assets-owned native spatial state capabilities and receipts.
 
-Revision ID: 0216
-Revises: 0215
+Revision ID: bo0216
+Revises: bo0215
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0216"
-down_revision = "0215"
+revision = "bo0216"
+down_revision = "bo0215"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

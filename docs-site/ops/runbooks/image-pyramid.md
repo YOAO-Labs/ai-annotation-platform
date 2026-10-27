@@ -3,7 +3,7 @@ title: 图片金字塔运行手册
 audience: [ops]
 type: how-to
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-24
 ---
 
 # 图片金字塔运行手册
@@ -12,11 +12,11 @@ last_reviewed: 2026-10-19
 
 ## 运行边界与授权
 
-| 身份                                        | 数据库能力                                       | 对象存储范围                                           |
-| ------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------ |
-| API/共享控制端 `asset_media_control_client` | 共享控制 32 项（视频 18、图片 14），仅函数执行权 | HEAD/GET 注册源图和缓存、签发读取 URL；不写源、不清理  |
-| 图片 Worker `asset_image_worker_client`     | 图片执行 6 项函数                                | 只读 datasets/历史 Task 源图；只在派生前缀读写；不删源 |
-| 清理端 `asset_cleanup_client`               | 4 项清理函数（原 outbox 与图片垃圾领取/确认）    | 对缓存桶派生前缀列举、删除；不读写源对象               |
+| 身份                                        | 数据库能力                                       | 对象存储范围                                                                     |
+| ------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| API/共享控制端 `asset_media_control_client` | 共享控制 32 项（视频 18、图片 14），仅函数执行权 | HEAD/GET 注册源图和缓存、签发读取 URL；不写源、不清理                            |
+| 图片 Worker `asset_image_worker_client`     | 图片执行 6 项函数                                | 只读已登记原件（TaskOriginal／DatasetItem 源）；只在派生前缀读写；不写源、不删源 |
+| 清理端 `asset_cleanup_client`               | 4 项清理函数（原 outbox 与图片垃圾领取/确认）    | 对缓存桶派生前缀列举、删除；不读写源对象                                         |
 
 这些 LOGIN 不直接访问应用表或其他 owner schema，也不继承迁移/owner 角色。Task 可见性由控制端与 Labeling owner 能力确认。已受理作业捕获来源身份与策略，发起者后来被禁用不会撤销执行权；来源变化和明确取消仍会阻止迟到发布。
 
@@ -35,9 +35,11 @@ S3 权限应限定为：
 
 输入桶需通过 `MINIO_INPUTS_BUCKET` 与 `ASSETS_MEDIA_INPUTS_BUCKET` 配置，并且必须启用 versioning；不要给它或 `media-cache` 添加桶级生命周期。Compose overlay 默认让独立控制与图片 Worker 继承 API bucket 名称。清理 worker 依照输入保留账本逐版本回收，不能按 age 或生命周期直接删除对象版本。
 
-共享控制端与图片 Worker 的 endpoint、region、桶配置要一致；API 通过共享控制端 URL/token 接入。公共 S3 endpoint 必须对浏览器可达，不要改写签名 URL。历史 Task 图像桶通过 `ASSETS_IMAGES_LEGACY_BUCKET` 指定，开发环境可回退至既有 `MINIO_BUCKET` / `MINIO_BUCKET_ANNOTATIONS`。
+共享控制端与图片 Worker 的 endpoint、region、桶配置要一致；API 通过共享控制端 URL/token 接入。公共 S3 endpoint 必须对浏览器可达，不要改写签名 URL。历史 Task 图像必须先登记 TaskOriginal；缺少原件归属的历史 Task 不按当前 annotations 桶猜读。
 
 ## 启动与健康检查
+
+运行环境必须包含 libvips、pyvips 和可用的 sRGB ICC profile。先检查实际挂载：挂载 Python 源码变更只需刷新对应 Worker；依赖、Dockerfile 或镜像内源码变化才需要重建。
 
 图片执行使用 `apps/assets-media/Dockerfile` 的 `image-worker` target，不消费 Celery 队列，也不依赖 Redis/beat。`ASSETS_IMAGES_POLL_SECONDS` 默认 5 秒；Worker 启动时以及此后约每日运行一次有界协调。使用默认栈与 overlay 一起启动：
 
@@ -84,7 +86,7 @@ API 配置 `ASSETS_MEDIA_URL` 后使用远程共享控制；远程配置/请求�
 
 ## 有界回填、状态与重试
 
-脚本先做有界 source 扫描，再受理持久 backfill Job；S3 观察和子作业入队由 Worker 完成。先 dry-run，再用小批次。`dataset_item` 可用 dataset id；`task` 仅指没有 DatasetItem 关联的历史 Task，不能带 dataset id。跨游标分页时固定带时区 cutoff：
+脚本先做有界 source 扫描，再受理持久 backfill Job；S3 观察和子作业入队由 Worker 完成。先 dry-run，再用小批次。`dataset_item` 可用 dataset id；`task` 仅指没有 DatasetItem 关联的历史 Task，不能带 dataset id。独立 Task 必须先有已登记 TaskOriginal，缺少原件归属的历史 Task 不按当前 annotations 桶猜读；CLI 显式选择，Worker 完整核验原件后应用硬上限。跨游标分页时固定带时区 cutoff：
 
 ```bash
 cd apps/api
@@ -110,7 +112,32 @@ curl --fail --silent --show-error -H 'Authorization: Bearer '"$ASSETS_MEDIA_TOKE
 
 `source_bytes` 是已登记 DatasetItem 源大小合计，不含直接历史 Task 源图；`thumbnail_bytes` 是 ready thumbnail Job 记录的派生字节；`pyramid_bytes` 是 active ready 金字塔代次保留字节；pending、running 和 failed 计数跨所有图片作业，`garbage_pending` 为未完成清理责任数。这些是 SQL owner 读数，不等于 S3 账单或全桶盘点。
 
-Worker 日志使用稳定错误码，不应记录来源凭据、签名 URL 或原始文件。遇错检查 profile、登录角色、endpoint/bucket、ICC 路径和容器 RSS/临时盘。`upload_verification_failed` 或 `inconsistent_ready` 应核对缓存对象身份与可达性，不要手工伪造 ready 状态。浏览器 Large Image Tile Diagnostics 用于排查客户端请求/解码/覆盖范围；Workbench Raster Resource Diagnostics 是浏览器内存账本，不是 Worker 队列、服务器字节或 GPU 物理指标。
+Worker 日志使用稳定错误码，不应记录来源凭据、签名 URL 或原始文件。遇错检查 profile、登录角色、endpoint/bucket、ICC 路径和容器 RSS/临时盘。`upload_verification_failed` 或 `inconsistent_ready` 应核对缓存对象身份与可达性，不要手工伪造 ready 状态。
+
+浏览器 BUG 反馈会附带 `Large Image Tile Diagnostics`，其中包括 current level、visible/desired tile、
+queue/fetch/decode 状态、cache hit/eviction、requested/decoded/reserved/retained/budget bytes、
+ImageBitmap/HTML image/ObjectURL 存量、abort、stale commit、签发批次数、URL 刷新和目标细节
+coverage。该快照不包含签名 URL、storage key 或文件名。排查长会话时应确认停止交互后
+retained/live/request 进入平台档位内 plateau，离开任务后 reserved/retained/live 全部归零。
+
+同一份 BUG 反馈还会附带 `Workbench Raster Resource Diagnostics`。它是浏览器页签内、当前 Task 的逻辑
+账本，不是服务端或物理 GPU 指标。按以下顺序排查：
+
+1. `invariantOk=true`，且 `chargedBytes == committedBytes + reservedBytes <= hardBudgetBytes`；
+2. `owners` 与 `categories` 的 committed/reserved 合计分别等于全局值；
+3. `pressureReason=foreground-operation` 时背景 prefetch 应暂停，operation 结束后按当前 generation 恢复；
+4. hidden 达阈值后 `hiddenSheds` 增加、reconstructible bytes 下降，dirty edit/history 仍留在 P0；
+5. BFCache 往返后 generation 增加，旧 promise 只增加 stale/abort 计数，coverage 能恢复；
+6. 真正离开任务后 coordinator、tile、Mask render/edit/history、Worker/GPU owner 全部归零。
+
+低、标准、高档位的全局 hard budget 分别为 192/384/768 MiB，hidden freeze 为 10/15/30 秒。
+档位来自浏览器 `navigator.deviceMemory`，字段缺失时使用标准档；production 没有环境变量可以绕过 hard
+invariant。若持续出现 denial，先核对 owner 是否漏 release、是否把同一 buffer 重复计费，以及视口/Mask
+ROI 是否过大，不要通过无限调高预算掩盖泄漏。
+
+资源 pressure 与 tile 故障的口径不同：前者通常保持 overview/coverage，只短暂显示清晰度恢复；后者会在
+tile diagnostics 增加 error、签名刷新或 decode failure。Mask operation 被总预算拒绝时，用户现有编辑和
+history 不变，可缩小可见区域或先保存再重试。浏览器诊断是页签内逻辑账本，不是 Worker 队列、服务器字节或 GPU 物理指标。
 
 ## 保留、清理与回滚
 
@@ -118,4 +145,12 @@ ready 代次的 URL 签发使用非阻塞来源/垃圾栅栏检查；同一代�
 
 图片 Worker 只登记派生前缀，不直接删对象。既有 `assets-cleanup` 领取事务提交后才做 S3 删除并确认；失败会保留责任。整 asset 与 attempt prefix tombstone 保留并每 5 分钟重扫，以清除迟到写入。`garbage_pending` 持续非零时检查 cleanup 健康、数据库租约和精确 S3 Delete/List 权限。禁止对活跃 `image-pyramids/*` 配整桶/固定 TTL 生命周期，禁止清理身份访问源桶。
 
+reconciliation 每日运行，按 Asset→Generation→Output 锁序复验过期 lease、移除非 active 旧代引用，再退役无引用且无在用操作的独立 output。物理清理在 Gate 准入下只删除保存桶中的该 UUID 前缀，核对为空后保留 deleted 记录；失败留待重试。业务删除只解除引用，不在请求事务里猜当前缓存桶清理。
+
+准备阶段不读取对象，输出分配只使用已登记 media-cache 绑定。现有 owner 不跟随当前用途桶变化；所有 tile、overview、manifest 写入后完整 GET 回读 SHA／长度。发布还需有效 lease、准确原件和委派、输出 owner 与维护修订一致，原生处理、Body、文件和临时目录先真实收尾。取消、超时或 Worker 丢失不能仅靠租约到期解除未知 StorageOperation；未确认的操作会阻止对应 owner 退休，需要先定位实际进程和句柄，不能直接删账本。
+
+旧无 output owner 的代不自动采纳、签名或物理删除；先完成原件登记，再显式重试生成新代，旧未知文件保留待单独核验。reconciliation 不裸扫默认缓存桶，也不按目录年龄删除其他任务临时文件。0232 迁移新增独立责任表和输入／授权回执；存在责任记录时不做破坏性降级。
+
 紧急回退：关闭 `IMAGE_PYRAMID_AUTO_GENERATE` 以暂停自动金字塔受理，并停止显式重试/回填；尺寸和缩略图仍会受理。若需暂停全部新图片工作，还应暂停上传/导入生产者。需要暂停浏览器选择时，将 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 设为 `false` 并重建 Web；停止 `assets-images-worker`，保留共享控制与清理职责。保留 Job、操作回执、ready 对象及未确认垃圾，等待在途租约排空/到期。不要直接删除图片表或批量删对象；降级迁移会拒绝丢弃仍有作业、回执或清理责任的状态。
+
+常见新增拒绝包括 `no_readable_original`／`content_unverified`（先登记并核验原件）、`pyramid_authority_unrecorded`（旧队列缺准确委派，重新发起）、`image_pyramid_storage_unpinned`（未知旧输出，显式重建）、`image_pyramid_storage_integrity_mismatch`／`image_pyramid_storage_invalid_receipt`（核对对象与内容清单）以及 `storage_operation_unsettled`（物理工作尚未确认结束）。维护或撤权拒绝不代表文件丢失，也不应通过更换当前用途桶绕过。

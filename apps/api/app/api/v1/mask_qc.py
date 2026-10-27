@@ -91,13 +91,13 @@ from app.services.mask_repair import (
     create_repair_plan,
     dispatch_repair_batch,
     execute_repair_plan,
-    fail_repair_dispatch,
     prepare_repair_batch_dispatch,
     record_repair_dispatch_task,
     request_repair_rollback,
     resume_repair_batch,
     load_repair_batch,
 )
+from app.services.mask_repair_execution import release_unpublished
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
@@ -670,6 +670,7 @@ async def _dispatch_repair_or_fail(
     dispatcher: QualityJobDispatcher,
     dispatch_lease: DispatchLease,
 ) -> None:
+
     batch_id = batch.id
     job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     assert job_id is not None
@@ -686,13 +687,7 @@ async def _dispatch_repair_or_fail(
         )
     except MaskRepairError as exc:
         await db.rollback()
-        await fail_repair_dispatch(
-            db,
-            batch_id=batch_id,
-            async_job_id=job_id,
-            rollback=rollback,
-            error=str(exc),
-        )
+        await release_unpublished(db, batch_id, job_id, rollback=rollback)
         await db.commit()
         _raise_mask_repair_error(exc)
     await record_repair_dispatch_task(
@@ -736,6 +731,7 @@ async def dry_run_mask_repairs(
         project=project,
         actor=current_user,
         request=body,
+        http_request=request,
     )
     await AuditService.log(
         db,
@@ -785,6 +781,7 @@ async def execute_mask_repairs(
             actor=current_user,
             receipt=body.receipt,
             plan_digest=body.plan_digest,
+            http_request=request,
         )
     except MaskRepairError as exc:
         await db.rollback()
@@ -847,7 +844,9 @@ async def resume_mask_repairs(
         db, repair_id=repair_id, user=current_user, lock=True
     )
     try:
-        batch = await resume_repair_batch(db, batch_id=repair_id, actor=current_user)
+        batch = await resume_repair_batch(
+            db, batch_id=repair_id, actor=current_user, http_request=request
+        )
     except MaskRepairError as exc:
         await db.rollback()
         _raise_mask_repair_error(exc)
@@ -895,6 +894,7 @@ async def rollback_mask_repairs(
             batch_id=repair_id,
             actor=current_user,
             expected_result_digest=body.expected_result_digest,
+            http_request=request,
         )
     except MaskRepairError as exc:
         await db.rollback()

@@ -1,8 +1,9 @@
 ---
+title: AI 预标注接管
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # AI 预标注接管
@@ -44,9 +45,7 @@ HTTP 入口先提交 `AsyncJob`，再将其 UUID 同时作为 Celery 执行 ID�
 
 `pre_annotated` 还存在一个当前接管断点：普通 assigned annotator 的 task 列表和 `/tasks/next` 都排除该状态；现阶段需 owner / super_admin 从 `/ai-pre` 深链进入工作台，先产生有效 annotation 使批次进入 `annotating`，普通标注员才恢复常规可见性。
 
-> **模态说明**：`/ai-pre` 入口按项目 `data_type` 分流。图像项目走上图所示批量链路；视频项目显示引导卡片，实际追踪由工作台逐轨迹 Shift+T 发起，不走本页批量 Celery 链路；lidar 项目暂显占位。
-
-<!-- history: batch_predict job history moved from prediction_jobs into async_jobs; the handoff flow now documents the current source of truth. -->
+> **模态说明**：`/ai-pre` 入口按项目 `data_type` 分流。图像项目走上图所示批量链路；视频项目显示引导提示，实际追踪由工作台逐轨迹 Shift+T 发起，不走本页批量 Celery 链路；lidar 项目暂显占位。
 
 ## 代码入口
 
@@ -78,7 +77,7 @@ HTTP 入口先提交 `AsyncJob`，再将其 UUID 同时作为 Celery 执行 ID�
 
 请求体核心字段：
 
-- `ml_backend_id` —— 源阶段 backend；多阶段编排时等价 `pipeline_stages[0].ml_backend_id`
+- `ml_backend_id` —— 源阶段 backend；多阶段编排时等价 `pipeline_stages[0].ml_backend_id`（当项目使用在线训练发布的模型时，可通过 `ProjectModelSelection` 关联已回流到 `yolo-backend` 的 `managed:{version_id}` 模型，详见 [在线学习与训练体系](./training-datasets#模型回流与托管注册表)）
 - `task_ids`
 - `prompt`
 - `output_mode`
@@ -98,7 +97,7 @@ HTTP 入口先提交 `AsyncJob`，再将其 UUID 同时作为 Celery 执行 ID�
 指定 `batch_id` 时，后端会校验（API 与 worker 复校验共用 `allows_bulk_preannotation`）：
 
 - batch 属于当前 project
-- `batch.status == active`，或 `batch.status == draft` 且 `annotator_id` / `reviewer_id` 均未分派（Issue #124，支持先跑 AI 再分派人工）
+- `batch.status == active`，或 `batch.status == draft` 且 `annotator_id` / `reviewer_id` 均未分派（支持先跑 AI 再分派人工）
 
 所以现在不能直接对：
 
@@ -106,7 +105,7 @@ HTTP 入口先提交 `AsyncJob`，再将其 UUID 同时作为 Celery 执行 ID�
 - `pre_annotated`
 - `annotating`
 
-再发同一类 batch 预标请求。显式 `task_ids` 的批量路径同源校验任务所属批次（工作台单题 `execution_scope=workbench` 走独立的 #121 口径，允许可编辑任务与 draft 批次）。
+再发同一类 batch 预标请求。显式 `task_ids` 的批量路径同源校验任务所属批次（工作台单题 `execution_scope=workbench` 走独立口径，允许可编辑任务与 draft 批次）。
 
 `/ai-pre` 首页项目卡片的「可预标」计数也复用同一准入规则（`batch_permissions.bulk_preannotation_eligible_condition`），统计 `active` 加未分派人员的 `draft`，避免卡片显示 0 而详情页仍列有草稿。
 
@@ -130,11 +129,19 @@ worker 会按三种模式选任务：
 
 成功时写：
 
-- `Prediction`（多阶段下:下游 attributes union 后整体写一条父框预测,几何分割阶段产出的 polygon 作 new_shape 追加进同一 `result` 数组）
-- `PredictionMeta`(多阶段额外写 `extra.pipeline = { stage_count, enriched_attr_keys, stages: [...] }` 追溯每个属性来自哪个 backend / model)
+- `Prediction`（多阶段下：下游 attributes union 后整体写一条父框预测，几何分割阶段产出的 polygon 作 `new_shape` 追加进同一 `result` 数组）
+- `PredictionMeta`（多阶段额外写 `extra.pipeline = { stage_count, enriched_attr_keys, stages: [...] }` 追溯每个属性来自哪个 backend / model）
 - `task.total_predictions` 聚合
 
-失败时写：
+受控实例分割整图源阶段使用原图 `raster_mask` 内容引用，保留孔洞与断连；`PredictionMeta.extra` 只记录冻结身份和血缘，不重复保存掩码正文。人工采纳及下一轮训练见[实例分割闭环](./instance-segmentation-learning)。
+
+### 原件验证读取与临时预测输入租约
+
+Worker 在向物理 ML Backend 投递媒体前，不再直接对当前用途桶拼装无验证 URL，而是通过 `prediction_originals` 与 `video_prediction_originals` 沿 `original_sources` 捕获严格验证的原件快照（核对完整 SHA-256、大小、位置维护 Gate 修订与入队时冻结的调用者/API Key 权限证明）：
+
+- **临时输入租约（`PredictionInputLease`）**：需要向 `import` 用途写入临时原图副本、视频帧或二阶段 ROI crop 时，Worker 在条件 PUT 前先持久化 `prediction_input_leases` 归属记录（前缀固定为 `prediction-inputs/<attempt_uuid>/`，绑定确切 `VersionId`）。推理完成后主动清理，异常或中断由 `cleanup` 队列按保存位置与准确版本回收（详见[原件验证读取、缓存与保留回收架构](./original-access-and-retention#导入暂存与预测临时输入回收（迁移-0212、0238–0241、0250）)）。
+- **结果落库复核**：单题推理返回后，Worker 在最终短事务内重新核验任务、原件内容身份与维护代次，携带专有 receipt 写入 `Prediction`候选。
+  失败时写：
 
 - `FailedPrediction`
 - GPU 仲裁拒绝时，`error_type` 为稳定仲裁错误码，`extra.gpu_arbiter_error` 保留 `status_code` / `retry_after_s` / 干净消息；普通 Backend 异常保持原有字段语义
@@ -142,6 +149,7 @@ worker 会按三种模式选任务：
 整批运行级别还会写：
 
 - `AsyncJob(kind=batch_predict)`；HTTP 先提交 pending，worker 再认领同一行并提交 running。多阶段下额外写 `result.pipeline_stages`(终态逐阶段统计 `{detected, targeted, ok, failed, skipped_geometry}`,WS 重连/运行后回看都走它,不丢)
+- 存在 GPU 仲裁拒绝时，`result.gpu_arbiter_failures` 按错误码给出有界聚合摘要；逐帧执行单元只落作业摘要，不生成无法按帧重试的失败行
 - 存在 GPU 仲裁拒绝时，`result.gpu_arbiter_failures` 按错误码给出有界聚合摘要；逐帧执行单元只落作业摘要，不生成无法按帧重试的失败行
 
 其中 `AsyncJob` 会记录：
@@ -165,7 +173,7 @@ worker 会按三种模式选任务：
 
 - 这次请求指定了 `batch_id`
 - 本轮至少有一个可处理单元，且不是全部失败
-- batch 当前仍是 `active`（未分派人员的 `draft` 批次保持 `draft`：候选挂任务保留，不隐式推进状态或分派人员，管理员随后正常分派并 `draft → active` 激活即可接管；Issue #124）
+- batch 当前仍是 `active`（未分派人员的 `draft` 批次保持 `draft`：候选挂任务保留，不隐式推进状态或分派人员，管理员随后正常分派并 `draft → active` 激活即可接管）
 - 走常规 task 批处理收尾；当前 `execution_unit=frame` 的 fan-out finalizer 不会推进 batch
 
 就会自动：
@@ -201,22 +209,22 @@ worker 会按三种模式选任务：
 
 首次接管者可选择：
 
-1. `accept prediction`(候选层 → annotation)
+1. `accept prediction`（候选层 → annotation）
 2. 在 prediction 基础上继续改
 3. 完全忽略 prediction，手工新建 annotation
-4. **Magic Box**: 拖一个粗框 → SAM bbox prompt → 返回 polygon → 自动取紧凑外接矩形 → **直接**落 bbox(不经候选层 UI 确认)。产出按几何归 `bbox` 工具单位；交互式 AI 由项目级 `ai_interactive_enabled` 控制, 详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)
+4. **Magic Box**：拖一个粗框 → SAM bbox prompt → 返回 polygon → 自动取紧凑外接矩形 → **直接**落 bbox（不经候选层 UI 确认）。产出按几何归 `bbox` 工具单位；交互式 AI 由项目级 `ai_interactive_enabled` 控制，详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)
 
 ### 采纳前候选属性预览 + 分步采纳
 
-工作台选中**尚未采纳**的 AI 候选时,画布选中卡 + 右栏标注详情都以**只读** `AttributeForm` 预览候选 `attributes`(项目 schema 的 select options 解析为中文 label),候选列表行也补属性摘要 chip。免去先采纳再核对车型 / 颜色等多阶段产出属性。
-
-进入「分步采纳」时,属性审阅区表单可编辑(面板底部专用「采纳」按钮已退役——与列表行 / 画布采纳入口重复,不重复挂)——先看多阶段预标产出的 select / multiselect 属性、改后再从**列表行**采纳,`AIInspectorPanel` 内部 wrapper 会把审阅区草稿改动自动作为 `attribute_overrides` 附带给端点原子落库;画布贴框采纳(SelectionOverlay / BoxRenderer 走单参 `onAcceptPrediction`)读不到审阅区本地 state,仍走候选原值。落库路径:
-
-- `POST /api/v1/tasks/{task_id}/predictions/{prediction_id}/accept`
-  - `body.attribute_overrides: dict | None` —— 按属性键覆盖 shape 自带 attributes 落库(内部键 `_shape_index` 等不受影响);为 `None` 时沿用候选原值
-  - **返回**:`list[AnnotationOut]`,**仅**本次新建的 annotation(单 shape 一条,多 shape 一次多条)。prediction 不存在或 `shape_index` 越界 → **404** `"Prediction not found or shape_index out of range"`。历史实现返回整题全量并被前端误当作"刚新建"回写属性,污染人工标注——现在收窄成"新建即返回"契约,前端不再需要 diff。
-
-实现：[候选路由](../../../apps/api/app/api/v1/tasks/predictions.py) 调用 `CandidateDecisionPort.accept`，由 [事务装配](../../../apps/api/app/application/candidate_decision.py) 绑定原 Session；私有 SQL 步骤 `AnnotationService._accept_prediction` 对 select 字段做软校验（值不在 options 内只告警、不阻断，避免 backend 枚举与项目配置漂移时丢数据）。
+- **只读预览**：工作台选中**尚未采纳**的 AI 候选时，画布选中卡和右栏标注详情都以**只读** `AttributeForm` 预览候选 `attributes`（项目 schema 的 select options 解析为中文 label），候选列表行同步展示属性摘要 chip，免去先采纳再核对车型 / 颜色等多阶段产出属性。
+- **分步采纳编辑**：
+  - 进入「分步采纳」模式时，属性审阅区表单变为可编辑状态；面板底部专用「采纳」按钮已退役，与列表行 / 画布采纳入口重复，不重复挂载。
+  - 先核对或修改多阶段预标产出的 `select` / `multiselect` 属性，再从**候选列表行**触发采纳，`AIInspectorPanel` 内部会将审阅区草稿改动自动作为 `attribute_overrides` 附带给端点原子落库。
+  - 画布贴框采纳（`SelectionOverlay` / `BoxRenderer` 走单参 `onAcceptPrediction`）不读取审阅区本地草稿，仍按候选原值落库。
+- **落库 API 契约（`POST /api/v1/tasks/{task_id}/predictions/{prediction_id}/accept`）**：
+  - `body.attribute_overrides: dict | None`：按属性键覆盖 shape 自带 `attributes` 落库（内部键 `_shape_index` 等不受影响）；为 `None` 时沿用候选原值。
+  - **返回值**：`list[AnnotationOut]`，**仅**返回本次新建的 annotation（单 shape 一条，多 shape 一次多条）。prediction 不存在或 `shape_index` 越界返回 **404** `"Prediction not found or shape_index out of range"`。历史实现返回整题全量并被前端误当作“刚新建”回写属性，污染人工标注；现在收窄为“新建即返回”契约，前端不再需要 diff。
+  - **代码位置**：`apps/api/app/api/v1/tasks/predictions.py` 调用 `CandidateDecisionPort.accept`，由 `apps/api/app/application/candidate_decision.py` 绑定原 Session；私有 SQL 步骤 `AnnotationService._accept_prediction` 对 select 字段做软校验（值不在 options 内只告警、不阻断，避免 backend 枚举与项目配置漂移时丢数据）。
 
 只要出现有效 annotation，`AnnotationService._update_task_stats()` 就会把：
 
@@ -331,27 +339,29 @@ ML backend 对某题失败时，不会中断整批；worker 会写：
 
 ## 前端同步点
 
-| 文件                                                                    | 为什么要看                                                                                                                                                                      |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web/src/pages/AIPreAnnotate/AIPreAnnotatePage.tsx`                | 批量预标主入口；按项目 `data_type` 路由到对应面板                                                                                                                               |
-| `apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx`    | 图像项目详情面板（含 backend 选择器、SchemaForm 参数面板、RunPanel、HistoryTable）                                                                                              |
-| `apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx` | 阶段卡基底——model-first 单一下拉(`value=model_id`、文案 = 模型市场 `display_name`);doc / 几何 / 文本三路径共用同一交互                                                          |
-| `apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx`             | 多阶段编排阶段卡;`parent_class_filter` / `write.keys` chip 多选 + 键冲突配置期预警 + 运行态徽标 + `ProgressBar` 实时统计                                                        |
-| `apps/web/src/pages/AIPreAnnotate/components/VideoPreannotateGuide.tsx` | 视频项目引导卡片（提示在工作台逐轨迹 Shift+T 发起，提供跳工作台 + `/ai-pre/jobs?tab=video` 深链）                                                                               |
-| `apps/web/src/pages/AIPreAnnotate/components/RunPanel.tsx`              | 运行触发与进度提示                                                                                                                                                              |
-| `apps/web/src/pages/AIPreAnnotate/components/HistoryTable.tsx`          | `pre_annotated` 历史列表与 bulk clear                                                                                                                                           |
-| `apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx`            | AI 任务历史；含「图像」(`async_jobs: batch_predict / prediction_retry`) 和「视频」(`async_jobs: video_tracker`) 两个模态 tab，`?tab=video` 深链                                 |
-| `apps/web/src/pages/Projects/sections/ClassesSection.tsx`               | 项目类别与属性区;头部「从 ML Backend 预填」按钮挂 `PrefillFromBackendDialog`,「属性 JSON」下拉挂属性 schema 导入 / 导出                                                         |
-| `apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.tsx`     | 「从 ML Backend 预填」对话框——列出自报 `output_attribute_schema` 的所有在线 backend / model,预览勾选字段后一键合并进当前工具单位的 `attribute_schema`(同 key 覆盖、新 key 追加) |
-| `apps/web/src/hooks/usePredictions.ts`                                  | prediction 查询与采纳(含 `attribute_overrides`)                                                                                                                                 |
-| `apps/web/src/utils/batchPreannotation.ts`                              | 前端可预标准入筛选（与后端 `allows_bulk_preannotation` 同源：`active` 或未分派人员的 `draft`）                                                                                  |
-| `apps/web/src/hooks/useBatchEventsSocket.ts`                            | 订阅 `batch.status_changed` / `batch.assignment_changed`，invalidate 批次缓存（改派会让未分派草稿的可预标资格实时变化）                                                         |
-| `apps/web/src/pages/Workbench/shell/Topbar.tsx`                         | 当前 task 所属批次的 `pre_annotated` 提示                                                                                                                                       |
-| `apps/web/src/components/badges/BatchStatusBadge.tsx`                   | `pre_annotated` 徽章                                                                                                                                                            |
+| 文件                                                                    | 为什么要看                                                                                                                                                                         |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/pages/AIPreAnnotate/AIPreAnnotatePage.tsx`                | 批量预标主入口；按项目 `data_type` 路由到对应面板                                                                                                                                  |
+| `apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx`        | 全局预标注流水线模板库页面                                                                                                                                                         |
+| `apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx`    | 项目预标详情面板（整合流水线画布、参数表单、运行状态与历史列表）                                                                                                                   |
+| `apps/web/src/pages/AIPreAnnotate/components/PipelineGraphCanvas.tsx`   | 多阶段编排可视化画布与节点连接器                                                                                                                                                   |
+| `apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx` | 阶段卡基底——model-first 单一下拉（`value=model_id`、文案 = 模型市场 `display_name`）；doc / 几何 / 文本三路径共用同一交互                                                          |
+| `apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx`             | 多阶段编排阶段卡；`parent_class_filter` / `write.keys` chip 多选 + 键冲突配置期预警 + 运行态徽标 + `ProgressBar` 实时统计                                                          |
+| `apps/web/src/pages/AIPreAnnotate/components/RunStatusPanel.tsx`        | 运行触发、实时进度与阶段统计状态面板                                                                                                                                               |
+| `apps/web/src/pages/AIPreAnnotate/components/HistoryTable.tsx`          | `pre_annotated` 历史列表与 bulk clear                                                                                                                                              |
+| `apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx`            | AI 任务历史；含「图像」（`async_jobs: batch_predict / prediction_retry`）和「视频」（`async_jobs: video_tracker`）两个模态 tab，`?tab=video` 深链                                  |
+| `apps/web/src/pages/Projects/sections/ClassesSection.tsx`               | 项目类别与属性区；头部「从 ML Backend 预填」按钮挂 `PrefillFromBackendDialog`，「属性 JSON」下拉挂属性 schema 导入 / 导出                                                          |
+| `apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.tsx`     | 「从 ML Backend 预填」对话框——列出自报 `output_attribute_schema` 的所有在线 backend / model，预览勾选字段后一键合并进当前工具单位的 `attribute_schema`（同 key 覆盖、新 key 追加） |
+| `apps/web/src/hooks/usePredictions.ts`                                  | prediction 查询与采纳（含 `attribute_overrides`）                                                                                                                                  |
+| `apps/web/src/utils/batchPreannotation.ts`                              | 前端可预标准入筛选（与后端 `allows_bulk_preannotation` 同源：`active` 或未分派人员的 `draft`）                                                                                     |
+| `apps/web/src/hooks/useBatchEventsSocket.ts`                            | 订阅 `batch.status_changed` / `batch.assignment_changed`，invalidate 批次缓存（改派会让未分派草稿的可预标资格实时变化）                                                            |
+| `apps/web/src/pages/Workbench/shell/Topbar.tsx`                         | 当前 task 所属批次的 `pre_annotated` 提示                                                                                                                                          |
+| `apps/web/src/components/badges/BatchStatusBadge.tsx`                   | `pre_annotated` 徽章                                                                                                                                                               |
 
 ## 相关文档
 
 - [预标注流水线](./prediction-pipeline)
+- [在线学习与训练体系](./training-datasets)
 - [批次模块](./batch-module)
 - [标注模块](./annotation-module)
 - [批次生命周期（端到端）](./batch-lifecycle-end-to-end)

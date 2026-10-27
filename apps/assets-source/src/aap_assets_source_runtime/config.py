@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 import ipaddress
 import json
 import math
 import os
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Mapping
+from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from cryptography.fernet import Fernet
@@ -20,25 +20,9 @@ from aap_assets_source.connectors.host_guard import (
     normalize_allowlist,
 )
 
-if TYPE_CHECKING:
-    from .guide_config import GuideStorageConfig
-
 
 class ConfigurationError(ValueError):
     """A required Assets source setting is absent or unsafe."""
-
-
-@dataclass(frozen=True, slots=True)
-class GuideOnlyConfig:
-    """Settings for the Guide-only byte owner, without source DB credentials."""
-
-    service_token: str = field(repr=False)
-    host: str
-    port: int
-    max_request_bytes: int
-    max_response_bytes: int
-    guide: GuideStorageConfig = field(repr=False)
-    guide_max_in_flight: int = 4
 
 
 _BUCKET_RE = re.compile(
@@ -282,8 +266,6 @@ class SourceConfig:
     image_policy: ImagePolicy = field(default_factory=ImagePolicy)
     upload_url_expires_seconds: int = 900
     image_header_bytes: int = 256 * 1024
-    guide: GuideStorageConfig | None = field(default=None, repr=False)
-    guide_max_in_flight: int = 4
 
     @property
     def cleanup_bucket(self) -> str:
@@ -358,47 +340,11 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
 
 def load_config(
     environment: Mapping[str, str] | None = None,
-) -> SourceConfig | GuideOnlyConfig:
-    """Load only the selected Assets runtime capabilities."""
+) -> SourceConfig:
+    """Load the Assets source runtime; retired guide-only modes are rejected."""
     source = os.environ if environment is None else environment
     mode = source.get("ASSETS_SOURCE_MODE", "source")
     mode = mode.strip() if isinstance(mode, str) else ""
-    if mode not in {"source", "guide-only", "source-and-guide"}:
+    if mode != "source":
         raise ConfigurationError("ASSETS_SOURCE_MODE is invalid")
-
-    if mode == "guide-only":
-        from .guide_config import load_guide_storage_config
-
-        service_token, host, port, max_request_bytes, max_response_bytes = (
-            _common_runtime_settings(source)
-        )
-        return GuideOnlyConfig(
-            service_token=service_token,
-            host=host,
-            port=port,
-            max_request_bytes=max_request_bytes,
-            max_response_bytes=max_response_bytes,
-            guide=load_guide_storage_config(source),
-            guide_max_in_flight=_positive_int(
-                source,
-                "ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT",
-                "4",
-                maximum=32,
-            ),
-        )
-
-    config = _load_source_config(source)
-    if mode == "source-and-guide":
-        from .guide_config import load_guide_storage_config
-
-        config = replace(
-            config,
-            guide=load_guide_storage_config(source),
-            guide_max_in_flight=_positive_int(
-                source,
-                "ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT",
-                "4",
-                maximum=32,
-            ),
-        )
-    return config
+    return _load_source_config(source)

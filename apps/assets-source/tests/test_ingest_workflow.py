@@ -12,6 +12,10 @@ import zipfile
 
 import pytest
 
+from aap_assets_source.managed_original_contract import (
+    ManagedOriginalMaterial,
+    ManagedOriginalProof,
+)
 from aap_assets_source.ingest_contract import (
     ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
     IngestBatchPlan,
@@ -34,6 +38,7 @@ from aap_assets_source_runtime.ingest_storage import (
     IngestStorageFacts,
 )
 from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+from aap_assets_source_runtime.managed_storage import ManagedStorage
 from aap_assets_source_runtime.runtime import SourceRuntime
 from aap_assets_source_runtime.ingest_workflow import _validate_context
 from aap_assets_source_runtime.database import NativeIngestData
@@ -43,6 +48,51 @@ from aap_assets_images.policy import ImagePolicy
 
 def _command() -> IngestCommand:
     return IngestCommand(operation_id=uuid4(), actor_id=uuid4(), dataset_id=uuid4())
+
+
+def _managed_target(request: dict) -> ManagedOriginalMaterial:
+    from uuid import UUID
+
+    file_path = request["file_path"]
+    publication = request.get("authority", {}).get("publication_id")
+    return ManagedOriginalMaterial(
+        creation_id=uuid4(),
+        dataset_id=UUID(request["dataset_id"]),
+        location_id=UUID("4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"),
+        bucket="datasets",
+        object_key=file_path,
+        key_prefix="",
+        endpoint_url="http://s3",
+        storage_identity="a" * 64,
+        config_revision=1,
+        binding_generation=1,
+        max_bytes=request["max_bytes"],
+        content_type=request["content_type"],
+        origin=request["origin"],
+        mode=request["mode"],
+        publication_id=UUID(publication) if publication else None,
+        file_path=file_path,
+    )
+
+
+def _managed_proof(size: int, digest: str, *, sha256: str, version="v1"):
+    return ManagedOriginalProof.verified(
+        mode="write",
+        sha256=sha256,
+        md5=digest,
+        size_bytes=size,
+        etag=f'"{digest}"',
+        version_id=version,
+        request_id="request",
+        prepared={"mode": "write"},
+        verification={
+            "sha256": sha256,
+            "md5": digest,
+            "size_bytes": size,
+            "etag": f'"{digest}"',
+            "version_id": version,
+        },
+    )
 
 
 def _zip_bytes(entries: dict[str, bytes]) -> bytes:
@@ -111,6 +161,40 @@ class _Data:
             next_index=0,
             result=None,
         )
+
+    async def allocate(self, request):
+        self.calls.append("allocate")
+        return _managed_target(request)
+
+    async def open_operation(self, creation_id):
+        from uuid import uuid4
+
+        from aap_assets_source.managed_original_contract import (
+            ManagedOriginalOperation,
+        )
+
+        self.calls.append("open_operation")
+        return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
+
+    async def close_operation(
+        self, creation_id, operation_id, physical_settled
+    ) -> None:
+        self.calls.append("close_operation")
+
+    async def original_prepared(self, creation_id, prepared) -> None:
+        self.calls.append("original_prepared")
+
+    async def original_writing(self, creation_id) -> None:
+        self.calls.append("original_writing")
+
+    async def original_written(self, creation_id, receipt) -> None:
+        self.calls.append("original_written")
+
+    async def original_verified(self, creation_id, verification) -> None:
+        self.calls.append("original_verified")
+
+    async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
+        self.calls.append("fail_original")
 
     async def prepare_batch(self, command, batch_id, entries):
         self.calls.append("prepare")
@@ -288,29 +372,69 @@ class _Storage:
     async def publish(
         self,
         source,
+        target,
         *,
-        key,
         content_type,
         expected_size,
         expected_hash,
         image,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
     ):
         content = source.read()
         digest = hashlib.md5(content, usedforsecurity=False).hexdigest()
-        self.published.append((key, content, content_type, expected_hash))
+        self.published.append((target.object_key, content, content_type, expected_hash))
         if self.fail_after_publish:
             raise IngestEntryFailure("storage_write_failed")
         assert len(content) == expected_size
         assert digest == expected_hash
-        return IngestStorageFacts(
-            file_size=len(content),
-            content_hash=digest,
-            width=None,
-            height=None,
-            object_identity=(
-                ObjectIdentity(etag=f'"{digest}"', byte_size=len(content))
-                if image
-                else None
+        return (
+            IngestStorageFacts(
+                file_size=len(content),
+                content_hash=digest,
+                width=None,
+                height=None,
+                object_identity=(
+                    ObjectIdentity(etag=f'"{digest}"', byte_size=len(content))
+                    if image
+                    else None
+                ),
+            ),
+            _managed_proof(
+                len(content), digest, sha256=hashlib.sha256(content).hexdigest()
+            ),
+        )
+
+    async def adopt(self, target, *, expected_size, image):
+        return (
+            IngestStorageFacts(
+                file_size=expected_size,
+                content_hash=None,
+                width=None,
+                height=None,
+                object_identity=None,
+            ),
+            ManagedOriginalProof.verified(
+                mode="adopt",
+                sha256=hashlib.sha256(str(expected_size).encode()).hexdigest(),
+                md5=hashlib.md5(
+                    str(expected_size).encode(), usedforsecurity=False
+                ).hexdigest(),
+                size_bytes=expected_size,
+                etag='"adopted"',
+                version_id="v1",
+                request_id=None,
+                prepared={"mode": "adopt"},
+                verification={
+                    "sha256": hashlib.sha256(str(expected_size).encode()).hexdigest(),
+                    "md5": hashlib.md5(
+                        str(expected_size).encode(), usedforsecurity=False
+                    ).hexdigest(),
+                    "size_bytes": expected_size,
+                    "etag": '"adopted"',
+                    "version_id": "v1",
+                },
             ),
         )
 
@@ -378,7 +502,15 @@ async def test_uncertain_publication_settles_per_file_without_deleting_object() 
     assert receipt.errors[0].name == "nested/photo.png"
     assert receipt.errors[0].error == "Source object could not be stored"
     assert len(storage.published) == 1
-    assert data.calls == ["begin", "prepare", "complete", "finish"]
+    assert data.calls == [
+        "begin",
+        "prepare",
+        "allocate",
+        "open_operation",
+        "fail_original",
+        "complete",
+        "finish",
+    ]
 
 
 @pytest.mark.asyncio
@@ -422,6 +554,46 @@ class _UnusedS3:
         self.calls.append(("put", kwargs))
 
 
+class _RecordingManaged:
+    """Record the one publication attempt a runtime makes before its reply."""
+
+    def __init__(self) -> None:
+        self.published = []
+
+    async def publish_stream(
+        self,
+        source,
+        target,
+        *,
+        content_type,
+        expected_size,
+        expected_hash,
+        image,
+        before_io=None,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
+    ):
+        from aap_assets_source_runtime.managed_storage import ManagedWrite
+
+        content = source.read()
+        digest = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        self.published.append((target.object_key, content, content_type, expected_hash))
+        return ManagedWrite(
+            file_size=len(content),
+            content_hash=digest,
+            dimensions=None,
+            object_identity=(
+                ObjectIdentity(etag="published", byte_size=len(content))
+                if image
+                else None
+            ),
+            proof=_managed_proof(
+                len(content), digest, sha256=hashlib.sha256(content).hexdigest()
+            ),
+        )
+
+
 @pytest.mark.asyncio
 async def test_wrong_scope_prepare_reply_rolls_back_before_any_s3_publication() -> None:
     command = _command()
@@ -437,7 +609,9 @@ async def test_wrong_scope_prepare_reply_rolls_back_before_any_s3_publication() 
         )
     )
     config = SimpleNamespace(max_response_bytes=16_777_216, image_policy=ImagePolicy())
-    storage = SimpleNamespace(client=client, datasets_bucket="datasets")
+    storage = SimpleNamespace(
+        client=client, datasets_bucket="datasets", managed=ManagedStorage(client)
+    )
     runtime = SourceRuntime(config, database, storage)
 
     body = await runtime.upload_zip(
@@ -474,7 +648,9 @@ async def test_malformed_native_begin_reply_rolls_back_before_any_s3_publication
     runtime = SourceRuntime(
         SimpleNamespace(max_response_bytes=16_777_216, image_policy=ImagePolicy()),
         database,
-        SimpleNamespace(client=client, datasets_bucket="datasets"),
+        SimpleNamespace(
+            client=client, datasets_bucket="datasets", managed=ManagedStorage(client)
+        ),
     )
 
     body = await runtime.upload_zip(
@@ -503,21 +679,23 @@ async def test_encoded_response_budget_failure_rolls_back_after_publication() ->
         )
     )
     config = SimpleNamespace(max_response_bytes=128, image_policy=ImagePolicy())
+    managed = _RecordingManaged()
     runtime = SourceRuntime(
-        config, database, SimpleNamespace(client=client, datasets_bucket="datasets")
+        config,
+        database,
+        SimpleNamespace(client=client, datasets_bucket="datasets", managed=managed),
     )
 
     body = await runtime.upload_zip(
-        command, BytesIO(_zip_bytes({"image.png": b"body"}))
+        command, BytesIO(_zip_bytes({"scene/frame.txt": b"body"}))
     )
 
     with pytest.raises(IngestFailure) as error:
         decode_ingest_reply(json.loads(body), IngestReceipt)
     assert error.value.code == "service_unavailable"
     assert database.events == ["begin", "rollback"]
-    assert len(client.calls) == 1
-    assert client.calls[0][0] == "put"
-    assert client.calls[0][1]["IfNoneMatch"] == "*"
+    assert len(managed.published) == 1
+    assert managed.published[0][1] == b"body"
 
 
 def test_completed_replay_compares_exact_body_digest_not_descriptor_order() -> None:

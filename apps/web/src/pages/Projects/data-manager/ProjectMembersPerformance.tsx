@@ -1,3 +1,7 @@
+import type { ReactNode } from "react";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useCursorListPagination } from "@/hooks/useCursorListPagination";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
@@ -26,7 +30,6 @@ import {
 import {
   projectPerformanceApi,
   type ProjectMemberPerformance,
-  type ProjectPerformanceEvidenceItem,
   type ProjectPerformanceMetric,
   type ProjectPerformanceQuery,
   type ProjectPerformanceTrendPoint,
@@ -59,7 +62,7 @@ import {
 } from "./projectMembersPerformanceUrlState";
 import { REJECT_REASON_TYPE_LABELS } from "@/pages/Review/rejectReasonTypes";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 const MAX_CUSTOM_DAYS = PROJECT_MEMBERS_MAX_CUSTOM_DAYS;
 
 const SORT_LABELS: Record<ProjectMembersSort, string> = {
@@ -195,10 +198,6 @@ function metricAvailability(metric: ProjectPerformanceMetric | undefined) {
   return "available";
 }
 
-function initial(name: string) {
-  return name.trim().slice(0, 1).toUpperCase() || "?";
-}
-
 function roleLabel(role: string | null) {
   if (!role) return "未记录角色";
   if (role === "owner") return "项目负责人";
@@ -284,10 +283,14 @@ export function ProjectMembersPerformance({ projectId }: { projectId: string }) 
   const syncingQueryDraft = useRef(false);
   const lastUrlQuery = useRef(state.q);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const [pageSize, setPageSize] = useState(20);
   const debouncedQuery = useDebouncedValue(queryDraft, 250);
   const viewAsOf = useRef(new Date()).current;
   const range = useMemo(() => resolvedDateRange(state, viewAsOf), [state, viewAsOf]);
-  const query = useMemo(() => queryFromState(state, viewAsOf), [state, viewAsOf]);
+  const query = useMemo(
+    () => ({ ...queryFromState(state, viewAsOf), limit: pageSize }),
+    [state, viewAsOf, pageSize],
+  );
   const maximumDate = dateInTimeZone(viewAsOf, range.timezone);
   const rangeIssue =
     state.preset === "custom"
@@ -328,17 +331,17 @@ export function ProjectMembersPerformance({ projectId }: { projectId: string }) 
     previousQuery ?? query,
     Boolean(selectedMemberId && previousQuery && !invalidState),
   );
-  const [eventsCursor, setEventsCursor] = useState<string | null>(null);
-  const [eventItems, setEventItems] = useState<ProjectPerformanceEvidenceItem[]>([]);
+  const eventsPagination = useCursorListPagination(
+    JSON.stringify([projectId, selectedMemberId, { ...query, cursor: null, limit: undefined }]),
+  );
   const eventsQ = useProjectMemberPerformanceEvents(
     projectId,
     selectedMemberId,
-    { ...query, cursor: eventsCursor, limit: 20 },
+    { ...query, cursor: eventsPagination.cursor, limit: eventsPagination.pageSize },
     Boolean(selectedMemberId && !invalidState),
   );
   const [exporting, setExporting] = useState(false);
   const exportControllerRef = useRef<AbortController | null>(null);
-  const lastEventPageRef = useRef("");
 
   useEffect(() => () => exportControllerRef.current?.abort(), []);
 
@@ -381,32 +384,6 @@ export function ProjectMembersPerformance({ projectId }: { projectId: string }) 
     state.sort,
     state.direction,
   ]);
-
-  useEffect(() => {
-    setEventsCursor(null);
-    setEventItems([]);
-    lastEventPageRef.current = "";
-  }, [
-    selectedMemberId,
-    query.from,
-    query.to,
-    query.timezone,
-    query.work_type,
-    query.account_status,
-    query.include_historical,
-    query.q,
-    query.sort,
-  ]);
-
-  useEffect(() => {
-    const response = eventsQ.data;
-    if (!response) return;
-    const page = response.items;
-    const signature = `${eventsCursor ?? "first"}:${response.next_cursor ?? "end"}:${page.map((item) => item.id).join(",")}`;
-    if (lastEventPageRef.current === signature) return;
-    lastEventPageRef.current = signature;
-    setEventItems((previous) => (eventsCursor ? [...previous, ...page] : page));
-  }, [eventsCursor, eventsQ.data]);
 
   const updateState = useCallback(
     (update: Partial<ProjectMembersPerformanceUrlState>) => {
@@ -535,36 +512,22 @@ export function ProjectMembersPerformance({ projectId }: { projectId: string }) 
             loading={membersQ.isLoading}
             onSelect={selectMember}
           />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {membersQ.data ? `${membersQ.data.items.length} 位成员` : "加载成员中…"} ·
-              含无活动成员
-            </span>
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                size="xs"
-                variant="default"
-                onClick={goPrevious}
-                disabled={!cursorStack.length || membersQ.isFetching}
-                aria-label="上一页成员"
-              >
-                <Icon name="chevLeft" size={12} />
-                上一页
-              </Button>
-              <Button
-                type="button"
-                size="xs"
-                variant="default"
-                onClick={goNext}
-                disabled={!membersQ.data?.next_cursor || membersQ.isFetching}
-                aria-label="下一页成员"
-              >
-                下一页
-                <Icon name="chevRight" size={12} />
-              </Button>
-            </div>
-          </div>
+          <ListPagination
+            label="成员"
+            page={cursorStack.length}
+            pageSize={pageSize}
+            count={membersQ.data?.items.length ?? 0}
+            hasNext={Boolean(membersQ.data?.next_cursor)}
+            loading={membersQ.isFetching}
+            previousLabel="上一页成员"
+            nextLabel="下一页成员"
+            onPageChange={(page) => (page < cursorStack.length ? goPrevious() : goNext())}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setCursorStack([]);
+              patch({ cursor: null, selected: null });
+            }}
+          />
         </>
       )}
 
@@ -574,7 +537,10 @@ export function ProjectMembersPerformance({ projectId }: { projectId: string }) 
             <MemberDetail
               member={selectedMember}
               detail={detailQ.data}
-              events={eventItems.length ? eventItems : (detailQ.data?.evidence ?? [])}
+              events={
+                eventsQ.data?.items ??
+                (eventsPagination.page === 0 ? (detailQ.data?.evidence ?? []) : [])
+              }
               workType={state.workType}
               loading={detailQ.isLoading}
               error={detailQ.isError}
@@ -583,14 +549,25 @@ export function ProjectMembersPerformance({ projectId }: { projectId: string }) 
               previousLoading={previousDetailQ.isLoading}
               previousError={previousDetailQ.isError}
               onRetryPrevious={() => void previousDetailQ.refetch()}
-              eventsLoading={eventsQ.isLoading && !eventItems.length}
+              eventsLoading={eventsQ.isLoading}
               eventsError={eventsQ.isError}
               onRetryEvents={() => void eventsQ.refetch()}
-              hasMoreEvents={Boolean(
-                eventsQ.data?.next_cursor || (eventsCursor && eventsQ.isFetching),
-              )}
-              loadingMoreEvents={eventsQ.isFetching && eventItems.length > 0}
-              onLoadMoreEvents={() => setEventsCursor(eventsQ.data?.next_cursor ?? null)}
+              eventsPagination={
+                <ListPagination
+                  label="活动依据"
+                  page={eventsPagination.page}
+                  pageSize={eventsPagination.pageSize}
+                  count={eventsQ.data?.items.length ?? 0}
+                  hasNext={Boolean(eventsQ.data?.next_cursor)}
+                  loading={eventsQ.isFetching}
+                  previousLabel="上一页活动依据"
+                  nextLabel="下一页活动依据"
+                  onPageChange={(page) =>
+                    eventsPagination.changePage(page, eventsQ.data?.next_cursor)
+                  }
+                  onPageSizeChange={eventsPagination.setPageSize}
+                />
+              }
               timezone={membersQ.data?.scope.timezone ?? range.timezone}
               projectId={projectId}
             />
@@ -916,7 +893,7 @@ function MembersTable({
         </span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] border-collapse text-sm">
+        <table className={cn(listStyles.table, "min-w-[980px]")}>
           <caption className="sr-only">项目成员绩效表</caption>
           <thead className="bg-muted text-xs text-muted-foreground">
             <tr>
@@ -1128,9 +1105,7 @@ function MemberDetail({
   eventsLoading,
   eventsError,
   onRetryEvents,
-  hasMoreEvents,
-  loadingMoreEvents,
-  onLoadMoreEvents,
+  eventsPagination,
   timezone,
   projectId,
 }: {
@@ -1185,9 +1160,7 @@ function MemberDetail({
   eventsLoading: boolean;
   eventsError: boolean;
   onRetryEvents: () => void;
-  hasMoreEvents: boolean;
-  loadingMoreEvents: boolean;
-  onLoadMoreEvents: () => void;
+  eventsPagination: ReactNode;
   timezone: string;
   projectId: string;
 }) {
@@ -1345,9 +1318,7 @@ function MemberDetail({
               loading={eventsLoading}
               error={eventsError}
               onRetry={onRetryEvents}
-              hasMore={hasMoreEvents}
-              loadingMore={loadingMoreEvents}
-              onLoadMore={onLoadMoreEvents}
+              pagination={eventsPagination}
               timezone={timezone}
               projectId={projectId}
               workType={workType}
@@ -1608,9 +1579,7 @@ function EvidenceCard({
   loading,
   error,
   onRetry,
-  hasMore,
-  loadingMore,
-  onLoadMore,
+  pagination,
   timezone,
   projectId,
   workType,
@@ -1627,9 +1596,7 @@ function EvidenceCard({
   loading: boolean;
   error: boolean;
   onRetry: () => void;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
+  pagination: ReactNode;
   timezone: string;
   projectId: string;
   workType: ProjectMembersWorkType;
@@ -1695,23 +1662,11 @@ function EvidenceCard({
               </li>
             ))}
           </ul>
-          {hasMore && (
-            <div className="border-t border-border px-3 py-2 text-center">
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                onClick={onLoadMore}
-                disabled={loadingMore}
-              >
-                {loadingMore ? "加载中…" : "加载更多依据"}
-              </Button>
-            </div>
-          )}
         </>
       ) : (
         <EmptyDetail text="当前范围暂无可见活动依据" />
       )}
+      {pagination}
     </section>
   );
 }

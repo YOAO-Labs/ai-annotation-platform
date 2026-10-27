@@ -79,10 +79,13 @@ async def notification_message_allowed(
     authenticate: Authenticate,
     open_delivery: OpenDelivery,
     retry_seconds: float = _NOTIFICATION_GATE_RETRY_SECONDS,
+    allow_api_keys: bool = False,
+    include_migration_inventory: Callable[[NotificationSocketPrincipal], bool]
+    | None = None,
 ) -> bool:
     """Reauthenticate a frame and fail closed until its row is visible."""
 
-    if token.startswith("ak_"):
+    if token.startswith("ak_") and not allow_api_keys:
         return False
     principal = await authenticate(token)
     if principal is None:
@@ -90,6 +93,11 @@ async def notification_message_allowed(
     actor_id = _actor_uuid(principal)
     if actor_id is None:
         return False
+    migration_inventory_visible = (
+        True
+        if include_migration_inventory is None
+        else bool(include_migration_inventory(principal))
+    )
 
     try:
         message = json.loads(data.decode() if isinstance(data, bytes) else data)
@@ -110,8 +118,14 @@ async def notification_message_allowed(
     async with open_delivery() as delivery:
         for attempt in range(_NOTIFICATION_GATE_ATTEMPTS):
             if await delivery.notification_by_id(notification_id) is not None:
+                if migration_inventory_visible:
+                    return await delivery.notification_deliverable(
+                        notification_id, actor_id
+                    )
                 return await delivery.notification_deliverable(
-                    notification_id, actor_id
+                    notification_id,
+                    actor_id,
+                    include_migration_inventory=False,
                 )
             if attempt + 1 < _NOTIFICATION_GATE_ATTEMPTS:
                 await asyncio.sleep(retry_seconds)

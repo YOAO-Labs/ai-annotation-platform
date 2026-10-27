@@ -1,7 +1,7 @@
 """Keep revoked video requesters from blocking later input and frame claims.
 
-Revision ID: 0226
-Revises: 0225
+Revision ID: bo0226
+Revises: bo0225
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0226"
-down_revision = "0225"
+revision = "bo0226"
+down_revision = "bo0225"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

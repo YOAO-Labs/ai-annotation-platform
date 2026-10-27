@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MeResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
@@ -38,6 +38,7 @@ vi.mock("@/utils/workbenchNavigation", () => ({
 }));
 
 import AIPreAnnotateJobsPage from "./AIPreAnnotateJobsPage";
+import AIPreAnnotateLayout from "./AIPreAnnotateLayout";
 
 function makeJob(overrides: Record<string, unknown> = {}) {
   return {
@@ -75,7 +76,11 @@ function renderUI(initialPath = "/ai-pre/jobs") {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialPath]}>
         <LocationProbe />
-        <AIPreAnnotateJobsPage />
+        <Routes>
+          <Route path="/ai-pre" element={<AIPreAnnotateLayout />}>
+            <Route path="jobs" element={<AIPreAnnotateJobsPage />} />
+          </Route>
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -103,7 +108,10 @@ describe("AIPreAnnotateJobsPage", () => {
   beforeEach(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("auth-storage");
-    useAuthStore.setState({ token: null, user: null });
+    useAuthStore.getState().setAuth("jobs-u1-token", {
+      id: "u1",
+      role: "project_admin",
+    } as MeResponse);
     mockAsyncJobsList.mockReset();
     mockAsyncJobsCancel.mockReset();
     mockAsyncJobsGet.mockReset();
@@ -139,15 +147,15 @@ describe("AIPreAnnotateJobsPage", () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI();
     // 等待 query 完成
-    await screen.findByText("暂无 prediction job 历史");
-    expect(screen.getByText("历史 job (0)")).toBeInTheDocument();
+    await screen.findByText("暂无图片预标任务");
+    expect(screen.getByText("图片预标任务 (0)")).toBeInTheDocument();
   });
 
   it("有数据 → 渲染 job 行中的项目名与状态", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [makeJob()], total: 1 });
     renderUI();
     await screen.findByText("Demo Project");
-    expect(screen.getByText("历史 job (1)")).toBeInTheDocument();
+    expect(screen.getByText("图片预标任务 (1)")).toBeInTheDocument();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     expect(mockAsyncJobsList).toHaveBeenCalledWith(
       expect.objectContaining({ kind: ["batch_predict", "prediction_retry"] }),
@@ -213,8 +221,8 @@ describe("AIPreAnnotateJobsPage", () => {
   it("状态过滤 select → 传参给 asyncJobsApi.list", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI();
-    await screen.findByText("暂无 prediction job 历史");
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    await screen.findByText("暂无图片预标任务");
+    const select = screen.getByRole("combobox", { name: "预标任务状态" }) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "failed" } });
     // 变更后重新调用 list
     expect(mockAsyncJobsList).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }), {
@@ -226,7 +234,7 @@ describe("AIPreAnnotateJobsPage", () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 41 });
     renderUI("/ai-pre/jobs?tab=image&project_id=p9&status=failed&q=%20car%20&page=2");
 
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     expect(screen.getByDisplayValue("car")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("q=car"));
     expect(mockAsyncJobsList).toHaveBeenCalledWith(
@@ -241,8 +249,9 @@ describe("AIPreAnnotateJobsPage", () => {
   });
 
   it("图像关键字与第一页在防抖后原子写回可恢复 URL", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 61 });
     renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
       target: { value: "  bus  " },
@@ -254,14 +263,16 @@ describe("AIPreAnnotateJobsPage", () => {
       expect(screen.getByTestId("location-search")).not.toHaveTextContent("page="),
     );
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "failed" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "预标任务状态" }), {
+      target: { value: "failed" },
+    });
     expect(screen.getByTestId("location-search")).toHaveTextContent("status=failed");
   });
 
   it("图像关键字从第二页防抖后与页码原子切换", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 41 });
     renderUI("/ai-pre/jobs?tab=image&page=2");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
@@ -288,8 +299,9 @@ describe("AIPreAnnotateJobsPage", () => {
   });
 
   it("图像未应用草稿在重新加载时仍恢复已应用页码和关键字", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 61 });
     const rendered = renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
@@ -302,7 +314,7 @@ describe("AIPreAnnotateJobsPage", () => {
     rendered.unmount();
     mockAsyncJobsList.mockClear();
     renderUI(`/ai-pre/jobs${reloadSearch}`);
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     expect(screen.getByDisplayValue("old")).toBeInTheDocument();
     expect(mockAsyncJobsList).toHaveBeenCalledWith(
       expect.objectContaining({ search: "old", offset: 40 }),
@@ -312,7 +324,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
   it("外部 URL 导航以新图像筛选原子替换草稿", async () => {
     renderUI("/ai-pre/jobs?tab=image&project_id=p1&status=failed&q=old&page=2");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
@@ -341,7 +353,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
   it("外部图像 URL 恢复期间再次输入仍能完成新的防抖提交", async () => {
     renderUI("/ai-pre/jobs?tab=image&q=old");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: "外部导航" }));
@@ -365,7 +377,7 @@ describe("AIPreAnnotateJobsPage", () => {
     const user = { id: "image-u1", role: "employee" } as MeResponse;
     useAuthStore.getState().setAuth("image-token-1", user);
     renderUI();
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     act(() => useAuthStore.getState().setAuth("image-token-2", user));
@@ -378,13 +390,15 @@ describe("AIPreAnnotateJobsPage", () => {
   it("关键字防抖期间切换状态先使用已应用关键字", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI("/ai-pre/jobs?tab=image&page=3&q=old");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
       target: { value: "new" },
     });
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "failed" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "预标任务状态" }), {
+      target: { value: "failed" },
+    });
 
     await waitFor(() =>
       expect(mockAsyncJobsList).toHaveBeenCalledWith(
@@ -442,7 +456,6 @@ describe("AIPreAnnotateJobsPage", () => {
     fireEvent.click(detailButton);
 
     expect(await screen.findByText("后台任务详情")).toBeInTheDocument();
-    expect(mockAsyncJobsGet).toHaveBeenCalledWith("job-1");
     expect(await screen.findByText("$0.1234")).toBeInTheDocument();
     expect(screen.getAllByText("重试失败项").length).toBeGreaterThan(0);
   });
@@ -465,5 +478,68 @@ describe("AIPreAnnotateJobsPage", () => {
     await waitFor(() => {
       expect(mockAsyncJobsRetryFailed).toHaveBeenCalledWith("job-1");
     });
+  });
+  it("切换每页行数原子重置服务端 offset 并保留图片筛选", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 61 });
+    renderUI("/ai-pre/jobs?tab=image&page=2&status=failed&q=car");
+    await screen.findByText("暂无图片预标任务");
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "每页图片预标任务数" })).toBeEnabled(),
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "每页图片预标任务数" }), {
+      target: { value: "50" },
+    });
+    await waitFor(() =>
+      expect(mockAsyncJobsList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 50, offset: 0, status: "failed", search: "car" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("location-search").textContent).toContain("page_size=50");
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+  });
+
+  it("远端结果缩水后回到最后一个有效页", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 1 });
+    renderUI("/ai-pre/jobs?tab=image&page=3");
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search").textContent).not.toContain("page="),
+    );
+    expect(mockAsyncJobsList).toHaveBeenCalledWith(
+      expect.objectContaining({ offset: 0 }),
+      expect.anything(),
+    );
+  });
+
+  it("越界页兜底让位给未应用的搜索草稿", async () => {
+    let resolveList: ((value: { items: never[]; total: number }) => void) | undefined;
+    mockAsyncJobsList.mockReturnValue(
+      new Promise<{ items: never[]; total: number }>((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    renderUI("/ai-pre/jobs?tab=image&page=2");
+    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+      target: { value: "bus" },
+    });
+    mockAsyncJobsList.mockClear();
+
+    act(() => resolveList?.({ items: [], total: 1 }));
+
+    await waitFor(() =>
+      expect(mockAsyncJobsList).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "bus", offset: 0 }),
+        expect.anything(),
+      ),
+    );
+    expect(
+      mockAsyncJobsList.mock.calls.some(([params]) => {
+        const call = params as { offset?: number; search?: string };
+        return call.offset === 0 && !call.search;
+      }),
+    ).toBe(false);
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search")).not.toHaveTextContent("page="),
+    );
   });
 });

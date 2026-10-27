@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 P3 · 注册管理 tab — orchestrator shell.
  *
@@ -252,7 +253,7 @@ export function RegisteredBackendsTab(): ReactNode {
   );
 
   return (
-    // TooltipProvider: several descendants (CopyableId, FreshnessIndicator,
+    // TooltipProvider: several descendants (CopyValueButton, FreshnessIndicator,
     // SourceErrorBadge) use Radix Tooltip, which requires a provider ancestor.
     <TooltipProvider>
       <div className="flex flex-col gap-3">
@@ -420,7 +421,7 @@ function SourceErrorBadge({ label, message }: { label: string; message: string }
       <TooltipTrigger asChild>
         <Badge variant="danger" className="cursor-help">
           <Icon name="alert-triangle" size={11} />
-          <span>{label}加载失败</span>
+          <CopyableError message={message} preview={`${label}加载失败`} />
         </Badge>
       </TooltipTrigger>
       <TooltipContent>{message}</TooltipContent>
@@ -454,7 +455,9 @@ function ErrorShell({ message, onRetry }: { message: string; onRetry: () => void
     <Card>
       <div className="flex flex-col items-center gap-2 p-12 text-center text-sm text-status-danger">
         <Icon name="warning" size={20} />
-        <div>{message}</div>
+        <div>
+          <CopyableError message={message} />
+        </div>
         <Button size="sm" variant="ghost" onClick={onRetry}>
           <Icon name="refresh" size={11} />
           重试

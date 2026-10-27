@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 /**
  * v0.10.16 · Topbar 异步任务铃铛（ROADMAP §1.7）。
@@ -19,6 +20,7 @@ import {
   JOB_KIND_LABEL as KIND_LABEL,
   exportDownloadState,
   jobResultSummary,
+  jobProgressText,
   jobStage,
 } from "@/components/jobs/asyncJobPresentation";
 import {
@@ -28,6 +30,9 @@ import {
   type AsyncJobStatus,
 } from "@/api/asyncJobs";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
+import { useSessionRevision } from "@/hooks/useSessionGuard";
+import { ApiError } from "@/api/client";
 import { ShellPopover, SHELL_POPOVER_HEADER_CLASS } from "./ShellPopover";
 
 const POLL_INTERVAL_MS = 5000;
@@ -87,11 +92,18 @@ function persistDismissed(set: Set<string>, userId: string | null) {
 interface AuthOwner {
   userId: string | null;
   token: string | null;
+  role: string | null;
+  revision: number;
 }
 
 function captureAuthOwner(): AuthOwner {
   const auth = useAuthStore.getState();
-  return { userId: auth.user?.id ?? null, token: auth.token };
+  return {
+    userId: auth.user?.id ?? null,
+    token: auth.token,
+    role: auth.user?.role ?? null,
+    revision: getAuthSessionRevision(),
+  };
 }
 
 function isCurrentOwner(owner: AuthOwner): boolean {
@@ -99,7 +111,9 @@ function isCurrentOwner(owner: AuthOwner): boolean {
     !!owner.userId &&
     !!owner.token &&
     isCurrentAuthOwner(owner.userId) &&
-    useAuthStore.getState().token === owner.token
+    useAuthStore.getState().token === owner.token &&
+    useAuthStore.getState().user?.role === owner.role &&
+    getAuthSessionRevision() === owner.revision
   );
 }
 
@@ -258,13 +272,17 @@ function JobRow({
           )}
         </div>
       </div>
-      <ProgressBar pct={pct} status={job.status} />
+      {!["dataset_scan", "storage_migration_inventory", "storage_migration_copy"].includes(
+        job.kind,
+      ) && <ProgressBar pct={pct} status={job.status} />}
       <div className="text-xs tabular-nums text-muted-foreground">
-        {job.status === "running" || job.status === "pending"
-          ? `${jobStage(job)} · ${pct}%`
-          : job.status === "failed"
-            ? (job.error_message ?? "失败").slice(0, 80)
-            : new Date(job.completed_at ?? job.updated_at).toLocaleString("zh-CN")}
+        {job.status === "running" || job.status === "pending" ? (
+          `${jobStage(job)} · ${jobProgressText(job)}`
+        ) : job.status === "failed" ? (
+          <CopyableError message={job.error_message ?? "失败"} truncate className="w-full" />
+        ) : (
+          new Date(job.completed_at ?? job.updated_at).toLocaleString("zh-CN")
+        )}
       </div>
       {resultDetail && (
         <div className="text-xs tabular-nums text-muted-foreground">
@@ -311,7 +329,10 @@ function JobRow({
 export function JobsBell() {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const token = useAuthStore((state) => state.token);
-  const ownerKey = `${userId ?? "anonymous"}:${token ?? "none"}`;
+  const role = useAuthStore((state) => state.user?.role);
+  const revision = useSessionRevision();
+  const ownerKey = `${userId ?? "anonymous"}:${token ?? "none"}:${role ?? "none"}:${revision}`;
+  const [deniedOwnerKey, setDeniedOwnerKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<{ id: string; ownerKey: string } | null>(null);
   const [renderedOwnerKey, setRenderedOwnerKey] = useState(ownerKey);
@@ -327,11 +348,17 @@ export function JobsBell() {
       lastPage.items.length > 0 && lastOffset + lastPage.items.length < lastPage.total
         ? lastOffset + lastPage.items.length
         : undefined,
-    enabled: Boolean(userId && token),
+    enabled: Boolean(userId && token && deniedOwnerKey !== ownerKey),
     refetchInterval: POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
-  const data = jobsQuery.data;
+  const accessDenied =
+    jobsQuery.error instanceof ApiError && [401, 403].includes(jobsQuery.error.status);
+  const denied = deniedOwnerKey === ownerKey || accessDenied;
+  useEffect(() => {
+    if (accessDenied) setDeniedOwnerKey(ownerKey);
+  }, [accessDenied, ownerKey]);
+  const data = denied ? undefined : jobsQuery.data;
 
   const jobs = useMemo(
     () => [
@@ -508,14 +535,20 @@ export function JobsBell() {
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
             {jobsQuery.isError && (
               <div role="alert" className="space-y-2 px-3 py-2 text-xs text-status-danger">
-                <p className="m-0">后台任务加载失败，已有记录已保留。</p>
-                <button
-                  type="button"
-                  onClick={() => void jobsQuery.refetch()}
-                  className="rounded border border-border px-2 py-1 text-foreground"
-                >
-                  重新加载
-                </button>
+                <p className="m-0">
+                  {denied
+                    ? "当前账号已无权读取后台任务，请重新登录或联系管理员。"
+                    : "后台任务加载失败，已有记录已保留。"}
+                </p>
+                {!denied && (
+                  <button
+                    type="button"
+                    onClick={() => void jobsQuery.refetch()}
+                    className="rounded border border-border px-2 py-1 text-foreground"
+                  >
+                    重新加载
+                  </button>
+                )}
               </div>
             )}
             {jobsQuery.isPending ? (
@@ -543,7 +576,7 @@ export function JobsBell() {
                 />
               ))
             )}
-            {jobsQuery.hasNextPage && (
+            {!denied && jobsQuery.hasNextPage && (
               <button
                 type="button"
                 onClick={() => void jobsQuery.fetchNextPage()}
@@ -556,13 +589,16 @@ export function JobsBell() {
           </div>
         </ShellPopover>
       )}
-      {selectedJob && selectedJob.ownerKey === ownerKey && renderedOwnerKey === ownerKey && (
-        <AsyncJobDetailModal
-          key={`${selectedJob.ownerKey}:${selectedJob.id}`}
-          jobId={selectedJob.id}
-          onClose={() => setSelectedJob(null)}
-        />
-      )}
+      {selectedJob &&
+        !denied &&
+        selectedJob.ownerKey === ownerKey &&
+        renderedOwnerKey === ownerKey && (
+          <AsyncJobDetailModal
+            key={`${selectedJob.ownerKey}:${selectedJob.id}`}
+            jobId={selectedJob.id}
+            onClose={() => setSelectedJob(null)}
+          />
+        )}
     </div>
   );
 }

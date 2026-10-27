@@ -1,5 +1,9 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/stores/authStore";
+import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
+import { safeDatasetReturn, saveImportTextDraft, takeImportTextDraft } from "./storageNavigation";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -7,13 +11,8 @@ import { useElementStyle } from "@/components/ui/useElementStyle";
 import { useToastStore } from "@/components/ui/Toast";
 import { useCreateDataset, useImportFromConnection } from "@/hooks/useDatasets";
 import { useAsyncJob } from "@/hooks/useAsyncJob";
-import { useCreateStorageConnection, useStorageConnections } from "@/hooks/useStorageConnections";
+import { useStorageConnections } from "@/hooks/useStorageConnections";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useAuthStore } from "@/stores/authStore";
-import {
-  StorageConnectionForm,
-  type StorageConnectionFormValues,
-} from "@/components/connections/StorageConnectionsPanel";
 import { datasetsApi } from "@/api/datasets";
 import { ApiError } from "@/api/client";
 import { AxisConventionPicker } from "@/components/datasets/AxisConventionPicker";
@@ -78,7 +77,22 @@ function ProgressFill({ progress, color }: { progress: number; color: string }) 
   return <div ref={ref} className={styles.progressFill} />;
 }
 
-export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onUploaded }: Props) {
+export function ImportDatasetWizard(props: Props) {
+  const revision = useSessionRevision();
+  const { role } = usePermissions();
+  return (
+    <ImportDatasetWizardOwner
+      key={`${revision}/${role}/${props.datasetId ?? "new"}/${props.open}`}
+      {...props}
+    />
+  );
+}
+
+function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUploaded }: Props) {
+  const location = useLocation();
+  const session = useAuthStore((s) => s.sessionId);
+  const capture = useSessionGuard();
+  const currentOwner = capture();
   const navigate = useNavigate();
   const pushToast = useToastStore((s) => s.push);
   const actorId = useAuthStore((state) => state.user?.id ?? null);
@@ -153,6 +167,60 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const draft = takeImportTextDraft(session, datasetId);
+    if (!draft) return;
+    setMode(draft.mode ?? "connection");
+    setName(draft.name ?? "");
+    setNameTouched(draft.nameTouched ?? false);
+    setDescription(draft.description ?? "");
+    if (DATA_TYPES.some((type) => type.key === draft.dataType)) setDataType(draft.dataType!);
+    if (
+      [
+        "iso_8855",
+        "ros_rep103",
+        "kitti_camera",
+        "opencv_camera",
+        "apollo",
+        "y_forward",
+        "sustechpoints_demo",
+        "raw",
+      ].includes(draft.axisConvention ?? "")
+    )
+      setAxisConvention(draft.axisConvention as LidarAxisConvention);
+    setIsTemporal(draft.isTemporal ?? false);
+    setConnectionId(draft.connectionId ?? "");
+    setSourcePath(draft.sourcePath ?? "");
+    setRecursive(draft.recursive ?? true);
+    setIncludeGlobs(draft.includeGlobs ?? "");
+  }, [open, session, datasetId]);
+
+  const manageStorage = () => {
+    saveImportTextDraft(session, datasetId, {
+      mode,
+      name,
+      nameTouched,
+      description,
+      dataType,
+      axisConvention,
+      isTemporal,
+      connectionId,
+      sourcePath,
+      recursive,
+      includeGlobs,
+    });
+    const fallback = datasetId ? `/datasets/${datasetId}` : "/datasets";
+    const back = new URL(
+      safeDatasetReturn(`${location.pathname}${location.search}`) ?? fallback,
+      window.location.origin,
+    );
+    back.searchParams.set("import", "1");
+    navigate(
+      `/storage?${new URLSearchParams({ tab: "locations", returnTo: `${back.pathname}${back.search}` })}`,
+    );
+  };
+
   const trimmedName = name.trim();
   const nameValid = skipCreate || (trimmedName.length >= 2 && trimmedName.length <= 60);
 
@@ -194,7 +262,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
     if (e.dataTransfer?.files?.length) handleAddFiles(e.dataTransfer.files);
   };
 
-  const ensureDataset = async (): Promise<string | null> => {
+  const ensureDataset = async (current: () => boolean): Promise<string | null> => {
     if (targetDatasetId) return targetDatasetId;
     const payload = {
       name: trimmedName,
@@ -214,10 +282,12 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
         payload,
         idempotencyKey: attempt.key,
       });
+      if (!current()) return null;
       if (createAttemptRef.current?.key === attempt.key) createAttemptRef.current = null;
       setCreated(dsResp);
       return dsResp.id;
     } catch (err) {
+      if (!current()) return null;
       pushToast({
         msg: "创建数据集失败",
         sub: err instanceof Error ? err.message : String(err),
@@ -228,9 +298,10 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
   };
 
   const startFilesUpload = async () => {
+    const current = capture();
     if (running || !files.length) return;
-    const dsId = await ensureDataset();
-    if (!dsId) return;
+    const dsId = await ensureDataset(current);
+    if (!dsId || !current()) return;
 
     const map = new Map<string, QueueItem>();
     files.forEach((_, i) => {
@@ -250,6 +321,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
       return {
         id: `${i}`,
         worker: async (_signal: { aborted: boolean }, onProgress: (pct: number) => void) => {
+          if (!current()) throw new Error("导入会话已结束");
           const init = await datasetsApi.uploadInit(
             dsId,
             {
@@ -258,7 +330,10 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
             },
             { idempotencyKey: initKey },
           );
-          await putWithProgress(init.upload_url, file, onProgress);
+          await putWithProgress(init.upload_url, file, (pct) => {
+            if (current()) onProgress(pct);
+          });
+          if (!current()) throw new Error("导入会话已结束");
           await datasetsApi.uploadComplete(dsId, init.item_id, { idempotencyKey: completeKey });
           return init.item_id;
         },
@@ -268,11 +343,13 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
     await runUploadQueue(tasks, map, {
       concurrency: 3,
       onUpdate: () => {
+        if (!current()) return;
         tickRef.current += 1;
         force((n) => n + 1);
       },
     });
 
+    if (!current()) return;
     setRunning(false);
     const succeeded = Array.from(map.values()).filter((it) => it.status === "done").length;
     onUploaded?.(dsId, succeeded);
@@ -283,9 +360,10 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
   };
 
   const startZipUpload = async () => {
+    const current = capture();
     if (running || !zipFile) return;
-    const dsId = await ensureDataset();
-    if (!dsId) return;
+    const dsId = await ensureDataset(current);
+    if (!dsId || !current()) return;
 
     setStep(3);
     setRunning(true);
@@ -304,9 +382,12 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
         dsId,
         zipFile,
         { idempotencyKey: attempt.key },
-        (pct) => setZipProgress(pct),
+        (pct) => {
+          if (current()) setZipProgress(pct);
+        },
       );
       zipUploadAttemptRef.current = null;
+      if (!current()) return;
       setZipResult(res);
       onUploaded?.(dsId, res.added);
       pushToast({
@@ -320,18 +401,20 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
               : "warning",
       });
     } catch (err) {
+      if (!current()) return;
       const msg = err instanceof Error ? err.message : String(err);
       setZipError(msg);
       pushToast({ msg: "ZIP 上传失败", sub: msg, kind: "error" });
     } finally {
-      setRunning(false);
+      if (current()) setRunning(false);
     }
   };
 
   const startConnectionImport = async () => {
+    const current = capture();
     if (running || !connectionId) return;
-    const dsId = await ensureDataset();
-    if (!dsId) return;
+    const dsId = await ensureDataset(current);
+    if (!dsId || !current()) return;
 
     setStep(3);
     setRunning(true);
@@ -365,10 +448,12 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
         payload: importPayload,
         idempotencyKey,
       });
+      if (!current()) return;
       setConnectionJobId(res.job_id);
       setConnectionImportRetryable(false);
       connectionImportAttemptRef.current = null;
     } catch (err) {
+      if (!current()) return;
       const msg = err instanceof Error ? err.message : String(err);
       setConnectionImportError(msg);
       setConnectionImportRetryable(
@@ -447,6 +532,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
           sourcePath={sourcePath}
           recursive={recursive}
           includeGlobs={includeGlobs}
+          onManageStorage={manageStorage}
           onAddFiles={handleAddFiles}
           onSetZip={(f) => {
             setZipFile(f);
@@ -497,6 +583,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
             running={running}
             onRetry={startConnectionImport}
             onSettled={(job) => {
+              if (!currentOwner()) return;
               setRunning(false);
               const added = connectionImportAdded(job);
               if (targetDatasetId) onUploaded?.(targetDatasetId, added);
@@ -684,6 +771,7 @@ function Step2({
   onSetIncludeGlobs,
   onDrop,
   onRemove,
+  onManageStorage,
 }: {
   mode: UploadMode;
   setMode: (m: UploadMode) => void;
@@ -701,6 +789,7 @@ function Step2({
   onSetIncludeGlobs: (value: string) => void;
   onDrop: (e: DragEvent<HTMLDivElement>) => void;
   onRemove: (idx: number) => void;
+  onManageStorage: () => void;
 }) {
   const filesInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
@@ -872,6 +961,7 @@ function Step2({
 
       {mode === "connection" && (
         <ConnectionImportSource
+          onManageStorage={onManageStorage}
           connectionId={connectionId}
           sourcePath={sourcePath}
           recursive={recursive}
@@ -887,6 +977,7 @@ function Step2({
 }
 
 function ConnectionImportSource({
+  onManageStorage,
   connectionId,
   sourcePath,
   recursive,
@@ -896,6 +987,7 @@ function ConnectionImportSource({
   onSetRecursive,
   onSetIncludeGlobs,
 }: {
+  onManageStorage: () => void;
   connectionId: string;
   sourcePath: string;
   recursive: boolean;
@@ -908,24 +1000,7 @@ function ConnectionImportSource({
   const { role } = usePermissions();
   const isSuper = role === "super_admin";
   const canManage = isSuper || role === "project_admin";
-  const pushToast = useToastStore((s) => s.push);
   const { data: connections = [], isLoading } = useStorageConnections();
-  const createConnection = useCreateStorageConnection();
-  const [showCreate, setShowCreate] = useState(false);
-
-  const handleCreate = async (values: StorageConnectionFormValues) => {
-    const conn = await createConnection.mutateAsync({
-      name: values.name,
-      kind: values.kind,
-      scope: values.scope,
-      config: values.config,
-      secret: values.secret ?? {},
-    });
-    onSetConnectionId(conn.id);
-    setShowCreate(false);
-    pushToast({ msg: "连接器已创建" });
-  };
-
   return (
     <div className={styles.connectionSource}>
       <div className={styles.connectionGrid}>
@@ -937,9 +1012,14 @@ function ConnectionImportSource({
             className={styles.input}
             disabled={isLoading || connections.length === 0}
           >
-            <option value="">
+            <option value="" disabled hidden>
               {isLoading ? "加载中..." : connections.length ? "选择连接器" : "暂无连接器"}
             </option>
+            {connectionId && !connections.some((connection) => connection.id === connectionId) && (
+              <option value={connectionId} disabled hidden>
+                已选连接器（正在核对可用状态）
+              </option>
+            )}
             {connections.map((conn) => (
               <option key={conn.id} value={conn.id}>
                 {conn.name} · {conn.kind.toUpperCase()} ·{" "}
@@ -976,25 +1056,17 @@ function ConnectionImportSource({
         </label>
       </div>
 
-      {canManage && (
-        <div className={styles.inlineCreateHeader}>
-          <Button size="sm" onClick={() => setShowCreate((value) => !value)}>
-            <Icon name={showCreate ? "x" : "plus"} size={12} />
-            {showCreate ? "收起新建" : "新建连接器"}
+      <div className={styles.inlineCreateHeader}>
+        {canManage ? (
+          <Button size="sm" onClick={onManageStorage}>
+            管理存储位置
           </Button>
-        </div>
-      )}
-
-      {canManage && showCreate && (
-        <StorageConnectionForm
-          compact
-          isSuper={isSuper}
-          submitLabel="创建并选择"
-          submitting={createConnection.isPending}
-          onSubmit={handleCreate}
-          onCancel={() => setShowCreate(false)}
-        />
-      )}
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            请选择已授权位置；如需新增，请联系存储管理员。
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1071,7 +1143,11 @@ function Step3({
                 }
               />
             </div>
-            {item?.error && <div className={styles.errorMessage}>{item.error}</div>}
+            {item?.error && (
+              <div className={styles.errorMessage}>
+                <CopyableError message={item.error} />
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1196,7 +1272,7 @@ function Step3Zip({
               <div className={styles.errorList}>
                 {result.errors.slice(0, 50).map((e, i) => (
                   <div key={i} className={styles.errorRow}>
-                    <span className="mono">{e.name}</span> — {e.error}
+                    <CopyableError message={`${e.name} — ${e.error}`} />
                   </div>
                 ))}
                 {result.errors.length > 50 && (
@@ -1210,7 +1286,11 @@ function Step3Zip({
         </div>
       )}
 
-      {error && <div className={styles.zipError}>{error}</div>}
+      {error && (
+        <div className={styles.zipError}>
+          <CopyableError message={error} />
+        </div>
+      )}
 
       <div className={styles.actions}>
         {error && (
@@ -1322,7 +1402,11 @@ function Step3Connection({
               共 {total} · 跳过 {skipped} · 失败 {errors}
             </span>
           </div>
-          {job.error_message && <div className={styles.errorMessage}>{job.error_message}</div>}
+          {job.error_message && (
+            <div className={styles.errorMessage}>
+              <CopyableError message={job.error_message} />
+            </div>
+          )}
           {Array.isArray(result.errors) && result.errors.length > 0 && (
             <details className={styles.errorDetails}>
               <summary className={styles.errorSummary}>
@@ -1331,7 +1415,7 @@ function Step3Connection({
               <div className={styles.errorList}>
                 {result.errors.slice(0, 50).map((entry, index) => (
                   <div key={index} className={styles.errorRow}>
-                    {formatJobError(entry)}
+                    <CopyableError message={formatJobError(entry)} />
                   </div>
                 ))}
               </div>
@@ -1340,7 +1424,11 @@ function Step3Connection({
         </div>
       )}
 
-      {submitError && <div className={styles.zipError}>{submitError}</div>}
+      {submitError && (
+        <div className={styles.zipError}>
+          <CopyableError message={submitError} />
+        </div>
+      )}
 
       <div className={styles.actions}>
         {submitError && retryable && (

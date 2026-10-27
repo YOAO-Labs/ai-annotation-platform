@@ -36,7 +36,10 @@ export function useProjectTaskQuery(
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[1] === projectId &&
       previousQuery?.queryKey[3] === userId &&
-      previousQuery?.queryKey[4] === tokenEpoch
+      previousQuery?.queryKey[4] === tokenEpoch &&
+      (previousQuery?.queryKey[2] as ProjectTaskQueryPayload | undefined)?.limit ===
+        payload.limit &&
+      (previousQuery?.queryKey[2] as ProjectTaskQueryPayload | undefined)?.offset === payload.offset
         ? previousData
         : undefined,
   });
@@ -143,12 +146,22 @@ export function useDataManagerMatches(
   taskId: string | null,
   filterJson: Record<string, unknown>,
   enabled = true,
+  pagination = { limit: 100, offset: 0 },
 ) {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const tokenEpoch = useAuthStore((state) => state.token);
   return useQuery({
-    queryKey: ["data-manager-matches", projectId, taskId, filterJson, userId, tokenEpoch],
-    queryFn: ({ signal }) => taskViewsApi.matches(projectId!, taskId!, filterJson, { signal }),
+    queryKey: [
+      "data-manager-matches",
+      projectId,
+      taskId,
+      filterJson,
+      pagination,
+      userId,
+      tokenEpoch,
+    ],
+    queryFn: ({ signal }) =>
+      taskViewsApi.matches(projectId!, taskId!, filterJson, { signal }, pagination),
     enabled: !!projectId && !!taskId && !!userId && enabled,
   });
 }

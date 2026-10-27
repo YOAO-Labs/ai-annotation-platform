@@ -6,6 +6,14 @@ from typing import Annotated, Literal
 
 from aap_task_contract import VisualTask
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas._jsonb_types import CocoRleContent
+
+
+class TrainingDatasetFrozenMask(BaseModel):
+    annotation_id: uuid.UUID
+    annotation_version: int = Field(ge=1)
+    pixel_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rle: CocoRleContent
 
 
 class TrainingDatasetInsightCapability(BaseModel):
@@ -82,9 +90,13 @@ class TrainingDatasetDetectionStatistics(BaseModel):
 class TrainingDatasetSegmentationStatistics(BaseModel):
     task: Literal["segment"] = "segment"
     schema_version: Literal[1] = 1
-    geometry: Literal["normalized-simple-polygon"] = "normalized-simple-polygon"
+    geometry: Literal["normalized-simple-polygon", "instance-mask"] = (
+        "normalized-simple-polygon"
+    )
     known_instances: int
     polygon_area_sum: float
+    mask_area_pixels_sum: int | None = None
+    normalized_mask_area_sum: float | None = None
 
 
 TrainingDatasetTaskStatistics = Annotated[
@@ -222,12 +234,64 @@ class TrainingDatasetNormalizedPolygon(BaseModel):
     annotation_version: int
 
 
+class TrainingDatasetInstanceMask(BaseModel):
+    type: Literal["instance_mask"] = "instance_mask"
+    class_index: int
+    class_name: str
+    annotation_id: uuid.UUID
+    annotation_version: int
+    size: list[int]
+    area: float
+    area_pixels: int
+    bbox_xyxy: list[int]
+    pixel_sha256: str
+
+
+class TrainingDatasetFrozenSourceLineage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_id: uuid.UUID
+    location_id: uuid.UUID
+    path_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    scan_run_id: uuid.UUID
+    accepted_revision_id: uuid.UUID | None
+    revision_number: int | None
+    previous_revision_id: uuid.UUID | None
+    accepted_at: datetime | None
+    scan_completed_at: datetime | None
+    content_verified_at: datetime | None
+    source_config_revision: int
+    location_config_revision: int
+
+
+class TrainingDatasetFrozenManagedSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1] = Field(alias="schema")
+    owner_kind: Literal["dataset_asset", "task_original"]
+    content_id: uuid.UUID
+    location_id: uuid.UUID
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size_bytes: int = Field(gt=0)
+
+
+class TrainingDatasetSourceLineageEvidence(BaseModel):
+    kind: Literal["accepted_reference", "managed_original", "unknown"] = "unknown"
+    status: Literal["recorded", "partial", "unrecorded"]
+    reasons: list[str]
+    evidence: TrainingDatasetFrozenSourceLineage | None
+    managed_evidence: TrainingDatasetFrozenManagedSource | None = None
+
+
 class TrainingDatasetSampleDetail(BaseModel):
     sample: TrainingDatasetAnalyzedSampleOut
-    labels: list[TrainingDatasetNormalizedBox | TrainingDatasetNormalizedPolygon]
+    labels: list[
+        TrainingDatasetNormalizedBox
+        | TrainingDatasetNormalizedPolygon
+        | TrainingDatasetInstanceMask
+    ]
     total: int | None
     limit: int
     offset: int
+    source_lineage: TrainingDatasetSourceLineageEvidence | None = None
 
 
 class TrainingDatasetInsightComparison(BaseModel):
@@ -236,6 +300,9 @@ class TrainingDatasetInsightComparison(BaseModel):
     status: Literal["complete", "partial", "unavailable"]
     counts: dict[str, int]
     count_unit: Literal["unique_contents"]
+    source_comparison_status: Literal["complete", "partial", "unavailable"] = (
+        "unavailable"
+    )
     baseline_members: int
     target_members: int
     overlapping_changes: bool

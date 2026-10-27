@@ -280,9 +280,25 @@ def encode_ingest_public_result(receipt: IngestReceipt) -> bytes:
     return body
 
 
+def _managed_client(storage: StorageService):
+    from botocore.config import Config
+
+    return StorageService(
+        client_config=Config(
+            connect_timeout=2,
+            read_timeout=60,
+            retries={"total_max_attempts": 1, "mode": "standard"},
+            proxies={},
+        )
+    ).client
+
+
 class _LocalStoragePort:
     def __init__(self, storage: StorageService) -> None:
+        from aap_assets_source_runtime.managed_storage import ManagedStorage
+
         self._storage = storage
+        self._managed = ManagedStorage(_managed_client(storage), timeout_seconds=60)
 
     async def generate_upload_url(self, key: str, content_type: str) -> str:
         try:
@@ -333,28 +349,35 @@ class _LocalStoragePort:
         except (BotoCoreError, OSError) as exc:
             raise SourceFailure("storage_unavailable") from exc
 
-    async def publish_dataset_upload(
-        self, staging_key: str, final_key: str, *, etag: str
-    ) -> None:
+    async def publish_managed_upload(
+        self,
+        target,
+        *,
+        staging_key: str,
+        staging_etag: str | None,
+        staging_version_id: str | None,
+        max_bytes: int,
+        image: bool,
+        content_type: str,
+    ):
+        from aap_assets_source_runtime.ingest_storage_errors import (
+            ManagedStorageError,
+        )
+
         try:
-            await asyncio.to_thread(
-                self._storage.publish_dataset_upload,
-                staging_key,
-                final_key,
-                etag=etag,
+            return await self._managed.publish_object(
+                target,
+                source_client=self._storage.client,
+                source_bucket=self._storage.import_bucket,
+                source_key=staging_key,
+                source_etag=staging_etag,
+                source_version_id=staging_version_id,
+                content_type=content_type,
+                max_bytes=max_bytes,
+                image=image,
             )
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in {
-                "412",
-                "PreconditionFailed",
-                "404",
-                "NoSuchKey",
-                "NotFound",
-            }:
-                raise SourceFailure("source_changed") from exc
-            raise SourceFailure("storage_unavailable") from exc
-        except (BotoCoreError, OSError) as exc:
-            raise SourceFailure("storage_unavailable") from exc
+        except ManagedStorageError as exc:
+            raise SourceFailure(exc.code) from None
 
 
 class _LegacyUploadData:
@@ -724,12 +747,19 @@ class AssetsSourceGateway:
     def _local_ingest_workflow(self):
         from aap_assets_source_runtime.ingest_storage import IngestStorage
         from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+        from aap_assets_source_runtime.managed_storage import ManagedStorage
 
         from app.services.assets_source_ingest import DatasetSourceIngestData
 
         return IngestWorkflow(
             data=DatasetSourceIngestData(self._db),
-            storage=IngestStorage(self._storage.client, self._storage.datasets_bucket),
+            storage=IngestStorage(
+                self._storage.client,
+                self._storage.datasets_bucket,
+                managed=ManagedStorage(
+                    _managed_client(self._storage), timeout_seconds=60
+                ),
+            ),
             image_admission=ImageAdmission(
                 image_gateway(self._db, caller_transaction=True), image_policy()
             ),

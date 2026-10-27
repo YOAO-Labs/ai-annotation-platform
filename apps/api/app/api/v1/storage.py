@@ -2,9 +2,11 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
+
 from aap_assets_media.contract import (
     FailuresRequest,
     MediaFailure,
@@ -13,14 +15,22 @@ from aap_assets_media.contract import (
 )
 
 from app.deps import (
+    assert_request_scopes,
     get_current_user,
     get_db,
     require_roles,
 )
 from app.db.enums import PlatformRole
+from app.db.models.user import User
 from app.services.storage import storage_service
 from app.services.assets_media import media_gateway, media_http_error
-from app.schemas.storage import BucketSummary, BucketsResponse
+from app.schemas.storage import (
+    BucketsResponse,
+    UsageInventoryResponse,
+    UsageScheduleRequest,
+    UsageScheduleSummary,
+)
+from app.services import storage_usage
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
@@ -37,32 +47,62 @@ VideoAssetKind = Literal["probe", "poster", "frame_timetable", "chunk", "frame"]
 @router.get("/health")
 async def storage_health(_: IdentityActorFacts = Depends(get_current_user)):
     try:
-        storage_service.client.head_bucket(Bucket=storage_service.bucket)
+        await run_in_threadpool(
+            storage_service.client.head_bucket, Bucket=storage_service.bucket
+        )
         return {"status": "ok", "bucket": storage_service.bucket}
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.get("/buckets", response_model=BucketsResponse)
-async def storage_buckets(_: IdentityActorFacts = Depends(get_current_user)):
-    bucket_roles = {
-        storage_service.bucket: "annotations",
-        storage_service.datasets_bucket: "datasets",
-        storage_service.bug_reports_bucket: "bug-reports",
-        storage_service.media_cache_bucket: "media-cache",
-        storage_service.audit_archive_bucket: "audit-archive",
-        storage_service.avatars_bucket: "avatars",
-    }
-    items: list[BucketSummary] = []
-    for b, role in bucket_roles.items():
-        summary = storage_service.summarize_bucket(b)
-        items.append(BucketSummary(role=role, **summary))
+async def storage_buckets(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    await storage_usage.require_admin(db, current_user.id)
+    return await storage_usage.read_usage(db)
 
-    return BucketsResponse(
-        items=items,
-        total_object_count=sum(i.object_count for i in items),
-        total_size_bytes=sum(i.total_size_bytes for i in items),
+
+@router.post("/usage-inventory", response_model=UsageInventoryResponse, status_code=202)
+async def start_usage_inventory(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    from app.workers.storage_usage import dispatch
+
+    job, reused = await storage_usage.start(
+        db, current_user, getattr(request.state, "api_key_id", None)
     )
+    job_id = job.id
+    if reused:
+        await db.commit()
+    else:
+        await dispatch(db, job)
+    return UsageInventoryResponse(job_id=job_id, reused=reused)
+
+
+@router.put("/usage-schedule", response_model=UsageScheduleSummary)
+async def update_usage_schedule(
+    body: UsageScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    result = await storage_usage.configure_schedule(
+        db,
+        current_user,
+        body.enabled,
+        body.interval_hours,
+        getattr(request.state, "api_key_id", None),
+    )
+    await db.commit()
+    return result
 
 
 class VideoAssetFailureItem(BaseModel):
@@ -99,9 +139,10 @@ class VideoAssetRetryRequest(BaseModel):
 
 
 class VideoAssetRetryResponse(BaseModel):
-    status: Literal["queued"]
+    status: Literal["queued", "dispatch_pending"]
     asset_type: VideoAssetKind
     dataset_item_id: uuid.UUID
+    job_id: uuid.UUID
 
 
 @router.get("/video-assets/failures", response_model=VideoAssetFailuresResponse)
@@ -137,6 +178,7 @@ async def list_video_asset_failures(
 )
 async def retry_video_asset(
     payload: VideoAssetRetryRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(*_MEDIA_MANAGERS)),
 ):
@@ -164,7 +206,7 @@ async def retry_video_asset(
     )
     try:
         async with media_gateway(db) as gateway:
-            await gateway.call("retry_video_media", request)
+            accepted = await gateway.call("retry_video_media", request)
         await db.commit()
     except MediaFailure as exc:
         raise media_http_error(exc) from None
@@ -172,4 +214,5 @@ async def retry_video_asset(
         status="queued",
         asset_type=payload.asset_type,
         dataset_item_id=payload.dataset_item_id,
+        job_id=accepted.work.job_id,
     )

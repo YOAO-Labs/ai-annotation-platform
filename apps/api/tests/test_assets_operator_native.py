@@ -767,12 +767,22 @@ async def test_patch_cas_merges_only_observations_and_preserves_scene_metadata(
     stored_media = (
         await db_session.execute(
             text(
-                "SELECT thumbnail_path,blurhash FROM public.dataset_items WHERE id=:id"
+                "SELECT thumbnail_path,blurhash,media_source_generation,"
+                "media_materialized_generation FROM public.dataset_items "
+                "WHERE id=:id"
             ),
             {"id": item_id},
         )
     ).one()
-    assert stored_media == ("thumbnail/keep.png", "blurhash-keep")
+    # The operator never owns derived media. Changing the admitted source facts
+    # (file_size/content_hash) drives the Assets media authority
+    # (trg_dataset_items_media_source_generation then
+    # trg_dataset_items_image_source_invalidated), which bumps the source
+    # generation and drops the now-stale thumbnail rather than keeping it.
+    assert stored_media.thumbnail_path is None
+    assert stored_media.blurhash is None
+    assert stored_media.media_source_generation == 2
+    assert stored_media.media_materialized_generation == 0
 
     _error(
         await _call(

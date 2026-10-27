@@ -11,6 +11,9 @@ from .publication_contract import PublicationAuthorization, publication_allowed
 Pair = tuple[uuid.UUID, uuid.UUID]
 DeliveryScope = tuple[bool, uuid.UUID | None, bool]
 GLOBAL_ASYNC_JOB_KINDS = frozenset({"audit_archive", "dataset_import"})
+PRIVATE_MIGRATION_JOB_KINDS = frozenset(
+    {"storage_migration_inventory", "storage_migration_copy"}
+)
 _ACTUAL_TARGET_TYPES = frozenset({"export", "async_job"})
 
 
@@ -26,6 +29,10 @@ class NotificationDeliveryReadData(Protocol):
     async def owner_pairs(self, pairs: set[Pair]) -> Iterable[Pair]: ...
 
     async def super_pairs(self, pairs: set[Pair]) -> Iterable[Pair]: ...
+
+    async def global_super_admins(
+        self, user_ids: set[uuid.UUID]
+    ) -> Iterable[uuid.UUID]: ...
 
 
 def notification_project_id(row) -> uuid.UUID | None:
@@ -60,8 +67,10 @@ class NotificationDeliveryReadPolicy:
 
     def __init__(self, data: NotificationDeliveryReadData):
         self.data = data
+        self._migration_inventory_rows: dict[int, bool] = {}
 
     async def resolve_scopes(self, rows) -> list[DeliveryScope]:
+        self._migration_inventory_rows = {}
         job_ids = {
             row.target_id for row in rows if row.target_type in _ACTUAL_TARGET_TYPES
         }
@@ -86,11 +95,22 @@ class NotificationDeliveryReadPolicy:
                     restricted = True
                     export_required = True
                 else:
-                    restricted = (
-                        job is None
-                        or job_project is not None
-                        or job_kind not in GLOBAL_ASYNC_JOB_KINDS
+                    restricted = job is None or job_project is not None
+                    # The actual job kind wins; a retained private kind survives
+                    # job-row retention through the payload fallback.
+                    effective_kind = (
+                        job_kind
+                        if job is not None
+                        else (
+                            payload.get("kind")
+                            if isinstance(payload.get("kind"), str)
+                            else None
+                        )
                     )
+                    migration_inventory = effective_kind in PRIVATE_MIGRATION_JOB_KINDS
+                    if migration_inventory:
+                        restricted = True
+                    self._migration_inventory_rows[id(row)] = migration_inventory
                     export_required = job is not None and job_kind == "export"
                 project_id = job_project
             else:
@@ -120,6 +140,18 @@ class NotificationDeliveryReadPolicy:
             reviewer_pairs = set(await self.data.reviewer_pairs(pairs))
             owner_pairs = set(await self.data.owner_pairs(pairs))
             super_pairs = set(await self.data.super_pairs(pairs))
+        projectless_users = {
+            row.user_id
+            for row, (restricted, project_id, _export_required) in zip(rows, scopes)
+            if restricted
+            and project_id is None
+            and self._migration_inventory_rows.get(id(row), False)
+        }
+        projectless_supers = (
+            set(await self.data.global_super_admins(projectless_users))
+            if projectless_users
+            else set()
+        )
 
         facts: list[PublicationAuthorization] = []
         for index, (restricted, project_id, export_required) in enumerate(scopes):
@@ -130,6 +162,12 @@ class NotificationDeliveryReadPolicy:
                 reviewer = pair in reviewer_pairs
                 owner = pair in owner_pairs
                 super_admin = pair in super_pairs
+            elif (
+                restricted
+                and project_id is None
+                and self._migration_inventory_rows.get(id(rows[index]), False)
+            ):
+                super_admin = rows[index].user_id in projectless_supers
             facts.append(
                 PublicationAuthorization(
                     restricted=restricted,

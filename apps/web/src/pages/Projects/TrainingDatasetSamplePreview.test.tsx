@@ -11,6 +11,9 @@ import { TrainingDatasetSamplePreview } from "./TrainingDatasetSamplePreview";
 vi.mock("@/api/trainingDatasets", () => ({
   trainingDatasetsApi: { sample: vi.fn(), sampleMedia: vi.fn() },
 }));
+vi.mock("./FrozenInstanceMaskPreview", () => ({
+  FrozenInstanceMaskPreview: () => <div role="img" aria-label="冻结实例掩码像素预览" />,
+}));
 const clients: QueryClient[] = [];
 const observed = vi.fn();
 const close = vi.fn();
@@ -45,7 +48,7 @@ beforeEach(() => {
       labels: [insightBox],
       total: 1,
       offset: 0,
-      limit: 500,
+      limit: 20,
     }),
   );
   vi.mocked(trainingDatasetsApi.sampleMedia).mockResolvedValue(
@@ -61,6 +64,8 @@ afterEach(() => {
 
 describe("immutable sample preview", () => {
   it("shows native polygon vertices, area and source version without deriving a rectangle", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
       sample: insightSample,
       labels: [
@@ -80,25 +85,25 @@ describe("immutable sample preview", () => {
       ],
       total: 1,
       offset: 0,
-      limit: 500,
+      limit: 20,
     });
     mount();
-    await screen.findByAltText("冻结样本 task-123");
+    await screen.findByAltText("冻结样本图片");
     const overlay = await screen.findByRole("img", { name: "冻结多边形" });
     expect(overlay.querySelector("polygon")).toHaveAttribute("points", "0.1,0.2 0.8,0.2 0.4,0.7");
     expect(overlay.querySelector("rect")).toBeNull();
     expect(screen.getByText("3 个顶点")).toBeVisible();
-    expect(screen.getByTitle("annotation-123")).toHaveTextContent("17.50% · annotati · 标注版本 7");
-    await userEvent.click(screen.getByLabelText("显示本页冻结多边形"));
+    expect(screen.getByRole("button", { name: "复制冻结标注 ID" })).toBeVisible();
+    expect(screen.getByText(/17\.50%/)).toHaveTextContent("标注版本 7");
+    await user.click(screen.getByRole("button", { name: "复制冻结标注 ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("annotation-123"));
+    await user.click(screen.getByLabelText("显示本页冻结多边形"));
     expect(screen.queryByRole("img", { name: "冻结多边形" })).not.toBeInTheDocument();
   });
   it("uses authenticated preview bytes and frozen normalized coordinates, toggles overlay and revokes its URL", async () => {
     const user = userEvent.setup();
     const mounted = mount();
-    expect(await screen.findByAltText("冻结样本 task-123")).toHaveAttribute(
-      "src",
-      "blob:owned-preview",
-    );
+    expect(await screen.findByAltText("冻结样本图片")).toHaveAttribute("src", "blob:owned-preview");
     expect(await screen.findByText("冻结车辆")).toBeVisible();
     const rectangle = screen.getByRole("img", { name: "冻结矩形框" }).querySelector("rect")!;
     expect(Number(rectangle.getAttribute("x"))).toBeCloseTo(0.4);
@@ -134,7 +139,7 @@ describe("immutable sample preview", () => {
       labels: [{ ...insightBox, class_name: "其他成员类别" }],
       total: 1,
       offset: 0,
-      limit: 500,
+      limit: 20,
     });
     mount();
     expect(await screen.findByRole("alert")).toHaveTextContent("冻结标注响应身份与所选成员不一致");
@@ -163,7 +168,7 @@ describe("immutable sample preview", () => {
       useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
     });
     expect(await screen.findByText("冻结车辆")).toBeVisible();
-    expect(await screen.findByAltText("冻结样本 task-123")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本图片")).toBeVisible();
     expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(2);
     await act(async () => {
       resolveMedia(new Blob(["retired A session"]));
@@ -172,7 +177,7 @@ describe("immutable sample preview", () => {
         labels: [{ ...insightBox, class_name: "退役会话类别" }],
         total: 1,
         offset: 0,
-        limit: 500,
+        limit: 20,
       });
     });
     expect(retiredMediaSignal.aborted).toBe(true);
@@ -194,9 +199,9 @@ describe("immutable sample preview", () => {
     await act(async () => resolve(new Blob(["old account"])));
     expect(createUrl).not.toHaveBeenCalled();
     act(() => useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse));
-    expect(await screen.findByAltText("冻结样本 task-123")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本图片")).toBeVisible();
     mounted.rerender(mounted.update({ ...insightSample, task_id: "new-task-123" }));
-    expect(await screen.findByAltText("冻结样本 new-task")).toBeVisible();
+    expect(await screen.findByAltText("冻结样本图片")).toBeVisible();
     expect(revokeUrl).toHaveBeenCalledWith("blob:owned-preview");
     expect(trainingDatasetsApi.sample).toHaveBeenLastCalledWith(
       "project-1",
@@ -204,6 +209,7 @@ describe("immutable sample preview", () => {
       "new-task-123",
       0,
       expect.anything(),
+      20,
     );
   });
   it("shows storage/decode failures and retries without substituting source media", async () => {
@@ -215,10 +221,10 @@ describe("immutable sample preview", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("冻结媒体摘要不匹配");
     expect(screen.queryByRole("img", { name: /冻结样本/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "重试冻结图片" }));
-    const image = await screen.findByAltText("冻结样本 task-123");
+    const image = await screen.findByAltText("冻结样本图片");
     fireEvent.error(image);
     expect(screen.getByRole("alert")).toHaveTextContent("浏览器无法解码冻结图片预览");
-    expect(screen.queryByAltText("冻结样本 task-123")).not.toBeInTheDocument();
+    expect(screen.queryByAltText("冻结样本图片")).not.toBeInTheDocument();
     expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(2);
   });
   it("keeps missing labels unknown, distinguishes confirmed negatives and paginates many frozen boxes", async () => {
@@ -227,7 +233,7 @@ describe("immutable sample preview", () => {
       labels: [],
       total: null,
       offset: 0,
-      limit: 500,
+      limit: 20,
     });
     const mounted = mount();
     expect(await screen.findByText(/不能将此样本视为空标注/)).toBeVisible();
@@ -237,7 +243,7 @@ describe("immutable sample preview", () => {
       labels: [],
       total: 0,
       offset: 0,
-      limit: 500,
+      limit: 20,
     });
     mounted.rerender(mounted.update({ ...insightSample, task_id: "negative" }));
     expect(await screen.findByText("此样本已明确确认为无目标。")).toBeVisible();
@@ -247,7 +253,7 @@ describe("immutable sample preview", () => {
         labels: [insightBox],
         total: 501,
         offset: 0,
-        limit: 500,
+        limit: 20,
       }),
     );
     mounted.rerender(mounted.update({ ...insightSample, task_id: "many-boxes" }));
@@ -258,9 +264,77 @@ describe("immutable sample preview", () => {
         "project-1",
         insightSample.version_id,
         "many-boxes",
-        500,
+        20,
         expect.anything(),
+        20,
       ),
     );
   });
+  it("paginates labels and current-page overlays with the selected real limit without reloading media", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainingDatasetsApi.sample).mockImplementation(
+      async (_project, versionId, taskId, offset = 0, _options, limit = 20) => ({
+        sample: { ...insightSample, version_id: versionId, task_id: taskId },
+        labels: Array.from({ length: Math.min(limit, 101 - offset) }, (_, index) => ({
+          ...insightBox,
+          class_name: `类别 ${offset + index}`,
+        })),
+        total: 101,
+        offset,
+        limit,
+      }),
+    );
+    mount();
+    await screen.findByText("类别 19");
+    expect(screen.queryByText("类别 20")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "下一页标注" }));
+    await screen.findByText("类别 20");
+    await user.selectOptions(screen.getByRole("combobox", { name: "每页冻结标注数" }), "50");
+    await screen.findByText("类别 49");
+    expect(trainingDatasetsApi.sample).toHaveBeenLastCalledWith(
+      "project-1",
+      insightSample.version_id,
+      insightSample.task_id,
+      0,
+      expect.anything(),
+      50,
+    );
+    expect(screen.getByRole("button", { name: "上一页标注" })).toBeDisabled();
+    expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("img", { name: "冻结矩形框" }).querySelectorAll("rect")).toHaveLength(
+      50,
+    );
+  });
+});
+
+it("shows frozen instance mask metadata and never derives a polygon or box overlay", async () => {
+  vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
+    sample: insightSample,
+    labels: [
+      {
+        type: "instance_mask",
+        annotation_id: "frozen-annotation",
+        annotation_version: 4,
+        class_index: 0,
+        class_name: "冻结掩码车辆",
+        area: 0.125,
+        area_pixels: 100,
+        bbox_xyxy: [10, 20, 30, 40],
+        pixel_sha256: "a".repeat(64),
+        size: [80, 100],
+      },
+    ],
+    total: 1,
+    offset: 0,
+    limit: 20,
+  });
+  const user = userEvent.setup();
+  mount();
+  expect(await screen.findByRole("img", { name: "冻结实例掩码像素预览" })).toBeVisible();
+  expect(screen.getByText("100 px · [10, 20, 30, 40]")).toBeVisible();
+  expect(screen.getByText(/12.50%/)).toHaveTextContent("标注版本 4");
+  expect(screen.getByRole("button", { name: "复制冻结掩码像素摘要" })).toBeVisible();
+  expect(screen.queryByRole("img", { name: "冻结矩形框" })).not.toBeInTheDocument();
+  await user.click(screen.getByLabelText("显示本页冻结实例掩码"));
+  expect(screen.queryByRole("img", { name: "冻结实例掩码像素预览" })).not.toBeInTheDocument();
 });

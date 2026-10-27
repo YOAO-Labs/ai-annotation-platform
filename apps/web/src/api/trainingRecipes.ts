@@ -35,16 +35,18 @@ export function initializationReference(
 }
 const base = (id: string) => `/projects/${id}/training-recipes`;
 export const trainingRecipesApi = {
-  list: (id: string, offset = 0, archived = false) =>
+  list: (id: string, offset = 0, archived = false, limit = 20) =>
     apiClient.get<TrainingRecipePage>(
-      `${base(id)}?limit=20&offset=${offset}&include_archived=${archived}`,
+      `${base(id)}?limit=${limit}&offset=${offset}&include_archived=${archived}`,
     ),
   get: (id: string, recipe: string, revision?: string) =>
     apiClient.get<TrainingRecipeOut>(
       `${base(id)}/${recipe}${revision ? `?revision_id=${encodeURIComponent(revision)}` : ""}`,
     ),
-  revisions: (id: string, recipe: string, offset = 0) =>
-    apiClient.get<TrainingRecipePage>(`${base(id)}/${recipe}/revisions?limit=20&offset=${offset}`),
+  revisions: (id: string, recipe: string, offset = 0, limit = 20) =>
+    apiClient.get<TrainingRecipePage>(
+      `${base(id)}/${recipe}/revisions?limit=${limit}&offset=${offset}`,
+    ),
   save: (id: string, body: TrainingRecipeWrite, recipe?: string) =>
     apiClient.post<TrainingRecipeOut>(`${base(id)}${recipe ? `/${recipe}/revisions` : ""}`, body),
   archive: (id: string, recipe: string, revision: number) =>

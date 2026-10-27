@@ -1047,6 +1047,7 @@ async def list_batch_audit_logs(
     project_id: uuid.UUID,
     batch_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1089,6 +1090,7 @@ async def list_batch_audit_logs(
                 sa_select(audit_event)
                 .where(or_(direct, bulk_match))
                 .order_by(audit_event.created_at.desc(), audit_event.id.desc())
+                .offset(offset)
                 .limit(limit)
             )
         )
@@ -1239,21 +1241,6 @@ async def export_batch(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     video_scope_payload = video_scope.as_dict() if video_scope else None
-    if project.data_type == "video":
-        from app.services.video_canonical import (
-            VideoBoundaryUnreconciledError,
-            assert_export_boundaries_reconciled,
-        )
-
-        try:
-            await assert_export_boundaries_reconciled(
-                db,
-                project=project,
-                batch_id=batch_id,
-                scope=video_scope,
-            )
-        except VideoBoundaryUnreconciledError as exc:
-            raise HTTPException(status_code=409, detail=exc.detail) from exc
 
     fname = f"{project.display_id}_{batch.display_id}"
 
@@ -1300,29 +1287,57 @@ async def export_batch(
         publish_prepared_dispatch,
     )
 
+    from app.services.exporting.reference_media import capture_export_authority
+
+    from app.services.exporting import output_authority
+
+    output_proof = await output_authority.capture(db, project, actor, request)
+    export_opts = {
+        "include_attributes": include_attributes,
+        "video_frame_mode": video_frame_mode,
+        "axis_frame": axis_frame,
+        "video_overlap_policy": video_overlap_policy,
+        "mots_frame_base": mots_frame_base,
+        **({"video_export_scope": video_scope_payload} if video_scope_payload else {}),
+        **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+    }
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.EXPORT.value,
         user_id=actor.id,
         project_id=project.id,
         payload={
+            "output_authority": output_proof,
+            "batch_id": str(batch_id),
             "targets": targets,
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
             "project_id": str(project_id),
             "project_display_id": project.display_id,
             "batch_display_id": batch.display_id,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+            **export_opts,
         },
     )
+    from app.services.content_snapshot import ContentError
+    from app.services.exporting.media_jobs import capture_job
+    from app.services.video_canonical import VideoBoundaryUnreconciledError
+
+    try:
+        media_bundle = await capture_job(
+            db, job, project, batch_id=batch_id, targets=targets, opts=export_opts
+        )
+    except VideoBoundaryUnreconciledError as exc:
+        raise HTTPException(409, detail=exc.detail) from None
+    except ContentError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
+    export_authority = await capture_export_authority(
+        db,
+        project,
+        actor,
+        request,
+        batch_id=batch_id,
+        frozen_snapshot=media_bundle.input_snapshot if media_bundle else None,
+    )
+    if export_authority:
+        job.payload = {**job.payload, "export_authority": export_authority}
     await AuditService.log(
         db,
         actor=actor,
@@ -1339,19 +1354,7 @@ async def export_batch(
                 "project_id": str(project_id),
                 "batch_display_id": batch.display_id,
             },
-            filter_criteria={
-                "include_attributes": include_attributes,
-                "video_frame_mode": video_frame_mode,
-                "axis_frame": axis_frame,
-                "video_overlap_policy": video_overlap_policy,
-                "mots_frame_base": mots_frame_base,
-                **(
-                    {"video_export_scope": video_scope_payload}
-                    if video_scope_payload
-                    else {}
-                ),
-                **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-            },
+            filter_criteria=export_opts,
         ),
     )
     execution_id = str(uuid.uuid4())

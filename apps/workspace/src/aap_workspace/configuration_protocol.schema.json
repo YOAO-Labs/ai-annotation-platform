@@ -3,6 +3,12 @@
     "ConfigurationErrorDetails": {
       "additionalProperties": false,
       "properties": {
+        "status_code": {
+          "maximum": 599,
+          "minimum": 400,
+          "title": "Status Code",
+          "type": "integer"
+        },
         "detail": {
           "$ref": "#/$defs/JsonValue"
         },
@@ -23,12 +29,6 @@
         "rollback": {
           "title": "Rollback",
           "type": "boolean"
-        },
-        "status_code": {
-          "maximum": 599,
-          "minimum": 400,
-          "title": "Status Code",
-          "type": "integer"
         }
       },
       "required": ["status_code", "detail", "headers", "rollback"],
@@ -38,13 +38,20 @@
     "ConfigurationFailure": {
       "additionalProperties": false,
       "properties": {
-        "error": {
-          "$ref": "#/$defs/ConfigurationErrorDetails"
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
         },
         "ok": {
           "const": false,
           "title": "Ok",
           "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -55,44 +62,28 @@
             "delete_template",
             "duplicate_template",
             "rename_project_class",
-            "guide_asset_upload_init",
-            "guide_asset_upload_complete",
-            "guide_asset_delete",
-            "guide_asset_sign"
+            "guide_asset_publish",
+            "guide_asset_unlink"
           ],
           "title": "Operation",
           "type": "string"
         },
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
+        "error": {
+          "$ref": "#/$defs/ConfigurationErrorDetails"
         }
       },
       "required": ["schema", "ok", "operation_id", "operation", "error"],
       "title": "ConfigurationFailure",
       "type": "object"
     },
-    "ConfigurationGuideDeleteData": {
-      "additionalProperties": false,
-      "properties": {
-        "deleted": {
-          "title": "Deleted",
-          "type": "string"
-        }
-      },
-      "required": ["deleted"],
-      "title": "ConfigurationGuideDeleteData",
-      "type": "object"
-    },
     "ConfigurationGuideResult": {
       "additionalProperties": false,
       "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        },
         "data_json": {
           "title": "Data Json",
           "type": "string"
@@ -100,124 +91,41 @@
         "refreshed": {
           "title": "Refreshed",
           "type": "boolean"
-        },
-        "resource_id": {
-          "format": "uuid",
-          "title": "Resource Id",
-          "type": "string"
         }
       },
       "required": ["resource_id", "data_json", "refreshed"],
       "title": "ConfigurationGuideResult",
       "type": "object"
     },
-    "ConfigurationGuideSignData": {
-      "additionalProperties": false,
-      "properties": {
-        "expires_in": {
-          "maximum": 3600,
-          "minimum": 3600,
-          "title": "Expires In",
-          "type": "integer"
-        },
-        "url": {
-          "minLength": 1,
-          "title": "Url",
-          "type": "string"
-        }
-      },
-      "required": ["url", "expires_in"],
-      "title": "ConfigurationGuideSignData",
-      "type": "object"
-    },
     "ConfigurationGuideSuccess": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
         "ok": {
           "const": true,
           "title": "Ok",
           "type": "boolean"
-        },
-        "operation": {
-          "enum": [
-            "guide_asset_upload_init",
-            "guide_asset_upload_complete",
-            "guide_asset_delete",
-            "guide_asset_sign"
-          ],
-          "title": "Operation",
-          "type": "string"
         },
         "operation_id": {
           "format": "uuid",
           "title": "Operation Id",
           "type": "string"
         },
+        "operation": {
+          "enum": ["guide_asset_publish", "guide_asset_unlink"],
+          "title": "Operation",
+          "type": "string"
+        },
         "result": {
           "$ref": "#/$defs/ConfigurationGuideResult"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
         }
       },
       "required": ["schema", "ok", "operation_id", "operation", "result"],
       "title": "ConfigurationGuideSuccess",
-      "type": "object"
-    },
-    "ConfigurationGuideUploadCompleteData": {
-      "additionalProperties": false,
-      "properties": {
-        "content_type": {
-          "title": "Content Type",
-          "type": "string"
-        },
-        "key": {
-          "title": "Key",
-          "type": "string"
-        },
-        "original_name": {
-          "title": "Original Name",
-          "type": "string"
-        },
-        "size": {
-          "maximum": 5242880,
-          "minimum": 1,
-          "title": "Size",
-          "type": "integer"
-        },
-        "uploaded_at": {
-          "format": "date-time",
-          "title": "Uploaded At",
-          "type": "string"
-        }
-      },
-      "required": ["key", "original_name", "content_type", "size", "uploaded_at"],
-      "title": "ConfigurationGuideUploadCompleteData",
-      "type": "object"
-    },
-    "ConfigurationGuideUploadInitData": {
-      "additionalProperties": false,
-      "properties": {
-        "expires_in": {
-          "maximum": 900,
-          "minimum": 900,
-          "title": "Expires In",
-          "type": "integer"
-        },
-        "key": {
-          "title": "Key",
-          "type": "string"
-        },
-        "upload_url": {
-          "minLength": 1,
-          "title": "Upload Url",
-          "type": "string"
-        }
-      },
-      "required": ["key", "upload_url", "expires_in"],
-      "title": "ConfigurationGuideUploadInitData",
       "type": "object"
     },
     "ConfigurationPolicy": {
@@ -236,6 +144,11 @@
     "ConfigurationRenameResult": {
       "additionalProperties": false,
       "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        },
         "changed": {
           "title": "Changed",
           "type": "boolean"
@@ -252,11 +165,6 @@
               "type": "null"
             }
           ]
-        },
-        "resource_id": {
-          "format": "uuid",
-          "title": "Resource Id",
-          "type": "string"
         }
       },
       "required": ["resource_id", "changed", "evidence", "projection"],
@@ -266,28 +174,28 @@
     "ConfigurationRenameSuccess": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
         "ok": {
           "const": true,
           "title": "Ok",
           "type": "boolean"
-        },
-        "operation": {
-          "const": "rename_project_class",
-          "title": "Operation",
-          "type": "string"
         },
         "operation_id": {
           "format": "uuid",
           "title": "Operation Id",
           "type": "string"
         },
+        "operation": {
+          "const": "rename_project_class",
+          "title": "Operation",
+          "type": "string"
+        },
         "result": {
           "$ref": "#/$defs/ConfigurationRenameResult"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
         }
       },
       "required": ["schema", "ok", "operation_id", "operation", "result"],
@@ -297,9 +205,14 @@
     "ConfigurationRequest": {
       "additionalProperties": false,
       "properties": {
-        "actor_id": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation_id": {
           "format": "uuid",
-          "title": "Actor Id",
+          "title": "Operation Id",
           "type": "string"
         },
         "operation": {
@@ -311,30 +224,16 @@
             "delete_template",
             "duplicate_template",
             "rename_project_class",
-            "guide_asset_upload_init",
-            "guide_asset_upload_complete",
-            "guide_asset_delete",
-            "guide_asset_sign"
+            "guide_asset_publish",
+            "guide_asset_unlink"
           ],
           "title": "Operation",
           "type": "string"
         },
-        "operation_id": {
+        "actor_id": {
           "format": "uuid",
-          "title": "Operation Id",
+          "title": "Actor Id",
           "type": "string"
-        },
-        "payload_ascii": {
-          "title": "Payload Ascii",
-          "type": "string"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
-        },
-        "selectors": {
-          "$ref": "#/$defs/ConfigurationSelectors"
         },
         "target_id": {
           "anyOf": [
@@ -347,6 +246,13 @@
             }
           ],
           "title": "Target Id"
+        },
+        "selectors": {
+          "$ref": "#/$defs/ConfigurationSelectors"
+        },
+        "payload_ascii": {
+          "title": "Payload Ascii",
+          "type": "string"
         }
       },
       "required": [
@@ -389,65 +295,6 @@
     "ConfigurationSelectors": {
       "additionalProperties": false,
       "properties": {
-        "ml_backend_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ml Backend Id"
-        },
-        "ml_backend_present": {
-          "title": "Ml Backend Present",
-          "type": "boolean"
-        },
-        "ml_backend_source_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Ml Backend Source Id"
-        },
-        "organization_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Organization Id"
-        },
-        "organization_present": {
-          "title": "Organization Present",
-          "type": "boolean"
-        },
-        "scope": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Scope"
-        },
-        "scope_present": {
-          "title": "Scope Present",
-          "type": "boolean"
-        },
         "source_project_id": {
           "anyOf": [
             {
@@ -471,6 +318,65 @@
             }
           ],
           "title": "Template Id"
+        },
+        "ml_backend_source_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Source Id"
+        },
+        "ml_backend_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Id"
+        },
+        "ml_backend_present": {
+          "title": "Ml Backend Present",
+          "type": "boolean"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scope"
+        },
+        "scope_present": {
+          "title": "Scope Present",
+          "type": "boolean"
+        },
+        "organization_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Id"
+        },
+        "organization_present": {
+          "title": "Organization Present",
+          "type": "boolean"
         }
       },
       "required": [
@@ -490,6 +396,36 @@
     "ConfigurationStepFailure": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template",
+            "rename_project_class",
+            "guide_asset_publish",
+            "guide_asset_unlink"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
         "action": {
           "enum": [
             "begin",
@@ -515,53 +451,16 @@
             "class_rename_member",
             "class_rename_lock",
             "class_rename_apply",
-            "guide_account_exists",
-            "guide_read_project",
-            "guide_actor_status",
-            "guide_read_member",
-            "guide_shared",
-            "guide_member",
-            "guide_lock",
-            "guide_apply",
-            "guide_refresh"
+            "guide_publish",
+            "guide_unlink",
+            "guide_assets_apply",
+            "guide_assets_copy"
           ],
           "title": "Action",
           "type": "string"
         },
         "error": {
           "$ref": "#/$defs/ConfigurationErrorDetails"
-        },
-        "ok": {
-          "const": false,
-          "title": "Ok",
-          "type": "boolean"
-        },
-        "operation": {
-          "enum": [
-            "create_project",
-            "update_project",
-            "create_template",
-            "update_template",
-            "delete_template",
-            "duplicate_template",
-            "rename_project_class",
-            "guide_asset_upload_init",
-            "guide_asset_upload_complete",
-            "guide_asset_delete",
-            "guide_asset_sign"
-          ],
-          "title": "Operation",
-          "type": "string"
-        },
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
         }
       },
       "required": ["schema", "ok", "operation_id", "operation", "action", "error"],
@@ -571,6 +470,36 @@
     "ConfigurationStepSuccess": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template",
+            "rename_project_class",
+            "guide_asset_publish",
+            "guide_asset_unlink"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
         "action": {
           "enum": [
             "begin",
@@ -596,15 +525,10 @@
             "class_rename_member",
             "class_rename_lock",
             "class_rename_apply",
-            "guide_account_exists",
-            "guide_read_project",
-            "guide_actor_status",
-            "guide_read_member",
-            "guide_shared",
-            "guide_member",
-            "guide_lock",
-            "guide_apply",
-            "guide_refresh"
+            "guide_publish",
+            "guide_unlink",
+            "guide_assets_apply",
+            "guide_assets_copy"
           ],
           "title": "Action",
           "type": "string"
@@ -613,38 +537,6 @@
           "additionalProperties": true,
           "title": "Facts",
           "type": "object"
-        },
-        "ok": {
-          "const": true,
-          "title": "Ok",
-          "type": "boolean"
-        },
-        "operation": {
-          "enum": [
-            "create_project",
-            "update_project",
-            "create_template",
-            "update_template",
-            "delete_template",
-            "duplicate_template",
-            "rename_project_class",
-            "guide_asset_upload_init",
-            "guide_asset_upload_complete",
-            "guide_asset_delete",
-            "guide_asset_sign"
-          ],
-          "title": "Operation",
-          "type": "string"
-        },
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
         }
       },
       "required": ["schema", "ok", "operation_id", "operation", "action", "facts"],
@@ -654,10 +546,20 @@
     "ConfigurationSuccess": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
         "ok": {
           "const": true,
           "title": "Ok",
           "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -671,18 +573,8 @@
           "title": "Operation",
           "type": "string"
         },
-        "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
-        },
         "result": {
           "$ref": "#/$defs/ConfigurationResult"
-        },
-        "schema": {
-          "const": "aap-workspace-configuration/v1",
-          "title": "Schema",
-          "type": "string"
         }
       },
       "required": ["schema", "ok", "operation_id", "operation", "result"],
@@ -693,18 +585,29 @@
     "ProjectClassRenameEvidence": {
       "additionalProperties": false,
       "properties": {
+        "source": {
+          "const": "class_rename",
+          "title": "Source",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "source_operation": {
+          "const": "rename_class",
+          "title": "Source Operation",
+          "type": "string"
+        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",
           "type": "string"
         },
-        "is_active": {
-          "title": "Is Active",
-          "type": "boolean"
-        },
-        "operation_id": {
+        "project_id": {
           "format": "uuid",
-          "title": "Operation Id",
+          "title": "Project Id",
           "type": "string"
         },
         "owner_id": {
@@ -716,20 +619,9 @@
           "title": "Platform Role",
           "type": "string"
         },
-        "project_id": {
-          "format": "uuid",
-          "title": "Project Id",
-          "type": "string"
-        },
-        "source": {
-          "const": "class_rename",
-          "title": "Source",
-          "type": "string"
-        },
-        "source_operation": {
-          "const": "rename_class",
-          "title": "Source Operation",
-          "type": "string"
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
         }
       },
       "required": [
@@ -748,9 +640,9 @@
     "ProjectConfigurationEvidence": {
       "additionalProperties": false,
       "properties": {
-        "operation": {
-          "enum": ["create_project", "update_project"],
-          "title": "Operation",
+        "source": {
+          "const": "configuration",
+          "title": "Source",
           "type": "string"
         },
         "operation_id": {
@@ -758,9 +650,9 @@
           "title": "Operation Id",
           "type": "string"
         },
-        "source": {
-          "const": "configuration",
-          "title": "Source",
+        "operation": {
+          "enum": ["create_project", "update_project"],
+          "title": "Operation",
           "type": "string"
         }
       },
@@ -771,9 +663,9 @@
     "ProjectOwnerTransferEvidence": {
       "additionalProperties": false,
       "properties": {
-        "new_owner_id": {
-          "format": "uuid",
-          "title": "New Owner Id",
+        "source": {
+          "const": "owner_transfer",
+          "title": "Source",
           "type": "string"
         },
         "operation_id": {
@@ -781,9 +673,9 @@
           "title": "Operation Id",
           "type": "string"
         },
-        "source": {
-          "const": "owner_transfer",
-          "title": "Source",
+        "new_owner_id": {
+          "format": "uuid",
+          "title": "New Owner Id",
           "type": "string"
         }
       },
@@ -830,19 +722,15 @@
     "ProjectQueryRequest": {
       "additionalProperties": false,
       "properties": {
-        "admitted_actor": {
-          "$ref": "#/$defs/ProjectQueryActor"
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
+          "type": "string"
         },
-        "filters_ascii": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Filters Ascii"
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -859,6 +747,32 @@
           ],
           "title": "Operation",
           "type": "string"
+        },
+        "admitted_actor": {
+          "$ref": "#/$defs/ProjectQueryActor"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "filters_ascii": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Filters Ascii"
         },
         "pagination": {
           "anyOf": [
@@ -898,28 +812,6 @@
             }
           ],
           "title": "Projection Evidence"
-        },
-        "request_id": {
-          "format": "uuid",
-          "title": "Request Id",
-          "type": "string"
-        },
-        "schema": {
-          "const": "aap-workspace-project-query/v1",
-          "title": "Schema",
-          "type": "string"
-        },
-        "target_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Target Id"
         }
       },
       "required": [
@@ -938,8 +830,9 @@
     "ProjectQuerySuccess": {
       "additionalProperties": false,
       "properties": {
-        "data_json": {
-          "title": "Data Json",
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
           "type": "string"
         },
         "ok": {
@@ -950,19 +843,60 @@
         "request": {
           "$ref": "#/$defs/ProjectQueryRequest"
         },
-        "schema": {
-          "const": "aap-workspace-project-query/v1",
-          "title": "Schema",
+        "data_json": {
+          "title": "Data Json",
           "type": "string"
         }
       },
       "required": ["schema", "ok", "request", "data_json"],
       "title": "ProjectQuerySuccess",
       "type": "object"
+    },
+    "ConfigurationGuideAssetEntry": {
+      "additionalProperties": false,
+      "description": "The exact persisted guide list entry returned for one ready upload.",
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "original_name": {
+          "title": "Original Name",
+          "type": "string"
+        },
+        "content_type": {
+          "title": "Content Type",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 5242880,
+          "minimum": 1,
+          "title": "Size",
+          "type": "integer"
+        },
+        "uploaded_at": {
+          "format": "date-time",
+          "title": "Uploaded At",
+          "type": "string"
+        }
+      },
+      "required": ["key", "original_name", "content_type", "size", "uploaded_at"],
+      "title": "ConfigurationGuideAssetEntry",
+      "type": "object"
+    },
+    "ConfigurationGuideUnlinkData": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "title": "Deleted",
+          "type": "string"
+        }
+      },
+      "required": ["deleted"],
+      "title": "ConfigurationGuideUnlinkData",
+      "type": "object"
     }
   },
-  "$id": "aap-workspace-configuration/v1",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "anyOf": [
     {
       "$ref": "#/$defs/ConfigurationRequest"
@@ -989,24 +923,25 @@
       "$ref": "#/$defs/ConfigurationStepFailure"
     }
   ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-configuration/v1",
   "x-guide-asset-data-json": {
     "canonical_ascii_json": true,
     "operations": {
-      "guide_asset_delete": {
-        "data_schema": "#/$defs/ConfigurationGuideDeleteData",
-        "payload_fields": ["key"]
+      "guide_asset_publish": {
+        "payload_fields": [
+          "upload_id",
+          "sha256",
+          "size_bytes",
+          "maintenance_revision",
+          "storage_ref",
+          "entry"
+        ],
+        "data_schema": "#/$defs/ConfigurationGuideAssetEntry"
       },
-      "guide_asset_sign": {
-        "data_schema": "#/$defs/ConfigurationGuideSignData",
-        "payload_fields": ["key"]
-      },
-      "guide_asset_upload_complete": {
-        "data_schema": "#/$defs/ConfigurationGuideUploadCompleteData",
-        "payload_fields": ["key", "original_name", "content_type"]
-      },
-      "guide_asset_upload_init": {
-        "data_schema": "#/$defs/ConfigurationGuideUploadInitData",
-        "payload_fields": ["filename", "content_type", "size"]
+      "guide_asset_unlink": {
+        "payload_fields": ["key"],
+        "data_schema": "#/$defs/ConfigurationGuideUnlinkData"
       }
     }
   }

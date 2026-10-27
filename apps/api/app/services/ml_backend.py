@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 
 from aap_inference_contract.topology import RegistryPublicFacts
+from aap_protocol_v2.backend_auth import managed_provider
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_access import get_workspace_project
@@ -148,6 +150,28 @@ class MLBackendService:
             extra_params=kwargs.get("extra_params"),
             config=settings,
         )
+        # Managed first-party credentials stay resolved by the API owner; the
+        # Inference owner only ever receives a materialized token.
+        env_managed_default = False
+        if "auth_method" not in kwargs:
+            from app.services.managed_inference_auth import provider_for_url
+
+            provider = provider_for_url(url)
+            if provider:
+                kwargs["auth_method"] = f"managed:{provider}"
+                env_managed_default = source == "env"
+        if managed_provider(kwargs.get("auth_method")) is not None:
+            if env_managed_default:
+                from aap_protocol_v2.managed_credential import ensure_credential
+                from app.services.managed_inference_auth import credential_directory
+
+                kwargs["auth_token"] = ensure_credential(credential_directory(provider))
+            else:
+                from app.services.managed_inference_auth import initialize_managed_auth
+
+                kwargs["auth_token"] = await initialize_managed_auth(
+                    url, kwargs.get("auth_token"), kwargs["auth_method"]
+                )
         return await self._topology_call(
             self._topology().create_registry(name, url, source=source, **kwargs)
         )
@@ -251,7 +275,13 @@ class MLBackendService:
     async def get_by_url(self, url: str):
         return await self._topology().get_by_url(url)
 
-    async def update(self, registry_id: uuid.UUID, **kwargs):
+    async def update(
+        self,
+        registry_id: uuid.UUID,
+        *,
+        preserve_manual_auth: bool = False,
+        **kwargs,
+    ):
         unknown = set(kwargs) - _REGISTRY_MUTABLE_FIELDS
         if unknown:
             raise TypeError(f"unsupported ML backend fields: {sorted(unknown)}")
@@ -259,6 +289,18 @@ class MLBackendService:
         row = await coordinator.get_registry(registry_id)
         if row is None:
             return None
+        if (
+            preserve_manual_auth
+            and row.auth_method != "none"
+            and managed_provider(row.auth_method) is None
+        ):
+            raise HTTPException(
+                409,
+                detail={
+                    "error_code": "manual_auth_preserved",
+                    "message": "实例已改为手动认证，已保留该配置；请刷新后查看。",
+                },
+            )
         if "url" in kwargs:
             url = kwargs["url"]
             if not isinstance(url, str) or not url:
@@ -268,6 +310,26 @@ class MLBackendService:
             if conflict is not None and conflict.id != row.id:
                 raise MLBackendURLConflict(conflict.name)
             kwargs["url"] = normalized_url
+        next_method = kwargs.get("auth_method", row.auth_method)
+        if managed_provider(next_method) is not None and (
+            "auth_method" in kwargs or "url" in kwargs or "auth_token" in kwargs
+        ):
+            # Resolve the handshake before the durable write (and its row lock).
+            from app.services.managed_inference_auth import initialize_managed_auth
+
+            kwargs["auth_token"] = await initialize_managed_auth(
+                kwargs.get("url", row.url), kwargs.get("auth_token"), next_method
+            )
+        elif (
+            managed_provider(row.auth_method) is not None
+            and managed_provider(next_method) is None
+        ):
+            if next_method == "token" and not kwargs.get("auth_token"):
+                raise HTTPException(
+                    422, "改用手动 Token 时必须填写服务端令牌；系统托管凭据不能沿用。"
+                )
+            if next_method != "token":
+                kwargs["auth_token"] = None
         validate_gpu_claim(
             kwargs.get("gpu_resource_id", row.gpu_resource_id),
             kwargs.get("vram_budget_mb", row.vram_budget_mb),
@@ -330,6 +392,8 @@ class MLBackendService:
         project_id: uuid.UUID,
         registry_id: uuid.UUID,
         enabled: bool,
+        *,
+        nowait: bool = False,
         **overrides,
     ):
         return await self._topology_call(

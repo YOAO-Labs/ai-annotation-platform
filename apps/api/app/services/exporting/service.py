@@ -21,6 +21,7 @@ from typing import AsyncIterator, cast
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from sqlalchemy import select
+from app.services.exporting.scope import ids_clause
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -141,15 +142,62 @@ def _export_annotation_copy(
     return cast(Annotation, SimpleNamespace(**data))
 
 
+MAX_PORTABLE_MASK_RUNS = 4_000_000
+MAX_PORTABLE_MASK_JSON_BYTES = 256 * 1024 * 1024
+
+
+class _PortableMaskObjects(dict):
+    def __init__(self):
+        super().__init__()
+        self.runs = 0
+        self.json_bytes = 2
+
+
 async def _collect_portable_mask_objects(
     geometry: dict,
     mask_objects: dict[str, dict],
 ) -> None:
-    """Load each referenced RLE once for an AAP portable envelope."""
+    """Load strict owners once, bounding cumulative Python and portable JSON size."""
+    runs = (
+        mask_objects.runs
+        if isinstance(mask_objects, _PortableMaskObjects)
+        else sum(len(value.get("counts", [])) for value in mask_objects.values())
+    )
+    size = (
+        mask_objects.json_bytes
+        if isinstance(mask_objects, _PortableMaskObjects)
+        else sum(
+            len(json.dumps(value).encode("utf-8")) + len(key) + 8
+            for key, value in mask_objects.items()
+        )
+        + 2
+    )
     for reference in collect_mask_references(geometry):
         digest = str(reference.get("sha256") or "")
-        if digest and digest not in mask_objects:
-            mask_objects[digest] = await load_coco_rle(reference)
+        if not digest or digest in mask_objects:
+            continue
+        declared = reference.get("runs")
+        if (
+            type(declared) is not int
+            or declared < 1
+            or runs + declared > MAX_PORTABLE_MASK_RUNS
+        ):
+            raise ValueError("portable mask expansion budget exceeded")
+        payload = await load_coco_rle(reference)
+        actual = len(payload.get("counts", []))
+        if actual != declared or runs + actual > MAX_PORTABLE_MASK_RUNS:
+            raise ValueError("portable mask expansion budget exceeded")
+        # The final envelope is indented too. Account with the same indentation
+        # and reserve the nested property's indentation for every emitted line.
+        encoded_size = len(digest.encode("utf-8")) + 8
+        for part in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(payload):
+            encoded_size += len(part.encode("utf-8")) + part.count("\n") * 4
+            if size + encoded_size > MAX_PORTABLE_MASK_JSON_BYTES:
+                raise ValueError("portable mask JSON budget exceeded")
+        runs, size = runs + actual, size + encoded_size
+        mask_objects[digest] = payload
+        if isinstance(mask_objects, _PortableMaskObjects):
+            mask_objects.runs, mask_objects.json_bytes = runs, size
 
 
 IMG_W, IMG_H = 1920, 1280
@@ -185,6 +233,16 @@ def _bbox_geometry(annotation: Annotation) -> dict | None:
     if not all(k in geometry for k in ("x", "y", "w", "h")):
         return None
     return geometry
+
+
+def _video_metadata(item: SpatialItem | None) -> dict:
+    if not item:
+        return {}
+    metadata = getattr(item, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = getattr(item, "metadata_", None)
+    video = (metadata or {}).get("video")
+    return video if isinstance(video, dict) else {}
 
 
 def _clean_video_single_frame_geometry(geometry: dict) -> dict:
@@ -307,14 +365,29 @@ def _coco_keypoints(geometry: dict, w: int, h: int) -> tuple[list[float], int] |
 
 
 class ExportService:
+    trusted_video_metadata = False
+
     def __init__(
         self,
         db: AsyncSession,
         *,
         task_ids: list[uuid.UUID] | None = None,
+        media_paths: dict[uuid.UUID, str] | None = None,
     ) -> None:
         self.db = db
         self.task_ids = task_ids
+        self.media_paths = media_paths or {}
+        self.check_cancel = None
+
+    async def _checkpoint(self):
+        if self.check_cancel is not None:
+            await self.check_cancel()
+
+    def video_metadata(self, task, item):
+        return _video_metadata(item)
+
+    def video_source(self, project, task, item, metadata, scope=None):
+        return video_source_contract(project, task, item, metadata, scope)
 
     async def _video_source(self, dataset_item_id: uuid.UUID):
         from aap_assets_media.contract import InternalSourceRequest
@@ -342,7 +415,7 @@ class ExportService:
         if batch_id:
             task_q = task_q.where(task_row.batch_id == batch_id)
         if self.task_ids is not None:
-            task_q = task_q.where(task_row.id.in_(self.task_ids))
+            task_q = task_q.where(ids_clause(task_row.id, self.task_ids))
         if video_scope is not None:
             task_q = task_q.where(task_row.id == video_scope.task_id)
         task_q = task_q.order_by(
@@ -360,7 +433,7 @@ class ExportService:
             annotation_row.is_active.is_(True),
             annotation_row.was_cancelled.is_(False),
         )
-        ann_q = ann_q.where(annotation_row.task_id.in_(task_ids))
+        ann_q = ann_q.where(ids_clause(annotation_row.task_id, task_ids))
         ann_q = ann_q.order_by(annotation_row.created_at, annotation_row.id)
         annotations_result = await self.db.execute(ann_q)
         annotations = list(annotations_result.scalars().all())
@@ -423,12 +496,15 @@ class ExportService:
             select(prediction_row)
             .where(
                 prediction_row.project_id == project_id,
-                prediction_row.task_id.in_(task_ids),
+                ids_clause(prediction_row.task_id, task_ids),
             )
             .order_by(prediction_row.created_at, prediction_row.id)
         )
         result = await self.db.execute(pred_q)
         return list(result.scalars().all())
+
+    def item_for_task(self, task, items):
+        return items.get(task.dataset_item_id) if task.dataset_item_id else None
 
     async def _load_dataset_items(
         self, tasks: list[Task]
@@ -446,6 +522,7 @@ class ExportService:
         dataset_items = await self._load_dataset_items(tasks)
         if not dataset_items:
             return {}
+
         out: dict[uuid.UUID, str | None] = {}
         for task in tasks:
             if not task.dataset_item_id:
@@ -491,7 +568,7 @@ class ExportService:
         if batch_id:
             id_q = id_q.where(task_row.batch_id == batch_id)
         if self.task_ids is not None:
-            id_q = id_q.where(task_row.id.in_(self.task_ids))
+            id_q = id_q.where(ids_clause(task_row.id, self.task_ids))
         if video_scope is not None:
             id_q = id_q.where(task_row.id == video_scope.task_id)
         id_q = id_q.order_by(task_row.sequence_order, task_row.created_at, task_row.id)
@@ -608,6 +685,7 @@ class ExportService:
         exported_tasks = []
         video_metadata_by_task: dict[uuid.UUID, dict] = {}
         for index, task in enumerate(tasks):
+            await self._checkpoint()
             item = (
                 dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
@@ -630,7 +708,7 @@ class ExportService:
                     "id": str(task.id),
                     "display_id": task.display_id,
                     "file_name": task.file_name,
-                    "file_path": task.file_path,
+                    "file_path": self.media_paths.get(task.id, task.file_path),
                     "file_type": task.file_type,
                     "sequence_order": task.sequence_order,
                     "batch_id": str(task.batch_id) if task.batch_id else None,
@@ -658,6 +736,7 @@ class ExportService:
         flattened_keyframes = []
         legacy_video_bbox = []
         for ann in annotations:
+            await self._checkpoint()
             task = task_by_id.get(ann.task_id)
             if not task:
                 continue
@@ -686,14 +765,32 @@ class ExportService:
                         (kf["frame_index"] for kf in keyframes),
                         default=0,
                     )
-                    frame_count = int(
-                        video_metadata_by_task.get(ann.task_id, {}).get(
-                            "frame_count", max_keyframe + 1
+                    if self.trusted_video_metadata:
+                        frame_count = video_metadata_by_task[ann.task_id]["frame_count"]
+                        if type(frame_count) is not int or frame_count <= 0:
+                            raise ValueError("video_export_metadata_invalid")
+                    else:
+                        frame_count = int(
+                            video_metadata_by_task.get(ann.task_id, {}).get(
+                                "frame_count", max_keyframe + 1
+                            )
+                            or max_keyframe + 1
                         )
-                        or max_keyframe + 1
-                    )
-                    frame_count = max(frame_count, max_keyframe + 1)
-                    if video_scope is None:
+                        frame_count = max(frame_count, max_keyframe + 1)
+                    if self.trusted_video_metadata:
+                        start = video_scope.from_frame if video_scope else 0
+                        end = video_scope.to_frame if video_scope else frame_count - 1
+                        if not 0 <= start <= end < frame_count:
+                            raise ValueError("video_export_scope_changed")
+                        frames = []
+                        for frame_index in range(start, end + 1):
+                            if frame_index % 128 == 0:
+                                await self._checkpoint()
+                            resolved = resolve_track_at_frame(geometry, frame_index)
+                            if resolved is not None:
+                                frames.append(resolved)
+                        track["frames"] = frames
+                    elif video_scope is None:
                         track["frames"] = resolved_track_frames(
                             geometry,
                             frame_mode="all_frames",
@@ -870,7 +967,7 @@ class ExportService:
         )
 
         def _dims_for(task: Task) -> tuple[int, int]:
-            item = items.get(task.dataset_item_id) if task.dataset_item_id else None
+            item = self.item_for_task(task, items)
             w = item.width if item and item.width else IMG_W
             h = item.height if item and item.height else IMG_H
             return w, h
@@ -883,7 +980,7 @@ class ExportService:
             images.append(
                 {
                     "id": i,
-                    "file_name": t.file_name,
+                    "file_name": self.media_paths.get(t.id, t.file_name),
                     "width": w,
                     "height": h,
                 }
@@ -1049,6 +1146,10 @@ class ExportService:
         if not project:
             return b""
         _assert_image_export_supported(project, "voc")
+        from app.services.reference_keys import is_reference
+
+        if any(is_reference(task.file_path) for task in tasks):
+            raise UnsupportedExportError("reference_operation_not_supported:voc")
 
         ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
         for ann in annotations:
@@ -1098,36 +1199,7 @@ class ExportService:
 
         return buf.getvalue()
 
-    async def export_aap_json(
-        self,
-        project_id: uuid.UUID,
-        *,
-        batch_id: uuid.UUID | None = None,
-        axis_frame: AxisFrame = "iso",
-        video_scope: VideoExportScope | None = None,
-    ) -> str:
-        """v0.10.15 · AAP JSON v1.0 无损中间格式.
-
-        与 COCO/YOLO/VOC 并列, 但**包含**它们丢失的字段: attribute_schema 值、
-        prediction.confidence、annotation.source、annotation_guide、classes_config.
-        双数组 annotations[] / predictions[] 分开 (不混 type 字段).
-        """
-        project, tasks, annotations = await self._load_data(
-            project_id, batch_id, video_scope=video_scope
-        )
-        if not project:
-            return json.dumps({})
-
-        task_ids = [t.id for t in tasks]
-        predictions = await self._load_predictions(project_id, task_ids)
-
-        ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
-        for ann in annotations:
-            ann_by_task.setdefault(ann.task_id, []).append(ann)
-        pred_by_task: dict[uuid.UUID, list[Prediction]] = {}
-        for pred in predictions:
-            pred_by_task.setdefault(pred.task_id, []).append(pred)
-
+    async def _aap_scene_tracks(self, annotations):
         exported_scene_track_ids = {
             ann.scene_track_id for ann in annotations if ann.scene_track_id is not None
         }
@@ -1141,7 +1213,7 @@ class ExportService:
                         scene_reference,
                         scene_reference.c.scene_id == scene_track_row.scene_id,
                     )
-                    .where(scene_track_row.id.in_(exported_scene_track_ids))
+                    .where(ids_clause(scene_track_row.id, exported_scene_track_ids))
                     .order_by(scene_reference.c.scene_name, scene_track_row.track_id)
                 )
             ).all()
@@ -1150,8 +1222,9 @@ class ExportService:
                     await self.db.execute(
                         select(scene_track_interval_row)
                         .where(
-                            scene_track_interval_row.scene_track_id.in_(
-                                exported_scene_track_ids
+                            ids_clause(
+                                scene_track_interval_row.scene_track_id,
+                                exported_scene_track_ids,
                             )
                         )
                         .order_by(
@@ -1186,6 +1259,48 @@ class ExportService:
                 for track, scene_name in scene_track_rows
             ]
 
+        return scene_track_entries
+
+    async def _aap_batch_display_id(self, batch_id):
+        if batch_id is None:
+            return None
+        from app.services.labeling_core_read_relations import batch_row, get_core_row
+
+        batch = await get_core_row(self.db, batch_row, batch_id)
+        return batch.display_id if batch else None
+
+    async def export_aap_json(
+        self,
+        project_id: uuid.UUID,
+        *,
+        batch_id: uuid.UUID | None = None,
+        axis_frame: AxisFrame = "iso",
+        video_scope: VideoExportScope | None = None,
+    ) -> str:
+        """v0.10.15 · AAP JSON v1.0 无损中间格式.
+
+        与 COCO/YOLO/VOC 并列, 但**包含**它们丢失的字段: attribute_schema 值、
+        prediction.confidence、annotation.source、annotation_guide、classes_config.
+        双数组 annotations[] / predictions[] 分开 (不混 type 字段).
+        """
+        project, tasks, annotations = await self._load_data(
+            project_id, batch_id, video_scope=video_scope
+        )
+        if not project:
+            return json.dumps({})
+
+        task_ids = [t.id for t in tasks]
+        predictions = await self._load_predictions(project_id, task_ids)
+
+        ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
+        for ann in annotations:
+            ann_by_task.setdefault(ann.task_id, []).append(ann)
+        pred_by_task: dict[uuid.UUID, list[Prediction]] = {}
+        for pred in predictions:
+            pred_by_task.setdefault(pred.task_id, []).append(pred)
+
+        scene_track_entries = await self._aap_scene_tracks(annotations)
+
         axis_by_task = (
             await self._axis_convention_by_task(tasks) if axis_frame == "source" else {}
         )
@@ -1201,10 +1316,12 @@ class ExportService:
             batch_display_id = batch.display_id if batch else None
 
         task_blocks: list[AAPTaskBlock] = []
-        mask_objects: dict[str, dict] = {}
+        mask_objects: dict[str, dict] = _PortableMaskObjects()
         for t in tasks:
             ann_entries: list[AAPAnnotationEntry] = []
+            await self._checkpoint()
             for ann in ann_by_task.get(t.id, []):
+                await self._checkpoint()
                 geometry = transform_box_geometry_axis_frame(
                     ann.geometry or {},
                     dataset_convention=axis_by_task.get(t.id),
@@ -1238,6 +1355,7 @@ class ExportService:
                 # 走 to_internal_shape() 反推内部 geometry + class_name.
                 pred_unit = getattr(pred, "tool_unit_id", None) or "bbox"
                 for raw_shape in pred.result or []:
+                    await self._checkpoint()
                     internal = to_internal_shape(raw_shape)
                     geometry = internal.get("geometry") or {}
                     if not geometry:
@@ -1317,9 +1435,10 @@ class ExportService:
                     task=available[0] if len(available) == 1 and not unmapped else None,
                     available_tasks=available,
                     task_match=AAPTaskMatch(
-                        display_id=t.display_id, file_path=t.file_path
+                        display_id=t.display_id,
+                        file_path=self.media_paths.get(t.id, t.file_path),
                     ),
-                    file_path=t.file_path,
+                    file_path=self.media_paths.get(t.id, t.file_path),
                     media_type=media_type,
                     video=video_block,
                     external_id=None,

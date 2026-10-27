@@ -224,7 +224,7 @@ def test_frozen_invitation_artifacts_and_transaction_contract():
         key: value for key, value in schema.items() if not key.startswith("x-")
     } == portable_schema
     assert "identity_invitation_operation_receipts" in NATIVE_MANAGED_TABLES
-    assert 'revision = "0242"' in migration
+
     assert '"0242_identity_invitations_support.sql"' in migration
     assert (
         migration.index('"0242_identity_invitations_support.sql"')

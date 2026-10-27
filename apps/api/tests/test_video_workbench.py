@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+import tempfile
 import subprocess
 import uuid
 
@@ -10,7 +13,6 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import (
     Dataset,
     DatasetItem,
-    VideoChunk,
     VideoFrameCache,
     VideoFrameIndex,
 )
@@ -18,26 +20,39 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.schemas._jsonb_types import Geometry
-from app.schemas.task import VideoMetadata
 from app.services.exporting.service import ExportService, UnsupportedExportError
 from app.workers.media import (
     FFMPEG_CHUNK_TIMEOUT_SECONDS,
     FFMPEG_POSTER_TIMEOUT_SECONDS,
     FFMPEG_TRANSCODE_TIMEOUT_SECONDS,
-    _store_frame_cache_image,
-    _store_video_chunk,
+    FFPROBE_TIMEOUT_SECONDS,
     extract_video_chunk_smart_copy,
     extract_video_poster,
-    transcode_video_for_browser,
-)
-from aap_media_probe.probe import (
-    FFPROBE_TIMEOUT_SECONDS,
     parse_ffprobe_video_metadata,
     parse_ffprobe_frame_timetable,
     probe_video_file,
     probe_video_frame_timetable,
+    transcode_video_for_browser,
 )
 from tests.factory import create_membership, build_tool_bindings
+from app.services import video_derivative_objects as video_objects
+from app.services.managed_original_reader import BinaryStage
+from app.workers.media_derivatives import build
+from tests.test_video_derivative_storage import Provider, Storage
+from tests.video_derivative_fixtures import (
+    RAW_VIDEO,
+    install_video_transport,
+    owned_metadata,
+    owned_output,
+    video_authority,
+    publish_result,
+    saved_url,
+)
+
+
+@pytest.fixture(autouse=True)
+def owned_video_transport(monkeypatch):
+    return install_video_transport(monkeypatch)
 
 
 def test_parse_ffprobe_video_metadata_computes_fps_and_frame_count():
@@ -178,78 +193,70 @@ def test_extract_video_poster_uses_timeout(tmp_path, monkeypatch):
     assert seen["timeout"] == FFMPEG_POSTER_TIMEOUT_SECONDS
 
 
-async def test_store_frame_cache_image_uses_shared_video_frame_cache(
-    db_session, tmp_path, super_admin, monkeypatch
+async def test_build_frame_uses_original_stage_and_saved_output_owner(
+    db_session, super_admin, monkeypatch
 ):
-    user, _ = super_admin
-    dataset = Dataset(
-        display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
-        name="videos",
-        data_type="video",
-        created_by=user.id,
+    item, metadata, authority = await _make_video_chunk_fixture(
+        db_session, super_admin[0].id, frame_count=10
     )
-    db_session.add(dataset)
-    await db_session.flush()
-    item = DatasetItem(
-        dataset_id=dataset.id,
-        file_name="clip.mp4",
-        file_path="videos/clip.mp4",
-        file_type="video",
-        metadata_={"video": {"fps": 30, "frame_count": 10}},
+    output = await owned_output(
+        db_session, item, "frame", frame_index=0, ready=False, claimed=True
     )
-    db_session.add(item)
-    await db_session.flush()
-    row = VideoFrameCache(
-        dataset_item_id=item.id,
-        frame_index=0,
-        width=512,
-        format="webp",
-        status="pending",
-    )
-    db_session.add(row)
-    await db_session.flush()
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake")
+    provider = Provider()
+    observed = []
 
-    class FakeClient:
-        def __init__(self):
-            self.puts = []
-
-        def put_object(self, **kwargs):
-            self.puts.append(kwargs)
-
-    class FakeStorage:
-        datasets_bucket = "datasets"
-        media_cache_bucket = "media-cache"
-
-        def __init__(self):
-            self.client = FakeClient()
-
-        def ensure_bucket(self, bucket):
-            assert bucket == "media-cache"
-
-    def fake_extract(input_path, output_path, pts_ms, width):
-        assert input_path == source
-        assert pts_ms == 0
-        assert width == 512
+    def extract(input_path, output_path, pts_ms, width, *, pass_fds=()):
+        observed.append(output_path)
+        assert str(input_path) == f"/proc/self/fd/{stage.file.fileno()}"
+        assert pass_fds == (stage.file.fileno(),)
+        assert os.pread(pass_fds[0], len(RAW_VIDEO), 0) == RAW_VIDEO
+        assert pts_ms == 0 and width == 512
         output_path.write_bytes(b"poster")
 
-    storage = FakeStorage()
-    monkeypatch.setattr("app.workers.media.extract_video_frame_image", fake_extract)
-
-    await _store_frame_cache_image(
-        db_session,
-        storage,
-        item,
-        VideoMetadata.model_validate({"fps": 30, "frame_count": 10}),
-        source,
-        tmp_path,
-        row,
-    )
-
-    assert row.status == "ready"
-    assert row.storage_key == f"videos/{item.id}/frames/0_512.webp"
-    assert storage.client.puts[0]["Key"] == row.storage_key
+    monkeypatch.setattr("app.workers.media_frames.extract_video_frame_image", extract)
+    try:
+        with tempfile.TemporaryFile("w+b") as source:
+            source.write(RAW_VIDEO)
+            source.flush()
+            source.seek(0)
+            stage = BinaryStage(
+                source, hashlib.sha256(RAW_VIDEO).hexdigest(), len(RAW_VIDEO), {}
+            )
+            result, receipts = build(
+                Storage(provider),
+                video_objects.snapshot(output),
+                stage,
+                video_objects.snapshot(metadata),
+            )
+            assert not source.closed
+        assert source.closed
+        assert all(not path.exists() for path in observed)
+        await publish_result(db_session, output, authority, result, receipts)
+        row = await db_session.scalar(
+            select(VideoFrameCache).where(
+                VideoFrameCache.dataset_item_id == item.id,
+                VideoFrameCache.frame_index == 0,
+            )
+        )
+        key = output.storage_ref["prefix"] + "frame.webp"
+        assert (
+            row.status == "ready"
+            and row.output_id == output.id
+            and row.storage_key == key
+        )
+        assert provider.objects[(output.storage_ref["bucket"], key)] == b"poster"
+        assert receipts["objects"][key] == {
+            "sha256": hashlib.sha256(b"poster").hexdigest(),
+            "size_bytes": 6,
+        }
+        assert set(receipts["objects"]) == {
+            key,
+            output.storage_ref["prefix"] + "metadata.json",
+        }
+        assert result["metadata_output_id"] == str(metadata.id)
+        assert all(body.closed for body in provider.bodies)
+    finally:
+        provider.close()
 
 
 def test_transcode_video_for_browser_uses_timeout(tmp_path, monkeypatch):
@@ -294,26 +301,9 @@ def test_extract_video_chunk_smart_copy_uses_copy_and_timeout(tmp_path, monkeypa
     assert seen["args"][seen["args"].index("-c:v") + 1] == "copy"
 
 
-class _FakeVideoChunkClient:
-    def __init__(self):
-        self.puts = []
-
-    def put_object(self, **kwargs):
-        self.puts.append(kwargs)
-
-
-class _FakeVideoChunkStorage:
-    datasets_bucket = "datasets"
-    media_cache_bucket = "media-cache"
-
-    def __init__(self):
-        self.client = _FakeVideoChunkClient()
-
-    def ensure_bucket(self, bucket):
-        assert bucket == "media-cache"
-
-
-async def _make_video_chunk_fixture(db_session, owner_id, *, codec="h264"):
+async def _make_video_chunk_fixture(
+    db_session, owner_id, *, codec="h264", keyframe=True, frame_count=60
+):
     dataset = Dataset(
         display_id=f"D-VCH-{uuid.uuid4().hex[:6]}",
         name="videos",
@@ -325,195 +315,252 @@ async def _make_video_chunk_fixture(db_session, owner_id, *, codec="h264"):
     item = DatasetItem(
         dataset_id=dataset.id,
         file_name="clip.mp4",
-        file_path="videos/clip.mp4",
+        file_path=f"decoder-originals/{uuid.uuid4()}/clip.mp4",
         file_type="video",
-        metadata_={"video": {"fps": 30, "frame_count": 60, "codec": codec}},
+        metadata_={
+            "video": {
+                "fps": 30,
+                "frame_count": frame_count,
+                "codec": codec,
+                "width": 640,
+                "height": 360,
+            }
+        },
     )
     db_session.add(item)
     await db_session.flush()
-    chunk = VideoChunk(
-        dataset_item_id=item.id,
-        chunk_id=0,
-        start_frame=0,
-        end_frame=29,
-        start_pts_ms=0,
-        end_pts_ms=967,
-        status="pending",
-    )
-    db_session.add(chunk)
-    await db_session.flush()
-    return item, chunk
+    frames = [
+        {
+            "frame_index": 0,
+            "pts_ms": 0,
+            "is_keyframe": keyframe,
+            "pict_type": "I" if keyframe else "P",
+            "byte_offset": 100,
+        }
+    ]
+    if frame_count > 29:
+        frames.append(
+            {
+                "frame_index": 29,
+                "pts_ms": 967,
+                "is_keyframe": False,
+                "pict_type": "P",
+                "byte_offset": 9000,
+            }
+        )
+    metadata = await owned_metadata(db_session, item, frames=frames, playback=True)
+    authority = await video_authority(db_session, item, register=False)
+    return item, metadata, authority
 
 
-async def test_store_video_chunk_uses_smart_copy_when_keyframe_aligned(
-    db_session, tmp_path, super_admin, monkeypatch
+async def test_build_video_chunk_uses_smart_copy_when_keyframe_aligned(
+    db_session, super_admin, monkeypatch
 ):
-    user, _ = super_admin
-    item, chunk = await _make_video_chunk_fixture(db_session, user.id, codec="h264")
-    db_session.add_all(
-        [
-            VideoFrameIndex(
-                dataset_item_id=item.id,
-                frame_index=0,
-                pts_ms=0,
-                is_keyframe=True,
-                pict_type="I",
-                byte_offset=100,
-            ),
-            VideoFrameIndex(
-                dataset_item_id=item.id,
-                frame_index=29,
-                pts_ms=967,
-                is_keyframe=False,
-                pict_type="P",
-                byte_offset=9000,
-            ),
-        ]
+    monkeypatch.setattr(
+        "app.services.video_derivatives.settings.video_chunk_size_frames", 30
     )
-    await db_session.flush()
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake")
-    calls: list[str] = []
+    item, metadata, authority = await _make_video_chunk_fixture(
+        db_session, super_admin[0].id
+    )
+    output = await owned_output(db_session, item, "chunk", ready=False, claimed=True)
+    calls = []
 
-    def fake_smart_copy(input_path, output_path, start_ms, duration_ms):
+    def smart(input_path, output_path, start_ms, duration_ms, *, pass_fds=()):
+        assert str(input_path) == f"/proc/self/fd/{stage.file.fileno()}"
+        assert (
+            pass_fds == (stage.file.fileno(),)
+            and os.pread(pass_fds[0], len(RAW_VIDEO), 0) == RAW_VIDEO
+        )
         calls.append(f"smart:{start_ms}:{duration_ms}")
-        output_path.write_bytes(b"smart")
+        output_path.write_bytes(b"smart" * 100)
 
-    def fake_transcode(*args):
-        calls.append("transcode")
+    def transcode(*args, **kwargs):
+        pytest.fail("a keyframe-aligned supported original should use smart copy")
 
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_chunk_smart_copy", fake_smart_copy
-    )
-    monkeypatch.setattr("app.workers.media.extract_video_chunk", fake_transcode)
+    monkeypatch.setattr("app.workers.media.extract_video_chunk_smart_copy", smart)
+    monkeypatch.setattr("app.workers.media.extract_video_chunk", transcode)
+    monkeypatch.setattr("app.workers.media_derivatives._samples", _decoder_samples)
+    provider = Provider()
+    try:
+        with tempfile.TemporaryFile("w+b") as source:
+            source.write(RAW_VIDEO)
+            source.flush()
+            source.seek(0)
+            stage = BinaryStage(
+                source, hashlib.sha256(RAW_VIDEO).hexdigest(), len(RAW_VIDEO), {}
+            )
+            result, receipts = build(
+                Storage(provider),
+                video_objects.snapshot(output),
+                stage,
+                video_objects.snapshot(metadata),
+            )
+        await publish_result(db_session, output, authority, result, receipts)
+        assert calls == ["smart:0:1000"]
+        assert output.state == "ready" and result["generation_mode"] == "smart_copy"
+        expected = {
+            "source_codec": "h264",
+            "output_codec": "h264",
+            "keyframe_aligned": True,
+            "start_byte_offset": 100,
+            "end_byte_offset": 9000,
+            "smart_copy_eligible": True,
+            "fallback_reason": None,
+        }
+        assert {name: result["diagnostics"][name] for name in expected} == expected
+        assert [
+            sample["frame_index"] for sample in result["diagnostics"]["samples"]
+        ] == list(range(30))
+        key = output.storage_ref["prefix"] + "chunk.mp4"
+        assert provider.objects[(output.storage_ref["bucket"], key)] == b"smart" * 100
+        assert receipts["objects"][key] == {
+            "sha256": hashlib.sha256(b"smart" * 100).hexdigest(),
+            "size_bytes": 500,
+        }
+        assert result["metadata_output_id"] == str(metadata.id)
+        assert all(body.closed for body in provider.bodies)
+    finally:
+        provider.close()
 
-    storage = _FakeVideoChunkStorage()
-    await _store_video_chunk(
-        db_session,
-        storage,
-        item,
-        VideoMetadata.model_validate(item.metadata_["video"]),
-        source,
-        tmp_path,
-        chunk,
-    )
 
-    assert calls == ["smart:0:1000"]
-    assert chunk.status == "ready"
-    assert chunk.generation_mode == "smart_copy"
-    assert chunk.diagnostics["source_codec"] == "h264"
-    assert chunk.diagnostics["output_codec"] == "h264"
-    assert chunk.diagnostics["keyframe_aligned"] is True
-    assert chunk.diagnostics["start_byte_offset"] == 100
-    assert chunk.diagnostics["end_byte_offset"] == 9000
-    assert chunk.diagnostics["smart_copy_eligible"] is True
-    assert chunk.diagnostics["fallback_reason"] is None
-    assert storage.client.puts[0]["Body"] == b"smart"
-
-
-async def test_store_video_chunk_transcodes_when_not_keyframe_aligned(
-    db_session, tmp_path, super_admin, monkeypatch
+async def test_build_video_chunk_transcodes_when_not_keyframe_aligned(
+    db_session, super_admin, monkeypatch
 ):
-    user, _ = super_admin
-    item, chunk = await _make_video_chunk_fixture(db_session, user.id, codec="h264")
-    db_session.add(
-        VideoFrameIndex(
-            dataset_item_id=item.id,
-            frame_index=0,
-            pts_ms=0,
-            is_keyframe=False,
-            pict_type="P",
-            byte_offset=100,
-        )
+    monkeypatch.setattr(
+        "app.services.video_derivatives.settings.video_chunk_size_frames", 30
     )
-    await db_session.flush()
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake")
-    calls: list[str] = []
+    item, metadata, authority = await _make_video_chunk_fixture(
+        db_session, super_admin[0].id, keyframe=False
+    )
+    output = await owned_output(db_session, item, "chunk", ready=False, claimed=True)
+    calls = []
 
-    def fake_smart_copy(*args):
-        calls.append("smart")
+    def smart(*args, **kwargs):
+        pytest.fail("a non-keyframe original start must not use copy")
 
-    def fake_transcode(input_path, output_path, start_ms, frame_count):
+    def transcode(input_path, output_path, start_ms, frame_count, *, pass_fds=()):
+        assert str(
+            input_path
+        ) == f"/proc/self/fd/{stage.file.fileno()}" and pass_fds == (
+            stage.file.fileno(),
+        )
         calls.append(f"transcode:{start_ms}:{frame_count}")
-        output_path.write_bytes(b"transcoded")
+        output_path.write_bytes(b"transcoded" * 100)
 
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_chunk_smart_copy", fake_smart_copy
-    )
-    monkeypatch.setattr("app.workers.media.extract_video_chunk", fake_transcode)
-
-    storage = _FakeVideoChunkStorage()
-    await _store_video_chunk(
-        db_session,
-        storage,
-        item,
-        VideoMetadata.model_validate(item.metadata_["video"]),
-        source,
-        tmp_path,
-        chunk,
-    )
-
-    assert calls == ["transcode:0:30"]
-    assert chunk.status == "ready"
-    assert chunk.generation_mode == "transcode"
-    assert chunk.diagnostics["output_codec"] == "h264"
-    assert chunk.diagnostics["smart_copy_eligible"] is False
-    assert chunk.diagnostics["fallback_reason"] == "start_frame_not_keyframe"
-    assert storage.client.puts[0]["Body"] == b"transcoded"
-
-
-async def test_store_video_chunk_falls_back_when_smart_copy_fails(
-    db_session, tmp_path, super_admin, monkeypatch
-):
-    user, _ = super_admin
-    item, chunk = await _make_video_chunk_fixture(db_session, user.id, codec="h264")
-    db_session.add(
-        VideoFrameIndex(
-            dataset_item_id=item.id,
-            frame_index=0,
-            pts_ms=0,
-            is_keyframe=True,
-            pict_type="I",
-            byte_offset=100,
+    monkeypatch.setattr("app.workers.media.extract_video_chunk_smart_copy", smart)
+    monkeypatch.setattr("app.workers.media.extract_video_chunk", transcode)
+    monkeypatch.setattr("app.workers.media_derivatives._samples", _decoder_samples)
+    provider = Provider()
+    try:
+        with tempfile.TemporaryFile("w+b") as source:
+            source.write(RAW_VIDEO)
+            source.flush()
+            source.seek(0)
+            stage = BinaryStage(
+                source, hashlib.sha256(RAW_VIDEO).hexdigest(), len(RAW_VIDEO), {}
+            )
+            result, receipts = build(
+                Storage(provider),
+                video_objects.snapshot(output),
+                stage,
+                video_objects.snapshot(metadata),
+            )
+        await publish_result(db_session, output, authority, result, receipts)
+        assert calls == ["transcode:0:30"]
+        assert result["generation_mode"] == "transcode"
+        assert result["diagnostics"]["output_codec"] == "h264"
+        assert result["diagnostics"]["smart_copy_eligible"] is False
+        assert result["diagnostics"]["fallback_reason"] == "start_frame_not_keyframe"
+        key = output.storage_ref["prefix"] + "chunk.mp4"
+        assert (
+            provider.objects[(output.storage_ref["bucket"], key)] == b"transcoded" * 100
         )
-    )
-    await db_session.flush()
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake")
-    calls: list[str] = []
+        assert (
+            receipts["objects"][key]["sha256"]
+            == hashlib.sha256(b"transcoded" * 100).hexdigest()
+        )
+        assert all(body.closed for body in provider.bodies)
+    finally:
+        provider.close()
 
-    def fake_smart_copy(*args):
+
+async def test_build_video_chunk_falls_back_when_smart_copy_fails(
+    db_session, super_admin, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.video_derivatives.settings.video_chunk_size_frames", 30
+    )
+    item, metadata, authority = await _make_video_chunk_fixture(
+        db_session, super_admin[0].id
+    )
+    output = await owned_output(db_session, item, "chunk", ready=False, claimed=True)
+    calls = []
+
+    def smart(input_path, output_path, *args, pass_fds=()):
+        assert pass_fds == (stage.file.fileno(),)
         calls.append("smart")
+        output_path.write_bytes(b"partial-copy-must-not-be-published")
         raise RuntimeError("copy failed")
 
-    def fake_transcode(input_path, output_path, start_ms, frame_count):
+    def transcode(input_path, output_path, start_ms, frame_count, *, pass_fds=()):
+        assert str(
+            input_path
+        ) == f"/proc/self/fd/{stage.file.fileno()}" and pass_fds == (
+            stage.file.fileno(),
+        )
+        assert not output_path.exists(), "partial copy must be removed before fallback"
         calls.append(f"transcode:{start_ms}:{frame_count}")
-        output_path.write_bytes(b"transcoded")
+        output_path.write_bytes(b"transcoded" * 100)
 
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_chunk_smart_copy", fake_smart_copy
-    )
-    monkeypatch.setattr("app.workers.media.extract_video_chunk", fake_transcode)
+    monkeypatch.setattr("app.workers.media.extract_video_chunk_smart_copy", smart)
+    monkeypatch.setattr("app.workers.media.extract_video_chunk", transcode)
+    monkeypatch.setattr("app.workers.media_derivatives._samples", _decoder_samples)
+    provider = Provider()
+    try:
+        with tempfile.TemporaryFile("w+b") as source:
+            source.write(RAW_VIDEO)
+            source.flush()
+            source.seek(0)
+            stage = BinaryStage(
+                source, hashlib.sha256(RAW_VIDEO).hexdigest(), len(RAW_VIDEO), {}
+            )
+            result, receipts = build(
+                Storage(provider),
+                video_objects.snapshot(output),
+                stage,
+                video_objects.snapshot(metadata),
+            )
+        await publish_result(db_session, output, authority, result, receipts)
+        assert calls == ["smart", "transcode:0:30"]
+        assert result["generation_mode"] == "transcode"
+        assert result["diagnostics"]["output_codec"] == "h264"
+        assert result["diagnostics"]["smart_copy_eligible"] is False
+        assert result["diagnostics"]["fallback_reason"] == "smart_copy_failed"
+        key = output.storage_ref["prefix"] + "chunk.mp4"
+        assert (
+            provider.objects[(output.storage_ref["bucket"], key)] == b"transcoded" * 100
+        )
+        assert (
+            receipts["objects"][key]["sha256"]
+            == hashlib.sha256(b"transcoded" * 100).hexdigest()
+        )
+        assert all(body.closed for body in provider.bodies)
+    finally:
+        provider.close()
 
-    storage = _FakeVideoChunkStorage()
-    await _store_video_chunk(
-        db_session,
-        storage,
-        item,
-        VideoMetadata.model_validate(item.metadata_["video"]),
-        source,
-        tmp_path,
-        chunk,
-    )
 
-    assert calls == ["smart", "transcode:0:30"]
-    assert chunk.status == "ready"
-    assert chunk.generation_mode == "transcode"
-    assert chunk.diagnostics["output_codec"] == "h264"
-    assert chunk.diagnostics["smart_copy_eligible"] is False
-    assert chunk.diagnostics["fallback_reason"].startswith("smart_copy_failed:")
-    assert storage.client.puts[0]["Body"] == b"transcoded"
+def _decoder_samples(path, start_frame):
+    return [
+        {
+            "frame_index": start_frame + index,
+            "pts_ms": round(index / 30 * 1000),
+            "duration_ms": 33,
+            "is_keyframe": index == 0,
+            "size_bytes": 1,
+            "offset_in_chunk": index,
+        }
+        for index in range(30)
+    ]
 
 
 def test_video_bbox_geometry_validates_and_bbox_stays_compatible():
@@ -658,10 +705,7 @@ async def test_get_task_exposes_video_metadata(
     db_session.add(task)
     await db_session.flush()
 
-    monkeypatch.setattr(
-        "app.api.v1.tasks.video.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
-    )
+    generation = await owned_metadata(db_session, item)
 
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}",
@@ -671,14 +715,20 @@ async def test_get_task_exposes_video_metadata(
     assert resp.status_code == 200
     body = resp.json()
     assert body["video_metadata"]["frame_count"] == 25
-    assert body["thumbnail_url"] == "http://storage.local/thumbnails/poster.webp"
+    assert body["thumbnail_url"] == saved_url(generation, "poster.webp")
+    assert (
+        body["video_metadata"]["poster_frame_path"]
+        == generation.storage_ref["prefix"] + "poster.webp"
+    )
 
 
-async def test_video_manifest_returns_signed_urls(
+@pytest.mark.parametrize("playback_path", [None, "playback/clip.mp4"])
+async def test_video_manifest_exposes_lazy_task_identity_and_only_signs_poster(
     db_session,
     httpx_client,
     super_admin,
     monkeypatch,
+    playback_path,
 ):
     user, token = super_admin
     project = Project(
@@ -706,7 +756,7 @@ async def test_video_manifest_returns_signed_urls(
             "video": {
                 "fps": 30,
                 "frame_count": 90,
-                "playback_path": "playback/clip.mp4",
+                "playback_path": playback_path,
                 "playback_codec": "h264",
                 "poster_frame_path": "posters/clip.webp",
             }
@@ -726,16 +776,7 @@ async def test_video_manifest_returns_signed_urls(
     db_session.add(task)
     await db_session.flush()
 
-    signed: list[tuple[str, int]] = []
-
-    def fake_generate_download_url(key, expires_in=3600, bucket=None):
-        signed.append((key, expires_in))
-        return f"http://storage.local/{key}"
-
-    monkeypatch.setattr(
-        "app.api.v1.tasks.video.storage_service.generate_download_url",
-        fake_generate_download_url,
-    )
+    generation = await owned_metadata(db_session, item, playback=bool(playback_path))
 
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest",
@@ -745,12 +786,17 @@ async def test_video_manifest_returns_signed_urls(
     assert resp.status_code == 200
     body = resp.json()
     assert body["task_id"] == str(task.id)
-    assert body["video_url"] == "http://storage.local/playback/clip.mp4"
-    assert body["poster_url"] == "http://storage.local/posters/clip.webp"
+    assert body["original_identity_path"] == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
+    )
+    assert body["video_url"] is None
+    assert body["poster_url"] == saved_url(generation, "poster.webp")
+    assert body["metadata_generation_id"] == str(generation.id)
     assert body["metadata"]["fps"] == 30
-    assert body["metadata"]["playback_path"] == "playback/clip.mp4"
+    assert body["metadata"]["playback_path"] == (
+        generation.storage_ref["prefix"] + "playback.mp4" if playback_path else None
+    )
     assert body["expires_in"] == 3600
-    assert signed == [("playback/clip.mp4", 3600), ("posters/clip.webp", 3600)]
 
 
 async def test_video_frame_timetable_returns_ffprobe_rows(
@@ -824,6 +870,8 @@ async def test_video_frame_timetable_returns_ffprobe_rows(
     )
     await db_session.flush()
 
+    generation = await owned_metadata(db_session, item)
+
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frame-timetable?from=1&to=2",
         headers={"Authorization": f"Bearer {token}"},
@@ -831,6 +879,7 @@ async def test_video_frame_timetable_returns_ffprobe_rows(
 
     assert resp.status_code == 200
     body = resp.json()
+    assert body["metadata_generation_id"] == str(generation.id)
     assert body["source"] == "ffprobe"
     assert body["fps"] == 30
     assert body["frame_count"] == 4
@@ -895,6 +944,8 @@ async def test_video_frame_timetable_falls_back_to_estimated(
     db_session.add(task)
     await db_session.flush()
 
+    generation = await owned_metadata(db_session, item)
+
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frame-timetable",
         headers={"Authorization": f"Bearer {token}"},
@@ -902,6 +953,7 @@ async def test_video_frame_timetable_falls_back_to_estimated(
 
     assert resp.status_code == 200
     body = resp.json()
+    assert body["metadata_generation_id"] == str(generation.id)
     assert body["source"] == "estimated"
     assert body["fps"] == 24
     assert body["frame_count"] == 12
@@ -936,10 +988,28 @@ async def test_video_manifest_returns_503_when_metadata_not_ready(
     db_session.add(task)
     await db_session.flush()
 
-    monkeypatch.setattr(
-        "app.api.v1.tasks.video.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
+    # A registered original without a current generation is preparing, while
+    # unsupported standalone legacy Task originals remain an explicit 409.
+    dataset = Dataset(
+        display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
+        name="videos",
+        data_type="video",
+        created_by=user.id,
     )
+    db_session.add(dataset)
+    await db_session.flush()
+    item = DatasetItem(
+        dataset_id=dataset.id,
+        file_name=task.file_name,
+        file_path=task.file_path,
+        file_type="video",
+    )
+    db_session.add(item)
+    await db_session.flush()
+    task.dataset_item_id = item.id
+    await db_session.flush()
+    await video_authority(db_session, item)
+    await db_session.commit()
 
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest",
@@ -947,7 +1017,9 @@ async def test_video_manifest_returns_503_when_metadata_not_ready(
     )
 
     assert resp.status_code == 503
-    assert resp.json()["detail"] == "Video metadata not ready"
+    assert resp.json()["detail"]["code"] == "video_metadata_preparing"
+    await db_session.refresh(item)
+    assert item.video_building_output_id is not None and item.video_output_id is None
 
 
 async def test_video_manifest_rejects_non_video(

@@ -87,6 +87,8 @@ def _scan_central_directory(source: BinaryIO, max_entries: int) -> None:
     offset_cd = end_record[zipfile._ECD_OFFSET]
     directory_size = end_record[zipfile._ECD_SIZE]
     concat = end_record[zipfile._ECD_LOCATION] - directory_size - offset_cd
+    if end_record[zipfile._ECD_SIGNATURE] == zipfile.stringEndArchive64:
+        concat -= zipfile.sizeEndCentDir64 + zipfile.sizeEndCentDir64Locator
     directory_offset = offset_cd + concat
     if directory_size < 0 or directory_offset < 0:
         raise ArchiveSafetyError("archive_invalid", "archive is not a valid ZIP")

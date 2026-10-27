@@ -14,14 +14,43 @@ from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.services import active_learning, async_job as jobs, sample_evaluations
 from app.services import mask_repair, training_datasets
 from app.services.async_job_notify import notify_job_terminal
-from app.services.async_job_terminal import JobTerminal
+from app.services.async_job_terminal import (
+    JobTerminal,
+    reconcile_dataset_quality,
+    reconcile_dataset_quality_review,
+)
 from app.services.mask_formats import service as mask_formats
 from app.services.mask_qc import service as mask_qc
 from app.services.point_cloud_quality import service as point_cloud_quality
 
 _DomainReconciler = Callable[[AsyncSession, JobTerminal], Awaitable[None]]
 
+
 # Kinds without a separate domain ledger keep only the generic transition.
+async def _reconcile_dataset_quality(db: AsyncSession, terminal: JobTerminal) -> None:
+    from types import SimpleNamespace
+
+    await reconcile_dataset_quality(
+        db,
+        SimpleNamespace(id=terminal.job_id, kind=terminal.kind),
+        cancelled=terminal.cancelled,
+        error=terminal.error,
+    )
+
+
+async def _reconcile_dataset_quality_review(
+    db: AsyncSession, terminal: JobTerminal
+) -> None:
+    from types import SimpleNamespace
+
+    await reconcile_dataset_quality_review(
+        db,
+        SimpleNamespace(id=terminal.job_id, kind=terminal.kind),
+        cancelled=terminal.cancelled,
+        error=terminal.error,
+    )
+
+
 _DOMAIN_RECONCILERS: dict[str, _DomainReconciler] = {
     "mask_qc": mask_qc.reconcile_job_terminal,
     "point_cloud_quality": point_cloud_quality.reconcile_job_terminal,
@@ -29,6 +58,8 @@ _DOMAIN_RECONCILERS: dict[str, _DomainReconciler] = {
     "mask_repair_rollback": mask_repair.reconcile_job_terminal,
     "mask_format_import": mask_formats.reconcile_job_terminal,
     "training_dataset": training_datasets.reconcile_job_terminal,
+    "dataset_quality": _reconcile_dataset_quality,
+    "dataset_quality_review": _reconcile_dataset_quality_review,
 }
 _INTERRUPTION_HANDLERS = {
     "sample_evaluation": sample_evaluations.signal_interrupted,

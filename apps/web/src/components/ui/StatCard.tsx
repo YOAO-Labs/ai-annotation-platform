@@ -29,23 +29,23 @@ export function StatCard({
 }: StatCardProps) {
   return (
     <div className="surface-shadow-sm surface-shadow-md-on-hover rounded-lg border border-border bg-card px-4 py-3.5 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px">
-      <div className="mb-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
         {icon && <Icon name={icon} size={13} className="shrink-0" />}
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{label}</span>
+        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+          {label}
+        </span>
         {hint && (
-          <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-            {hint}
-          </span>
+          <span className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">{hint}</span>
         )}
       </div>
-      <div>
-        <span className="text-2xl font-semibold tabular-nums">
+      <div className="flex flex-wrap items-baseline gap-x-1.5">
+        <span className="break-words text-xl font-semibold tabular-nums sm:text-2xl">
           {typeof value === "number" ? value.toLocaleString() : value}
         </span>
         {trend !== undefined && (
           <span
             className={cn(
-              "ml-1.5 text-xs font-medium tabular-nums",
+              "text-xs font-medium tabular-nums",
               trend >= 0 ? "text-status-positive" : "text-status-danger",
             )}
           >

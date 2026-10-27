@@ -1,7 +1,7 @@
 """Allow Task-scoped image manifests in Scene-mode image projects.
 
-Revision ID: 0227
-Revises: 0226
+Revision ID: bo0227
+Revises: bo0226
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ import re
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0227"
-down_revision = "0226"
+revision = "bo0227"
+down_revision = "bo0226"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"

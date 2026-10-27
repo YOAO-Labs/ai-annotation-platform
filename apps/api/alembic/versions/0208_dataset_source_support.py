@@ -1,7 +1,7 @@
 """Add Jobs and Audit support for Dataset/DatasetItem deletion.
 
-Revision ID: 0208
-Revises: 0207
+Revision ID: bo0208
+Revises: bo0207
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0208"
-down_revision = "0207"
+revision = "bo0208"
+down_revision = "bo0207"
 branch_labels = depends_on = None
 
 _ARTIFACT = Path(__file__).resolve().parents[1] / "sql/0208_dataset_source_support.sql"

@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from aap_workspace.guide_asset_policy import MAX_GUIDE_ASSET_SIZE_BYTES
+from aap_workspace.guide_asset_policy import (
+    ALLOWED_GUIDE_ASSET_TYPES as ALLOWED_GUIDE_ASSET_TYPES,
+    MAX_GUIDE_ASSET_SIZE_BYTES,
+)
 from pydantic import BaseModel, Field
 
 

@@ -1,15 +1,16 @@
 ---
+title: 测试指南
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-26
 ---
 
 # 测试指南
 
 ## 测试金字塔
 
-```
+```text
         ╱╲
        ╱E2E╲      少量、慢、覆盖关键用户路径
       ╱──────╲
@@ -19,62 +20,74 @@ last_reviewed: 2026-10-18
   ╱──────────────╲
 ```
 
-按这个比例分配精力。**不要**为单一函数写 E2E、也不要为页面跳转写单元测试。
+请按金字塔比例分配测试精力：**不要**为单一纯函数编写 E2E，也**不要**为跨页面工作流只写单元测试。
 
 ### 分层归属与运行入口
 
-| 层           | 保护什么                                    | 运行入口                                                                                        | 真值来源                      |
-| ------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
-| 后端纯规则   | 授权谓词、作业终态分派、schema 归一等纯函数 | `cd apps/api && uv run pytest <file>`                                                           | 无需数据库                    |
-| 后端集成     | 事务、行锁、成员并发、通知顺序              | `pnpm dev:worktree -- exec --mode test -- bash -lc 'cd apps/api && .venv/bin/python -m pytest'` | worktree 自有 `aap_wt_*_test` |
-| 前端纯规则   | URL 编解码、几何、状态机                    | `pnpm --filter @anno/web test <file>`                                                           | 无                            |
-| 前端页面集成 | 页面装配与 API 边界契约                     | 同上（页面目录）                                                                                | MSW                           |
-| 浏览器       | 真实画布、渲染、长链路                      | `pnpm test:e2e`（见下文）                                                                       | 隔离服务                      |
-| SDK / 示例   | 对外契约与文档示例                          | `packages/python-sdk`、`docs-site/dev/examples/*`                                               | OpenAPI snapshot              |
+| 层级             | 保护目标                                                   | 运行入口                                                                                                                                                                                                                                                         | 真值来源                      |
+| ---------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| 后端纯规则       | 授权谓词、作业终态分派、schema 归一等纯函数                | `cd apps/api && uv run pytest <file>`                                                                                                                                                                                                                            | 无需数据库                    |
+| 后端集成         | 事务、行锁、成员并发、通知顺序、在线学习控制面             | `pnpm dev:worktree -- exec --mode test -- bash -lc 'cd apps/api && .venv/bin/python -m pytest'`                                                                                                                                                                  | worktree 自有 `aap_wt_*_test` |
+| 训练执行器       | 训练配方执行、Trial 调度、评估、权重回传与脱敏             | `cd apps/training-executor && uv run pytest`                                                                                                                                                                                                                     | 沙盒临时目录与受控假数据      |
+| 站点存储 Agent   | 只读 `openat2` 原语、站点协议契约、本地 TLS 配对与断网恢复 | `PYTHONPATH=apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src apps/api/.venv/bin/python -m pytest apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests apps/storage-agent/tests -p no:cacheprovider` | 临时受控目录与本机 TLS 夹具   |
+| 前端纯规则       | URL 编解码、几何换算、工作台与训练状态机                   | `pnpm --filter @anno/web test <file>`                                                                                                                                                                                                                            | 无需后端                      |
+| 前端页面集成     | 页面装配与 API 边界契约                                    | `pnpm --filter @anno/web test <page-dir>`                                                                                                                                                                                                                        | MSW                           |
+| 浏览器 E2E       | 真实画布、渲染、跨页面长链路                               | `pnpm test:e2e`（见下文）                                                                                                                                                                                                                                        | 隔离服务与 `annotation_e2e`   |
+| 在线学习全栈冒烟 | 数据集冻结、训练执行、评估、模型回传与在线推理             | [COCO8 夹具与界面验收](./tutorials/local-dev#_2-准备-coco8-检测夹具)                                                                                                                                                                                             | 真实本地服务栈 + MinIO        |
+| SDK / 示例       | 对外契约与文档示例                                         | `packages/python-sdk`、`docs-site/dev/examples/*`                                                                                                                                                                                                                | OpenAPI snapshot              |
 
-两条当前事实：
+当前测试基线的两条重要事实：
 
-- 全部 8 个 ML CPU 契约套件已接入 CI：PR 触及 `apps/_shared/**`（`backend_runtime` /
-  `mask_utils` / `protocol_v2`）或任一 `apps/*-backend/` 路径时，`ML CPU contract tests`
-  检查（`.github/workflows/ml-cpu-test.yml`，`suites: "all"`）会在每套件独立的一次性 venv 中
-  运行对应 pytest（纯 CPU：`grounded-sam2` 与 `sam3` 需 CPU torch wheel，其余 torch-free；
-  `onnxtools` 额外补装 `opencv-python-headless`，3 个上游 `importorskip` 跳过为预期）。
-  各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，共享包无需 editable
-  安装；注意各 backend 可解析的共享包**并不相同**（图像/视频 backend 含 `mask_utils`）。
-- 页面测试优先在 MSW API 边界描述响应（`src/test/renderWithProviders.tsx` 与
-  `src/test/dataManagerApi.ts` 是样板）；同一纯规则不要在页面测试里重复断言，
-  已下沉的规则写在对应 `*UrlState.test.ts`。
+- **ML CPU 与共享契约套件**：PR 触及 `apps/_shared/**`（7 个共享包：`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor/`、`apps/storage-agent/` 或任一 `apps/*-backend/` 路径时，可在纯 CPU 虚拟环境中运行 pytest（其中 ML 与相关共享包由 `.github/workflows/ml-cpu-test.yml` 在独立一次性虚拟环境中自动执行：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
+- **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
 
-## 后端：pytest
+---
 
-### 跑
+## 后端：pytest (`apps/api`)
+
+### 常用命令
 
 ```bash
 cd apps/api
-uv run pytest                                # 全部
-uv run pytest tests/test_smoke.py -v         # 单文件
-uv run pytest -k "batch_lifecycle"           # 关键字过滤
-uv run pytest --cov=app --cov-report=html    # 看覆盖率
+uv run pytest                                # 运行全部测试
+uv run pytest tests/test_smoke.py -v         # 运行单个测试文件
+uv run pytest -k "batch_lifecycle"           # 按关键字过滤
+uv run pytest --cov=app --cov-report=html    # 生成 HTML 覆盖率报告（输出至 htmlcov/index.html）
 ```
 
-报告：`htmlcov/index.html`。
+### CI 分片运行
 
-### Fixture（已就绪）
+CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的四个独立分片，每个分片在自己的 GitHub runner 上拥有独立的 Postgres / Redis / MinIO。分片只决定 pytest 收集哪些用例；依赖同步、worktree 运行时与 setup 测试、服务维护测试、存储隔离验收、`alembic upgrade head`、迁移校验、OpenAPI 快照漂移、`migration policy` 纯规则测试与覆盖率上传在每个分片上都完整执行，任何分片都不会因为分片而跳过检查。
 
-`tests/conftest.py` 提供：
+- **固定输入**：四个调用方分别传入 `--shard-index 0..3 --shard-count 4`。本地复现任一 CI 分片：
+  ```bash
+  cd apps/api
+  uv run pytest --shard-index 2 --shard-count 4
+  ```
+- **划分规则**：分片键是 nodeid 中第一个 `::` 之前的测试文件路径（如 `tests/test_foo.py`），分桶为 `int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") % count`；同一文件的所有用例落在同一分片，分片内部保持原有收集顺序。不传分片参数时保持原有的完整串行运行，本地与其它入口行为不变。
+- **产物**：每个分片上传 `backend-test-results-<index>` JUnit 产物，并以相同 `backend` flag 上传覆盖率，Codecov 按同一 commit 合并。
+- **聚合检查**：`ci.yml` 中的 `pytest` / `Backend tests` 是固定名称的聚合 job，四个分片任意一个 `failed`、`cancelled` 或 `skipped` 都会让该检查失败；只有四个真实分片全部 `success` 才会通过。
 
-| Fixture                                                    | 用途                                      |
-| ---------------------------------------------------------- | ----------------------------------------- |
-| `db_session`                                               | function-scoped，SAVEPOINT 隔离的 DB 会话 |
-| `httpx_client`                                             | ASGI 客户端，依赖注入了 db_session        |
-| `super_admin` / `project_admin` / `annotator` / `reviewer` | 4 角色 fixture，带 JWT token              |
+### 核心 Fixture
 
-测试库连接解析规则：显式 `TEST_DATABASE_URL` 优先，否则跟随本环境迁移连接并固定到
-`annotation_test`；解析失败会直接报错，不会回退到任何默认连接串。无论来源，目标都必须是
-postgresql 且库名以 `_test` 结尾的一次性测试库（如 worktree 启动器分配的 `aap_wt_*_test`），
-指向开发/生产库的配置会在迁移/写入前被拒绝。
+`tests/conftest.py` 提供开箱即用的测试夹具：
 
-### 写一个 API 测试
+| Fixture                                                    | 用途                                          |
+| ---------------------------------------------------------- | --------------------------------------------- |
+| `db_session`                                               | 函数级作用域，基于 SAVEPOINT 隔离的数据库会话 |
+| `httpx_client`                                             | 注入了 `db_session` 的异步 ASGI 客户端        |
+| `super_admin` / `project_admin` / `annotator` / `reviewer` | 预置 4 种平台/项目角色的账号与 JWT Token      |
+
+**测试库安全护栏**：测试库连接优先读取显式 `TEST_DATABASE_URL`，否则跟随当前环境的迁移连接并固定到 `annotation_test`；解析失败会直接报错，绝不回退到默认连接串。无论来源如何，目标数据库都必须是 PostgreSQL 且库名以 `_test` 结尾（如 worktree 启动器分配的 `aap_wt_*_test`）；任何指向日常开发库或生产库的配置都会在迁移或写入前被拒绝。
+
+会独立提交持久账目的存储窗口、历史核验及训练准备测试使用 `tests/storage_migration_isolation.py` 的 `migration_engine` 和配套会话／账号夹具：克隆已登记业务表、外键及命名空间内的守卫触发器，不复制共享数据；测试或准备失败后销毁整个私有 schema，不通过清空共享访问账目、恢复旧维护修订或删除未知责任来让测试通过。
+原图缓存的真实 Celery 清理验收也使用此私有 schema：测试与独立 Worker 读取同一份隔离账目，Worker 的测试入口只指定真实数据库连接的 `search_path`，仍执行未修改的全局清理任务。发送端与结果观察使用自有 Celery 客户端，不借用全套测试共享的消费者状态；成功以 Redis 已保存的任务回执和真实对象删除为准，不依赖瞬时 Pub/Sub 消息，也不增加任务超时或生产任务参数。
+
+Mask 切割的 GC 验收沿已保存 owner 读取准确字节，不按逻辑 RLE 键猜物理前缀。只在已验证的一次性 mode 中将 GC 观测时刻推进两天（仍在原操作的三十天恢复期内），分别执行退休与删除，复核恢复保护的像素未变、未引用对象已真实移除；不回写不可变所有权事实或缩短恢复期限。
+
+视频读取锁窗口用真实事务复现标注写入的 Task → Project 顺序：独立连接先确认读取确实阻塞，再交错项目计数更新，验证读取不会与写入形成反向等待；长期占用的排他锁仍在既有一秒预算内拒绝，不通过放宽锁或增加超时消除失败。
+
+### 编写 API 测试示例
 
 ```python
 async def test_create_project(httpx_client, project_admin):
@@ -89,71 +102,92 @@ async def test_create_project(httpx_client, project_admin):
     assert body["name"] == "demo"
 ```
 
-### 本地执行器交接与负载观测
-
-`test_training_executor_handoff.py` 默认跳过；显式启用后会启动当前 API 的独立
-Uvicorn、两个受控 executor 进程，并通过新数据库连接核对实际提交。它覆盖领取／完成
-响应丢失、竞争、撤权、取消、父进程 SIGKILL、继承 flock、恢复和提交回滚。硬件身份与
-微小 CPU child 是夹具，原 Supervisor 的 journal、fence 和收据逻辑继续运行。
-
-peer 需要执行器已声明的 `psutil`。若 API 测试环境没有该包，可将这一依赖单独安装到
-本次验收的临时目录，避免改变 API 依赖图。先按工作树指南初始化自有 test 模式，再从
-仓库根运行：
-
-```bash
-uv pip install --python apps/api/.venv/bin/python \
-  --target .worktree/training-handoff-deps --no-deps psutil==7.0.0
-pnpm dev:worktree -- exec --mode test -- sh -c \
-  'cd apps/api && AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE=1 PYTHONPATH=../../.worktree/training-handoff-deps .venv/bin/python -m pytest tests/test_training_executor_handoff.py -q --junitxml=/tmp/aap-training-handoff.xml'
-```
-
-验收只使用 launcher 验证过的一次性 `_test` 数据库及隔离存储；不要指向日常开发库。
-API 持有数据库连接，peer 只接收执行器 API 凭据。测试记录的资源发现 executor 字段
-是轮询投影；实际执行权还需核对 attempt 的 executor／boot、lease attempt ID 和 token
-fence。测试清理自己创建的进程与行；恢复路径实际上传的 manifest 不会随 SQL 删除而
-回滚，验收后须通过 launcher 清理自有 test 模式资源和本次临时依赖目录。
-
-同文件还记录单个资源、1/2/4/8 客户端的 heartbeat 控制面延迟，原始样本保存在 JUnit
-suite properties。它不包含模型／GPU、训练完成吞吐或生产 SLO。Go 的独立容器与
-10k/50k 并发观测另见 `apps/api/experiments/bench_concurrency.py` 和
-`apps/audit-summary/EXPERIMENT_COST.md`；大请求超额并发仍有传输错误，报告保留非零
-退出码，不能把它算作生产容量通过。
-
 ### OpenAPI 契约测试
 
-每次改路由 / Pydantic schema：
+每次修改 FastAPI 路由或 Pydantic Schema 后，必须刷新 OpenAPI 快照：
 
 ```bash
-# 改完路由后
 cd apps/api
 uv run python ../../scripts/export_openapi.py
 git add openapi.snapshot.json
 ```
 
-CI 中 `tests/test_openapi_contract.py` 会校验 snapshot 与运行时一致；忘了刷就 fail。前端 `pnpm codegen` 也读这个 snapshot，所以 snapshot 是前后端契约的真值源头。
+CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与运行时路由是否一致；前端 `pnpm codegen` 与 Python SDK 契约测试同样以该快照为唯一真值源。
 
-## 前端：vitest + MSW
+---
 
-### 跑
+## 在线学习与训练执行器测试
+
+在线学习子系统的验证横跨控制面（`apps/api`）、执行面（`apps/training-executor`）与推理回传面（`apps/yolo-backend`）：
+
+1. **执行器单元测试（无需数据库）**：
+   ```bash
+   cd apps/training-executor
+   uv run pytest
+   ```
+   覆盖不可变快照校验、Ultralytics / LibreYOLO 适配器、增强预览、检查点恢复、原生报告与脱敏日志。平台的有预算串行搜索由 API 控制面测试覆盖。
+2. **控制面 API 与状态机测试**：
+   ```bash
+   cd apps/api
+   uv run pytest -k "training" -v
+   ```
+   覆盖训练数据集版本冻结、实验任务租约 CAS、心跳续租、尝试级观测指标、受控模型发布（`trained_models`）以及审核驱动的主动学习回流。
+3. **真实链路验收**：按[本地开发](./tutorials/local-dev#在线学习与训练执行器联调-可选)准备独立环境、执行器和 COCO8 检测夹具，再通过界面完成训练、回流和人工发布。单元测试、夹具构建成功或模拟 API 页面测试均不能替代真实权重推理验收。
+
+---
+
+## 数据集、存储迁移与只读站点 Agent 测试
+
+数据集与受控存储领域的验证分为纯标准库/组件单测、隔离容器拓扑演练与资源基线测量三层：
+
+1. **只读文件原语、站点协议与 Agent 组件单测（无需数据库或 Redis）**：
+   ```bash
+   PYTHONDONTWRITEBYTECODE=1 \
+   PYTHONPATH=apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src \
+   apps/api/.venv/bin/python -m pytest \
+     apps/_shared/filesystem_read/tests \
+     apps/_shared/site_agent_contract/tests \
+     apps/storage-agent/tests -p no:cacheprovider
+   ```
+   覆盖 Linux `openat2` 防符号链接/越界、`0600 VerifiedStage`、一次性本机 TLS 配对、`renameat2(RENAME_NOREPLACE)` 原子落盘、256 KiB 分块限速以及进程重启后沿同一 `session_id` 重放 stage 恢复。
+2. **跨网络隔离拓扑真实演练（`scripts/verify_site_agent.py`）**：
+   在双 Docker bridge 隔离网络（中心无法向站点发起入站连接）中验证端到端链路，支持三种场景（`--scenario basic | recovery | replicas`）：
+   ```bash
+   apps/api/.venv/bin/python scripts/verify_site_agent.py \
+     --state /tmp/aap-site-agent-verify \
+     --scenario basic
+   ```
+   分别验证基础配对/扫描/预检登记/Range 读取（`basic`）、断网与重启恢复及撤销凭据关闭回执（`recovery`），以及主站点离线时显式同内容备用来源（`DatasetReferenceReplica`）的委托读取（`replicas`）。
+3. **数据集与存储资源基线测量脚本**：
+   在当前工作树专属且业务表为空的可丢弃 `e2e` / `test` 模式下运行，严禁指向非空开发库：
+   - `scripts/benchmark_dataset_workbench.py`：[数据集工作台规模测量](./reference/dataset-workbench-benchmark)（1k / 10k 索引分页、组合筛选与项目统计）
+   - `scripts/benchmark_dataset_scan.py`：[目录扫描资源基线](./reference/dataset-scan-benchmark)（真实 Worker 元信息扫描、取消与恢复）
+   - `scripts/benchmark_dataset_read.py`：[目录原图读取资源基线](./reference/dataset-read-benchmark)（无缓存严格 SHA-256 核验与 HTTP 传输）
+   - `scripts/benchmark_dataset_sync.py`：[本地增量同步资源基线](./reference/dataset-sync-benchmark)（Beat 调度、扫描、完整预检与新增登记闭环）
+   - `scripts/benchmark_dataset_training.py`：[训练准备与重复传输资源基线](./reference/dataset-training-benchmark)（托管图片预检、物化打包与重复下载读取）
+
+---
+
+## 前端：Vitest + MSW (`apps/web`)
+
+### 常用命令
 
 ```bash
 cd apps/web
-pnpm test                  # 一次性跑
-pnpm test:watch            # watch
-pnpm test:coverage         # 带覆盖率
+pnpm test                  # 一次性运行全部单测
+pnpm test:watch            # 监听模式
+pnpm test:coverage         # 运行并检查覆盖率阈值
 ```
 
-### MSW 用法
+### MSW 接口模拟
 
-`vitest.setup.ts` 已挂上 MSW server，默认 handlers 在 `src/mocks/handlers.ts`。
-
-单测里临时覆盖某个 endpoint：
+`vitest.setup.ts` 已自动挂载 MSW Server，默认处理器位于 `src/mocks/handlers.ts`。在单测中可按需覆盖特定端点：
 
 ```ts
 import { http, HttpResponse } from "msw";
 import { server } from "@/mocks/server";
 
-it("空态文案", async () => {
+it("渲染项目列表空态文案", async () => {
   server.use(
     http.get("*/api/v1/projects", () =>
       HttpResponse.json({ items: [], total: 0 }),
@@ -165,15 +199,14 @@ it("空态文案", async () => {
 });
 ```
 
-### 写组件测试的边界
+### 组件测试边界
 
-✅ 写：渲染分支、用户交互后的状态变化、与服务端契约的校验
-❌ 不写：颜色样式、像素级布局、内部状态字段名
+- **应当测试**：渲染分支切换、用户交互后的状态演进、与服务端请求/响应契约的对齐。
+- **不要测试**：具体颜色类名、像素级静态布局、组件内部私有状态字段名。
 
-### 超大图 Tile
+### 超大图金字塔与瓦片调度测试
 
-纯逻辑测试覆盖 manifest 校验、full-resolution 半开视口 rect、DPR/LOD hysteresis、overlap crop、
-edge tile、批量签发、decode、stale commit 和 dispose：
+纯逻辑与组件单测覆盖 manifest 校验、全分辨率半开视口矩形、DPR/LOD 迟滞切换、overlap 裁切、边缘瓦片、批量预签名签发、异步解码、过期提交丢弃与资源释放：
 
 ```bash
 pnpm --filter @anno/web exec vitest run \
@@ -185,136 +218,127 @@ pnpm --filter @anno/web exec vitest run \
   src/pages/Workbench/stages/image/ImageWorkbench.test.tsx
 ```
 
-真实 50MP/200MP 浏览器回归使用 `P-LARGE-IMG` / `DS-LARGE-IMG` 开发夹具；先按
-[超大图金字塔派生资产](/dev/concepts/image-pyramid-assets#可复现开发夹具)下载、入库并等待 ready。
-required 大图用例必须断言自动路径没有 original 请求；快速 pan/zoom/切题后检查 BUG 诊断中的
-stale commit、reserved/retained bytes、live bitmap/ObjectURL 与 request 数在停止后进入 plateau，
-离开任务后全部归零。临时下载和浏览器 trace 只写入 gitignored `test-results/`，测试结束后删除。
-不同长宽比的大图切题回归还必须检查：新 source 不得渲染已释放的旧瓦片，缩放比例按新图尺寸重新 fit，先放大再连续缩小可通过滚轮和浮条回到当前全图适应比例，且放大后 Minimap 与右下角缩放浮条的边界不相交。
+真实 50MP/200MP 浏览器回归使用 `P-LARGE-IMG` / `DS-LARGE-IMG` 开发夹具（参见 [超大图金字塔派生资产](/dev/concepts/image-pyramid-assets#可复现开发夹具)）：
+
+- `required` 大图任务必须断言自动加载路径不发起 `original` 原图请求。
+- 快速平移/缩放/切题后，检查诊断快照中的 stale commit、reserved/retained bytes、live bitmap/ObjectURL 与请求数在停止操作后进入平稳期（plateau），离开任务后全部归零。
+- 不同长宽比的大图切题回归需额外确认：新图像源不得渲染已释放的旧瓦片，缩放比例按新图尺寸重新 fit，放大后可通过滚轮或缩放浮条回到全图适应比例，且 Minimap 与右下角缩放浮条互不遮挡。
+
+---
 
 ## 前端：Playwright E2E
 
-详见 `apps/web/e2e/README.md`。
-
-启动：
+完整说明见 `apps/web/e2e/README.md`。
 
 ```bash
 docker compose up -d postgres redis minio
 pnpm test:e2e
 ```
 
-Playwright 会自动准备专用逻辑库 `annotation_e2e`、执行迁移，并启动 Web
-`127.0.0.1:3001` 与 API `127.0.0.1:8010`。它不会复用开发环境的
-`3000/8000`；专用端口被占用时会直接失败。如需替换隔离测试库，设置
-`PLAYWRIGHT_E2E_DATABASE_URL`，并保持库名以 `_e2e` 或 `_test` 结尾。
+Playwright 会自动准备专用逻辑数据库 `annotation_e2e`、执行迁移，并拉起独立的 Web（`127.0.0.1:3001`）与 API（`127.0.0.1:8010`）进程。它绝不复用开发环境的 `3000/8000` 端口；若专用端口被占用会直接报错退出。如需自定义隔离库，可设置 `PLAYWRIGHT_E2E_DATABASE_URL`（库名必须以 `_e2e` 或 `_test` 结尾）。
 
-**何时写 E2E**：跨页面流程、长链路、涉及 WebSocket / 文件上传。
+- **何时编写 E2E**：跨页面业务流程、长链路状态收敛、涉及 WebSocket 实时推送或真实文件上传。
+- **何时不写 E2E**：单组件局部交互、纯函数或 URL 规则校验。
 
-**何时不写 E2E**：单组件交互、纯逻辑校验。
+### CI 测试分层与套件路由
 
-### CI 测试分层
+| 测试集    | 命令（在 `apps/web` 下）                                                           | 执行范围                                                         |
+| --------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| 功能回归  | `pnpm test:e2e --project=chromium --shard=N/4`                                     | 完整选集以四个分片执行图片、视频及其布局上下文                   |
+| Mask 矩阵 | `pnpm test:e2e:mask-readonly` / `test:e2e:mask-native` / `test:e2e:mask-ai-native` | 每个 PR，分别使用独立服务与隔离数据                              |
+| 点云专项  | `pnpm test:e2e --project=pointcloud`                                               | 完整选集单独执行全部 3D 点云与布局上下文，不再与四个普通分片重复 |
+| 视觉基线  | `pnpm test:e2e:visual`                                                             | 应用与共享依赖相关 PR、主分支、夜间定时任务和手动触发            |
+| 布局压力  | `pnpm test:e2e:stress`                                                             | 同上触发范围；覆盖六种上下文各 54 次重排                         |
 
-| 测试集    | 命令（在 `apps/web`）                                                              | 执行范围                                                     |
-| --------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| 功能回归  | `pnpm test:e2e`                                                                    | 每个 PR 的四个分片；包含六种布局上下文的 14 次重排和恢复检查 |
-| Mask 矩阵 | `pnpm test:e2e:mask-readonly` / `test:e2e:mask-native` / `test:e2e:mask-ai-native` | 每个 PR，分别使用独立服务与数据                              |
-| 视觉基线  | `pnpm test:e2e:visual`                                                             | 应用与共享依赖相关 PR、主分支、夜间和手动                    |
-| 布局压力  | `pnpm test:e2e:stress`                                                             | 相同触发范围；保留六种上下文各 54 次重排                     |
+#### 布局与画布分片策略
 
-普通功能配置排除 `@visual` / `@stress`。外观比较使用既有截图基线与容差，预期视觉变更必须审阅差异后更新；功能用例检查可操作性、状态与真实保存。新增压力测试时同步保留覆盖关键状态转换的短流程，不能只在夜间检查画布丢失、草稿丢失或任务切换写入问题。
+- 普通功能配置默认排除 `@visual` 与 `@stress` 标签。视觉测试基于截图基线与容差比对（预期外观变更需审阅后更新基线）；功能测试则验证可操作性、状态流转与真实落库。
+- 布局矩阵按画布渲染栈拆分为两个 Playwright 项目：
+  - `workbench-pointcloud-layout-matrix.spec.ts`：仅包含 3D 点云场景（运行在 `pointcloud` 项目，启用 SwiftShader 软渲染 WebGL）。
+  - `workbench-layout-matrix.spec.ts`：包含图片与视频场景（运行在 `chromium` 项目，Konva 2D 画布无需 WebGL，避免软渲染在高负载下饿死主线程）。
+  - 两份 spec 共用 `e2e/helpers/workbench-layout-matrix.ts` 注册用例，保持标题一致以稳定分片与套件选集。
 
-布局矩阵按画布类型拆分 Playwright 项目：`workbench-pointcloud-layout-matrix.spec.ts` 只保留 3D 场景（pointcloud 项目，SwiftShader 软渲染 WebGL）；图片 / 视频场景在 `workbench-layout-matrix.spec.ts`，走 chromium 项目——它们的 Konva 画布不需要 WebGL，软渲染只会让 CI 压力重载时主线程更易被饿死。两份 spec 的用例注册共用 `e2e/helpers/workbench-layout-matrix.ts`，标题保持一致以稳定分片与扩展套件选集。
+完整功能选集，以及 `E2E_SELECTION_MODE=legacy` 模式的 PR 与主分支推送，都要求四个 Chromium 分片与点云专项；两者合并覆盖原有全部 Playwright 项目，不省略用例，也不增加十五分钟进程预算。按真实 Playwright 收集集合核对覆盖等价，不用手工维护的测试数代替。
 
-路由脚本 `scripts/plan-e2e-suites.mjs` 是套件选择的单一入口，当前执行 **P9 计划选择**（plan §6.2/§6.3）：
-PR 运行有界核心 smoke + 按路径触发的领域专项（Mask×3、video-pipeline、pointcloud），共享依赖/运行时/未映射路径/空 diff/多域/重命名删除等无法分类的输入保守放大到全量；纯文档（白名单 `.md`）显式跳过应用 E2E 并记录原因。每次运行都会同时输出冻结的旧全量选集作为对照（`legacy=`），便于比较与回退。
+#### 套件路由与必需审计
 
-有界核心 smoke 以 `--retries=0` 运行，且被标记为 `flakyPolicy=forbid`：重试后通过的核心会阻塞必需套件审计（非核心专项保留一次诊断重试，重试后通过仍单独计为 flaky）。必需套件审计（`scripts/audit-e2e-requirements.mjs`）按计划 manifest 校验每个选中套件的结果产物，缺失、取消、setup 失败、suite 名不匹配、格式错误或核心 flaky 都会使汇总失败。
+- **智能路由入口（`scripts/plan-e2e-suites.mjs`）**：PR 默认运行“有界核心 smoke + 按变更路径触发的领域专项（Mask×3、`video-pipeline`、`pointcloud`）”。若触及共享依赖、运行时配置、未映射路径、空 diff、跨多域或文件重命名/删除，则保守放大为全量套件；纯文档变更（白名单 `.md`）显式跳过应用 E2E 并记录原因。设置仓库变量 `E2E_SELECTION_MODE=legacy` 可随时无代码回退至固定全量矩阵。
+- **规划报告传输**：完整的 legacy/planned 对照、变更路径分类和原因写入 `E2E_SHADOW_PATH`（默认 `e2e-shadow.json`），CLI 仅输出 `shadow_path` 文件指针。CI 从文件生成步骤摘要，并上传 `e2e-selection-report` 产物；不要将完整报告放入步骤输出或进程环境，以免大型 PR 超过进程参数上限。矩阵、必需 manifest 和 ML CPU 调度继续使用原有有界输出。
+- **视频工具准备**：后端分片与 E2E runner 先复用已有的 `ffmpeg` / `ffprobe`，缺少时才以 `--no-install-recommends` 安装 FFmpeg，避免下载无关驱动及语音模型占满 Job 预算；安装前先把 runner 的 `/etc/apt/apt-mirrors.txt` 指回 HTTPS 的 `archive.ubuntu.com`，避免区域 HTTP 镜像拖慢同一个 `apt-get`；两者版本均写入步骤日志，测试选集和超时不变。
+- **真实提供方验收**：版本、删除标记与净变化用例通过共用的 `live_provider_guard` 验证目标：本地仅允许工作树专属 `test` 桶；GitHub 托管 runner 可使用本次 Job 的临时 PostgreSQL、MinIO 与 Redis。远程存储、开发模式和非托管 runner 均拒绝，不用伪造工作树标记或跳过用例代替验收。
+- **必需套件审计（`scripts/audit-e2e-requirements.mjs`）**：核心 smoke 以 `--retries=0` 且 `flakyPolicy=forbid` 运行（重试后通过仍会阻断审计）；专项套件保留一次诊断重试并单独标记 flaky。审计脚本按计划 manifest 严格核对每个选中套件的产物，任何缺失、取消、setup 失败、套件名不匹配或核心 flaky 都会令汇总步骤失败（不会把缺失报告当作通过）。
+- **全量触发入口**：`push` 主分支与每日北京时间 03:00 的 `E2E extended` 定时工作流（`E2E_SCHEDULE_SCOPE=full`）执行全量套件；手动触发可通过 `scope` / `e2e_scope` 选择 `extended` 或 `full`。修改分类或调度规则后，可运行 `node --test scripts/plan-e2e-suites.test.mjs` 自检。
 
-准备失败导致 Playwright 未执行时，汇总仍写出 `setup-failure` 状态产物；运行失败或取消但无报告也保留对应失败证据。声称成功却没有报告会使汇总步骤失败，并写出失败状态，不会把缺失报告或未执行当作通过。
+#### 重试策略与画布落库断言
 
-顶层入口与范围（§6.7-5 显式区分，不用事件名隐含）：`push` 与夜间 `E2E extended` 工作流（每天北京时间 03:00，`E2E_SCHEDULE_SCOPE=full`）执行全量（smoke + 全部分片 + 全部专项 + visual/layout-stress）；该工作流手动触发时用 `scope` 输入显式选择 `extended` 或 `full`；`ci.yml` 的 `Frontend E2E` 手动触发用 `e2e_scope` 输入做同样选择。所有入口都运行同一必需套件审计。
+- **重试与超时护栏**：功能用例最多重试 1 次；视觉基线（`playwright.extended.config.ts`）不重试；布局压力（`playwright.stress.config.ts`）最多重试 1 次以区分确定性损坏与高负载主线程饥饿。CI 中每个进程、测试步骤和 Job 分别限时 15 / 20 / 30 分钟，失败时自动保留 trace、截图与 `e2e-results.json`。
+- **真实落库与像素级验证**：核心绘制流程必须验证实际提交请求、数据库落库内容与页面刷新恢复；测试辅助接口仅用于构造前置状态，严禁在 UI 保存失败后靠补写后端状态掩盖缺陷。图片与视频 Konva 的隐藏/恢复验收统一使用 `e2e/fixtures/annotation-canvas-pixels.ts`，仅统计媒体背景之上的标注图层像素。
+- **构建产物验收**：CI 的产物套件使用真实 `vite preview`，在 `apps/web` 下通过 `pnpm build --mode e2e` 构建；本地也须使用所属工作树的 `e2e` 环境。常规生产构建不包含点云交互探针，不能替代 E2E 产物。浏览器侧不得靠动态导入 `/src` 修改应用 store。身份续期应走应用的真实刷新流程；网络故障注入只控制时机，刷新请求、权限重验及旧媒体许可退场仍由真实后端完成。仅限开发服务器的专门验收必须明确限制运行环境，不能混入产物套件。
+- **交互夹具的响应形状**：隔离页面交互时也要提供周边读取接口的真实结构。例如 `/projects/{id}/datasets` 返回数组，不能用通用分页对象兜底，否则页面会先进入错误边界，无法验收到目标控件。
+- **媒体尺寸夹具**：视频 Mask 的 `[height, width]` 取自当前任务真实 manifest，RLE 计数总和必须覆盖完整源帧；不能沿用历史夹具尺寸或用浏览器视口代替源媒体。
+- **原件夹具**：`seed.owned()` 已生成真实 PNG 并登记原件内容身份，图片裁剪与二次推理直接复用，不再改写 `Task.file_path` 或 `DatasetItem.file_path`。共享 fixture 统一清理命名空间，临时裁剪由托管推理输入 owner 清理，不猜测旧物理键。
+- **推理输入存储**：真实二次推理要求输入桶启用版本控制。CI 在本 Job 的临时 MinIO 初始化并核验 `import` 桶的 `Versioning=Enabled`；本地验收只能在核验当前工作树 `e2e` 桶的配置与归属后设置，不能改日常环境或放宽服务端版本校验。
+- **取消过期运行**：PR 被新提交替代时，昂贵 E2E Job 使用 `!cancelled()` 停止调度与执行，不使用会阻止取消的 `always()`。共享构建失败仍阻止全部产物套件；有界的状态汇总及已有失败证据上传保留取消审计。
 
-**回退**：设置仓库变量 `E2E_SELECTION_MODE=legacy`（未设置或为空即计划模式）即可恢复 P8 前冻结的旧全量矩阵与对应必需清单，无需改代码；回退模式仍执行审计，但只要求它实际执行的 9 个旧套件。
+### `_test_seed` 路由与 E2E Fixture
 
-**最终验收证据**：门禁切换与影子对照的逐项证据见 `docs/research/43-repository-optimization-p9-shadow-comparison.md`，P10 最终验收记录见 `docs/research/45-repository-optimization-final-acceptance.md`。冻结 `898505469` 的 full-12 campaign 是**失败历史**（default-four 13P/1F/53 not-run，实跑审计 exit 1）；集成根 `13d274326` 的 composed 审计才退出 0（`layout-stress`/`default-four` 在修正构建重跑替换，其余 10 套件按**变更影响范围**复用，不是全应用逐字节等价）。
-
-功能用例最多重试一次；扩展用例中视觉基线（`playwright.extended.config.ts`）不重试，压力用例（`playwright.stress.config.ts`）最多重试一次——压力重载在高负载 runner 上可能把渲染主线程冻结数十秒，重试用于区分确定性损坏（两次都失败仍红）与资源饥饿，重试后通过仍标记 flaky，不掩盖问题。CI 首个最终失败终止当前分片，每个进程/测试步骤/job 分别限时 15/20/30 分钟。每次失败保留 trace 与截图，Actions 摘要区分通过、失败、flaky 与跳过，避免把重试后通过误认为已消除不稳定性。HTML、原始测试产物及 `e2e-results.json` 随套件上传。
-
-核心绘制流程必须验证实际提交请求、落库内容与刷新恢复。测试接口只能造前置状态，不能在 UI 保存失败后补写状态来使测试通过。Canvas 坐标按实际媒体尺寸计算并验证命中；组件细节、纯状态组合优先使用 Vitest。
-
-图片与视频 Konva 的隐藏/恢复验收使用 `e2e/fixtures/annotation-canvas-pixels.ts`，只统计媒体背景之后的标注图层，不把跨域背景画布读成标注证据。必须先确认有真实绘制像素，再验证隐藏减少、刷新后仍隐藏、恢复后像素与几何一致；图层未就绪或标注层不可读应失败，不能吞掉异常返回零。跨域画布安全限制需要真实浏览器回归，不能靠关闭浏览器安全策略或仅断言 DOM 数量代替。
-
-修改分类后通过 `--list --reporter=line` 核对选集；修改调度后运行根目录的 `node --test scripts/plan-e2e-suites.test.mjs`。本地结束后清理当前验证生成的报告、临时数据和自有服务；详见 `apps/web/e2e/README.md`。
-
-### `_test_seed` router + E2E fixture
-
-E2E spec 通过 `apps/web/e2e/fixtures/seed.ts` 调后端 `/api/v1/__test/seed/*` 端点造数：
+E2E 用例通过 `apps/web/e2e/fixtures/seed.ts` 调用后端 `/api/v1/__test/seed/*` 端点快速构造测试数据：
 
 ```ts
 // apps/web/e2e/tests/auth.spec.ts
 import { test, expect } from "../fixtures/seed";
 
-test("正确凭证 → 跳 dashboard", async ({ page, seed }) => {
+test("正确凭证 → 跳转 dashboard", async ({ page, seed }) => {
   const data = await seed.reset(); // 清理并重建固定 fixture
   await seed.loginViaUI(page, data.admin_email, "Test1234");
   await expect(page).toHaveURL(/\/dashboard/);
 });
 
-test("注入 token 跳 UI 登录", async ({ page, seed }) => {
+test("注入 token 跳过 UI 登录", async ({ page, seed }) => {
   const data = await seed.reset();
-  await seed.injectToken(page, data.annotator_email); // 直接 localStorage 注入
+  await seed.injectToken(page, data.annotator_email); // 直接向 localStorage 注入凭据
   await page.goto("/annotate");
 });
 ```
 
-**安全约束**：路由默认关闭，只有非 production 进程显式设置
-`E2E_SEED_ENABLED=true` 时才会挂载。路由的统一守卫还会在当前会话查询
-`current_database()`，数据库名不以 `_e2e` 或 `_test` 结尾时拒绝所有
-seed/login/cleanup 请求。production 即使设置开关也不挂载路由。
+- **三重安全门禁**：该路由默认关闭，仅当非 `production` 进程显式设置 `E2E_SEED_ENABLED=true` 且当前会话 `current_database()` 以 `_e2e` 或 `_test` 结尾时才允许执行。
+- **工厂函数约定**：`seed.reset()` 返回预置的 `admin` / `annotator` / `reviewer` 邮箱（统一密码 `Test1234`）、项目 ID 与 5 个任务 ID。自定义数据使用 `apps/api/tests/factory.py` 中的 `create_user`、`create_project`、`create_task`、`create_batch` 与 `create_membership`（平台身份与项目成员职责显式分离）。
+- **图片与原生候选**：图片工作台种子使用真实 64×48 PNG，文件名、对象键、媒体类型及原件摘要对应同一份字节。原生图片候选沿已登记原件完整读回后签发回执，绑定真实内容身份、尺寸及事实摘要，不补造来源证据来绕过接纳检查。
+- **训练基线归属**：训练验收种子通过与正式接口相同的分配流程，为新建检测/分割版本登记存储归属；重跑和失败重试保持原回执与保存桶。已有但未登记归属的历史版本不会自动认领，仍需按训练数据集的显式副本核验流程处理。
+- **Labeling owner 命令**：E2E seed 写入 Labeling 的 Batch、Task、Annotation、视频追踪作业和 TaskDatasetItemLink 时通过固定 Labeling owner 命令；视频反馈锚点更新也走同一测试协议。命令只在数据库名以 `_e2e` 或 `_test` 结尾时可由运行角色调用，并在调用方原事务中执行；seed 路由仍负责原有提交或回滚时机。
+- **专项筛选夹具**：筛选验收使用 `seed.filtering()`（或 `e2e/fixtures/filtering.ts`），它先重置基础 fixture，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据；需要进入视频工作台的用例传入 `{ videoReady: true }`，在种子阶段通过真实派生 worker 入口完成并核验元数据与分块，不依赖 CI 外部 Celery worker；普通筛选用例不额外生成视频。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。若需在本地手动体验并保留筛选数据，可运行 `pnpm dev:worktree -- up --mode e2e --scenario filtering`（参见 [多工作树并行开发环境](./how-to/worktree-environments#手动验收筛选功能)）。
+- **共享 reset 与 Workspace 夹具**：共享 reset 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned 项目、筛选模板的精确清理。Workspace 夹具通过固定原生能力创建项目／模板并清理，在删除子记录前检查视频退役状态，未退役或忙锁返回 409。清理失败后须保留原数据，解决阻塞再重试；不得为测试重跑伪造退役历史。协议与授权见 [Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
+- **并发与清理兜底**：同一测试库同一时刻只能运行一个 seed/reset 流程；多进程并行测试需同时隔离数据库与 MinIO 存储桶。Playwright 结束时的 `globalTeardown` 会调用 `/seed/cleanup`，但强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 数据库隔离，不能把 cleanup 当成可在开发库运行 E2E 的理由。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
+- **页面先退场**：测试结束并记录失败证据后，seed 先关闭经 `injectToken` 绑定的准确页面，再清理它构建的命名空间，避免仍在播放的页面持续创建预取；API-only 用例不会为此启动浏览器，测试中显式调用 `cleanupOwned` 不关闭页面。关闭与清理失败都保留为测试失败。
+- **视频晚准入收尾**：清理先退休加锁时发现的全部派生物归属、提交并释放样本锁，再排空首份快照之后准入的已登记读取。读取可完成最终核验并归还许可；等待预算不增加，超时保留归属与责任，不删除活动或未知操作。
+- **清理范围栅栏**：账号、项目的最终范围锁可有界等候本夹具尚在收尾的请求，并恢复原本的锁超时；上传 owner、存储许可及未知操作仍保持即时拒绝，等待超时仍返回冲突并保留原责任。
+- **评论附件清理**：owned/shared 清理通过精确夹具项目找到独立上传责任，先退休已完成上传，再沿保存位置删除；所有存储 IO 完成后才锁定并删除原夹具和已完成责任。未完成上传、活跃或未知收尾许可、保存位置不明、规范键残留和删除失败会明确失败并保留重试锚点。不要篡改90天期限或删访问账本来绕过；无法确认上传已结束时，核验归属后销毁整个可丢弃工作树 mode，参见[多工作树环境](./how-to/worktree-environments)。清理不按上传者反向删除其他项目的标注评论。
+- **指南图片清理**：owned/shared 清理只解除精确夹具项目的权威引用，并退休失去最后引用的已完成上传；其他项目的共享引用继续有效。该流程不立即删除对象，物理清理由cleanup队列后续执行，或在核验归属后销毁整个一次性mode。仍属于精确夹具项目的pending会阻挡清理；原项目已删除且无法证明属于当前scope的pending保留owner与字节，不按namespace猜测或阻挡无关夹具。不要按年龄、上传者或JSON反向清桶，也不要删除独立责任来绕过未完成写入。
 
-**fixture 用法**：`reset()` 返回固定结构（admin/annotator/reviewer 三个邮箱 + 项目 id + 5 个任务 id）；密码统一 `Test1234`。新增数据用 `apps/api/tests/factory.py` 的 `create_user / create_project / create_task / create_batch / create_membership`。用户工厂只创建平台身份；`create_membership` 显式创建项目成员与职责，两者分开，工厂不会从平台角色推断 membership。批量 `add_all`、需要跨会话并发 seed 或固定 `id` / `version` 的场景仍按需内联构造。
+---
 
-E2E seed 写入 Labeling 的 Batch、Task、Annotation、视频追踪作业和 TaskDatasetItemLink 时通过固定 Labeling owner 命令；视频反馈锚点更新也走同一测试协议。命令只在数据库名以 `_e2e` 或 `_test` 结尾时可由运行角色调用，并在调用方原事务中执行；seed 路由仍负责原有提交或回滚时机。
+## 覆盖率门禁
 
-筛选验收使用 `seed.filtering()`，它先重置基础 fixture，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据。`e2e/fixtures/filtering.ts` 提供同一入口。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。
+CI 自动将测试覆盖率上传至 [Codecov](https://codecov.io)，并在 PR 评论中展示增量覆盖率（diff coverage）。
 
-需要手动体验并保留数据时，使用 `pnpm dev:worktree -- up --mode e2e --scenario filtering`；见[手动验收筛选功能](./how-to/worktree-environments#手动验收筛选功能)。该入口与自动化测试复用基础夹具，重启不重置，结束后显式清理。
+- **硬性阻断阈值**：`codecov.yml` 中后端（target 60%）与前端（target 10%）均设为 `informational: false`；`apps/web/vite.config.ts` 同步开启覆盖率门禁（lines/statements ≥ 10%），`pnpm test:coverage` 低于阈值会以非 0 状态码退出。
+- **持续演进目标**：随着管理端弹窗、列表与工作台壳层单测的补充，前端覆盖率阈值将按阶段逐步上调至 ≥ 25%。
 
-同一测试库一次只运行一个 seed/reset 流程。并行测试还需给各进程配置独立 MinIO buckets：基础清理使用固定媒体前缀，仅隔离数据库无法保护另一套测试的媒体。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
+---
 
-共享 reset 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned
-项目、筛选模板的精确清理。Workspace 夹具通过固定原生能力创建项目／模板并清理，
-在删除子记录前检查视频退役状态，未退役或忙锁返回 409。清理失败后须保留原数据，
-解决阻塞再重试；不得为测试重跑伪造退役历史。协议与授权见
-[Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
+## Pre-commit 钩子
 
-Playwright 正常结束时由 `globalTeardown` 调用 `/seed/cleanup`。它只是兜底：
-强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 的数据库隔离，
-不能把 cleanup 当成可在开发库运行 E2E 的理由。
+首次配置本地开发环境时安装钩子：
 
-## 覆盖率
+```bash
+uv tool install "pre-commit==4.6.1" && pre-commit install
+```
 
-CI 上传到 [Codecov](https://codecov.io)，PR 评论显示 diff coverage。
+此后每次 `git commit` 会自动执行：
 
-**v0.8.3 切硬阻断**：`codecov.yml` backend `informational: false`（target 60%）+ frontend `informational: false`（target 10%，实测 10.88% 留 0.88pp 容差）。`apps/web/vite.config.ts` coverage thresholds 同步生效（lines/statements ≥ 10）；`pnpm test:coverage` 低于阈值非 0 退出。
+1. **Ruff check + format**：检查并格式化全部第一方 Python 代码（排除 vendor）。
+2. **Prettier**：格式化本次提交涉及的受支持文本文件。
+3. **ESLint & TypeScript 检查**：对 `apps/web` 执行静态检查与 `tsc --noEmit`。
+4. **契约与文档生成物同步**：当 API Schema、配置或共享协议变更时自动刷新 OpenAPI 快照；当快捷键、工作台设置或 API 路由变更时自动刷新对应的 `*.generated.md`。
 
-ROADMAP 列出的 ≥ 25% 目标继续推：补 InviteUserModal / RegisterPage / Dashboard / ProjectList / WorkbenchShell 等页面级单测，达标后上调阈值。
-
-## Pre-commit
-
-先执行 `uv tool install "pre-commit==4.6.1" && pre-commit install`。之后每次
-`git commit` 自动跑：
-
-- Ruff check + format（全部第一方 Python，排除 vendor）
-- Prettier（本次提交涉及的受支持文本文件）
-- eslint（apps/web）
-- tsc --noEmit（apps/web）
-- API/schema/config 或共享协议变更时刷新 OpenAPI 快照；快捷键、工作台设置或 API
-  路由变更时刷新对应的受跟踪文档生成页
-
-如果 hook 失败，**不要** `--no-verify`，先把问题修了。
-
-CI 在全仓 `format:check`、Ruff、ESLint 和类型检查之外，还会以 `manual` 阶段执行一次
-`pre-commit --all-files`。该阶段跳过会写入并暂存 OpenAPI、能力词表和文档生成物的三个
-本地提交 hook；这些生成物继续由 OpenAPI 契约测试、能力词表契约测试，以及覆盖快捷键、
-工作台设置和 API 路由索引的文档 codegen 只读检查兜底。
+如果钩子报错，**切勿使用 `--no-verify` 强行跳过**，请先修复原因再提交。CI 除运行常规静态检查外，还会以 `manual` 阶段执行全仓 `pre-commit --all-files`，并由 OpenAPI 契约测试、能力词表测试与 `check:codegen` 只读校验兜底。

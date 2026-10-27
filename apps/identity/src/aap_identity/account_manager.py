@@ -311,10 +311,21 @@ class AccountManager:
                     response_preferences=None,
                 )
             elif isinstance(request, SetAvatarRefRequest):
+                payload = request.payload
+                expected = payload.expected_previous_avatar_ref
+                # An upload always publishes against the reference frozen before
+                # its bytes were written (including an explicit "no avatar").
+                # Preset/clear has no I/O race, so an unspecified expectation
+                # uses the freshly read account value.
+                base_value = (
+                    expected
+                    if payload.kind == "upload" or expected is not None
+                    else account.avatar_ref
+                )
                 apply = native_account_apply_command(
                     command,
-                    base_value=account.avatar_ref,
-                    new_value=request.payload,
+                    base_value=base_value,
+                    new_value=payload,
                     response_preferences=None,
                 )
             elif isinstance(request, HeartbeatRequest):

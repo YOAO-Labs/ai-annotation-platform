@@ -1,0 +1,311 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8n",
+      "filename": "yolov8n.pt",
+      "sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+      "size_bytes": 6549796,
+      "object_key": "model-assets/sha256/f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8n-seg",
+      "filename": "yolov8n-seg.pt",
+      "sha256": "a7cd8f929e1903d78a12a48efecab430209f18dc46cb96c3599a5980c63c423c",
+      "size_bytes": 7071756,
+      "object_key": "model-assets/sha256/a7cd8f929e1903d78a12a48efecab430209f18dc46cb96c3599a5980c63c423c/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8s",
+      "filename": "yolov8s.pt",
+      "sha256": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a",
+      "size_bytes": 22588772,
+      "object_key": "model-assets/sha256/1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8s.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8s-seg",
+      "filename": "yolov8s-seg.pt",
+      "sha256": "0bac0770b55e5eb5b76a61bc535673288dcec36c2bc0cd25ee0d584c632f3413",
+      "size_bytes": 23914764,
+      "object_key": "model-assets/sha256/0bac0770b55e5eb5b76a61bc535673288dcec36c2bc0cd25ee0d584c632f3413/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8s-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8m",
+      "filename": "yolov8m.pt",
+      "sha256": "5d4a90cdc7a21786cc59cd19778e9eafff836df9e2da32524737c7ee6efe4fe5",
+      "size_bytes": 52136884,
+      "object_key": "model-assets/sha256/5d4a90cdc7a21786cc59cd19778e9eafff836df9e2da32524737c7ee6efe4fe5/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8m-seg",
+      "filename": "yolov8m-seg.pt",
+      "sha256": "51fa7e5ef385efa6d5b1d8e31b73399be6ed5d7ca71bda4bd4b2794bb445c4f4",
+      "size_bytes": 54921020,
+      "object_key": "model-assets/sha256/51fa7e5ef385efa6d5b1d8e31b73399be6ed5d7ca71bda4bd4b2794bb445c4f4/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8l",
+      "filename": "yolov8l.pt",
+      "sha256": "64c9115303f6a25575f82200d1b22ec409fa6bd7d08d0313884fc20d919478cd",
+      "size_bytes": 87792836,
+      "object_key": "model-assets/sha256/64c9115303f6a25575f82200d1b22ec409fa6bd7d08d0313884fc20d919478cd/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8l.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8l-seg",
+      "filename": "yolov8l-seg.pt",
+      "sha256": "ca3ec94c445aeaf79c2b57982fb451060f18a7561e2c20b4d26bb9dc1fcabf93",
+      "size_bytes": 92417004,
+      "object_key": "model-assets/sha256/ca3ec94c445aeaf79c2b57982fb451060f18a7561e2c20b4d26bb9dc1fcabf93/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8l-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8x",
+      "filename": "yolov8x.pt",
+      "sha256": "3df4ada6b4dad6d657868f2fdf7faecfb34dcfccf3a25c4b82079064718524c8",
+      "size_bytes": 136890692,
+      "object_key": "model-assets/sha256/3df4ada6b4dad6d657868f2fdf7faecfb34dcfccf3a25c4b82079064718524c8/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8x.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolov8x-seg",
+      "filename": "yolov8x-seg.pt",
+      "sha256": "c333d6a7aff884ec821050eacdab29871f3edd10d996cf48746a02f8e01f1b5d",
+      "size_bytes": 144101612,
+      "object_key": "model-assets/sha256/c333d6a7aff884ec821050eacdab29871f3edd10d996cf48746a02f8e01f1b5d/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8x-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11n",
+      "filename": "yolo11n.pt",
+      "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "size_bytes": 5613764,
+      "object_key": "model-assets/sha256/0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11n-seg",
+      "filename": "yolo11n-seg.pt",
+      "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+      "size_bytes": 6182636,
+      "object_key": "model-assets/sha256/55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11s",
+      "filename": "yolo11s.pt",
+      "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5",
+      "size_bytes": 19313732,
+      "object_key": "model-assets/sha256/85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11s.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11s-seg",
+      "filename": "yolo11s-seg.pt",
+      "sha256": "1caa81c0195412efa411b632bcfb8c184939dddb6ae41f6a80c41b211ff257c3",
+      "size_bytes": 20669228,
+      "object_key": "model-assets/sha256/1caa81c0195412efa411b632bcfb8c184939dddb6ae41f6a80c41b211ff257c3/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11s-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11m",
+      "filename": "yolo11m.pt",
+      "sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95",
+      "size_bytes": 40684120,
+      "object_key": "model-assets/sha256/d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11m.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11m-seg",
+      "filename": "yolo11m-seg.pt",
+      "sha256": "eb9a06f63e2206c35d68d839b08c362429ebecf933ad54c1ad68b2fd001c17cf",
+      "size_bytes": 45400152,
+      "object_key": "model-assets/sha256/eb9a06f63e2206c35d68d839b08c362429ebecf933ad54c1ad68b2fd001c17cf/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11m-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11l",
+      "filename": "yolo11l.pt",
+      "sha256": "9ebd0e09d59811db4b1d61e2bc6730649608b1ac47f8dd01e2da6bca7c20023f",
+      "size_bytes": 51387343,
+      "object_key": "model-assets/sha256/9ebd0e09d59811db4b1d61e2bc6730649608b1ac47f8dd01e2da6bca7c20023f/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11l.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11l-seg",
+      "filename": "yolo11l-seg.pt",
+      "sha256": "cabe90049795dfc9a370b7934d6dec7f6b9e44a20e573b0ff81b7e205512c872",
+      "size_bytes": 56096965,
+      "object_key": "model-assets/sha256/cabe90049795dfc9a370b7934d6dec7f6b9e44a20e573b0ff81b7e205512c872/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11l-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11x",
+      "filename": "yolo11x.pt",
+      "sha256": "7bc158aa95c0ebfdd87f70f01653c1131b93e92522dbe15c228bcd742e773a24",
+      "size_bytes": 114636239,
+      "object_key": "model-assets/sha256/7bc158aa95c0ebfdd87f70f01653c1131b93e92522dbe15c228bcd742e773a24/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11x.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo11x-seg",
+      "filename": "yolo11x-seg.pt",
+      "sha256": "4e53a5f5fd3ee2ae3361c62169c6bb3ed4ae251dd0e57606e230955aa52d919c",
+      "size_bytes": 125090821,
+      "object_key": "model-assets/sha256/4e53a5f5fd3ee2ae3361c62169c6bb3ed4ae251dd0e57606e230955aa52d919c/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11x-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26n",
+      "filename": "yolo26n.pt",
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "size_bytes": 5544453,
+      "object_key": "model-assets/sha256/9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26n-seg",
+      "filename": "yolo26n-seg.pt",
+      "sha256": "361fbfabab285c3237700b6bb91d7ecfa602cd945fffda8dbe1242829b71e73f",
+      "size_bytes": 6719965,
+      "object_key": "model-assets/sha256/361fbfabab285c3237700b6bb91d7ecfa602cd945fffda8dbe1242829b71e73f/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26s",
+      "filename": "yolo26s.pt",
+      "sha256": "646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b",
+      "size_bytes": 20422725,
+      "object_key": "model-assets/sha256/646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26s-seg",
+      "filename": "yolo26s-seg.pt",
+      "sha256": "3da1d83e31caec96f9300eb4064f4f62882c133c7c264d63dfe61a7c197837a4",
+      "size_bytes": 23467933,
+      "object_key": "model-assets/sha256/3da1d83e31caec96f9300eb4064f4f62882c133c7c264d63dfe61a7c197837a4/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26m",
+      "filename": "yolo26m.pt",
+      "sha256": "401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7",
+      "size_bytes": 44255705,
+      "object_key": "model-assets/sha256/401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26m-seg",
+      "filename": "yolo26m-seg.pt",
+      "sha256": "16b636f04e8fb6a325b3370f22dc5e5535ff473e384f4d041fd28d788f6ee9f5",
+      "size_bytes": 54750385,
+      "object_key": "model-assets/sha256/16b636f04e8fb6a325b3370f22dc5e5535ff473e384f4d041fd28d788f6ee9f5/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26l",
+      "filename": "yolo26l.pt",
+      "sha256": "9fe3c544f2b19bebad7ea41e76d7ad3d88b7c2f10d11d24430c5311f6b32db26",
+      "size_bytes": 53211173,
+      "object_key": "model-assets/sha256/9fe3c544f2b19bebad7ea41e76d7ad3d88b7c2f10d11d24430c5311f6b32db26/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26l-seg",
+      "filename": "yolo26l-seg.pt",
+      "sha256": "636024306410afa1732692322fba57d22ea2b1c2f07613fcee131a93d7dd380c",
+      "size_bytes": 63700037,
+      "object_key": "model-assets/sha256/636024306410afa1732692322fba57d22ea2b1c2f07613fcee131a93d7dd380c/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-seg.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26x",
+      "filename": "yolo26x.pt",
+      "sha256": "9fdd44a31c504547ffb81d2c6d9e6dac3493c8eaa8b0398d3f43bae6c7003e92",
+      "size_bytes": 118667365,
+      "object_key": "model-assets/sha256/9fdd44a31c504547ffb81d2c6d9e6dac3493c8eaa8b0398d3f43bae6c7003e92/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt"
+    },
+    {
+      "framework": "ultralytics",
+      "base_model": "yolo26x-seg",
+      "filename": "yolo26x-seg.pt",
+      "sha256": "92b3de0065766a17180d6219858717dc9d03cdce8a3ca9576c97fd75aabb64f3",
+      "size_bytes": 142129861,
+      "object_key": "model-assets/sha256/92b3de0065766a17180d6219858717dc9d03cdce8a3ca9576c97fd75aabb64f3/weights.pt",
+      "source_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-seg.pt"
+    },
+    {
+      "framework": "libreyolo",
+      "base_model": "libreyolo9t",
+      "filename": "LibreYOLO9t.pt",
+      "sha256": "b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2",
+      "size_bytes": 8645036,
+      "object_key": "model-assets/sha256/b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2/weights.pt",
+      "source_url": "https://huggingface.co/LibreYOLO/LibreYOLO9t/resolve/66ac39d1ac9b880076b96ad4674ef9235ca1a15e/LibreYOLO9t.pt"
+    },
+    {
+      "framework": "libreyolo",
+      "base_model": "libreyolo9s",
+      "filename": "LibreYOLO9s.pt",
+      "sha256": "4ea4a3591c27c66769702bdba5703920d2eb03bbb427e37ed461fcd65e083fb2",
+      "size_bytes": 29471532,
+      "object_key": "model-assets/sha256/4ea4a3591c27c66769702bdba5703920d2eb03bbb427e37ed461fcd65e083fb2/weights.pt",
+      "source_url": "https://huggingface.co/LibreYOLO/LibreYOLO9s/resolve/9a1ad60956eacc43c366e33c79fa363f7aaaa68b/LibreYOLO9s.pt"
+    },
+    {
+      "framework": "libreyolo",
+      "base_model": "libreyolo9m",
+      "filename": "LibreYOLO9m.pt",
+      "sha256": "efa83041e2aeed114a2fcd5364d19359781c225079fa8f470399380eb96961cc",
+      "size_bytes": 80955641,
+      "object_key": "model-assets/sha256/efa83041e2aeed114a2fcd5364d19359781c225079fa8f470399380eb96961cc/weights.pt",
+      "source_url": "https://huggingface.co/LibreYOLO/LibreYOLO9m/resolve/795f08c163220a9fba6438a5b74f0ff07c3dfbc7/LibreYOLO9m.pt"
+    },
+    {
+      "framework": "libreyolo",
+      "base_model": "libreyolo9c",
+      "filename": "LibreYOLO9c.pt",
+      "sha256": "567197cb51e967a09aab8efc9955f937bec693135896c321d373c93c751a4552",
+      "size_bytes": 51410269,
+      "object_key": "model-assets/sha256/567197cb51e967a09aab8efc9955f937bec693135896c321d373c93c751a4552/weights.pt",
+      "source_url": "https://huggingface.co/LibreYOLO/LibreYOLO9c/resolve/bfaa3e338b31b3077c93d65f6e2e14122d352589/LibreYOLO9c.pt"
+    }
+  ]
+}

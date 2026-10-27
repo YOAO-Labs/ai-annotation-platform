@@ -1,7 +1,7 @@
 """Delete dataset sources through transactional owner capabilities.
 
-Revision ID: 0209
-Revises: 0208
+Revision ID: bo0209
+Revises: bo0208
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0209"
-down_revision = "0208"
+revision = "bo0209"
+down_revision = "bo0208"
 branch_labels = depends_on = None
 
 

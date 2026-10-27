@@ -1,9 +1,10 @@
 ---
+title: 常见问题 (FAQ)
 audience: [annotator, project_admin, reviewer, super_admin]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-26
 ---
 
 # 常见问题 (FAQ)
@@ -129,6 +130,45 @@ last_reviewed: 2026-10-12
 
 在项目卡片菜单点击「导入预测」，选择对应的格式类型（YOLO / COCO / AAP JSON）并上传。导入完成后，预测将作为 AI 候选出现在工作台供标注员核验。详见 [预测导入与导出](./datasets/prediction-import-export)。
 
+</details>
+
+## 数据集与存储
+
+<details>
+<summary><strong>Q: 样本状态显示「仅预览可用」和「原图可读」有什么区别？</strong></summary>
+
+- **原图可读**：平台能够访问并校验原始图像字节（SHA-256 一致），支持高清画布标注、AI 预标以及冻结为训练数据版本。
+- **仅预览可用**：平台已生成并缓存了缩略预览图（可在列表或画廊中浏览），但原始文件所在的外部目录、连接器或站点 Agent 当前不可达，或原文件缺失。此时无法发起依赖原图的 AI 预标或创建训练数据版本，需恢复来源连接或绑定同内容的备用来源（Reference Replica）。详见 [数据集工作台与视图](./datasets/workbench)。
+</details>
+
+<details>
+<summary><strong>Q: 切换存储的「九用途映射」后，之前已经上传或生成的文件会受影响吗？</strong></summary>
+
+不会。切换用途映射（Purpose Binding）仅决定切换生效后**新分配对象**（如新上传的托管原件、新生成的派生预览、新创建的训练数据版本或实验产物）写入哪个存储位置。历史已入库的原件、数据版本和实验产物各自绑定了固定存储位置，继续从原位置读取，系统不会自动改读新桶里的同名文件。若需搬迁存量对象，请使用 [对象存储迁移准备](./datasets/storage-migration)。详见 [九用途映射与受控切换](./datasets/purpose-bindings)。
+
+</details>
+
+<details>
+<summary><strong>Q: 跨网络只读站点 Agent 离线时会出现什么情况？如何配置备用来源？</strong></summary>
+
+当只读站点 Agent 离线时，基于该站点的原地引用样本仍可使用平台已缓存的缩略图浏览（显示为「仅预览可用」），但实时回源读取原图、增量扫描同步和创建新训练数据版本会暂停或提示来源不可达。若已在另一处对象存储或受控目录准备了相同文件的镜像，数据管理员可在数据集来源或样本检查器中绑定**显式备用来源（Reference Replica）**；平台校验文件 SHA-256 完全一致后，会自动通过备用来源读取原图。详见 [跨网络站点与 Agent](./datasets/site-agents) 与 [数据来源与增量同步](./datasets/sources)。
+
+</details>
+
+<details>
+<summary><strong>Q: 「归档数据集」和「回收托管原件」是一回事吗？</strong></summary>
+
+不是：
+
+- **归档数据集（Archive）**：仅在业务层封存数据集，防止继续导入新样本或关联到新项目，底层托管原件和历史训练版本完好保留，随时可以取消归档恢复使用。
+- **回收托管原件（Reclaim）**：是释放底层对象存储物理空间的受控操作。只有当某份托管原件不再被任何活动数据集、未归档任务或已冻结训练数据版本引用，并且满足保留策略的冷却期后，超级管理员才能执行物理回收。详见 [原件访问、归档与保留回收](./datasets/lifecycle-and-retention)。
+</details>
+
+<details>
+<summary><strong>Q: 数据集工作台里的「个人筛选视图」和在线学习的「训练数据版本」有什么区别？</strong></summary>
+
+- **个人筛选视图（Saved View）**：保存的是动态筛选条件（如按来源、质量分、分辨率、标注状态过滤），每次打开都会实时查询最新匹配的样本，不会冻结图片或标注。
+- **训练数据版本（Training Dataset Version）**：是将某一时刻符合条件的图片、审核后标注及训练/验证集划分完整校验并复制到独立训练存储的**不可变快照**。在数据集工作台配好筛选后，可点击「冻结当前筛选」将其转化为项目的训练数据版本。详见 [数据集工作台与视图](./datasets/workbench) 与 [训练数据版本](./online-learning/data-versions)。
 </details>
 
 ## 任务分派与批次

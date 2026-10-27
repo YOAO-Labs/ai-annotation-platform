@@ -13,14 +13,15 @@ import re
 
 import pytest
 from PIL import Image
+from sqlalchemy import select
 
-from app.services import avatar as avatar_service
+from app.db.models.avatar_upload import AvatarUpload
 from app.services.avatar_image import (
     MAX_AVATAR_FILE_BYTES,
     AvatarImageError,
     normalize_avatar,
 )
-from tests._avatar_storage import FakeAvatarStorage
+from tests._avatar_storage import FakeAvatarStorage, patch_storage
 
 AVATAR_URL = "/api/v1/auth/me/avatar"
 UPLOAD_REF_RE = re.compile(r"^upload:[0-9a-f]{32}$")
@@ -58,9 +59,7 @@ def _pixel(webp: bytes, x: int, y: int) -> tuple[int, int, int]:
 
 @pytest.fixture
 def fake_storage(monkeypatch) -> FakeAvatarStorage:
-    fake = FakeAvatarStorage()
-    monkeypatch.setattr(avatar_service, "storage_service", fake)
-    return fake
+    return patch_storage(monkeypatch)
 
 
 # ── 1. normalize_avatar 纯函数 ────────────────────────────────────────
@@ -299,14 +298,14 @@ async def test_upload_survives_failed_old_object_cleanup(
     )
     assert second.status_code == 200
     assert UPLOAD_REF_RE.match(second.json()["avatar_ref"])
+    assert second.json()["name"]
+    assert second.json()["email"]
 
 
 async def test_me_and_brief_expose_avatar_ref(
     httpx_client, annotator, db_session, fake_storage
 ):
     """UserOut(/auth/me) 与 UserBrief(任务/批次责任人) 都必须带上 avatar_ref。"""
-    from sqlalchemy import select
-
     from app.db.models.user import User
     from app.services.user_brief import resolve_briefs
 
@@ -326,17 +325,19 @@ async def test_me_and_brief_expose_avatar_ref(
     assert briefs[str(refreshed.id)].avatar_ref == "preset:pixel-12"
 
 
-async def test_definite_avatar_rejection_cleans_only_new_staged_object(
+async def test_definite_avatar_rejection_retains_pending_receipt(
     httpx_client,
     annotator,
     fake_storage,
     db_session,
     app_module,
 ):
+    """A definite owner rejection never deletes bytes whose commit is unknown."""
     from aap_identity.account_contract import AccountFailure
     from app.api.v1.account_commands import get_account_commands
     from app.services.identity_account_commands import IdentityAccountCommands
     from app.services.identity_gateway import get_identity_gateway
+    from app.services import avatar as avatar_service
 
     user, token = annotator
     first = await httpx_client.post(
@@ -363,9 +364,20 @@ async def test_definite_avatar_rejection_cleans_only_new_staged_object(
         assert response.status_code == 401
         await db_session.refresh(user)
         assert user.avatar_ref == old_ref
-        assert set(fake_storage.objects) == {
-            (fake_storage.avatars_bucket, old_ref.split(":", 1)[1] + ".webp")
-        }
+        rows = list(
+            await db_session.scalars(
+                select(AvatarUpload).order_by(AvatarUpload.created_at)
+            )
+        )
+        candidate = [
+            row for row in rows if avatar_service.build_upload_ref(row.token) != old_ref
+        ]
+        assert len(candidate) == 1 and candidate[0].state == "pending"
+        old_key = old_ref.split(":", 1)[1] + ".webp"
+        candidate_key = candidate[0].token + ".webp"
+        assert (fake_storage.avatars_bucket, old_key) in fake_storage.objects
+        assert (fake_storage.avatars_bucket, candidate_key) in fake_storage.objects
+        assert fake_storage.deleted == []
     finally:
         app_module.dependency_overrides.pop(get_account_commands, None)
 
@@ -398,7 +410,7 @@ async def test_unknown_avatar_commit_keeps_the_now_referenced_object(
     try:
         response = await httpx_client.post(
             AVATAR_URL,
-            files={"file": ("next.png", _png_bytes((300, 300)), "image/png")},
+            files={"file": ("next.png", _png_bytes((300, 300), BLUE), "image/png")},
             headers=_bearer(token),
         )
         assert response.status_code == 503 and len(accepted) == 1

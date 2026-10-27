@@ -3,7 +3,7 @@ title: aap CLI 参考
 audience: [dev]
 type: reference
 status: beta
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-24
 ---
 
 # aap CLI 参考
@@ -160,6 +160,9 @@ aap projects create --name demo --type image
 ### aap datasets
 
 ```text
+aap datasets list [--state active|archived|all] [--search ...] [--data-type ...] [--limit <n>] [--offset <n>] [--json]
+aap datasets archive <dataset-id> [--yes] [--json]
+aap datasets restore <dataset-id> [--yes] [--json]
 aap datasets create --name <名称> [--data-type <类型>] [--json]
 aap datasets update <dataset-id> [--name ...] [--description ...] [--axis-convention ...|--clear-axis-convention] [--json]
 aap datasets items <dataset-id> [--limit <n>] [--offset <n>] [--json]
@@ -175,6 +178,9 @@ aap datasets delete <dataset-id> [--yes] [--json]
 - `upload`:路径为目录时递归收集全部文件逐个上传(三步流,带进度条);为单文件时只传该文件;加 `--zip` 则按 ZIP 整包上传、后端解压入库(此时路径必须是 ZIP 文件)。
 - `link`:关联数据集到项目;后端异步建任务时自动跟随 job 进度直到完成。
 - `preview-unlink`:只查询将删除的 task / annotation / batch 计数。`unlink` 的交互模式会先显示同一预览再确认。
+- `list` 默认只列活动数据集；用 `--state archived` 查看归档数据集，或 `--state all` 查看全部。
+- `archive` / `restore` 先读取当前修订并展示影响预览，再确认提交。非交互终端和 JSON 模式必须显式传 `--yes`，否则不发请求；JSON 模式的预览写入 stderr，stdout 仅输出变更结果。预览过期或返回 409 时命令失败，须重新运行并核对，不自动刷新或重试。
+- 归档保留已有任务、标注与冻结内容，停止数据集管理写入和新训练冻结；恢复不重放已撤销权限、来源委托或旧后台任务。归档数据集须先恢复才能删除。冻结版本统计仅覆盖已记录的数据集成员关系。
 
 ```bash
 aap datasets create --name demo-ds

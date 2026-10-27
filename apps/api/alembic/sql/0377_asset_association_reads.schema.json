@@ -1,0 +1,695 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:assets-associations:v1",
+  "title": "Assets dataset and project association reads v1",
+  "description": "Stable, owner-composed reads for project-linked datasets and dataset-linked Project snapshots.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.list_dataset_projects(uuid, uuid)",
+    "aap_assets_v1.list_project_datasets(uuid, uuid)"
+  ],
+  "x-owner-projections": {
+    "identity": "aap_identity_v1.read_actor_facts(uuid)",
+    "workspace": [
+      "aap_workspace_v1.project_catalog_configs(project_id, project_config)",
+      "aap_workspace_v1.read_project_visibility(uuid, uuid)"
+    ],
+    "labeling": [
+      "aap_labeling_v1.project_catalog_counters(project_id, total_tasks, completed_tasks, review_tasks, in_progress_tasks, batch_summary)",
+      "aap_labeling_v1.project_dataset_task_counts(uuid)"
+    ],
+    "assets": "aap_assets_v1.project_dataset_item_sources(project_id, dataset_id, item_id)"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/listDatasetProjectsCall"
+    },
+    {
+      "$ref": "#/$defs/listProjectDatasetsCall"
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableUuid": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "workspaceProjectSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "organization_id",
+        "display_id",
+        "name",
+        "type_label",
+        "type_key",
+        "data_type",
+        "owner_id",
+        "status",
+        "ai_enabled",
+        "tool_bindings",
+        "label_config",
+        "sampling",
+        "maximum_annotations",
+        "show_overlap_first",
+        "iou_dedup_threshold",
+        "box_threshold",
+        "text_threshold",
+        "ai_interactive_enabled",
+        "raster_mask_native_editing_enabled",
+        "mask_qc_config",
+        "point_cloud_quality_config",
+        "rendering_config",
+        "video_sampling",
+        "video_collaboration",
+        "scene_mode",
+        "prefer_same_scene_continuation",
+        "scene_continuation_window_min",
+        "default_variants",
+        "preannotate_pipeline",
+        "annotation_guide",
+        "guide_assets",
+        "guide_assets_revision",
+        "model_version",
+        "task_lock_ttl_seconds",
+        "due_date",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "organization_id": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "display_id": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "type_label": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "type_key": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "data_type": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "owner_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "status": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "ai_enabled": {
+          "type": "boolean"
+        },
+        "tool_bindings": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "label_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "sampling": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "maximum_annotations": {
+          "type": "integer"
+        },
+        "show_overlap_first": {
+          "type": "boolean"
+        },
+        "iou_dedup_threshold": {
+          "type": "number"
+        },
+        "box_threshold": {
+          "type": "number"
+        },
+        "text_threshold": {
+          "type": "number"
+        },
+        "ai_interactive_enabled": {
+          "type": "boolean"
+        },
+        "raster_mask_native_editing_enabled": {
+          "type": "boolean"
+        },
+        "mask_qc_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "point_cloud_quality_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "rendering_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "video_sampling": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "video_collaboration": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "scene_mode": {
+          "type": "boolean"
+        },
+        "prefer_same_scene_continuation": {
+          "type": "boolean"
+        },
+        "scene_continuation_window_min": {
+          "type": "integer"
+        },
+        "default_variants": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "preannotate_pipeline": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/jsonObject"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "annotation_guide": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "guide_assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonObject"
+          }
+        },
+        "guide_assets_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "model_version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "task_lock_ttl_seconds": {
+          "type": "integer"
+        },
+        "due_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "linkedProjectSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "organization_id",
+        "display_id",
+        "name",
+        "type_label",
+        "type_key",
+        "data_type",
+        "owner_id",
+        "status",
+        "ai_enabled",
+        "tool_bindings",
+        "label_config",
+        "sampling",
+        "maximum_annotations",
+        "show_overlap_first",
+        "iou_dedup_threshold",
+        "box_threshold",
+        "text_threshold",
+        "ai_interactive_enabled",
+        "raster_mask_native_editing_enabled",
+        "mask_qc_config",
+        "point_cloud_quality_config",
+        "rendering_config",
+        "video_sampling",
+        "video_collaboration",
+        "scene_mode",
+        "prefer_same_scene_continuation",
+        "scene_continuation_window_min",
+        "default_variants",
+        "preannotate_pipeline",
+        "annotation_guide",
+        "guide_assets",
+        "guide_assets_revision",
+        "model_version",
+        "task_lock_ttl_seconds",
+        "due_date",
+        "created_at",
+        "updated_at",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "in_progress_tasks",
+        "batch_summary"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "organization_id": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "display_id": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "type_label": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "type_key": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "data_type": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "owner_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "status": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "ai_enabled": {
+          "type": "boolean"
+        },
+        "tool_bindings": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "label_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "sampling": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "maximum_annotations": {
+          "type": "integer"
+        },
+        "show_overlap_first": {
+          "type": "boolean"
+        },
+        "iou_dedup_threshold": {
+          "type": "number"
+        },
+        "box_threshold": {
+          "type": "number"
+        },
+        "text_threshold": {
+          "type": "number"
+        },
+        "ai_interactive_enabled": {
+          "type": "boolean"
+        },
+        "raster_mask_native_editing_enabled": {
+          "type": "boolean"
+        },
+        "mask_qc_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "point_cloud_quality_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "rendering_config": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "video_sampling": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "video_collaboration": {
+          "$ref": "#/$defs/jsonObject"
+        },
+        "scene_mode": {
+          "type": "boolean"
+        },
+        "prefer_same_scene_continuation": {
+          "type": "boolean"
+        },
+        "scene_continuation_window_min": {
+          "type": "integer"
+        },
+        "default_variants": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "preannotate_pipeline": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/jsonObject"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "annotation_guide": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "guide_assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonObject"
+          }
+        },
+        "guide_assets_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "model_version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "task_lock_ttl_seconds": {
+          "type": "integer"
+        },
+        "due_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "total_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "review_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "in_progress_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "batch_summary": {
+          "$ref": "#/$defs/jsonObject"
+        }
+      }
+    },
+    "datasetProjectsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataset_id",
+        "projects"
+      ],
+      "properties": {
+        "dataset_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/linkedProjectSnapshot"
+          }
+        }
+      }
+    },
+    "projectDatasetSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "display_id",
+        "name",
+        "data_type",
+        "linked_at",
+        "items_count",
+        "tasks_in_project"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "display_id": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "data_type": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "linked_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "items_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tasks_in_project": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "projectDatasetsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "datasets"
+      ],
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "datasets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectDatasetSummary"
+          }
+        }
+      }
+    },
+    "successEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "ok",
+        "data"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-assets-associations/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/datasetProjectsResult"
+            },
+            {
+              "$ref": "#/$defs/projectDatasetsResult"
+            }
+          ]
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "ok",
+        "error"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-assets-associations/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "account_not_active",
+                "invalid_account_role",
+                "project_missing",
+                "invalid_project_role",
+                "incompatible_project_role"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "reply": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/successEnvelope"
+        },
+        {
+          "$ref": "#/$defs/failure"
+        }
+      ]
+    },
+    "listDatasetProjectsCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "function",
+        "arguments",
+        "result"
+      ],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.list_dataset_projects(uuid, uuid)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "p_actor_id",
+            "p_dataset_id"
+          ],
+          "properties": {
+            "p_actor_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "p_dataset_id": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        },
+        "result": {
+          "$ref": "#/$defs/reply"
+        }
+      }
+    },
+    "listProjectDatasetsCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "function",
+        "arguments",
+        "result"
+      ],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.list_project_datasets(uuid, uuid)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "p_actor_id",
+            "p_project_id"
+          ],
+          "properties": {
+            "p_actor_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "p_project_id": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        },
+        "result": {
+          "$ref": "#/$defs/reply"
+        }
+      }
+    }
+  }
+}

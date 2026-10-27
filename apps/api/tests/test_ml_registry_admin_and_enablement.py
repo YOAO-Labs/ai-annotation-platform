@@ -629,6 +629,67 @@ async def test_managed_gpu_registry_mutation_requires_retirement(
     )
 
 
+@pytest.mark.parametrize("active", [False, True])
+async def test_managed_gpu_registry_allows_auth_rotation_without_changing_membership(
+    httpx_client, db_session, super_admin, monkeypatch, active
+):
+    from app.db.models.gpu_backend_membership import GPUBackendMembership
+
+    _, token = super_admin
+    resource_id = _configure_gpu(monkeypatch)
+    backend = await _seed_registry(db_session, name="managed-auth")
+    backend.gpu_resource_id = resource_id
+    backend.vram_budget_mb = 18000
+    await db_session.flush()
+    fence = await db_session.get(GPUBackendFence, backend.id)
+    if active:
+        fence.runtime_epoch_high_water = 1
+        await db_session.flush()
+        membership = await db_session.get(
+            GPUBackendMembership, (backend.id, resource_id)
+        )
+        membership.state = "active"
+        await db_session.flush()
+    fence.runtime_epoch_high_water = 3
+    fence.generation_high_water = 7
+    fence.control_epoch_high_water = 9
+    horizon = datetime.now(UTC) + timedelta(minutes=5)
+    fence.token_expiry_high_water = horizon
+    await db_session.commit()
+    membership = await db_session.get(GPUBackendMembership, (backend.id, resource_id))
+    membership_epoch = membership.membership_epoch
+    membership_state = membership.state
+
+    response = await httpx_client.put(
+        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+        json={
+            "auth_method": "token",
+            "auth_token": "rotation-test-credential-" + "x" * 32,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["auth_method"] == "token"
+    assert "auth_token" not in response.json()
+    assert "auth_revision" not in response.json()
+    assert response.json()["state"] == "disconnected"
+    assert response.json()["health_meta"] is None
+    await db_session.refresh(backend)
+    await db_session.refresh(membership)
+    await db_session.refresh(fence)
+    assert backend.auth_revision == 1
+    assert backend.last_checked_at is None
+    assert membership.membership_epoch == membership_epoch
+    assert membership.state == membership_state
+    assert (
+        fence.runtime_epoch_high_water,
+        fence.generation_high_water,
+        fence.control_epoch_high_water,
+        fence.token_expiry_high_water,
+    ) == (3, 7, 9, horizon)
+
+
 async def test_update_registry_url_invalidates_old_health_evidence(
     httpx_client, db_session, super_admin
 ):

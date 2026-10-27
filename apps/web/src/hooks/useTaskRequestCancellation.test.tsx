@@ -2,6 +2,7 @@ import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useAuthStore } from "@/stores/authStore";
 
 const getAnnotationsMock = vi.hoisted(() => vi.fn());
 const getVideoManifestMock = vi.hoisted(() => vi.fn());
@@ -41,6 +42,12 @@ function pendingUntilAbort(init?: RequestInit): Promise<never> {
 
 describe("task-scoped query cancellation", () => {
   beforeEach(() => {
+    localStorage.setItem("token", "video-test-token");
+    useAuthStore.setState({
+      token: "video-test-token",
+      sessionId: "video-test-session",
+      user: { id: "user-1" } as NonNullable<ReturnType<typeof useAuthStore.getState>["user"]>,
+    });
     getAnnotationsMock
       .mockReset()
       .mockImplementation((_taskId: string, _segmentId?: string | null, init?: RequestInit) =>

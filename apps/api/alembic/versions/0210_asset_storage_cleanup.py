@@ -1,7 +1,7 @@
 """Add bucket-filtered keyset paging for the independent Assets cleanup worker.
 
-Revision ID: 0210
-Revises: 0209
+Revision ID: bo0210
+Revises: bo0209
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0210"
-down_revision = "0209"
+revision = "bo0210"
+down_revision = "bo0209"
 branch_labels = depends_on = None
 
 _ARTIFACT_NAME = "0210_asset_storage_cleanup.sql"

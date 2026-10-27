@@ -1,7 +1,7 @@
 """Preserve the project update timestamp on native task append.
 
-Revision ID: 0195
-Revises: 0194
+Revision ID: bo0195
+Revises: bo0194
 """
 
 from pathlib import Path
@@ -9,8 +9,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0195"
-down_revision = "0194"
+revision = "bo0195"
+down_revision = "bo0194"
 branch_labels = depends_on = None
 
 

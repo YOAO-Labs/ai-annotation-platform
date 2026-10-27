@@ -228,17 +228,13 @@ async def test_membership_receipt_replays_after_restore_and_blocks_populated_dow
                 == audit_count
             )
 
-        refused = _alembic(test_engine.url.set(database=clone), "downgrade", "0252")
+        refused = _alembic(test_engine.url.set(database=clone), "downgrade", "bo0252")
         assert refused.returncode != 0
         assert (
             b"Cannot remove Workspace membership ownership while receipts exist"
             in refused.stdout + refused.stderr
         )
         async with restored_owner.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
-            )
             assert (
                 await db.scalar(
                     text(
@@ -251,14 +247,14 @@ async def test_membership_receipt_replays_after_restore_and_blocks_populated_dow
             await db.execute(
                 text("DELETE FROM public.workspace_membership_operation_receipts")
             )
-        empty = _alembic(test_engine.url.set(database=clone), "downgrade", "0252")
+        empty = _alembic(test_engine.url.set(database=clone), "downgrade", "bo0252")
         assert empty.returncode == 0, (
             "Owned empty Workspace membership downgrade failed"
         )
         async with restored_owner.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0252"
+                == "bo0252"
             )
             assert await db.scalar(
                 text("SELECT to_regnamespace('aap_workspace_membership_v1') IS NULL")

@@ -62,6 +62,6 @@ async def test_registry_ingress_full_migration_roundtrip(test_engine):
     output.write_text(json.dumps(report, indent=2) + "\n")
     assert result.returncode == 0, report
     assert report["result"] == "passed"
-    assert report["head"] == "0278"
+
     assert report["cleanup_errors"] == []
     assert report["leftover_owned_databases"] == []

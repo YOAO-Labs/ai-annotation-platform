@@ -37,7 +37,7 @@ from app.services.video_collaboration import (
     segment_work_bounds,
 )
 from app.services.video_context import derive_step
-from app.services.video_frame_service import AssetsVideoContextReader
+from app.services.video_frame_service import build_context_from_task
 from app.services.video_tracks import resolve_track_at_frame
 from app.vendor.trackeval_metrics import evaluate_sequence
 from app.services.labeling_spatial_quality import (
@@ -111,15 +111,7 @@ async def _boundary(
             right_status=right.status,
         )
     if video_metadata is None:
-        video_metadata = (
-            await AssetsVideoContextReader(db).from_task(
-                actor_id=actor_id,
-                task_id=task.id,
-                project_id=task.project_id,
-                file_type=task.file_type,
-                dataset_item_id=task.dataset_item_id,
-            )
-        ).metadata
+        video_metadata = (await build_context_from_task(db, task)).metadata
     sampling = project.video_sampling or {}
     if (
         video_metadata.frame_count is None
@@ -628,12 +620,7 @@ async def evaluate_run(
         if geometry_family(row.geometry) in {"bbox", "polygon", "mask"}
     ]
     frames = [int(value) for value in (run.metrics or {}).get("sampling_frames") or []]
-    ctx = await AssetsVideoContextReader(db).from_task_summary(
-        task_id=task.id,
-        project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
-    )
+    ctx = await build_context_from_task(db, task)
     width, height = int(ctx.metadata.width or 1), int(ctx.metadata.height or 1)
     left_ids = {row.id: index for index, row in enumerate(left)}
     right_ids = {row.id: index for index, row in enumerate(right)}

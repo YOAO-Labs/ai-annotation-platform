@@ -35,12 +35,14 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
         task: Task,
         annotation: Annotation,
         actor: User | IdentityActorFacts,
+        original_operation=None,
     ) -> None:
         self._db = db
         self._task = task
         self._annotation = annotation
         self._actor = actor
         self._annotations = AnnotationService(db)
+        self._original_operation = original_operation
 
     def _assert_bound(self, write_scope: LabelingWriteScope) -> None:
         if (
@@ -99,6 +101,10 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
                     "created_children": len(children),
                 },
             )
+            if self._original_operation is not None:
+                # Verify current owner credentials in the same transaction that
+                # persists the derived annotations, before it can commit.
+                await self._original_operation.recheck_credentials()
             await self._db.commit()
             await refresh_core_row(self._db, annotation_row, updated)
             for child in children:

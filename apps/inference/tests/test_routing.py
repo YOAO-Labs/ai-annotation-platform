@@ -60,6 +60,9 @@ def _registry_row(registry_id, *, capabilities=None, checked_at=None):
         "is_interactive": False,
         "auth_method": "token",
         "auth_token": "private-synthetic-credential",
+        # Native admission serializes the whole registry row, including the
+        # database-managed rotation revision.
+        "auth_revision": 0,
         "extra_params": {"max_concurrency": 2},
         "gpu_resource_id": None,
         "vram_budget_mb": None,
@@ -445,6 +448,30 @@ async def test_enforce_eligibility_uses_full_rows_and_python_capability_fingerpr
     assert reserve["candidate_ids"] == [str(_LEGACY_ID)]
     assert reserve["snapshot"] == "opaque-snapshot-token"
     assert "private-synthetic-credential" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_admission_consumes_the_registry_rotation_revision():
+    native = _Native()
+    for item in native.snapshot["members"]:
+        item["registry"]["auth_revision"] = 3
+    result = await _manager(native).execute(_acquire())
+    assert result.state == "committed"
+    assert result.result.registry_id == _LEGACY_ID
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_revision", [None, -1, True, "0"])
+async def test_admission_rejects_an_invalid_registry_rotation_revision(auth_revision):
+    native = _Native()
+    for item in native.snapshot["members"]:
+        if auth_revision is None:
+            item["registry"].pop("auth_revision")
+        else:
+            item["registry"]["auth_revision"] = auth_revision
+    with pytest.raises(RoutingUnavailable):
+        await _manager(native).execute(_acquire())
+    assert not any(action == "reserve_scope" for action, _ in native.calls)
 
 
 @pytest.mark.asyncio

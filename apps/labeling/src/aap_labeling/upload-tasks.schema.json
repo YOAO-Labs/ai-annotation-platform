@@ -1,49 +1,74 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "aap-labeling-upload-tasks/v1",
+  "$id": "aap-labeling-upload-tasks/v2",
   "$defs": {
-    "UploadTarget": {
+    "CreateUploadingTask": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "task_id": { "type": "string", "format": "uuid" },
         "project_id": { "type": "string", "format": "uuid" },
-        "batch_id": { "type": ["string", "null"], "format": "uuid" },
-        "file_path": { "type": "string", "maxLength": 1000 },
-        "file_type": { "type": "string", "maxLength": 20 }
-      },
-      "required": ["task_id", "project_id", "batch_id", "file_path", "file_type"]
-    },
-    "CreateUploadTask": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "task_id": { "type": "string", "format": "uuid" },
-        "project_id": { "type": "string", "format": "uuid" },
+        "display_id": { "type": "string", "maxLength": 30 },
         "file_name": { "type": "string", "maxLength": 500 },
         "file_path": { "type": "string", "maxLength": 1000 },
-        "file_type": { "type": "string", "maxLength": 20 }
+        "file_type": { "enum": ["image", "video", "other"] },
+        "actor_id": { "type": "string", "format": "uuid" }
       },
-      "required": ["task_id", "project_id", "file_name", "file_path", "file_type"]
+      "required": [
+        "task_id",
+        "project_id",
+        "display_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "actor_id"
+      ]
     },
-    "CompleteUploadResult": {
-      "enum": ["pending", "task_not_found", "task_not_uploading", "task_target_changed"]
+    "PublishTaskOriginal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_id": { "type": "string", "format": "uuid" },
+        "project_id": { "type": "string", "format": "uuid" },
+        "actor_id": { "type": "string", "format": "uuid" },
+        "original_id": { "type": "string", "format": "uuid" },
+        "creation_id": { "type": "string", "format": "uuid" },
+        "expected_status": { "type": "string", "maxLength": 20 }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "original_id",
+        "creation_id",
+        "expected_status"
+      ]
+    },
+    "TaskOriginalPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "original_id": { "type": "string", "format": "uuid" },
+        "status": { "type": "string", "maxLength": 20 },
+        "version": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["original_id", "status", "version"]
     }
   },
   "x-postgresql-functions": {
     "aap_labeling_v1.create_uploading_task": {
-      "arguments": "uuid,uuid,text,text,text",
-      "request": "CreateUploadTask",
-      "returns": "uuid",
-      "reply": "the exact requested Task UUID",
+      "arguments": "uuid,uuid,text,text,text,text,uuid",
+      "request": "CreateUploadingTask",
+      "returns": "boolean",
+      "reply": "true only for the fixed uploading Task row created by this call",
       "volatility": "volatile",
       "parallel": "unsafe"
     },
-    "aap_labeling_v1.complete_uploading_task": {
-      "arguments": "uuid,uuid,uuid,text,text",
-      "request": "UploadTarget",
-      "returns": "text",
-      "reply": "CompleteUploadResult",
+    "aap_labeling_v1.publish_task_original": {
+      "arguments": "uuid,uuid,uuid,uuid,uuid,text",
+      "request": "PublishTaskOriginal",
+      "returns": "table(original_id uuid, status text, version int8)",
+      "reply": "TaskOriginalPublication, or no row when the captured status, source binding or verified creation no longer matches",
       "volatility": "volatile",
       "parallel": "unsafe"
     }
@@ -51,12 +76,12 @@
   "x-security": {
     "owner": "NOLOGIN Labeling definer; PUBLIC execute revoked",
     "search_path": "pg_catalog,pg_temp",
-    "authority": "caller holds current Identity and Workspace manager fences; completion holds canonical Task fence after storage I/O"
+    "authority": "caller holds current Identity and Workspace manager fences; publication verifies the Assets-owned creation binding before the Task pointer CAS"
   },
   "x-transactions": {
     "commit": false,
     "rollback": false,
-    "completion": "blocking Task lock, uploading-state and captured target comparison; status update and image admission share caller transaction",
-    "initialization": "original Task defaults and display_seq_tasks allocation; caller retains original commit before signed URL generation"
+    "initialization": "caller allocates the independent managed original, then creates the fixed uploading Task in the same transaction and commits before signing the staging URL",
+    "completion": "caller verifies and seals the independent original, then republishes the immutable source and atomically casts the Task pointer from the observed uploading status"
   }
 }

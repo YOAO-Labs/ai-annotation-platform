@@ -17,10 +17,10 @@ from ai_annotation.cli._output import (
 from ai_annotation.file_models import FileUploadInit, FileUploadInitRequest
 
 app = typer.Typer(
-    help="文件上传与任务文件 URL。",
+    help="文件上传与任务原件下载。",
     no_args_is_help=True,
     rich_markup_mode="rich",
-    epilog="示例: [dim]aap files upload-init --project-id ... --file-name image.jpg --yes --json[/]",
+    epilog="示例: [dim]aap files upload-init --project-id ... --file-name image.jpg --yes --json[/] · [dim]aap files download TASK_ID -o original.jpg[/]",
 )
 
 
@@ -61,16 +61,17 @@ def upload_complete(
     print_learning_result(result, json_output)
 
 
-@app.command("file-url")
-def file_url(
+@app.command("download")
+def download(
     task_id: str = typer.Argument(..., help="任务 UUID"),
+    output: Path = typer.Option(..., "--output", "-o", help="写入本地文件的路径"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """取得有时效的任务文件下载 URL。"""
+    """认证下载 SHA-256 校验后的任务原件。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            result = client.files.file_url(task_id)
-    print_learning_result(result, json_output)
+            destination = client.files.download_original(task_id, output)
+    print_learning_result({"task_id": task_id, "path": str(destination)}, json_output)
 
 
 @app.command("upload-content")

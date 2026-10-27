@@ -9,17 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.async_job_contracts import (
     AsyncJobOperationFailure,
     PredictionRetryPort,
+    RetryCredentialAuthority,
 )
 from app.services.project_access import get_workspace_project
-from app.config import settings
 from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob
 from app.services.ml_backend import MLBackendService
 from app.schemas.async_job import AsyncJobRetryFailedResponse
 from app.services import async_job as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.pipeline_validation import resolve_preannotate_queue
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
+from app.services.prediction_retries import (
+    bind_retry_authority,
+    capture_retry_authority,
+    resolve_retry_target,
+)
 from app.services.labeling_core_read_relations import (
     failed_prediction_row,
     get_core_row,
@@ -38,13 +42,37 @@ class SqlPredictionRetry(PredictionRetryPort):
         self._db = db
         self._dispatcher = dispatcher
 
-    async def _admit(self, failed_id, actor_id, execution_queue):
+    async def _admit(
+        self,
+        failed_id,
+        actor_id,
+        execution_queue,
+        credential,
+        *,
+        project_id=None,
+        follow_target_queue=True,
+    ):
         from aap_preannotation_results.retry_contract import (
             AdmitPredictionRetryRequest,
             PredictionRetryFailure,
         )
         from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
 
+        fp = await get_core_row(self._db, failed_prediction_row, failed_id)
+        if not fp:
+            _raise_retry_failure("not_found")
+        # Resolve the immutable evidence, snapshot and queue before the ledger
+        # admits the retry so an ineligible failure leaves no Job behind.
+        target = await resolve_retry_target(
+            self._db, fp, actor_id=actor_id, project_id=project_id
+        )
+        queue = (
+            execution_queue
+            if execution_queue is not None
+            else target.queue
+            if follow_target_queue
+            else None
+        )
         try:
             result = await SqlAlchemyPredictionRetryData(self._db, writer=True).call(
                 "admit_prediction_retry",
@@ -52,15 +80,31 @@ class SqlPredictionRetry(PredictionRetryPort):
                     job_id=uuid.uuid4(),
                     failed_prediction_id=failed_id,
                     actor_id=actor_id,
-                    execution_queue=execution_queue,
+                    execution_queue=queue,
                 ),
             )
         except PredictionRetryFailure as error:
             _raise_retry_failure(error.code)
+        attempt = result.attempt
+        job = await jobs.get_job(self._db, attempt.job_id, populate_existing=True)
+        if job is None:
+            _raise_retry_failure("storage_unavailable")
+        # Fresh source/manager/model authority captured by the input owners is
+        # written into the Job this transaction admitted; a rejection rolls the
+        # whole admission back, and a redelivery cannot replace it.
+        updates = await capture_retry_authority(
+            self._db, target, actor_id=actor_id, credential=credential
+        )
+        await bind_retry_authority(
+            self._db,
+            job,
+            updates,
+            actor_id=actor_id,
+            snapshot_id=target.snapshot_id,
+        )
         # Display metadata stays optional; authority and immutable parameters
         # were already accepted by the native owners in this same transaction.
         metadata = {}
-        attempt = result.attempt
         task = (
             await get_core_row(self._db, task_row, attempt.task_id)
             if attempt.task_id
@@ -85,7 +129,11 @@ class SqlPredictionRetry(PredictionRetryPort):
         return attempt
 
     async def retry_prediction(
-        self, *, failed_id: uuid.UUID, actor_id: uuid.UUID
+        self,
+        *,
+        failed_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        credential: RetryCredentialAuthority,
     ) -> None:
         try:
             db = self._db
@@ -106,33 +154,7 @@ class SqlPredictionRetry(PredictionRetryPort):
                 raise HTTPException(
                     status_code=409, detail=f"Max retries ({MAX_RETRY_COUNT}) exceeded"
                 )
-            device: str | None = None
-            if fp.ml_backend_id is not None:
-                registry = await MLBackendService(db).get_registry(fp.ml_backend_id)
-                if registry is not None:
-                    health_meta = registry.health_meta or {}
-                    rp = (health_meta.get("capabilities") or {}).get(
-                        "resource_profile"
-                    ) or {}
-                    device = rp.get("device")
-                    extra = fp.extra if isinstance(fp.extra, dict) else {}
-                    context = extra.get("request_context")
-                    context = context if isinstance(context, dict) else {}
-                    from app.services.trained_models import (
-                        controlled_device,
-                        is_controlled,
-                    )
-
-                    if is_controlled(context.get("model_id")) or context.get(
-                        "frozen_model_ref"
-                    ):
-                        device = controlled_device(registry)
-            queue = resolve_preannotate_queue(
-                [device],
-                gpu_queue=settings.preannotate_gpu_queue,
-                cpu_queue=settings.preannotate_cpu_queue,
-            )
-            attempt = await self._admit(failed_id, actor_id, queue)
+            attempt = await self._admit(failed_id, actor_id, None, credential)
             await db.commit()
             from app.application.prediction_retry_delivery import publish_admitted_retry
 
@@ -147,7 +169,11 @@ class SqlPredictionRetry(PredictionRetryPort):
             ) from exc
 
     async def retry_job_items(
-        self, *, job_id: uuid.UUID, actor_id: uuid.UUID
+        self,
+        *,
+        job_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        credential: RetryCredentialAuthority,
     ) -> AsyncJobRetryFailedResponse:
         try:
             db = self._db
@@ -201,7 +227,14 @@ class SqlPredictionRetry(PredictionRetryPort):
             for failed_id in failed_ids:
                 try:
                     async with db.begin_nested():
-                        attempt = await self._admit(failed_id, actor_id, None)
+                        attempt = await self._admit(
+                            failed_id,
+                            actor_id,
+                            None,
+                            credential,
+                            project_id=job.project_id,
+                            follow_target_queue=False,
+                        )
                 except HTTPException as error:
                     if error.status_code in {404, 409}:
                         continue
@@ -242,6 +275,8 @@ def _raise_retry_failure(code):
         "retry_limit": (409, f"Max retries ({MAX_RETRY_COUNT}) exceeded"),
         "dismissed": (409, "Failed prediction is dismissed; restore it before retry"),
         "scope_mismatch": (409, "Retry admission scope changed"),
+        "job_not_writable": (409, "Retry job is no longer writable"),
+        "content_binding_changed": (409, "Retry source binding changed"),
     }.get(code, (503, "Retry admission is unavailable"))
     raise HTTPException(status_code=status, detail=detail)
 

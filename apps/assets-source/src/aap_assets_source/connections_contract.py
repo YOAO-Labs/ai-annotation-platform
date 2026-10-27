@@ -26,6 +26,7 @@ ConnectionAction = Literal["create", "update", "delete", "test"]
 ConnectionAccess = Literal["use", "admin"]
 PlatformRole = Literal["super_admin", "project_admin", "employee", "viewer"]
 Digest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
+Revision = Annotated[StrictInt, Field(ge=1)]
 PageSize = Annotated[StrictInt, Field(ge=1, le=500)]
 Count = Annotated[StrictInt, Field(ge=0)]
 SecretEnvelope = Annotated[StrictStr, Field(min_length=1, max_length=16_777_216)]
@@ -54,6 +55,7 @@ class ConnectionCursor(_Value):
 
 class NativeConnectionFacts(_Value):
     id: UUID
+    revision: Revision
     name: StrictStr
     kind: ConnectionKind
     config: dict[str, Any]
@@ -63,6 +65,8 @@ class NativeConnectionFacts(_Value):
     created_by: UUID | None
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    location_id: UUID | None = None
+    location_config_revision: Revision | None = None
 
 
 class ConnectionRecord(NativeConnectionFacts):
@@ -125,13 +129,53 @@ class CreateConnectionRequest(_Value):
     )
 
 
+class ConnectionAuthorityProof(_Value):
+    scopes: list[StrictStr]
+    expires_at: AwareDatetime | None
+    revision: Digest
+
+
+class ConnectionProbeLease(_Value):
+    operation_id: UUID
+    connection_id: UUID
+    location_id: UUID
+    revision: Revision
+    proof: ConnectionAuthorityProof | None
+
+
+class ConnectionProbeFinish(_Value):
+    settled: StrictBool
+    retained: StrictBool
+    proof: ConnectionAuthorityProof | None
+
+
+class BeginConnectionProbeRequest(_Value):
+    connection_id: UUID
+    actor_id: UUID
+    api_key_id: UUID | None = None
+    required_scopes: list[StrictStr] = Field(default_factory=list)
+
+
+class FinishConnectionProbeRequest(_Value):
+    operation_id: UUID
+    connection_id: UUID
+    actor_id: UUID
+    api_key_id: UUID | None = None
+    required_scopes: list[StrictStr] = Field(default_factory=list)
+    expected_proof: ConnectionAuthorityProof | None = None
+    settled: StrictBool
+
+
 class UpdateConnectionRequest(_Value):
     operation_id: UUID
     actor_id: UUID
     connection_id: UUID
+    expected_revision: Revision
     name: Annotated[StrictStr, Field(min_length=1, max_length=255)] | None = None
     config: dict[str, Any] | None = None
     secret: dict[str, Any] | None = Field(default=None, repr=False)
+    api_key_id: UUID | None = None
+    accepted_api_key_proof: ConnectionAuthorityProof | None = None
     audit_context: ProjectDeletionAuditContext = Field(
         default_factory=ProjectDeletionAuditContext
     )
@@ -306,6 +350,12 @@ class UpdateConnectionNativeRequest(_Value):
     )
 
 
+class UpdateConnectionAuthorizedRequest(UpdateConnectionNativeRequest):
+    api_key_id: UUID | None = None
+    required_scopes: list[StrictStr] = Field(default_factory=list)
+    expected_proof: ConnectionAuthorityProof | None = None
+
+
 class RecordConnectionTestRequest(_Value):
     operation_id: UUID
     actor_id: UUID
@@ -350,7 +400,7 @@ CONNECTION_NATIVE_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "fallback_allowlist",
         "audit_context",
     ),
-    "update_storage_connection": (
+    "update_storage_connection_authorized": (
         "operation_id",
         "actor_id",
         "connection_id",
@@ -361,6 +411,9 @@ CONNECTION_NATIVE_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "policy_digest",
         "fallback_allowlist",
         "audit_context",
+        "api_key_id",
+        "required_scopes",
+        "expected_proof",
     ),
     "delete_storage_connection": (
         "operation_id",
@@ -379,6 +432,32 @@ CONNECTION_NATIVE_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "audit_context",
     ),
 }
+RUNTIME_NATIVE_SIGNATURES = {
+    "begin_connection_probe": "uuid,uuid,uuid,text[]",
+    "finish_connection_probe": "uuid,uuid,uuid,uuid,text[],jsonb,boolean",
+}
+RUNTIME_NATIVE_ARGUMENTS = {
+    "begin_connection_probe": (
+        "connection_id",
+        "actor_id",
+        "api_key_id",
+        "required_scopes",
+    ),
+    "finish_connection_probe": (
+        "operation_id",
+        "connection_id",
+        "actor_id",
+        "api_key_id",
+        "required_scopes",
+        "expected_proof",
+        "settled",
+    ),
+}
+RUNTIME_NATIVE_OPERATIONS = {
+    "begin_connection_probe": (BeginConnectionProbeRequest, ConnectionProbeLease),
+    "finish_connection_probe": (FinishConnectionProbeRequest, ConnectionProbeFinish),
+}
+
 CONNECTION_NATIVE_SIGNATURES = {
     "list_storage_connections": "uuid,timestamptz,uuid,integer",
     "read_storage_connection": "uuid,uuid",
@@ -386,7 +465,7 @@ CONNECTION_NATIVE_SIGNATURES = {
     "capture_storage_connection": "uuid,uuid,text",
     "read_storage_connection_receipt": "uuid,uuid,text,uuid,jsonb",
     "create_storage_connection": "uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb",
-    "update_storage_connection": "uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb",
+    "update_storage_connection_authorized": "uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb",
     "delete_storage_connection": "uuid,uuid,uuid,jsonb",
     "record_storage_connection_test": "uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb",
 }
@@ -403,8 +482,8 @@ CONNECTION_NATIVE_OPERATIONS = {
         CreateConnectionNativeRequest,
         NativeConnectionMutation,
     ),
-    "update_storage_connection": (
-        UpdateConnectionNativeRequest,
+    "update_storage_connection_authorized": (
+        UpdateConnectionAuthorizedRequest,
         NativeConnectionMutation,
     ),
     "delete_storage_connection": (DeleteConnectionRequest, NativeConnectionMutation),
@@ -443,6 +522,11 @@ CONNECTION_ERROR_CODES = frozenset(
         "crypto_not_configured",
         "crypto_error",
         "storage_unavailable",
+        "storage_maintenance",
+        "connection_revision_conflict",
+        "api_key_authority_revoked",
+        "operation_missing",
+        "storage_maintenance_changed",
         "service_unavailable",
         "invalid_response",
         "resource_budget_exceeded",
@@ -470,6 +554,50 @@ class ConnectionFailure(Exception):
 
 
 _RESULT = TypeVar("_RESULT", bound=BaseModel)
+
+
+PROBE_SCHEMA = "aap-assets-connection-probe/v1"
+
+
+class _Failure(_Value):
+    code: Literal[
+        "invalid_request",
+        "connection_missing",
+        "connection_busy",
+        "operation_conflict",
+        "operation_missing",
+        "storage_maintenance",
+        "storage_maintenance_changed",
+        "api_key_authority_revoked",
+    ]
+
+
+class _ProbeReply(_Value):
+    schema_version: Literal["aap-assets-connection-probe/v1"] = Field(alias="schema")
+    ok: StrictBool
+    data: Any = None
+    error: _Failure | None = None
+
+    @model_validator(mode="after")
+    def check_branch(self):
+        if self.ok:
+            if self.data is None or "error" in self.model_fields_set:
+                raise ValueError("successful probe reply contains only data")
+        elif self.error is None or "data" in self.model_fields_set:
+            raise ValueError("failed probe reply contains only its error")
+        return self
+
+
+def decode_connection_probe_reply(payload: object, model: type[_Value]) -> _Value:
+    if isinstance(payload, str):
+        payload = json.loads(payload, parse_constant=_reject_constant)
+    reply = _ProbeReply.model_validate(payload)
+    if reply.schema_version != PROBE_SCHEMA:
+        raise ValueError("Unexpected connection probe contract")
+    if not reply.ok:
+        assert reply.error is not None
+        raise ConnectionFailure(reply.error.code)
+    return model.model_validate(reply.data)
 
 
 def decode_connection_reply(payload: object, result_type: type[_RESULT]) -> _RESULT:
@@ -601,6 +729,7 @@ def connections_contract_document() -> dict[str, Any]:
     for request, result in (
         *CONNECTION_NATIVE_OPERATIONS.values(),
         *CONNECTION_OPERATIONS.values(),
+        *RUNTIME_NATIVE_OPERATIONS.values(),
     ):
         for model in (request, result):
             models[model.__name__] = model
@@ -614,6 +743,17 @@ def connections_contract_document() -> dict[str, Any]:
         "schema": CONNECTIONS_SCHEMA,
         "failure_codes": sorted(CONNECTION_ERROR_CODES),
         "$defs": document["$defs"],
+        "runtime": {
+            name: {
+                "signature": f"aap_assets_v1.{name}("
+                + RUNTIME_NATIVE_SIGNATURES[name]
+                + ")",
+                "arguments": list(RUNTIME_NATIVE_ARGUMENTS[name]),
+                "request": request.__name__,
+                "result": result.__name__,
+            }
+            for name, (request, result) in RUNTIME_NATIVE_OPERATIONS.items()
+        },
         "native": {
             name: {
                 "signature": f"aap_assets_v1.{name}({CONNECTION_NATIVE_SIGNATURES[name]})",

@@ -1142,6 +1142,18 @@ export class PointCloudScene {
     this.invalidateTri();
   }
 
+  /** Release every original point buffer when its authenticated owner retires. */
+  retirePointCloud() {
+    this.qualityGroundGrid.visible = false;
+    this.setCameraTextureColorization(null);
+    this.removePoints();
+    this.triViewPass.setGeometry(null);
+    this.baseColors = null;
+    this.groundZ = 0;
+    this.invalidateMain();
+    this.invalidateTri();
+  }
+
   setPointCloudVisible(visible: boolean) {
     if (this.points?.visible === visible) return;
     if (this.points) this.points.visible = visible;

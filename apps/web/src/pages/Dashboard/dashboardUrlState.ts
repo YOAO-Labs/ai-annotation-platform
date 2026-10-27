@@ -5,7 +5,7 @@ export type DashboardStatus = (typeof DASHBOARD_STATUS_VALUES)[number];
 
 export const DASHBOARD_DATA_TYPE_VALUES = ["image", "video", "lidar"] as const;
 export type DashboardDataType = (typeof DASHBOARD_DATA_TYPE_VALUES)[number];
-export const PROJECT_PAGE_SIZES = [20, 50, 100] as const;
+export const PROJECT_PAGE_SIZES = [10, 20, 50, 100] as const;
 
 export interface DashboardFilters {
   status?: DashboardStatus;

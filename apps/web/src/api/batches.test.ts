@@ -150,9 +150,11 @@ describe("batchesApi · endpoint 契约", () => {
 
   it("auditLogs（默认/自定义 limit）/ unclassifiedCount", () => {
     batchesApi.auditLogs("p1", "b1");
-    expect(get).toHaveBeenCalledWith("/projects/p1/batches/b1/audit-logs?limit=50");
+    expect(get).toHaveBeenCalledWith("/projects/p1/batches/b1/audit-logs?limit=50&offset=0");
     batchesApi.auditLogs("p1", "b1", 10);
-    expect(get).toHaveBeenCalledWith("/projects/p1/batches/b1/audit-logs?limit=10");
+    expect(get).toHaveBeenCalledWith("/projects/p1/batches/b1/audit-logs?limit=10&offset=0");
+    batchesApi.auditLogs("p1", "b1", 21, 40);
+    expect(get).toHaveBeenCalledWith("/projects/p1/batches/b1/audit-logs?limit=21&offset=40");
     batchesApi.unclassifiedCount("p1");
     expect(get).toHaveBeenCalledWith("/projects/p1/batches/unclassified-count");
   });

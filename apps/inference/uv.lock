@@ -3,10 +3,36 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
+name = "aap-assets-mask-content"
+version = "0.1.0"
+source = { editable = "../assets-mask-content" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
+    { name = "boto3", marker = "extra == 'storage'", specifier = ">=1.43.77" },
+    { name = "boto3", marker = "extra == 'test'", specifier = ">=1.43.77" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "uvicorn", marker = "extra == 'test'", specifier = ">=0.34.0" },
+]
+provides-extras = ["client", "storage", "server", "test"]
+
+[[package]]
 name = "aap-inference"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-assets-mask-content" },
     { name = "aap-inference-contract" },
     { name = "aap-owner-data" },
     { name = "aap-protocol-v2" },
@@ -46,6 +72,7 @@ video-restore = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-mask-content", editable = "../assets-mask-content" },
     { name = "aap-inference-contract", editable = "../_shared/inference_contract" },
     { name = "aap-owner-data", editable = "../_shared/owner_data" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },

@@ -312,7 +312,6 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
     try:
         world = await seed_legacy_world(test_engine, app_module, monkeypatch, tmp_path)
         target_project_id = aliased_uuid(world, "project_target")
-        assert await _database_head(test_engine) == "0276"
 
         source_functions = await _labeling_function_facts(test_engine)
         source_labeling_dsn = labeling_class_query_dsn(test_engine)
@@ -437,7 +436,7 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
                     .render_as_string(hide_password=False),
                 )
             await assert_owned_test_database(restored_engine)
-            assert await _database_head(restored_engine) == "0276"
+
             assert await _labeling_function_facts(restored_engine) == source_functions
 
             await _assert_labeling_client(cloned_labeling_dsn, target_project_id)

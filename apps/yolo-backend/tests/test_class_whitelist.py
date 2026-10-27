@@ -8,17 +8,7 @@
 
 from __future__ import annotations
 
-import sys
 from unittest.mock import MagicMock
-
-import pytest
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_modules() -> None:
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
 
 
 def _pool_with_names(names: dict[int, str], cap: int = 2):

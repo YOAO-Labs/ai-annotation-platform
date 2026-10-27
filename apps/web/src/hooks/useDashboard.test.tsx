@@ -12,6 +12,7 @@ vi.mock("../api/dashboard", () => ({
     getReviewerStats: vi.fn(async () => ({ pending_review_count: 0 })),
     getAnnotatorStats: vi.fn(async () => ({ assigned_tasks: 0 })),
     getMyBatches: vi.fn(async () => []),
+    getReviewerBatches: vi.fn(async () => []),
     getMyRecentReviews: vi.fn(async (_limit: number) => []),
     getAdminPeople: vi.fn(async (_p: any) => ({ items: [], total: 0, period: "7d" })),
     getAdminPersonDetail: vi.fn(async (_id: string, _period: string) => ({})),
@@ -75,6 +76,33 @@ describe("useDashboard hooks", () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockApi.getMyBatches).toHaveBeenCalled();
+  });
+
+  it("loads every annotation batch page before returning a complete array", async () => {
+    const first = Array.from({ length: 200 }, (_, index) => ({ batch_id: `batch-${index}` }));
+    mockApi.getMyBatches.mockResolvedValueOnce(first).mockResolvedValueOnce([{ batch_id: "last" }]);
+    const { result } = renderHook(() => useMyBatches(), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(201);
+    expect(mockApi.getMyBatches).toHaveBeenNthCalledWith(1, 200, 0, expect.any(AbortSignal));
+    expect(mockApi.getMyBatches).toHaveBeenNthCalledWith(2, 200, 200, expect.any(AbortSignal));
+  });
+
+  it("fills reviewer batches beyond the dashboard snapshot without changing the stats shape", async () => {
+    const first = Array.from({ length: 200 }, (_, index) => ({ batch_id: `review-${index}` }));
+    mockApi.getReviewerBatches
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce([{ batch_id: "last" }]);
+    const { result } = renderHook(() => useReviewerStats(), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.pending_review_count).toBe(0);
+    expect(result.current.data?.reviewing_batches).toHaveLength(201);
+    expect(mockApi.getReviewerBatches).toHaveBeenNthCalledWith(
+      2,
+      200,
+      200,
+      expect.any(AbortSignal),
+    );
   });
 
   it("useMyRecentReviews 默认 limit=20", async () => {

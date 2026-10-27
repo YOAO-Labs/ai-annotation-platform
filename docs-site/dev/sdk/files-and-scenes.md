@@ -3,7 +3,7 @@ title: 文件上传与数据集场景
 audience: [dev]
 type: how-to
 status: beta
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-27
 ---
 
 # 文件上传与数据集场景
@@ -35,11 +35,15 @@ with Client() as client:
 aap files upload-init --project-id "$PROJECT_ID" --file-name frame.jpg --content-type image/jpeg --yes --json > upload.json
 aap files upload-content --init upload.json --file frame.jpg --content-type image/jpeg --yes --json
 aap files upload-complete "$TASK_ID" --yes --json
-aap files file-url "$TASK_ID" --json
+aap files download "$TASK_ID" -o downloaded-frame.jpg
 aap files backfill-thumbnails "$PROJECT_ID" --yes --json
 ```
 
-TASK_ID 取自 upload.json。该文件含短期签名凭据，只在本次上传中使用；URL 不是持久资源身份。`--init -` 可从 stdin 读取初始化回执。file-url 会重新校验当前任务可见性，包括项目、批次和分派范围；约一小时有效的下载 URL 到期后重新获取。backfill 需要项目管理权限，返回 Celery task ID 和 queued，不等同于 `jobs.get()` 可查询的 AsyncJob ID。
+TASK_ID 取自 upload.json。该文件含短期签名凭据，只在本次上传中使用；URL 不是持久资源身份。
+下载先读取当前可见原件的身份，再通过携带平台认证的内容入口传输，校验 SHA-256 与大小后原子替换目标文件。
+不再获取可绕过后续权限检查的原件下载签名。backfill 需要项目管理权限，返回包含
+`operation_id`、`job_id`、`status`、`accepted_before` 的持久作业回执；通过 `jobs.get(job_id)`
+查询执行状态，复用 `Idempotency-Key` 处理接收回执丢失，不把接收成功当成处理完成。
 
 ## 读取与更新场景
 

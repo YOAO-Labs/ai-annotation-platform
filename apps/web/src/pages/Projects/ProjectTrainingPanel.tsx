@@ -1,8 +1,9 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
-import { useNavigate } from "react-router-dom";
-import { Plus, FlaskConical, GitCompareArrows, Search, ChevronDown } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Plus, FlaskConical, GitCompareArrows, Trash2 } from "lucide-react";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
 import { TrainingStudyPanel } from "../Training/TrainingStudyPanel";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
@@ -11,54 +12,55 @@ import { useTrainingViewOwner } from "../Training/trainingViewOwner";
 import {
   activeTrainingStates as active,
   trainingStatusLabels as labels,
-  trainingProgress,
-  trainingStatusVariant,
-  trainingTaskLabel,
-  trainingTaskOf,
 } from "../Training/trainingPresentation";
-import { cn } from "@/lib/utils";
 import { TrainingLoading, TrainingError } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { confirmDialog } from "@/components/ui/decisionDialog";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import {
+  TrainingListControls,
+  useTrainingListFilters,
+  trainingListPath,
+  trainingRecordPath,
+} from "../Training/TrainingListControls";
+import { TrainingRunTable } from "./TrainingRunTable";
+import { ProjectLearningSectionHeader } from "./ProjectLearningSectionHeader";
 
 export function ProjectTrainingPanel({
   projectId,
   initialRunId = "",
   initialAttemptId = "",
   visible = true,
-  onRunSelect,
+  mode = "list",
   onAttemptSelect,
   scope = "",
   createButtonRef,
 }: {
   projectId: string;
+  mode?: "list" | "detail";
   initialRunId?: string;
   initialAttemptId?: string;
   visible?: boolean;
-  onRunSelect?: (id: string) => void;
   onAttemptSelect?: (id: string, runId: string) => void;
   scope?: string;
   createButtonRef?: RefObject<HTMLButtonElement>;
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const list = useTrainingListFilters("run");
+  const filters = { ...list.filters, q: useDebouncedValue(list.filters.q) };
   const session = useTrainingViewOwner(projectId, scope);
   const revision = useRef(0);
-  const [attemptId, setAttemptId] = useState(initialAttemptId);
+  const attemptId = params.get("attempt") ?? initialAttemptId;
+  const detailId = initialRunId || params.get("run") || "";
+  const detailVisible = visible && mode === "detail";
   const [error, setError] = useState("");
-  const [page, setPage] = useState(0);
-  const [search, setSearch] = useState("");
-  const [listOpen, setListOpen] = useState(false);
-  const [selectedId, setDetailId] = useState(initialRunId);
   useEffect(() => {
-    setDetailId(initialRunId);
-    setAttemptId(initialAttemptId);
     setError("");
-    setPage(0);
     revision.current++;
-  }, [initialRunId, initialAttemptId, projectId, scope]);
+  }, [detailId, attemptId, mode, projectId, scope]);
   const catalog = useQuery({
     queryKey: ["training-catalog", projectId, scope],
     queryFn: async ({ signal }) => {
@@ -71,25 +73,22 @@ export function ProjectTrainingPanel({
     refetchInterval: visible ? 5000 : false,
   });
   const runs = useQuery({
-    queryKey: ["training-runs", projectId, scope, page],
+    queryKey: ["training-runs", projectId, scope, list.page, list.pageSize, filters],
     queryFn: async ({ signal }) => {
       session.assert(signal);
-      const data = await trainingRunsApi.list(projectId, page * 20, { signal });
+      const data = await trainingRunsApi.list(
+        projectId,
+        list.page * list.pageSize,
+        { signal },
+        filters,
+        list.pageSize,
+      );
       session.assert(signal);
       return data;
     },
-    enabled: visible,
-    refetchInterval: visible ? 3000 : false,
+    enabled: visible && mode === "list",
+    refetchInterval: visible && mode === "list" ? 3000 : false,
   });
-  const detailId = selectedId || runs.data?.items[0]?.id || "";
-  const selectRun = (id: string) => {
-    session.assert();
-    revision.current++;
-    setDetailId(id);
-    setAttemptId("");
-    setError("");
-    onRunSelect?.(id);
-  };
   const detail = useQuery({
     queryKey: ["training-run", projectId, scope, detailId],
     queryFn: async ({ signal }) => {
@@ -100,16 +99,16 @@ export function ProjectTrainingPanel({
         throw new Error("实验归属已变化，请重新选择");
       return data;
     },
-    enabled: visible && !!detailId,
+    enabled: detailVisible && !!detailId,
     refetchInterval: (query) =>
-      visible && query.state.data?.run && active.has(query.state.data.run.status) ? 3000 : false,
+      detailVisible ? (active.has(query.state.data?.run.status ?? "") ? 3000 : 5000) : false,
   });
   const selectedAttemptId = attemptId || detail.data?.run.current_attempt_id || "";
   const events = useTrainingEvents(
     projectId,
     detailId,
     selectedAttemptId,
-    visible,
+    detailVisible,
     !!detail.data?.run &&
       active.has(detail.data.run.status) &&
       selectedAttemptId === detail.data.run.current_attempt_id,
@@ -117,6 +116,13 @@ export function ProjectTrainingPanel({
     session.assert,
   );
   const current = detail.data?.run;
+  const deletionBlocked = current
+    ? active.has(current.status)
+      ? "实验尚未结束，请先停止训练。"
+      : detail.data?.registered_models?.length
+        ? "实验已被项目模型引用，不能删除。归档模型仍会保留来源引用。"
+        : ""
+    : "正在加载实验详情。";
   const viewKey = `${scope}:${detailId}:${selectedAttemptId}:${current?.current_attempt_id ?? ""}`;
   const currentView = useRef(viewKey);
   if (currentView.current !== viewKey) {
@@ -131,9 +137,9 @@ export function ProjectTrainingPanel({
       session.assert(signal);
       return result;
     },
-    enabled: visible && !!current && ["failed", "cancelled"].includes(current.status),
+    enabled: detailVisible && !!current && ["failed", "cancelled"].includes(current.status),
     refetchInterval:
-      visible && !!current && ["failed", "cancelled"].includes(current.status) ? 5000 : false,
+      detailVisible && !!current && ["failed", "cancelled"].includes(current.status) ? 5000 : false,
     retry: false,
   });
   type View = { owner: typeof session.owner; revision: number };
@@ -165,11 +171,29 @@ export function ProjectTrainingPanel({
       if (kind === "download" && attemptId && filename) {
         const result = await trainingRunsApi.download(projectId, run.id, attemptId, filename);
         if (!ownsView(view)) return false;
+        let objectUrl: string | undefined;
+        if (result.requires_authentication) {
+          const blob = await trainingRunsApi.downloadContent(
+            projectId,
+            run.id,
+            attemptId,
+            filename,
+          );
+          if (!ownsView(view)) return false;
+          objectUrl = URL.createObjectURL(blob);
+        }
         const link = document.createElement("a");
-        link.href = result.url;
+        link.href = objectUrl ?? result.url;
         link.download = filename;
         link.rel = "noopener";
-        link.click();
+        try {
+          link.click();
+        } finally {
+          if (objectUrl) {
+            const downloaded = objectUrl;
+            setTimeout(() => URL.revokeObjectURL(downloaded), 0);
+          }
+        }
         return false;
       } else if (kind === "cancel") await trainingRunsApi.cancel(projectId, run.id);
       else if (kind === "resume") {
@@ -178,6 +202,8 @@ export function ProjectTrainingPanel({
         await trainingRunsApi.resume(projectId, run.id);
       } else if (
         kind === "delete" &&
+        !active.has(run.status) &&
+        !deletionBlocked &&
         (await confirmDialog({
           title: `删除实验“${run.name}”`,
           description: "将删除此实验的全部权重、检查点和日志。训练数据版本会保留。",
@@ -188,10 +214,9 @@ export function ProjectTrainingPanel({
         if (!ownsView(view)) return false;
         await trainingRunsApi.remove(projectId, run.id);
         if (!ownsView(view)) return false;
-        if (detailId === run.id) {
-          setDetailId("");
-          onRunSelect?.("");
-        }
+        refresh();
+        if (detailId === run.id) navigate(trainingListPath(projectId, "experiments", params));
+        return false;
       } else {
         return false;
       }
@@ -206,43 +231,64 @@ export function ProjectTrainingPanel({
   });
   return (
     <section aria-labelledby="training-title">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 id="training-title" className="text-md font-semibold">
-            训练实验
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            选择实验查看实时进度、指标曲线与产物。每次执行和续训独立记录。
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            onClick={() =>
-              navigate(
-                `/projects/${projectId}/learning/compare${current && selectedAttemptId ? `?runs=${current.id}:${selectedAttemptId}` : ""}`,
-              )
-            }
-          >
-            <GitCompareArrows className="size-3.5" />
-            比较实验
-          </Button>
-          <Button
-            ref={createButtonRef}
-            size="sm"
-            variant="primary"
-            disabled={!catalog.data?.enabled}
-            onClick={() =>
-              navigate(
-                `/projects/${projectId}/learning/new${detailId ? `?return_run=${encodeURIComponent(detailId)}` : ""}`,
-              )
-            }
-          >
-            <Plus className="size-3.5" />
-            新建实验
-          </Button>
-        </div>
-      </div>
+      <ProjectLearningSectionHeader
+        id="training-title"
+        title="训练实验"
+        description="选择实验查看实时进度、指标曲线与产物。每次执行和续训独立记录。"
+        actions={
+          <>
+            <Button
+              size="sm"
+              onClick={() =>
+                navigate(
+                  `/projects/${projectId}/learning/compare${current && selectedAttemptId ? `?runs=${current.id}:${selectedAttemptId}` : ""}`,
+                )
+              }
+            >
+              <GitCompareArrows className="size-3.5" />
+              比较实验
+            </Button>
+            {mode === "list" ? (
+              <Button
+                ref={createButtonRef}
+                size="sm"
+                variant="primary"
+                disabled={!catalog.data?.enabled}
+                onClick={() => navigate(`/projects/${projectId}/learning/new`)}
+              >
+                <Plus className="size-3.5" />
+                新建实验
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={!!deletionBlocked || action.isPending}
+                aria-describedby={
+                  current && deletionBlocked ? "training-deletion-blocked" : undefined
+                }
+                onClick={() => {
+                  if (!current) return;
+                  setError("");
+                  action.mutate({
+                    kind: "delete",
+                    run: current,
+                    view: { owner: session.owner, revision: revision.current },
+                  });
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                删除实验
+              </Button>
+            )}
+          </>
+        }
+      />
+      {mode === "detail" && current && deletionBlocked && (
+        <p id="training-deletion-blocked" className="mb-3 text-xs text-muted-foreground">
+          {deletionBlocked}
+        </p>
+      )}
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Badge
           dot
@@ -270,18 +316,20 @@ export function ProjectTrainingPanel({
         </Badge>
         <span>每 3 秒更新实验状态</span>
       </div>
-      <TrainingStudyPanel
-        key={`${projectId}:${scope}:${session.owner.revision}`}
-        projectId={projectId}
-        scope={scope}
-        visible={visible}
-      />
+      {mode === "list" && (
+        <TrainingStudyPanel
+          key={`${projectId}:${scope}:${session.owner.revision}`}
+          projectId={projectId}
+          scope={scope}
+          visible={visible}
+        />
+      )}
       {error && (
         <p
           role="alert"
           className="mb-4 rounded-lg bg-status-danger-soft p-4 text-xs text-status-danger"
         >
-          {error}
+          <CopyableError message={error} />
         </p>
       )}
       {(catalog.error || runs.error || detail.error) && (
@@ -296,247 +344,107 @@ export function ProjectTrainingPanel({
           />
         </div>
       )}
-      <div className="flex min-w-0 flex-col gap-4">
-        <aside
-          aria-label="实验列表"
-          className="min-w-0 overflow-hidden rounded-xl border border-border bg-card"
-        >
-          <div className="flex flex-wrap items-center gap-3 p-3">
-            <label className="flex min-w-0 flex-1 items-center gap-3 text-xs font-medium">
-              <span className="shrink-0">当前实验</span>
-              <select
-                aria-label="选择训练实验"
-                value={detailId}
-                disabled={runs.isLoading && !runs.data}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-lg"
-                onChange={(event) => selectRun(event.target.value)}
-              >
-                {!detailId && <option value="">选择训练实验</option>}
-                {detailId && !runs.data?.items.some((run) => run.id === detailId) && (
-                  <option value={detailId}>
-                    {current?.name ?? `${detailId.slice(0, 8)} · 正在读取`}
-                  </option>
-                )}
-                {runs.data?.items.map((run) => (
-                  <option key={run.id} value={run.id}>
-                    {run.name} · {labels[run.status] ?? run.status}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-expanded={listOpen}
-              onClick={() => setListOpen((value) => !value)}
-            >
-              浏览实验 · {runs.data?.total ?? "—"}
-              <ChevronDown
-                aria-hidden="true"
-                className={cn("size-3.5 transition-transform", listOpen && "rotate-180")}
-              />
-            </Button>
-            {listOpen && (
-              <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2 focus-within:ring-2 focus-within:ring-ring">
-                <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-                <input
-                  aria-label="搜索本页实验"
-                  placeholder="搜索本页实验"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent text-xs outline-none"
-                />
-              </label>
-            )}
-          </div>
-          {runs.isLoading && <TrainingLoading label="正在加载训练实验…" rows={2} />}
-          {listOpen && (
-            <div className="border-t border-border">
-              <div className="grid max-h-72 divide-y divide-border overflow-y-auto md:grid-cols-2 xl:grid-cols-3">
-                {runs.data?.items
-                  .filter((run) =>
-                    run.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
-                  )
-                  .map((run) => {
-                    const progress = trainingProgress(run);
-                    return (
-                      <button
-                        key={run.id}
-                        aria-label={run.name}
-                        aria-pressed={detailId === run.id}
-                        onClick={() => selectRun(run.id)}
-                        className={cn(
-                          "w-full border-l-2 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                          detailId === run.id
-                            ? "border-l-chart-1 bg-chart-1/5"
-                            : "border-l-transparent hover:bg-muted/50",
-                        )}
-                      >
-                        <span
-                          title={run.name}
-                          className="line-clamp-2 break-words text-sm font-semibold"
-                        >
-                          {run.name}
-                        </span>
-                        <p className="mt-1.5 text-2xs text-muted-foreground">
-                          {run.config.framework === "libreyolo"
-                            ? "LibreYOLO"
-                            : run.config.framework === "ultralytics"
-                              ? "Ultralytics"
-                              : String(run.config.framework ?? "—")}{" "}
-                          · {trainingTaskLabel(run.task ?? trainingTaskOf(run.config))}
-                        </p>
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                          <Badge dot variant={trainingStatusVariant(run.status)}>
-                            {run.status === "lost"
-                              ? "执行器失联"
-                              : (labels[run.status] ?? run.status)}
-                          </Badge>
-                          <span className="text-2xs tabular-nums text-muted-foreground">
-                            {run.status === "queued"
-                              ? "等待调度"
-                              : `${progress.epoch} / ${progress.total} 轮`}
-                          </span>
-                        </div>
-                        {run.status !== "queued" && progress.total > 0 && (
-                          <div className="mt-2.5">
-                            <ProgressBar
-                              value={progress.percent}
-                              color={
-                                run.status === "succeeded"
-                                  ? "var(--sc-status-positive)"
-                                  : "var(--sc-brand)"
-                              }
-                            />
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+      {mode === "list" ? (
+        <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+          <TrainingListControls
+            kind="实验"
+            filters={list.filters}
+            onChange={list.update}
+            onReset={list.reset}
+            statuses={labels}
+          />
+          <TrainingRunTable
+            data={runs.data}
+            loading={runs.isLoading}
+            failed={runs.isError}
+            page={list.page}
+            onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSize={list.setPageSize}
+            selectedId={detailId}
+            href={(id) => trainingRecordPath(projectId, "experiments", id, params)}
+          />
+        </div>
+      ) : (
+        <div>
+          {current &&
+          (initialAttemptId || attemptId) &&
+          !detail.data?.attempts.some((item) => item.id === selectedAttemptId) ? (
+            <p role="alert" className="p-4 text-sm text-status-warning">
+              指定的执行尝试不存在或不属于此实验，请明确选择其他尝试。
+            </p>
+          ) : current ? (
+            <TrainingRunMonitor
+              key={current.id}
+              run={current}
+              attempts={detail.data?.attempts ?? []}
+              events={events.data ?? []}
+              selectedAttemptId={selectedAttemptId}
+              onAttemptChange={(id) => {
+                session.assert();
+                revision.current++;
+                if (onAttemptSelect) onAttemptSelect(id, current.id);
+                else
+                  setParams((previous) => {
+                    const next = new URLSearchParams(previous);
+                    next.set("attempt", id);
+                    next.set("run", current.id);
+                    return next;
+                  });
+                setError("");
+              }}
+              eventsPending={events.isLoading}
+              eventsError={events.error?.message}
+              pending={action.isPending && ownsView(action.variables?.view)}
+              onAction={(value) => {
+                setError("");
+                action.mutate({
+                  ...value,
+                  view: { owner: session.owner, revision: revision.current },
+                });
+              }}
+              recovery={recovery.data}
+              recoveryError={recovery.error?.message}
+              registrationEligibility={detail.data?.registration_eligibility}
+              registeredModels={detail.data?.registered_models}
+              scope={scope}
+              visible={detailVisible}
+              assertOwner={session.assert}
+            />
+          ) : runs.isLoading || detail.isLoading ? (
+            <div className="rounded-xl border border-border bg-card">
+              <TrainingLoading label="正在加载实验详情…" rows={5} />
+            </div>
+          ) : (
+            <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-border bg-card p-8 text-center">
+              <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-muted">
+                <FlaskConical aria-hidden="true" className="size-5 text-muted-foreground" />
               </div>
-              {runs.data &&
-                !runs.error &&
-                !runs.data.items.some((run) =>
-                  run.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
-                ) && (
-                  <div className="p-5 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      {search ? "本页没有匹配的实验" : "尚无训练实验"}
-                    </p>
-                    {search && (
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        className="mt-2"
-                        onClick={() => setSearch("")}
-                      >
-                        清除搜索
-                      </Button>
-                    )}
-                  </div>
-                )}
-              {((runs.data?.total ?? 0) > 20 || page > 0) && (
-                <nav
-                  aria-label="实验分页"
-                  className="flex items-center justify-between gap-2 border-t border-border p-3"
+              <h3 className="text-sm font-semibold">
+                {runs.error || detail.error
+                  ? "暂时无法读取实验"
+                  : runs.data?.items.length
+                    ? "选择一个训练实验"
+                    : "创建你的第一个训练实验"}
+              </h3>
+              <p className="mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
+                {runs.error || detail.error
+                  ? "请重试读取记录，再查看实验指标与产物。"
+                  : "使用就绪数据创建实验，在这里跟进训练指标、执行资源与产物。"}
+              </p>
+              {!runs.error && !detail.error && !runs.data?.items.length && (
+                <Button
+                  size="sm"
+                  className="mt-5"
+                  onClick={() => navigate(`/projects/${projectId}/learning?tab=data`)}
                 >
-                  <Button
-                    size="xs"
-                    disabled={!page}
-                    onClick={() => {
-                      setSearch("");
-                      setPage((value) => value - 1);
-                    }}
-                  >
-                    上一页实验
-                  </Button>
-                  <span className="text-2xs tabular-nums text-muted-foreground">
-                    {page + 1} / {Math.max(1, Math.ceil((runs.data?.total ?? 0) / 20))}
-                  </span>
-                  <Button
-                    size="xs"
-                    disabled={(page + 1) * 20 >= (runs.data?.total ?? 0)}
-                    onClick={() => {
-                      setSearch("");
-                      setPage((value) => value + 1);
-                    }}
-                  >
-                    下一页实验
-                  </Button>
-                </nav>
+                  准备训练数据
+                </Button>
               )}
             </div>
           )}
-        </aside>
-        {current &&
-        (initialAttemptId || attemptId) &&
-        !detail.data?.attempts.some((item) => item.id === selectedAttemptId) ? (
-          <p role="alert" className="p-4 text-sm text-status-warning">
-            指定的执行尝试不存在或不属于此实验，请明确选择其他尝试。
-          </p>
-        ) : current ? (
-          <TrainingRunMonitor
-            key={current.id}
-            run={current}
-            attempts={detail.data?.attempts ?? []}
-            events={events.data ?? []}
-            selectedAttemptId={selectedAttemptId}
-            onAttemptChange={(id) => {
-              session.assert();
-              revision.current++;
-              setAttemptId(id);
-              onAttemptSelect?.(id, current.id);
-              setError("");
-            }}
-            eventsPending={events.isLoading}
-            eventsError={events.error?.message}
-            pending={action.isPending && ownsView(action.variables?.view)}
-            onAction={(value) => {
-              setError("");
-              action.mutate({
-                ...value,
-                view: { owner: session.owner, revision: revision.current },
-              });
-            }}
-            recovery={recovery.data}
-            recoveryError={recovery.error?.message}
-            scope={scope}
-            visible={visible}
-            assertOwner={session.assert}
-          />
-        ) : runs.isLoading || detail.isLoading ? (
-          <div className="rounded-xl border border-border bg-card">
-            <TrainingLoading label="正在加载实验详情…" rows={5} />
-          </div>
-        ) : (
-          <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-border bg-card p-8 text-center">
-            <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-muted">
-              <FlaskConical aria-hidden="true" className="size-5 text-muted-foreground" />
-            </div>
-            <h3 className="text-sm font-semibold">
-              {runs.error || detail.error
-                ? "暂时无法读取实验"
-                : runs.data?.items.length
-                  ? "选择一个训练实验"
-                  : "创建你的第一个训练实验"}
-            </h3>
-            <p className="mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
-              {runs.error || detail.error
-                ? "请重试读取记录，再查看实验指标与产物。"
-                : "使用就绪数据创建实验，在这里跟进训练指标、执行资源与产物。"}
-            </p>
-            {!runs.error && !detail.error && !runs.data?.items.length && (
-              <Button
-                size="sm"
-                className="mt-5"
-                onClick={() => navigate(`/projects/${projectId}/learning?tab=data`)}
-              >
-                准备训练数据
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }
