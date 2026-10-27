@@ -24,6 +24,7 @@ interface Options {
   containerSize: { w: number; h: number };
   mediaSize: { w: number; h: number };
   hasRealMediaSize: boolean;
+  sourceReady: boolean;
   autoFitOnResize: boolean;
   focusSelectionEnabled: boolean;
   focusObject: (id: string) => void;
@@ -126,6 +127,7 @@ export function useVideoIssueView(options: Options) {
     return (
       mountedRef.current &&
       !!latest.taskId &&
+      latest.sourceReady &&
       latest.hasRealMediaSize &&
       latest.containerSize.w > 0 &&
       latest.containerSize.h > 0 &&

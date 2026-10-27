@@ -32,6 +32,8 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
+from tests import pytest_sharding
+
 if os.environ.get("AAP_WORKTREE_MODE") == "dev":
     raise pytest.UsageError(
         "开发模式不能运行数据库测试；请使用 pnpm dev:worktree -- exec --mode test -- <command>"
@@ -41,6 +43,20 @@ if os.environ.get("AAP_WORKTREE_MODE") == "dev":
 # 必须在首次 import app 前开启；否则 app.api.v1.router 不会挂载测试 Seed router。
 # 数据库名仍由下方 fixture 固定到一次性测试库，router 自身会再做后缀校验。
 os.environ["E2E_SEED_ENABLED"] = "true"
+
+
+# 可选测试分片钩子（--shard-index / --shard-count）。两个参数都不给时不改变任何
+# 收集/执行行为；实现与分区算法见 tests/pytest_sharding.py。
+def pytest_addoption(parser):
+    pytest_sharding.pytest_addoption(parser)
+
+
+def pytest_configure(config):
+    pytest_sharding.pytest_configure(config)
+
+
+def pytest_collection_modifyitems(config, items):
+    pytest_sharding.pytest_collection_modifyitems(config, items)
 
 
 def _validate_test_db_target(url: str) -> str:
@@ -159,6 +175,9 @@ async def test_engine(test_db_url: str, apply_migrations):
 @pytest.fixture
 async def db_session(test_engine):
     """Per-test 数据库 session（SAVEPOINT 隔离）。"""
+    from tests.raster_mask_isolation import owned_raster_ids, remove_test_raster_owners
+
+    raster_before = await owned_raster_ids(test_engine)
     conn = await test_engine.connect()
     trans = await conn.begin()
     maker = async_sessionmaker(conn, class_=AsyncSession, expire_on_commit=False)
@@ -171,6 +190,7 @@ async def db_session(test_engine):
         await session.close()
         await trans.rollback()
         await conn.close()
+        await remove_test_raster_owners(test_engine, raster_before)
         # 模块级进程缓存的服务（如 SystemSettingsService）需在每 test 清理，
         # 否则上一个测试的 PATCH 值会泄漏到下一个测试（DB SAVEPOINT 已回滚但缓存未失效）。
         # cleanup 失败必须可见，不能用静默 except 掩盖缓存污染。

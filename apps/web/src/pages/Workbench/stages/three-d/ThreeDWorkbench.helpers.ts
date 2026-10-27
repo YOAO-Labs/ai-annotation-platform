@@ -1,5 +1,7 @@
 // v0.16.11 · 从 ThreeDWorkbench.tsx 抽出的模块级纯常量/类型/纯函数(无 React、无组件闭包)。
 // 逐字搬运,行为零变化;主组件 import 回这些符号使用。tsc 完整守护。
+import { acquireCameraImageAddress } from "./pointCloudAssetCache";
+import { originalOwnerKey } from "@/api/originals";
 import type { CSSProperties } from "react";
 import * as THREE from "three";
 import type { Box3DGeometry, SensorCalibration } from "@/types";
@@ -70,17 +72,25 @@ export function geometryConvention(
   return g?.convention_at_create ?? fallback;
 }
 
-/**
- * v0.13.6 · 把相机图加载成 CameraSample(原图分辨率 RGBA buffer),供点云上色逐点采样。
- * crossOrigin="anonymous" 让 canvas 不被跨域污染(MinIO 已为点云 GET 放行 CORS);
- * 加载失败 / getImageData 仍被污染(SecurityError)→ 返回 null(该相机降级跳过,不阻断其余)。
- */
-export function loadCameraSample(
-  imageUrl: string,
+/** Read camera pixels through an owned local image address; unsupported images are skipped. */
+export async function loadCameraSample(
+  imageUrl: string | null | undefined,
   calib: SensorCalibration,
   signal?: AbortSignal,
 ): Promise<CameraSample | null> {
-  return new Promise((resolve) => {
+  if (!imageUrl || signal?.aborted) return null;
+  const owner = originalOwnerKey();
+  let address: Awaited<ReturnType<typeof acquireCameraImageAddress>>;
+  try {
+    address = await acquireCameraImageAddress(imageUrl, signal);
+  } catch {
+    return null;
+  }
+  if (signal?.aborted || owner !== originalOwnerKey()) {
+    address.release();
+    return null;
+  }
+  return new Promise<CameraSample | null>((resolve) => {
     const img = new Image();
     let settled = false;
     const finish = (sample: CameraSample | null) => {
@@ -89,7 +99,8 @@ export function loadCameraSample(
       signal?.removeEventListener("abort", handleAbort);
       img.onload = null;
       img.onerror = null;
-      resolve(sample);
+      address.release();
+      resolve(owner === originalOwnerKey() && !signal?.aborted ? sample : null);
     };
     const handleAbort = () => {
       img.src = "";
@@ -107,8 +118,8 @@ export function loadCameraSample(
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext("2d");
       if (!ctx) return finish(null);
-      ctx.drawImage(img, 0, 0);
       try {
+        ctx.drawImage(img, 0, 0);
         const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
         finish({ calib, width: canvas.width, height: canvas.height, data });
       } catch {
@@ -116,7 +127,7 @@ export function loadCameraSample(
       }
     };
     img.onerror = () => finish(null);
-    img.src = imageUrl;
+    img.src = address.url;
   });
 }
 

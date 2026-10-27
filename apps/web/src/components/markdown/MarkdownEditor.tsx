@@ -109,6 +109,25 @@ export interface MarkdownEditorProps {
 const PENDING_SOURCE_PREFIX = "markdown-upload-pending:";
 const PENDING_SOURCE_LENGTH = 20;
 
+/** MDXEditor does not fence its own asynchronous preview result after handler changes. */
+export async function resolveScopedImagePreview(
+  src: string,
+  resolveImage: MarkdownImageResolver | undefined,
+  isCurrent: () => boolean,
+): Promise<string> {
+  if (src.startsWith(PENDING_SOURCE_PREFIX)) return new Promise<string>(() => undefined);
+  if (!src.startsWith("guide-asset:") || !resolveImage) return src;
+  let result = src;
+  try {
+    result = (await resolveImage(src))?.url ?? src;
+  } catch {
+    // The editor retains recoverable source when an authorized image cannot be loaded.
+  }
+  // An obsolete handler must never overwrite the newer handler's resolved image.
+  if (!isCurrent()) return new Promise<string>(() => undefined);
+  return result;
+}
+
 type EditorMode = "edit" | "source" | "preview";
 
 const editorModePlugin = realmPlugin<{ mode: EditorMode }>({
@@ -435,7 +454,8 @@ function MarkdownEditorDocument({
   const onSubmitRef = useRef(onSubmit);
   const onBlurRef = useRef(onBlur);
   const onUploadRef = useRef(onUploadImage);
-  const resolveImageRef = useRef(resolveImage);
+  const previewOwner = useMemo(() => ({ resolveImage, imageScope }), [imageScope, resolveImage]);
+  const previewOwnerRef = useRef(previewOwner);
   const valueRef = useRef(value);
   const latestMarkdownRef = useRef(value);
   const editorMarkdownRef = useRef(value);
@@ -466,7 +486,7 @@ function MarkdownEditorDocument({
   onSubmitRef.current = onSubmit;
   onBlurRef.current = onBlur;
   onUploadRef.current = onUploadImage;
-  resolveImageRef.current = resolveImage;
+  previewOwnerRef.current = previewOwner;
   valueRef.current = value;
   modeRef.current = mode;
 
@@ -1146,25 +1166,20 @@ function MarkdownEditorDocument({
     setParseError(payload.error);
   }, []);
 
-  const imagePreviewHandler = useCallback(async (src: string): Promise<string> => {
-    if (src.startsWith(PENDING_SOURCE_PREFIX)) {
-      // Keep the editor's own placeholder visible until the ImageNode is
-      // replaced. Resolving to a broken URL would make loading look like a
-      // missing asset.
-      return new Promise<string>(() => undefined);
-    }
-    if (!src.startsWith("guide-asset:")) return src;
-    const resolver = resolveImageRef.current;
-    const epoch = epochRef.current;
-    if (!resolver) return src;
-    try {
-      const resolved = await resolver(src);
-      if (!aliveRef.current || epoch !== epochRef.current) return src;
-      return resolved?.url ?? src;
-    } catch {
-      return src;
-    }
-  }, []);
+  const imagePreviewHandler = useCallback(
+    (src: string): Promise<string> => {
+      const epoch = epochRef.current;
+      return resolveScopedImagePreview(
+        src,
+        previewOwner.resolveImage,
+        () =>
+          aliveRef.current &&
+          epoch === epochRef.current &&
+          previewOwnerRef.current === previewOwner,
+      );
+    },
+    [previewOwner],
+  );
 
   useEffect(() => {
     const documentChanged = currentDocumentRef.current !== documentId;

@@ -8,6 +8,8 @@ the pool id is derived from the instance's singleton pool via MLBackendService.
 from __future__ import annotations
 
 import io
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -125,8 +127,9 @@ async def test_pool_id_for_registry_returns_none_for_unknown(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("config", [None, "{}"])
+@pytest.mark.parametrize("format,frame_index", [("JPEG", 0), ("PNG", 100001)])
 async def test_predict_frame_route_records_dual_id(
-    httpx_client, db_session, super_admin, config
+    httpx_client, db_session, super_admin, config, format, frame_index
 ) -> None:
     """The /predict-frame route records both pool + instance on the persisted Prediction.
 
@@ -159,14 +162,46 @@ async def test_predict_frame_route_records_dual_id(
     fake_result.model_version = "v1"
     fake_result.inference_time_ms = 10
 
+    captured = {}
+    with Image.new("RGB", (16, 16), (10, 20, 30)) as image, io.BytesIO() as stream:
+        image.save(stream, format=format)
+        raw = stream.getvalue()
+
+    @asynccontextmanager
+    async def leased_frame(factory, **owner):
+        captured.update(owner)
+
+        async def upload_frame(saved_task, content):
+            assert saved_task.id == task.id
+            captured["bytes"] = content
+            return "http://storage.test/frame.jpg"
+
+        try:
+
+            async def close():
+                captured["closed"] = True
+
+            yield SimpleNamespace(upload_frame=upload_frame, close=close)
+        finally:
+            captured["closed"] = True
+
+    from app.api.v1 import ml_backends as routes
+
+    final_boundary = routes._reacquire_write_boundary
+
+    async def after_physical_close(*args, **kwargs):
+        assert captured.get("closed")
+        return await final_boundary(*args, **kwargs)
+
     with (
+        patch.object(routes, "_reacquire_write_boundary", new=after_physical_close),
         patch(
             "app.services.ml_client.MLBackendClient.predict",
             new=AsyncMock(return_value=[fake_result]),
         ),
         patch(
-            "app.api.v1.ml_backends.StorageService.upload_crop_bytes",
-            return_value="http://storage.test/frame.jpg",
+            "app.services.prediction_inputs.prediction_inputs",
+            new=leased_frame,
         ),
     ):
         # predict-frame takes a multipart upload; build a tiny JPEG.
@@ -176,17 +211,20 @@ async def test_predict_frame_route_records_dual_id(
             files={
                 "frame": (
                     "f.jpg",
-                    _tiny_jpeg(),
-                    "image/jpeg",
+                    raw,
+                    "image/png" if format == "PNG" else "image/jpeg",
                 )
             },
             data={
                 "task_id": str(task.id),
-                "frame_index": "0",
+                "frame_index": str(frame_index),
                 **({"config": config} if config is not None else {}),
             },
         )
     assert resp.status_code == 200, resp.text
+    assert captured["owner_kind"] == "frame_predict" and captured["task_id"] == task.id
+    assert captured["bytes"] == raw and captured["closed"]
+    assert "source_ref" not in captured
 
     # The persisted Prediction must carry both the instance and the pool.
     stmt = select(Prediction).where(Prediction.task_id == task.id)

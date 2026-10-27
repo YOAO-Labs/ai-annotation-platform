@@ -1,5 +1,13 @@
 import type { AsyncJob, AsyncJobStatus } from "@/api/asyncJobs";
 
+export const VIDEO_ASSET_LABEL: Record<string, string> = {
+  probe: "视频元数据",
+  poster: "视频海报",
+  frame_timetable: "帧时间表",
+  chunk: "视频分块",
+  frame: "帧缓存",
+};
+
 export const JOB_KIND_LABEL: Record<string, string> = {
   batch_predict: "批量预标",
   video_tracker: "视频追踪",
@@ -7,7 +15,18 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   audit_archive: "审计归档",
   predictions_import: "预测导入",
   prediction_retry: "失败预测重试",
+  video_asset_retry: "视频资产重试",
   dataset_import: "数据集导入",
+  dataset_scan: "目录观测扫描",
+  storage_usage: "存储对象盘点",
+  storage_migration_inventory: "配置源迁移清单",
+  storage_migration_copy: "存储迁移复制",
+  managed_original_verification: "托管原件核验",
+  managed_original_reclaim: "托管原件准确版本回收",
+  managed_reference_reconciliation: "托管原件引用核对",
+  dataset_quality_review: "质量批量复核",
+  dataset_quality: "数据集图片质检",
+  dataset_registration: "目录预检与登记",
   create_tasks: "建任务",
   export: "数据导出",
   training_dataset: "训练数据构建",
@@ -31,7 +50,27 @@ export const JOB_STATUS_LABEL: Record<AsyncJobStatus, string> = {
   cancelled: "已取消",
 };
 
-export function jobNotificationVerb(type: string, kind: unknown): string | null {
+export function jobNotificationVerb(
+  type: string,
+  kind: unknown,
+  payload: Record<string, unknown> = {},
+): string | null {
+  if (kind === "storage_migration_copy") {
+    const label =
+      payload.operation === "prepare"
+        ? "复制计划准备"
+        : payload.operation === "verify"
+          ? "复制核验任务"
+          : (jobNumber(payload, "generation") ?? 1) > 1
+            ? "增量复制任务"
+            : "初次复制任务";
+    if (type === "job.completed")
+      return payload.operation === "prepare" && payload.prepared === true
+        ? "复制计划准备完成"
+        : `${label}已结束`;
+    if (type === "job.failed") return `${label}失败`;
+    if (type === "job.cancelled") return `${label}已取消`;
+  }
   const suffix =
     type === "job.completed"
       ? "完成"
@@ -57,14 +96,86 @@ export function jobNumber(record: Record<string, unknown>, key: string): number 
 
 export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string | null {
   const result = job.result ?? {};
+  if (job.kind === "storage_migration_copy") {
+    if (result.prepared !== true) return "复制计划尚未封存";
+    const counts =
+      result.counts && typeof result.counts === "object"
+        ? (result.counts as Record<string, unknown>)
+        : {};
+    const decisions =
+      result.decisions && typeof result.decisions === "object"
+        ? (result.decisions as Record<string, unknown>)
+        : {};
+    const selected = jobNumber(result, "selected_count");
+    if (selected !== null)
+      return `选定子集已核验 ${jobNumber(result, "selected_verified_count") ?? 0} / ${selected} · 整体计划${result.copy_subset_complete === true ? "子集已核验" : "仍有未完成范围"}`;
+    if (result.decisions && (decisions.copy ?? 0) === 0)
+      return result.operation === "prepare" ? "计划已封存，无可复制对象" : "无可复制对象";
+    if (result.operation === "prepare")
+      return (jobNumber(result, "generation") ?? 1) > 1
+        ? "计划已封存，可审阅后开始增量复制"
+        : "计划已封存，可审阅后开始初次复制";
+    const verified = jobNumber(counts, "verified");
+    const failed = jobNumber(counts, "failed");
+    return [
+      result.copy_subset_complete === true ? "可复制子集已核验" : "可复制子集尚未全部核验",
+      verified === null ? null : `已核验 ${verified}`,
+      failed === null ? null : `失败 ${failed}`,
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
+  if (job.kind === "storage_migration_inventory") {
+    const counts =
+      result.counts && typeof result.counts === "object"
+        ? (result.counts as Record<string, unknown>)
+        : {};
+    const objects = jobNumber(counts, "objects");
+    const issues = jobNumber(counts, "issues");
+    const parts = [
+      result.complete === true ? "清单完整" : result.complete === false ? "清单不完整" : null,
+      objects === null ? null : `对象版本 ${objects}`,
+      issues === null ? null : `问题 ${issues}`,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" / ") : null;
+  }
+  if (job.kind === "managed_original_verification") {
+    const labels: Record<string, string> = {
+      matched: "本次内容与历史摘要相符",
+      missing: "本次未找到对象",
+      changed: "本次对象或内容已变化",
+      unverifiable: "本次无法完成核验",
+      failed: "本次核验失败",
+      cancelled: "本次核验已取消",
+    };
+    return labels[jobString(result, "outcome") ?? ""] ?? null;
+  }
   const fields =
-    job.kind === "dataset_import" || job.kind === "mask_format_import"
-      ? { imported: "导入", skipped: "跳过", error_count: "错误" }
-      : job.kind === "create_tasks"
-        ? { created_tasks: "已建任务", skipped: "跳过" }
-        : job.kind === "export"
-          ? { file_count: "文件" }
-          : { success_count: "成功", failed_count: "失败", skipped_count: "跳过" };
+    job.kind === "dataset_quality_review"
+      ? { applied_count: "已复核", conflict_count: "冲突", blocked_count: "已阻止" }
+      : job.kind === "dataset_quality"
+        ? {
+            checked_count: "已检测",
+            skipped_count: "未检测",
+            issue_count: "解码或尺寸异常",
+            duplicate_group_count: "重复组",
+          }
+        : job.kind === "dataset_registration"
+          ? {
+              ready_count: "已核验",
+              registered_count: "新增",
+              unchanged_count: "已存在",
+              error_count: "异常",
+            }
+          : job.kind === "dataset_scan"
+            ? { processed_count: "已观测", file_count: "匹配文件", skipped_count: "跳过" }
+            : job.kind === "dataset_import" || job.kind === "mask_format_import"
+              ? { imported: "导入", skipped: "跳过", error_count: "错误" }
+              : job.kind === "create_tasks"
+                ? { created_tasks: "已建任务", skipped: "跳过" }
+                : job.kind === "export"
+                  ? { file_count: "文件" }
+                  : { success_count: "成功", failed_count: "失败", skipped_count: "跳过" };
   const parts = Object.entries(fields).flatMap(([key, label]) => {
     const value = jobNumber(result, key);
     return value === null ? [] : [`${label} ${value}`];
@@ -72,14 +183,38 @@ export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string
   return parts.length ? parts.join(" / ") : null;
 }
 
-export function jobStage(job: AsyncJob): string {
+export function jobStage(job: Pick<AsyncJob, "kind" | "status" | "result" | "payload">): string {
   if (["completed", "failed", "cancelled"].includes(job.status))
     return JOB_STATUS_LABEL[job.status];
   const phase = jobString(job.result, "stage") ?? jobString(job.payload, "stage");
+  if (job.kind === "storage_migration_copy") {
+    if (phase === "dispatch_pending") return "派发尚未确认";
+    const operation = jobString(job.result, "operation") ?? jobString(job.payload, "operation");
+    return job.status === "pending"
+      ? "等待执行"
+      : operation === "prepare"
+        ? "生成目录与冻结计划"
+        : operation === "verify"
+          ? "只读核验保存的目标版本"
+          : "复制并完整核验目标";
+  }
+  if (job.kind === "storage_migration_inventory") {
+    return phase === "dispatch_pending"
+      ? "派发尚未确认"
+      : job.status === "running"
+        ? "读取配置源并核验内容"
+        : "等待执行";
+  }
   const labels: Record<string, string> = {
     queued: "等待执行",
+    dispatch_pending: "派发尚未确认",
+    preflight: "核验图片与接入影响",
+    registering: "登记业务样本",
     collecting: "枚举文件",
+    reading: "读取并核验原件",
     enumerating: "枚举文件",
+    resume_validation: "复核扫描检查点",
+    validating: "复核目录清单",
     importing: "导入文件",
     creating: "创建任务",
     processing: "处理中",
@@ -109,4 +244,52 @@ export function exportDownloadState(result: Record<string, unknown>, now = Date.
   } catch {
     return { url: null, reason: "下载链接不可用，请重新导出。" };
   }
+}
+
+export function jobProgressText(
+  job: Pick<AsyncJob, "kind" | "status" | "progress_pct" | "result">,
+): string {
+  if (job.kind === "storage_migration_copy")
+    return job.result.cancel_requested === true && ["pending", "running"].includes(job.status)
+      ? "已请求取消，等待原生 I/O 与资源收尾"
+      : "按保存计划处理 · 不执行绑定切换或退役";
+  if (job.kind === "storage_migration_inventory") {
+    return job.result.cancel_requested === true && ["pending", "running"].includes(job.status)
+      ? "已请求取消，等待底层读取收尾"
+      : ["pending", "running"].includes(job.status)
+        ? "清单总量未知 · 读取结束后确认完整性"
+        : "本次清单任务已结束 · 未执行复制或切换";
+  }
+  if (job.kind === "video_asset_retry" && ["pending", "running"].includes(job.status)) {
+    return job.result?.stage === "dispatch_pending"
+      ? "派发尚未确认，可回到视频资产失败列表重试"
+      : "处理完成后显示本次资产的实际结果";
+  }
+  if (job.kind === "managed_original_verification" && ["pending", "running"].includes(job.status)) {
+    return job.result?.cancel_requested === true
+      ? "已请求取消，等待底层读取收尾"
+      : "核验单条原件 · 完整读取结束后给出结果";
+  }
+  if (job.kind === "managed_original_reclaim") {
+    return job.result?.cancel_requested === true && ["pending", "running"].includes(job.status)
+      ? "已请求取消，等待实际对象操作与资源收尾；可能已经发出删除"
+      : "仅处理绑定的准确版本 · 删除结果与物理收尾以回收历史为准";
+  }
+  if (job.kind === "managed_reference_reconciliation")
+    return "只核对数据库引用与保留关系 · 不删除对象或自动回收";
+  if (job.kind === "storage_usage" && ["pending", "running"].includes(job.status)) {
+    const done =
+      (jobNumber(job.result, "success_count") ?? 0) + (jobNumber(job.result, "failed_count") ?? 0);
+    return `已处理 ${done} 个桶 · 当前桶对象总量未知`;
+  }
+  if (job.kind === "dataset_scan") {
+    const count = jobNumber(job.result, "processed_count") ?? 0;
+    const state = ["pending", "running"].includes(job.status)
+      ? "总量未知"
+      : job.result.complete === true
+        ? "枚举完成"
+        : "未完整扫描";
+    return `已扫描 ${count} 项 · ${state}`;
+  }
+  return `${Math.max(0, Math.min(100, job.progress_pct))}%`;
 }

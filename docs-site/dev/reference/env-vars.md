@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-26
 ---
 
 # 环境变量参考
@@ -53,6 +53,10 @@ last_reviewed: 2026-10-20
 | `MINIO_PUBLIC_URL` | `/minio` | 浏览器可达的 MinIO 根地址。DEV 用同源 /minio，由 Vite :3000 代理到 localhost:9000，远程浏览器无需额外打通 9000 端口。生产应改为完整外网 URL。 容器中的 ML Backend 访问地址仍由 ML_BACKEND_STORAGE_HOST 独立控制。 |
 | `MINIO_ACCESS_KEY` | `minioadmin` | MinIO 访问密钥（相当于 AWS Access Key ID） 沿用 compose 自带 minio 时，这两项同时作为 minio 容器的 root 凭据（docker-compose.yml 绑定）， 后端/worker 与 minio 容器自动共用同一份；用托管 S3/OSS 时填对方的 AK/SK 即可。 |
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO 密钥（相当于 AWS Secret Access Key）；生产环境务必更换 |
+| `AAP_SOURCE_FENCE_ACCESS_KEY` | `—` | 仅原生源端封闭运维命令使用，在操作进程中导出，不加入API或Worker配置。 |
+| `AAP_SOURCE_FENCE_SECRET_KEY` | `—` | 显式登记来源的root密钥，不写入描述文件、状态或报告。 |
+| `AAP_TARGET_FENCE_ACCESS_KEY` | `—` | 仅整组切换回滚运维CLI使用的独立B凭据，不回退为A凭据，不加入API或Worker配置。 |
+| `AAP_TARGET_FENCE_SECRET_KEY` | `—` | — |
 | `MINIO_BUCKET` | `annotations` | 存放标注文件（图片、音频等）的桶名称 |
 | `MINIO_DATASETS_BUCKET` | `datasets` | 数据集源文件桶（图片/视频/文本原始文件） |
 | `MINIO_BUG_REPORTS_BUCKET` | `bug-reports` | Bug 反馈截图桶（180 天 lifecycle） |
@@ -249,6 +253,9 @@ last_reviewed: 2026-10-20
 | `CONNECTOR_ENCRYPTION_KEY` | `—` | 与 SECRET_KEY 隔离；留空则连接器加解密一律拒绝（API 返回 503）。 生成: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
 | `CONNECTOR_HOST_ALLOWLIST` | `—` | 存储连接器主机白名单部署默认值（CIDR/IP/域名，CSV 或 JSON 数组）。 超管通过 /storage-connections/allowlist 写入 DB 后会覆盖该默认值。 本地连接宿主机 SFTP 示例: CONNECTOR_HOST_ALLOWLIST=172.17.0.1/32,172.26.1.17/32 |
 | `CONNECTOR_DEPLOYMENT_SFTP_HOST` | `—` | 可选：超级管理员「添加部署主机」快捷项预填的 SFTP hostname/IP；留空不展示。 只配置地址，不包含凭据、路径或白名单规则。目标仍须显式加入 CONNECTOR_HOST_ALLOWLIST。 |
+| `STORAGE_FILESYSTEM_ROOTS` | `{}` | 部署允许的只读根；位置和子目录通过存储位置 API 动态登记。 API 与指定 worker 各自配置实际可见路径，默认空映射拒绝所有根。 示例：STORAGE_FILESYSTEM_ROOTS={"ceph":"/mnt/cephfs","local":"/mnt/storage"} |
+| `STORAGE_SFTP_ROOTS` | `{}` | 已验收只读 chroot 的 SFTP 账号资格；整个账号命名空间必须属于该位置，连接 base_path 必须为 /。 JSON 根句柄 → {host, port, username, host_key}；host_key 为完整 SSH 公钥（类型与 base64）。默认不开放。 变更前先禁用相关位置，再协调 API/worker 配置；仅修改一个进程环境不能撤销旧 worker。 |
+| `STORAGE_MAINTENANCE_PROTOCOL_ENABLED` | `false` | 位置维护控制默认关闭；新代码始终登记受控访问。 仅在该部署命名空间全部 API/Worker 退出旧协议并完成核验后启用，空账本不是部署资格。 |
 | `DATASET_IMPORT_MAX_FILES` | `50000` | 连接器导入单个 job 最多扫描 / 导入的文件数；超限直接失败，避免误扫全桶。 |
 | `DATASET_IMPORT_MAX_TOTAL_BYTES` | `214748364800` | 连接器导入单个 job 允许的总字节数；默认 200GiB。 |
 | `MASK_FORMAT_TEMP_QUOTA_BYTES` | `8589934592` | Mask 格式导入 / 导出单 job 临时空间上限；写入时按实际字节持续复核。 |

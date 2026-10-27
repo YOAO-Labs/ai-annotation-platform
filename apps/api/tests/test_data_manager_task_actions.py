@@ -22,6 +22,8 @@ from app.schemas.data_manager_actions import (
 )
 from app.services.data_management.actions import DataManagerTaskActionService
 from tests.factory import create_membership, create_project
+from tests.test_dataset_content import content_world as content_world
+from tests.test_dataset_references import reference_world as reference_world
 
 
 pytestmark = pytest.mark.asyncio
@@ -200,19 +202,15 @@ async def test_assignment_route_rejects_non_owner_and_skips_owner_edit_lock(
 
 
 async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
-    httpx_client, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch, reference_world
 ):
     from app.api.v1 import data_manager
     from app.services.exporting.service import ExportService
     from app.workers.export import _assert_export_task_scope
 
-    owner, token = super_admin
-    project = await create_project(db_session, owner_id=owner.id)
-    selected = await _task(
-        db_session,
-        project_id=project.id,
-        display_id=f"T-DM-EXPORT-{uuid.uuid4().hex[:8]}",
-    )
+    _, token = super_admin
+    _, project, selected, _ = reference_world
+    # An unrelated unknown original must not enter a selected image snapshot.
     sibling = await _task(
         db_session, project_id=project.id, display_id=f"T-DM-SIB-{uuid.uuid4().hex[:8]}"
     )
@@ -230,6 +228,12 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
     job_id = uuid.UUID(first.json()["job_id"])
     job = await db_session.get(AsyncJob, job_id)
     assert job.payload["scope"] == {"task_ids": [str(selected.id)]}
+    from app.db.models.export_media_bundle import ExportMediaBundle
+
+    bundle = await db_session.get(
+        ExportMediaBundle, uuid.UUID(job.payload["image_media"]["bundle_id"])
+    )
+    assert [row["id"] for row in bundle.input_snapshot["tasks"]] == [str(selected.id)]
     assert dispatch.call_args.kwargs["task_ids"] == [str(selected.id)]
     assert dispatch.call_args.kwargs["batch_id"] is None
 
@@ -249,11 +253,19 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
     assert conflict.status_code == 409
 
     await _assert_export_task_scope(
-        db_session, project_id=project.id, task_ids=[selected.id], job_uuid=job_id
+        db_session,
+        project_id=project.id,
+        task_ids=[selected.id],
+        job_uuid=job_id,
+        allow_reference=bool(job.payload.get("export_authority")),
     )
     with pytest.raises(ValueError, match="does not match"):
         await _assert_export_task_scope(
-            db_session, project_id=project.id, task_ids=[sibling.id], job_uuid=job_id
+            db_session,
+            project_id=project.id,
+            task_ids=[sibling.id],
+            job_uuid=job_id,
+            allow_reference=bool(job.payload.get("export_authority")),
         )
     artifact = json.loads(
         await ExportService(db_session, task_ids=[selected.id]).export_aap_json(

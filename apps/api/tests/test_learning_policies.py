@@ -1,7 +1,10 @@
 """Automatic training: semantic growth, current authority and durable scheduling."""
 
 import copy
+import hashlib
 import uuid
+from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import func, select
@@ -11,11 +14,22 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.services import learning_policies as service, training_runs as runs
 from app.services.training_dataset_bridge import semantic_partitions
-from tests.test_training_runs import ready_dataset, executor_claim
+from tests.test_training_runs import (
+    ready_dataset,
+    executor_claim as legacy_executor_claim,
+)
 
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
+
+
+def executor_claim():
+    from training_contract.input_membership import POLICY_DIGEST
+
+    claim = legacy_executor_claim()
+    claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
+    return claim
 
 
 async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effective_values(
@@ -59,7 +73,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
 
 
 def manifest(train=None, val="v1", classes=None):
-    return {
+    value = {
         "schema": 1,
         "classes": classes or ["car"],
         "content_digest": "c" * 64,
@@ -82,13 +96,24 @@ def manifest(train=None, val="v1", classes=None):
             }
         ],
     }
+    for sample in value["samples"]:
+        split, task = sample["split"], sample["task_id"]
+        sample.update(
+            image_path=f"images/{split}/{task}.png",
+            label_path=f"labels/{split}/{task}.txt",
+        )
+        for field in ("sha256", "label_sha256"):
+            sample[field] = hashlib.sha256(sample[field].encode()).hexdigest()
+    return value
 
 
 @pytest.fixture
 def frozen_source(monkeypatch):
     source = {"revision": 1}
 
-    async def freeze(db, project, selection, **kw):
+    async def prepare(db, project, selection, **kw):
+        assert kw["trusted_actor"] is True
+        assert not db.in_transaction(), "Physical reads retained a business transaction"
         snapshot = {
             "schema": 1,
             "classes": ["car"],
@@ -102,7 +127,7 @@ def frozen_source(monkeypatch):
             },
             "source_revision": source["revision"],
         }
-        return snapshot, {
+        report = {
             "ready": True,
             "issues": [],
             "excluded": [],
@@ -115,8 +140,19 @@ def frozen_source(monkeypatch):
                 "excluded": 0,
             },
         }
+        if source.get("during_prepare"):
+            await source["during_prepare"]()
+        return SimpleNamespace(snapshot=snapshot, report=report)
 
-    monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
+    async def finalize(db, prepared):
+        source["finalized"] = source.get("finalized", 0) + 1
+        return prepared.snapshot, prepared.report
+
+    monkeypatch.setattr(service.datasets, "prepare_selection", prepare, raising=False)
+    monkeypatch.setattr(service.datasets, "finalize_selection", finalize, raising=False)
+    monkeypatch.setattr(
+        service.datasets, "check_prepared_clock", lambda prepared: None, raising=False
+    )
     monkeypatch.setattr(service.datasets, "dispatch_dataset", AsyncMock())
     return source
 
@@ -147,6 +183,178 @@ async def setup_policy(db, client, owner, token, *, enabled=True, threshold=1):
         path,
         body,
     )
+
+
+@pytest.mark.parametrize(
+    "changed_field",
+    [
+        "revision",
+        "task",
+        "config",
+        "authorization",
+        "creator_id",
+        "baseline_dataset_id",
+        "baseline",
+        "blocked_train_digest",
+        "last_snapshot_digest",
+        "enabled",
+        "next_check_at",
+        "last_started_at",
+        "state",
+        "message",
+    ],
+)
+async def test_preparation_discards_edited_policy_without_overwriting_new_state(
+    db_session,
+    super_admin,
+    httpx_client,
+    frozen_source,
+    changed_field,
+):
+    owner, token = super_admin
+    _, parent, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+    edited = None
+
+    async def edit_during_preparation():
+        nonlocal edited
+        values = {
+            "revision": policy.revision + 1,
+            "task": "segment",
+            "config": {**policy.config, "min_changed_samples": 13},
+            "authorization": {"api_key_id": str(uuid.uuid4())},
+            "creator_id": None,
+            "baseline_dataset_id": parent.id,
+            "baseline": {"new": "baseline"},
+            "blocked_train_digest": "b" * 64,
+            "last_snapshot_digest": "c" * 64,
+            "enabled": False,
+            "next_check_at": runs.now() + timedelta(hours=1),
+            "last_started_at": runs.now(),
+            "state": "suspended",
+            "message": "A newer policy editor owns this state",
+        }
+        assert getattr(policy, changed_field) != values[changed_field]
+        setattr(policy, changed_field, values[changed_field])
+        await db_session.flush()
+        edited = service._policy_context(policy)
+
+    frozen_source["during_prepare"] = edit_during_preparation
+    await service.check_policy(db_session, policy.id, force=True)
+    assert service._policy_context(policy) == edited
+    assert frozen_source.get("finalized", 0) == 0
+    assert not await db_session.scalar(
+        select(LearningTrigger.id).where(LearningTrigger.policy_id == policy.id)
+    )
+
+
+async def test_newer_checker_publishes_once_while_older_preparation_is_in_flight(
+    db_session, super_admin, httpx_client, frozen_source
+):
+    owner, token = super_admin
+    _, _, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+    newer = None
+
+    async def check_again():
+        nonlocal newer
+        frozen_source.pop("during_prepare")
+        await service.check_policy(db_session, policy.id, force=True)
+        await db_session.flush()
+        newer = service._policy_context(policy)
+
+    frozen_source["during_prepare"] = check_again
+    await service.check_policy(db_session, policy.id, force=True)
+    assert newer is not None and service._policy_context(policy) == newer
+    assert frozen_source["finalized"] == 1
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(LearningTrigger)
+            .where(LearningTrigger.policy_id == policy.id)
+        )
+        == 1
+    )
+
+
+async def test_other_task_trigger_started_during_preparation_blocks_publication(
+    db_session, super_admin, httpx_client, frozen_source
+):
+    owner, token = super_admin
+    project, parent, policy, _, _ = await setup_policy(
+        db_session, httpx_client, owner, token
+    )
+
+    async def start_other_task():
+        other = LearningPolicy(
+            project_id=project.id,
+            creator_id=owner.id,
+            task="segment",
+            config=copy.deepcopy(policy.config),
+            authorization={},
+            enabled=True,
+        )
+        db_session.add(other)
+        await db_session.flush()
+        db_session.add(
+            LearningTrigger(
+                policy_id=other.id,
+                project_id=project.id,
+                policy_revision=other.revision,
+                dataset_id=parent.id,
+                source_digest="d" * 64,
+            )
+        )
+        await db_session.flush()
+
+    frozen_source["during_prepare"] = start_other_task
+    await service.check_policy(db_session, policy.id, force=True)
+    assert policy.state == "active" and "另一个任务" in policy.message
+    assert frozen_source.get("finalized", 0) == 0
+    assert not await db_session.scalar(
+        select(LearningTrigger.id).where(LearningTrigger.policy_id == policy.id)
+    )
+
+
+async def test_authority_revoked_during_preparation_suspends_without_finalizing(
+    db_session, super_admin, httpx_client, frozen_source
+):
+    owner, token = super_admin
+    _, _, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+
+    async def revoke():
+        owner.is_active = False
+        await db_session.flush()
+
+    frozen_source["during_prepare"] = revoke
+    await service.check_policy(db_session, policy.id, force=True)
+    assert not policy.enabled and policy.state == "suspended"
+    assert frozen_source.get("finalized", 0) == 0
+    assert not await db_session.scalar(
+        select(LearningTrigger.id).where(LearningTrigger.policy_id == policy.id)
+    )
+
+
+async def test_preparation_authority_error_does_not_suspend_a_newer_policy_edit(
+    db_session, super_admin, httpx_client, frozen_source
+):
+    from app.services.training_dataset_bridge import TrainingDatasetError
+
+    owner, token = super_admin
+    _, _, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+
+    async def edit_then_fail():
+        policy.revision += 1
+        policy.message = "New editor state"
+        await db_session.flush()
+        raise TrainingDatasetError(
+            "authority_revoked", "Old claim revoked", status_code=403
+        )
+
+    frozen_source["during_prepare"] = edit_then_fail
+    await service.check_policy(db_session, policy.id, force=True)
+    assert (
+        policy.enabled and policy.revision == 2 and policy.message == "New editor state"
+    )
+    assert frozen_source.get("finalized", 0) == 0
 
 
 async def test_task_policies_have_independent_revision_disable_and_history(
@@ -255,7 +463,7 @@ async def build_candidate(db, policy, value=None):
     data.status, data.package_sha256, data.package_key = (
         "ready",
         "e" * 64,
-        "owned/data.zip",
+        data.storage_ref["prefix"] + "dataset.zip",
     )
     data.manifest = value or manifest()
     await db.flush()
@@ -297,7 +505,7 @@ def test_semantic_identity_ignores_ids_paths_duplicates_and_validation_only_grow
 
 
 async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
-    db_session, super_admin, httpx_client, frozen_source, monkeypatch
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -308,16 +516,11 @@ async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
         path, json=body, headers={"Authorization": "Bearer " + token}
     )
     assert stale.status_code == 409
-    delete_objects = AsyncMock()
-    monkeypatch.setattr(
-        "app.api.v1.training_datasets.storage_service.delete_prefix", delete_objects
-    )
     deleted = await httpx_client.delete(
         f"/api/v1/projects/{p.id}/training-datasets/{parent.id}",
         headers={"Authorization": "Bearer " + token},
     )
     assert deleted.status_code == 409
-    delete_objects.assert_not_called()
     invalid = await httpx_client.put(
         path,
         json={**body, "expected_revision": 1, "min_changed_samples": 0},
@@ -569,12 +772,14 @@ async def test_legacy_parent_with_unqualified_output_media_suspends_before_freez
     _, parent, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
     parent.manifest = {**parent.manifest, "media_type": media_type}
     await db_session.flush()
-    freeze = AsyncMock(side_effect=AssertionError("Unqualified parent must not freeze"))
-    monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
+    prepare = AsyncMock(
+        side_effect=AssertionError("Unqualified parent must not prepare")
+    )
+    monkeypatch.setattr(service.datasets, "prepare_selection", prepare)
     await service.check_policy(db_session, policy.id, force=True)
     await db_session.flush()
     assert not policy.enabled and policy.state == "suspended"
-    freeze.assert_not_awaited()
+    prepare.assert_not_awaited()
     assert (
         await db_session.scalar(
             select(LearningTrigger.id).where(LearningTrigger.policy_id == policy.id)

@@ -43,4 +43,4 @@
 
 - 实现：`apps/_shared/training_contract/training_contract/preview.py`、`apps/api/app/services/training_previews.py`、`apps/training-executor/training_executor/preview.py`、`preview_worker.py`。
 - 迁移：`apps/api/alembic/versions/0181_training_previews.py`。
-- 计划：`docs/plans/1792036036_training-augmentation-preview.md`。
+- 计划：`docs/plans/archive/1792036036_training-augmentation-preview.md`。

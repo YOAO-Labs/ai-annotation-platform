@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,6 +19,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
+from app.services.content_snapshot import ContentError
 from app.services.ml_backend import MLBackendService
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
@@ -37,6 +39,11 @@ from scripts.seed_screenshot_profile import (
     prepare_screenshot_seed_media,
     reconcile_screenshot_seed,
 )
+from tests.video_derivative_fixtures import (
+    RAW_VIDEO,
+    install_video_transport,
+    owned_metadata,
+)
 
 
 pytestmark = pytest.mark.asyncio
@@ -49,6 +56,15 @@ def _mock_seed_storage(monkeypatch):
         "app.services.screenshot_seed_catalog._storage_object_digest",
         lambda file_path: hashlib.sha256(file_path.encode()).hexdigest(),
     )
+    # Saved-owner lookups stay real; only the physical transport boundary is
+    # replaced, so catalog reads never open an original or provider client.
+    install_video_transport(monkeypatch)
+
+    @asynccontextmanager
+    async def saved_original(db, authority, source, *, guard=None):
+        yield None
+
+    monkeypatch.setattr("app.services.video_derivative_originals.media", saved_original)
 
 
 async def _ready_profile(db):
@@ -73,6 +89,7 @@ async def _ready_profile(db):
 
     projects: dict[str, Project] = {}
     tasks_by_project: dict[str, dict[str, Task]] = {}
+    video_items: list[DatasetItem] = []
     for project_index, (logical_key, spec) in enumerate(PROJECT_SPECS.items()):
         owner = users["admin"] if spec.data_type == "lidar" else users["pm"]
         project = Project(
@@ -163,6 +180,7 @@ async def _ready_profile(db):
             db.add(item)
             items[file_path] = item
         await db.flush()
+        video_items.extend(item for item in items.values() if item.file_type == "video")
 
         batches: dict[str, TaskBatch] = {}
         for batch_spec in spec.batches:
@@ -334,6 +352,12 @@ async def _ready_profile(db):
         ]
     )
     await db.flush()
+    for item in video_items:
+        # Video seeds own their poster through a published saved metadata receipt,
+        # never through a raw current-bucket path.
+        await owned_metadata(db, item, poster=True)
+        item.content_hash = hashlib.sha256(RAW_VIDEO).hexdigest()
+    await db.flush()
     return projects, tasks_by_project
 
 
@@ -458,11 +482,14 @@ async def test_catalog_ignores_soft_deleted_annotations(httpx_client, db_session
     assert response.status_code == 200, response.text
 
 
-async def test_catalog_includes_ready_optional_large_image_fixture(
-    httpx_client, db_session
-):
-    projects, _ = await _ready_profile(db_session)
-    owner = projects["pointcloud_demo"].owner_id
+async def _optional_large_image_fixture(db, owner, *, failure=None):
+    from app.config import settings
+    from app.db.models.image_pyramid import ImagePyramidOutput
+    from app.services import image_pyramid as pyramids
+    from app.services import image_pyramid_originals as originals
+    from app.services import image_pyramid_storage as physical
+    from app.services.dataset_assets import register_item_asset
+
     project = Project(
         id=uuid.uuid4(),
         display_id="P-LARGE-IMG",
@@ -481,9 +508,9 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
         created_by=owner,
         metadata_={"seed": {"managed_by": "large-image-seed", "manifest_version": 1}},
     )
-    db_session.add_all([project, dataset])
-    await db_session.flush()
-    db_session.add(ProjectDataset(project_id=project.id, dataset_id=dataset.id))
+    db.add_all([project, dataset])
+    await db.flush()
+    db.add(ProjectDataset(project_id=project.id, dataset_id=dataset.id))
     item = DatasetItem(
         id=uuid.uuid4(),
         dataset_id=dataset.id,
@@ -502,8 +529,8 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
             }
         },
     )
-    db_session.add(item)
-    await db_session.flush()
+    db.add(item)
+    await db.flush()
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,
@@ -516,13 +543,13 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
     asset = ImagePyramidAsset(
         id=uuid.uuid4(),
         dataset_item_id=item.id,
-        profile_version="v1",
+        profile_version=settings.image_pyramid_profile_version,
         active_generation=1,
     )
-    db_session.add_all([task, asset])
-    await db_session.flush()
-    db_session.add(
-        ImagePyramidGeneration(
+    db.add_all([task, asset])
+    await db.flush()
+    if failure == "legacy":
+        generation = ImagePyramidGeneration(
             asset_id=asset.id,
             generation=1,
             source_identity="etag:test:bytes:130764157",
@@ -531,7 +558,7 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
             width=item.width,
             height=item.height,
             max_level=15,
-            normalization_version="v1",
+            normalization_version=settings.image_pyramid_normalization_version,
             manifest_key="image-pyramids/a/1/manifest.json",
             overview_key="image-pyramids/a/1/overview.webp",
             overview_width=2048,
@@ -539,8 +566,130 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
             tile_count=694,
             retained_bytes=1234,
         )
+        db.add(generation)
+        await db.flush()
+        return task, generation, None
+
+    await register_item_asset(
+        db, item, sha256=item.content_hash, size_bytes=item.file_size, etag='"fixture"'
     )
-    await db_session.flush()
+    source = await originals.pin(db, "dataset_item", item.id)
+    original_ref = originals.receipt(source)
+    source_identity = (
+        "managed:"
+        + hashlib.sha256(pyramids.canonical_manifest_bytes(original_ref)).hexdigest()
+    )
+    source_fingerprint = "sha256:" + source.sha256
+    output_id = uuid.uuid4()
+    output = ImagePyramidOutput(
+        id=output_id,
+        asset_id=asset.id,
+        generation=1,
+        lease_token=uuid.uuid4(),
+        storage_ref=await physical.allocate(db, output_id),
+        state="building",
+    )
+    db.add(output)
+    await db.flush()
+    owner = physical.resolve(output)
+    levels = pyramids.pyramid_levels(item.width, item.height)
+    overview_level = next(
+        level for level in levels if max(level["width"], level["height"]) <= 512
+    )
+    overview_bytes = b"verified-fixture-overview"
+    overview_digest = pyramids.sha256_digest(overview_bytes)
+    manifest_bytes = pyramids.canonical_manifest_bytes(
+        pyramids.build_manifest(
+            generation=1,
+            source_fingerprint=source_fingerprint,
+            width=item.width,
+            height=item.height,
+            overview_width=overview_level["width"],
+            overview_height=overview_level["height"],
+            overview_digest=overview_digest,
+        )
+    )
+    tile_bytes = b"verified-fixture-tile"
+    objects = {
+        owner.key(f"tiles/{level['level']}/{x}/{y}.webp"): {
+            "sha256": hashlib.sha256(tile_bytes).hexdigest(),
+            "size_bytes": len(tile_bytes),
+        }
+        for level in levels
+        for x in range(level["columns"])
+        for y in range(level["rows"])
+    }
+    tile_count = len(objects)
+    if failure == "missing_tile":
+        objects.pop(next(iter(objects)))
+    objects[owner.key("manifest.json")] = {
+        "sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "size_bytes": len(manifest_bytes),
+    }
+    objects[owner.key("overview.webp")] = {
+        "sha256": hashlib.sha256(overview_bytes).hexdigest(),
+        "size_bytes": len(overview_bytes),
+    }
+    output.inventory = {"schema": 1, "objects": objects}
+    output.state = "ready"
+    await db.flush()
+    if failure == "retiring_output":
+        output.state = "retiring"
+        await db.flush()
+    if failure == "changed_original":
+        original_ref = dict(original_ref, sha256="a" * 64)
+    generation = ImagePyramidGeneration(
+        asset_id=asset.id,
+        generation=1,
+        source_identity=source_identity,
+        original_ref=original_ref,
+        auth_ref=originals.system_authorization("dataset_item", item.id, source),
+        output_id=None if failure == "missing_output" else output.id,
+        source_fingerprint="sha256:" + "a" * 64
+        if failure == "fingerprint"
+        else source_fingerprint,
+        status="ready",
+        width=item.width,
+        height=item.height,
+        max_level=len(levels) - 1,
+        normalization_version=settings.image_pyramid_normalization_version,
+        manifest_key="image-pyramids/a/1/manifest.json"
+        if failure == "fake_key"
+        else owner.key("manifest.json"),
+        manifest_digest=pyramids.sha256_digest(manifest_bytes),
+        overview_key=owner.key("overview.webp"),
+        overview_digest=overview_digest,
+        overview_width=overview_level["width"],
+        overview_height=overview_level["height"],
+        tile_size=pyramids.PYRAMID_TILE_SIZE,
+        overlap=pyramids.PYRAMID_OVERLAP,
+        format=pyramids.PYRAMID_FORMAT,
+        tile_count=tile_count,
+        retained_bytes=sum(receipt["size_bytes"] for receipt in objects.values()),
+    )
+    db.add(generation)
+    await db.flush()
+    if failure == "maintenance":
+        from app.db.models.storage_maintenance import StorageMaintenanceGate
+
+        gate = await db.get(StorageMaintenanceGate, source.location_id)
+        if gate is None:
+            gate = StorageMaintenanceGate(
+                location_id=source.location_id, state="active", revision=1
+            )
+            db.add(gate)
+        gate.state = "stopped"
+        await db.flush()
+    return task, generation, output
+
+
+async def test_catalog_includes_ready_optional_large_image_fixture(
+    httpx_client, db_session
+):
+    projects, _ = await _ready_profile(db_session)
+    task, _, _ = await _optional_large_image_fixture(
+        db_session, projects["pointcloud_demo"].owner_id
+    )
 
     response = await httpx_client.get(
         "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
@@ -550,6 +699,56 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
     large = response.json()["projects"]["large_image_demo"]
     assert large["display_id"] == "P-LARGE-IMG"
     assert large["tasks"]["cosmic_cliffs"]["id"] == str(task.id)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "legacy",
+        "missing_output",
+        "missing_tile",
+        "retiring_output",
+        "changed_original",
+        "fingerprint",
+        "fake_key",
+        "maintenance",
+    ],
+)
+async def test_catalog_rejects_unqualified_optional_large_image_fixture(
+    httpx_client, db_session, failure
+):
+    projects, _ = await _ready_profile(db_session)
+    await _optional_large_image_fixture(
+        db_session, projects["pointcloud_demo"].owner_id, failure=failure
+    )
+
+    response = await httpx_client.get(
+        "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
+    )
+
+    assert response.status_code == 409, response.text
+    assert any(
+        "cosmic-cliffs pyramid is not ready" in issue
+        for issue in response.json()["detail"]["issues"]
+    )
+
+
+async def test_catalog_saved_output_survives_current_purpose_bucket_change(
+    httpx_client, db_session, monkeypatch
+):
+    projects, _ = await _ready_profile(db_session)
+    await _optional_large_image_fixture(
+        db_session, projects["pointcloud_demo"].owner_id
+    )
+    monkeypatch.setattr(
+        storage_service, "media_cache_bucket", "another-current-cache-bucket"
+    )
+
+    response = await httpx_client.get(
+        "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
+    )
+
+    assert response.status_code == 200, response.text
 
 
 async def test_catalog_rejects_unexpected_task_in_managed_project(
@@ -914,9 +1113,11 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
     await db_session.flush()
     prepared = []
     checked = []
+    delegated: set[str] = set()
 
-    async def backfill(dataset_id):
+    async def backfill(dataset_id, *, video_delegations=None):
         prepared.append(uuid.UUID(dataset_id))
+        delegated.update(video_delegations or {})
         items = (
             await db_session.scalars(
                 select(DatasetItem).where(
@@ -925,15 +1126,10 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
             )
         ).all()
         for item in items:
-            item.thumbnail_path = f"thumbnails/{item.id}.webp"
             if item.file_type == "video":
-                item.metadata_ = {
-                    "video": {
-                        "frame_count": 24,
-                        "fps": 24,
-                        "poster_frame_path": item.thumbnail_path,
-                    }
-                }
+                # The seeded item already owns a published saved poster.
+                continue
+            item.thumbnail_path = f"thumbnails/{item.id}.webp"
         await db_session.flush()
 
     def verify_upload(key, *, bucket):
@@ -957,7 +1153,24 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
     )
     assert set(prepared) == owned_ids
     assert len(prepared) == report["datasets"] == 3
-    assert report["items"] == len(checked) == 10
+    owned_items = list(
+        await db_session.scalars(
+            select(DatasetItem).where(DatasetItem.dataset_id.in_(owned_ids))
+        )
+    )
+    expected_items = sum(
+        len(spec.media_paths) or len(spec.tasks)
+        for spec in PROJECT_SPECS.values()
+        if spec.data_type in {"image", "video"}
+    )
+    assert report["items"] == len(owned_items) == expected_items
+    video_ids = {str(item.id) for item in owned_items if item.file_type == "video"}
+    assert video_ids and delegated == video_ids
+    # Saved video posters are verified through their published owner, not the
+    # current-bucket upload path images still use.
+    assert {key for key, _ in checked} == {
+        item.thumbnail_path for item in owned_items if item.file_type != "video"
+    }
     assert all(bucket == storage_service.media_cache_bucket for _, bucket in checked)
     await db_session.refresh(other_item)
     assert other_item.thumbnail_path is None
@@ -969,7 +1182,7 @@ async def test_screenshot_media_fails_when_backfill_does_not_make_media_ready(
 ):
     await _ready_profile(db_session)
 
-    async def backfill(dataset_id):
+    async def backfill(dataset_id, *, video_delegations=None):
         if failure != "thumbnail":
             items = await db_session.scalars(
                 select(DatasetItem).where(
@@ -985,12 +1198,15 @@ async def test_screenshot_media_fails_when_backfill_does_not_make_media_ready(
         "scripts.seed_screenshot_profile.storage_service.verify_upload",
         lambda *args, **kwargs: None if failure == "object" else {"ContentLength": 128},
     )
-    message = (
-        "video metadata/poster is not ready"
-        if failure == "video"
-        else "thumbnail/poster is not ready"
-    )
-    with pytest.raises(ScreenshotSeedReconcileError, match=message):
+    if failure == "video":
+        # A poster the backfill never published fails the saved-owner receipt
+        # rather than the mutable item columns.
+        with pytest.raises(ContentError):
+            await prepare_screenshot_seed_media(
+                db_session, asset_sha256={key: "a" * 64 for key in PROJECT_SPECS}
+            )
+        return
+    with pytest.raises(ScreenshotSeedReconcileError):
         await prepare_screenshot_seed_media(
             db_session, asset_sha256={key: "a" * 64 for key in PROJECT_SPECS}
         )

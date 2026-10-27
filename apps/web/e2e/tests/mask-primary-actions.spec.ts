@@ -321,7 +321,12 @@ test.describe("Mask phase primary actions", () => {
     await page.mouse.up();
     await openMaskSettings(page);
     await expect(page.getByTestId("mask-primary-action")).toHaveText("保存当前帧关键帧");
+    const savedKeyframe = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" && response.url().includes("/mask-keyframes/"),
+    );
     await primaryKey(page);
+    expect((await savedKeyframe).status()).toBe(200);
     await expect(page.getByTestId("mask-tool-capsule")).toHaveCount(0);
     const saved = (await annotations(request, taskId, token)).find(
       (item) => item.id === original.id,

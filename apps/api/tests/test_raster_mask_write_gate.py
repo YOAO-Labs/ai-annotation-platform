@@ -29,6 +29,268 @@ FOREGROUND_RLE = {
 EMPTY_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [6]}
 
 
+@pytest.mark.parametrize("disabled_layer", ["create", "read", "project", "region"])
+@pytest.mark.asyncio
+async def test_portable_prediction_gate_precedes_every_object_put(
+    disabled_layer, db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    put = AsyncMock(return_value=reference)
+    load = AsyncMock(return_value=FOREGROUND_RLE)
+    monkeypatch.setattr("app.services.raster_mask_storage.store_coco_rle", put)
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", disabled_layer != "read")
+    monkeypatch.setattr(
+        settings, "raster_mask_create_enabled", disabled_layer != "create"
+    )
+    if disabled_layer == "project":
+        project.raster_mask_native_editing_enabled = False
+    elif disabled_layer == "region":
+        project.tool_bindings = {"region": {"enabled": False}}
+    await db_session.flush()
+    with pytest.raises(RasterMaskContractError):
+        await PredictionService(db_session).create_from_ml_result(
+            task_id=task.id,
+            project_id=project.id,
+            ml_backend_id=None,
+            result=[_shape(reference)],
+            token_meta={"mask_objects": {reference["sha256"]: FOREGROUND_RLE}},
+        )
+    put.assert_not_awaited()
+    load.assert_not_awaited()
+    assert await _count_for_task(db_session, Prediction, task.id) == 0
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "size",
+        "second_digest",
+        "extra",
+        "empty",
+        "metadata",
+        "instances",
+        "pixels",
+        "elements",
+    ],
+)
+@pytest.mark.asyncio
+async def test_entire_portable_prediction_validated_before_first_put(
+    fault, db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    shapes = [_shape(reference)]
+    objects = {reference["sha256"]: FOREGROUND_RLE}
+    meta = {"mask_objects": objects}
+    if fault == "size":
+        item = await db_session.get(DatasetItem, task.dataset_item_id)
+        item.height = 3
+        await db_session.flush()
+    elif fault == "second_digest":
+        second_rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [0, 6]}
+        second = build_rle_reference(second_rle)
+        shapes.append(_shape(second))
+        objects[second["sha256"]] = FOREGROUND_RLE
+    elif fault == "extra":
+        objects["f" * 64] = FOREGROUND_RLE
+    elif fault == "empty":
+        empty = build_rle_reference(EMPTY_RLE)
+        shapes.append(_shape(empty))
+        objects[empty["sha256"]] = EMPTY_RLE
+    elif fault == "metadata":
+        meta["oversized"] = "x" * (16 * 1024 * 1024)
+    elif fault == "instances":
+        shapes *= 301
+    else:
+        side = 8192 if fault == "pixels" else 4096
+        rle = {"encoding": "coco_rle", "size": [side, side], "counts": [0, side * side]}
+        large = build_rle_reference(rle)
+        shapes = [_shape(large)] * (1 if fault == "pixels" else 8)
+        meta = {"mask_objects": {large["sha256"]: rle}}
+        item = await db_session.get(DatasetItem, task.dataset_item_id)
+        item.width = item.height = side
+        await db_session.flush()
+    put = AsyncMock()
+    load = AsyncMock()
+    monkeypatch.setattr("app.services.raster_mask_storage.store_coco_rle", put)
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    with pytest.raises(RasterMaskContractError):
+        await PredictionService(db_session).create_from_ml_result(
+            task_id=task.id,
+            project_id=project.id,
+            ml_backend_id=None,
+            result=shapes,
+            token_meta=meta,
+        )
+    put.assert_not_awaited()
+    load.assert_not_awaited()
+    assert await _count_for_task(db_session, Prediction, task.id) == 0
+    await db_session.refresh(task)
+    assert task.total_predictions == 0
+
+
+@pytest.mark.asyncio
+async def test_portable_mixed_prediction_stores_once_without_remapping_native_indices(
+    db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    shape = {**_shape(reference), "instance_index": 7}
+    vector = {
+        "type": "polygonlabels",
+        "value": {"points": [[0, 0], [50, 0], [50, 50]], "polygonlabels": ["object"]},
+    }
+    put = AsyncMock(return_value=reference)
+    monkeypatch.setattr("app.services.raster_mask_storage.store_coco_rle", put)
+    monkeypatch.setattr(
+        "app.services.raster_mask_storage.load_coco_rle",
+        AsyncMock(return_value=FOREGROUND_RLE),
+    )
+    prediction = await PredictionService(db_session).create_from_ml_result(
+        task_id=task.id,
+        project_id=project.id,
+        ml_backend_id=None,
+        result=[shape, vector, shape],
+        token_meta={"mask_objects": {reference["sha256"]: FOREGROUND_RLE}},
+    )
+    assert prediction.result[0]["instance_index"] == 7
+    assert prediction.result[0]["geometry"] == shape["geometry"]
+    put.assert_awaited_once_with(FOREGROUND_RLE, db=db_session)
+    assert await _count_for_task(db_session, Prediction, task.id) == 1
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.asyncio
+async def test_real_minio_portable_mixed_prediction_and_region_acceptance(
+    compressed, db_session, super_admin, monkeypatch
+):
+    from app.services.raster_mask_storage import build_rle_gzip_reference, load_coco_rle
+    from app.services.storage import storage_service
+
+    user, _ = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [0, 2, 1, 2, 1]}
+    reference = (build_rle_gzip_reference if compressed else build_rle_reference)(rle)
+    key = reference["object_key"]
+    preexisting = storage_service.verify_upload(key) is not None
+    vector = {
+        "type": "polygonlabels",
+        "value": {"points": [[0, 0], [50, 0], [50, 50]], "polygonlabels": ["object"]},
+    }
+    try:
+        prediction = await PredictionService(db_session).create_from_ml_result(
+            task_id=task.id,
+            project_id=project.id,
+            ml_backend_id=None,
+            result=[{**_shape(reference), "instance_index": 4}, vector],
+            token_meta={"mask_objects": {reference["sha256"]: rle}},
+        )
+        assert await load_coco_rle(reference) == rle
+        annotations = await AnnotationService(db_session).accept_prediction(
+            prediction.id, user.id
+        )
+        assert len(annotations) == 2
+        assert annotations[0].geometry == {"type": "raster_mask", "mask": reference}
+        assert annotations[1].geometry["type"] == "polygon"
+        assert {annotation.tool_unit_id for annotation in annotations} == {"region"}
+        assert await load_coco_rle(annotations[0].geometry["mask"]) == rle
+    finally:
+        if not preexisting:
+            storage_service.delete_object(key)
+            assert storage_service.verify_upload(key) is None
+
+
+@pytest.mark.parametrize("shape_index", [None, 1])
+@pytest.mark.parametrize("controlled_child", [False, True])
+@pytest.mark.asyncio
+async def test_snapshot_mixed_mask_and_box_accept_uses_each_stage_unit_and_class_binding(
+    shape_index, controlled_child, db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    project.tool_bindings = {
+        "region": {
+            "enabled": True,
+            "classes": [{"name": "object"}, {"name": "wrong", "alias": "object"}],
+        },
+        "bbox": {
+            "enabled": True,
+            "classes": [{"name": "child-class", "alias": "model-child"}],
+        },
+    }
+    await db_session.flush()
+    reference = build_rle_reference(FOREGROUND_RLE)
+    monkeypatch.setattr(
+        "app.services.raster_mask_storage.store_coco_rle",
+        AsyncMock(return_value=reference),
+    )
+    monkeypatch.setattr(
+        "app.services.raster_mask_storage.load_coco_rle",
+        AsyncMock(return_value=FOREGROUND_RLE),
+    )
+    root_id, child_id = str(uuid.uuid4()), str(uuid.uuid4())
+    box = {
+        "type": "rectanglelabels",
+        "pipeline_shape_id": child_id,
+        "value": {
+            "x": 10,
+            "y": 10,
+            "width": 50,
+            "height": 50,
+            "rectanglelabels": ["child-class" if controlled_child else "model-child"],
+        },
+    }
+    prediction = await PredictionService(db_session).create_from_ml_result(
+        task_id=task.id,
+        project_id=project.id,
+        ml_backend_id=None,
+        result=[{**_shape(reference), "pipeline_shape_id": root_id}, box],
+        token_meta={"mask_objects": {reference["sha256"]: FOREGROUND_RLE}},
+        model_provenance={"task": "segmentation"},
+        pipeline_extra={
+            "pipeline": {
+                "shape_lineage": [
+                    {"shape_id": root_id, "stage": 9},
+                    {"shape_id": child_id, "stage": 13},
+                ],
+                "selections": [
+                    {"stage": 9, "model_ref": {"task": "segmentation"}},
+                    {
+                        "stage": 13,
+                        "model_ref": {"task": "detection"}
+                        if controlled_child
+                        else None,
+                    },
+                ],
+            }
+        },
+    )
+    annotations = await AnnotationService(db_session).accept_prediction(
+        prediction.id, user.id, shape_index=shape_index
+    )
+    assert [
+        (annotation.tool_unit_id, annotation.class_name) for annotation in annotations
+    ] == (
+        [("region", "object"), ("bbox", "child-class")]
+        if shape_index is None
+        else [("bbox", "child-class")]
+    )
+    assert annotations[-1].attributes["_shape_index"] == 1
+
+
 async def _seed_image_task(db, owner_id: uuid.UUID, *, item_type: str = "image"):
     suffix = uuid.uuid4().hex[:8]
     dataset = Dataset(
@@ -248,6 +510,9 @@ async def test_prediction_create_gate_on_keeps_all_contract_validation(
         load = AsyncMock(return_value=rle)
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    # Whole-video qualification owns ml_backend video results before this
+    # mask contract; the mask write path still has to reject the same task.
+    source = "interactive_accept" if case == "media" else "ml_backend"
 
     with pytest.raises(RasterMaskContractError) as exc_info:
         await PredictionService(db_session).create_from_ml_result(
@@ -255,6 +520,7 @@ async def test_prediction_create_gate_on_keeps_all_contract_validation(
             project_id=project.id,
             ml_backend_id=None,
             result=[_shape(reference)],
+            source=source,
         )
 
     assert exc_info.value.detail["reason"] == expected_reason

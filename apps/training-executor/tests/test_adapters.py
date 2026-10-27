@@ -614,13 +614,67 @@ def test_detection_cannot_consume_segmentation_or_claim_legacy_segmentation_iden
 
 
 @pytest.mark.parametrize("backend", ["pycocotools", None])
+@pytest.mark.parametrize("observe_inputs", [False, True, "missing_final"])
 def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weights(
-    tmp_path, monkeypatch, backend
+    tmp_path, monkeypatch, backend, observe_inputs
 ):
     import torch
     import libreyolo
 
     s = spec(tmp_path)
+    membership = None
+    paths = {
+        split: [str(tmp_path / f"images/{split}/sample.png")]
+        for split in ("train", "val")
+    }
+    if observe_inputs:
+        import uuid
+        from training_contract.input_membership import contract_for
+        from training_executor.input_membership import InputMembership
+
+        manifest = {
+            "samples": [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "split": split,
+                    "image_path": f"images/{split}/sample.png",
+                    "label_path": f"labels/{split}/sample.txt",
+                    "sha256": "a" * 64,
+                    "label_sha256": "b" * 64,
+                }
+                for split in ("train", "val")
+            ]
+        }
+        s.update(run_id=str(uuid.uuid4()), attempt_id=str(uuid.uuid4()))
+        s["frozen_config"].update(
+            dataset_id=str(uuid.uuid4()),
+            dataset_sha256="c" * 64,
+            input_contract=contract_for(manifest),
+        )
+        membership = InputMembership(s, tmp_path, manifest)
+        from libreyolo.validation.detection_validator import DetectionValidator
+
+        monkeypatch.setattr(
+            DetectionValidator,
+            "_setup_dataloader",
+            lambda self: SimpleNamespace(
+                dataset=SimpleNamespace(img_files=paths["val"])
+            ),
+        )
+
+    class Trainer:
+        def __init__(self):
+            self.train_loader = SimpleNamespace(
+                dataset=SimpleNamespace(
+                    dataset=SimpleNamespace(img_files=paths["train"])
+                )
+            )
+            self._epoch_validator = SimpleNamespace(
+                dataloader=SimpleNamespace(
+                    dataset=SimpleNamespace(img_files=paths["val"])
+                )
+            )
+
     calls = []
     monkeypatch.setattr(torch, "set_num_interop_threads", lambda _: None)
 
@@ -633,8 +687,13 @@ def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weight
             self.path = path
             calls.append(("load", path, device))
 
+        def _trainer_class(self):
+            return Trainer
+
         def train(self, **kw):
             calls.append(("train", kw))
+            if observe_inputs:
+                self._trainer_class()()
             weights = tmp_path / "framework/weights"
             weights.mkdir(parents=True)
             full = native_checkpoint(s)
@@ -652,6 +711,11 @@ def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weight
 
         def val(self, **kw):
             calls.append(("val", kw))
+            if observe_inputs:
+                if observe_inputs == "missing_final":
+                    paths["val"] = []
+                validator = object.__new__(self.validator_class)
+                validator._setup_dataloader()
             return {
                 "metrics/mAP50-95": 0.2 if backend else 0.0,
                 "metrics/mAP50": 0.3 if backend else 0.0,
@@ -660,7 +724,18 @@ def test_libre_arguments_use_native_callbacks_and_evaluate_exact_selected_weight
             }
 
     monkeypatch.setattr(libreyolo, "LibreYOLO", Model)
-    libreyolo_train(s, tmp_path)
+    if observe_inputs == "missing_final":
+        from training_contract.observability import InputMismatchError
+
+        with pytest.raises(InputMismatchError, match="differ"):
+            libreyolo_train(s, tmp_path, membership=membership)
+        assert not (tmp_path / "result.json").exists()
+        return
+    libreyolo_train(s, tmp_path, membership=membership)
+    if observe_inputs:
+        proof = json.loads((tmp_path / "input-membership.json").read_text())
+        assert proof["counts"] == {"train": 1, "val": 1}
+        assert proof["attempt_id"] == s["attempt_id"]
     arguments = next(v[1] for v in calls if v[0] == "train")
     assert arguments["device"] == "cuda:0" and arguments["save_plots"] is False
     assert arguments["eval_interval"] == 1 and arguments["loggers"] == []

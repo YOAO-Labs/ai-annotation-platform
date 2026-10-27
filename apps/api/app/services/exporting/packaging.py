@@ -18,20 +18,22 @@
 
 from __future__ import annotations
 
-from app.services.exporting.contracts import export_contracts, video_source_contract
+from app.services.exporting.contracts import export_contracts
 
 import asyncio
-import hashlib
 import json
 import math
 import os
 import tempfile
+import threading
+import time
 import uuid
 import zipfile
 from copy import deepcopy
 from datetime import datetime, timezone
 from posixpath import splitext
 from typing import Any, AsyncIterator
+from collections.abc import Awaitable, Callable
 
 import numpy as np
 from sqlalchemy import select, tuple_
@@ -63,6 +65,8 @@ from app.services.exporting.lidar import (
     count_lidar_points_in_boxes,
 )
 from app.services.exporting.lidar_preflight import calibration_is_valid
+from app.services.exporting import lidar_fetch
+from app.services.exporting.image_fetch import FETCH_IMAGES_TEMPLATE
 from app.services.exporting.video import (
     FALLBACK_H,
     FALLBACK_W,
@@ -90,7 +94,6 @@ from app.services.project import (
     derive_attribute_schema,
     derive_classes_list,
 )
-from app.services.sensor_calibration import resolve_calibration_states
 from app.services.storage import storage_service
 from app.services.mask_formats import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
@@ -122,11 +125,13 @@ VIDEO_EXPORT_FORMATS = {
 }
 
 
-async def _hydrate_mask_geometry_for_export(geometry: dict) -> dict:
+async def _hydrate_mask_geometry_for_export(geometry: dict, check_cancel=None) -> dict:
     if geometry.get("type") != "video_track_mask":
         return geometry
     hydrated = deepcopy(geometry)
     for keyframe in hydrated.get("keyframes") or []:
+        if check_cancel is not None:
+            await check_cancel()
         rle = await load_coco_rle(keyframe.get("mask") or {})
         keyframe["mask_rle"] = rle
         keyframe["bbox"] = coco_rle_bbox_norm(rle)
@@ -189,242 +194,34 @@ def clean_export_targets(targets: list[str], data_type: str | None = None) -> li
 PRESIGN_EXPIRES_SECONDS = 7 * 24 * 3600
 
 
-def relative_path_from_file_path(file_path: str, dataset_name: str) -> str:
-    """剥掉 `{dataset_name}/` 前缀，得到数据集内相对路径（posix `/`）。
+def relative_path_from_file_path(
+    file_path: str, dataset_name: str, item: DatasetItem | None = None
+) -> str:
+    """优先样本逻辑路径；旧样本剥 `{dataset_name}/` 前缀（posix `/`）。
 
     `file_path` = 完整 MinIO key（如 `mydataset/animals/cat/001.jpg`），叶子名不足以唯一
     定位（同名跨目录会覆盖），故必须用相对路径镜像目录。
 
     前缀匹配（首段 == dataset_name）才剥；不匹配则原样返回（保守，避免误删层级）。
     """
-    path = (file_path or "").lstrip("/")
-    if not dataset_name:
-        return path
-    prefix = f"{dataset_name}/"
-    if path.startswith(prefix):
-        return path[len(prefix) :]
-    return path
+    from app.services.dataset_storage_keys import (
+        dataset_relative_path,
+        dataset_item_relative_path,
+    )
+
+    if item is not None and item.file_path == file_path:
+        return dataset_item_relative_path(item, dataset_name)
+    return dataset_relative_path(file_path, dataset_name)
 
 
-_FETCH_IMAGES_TEMPLATE = '''#!/usr/bin/env python3
-"""按 images_manifest.json 的预签名 URL 把图片回源到 images/<相对路径>，与 labels/ 平行。
+_FETCH_IMAGES_TEMPLATE = FETCH_IMAGES_TEMPLATE
 
-纯标准库，无需配置 MinIO 密钥（URL 已带 7 天签名）。本地已有数据集则无需运行本脚本。
-"""
-import json
-import os
-import sys
-import urllib.request
-from datetime import datetime, timezone
+_FETCH_POINTCLOUDS_TEMPLATE = lidar_fetch.FETCH_POINTCLOUDS_TEMPLATE
+_FETCH_LIDAR_IMAGES_TEMPLATE = lidar_fetch.FETCH_LIDAR_IMAGES_TEMPLATE
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+_FETCH_NUSCENES_MEDIA_TEMPLATE = lidar_fetch.FETCH_TRUSTED_MEDIA_TEMPLATE
 
-
-def main() -> int:
-    manifest_path = os.path.join(HERE, "images_manifest.json")
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-
-    items = manifest.get("images", [])
-    # 过期校验：取最早 expires_at 提示。
-    soonest = None
-    for it in items:
-        exp = it.get("expires_at")
-        if exp:
-            try:
-                dt = datetime.fromisoformat(exp)
-            except ValueError:
-                continue
-            if soonest is None or dt < soonest:
-                soonest = dt
-    if soonest is not None:
-        now = datetime.now(timezone.utc)
-        remaining = soonest - now
-        if remaining.total_seconds() <= 0:
-            print(
-                "[!] 预签名链接已于 %s 过期，请回平台重新导出。" % soonest.isoformat()
-            )
-            return 2
-        print(
-            "[i] 预签名链接将于 %s 过期（剩约 %d 天），请尽快下载。"
-            % (soonest.isoformat(), int(remaining.total_seconds() // 86400))
-        )
-
-    ok = 0
-    fail = 0
-    for it in items:
-        rel = it.get("rel_path")
-        url = it.get("presigned_url")
-        if not rel or not url:
-            continue
-        dest = os.path.join(HERE, "images", *rel.split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest):
-            ok += 1
-            continue
-        try:
-            urllib.request.urlretrieve(url, dest)
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel, exc))
-            fail += 1
-    print("[done] 成功 %d，失败 %d，输出目录 images/" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
-
-_FETCH_POINTCLOUDS_TEMPLATE = '''#!/usr/bin/env python3
-"""按 pointclouds_manifest.json 的预签名 URL 把点云回源到 velodyne/<相对路径>。
-
-纯标准库，无需 MinIO 密钥（URL 已带 7 天签名）。label 索引对应这里回源的同一份点云。
-"""
-import json
-import os
-import sys
-import urllib.request
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def main() -> int:
-    with open(os.path.join(HERE, "pointclouds_manifest.json"), "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    ok = 0
-    fail = 0
-    for it in manifest.get("pointclouds", []):
-        rel = it.get("rel_path")
-        url = it.get("presigned_url")
-        if not rel or not url:
-            continue
-        dest = os.path.join(HERE, "velodyne", *rel.split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest):
-            ok += 1
-            continue
-        try:
-            urllib.request.urlretrieve(url, dest)
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel, exc))
-            fail += 1
-    print("[done] 点云回源 成功 %d，失败 %d，输出目录 velodyne/" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
-
-_FETCH_TRUSTED_MEDIA_TEMPLATE = '''#!/usr/bin/env python3
-"""Materialize the exact trusted media tree from media_manifest.json."""
-import hashlib
-import json
-import os
-import sys
-import tempfile
-import urllib.request
-from datetime import datetime, timezone
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def safe_destination(rel_path: str) -> str:
-    if (
-        not isinstance(rel_path, str)
-        or not rel_path
-        or "\\\\" in rel_path
-        or ":" in rel_path
-        or "\\0" in rel_path
-    ):
-        raise ValueError("unsafe media path")
-    parts = rel_path.split("/")
-    if any(part in ("", ".", "..") for part in parts):
-        raise ValueError("unsafe media path")
-    root = os.path.realpath(HERE)
-    destination = os.path.realpath(os.path.join(root, *parts))
-    if os.path.commonpath((root, destination)) != root or destination == root:
-        raise ValueError("unsafe media path")
-    return destination
-
-
-def file_matches(path: str, expected_size: int, expected_sha256: str) -> bool:
-    if not os.path.isfile(path) or os.path.getsize(path) != expected_size:
-        return False
-    digest = hashlib.sha256()
-    with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest() == expected_sha256
-
-
-def main() -> int:
-    with open(os.path.join(HERE, "media_manifest.json"), "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    expires_at = manifest.get("expires_at")
-    if expires_at and datetime.fromisoformat(expires_at) <= datetime.now(timezone.utc):
-        print("[!] 媒体链接已过期，请回平台重新导出。")
-        return 2
-    ok = 0
-    fail = 0
-    seen_destinations = set()
-    for item in manifest.get("media", []):
-        rel_path = item.get("rel_path")
-        url = item.get("presigned_url")
-        if not rel_path or not url:
-            print("[x] 下载失败 %s: missing media path or URL" % (rel_path,))
-            fail += 1
-            continue
-        temp_path = None
-        try:
-            expected_size = int(item["source_file_size"])
-            expected_sha256 = str(item["source_sha256"]).lower()
-            if (
-                expected_size < 0
-                or len(expected_sha256) != 64
-                or any(char not in "0123456789abcdef" for char in expected_sha256)
-            ):
-                raise ValueError("invalid media fingerprint")
-            dest = safe_destination(rel_path)
-            if dest in seen_destinations:
-                raise ValueError("duplicate media path")
-            seen_destinations.add(dest)
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            if file_matches(dest, expected_size, expected_sha256):
-                ok += 1
-                continue
-            with tempfile.NamedTemporaryFile(
-                prefix=".aap-download-",
-                dir=os.path.dirname(dest),
-                delete=False,
-            ) as temp_file:
-                temp_path = temp_file.name
-            urllib.request.urlretrieve(url, temp_path)
-            if not file_matches(temp_path, expected_size, expected_sha256):
-                raise ValueError("downloaded media fingerprint mismatch")
-            os.replace(temp_path, dest)
-            temp_path = None
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel_path, exc))
-            fail += 1
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-    print("[done] 可信媒体回源 成功 %d，失败 %d" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
-# Backward-compatible import surface for existing nuScenes script tests.
-_FETCH_NUSCENES_MEDIA_TEMPLATE = _FETCH_TRUSTED_MEDIA_TEMPLATE
+_FETCH_TRUSTED_MEDIA_TEMPLATE = lidar_fetch.FETCH_TRUSTED_MEDIA_TEMPLATE
 
 
 def _dataset_name_for_task(task: Task, item: DatasetItem | None) -> str:
@@ -436,7 +233,7 @@ def _dataset_name_for_task(task: Task, item: DatasetItem | None) -> str:
 def _label_rel(task: Task, item: DatasetItem | None) -> str:
     """label 相对路径（去 dataset 前缀，去扩展名）。"""
     dataset_name = _dataset_name_for_task(task, item)
-    rel = relative_path_from_file_path(task.file_path, dataset_name)
+    rel = relative_path_from_file_path(task.file_path, dataset_name, item)
     base, _ext = splitext(rel)
     return base
 
@@ -582,6 +379,31 @@ class _QuotaZipFile(zipfile.ZipFile):
         self._check_archive()
         return result
 
+    def write_stream(self, arcname, source, size_bytes, *, extra_temp_bytes=0):
+        self._check_entry(size_bytes)
+        self._check_temporary(extra_temp_bytes)
+        source.seek(0)
+        copied = 0
+        with self.open(arcname, "w", force_zip64=True) as destination:
+            while chunk := source.read(256 * 1024):
+                copied += len(chunk)
+                if copied > size_bytes:
+                    raise ExportQuotaError("resource_budget_exceeded:max_entry_bytes")
+                destination.write(chunk)
+                self._check_temporary(extra_temp_bytes)
+        if copied != size_bytes:
+            raise ValueError("export_snapshot_size_mismatch")
+        self._check_archive()
+
+    def _check_temporary(self, extra_temp_bytes):
+        if self.fp is not None:
+            self.fp.flush()
+        if (
+            os.path.getsize(self.filename) + extra_temp_bytes
+            > settings.mask_format_temp_quota_bytes
+        ):
+            raise ExportQuotaError("resource_budget_exceeded:temp_quota_bytes")
+
     def write(self, filename, arcname=None, compress_type=None, compresslevel=None):
         self._check_entry(os.path.getsize(filename))
         result = super().write(
@@ -624,6 +446,11 @@ async def build_export_zip(
     axis_frame: AxisFrame = "iso",
     format_options: dict | None = None,
     video_scope: VideoExportScope | None = None,
+    reference_media=None,
+    lidar_media=None,
+    image_media=None,
+    video_media=None,
+    check_cancel: Callable[[], Awaitable[object]] | None = None,
 ) -> tuple[str, int, int]:
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
 
@@ -636,8 +463,52 @@ async def build_export_zip(
     图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, aap_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
-    svc = ExportService(db, task_ids=task_ids)
-    project = await svc.db.get(Project, project_id)
+    if sum(
+        value is not None for value in (image_media, lidar_media, video_media)
+    ) > 1 or (video_media is not None and reference_media is not None):
+        raise ValueError("image_export_inputs_changed")
+    frozen_media = video_media or image_media or lidar_media
+    paths = (
+        image_media.media_paths
+        if image_media is not None
+        else (
+            {
+                task_id: reference_media.archive_path(task_id)
+                for task_id in reference_media.paths
+            }
+            if reference_media
+            else {}
+        )
+    )
+    svc = (
+        frozen_media.service(db)
+        if frozen_media is not None
+        else ExportService(db, task_ids=task_ids, media_paths=paths)
+    )
+    svc.check_cancel = check_cancel
+    project = (
+        frozen_media.project
+        if frozen_media is not None
+        else await svc.db.get(Project, project_id)
+    )
+
+    if video_media is not None:
+        if (
+            project.id != project_id
+            or project.data_type != "video"
+            or list(targets) != video_media.targets
+        ):
+            raise ValueError("video_export_inputs_changed")
+        from app.services.exporting.video_budget import check
+
+        check(video_media)
+
+    if image_media is not None and (
+        project.id != project_id
+        or project.data_type != "image"
+        or list(targets) != image_media.targets
+    ):
+        raise ValueError("image_export_inputs_changed")
 
     tmp_path = _new_zip_tempfile()
     try:
@@ -678,6 +549,8 @@ async def build_export_zip(
                 video_frame_mode=video_frame_mode,
                 format_options=format_options or {},
                 video_scope=video_scope,
+                video_media=video_media,
+                check_cancel=check_cancel,
             )
 
         if project.data_type == "lidar":
@@ -697,6 +570,7 @@ async def build_export_zip(
                 targets=targets,
                 include_attributes=include_attributes,
                 format_options=format_options or {},
+                lidar_media=lidar_media,
             )
 
         classes_list = derive_classes_list(project.tool_bindings)
@@ -724,11 +598,17 @@ async def build_export_zip(
         file_count = 0
         total_tasks = 0
         now = datetime.now(timezone.utc)
-        expires_iso = datetime.fromtimestamp(
-            now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
-        ).isoformat()
+        expires_iso = (
+            image_media.expires_at.isoformat()
+            if image_media is not None
+            else datetime.fromtimestamp(
+                now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
+            ).isoformat()
+        )
 
         metadata = export_contracts(project, targets)
+        if reference_media:
+            metadata["reference_media"] = {"revision": 1, "mode": "embedded-sha256"}
         with _open_export_zip(tmp_path) as zf:
             zf.writestr(
                 "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
@@ -747,14 +627,18 @@ async def build_export_zip(
                     project_id, batch_id, with_annotations=True
                 ):
                     for t in tasks:
-                        item = (
-                            dataset_items.get(t.dataset_item_id)
-                            if t.dataset_item_id
-                            else None
-                        )
+                        item = svc.item_for_task(t, dataset_items)
                         for target in yolo_targets:
                             prefix = f"{target}/" if multi else ""
-                            rel = _label_rel(t, item)
+                            if check_cancel:
+                                await check_cancel()
+                            rel = (
+                                splitext(image_media.paths[t.id])[0]
+                                if image_media is not None
+                                else splitext(reference_media.paths[t.id])[0]
+                                if t.id in paths
+                                else _label_rel(t, item)
+                            )
                             img_w = (
                                 int(item.width) if item and item.width else FALLBACK_W
                             )
@@ -777,7 +661,11 @@ async def build_export_zip(
                                     include_attributes=include_attributes,
                                 )
                             dataset_id = str(item.dataset_id) if item else "unknown"
-                            base = f"{prefix}{project_id}/{dataset_id}/labels/{rel}"
+                            base = (
+                                f"{prefix}labels/{rel}"
+                                if t.id in paths
+                                else f"{prefix}{project_id}/{dataset_id}/labels/{rel}"
+                            )
                             zf.writestr(f"{base}.txt", "\n".join(lines))
                             file_count += 1
                             if include_attributes and attrs_per_line:
@@ -792,10 +680,10 @@ async def build_export_zip(
                     prefix = f"{target}/" if multi else ""
                     zf.writestr(f"{prefix}data.yaml", _build_data_yaml(classes_list))
 
-            # Pass 2：流式写 images_manifest.json —— 边遍历边写 zip entry（O(1) 内存，
-            # 不把十万条 manifest dict 攒进 RAM，这是 B6「内存与 task 数解耦」的关键），
-            # 顺带计 task 数 + 累积 coco 所需 items（不需 annotation）。
-            with zf.open("images_manifest.json", "w") as mf:
+            # Spool the manifest outside ZIP: only one ZIP write handle may be open.
+            with tempfile.TemporaryFile(
+                mode="w+b", prefix="aap-export-manifest-"
+            ) as mf:
                 mf.write(
                     (
                         json.dumps(metadata, ensure_ascii=False)[:-1] + ', "images": ['
@@ -809,35 +697,109 @@ async def build_export_zip(
                     if dataset_items_all is not None:
                         dataset_items_all.update(dataset_items)
                     for t in tasks:
-                        item = (
-                            dataset_items.get(t.dataset_item_id)
-                            if t.dataset_item_id
-                            else None
-                        )
-                        dataset_name = _dataset_name_for_task(t, item)
-                        img_rel = relative_path_from_file_path(
-                            t.file_path, dataset_name
-                        )
-                        presigned = storage_service.generate_download_url(
-                            t.file_path,
-                            expires_in=PRESIGN_EXPIRES_SECONDS,
-                            bucket=storage_service.datasets_bucket,
-                        )
+                        if check_cancel:
+                            await check_cancel()
+                        item = svc.item_for_task(t, dataset_items)
                         entry = {
                             "task_id": str(t.id),
                             "dataset_item_id": str(item.id) if item else None,
                             "content_hash": item.content_hash if item else None,
-                            "rel_path": img_rel,
                             "dataset_id": str(item.dataset_id) if item else None,
-                            "presigned_url": presigned,
-                            "expires_at": expires_iso,
                         }
+                        from app.services.reference_keys import is_reference
+
+                        if is_reference(t.file_path):
+                            if (
+                                reference_media is None
+                                or t.id not in reference_media.paths
+                            ):
+                                raise ValueError("reference_export_authority_missing")
+                            if (
+                                image_media is not None
+                                and image_media.paths[t.id]
+                                != reference_media.paths[t.id]
+                            ):
+                                raise ValueError("image_export_inputs_changed")
+                            from app.services.content_snapshot import MAX_BYTES
+
+                            zf._check_entry(
+                                reference_media.bindings[t.id]["reference"]["size"]
+                            )
+                            # Reserve the strict reader's full bound before allocating its file.
+                            zf._check_temporary(mf.tell() + MAX_BYTES)
+                            snapshot = await reference_media.snapshot(t)
+                            try:
+                                rel = reference_media.paths[t.id]
+                                archive_paths = (
+                                    image_media.archive_paths[t.id]
+                                    if image_media is not None
+                                    else sorted(
+                                        {
+                                            paths[t.id],
+                                            *(
+                                                f"{target}/images/{rel}"
+                                                for target in yolo_targets
+                                                if multi
+                                            ),
+                                        }
+                                    )
+                                )
+                                for archive_path in archive_paths:
+                                    zf.write_stream(
+                                        archive_path,
+                                        snapshot.file,
+                                        snapshot.size,
+                                        extra_temp_bytes=snapshot.size + mf.tell(),
+                                    )
+                                entry.update(
+                                    storage_mode="embedded",
+                                    rel_path=rel,
+                                    archive_path=paths[t.id],
+                                    archive_paths=archive_paths,
+                                    asset_id=reference_media.bindings[t.id][
+                                        "reference"
+                                    ]["asset_id"],
+                                    sha256=snapshot.sha256,
+                                    size_bytes=snapshot.size,
+                                )
+                            finally:
+                                snapshot.close()
+                        elif image_media is not None:
+                            entry.update(
+                                storage_mode="managed",
+                                rel_path=image_media.paths[t.id],
+                                archive_path=paths[t.id],
+                                archive_paths=image_media.archive_paths[t.id],
+                                **image_media.entry(t.id),
+                            )
+                        else:
+                            entry.update(
+                                rel_path=relative_path_from_file_path(
+                                    t.file_path, _dataset_name_for_task(t, item), item
+                                ),
+                                presigned_url=storage_service.generate_download_url(
+                                    t.file_path,
+                                    expires_in=PRESIGN_EXPIRES_SECONDS,
+                                    bucket=storage_service.datasets_bucket,
+                                ),
+                                expires_at=expires_iso,
+                            )
                         mf.write(b"" if first else b", ")
                         mf.write(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
                         first = False
-                mf.write(b'], "expires_at": ')
-                mf.write(json.dumps(expires_iso).encode("utf-8"))
-                mf.write(b"}")
+                        zf._check_entry(mf.tell())
+                        zf._check_temporary(mf.tell())
+                mf.write(
+                    b'], "expires_at": '
+                    + json.dumps(expires_iso).encode("utf-8")
+                    + b"}"
+                )
+                zf.write_stream(
+                    "images_manifest.json", mf, mf.tell(), extra_temp_bytes=mf.tell()
+                )
+
+            if check_cancel:
+                await check_cancel()
 
             # 单文档目标（coco/aap_json）：本质全量物化，svc 自加载落包根/子目录。
             for target in other_targets:
@@ -874,6 +836,10 @@ async def build_export_zip(
                         prefix=prefix,
                         project=project,
                         chunks=chunks,
+                        media_paths=paths,
+                        task_items=image_media.items_by_task
+                        if image_media is not None
+                        else None,
                     )
                 elif target == "indexed-png":
                     file_count += await write_indexed_png_export(
@@ -881,6 +847,10 @@ async def build_export_zip(
                         prefix=prefix,
                         project=project,
                         chunks=chunks,
+                        media_paths=paths,
+                        task_items=image_media.items_by_task
+                        if image_media is not None
+                        else None,
                         overlap_policy=str(
                             export_options.get("indexed_overlap_policy") or "error"
                         ),
@@ -890,6 +860,10 @@ async def build_export_zip(
                         zf,
                         prefix=prefix,
                         chunks=chunks,
+                        media_paths=paths,
+                        task_items=image_media.items_by_task
+                        if image_media is not None
+                        else None,
                         data_key=str(export_options.get("ls_data_key") or "image"),
                         from_name=str(export_options.get("ls_from_name") or "brush"),
                         to_name=str(export_options.get("ls_to_name") or "image"),
@@ -900,6 +874,8 @@ async def build_export_zip(
             if not multi and not has_yolo:
                 zf.writestr("data.yaml", _build_data_yaml(classes_list))
 
+        if check_cancel:
+            await check_cancel()
         return tmp_path, file_count, _export_size(tmp_path)
     except BaseException:
         _safe_unlink(tmp_path)
@@ -942,6 +918,15 @@ def _build_video_yolo_data_yaml(classes_list: list[str]) -> str:
 def _lidar_frame_key(task: Task, item: DatasetItem | None) -> str:
     rel = _label_rel(task, item)
     return rel or task.display_id
+
+
+def _lidar_media_path(item: DatasetItem) -> str:
+    """Persisted aliases retain directories; old manifests keep their layout."""
+    if (item.metadata_ or {}).get("storage_relative_path"):
+        from app.services.dataset_storage_keys import dataset_item_relative_path
+
+        return dataset_item_relative_path(item)
+    return os.path.basename(item.file_path)
 
 
 def _calibration_for_item(item: DatasetItem | None) -> SensorCalibration | None:
@@ -1048,7 +1033,8 @@ def _lidar_readme(target: str) -> str:
             "detection/tracking benchmark split and does not map project categories to "
             "the official ontology. JSON tables live in v1.0-aap/; media keeps its exact "
             "source-relative path. Presigned media links expire at the time recorded in "
-            "media_manifest.json.\n"
+            "media_manifest.json. For root-relative media URLs, run python "
+            "fetch_nuscenes_media.py --base-url https://your-platform (origin only).\n"
         )
     if target == "coco-multicamera":
         return (
@@ -1062,58 +1048,28 @@ def _lidar_readme(target: str) -> str:
     return common
 
 
-def _read_dataset_object(key: str) -> bytes:
-    response = storage_service.client.get_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=key,
-    )
-    body = response["Body"]
-    try:
-        return body.read()
-    finally:
-        close = getattr(body, "close", None)
-        if close is not None:
-            close()
-
-
-def _hash_dataset_object(key: str) -> tuple[int, str]:
-    response = storage_service.client.get_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=key,
-    )
-    body = response["Body"]
-    size = 0
-    digest = hashlib.sha256()
-    try:
-        while chunk := body.read(1024 * 1024):
-            size += len(chunk)
-            digest.update(chunk)
-    finally:
-        close = getattr(body, "close", None)
-        if close is not None:
-            close()
-    return size, digest.hexdigest()
-
-
 def _trusted_media_entry(
     *,
     rel_path: str,
-    storage_key: str,
+    saved: dict,
     kind: str,
     source_file_size: int,
     source_sha256: str,
     expires_iso: str,
 ) -> dict[str, Any]:
+    if (
+        saved.get("size_bytes") != source_file_size
+        or saved.get("sha256") != source_sha256.lower()
+        or saved.get("expires_at") != expires_iso
+        or not saved.get("presigned_url")
+    ):
+        raise UnsupportedExportError("nuscenes_delivery_receipt_changed")
     return {
         "rel_path": rel_path,
         "kind": kind,
         "source_file_size": source_file_size,
-        "source_sha256": source_sha256,
-        "presigned_url": storage_service.generate_download_url(
-            storage_key,
-            expires_in=PRESIGN_EXPIRES_SECONDS,
-            bucket=storage_service.datasets_bucket,
-        ),
+        "source_sha256": source_sha256.lower(),
+        "presigned_url": saved["presigned_url"],
         "expires_at": expires_iso,
     }
 
@@ -1128,10 +1084,13 @@ async def _build_lidar_export_zip(
     targets: list[str],
     include_attributes: bool,
     format_options: dict[str, Any],
+    lidar_media=None,
 ) -> tuple[str, int, int]:
     for target in targets:
         if target not in LIDAR_EXPORT_TARGETS:
             raise UnsupportedExportError(f"unsupported lidar export target: {target}")
+    if {"nuscenes", "coco-multicamera"} & set(targets) and lidar_media is None:
+        raise UnsupportedExportError("lidar_export_contract_missing")
     lidar_options = format_options.get("lidar") or {}
     selected_camera_role = lidar_options.get("kitti_camera_role")
     if "kitti" in targets and not selected_camera_role:
@@ -1160,11 +1119,14 @@ async def _build_lidar_export_zip(
     nuscenes_media: dict[str, dict[str, Any]] = {}
     multicamera_coco_images: list[MulticameraCocoImageCtx] = []
     multicamera_coco_media: dict[str, dict[str, Any]] = {}
-    multicamera_media_fingerprints: dict[uuid.UUID, tuple[int, str]] = {}
-    now = datetime.now(timezone.utc)
-    expires_iso = datetime.fromtimestamp(
-        now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
-    ).isoformat()
+    expires_iso = (
+        lidar_media.expires_at.isoformat()
+        if lidar_media is not None
+        else datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + PRESIGN_EXPIRES_SECONDS,
+            tz=timezone.utc,
+        ).isoformat()
+    )
 
     with _open_export_zip(tmp_path) as zf:
         zf.writestr(
@@ -1183,7 +1145,12 @@ async def _build_lidar_export_zip(
         async for tasks, ann_by_task, dataset_items in chunks:
             task_ids = [task.id for task in tasks]
             camera_members_by_task: dict[uuid.UUID, list[Annotation]] = {}
-            if task_ids:
+            if lidar_media is not None:
+                camera_members_by_task = {
+                    identifier: lidar_media.camera_members_by_task.get(identifier, [])
+                    for identifier in task_ids
+                }
+            elif task_ids:
                 camera_members = list(
                     (
                         await svc.db.execute(
@@ -1199,7 +1166,14 @@ async def _build_lidar_export_zip(
                 )
                 for member in camera_members:
                     camera_members_by_task.setdefault(member.task_id, []).append(member)
-            links_by_task = await _load_lidar_link_items(svc, tasks)
+            links_by_task = (
+                {
+                    identifier: lidar_media.links_by_task.get(identifier, {})
+                    for identifier in task_ids
+                }
+                if lidar_media is not None
+                else await _load_lidar_link_items(svc, tasks)
+            )
             multicamera_calibration_states = {}
             if "coco-multicamera" in targets:
                 camera_items_by_id = {
@@ -1208,33 +1182,6 @@ async def _build_lidar_export_zip(
                     for role, (_link, item) in linked.items()
                     if role.startswith("camera_")
                 }
-                new_media_items = [
-                    item
-                    for item_id, item in camera_items_by_id.items()
-                    if item_id not in multicamera_media_fingerprints
-                ]
-
-                async def hash_camera_item(
-                    item: DatasetItem,
-                ) -> tuple[DatasetItem, tuple[int, str]]:
-                    return item, await asyncio.to_thread(
-                        _hash_dataset_object, item.file_path
-                    )
-
-                for start in range(0, len(new_media_items), 4):
-                    hashed = await asyncio.gather(
-                        *[
-                            hash_camera_item(item)
-                            for item in new_media_items[start : start + 4]
-                        ]
-                    )
-                    for item, fingerprint in hashed:
-                        if fingerprint[0] != int(item.file_size or -1):
-                            raise UnsupportedExportError(
-                                f"multicamera_coco_media_drift:{item.id}"
-                            )
-                        multicamera_media_fingerprints[item.id] = fingerprint
-
                 member_item_ids = {
                     member.sensor_dataset_item_id
                     for members in camera_members_by_task.values()
@@ -1244,12 +1191,17 @@ async def _build_lidar_export_zip(
                     and member.sensor_dataset_item_id in camera_items_by_id
                 }
                 if member_item_ids:
-                    multicamera_calibration_states = await resolve_calibration_states(
-                        svc.db,
-                        [camera_items_by_id[item_id] for item_id in member_item_ids],
-                    )
+                    multicamera_calibration_states = {
+                        item_id: lidar_media.calibration_states[item_id]
+                        for item_id in member_item_ids
+                        if item_id in lidar_media.calibration_states
+                    }
             axis_by_task = (
-                await svc._axis_convention_by_task(tasks)
+                (
+                    {task.id: lidar_media.axis_convention(task.id) for task in tasks}
+                    if lidar_media is not None
+                    else await svc._axis_convention_by_task(tasks)
+                )
                 if {"kitti", "nuscenes"} & set(targets)
                 else {}
             )
@@ -1272,7 +1224,18 @@ async def _build_lidar_export_zip(
                         chunk_pose_pairs.add(
                             (chunk_primary.scene_id, chunk_primary.frame_index)
                         )
-                if chunk_scene_ids:
+                if lidar_media is not None:
+                    scenes_by_id = {
+                        identifier: lidar_media.scenes_by_id[identifier]
+                        for identifier in chunk_scene_ids
+                        if identifier in lidar_media.scenes_by_id
+                    }
+                    poses_by_frame = {
+                        pair: lidar_media.poses_by_frame[pair]
+                        for pair in chunk_pose_pairs
+                        if pair in lidar_media.poses_by_frame
+                    }
+                elif chunk_scene_ids:
                     scenes_by_id = {
                         scene.id: scene
                         for scene in (
@@ -1281,7 +1244,7 @@ async def _build_lidar_export_zip(
                             )
                         ).scalars()
                     }
-                if chunk_pose_pairs:
+                if lidar_media is None and chunk_pose_pairs:
                     poses_by_frame = {
                         (pose.scene_id, pose.frame_index): pose
                         for pose in (
@@ -1303,6 +1266,12 @@ async def _build_lidar_export_zip(
                 if needs_legacy_lidar_manifests:
                     for role, (link, item) in linked.items():
                         if not role.startswith("camera_"):
+                            continue
+                        if (
+                            lidar_media is not None
+                            and "pointmask" not in targets
+                            and role != selected_camera_role
+                        ):
                             continue
                         cam = _camera_name(link)
                         if "kitti" in targets:
@@ -1327,15 +1296,25 @@ async def _build_lidar_export_zip(
                             "frame": frame_key,
                             "width": item.width,
                             "height": item.height,
-                            "rel_path": f"{cam}/{os.path.basename(item.file_path)}",
+                            "rel_path": f"{cam}/{_lidar_media_path(item)}",
                             "dataset_id": str(item.dataset_id),
-                            "presigned_url": storage_service.generate_download_url(
-                                item.file_path,
-                                expires_in=PRESIGN_EXPIRES_SECONDS,
-                                bucket=storage_service.datasets_bucket,
-                            ),
                             "expires_at": expires_iso,
                         }
+                        if lidar_media is not None:
+                            saved = lidar_media.entry(task.id, role)
+                            manifest_item.update(
+                                presigned_url=saved["presigned_url"],
+                                sha256=saved["sha256"],
+                                size_bytes=saved["size_bytes"],
+                            )
+                        else:
+                            manifest_item["presigned_url"] = (
+                                storage_service.generate_download_url(
+                                    item.file_path,
+                                    expires_in=PRESIGN_EXPIRES_SECONDS,
+                                    bucket=storage_service.datasets_bucket,
+                                )
+                            )
                         image_manifest_all.append(manifest_item)
                         if role == selected_camera_role:
                             image_manifest_selected.append(manifest_item)
@@ -1345,7 +1324,9 @@ async def _build_lidar_export_zip(
                             if target not in {"kitti", "pointmask"}:
                                 continue
                             prefix = f"{target}/" if multi else ""
-                            zf.writestr(f"{prefix}images/{cam}/", "")
+                            directory = f"{prefix}images/{cam}/"
+                            if directory not in zf.NameToInfo:
+                                zf.writestr(directory, "")
                             zf.writestr(
                                 f"{prefix}calib_raw/{cam}/{frame_key}.json",
                                 json.dumps(
@@ -1354,20 +1335,35 @@ async def _build_lidar_export_zip(
                                     indent=2,
                                 ),
                             )
-                if needs_legacy_lidar_manifests and primary_item is not None:
-                    pointcloud_manifest.append(
-                        {
-                            "frame": frame_key,
-                            "rel_path": os.path.basename(primary_item.file_path),
-                            "dataset_id": str(primary_item.dataset_id),
-                            "presigned_url": storage_service.generate_download_url(
+                if needs_legacy_lidar_manifests and (
+                    primary_item is not None or lidar_media is not None
+                ):
+                    manifest_item = {
+                        "frame": frame_key,
+                        "rel_path": _lidar_media_path(primary_item)
+                        if primary_item is not None
+                        else os.path.basename(task.file_path),
+                        "dataset_id": str(primary_item.dataset_id)
+                        if primary_item is not None
+                        else None,
+                        "expires_at": expires_iso,
+                    }
+                    if lidar_media is not None:
+                        saved = lidar_media.entry(task.id, "primary_lidar")
+                        manifest_item.update(
+                            presigned_url=saved["presigned_url"],
+                            sha256=saved["sha256"],
+                            size_bytes=saved["size_bytes"],
+                        )
+                    else:
+                        manifest_item["presigned_url"] = (
+                            storage_service.generate_download_url(
                                 primary_item.file_path,
                                 expires_in=PRESIGN_EXPIRES_SECONDS,
                                 bucket=storage_service.datasets_bucket,
-                            ),
-                            "expires_at": expires_iso,
-                        }
-                    )
+                            )
+                        )
+                    pointcloud_manifest.append(manifest_item)
                 anns = ann_by_task.get(task.id, [])
                 if "coco-multicamera" in targets:
                     task_members = camera_members_by_task.get(task.id, [])
@@ -1384,15 +1380,16 @@ async def _build_lidar_export_zip(
                         ]
                         source_basename = os.path.basename(item.file_path)
                         rel_path = f"images/{role}/{task.id}/{source_basename}"
-                        size, sha256 = multicamera_media_fingerprints[item.id]
-                        entry = _trusted_media_entry(
-                            rel_path=rel_path,
-                            storage_key=item.file_path,
-                            kind="image",
-                            source_file_size=size,
-                            source_sha256=sha256,
-                            expires_iso=expires_iso,
-                        )
+                        saved = lidar_media.entry(task.id, role)
+                        size, sha256 = saved["size_bytes"], saved["sha256"]
+                        entry = {
+                            "rel_path": rel_path,
+                            "kind": "image",
+                            "source_file_size": size,
+                            "source_sha256": sha256,
+                            "presigned_url": saved["presigned_url"],
+                            "expires_at": expires_iso,
+                        }
                         entry.update(
                             {
                                 "task_id": str(task.id),
@@ -1480,14 +1477,17 @@ async def _build_lidar_export_zip(
                         rel_path = str(source["sample_data"]["filename"])
                         entry = _trusted_media_entry(
                             rel_path=rel_path,
-                            storage_key=str(source["source_storage_key"]),
+                            saved=lidar_media.entry(
+                                task.id,
+                                "raw_lidar" if role == "primary_lidar" else role,
+                            ),
                             kind=str(source["sensor"]["modality"]),
                             source_file_size=int(source["source_file_size"]),
                             source_sha256=str(source["source_sha256"]),
                             expires_iso=expires_iso,
                         )
                         previous = nuscenes_media.setdefault(rel_path, entry)
-                        if previous["source_sha256"] != entry["source_sha256"]:
+                        if previous != entry:
                             raise UnsupportedExportError(
                                 f"nuscenes_media_path_collision:{rel_path}"
                             )
@@ -1499,14 +1499,14 @@ async def _build_lidar_export_zip(
                     map_rel = str(scene_source["map"]["filename"])
                     map_entry = _trusted_media_entry(
                         rel_path=map_rel,
-                        storage_key=str(scene_source["map_storage_key"]),
+                        saved=lidar_media.entry(task.id, "map"),
                         kind="map",
                         source_file_size=int(scene_source["map_file_size"]),
                         source_sha256=str(scene_source["map_sha256"]),
                         expires_iso=expires_iso,
                     )
                     previous_map = nuscenes_media.setdefault(map_rel, map_entry)
-                    if previous_map["source_sha256"] != map_entry["source_sha256"]:
+                    if previous_map != map_entry:
                         raise UnsupportedExportError(
                             f"nuscenes_media_path_collision:{map_rel}"
                         )
@@ -1515,15 +1515,7 @@ async def _build_lidar_export_zip(
                         raise UnsupportedExportError(
                             f"axis_convention_untrusted:{task.id}"
                         )
-                    pcd_bytes = _read_dataset_object(primary_item.file_path)
-                    if (
-                        len(pcd_bytes) != primary_item.file_size
-                        or hashlib.sha256(pcd_bytes).hexdigest()
-                        != primary_item.content_hash
-                    ):
-                        raise UnsupportedExportError(
-                            f"nuscenes_platform_pcd_drift:{task.id}"
-                        )
+                    pcd_bytes = await lidar_media.pcd_bytes(task.id)
                     points = parse_pcd_positions(pcd_bytes)
                     raw_lidar_points = int(source_primary["source_file_size"]) // 20
                     if len(points) != raw_lidar_points:
@@ -1596,11 +1588,17 @@ async def _build_lidar_export_zip(
                             }
                             for skipped in result.skipped
                         )
-                        zf.writestr(f"{prefix}velodyne/", "")
+                        directory = f"{prefix}velodyne/"
+                        if directory not in zf.NameToInfo:
+                            zf.writestr(directory, "")
                         file_count += 1
                     elif target == "pointmask":
-                        source_point_count = None
-                        if primary_item is not None:
+                        source_point_count = (
+                            lidar_media.point_count(task.id)
+                            if lidar_media is not None
+                            else None
+                        )
+                        if lidar_media is None and primary_item is not None:
                             source_point_count = (primary_item.metadata_ or {}).get(
                                 "point_count"
                             )
@@ -1612,7 +1610,9 @@ async def _build_lidar_export_zip(
                                 category_map=cat_map,
                             ),
                         )
-                        zf.writestr(f"{prefix}velodyne/", "")
+                        directory = f"{prefix}velodyne/"
+                        if directory not in zf.NameToInfo:
+                            zf.writestr(directory, "")
                         file_count += 1
 
         for target in targets:
@@ -1743,7 +1743,12 @@ async def _build_lidar_export_zip(
                     indent=2,
                 ),
             )
-            zf.writestr(f"{prefix}fetch_images.py", _FETCH_IMAGES_TEMPLATE)
+            zf.writestr(
+                f"{prefix}fetch_images.py",
+                _FETCH_LIDAR_IMAGES_TEMPLATE
+                if lidar_media is not None
+                else _FETCH_IMAGES_TEMPLATE,
+            )
             zf.writestr(f"{prefix}fetch_pointclouds.py", _FETCH_POINTCLOUDS_TEMPLATE)
             if target == "kitti":
                 zf.writestr(
@@ -1771,47 +1776,22 @@ async def _build_lidar_export_zip(
 
 # ── v0.10.31 · Phase 4 视频导出组装 ──────────────────────────────────
 
-_FETCH_VIDEOS_TEMPLATE = '''#!/usr/bin/env python3
-"""按 manifest.json 的预签名 URL 把视频回源到 videos/<相对路径>。
-
-纯标准库，无需 MinIO 密钥（URL 已带 7 天签名）。本地已有视频则跳过。
-"""
-import json
-import os
-import sys
-import urllib.request
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def main() -> int:
-    with open(os.path.join(HERE, "manifest.json"), "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    ok = 0
-    fail = 0
-    for it in manifest.get("videos", []):
-        rel = it.get("rel_path")
-        url = it.get("presigned_url")
-        if not rel or not url:
-            continue
-        dest = os.path.join(HERE, "videos", *rel.split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest):
-            ok += 1
-            continue
-        try:
-            urllib.request.urlretrieve(url, dest)
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel, exc))
-            fail += 1
-    print("[done] 视频回源 成功 %d，失败 %d，输出目录 videos/" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
+_FETCH_VIDEOS_TEMPLATE = (
+    FETCH_IMAGES_TEMPLATE.replace(
+        'MANIFEST = "images_manifest.json"', 'MANIFEST = "manifest.json"'
+    )
+    .replace('ITEMS = "images"', 'ITEMS = "videos"')
+    .replace("MAX_BYTES = 256 * 1024 * 1024", "MAX_BYTES = 5 * 1024**3")
+    .replace("> 20000:", "> 1000:")
+    .replace(
+        '"images/" + str(item.get("rel_path")', '"videos/" + str(item.get("rel_path")'
+    )
+    .replace(
+        'paths = item.get("archive_paths")',
+        'paths = None\n        if "archive_paths" in item or "archive_path" in item or item.get("storage_mode") == "embedded":\n            raise Invalid("invalid_video_paths")',
+    )
+    .replace("; images/", "; videos/")
+)
 
 
 _FETCH_FRAMES_TEMPLATE = '''#!/usr/bin/env python3
@@ -1827,6 +1807,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import fetch_videos as media
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1841,11 +1823,16 @@ def main() -> int:
         seq = it.get("sequence")
         frames = it.get("grid_source_frames") or []
         start = int(it.get("frame_start_number", 1))
-        if not rel or not seq or not frames:
+        if not rel or not seq:
             continue
-        video_path = os.path.join(HERE, "videos", *rel.split("/"))
-        if not os.path.exists(video_path):
-            print("[x] 视频缺失（先跑 fetch_videos.py）: %s" % rel)
+        try:
+            local = "videos/" + rel
+            video_path = media.safe_destination(local)
+            with media.destination_parent(local) as (parent, destination):
+                if not media.file_matches(parent, destination, it["size_bytes"], it["sha256"]):
+                    raise ValueError("video_receipt_mismatch")
+        except Exception:
+            print("[x] 视频缺失或内容核验失败（先跑 fetch_videos.py）")
             fail += 1
             continue
         raw_specs = it.get("frame_outputs")
@@ -1876,6 +1863,8 @@ def main() -> int:
                 output_start = int(spec.get("start_number", start))
                 padding = max(1, int(spec.get("padding", 6)))
                 extension = str(spec.get("extension", "jpg")).lstrip(".") or "jpg"
+                if not 0 <= output_start <= 1 or not 1 <= padding <= 10 or extension != "jpg":
+                    raise ValueError("invalid_frame_output")
                 selected_frames = (
                     frames
                     if spec.get("source_frames") is None
@@ -1883,18 +1872,25 @@ def main() -> int:
                 )
                 if not selected_frames:
                     continue
+                if len(selected_frames) > 1000000 or any(type(frame) is not int or not 0 <= frame < 1000000 for frame in selected_frames):
+                    raise ValueError("invalid_source_frames")
                 select_expr = "+".join(
                     "eq(n\\\\,%d)" % fr for fr in selected_frames
                 )
-                out_dir = os.path.join(HERE, *rel_out.split("/"))
-                os.makedirs(out_dir, exist_ok=True)
-                cmd = [
-                    "ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
-                    "-vf", "select='%s'" % select_expr, "-fps_mode", "passthrough",
-                    "-start_number", str(output_start),
-                    os.path.join(out_dir, "%%0%dd.%s" % (padding, extension)),
-                ]
-                subprocess.run(cmd, check=True)
+                with media.destination_parent(rel_out + "/frame.jpg") as (_parent, frame_path):
+                    out_dir = os.path.dirname(frame_path)
+                # A permitted million-frame grid must not become a single
+                # command argument exceeding the operating system's argv limit.
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix="aap-video-select-", suffix=".txt") as selection:
+                    selection.write("select='%s'" % select_expr)
+                    selection.flush()
+                    cmd = [
+                        "ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
+                        "-filter_script:v", selection.name, "-fps_mode", "passthrough",
+                        "-start_number", str(output_start),
+                        os.path.join(out_dir, "%%0%dd.%s" % (padding, extension)),
+                    ]
+                    subprocess.run(cmd, check=True)
             ok += 1
         except Exception as exc:  # noqa: BLE001
             print("[x] 抽帧失败 %s: %s" % (seq, exc))
@@ -1920,6 +1916,50 @@ def _video_meta(item: DatasetItem | None) -> dict:
     return v if isinstance(v, dict) else {}
 
 
+async def _video_call(call, *args, check_cancel=None, **kwargs):
+    """Checkpoint CPU writers on the owner loop, draining their real thread.
+
+    Cancellation must stop a writer before the ZIP temporary file can disappear.
+    The SQL callback stays on its original event loop and never enters the thread.
+    """
+    if check_cancel is None:
+        return call(*args, **kwargs)
+    from app.services import export_media_transfer as transfer
+
+    await check_cancel()
+    loop, stop = asyncio.get_running_loop(), threading.Event()
+    checked, calls = time.monotonic(), 0
+
+    def checkpoint():
+        nonlocal checked, calls
+        if stop.is_set():
+            raise asyncio.CancelledError()
+        calls += 1
+        if calls % 128 or time.monotonic() - checked < 0.25:
+            return
+        coroutine = check_cancel()
+        try:
+            pending = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except BaseException:
+            coroutine.close()
+            raise
+        pending.result()
+        checked = time.monotonic()
+
+    pending = transfer._submit(call, *args, checkpoint=checkpoint, **kwargs)
+    try:
+        result = await asyncio.shield(pending)
+    except BaseException as interrupted:
+        stop.set()
+        try:
+            await transfer.drain(pending)
+        except BaseException as later:
+            transfer._uncertainty(interrupted, later)
+        raise
+    await check_cancel()
+    return result
+
+
 async def _build_video_export_zip(
     svc: ExportService,
     project,
@@ -1932,6 +1972,8 @@ async def _build_video_export_zip(
     video_frame_mode: str,
     format_options: dict[str, Any] | None = None,
     video_scope: VideoExportScope | None = None,
+    video_media=None,
+    check_cancel=None,
 ) -> tuple[str, int, int]:
     """视频项目 zip（v0.10.43 多目标）：单目标落根、>1 目标各落 `{target}/`；
     manifest.json + fetch_videos.py 共享落根（MOT/KITTI 另带 fetch_frames.py）。
@@ -1945,6 +1987,10 @@ async def _build_video_export_zip(
             raise UnsupportedExportError(f"unsupported video export format: {tg}")
 
     format_options = format_options or {}
+
+    async def format_call(call, *args, **kwargs):
+        return await _video_call(call, *args, check_cancel=check_cancel, **kwargs)
+
     metadata = export_contracts(project, targets)
     sampling = metadata["source"]["video_sampling"]
     multi = len(targets) > 1
@@ -1992,15 +2038,21 @@ async def _build_video_export_zip(
 
     manifest_videos: list[dict] = []
     now = datetime.now(timezone.utc)
-    expires_iso = datetime.fromtimestamp(
-        now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
-    ).isoformat()
+    expires_iso = (
+        video_media.expires_at.isoformat()
+        if video_media is not None
+        else datetime.fromtimestamp(
+            now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
+        ).isoformat()
+    )
 
     with _open_export_zip(tmp_path) as zf:
         zf.writestr(
             "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
         )
         for target in targets:
+            if check_cancel is not None:
+                await check_cancel()
             prefix = f"{target}/" if multi else ""
             if target == "video_json":
                 zf.writestr(
@@ -2052,26 +2104,47 @@ async def _build_video_export_zip(
                     ):
                         bboxes_by_task.setdefault(ann.task_id, []).append(ann)
             for t in tasks:
-                item = (
-                    dataset_items.get(t.dataset_item_id) if t.dataset_item_id else None
+                if check_cancel is not None:
+                    await check_cancel()
+                item = svc.item_for_task(t, dataset_items)
+                seq = (
+                    video_media.sequence_paths[t.id]
+                    if video_media is not None
+                    else _video_seq_name(t, item)
                 )
-                seq = _video_seq_name(t, item)
-                vmeta = _video_meta(item)
+                vmeta = (
+                    video_media.video_metadata(t.id)
+                    if video_media is not None
+                    else _video_meta(item)
+                )
                 source_fps = vmeta.get("fps")
                 img_w = int(
-                    (item.width if item else None) or vmeta.get("width") or FALLBACK_W
+                    vmeta["width"]
+                    if video_media is not None
+                    else (item.width if item else None)
+                    or vmeta.get("width")
+                    or FALLBACK_W
                 )
                 img_h = int(
-                    (item.height if item else None) or vmeta.get("height") or FALLBACK_H
+                    vmeta["height"]
+                    if video_media is not None
+                    else (item.height if item else None)
+                    or vmeta.get("height")
+                    or FALLBACK_H
                 )
                 step = derive_step(source_fps, sampling)
 
                 track_anns = tracks_by_task.get(t.id, [])
                 bbox_anns = bboxes_by_task.get(t.id, [])
-                track_geometry_by_id = {
-                    ann.id: await _hydrate_mask_geometry_for_export(ann.geometry or {})
-                    for ann in track_anns
-                }
+                track_geometry_by_id = {}
+                for ann in track_anns:
+                    if check_cancel is not None:
+                        await check_cancel()
+                    track_geometry_by_id[
+                        ann.id
+                    ] = await _hydrate_mask_geometry_for_export(
+                        ann.geometry or {}, check_cancel
+                    )
                 mask_track_annotations = [
                     ann
                     for ann in track_anns
@@ -2095,8 +2168,11 @@ async def _build_video_export_zip(
                     max_kf = max(
                         max_kf, int((ann.geometry or {}).get("frame_index", 0))
                     )
-                frame_count = int(vmeta.get("frame_count") or (max_kf + 1))
-                frame_count = max(frame_count, max_kf + 1)
+                frame_count = (
+                    int(vmeta["frame_count"])
+                    if video_media is not None
+                    else max(int(vmeta.get("frame_count") or (max_kf + 1)), max_kf + 1)
+                )
                 selected_source_frames = derive_sampled_frames(frame_count, step)
                 if video_scope is not None:
                     selected_source_frames = video_scope.filter_frames(
@@ -2115,7 +2191,8 @@ async def _build_video_export_zip(
                         mp = "mot/" if multi else ""
                         zf.writestr(
                             f"{mp}{seq}/gt/gt.txt",
-                            build_mot_gt(
+                            await format_call(
+                                build_mot_gt,
                                 track_args,
                                 frame_count=frame_count,
                                 step=step,
@@ -2140,7 +2217,8 @@ async def _build_video_export_zip(
                         kp = "kitti/" if multi else ""
                         zf.writestr(
                             f"{kp}labels/{seq}.txt",
-                            build_kitti_labels(
+                            await format_call(
+                                build_kitti_labels,
                                 track_args,
                                 frame_count=frame_count,
                                 step=step,
@@ -2152,7 +2230,8 @@ async def _build_video_export_zip(
 
                 if has_yolo_frames:
                     yp = "yolo-frames-det/" if multi else ""
-                    labels = build_yolo_frame_det_labels(
+                    labels = await format_call(
+                        build_yolo_frame_det_labels,
                         [
                             (
                                 ann.class_name,
@@ -2173,6 +2252,8 @@ async def _build_video_export_zip(
                         source_frames=selected_source_frames,
                     )
                     for frame_no, (lines, attrs_per_line) in sorted(labels.items()):
+                        if check_cancel is not None:
+                            await check_cancel()
                         base = f"{yp}labels/{seq}/{frame_no:06d}"
                         zf.writestr(f"{base}.txt", "\n".join(lines))
                         file_count += 1
@@ -2186,7 +2267,8 @@ async def _build_video_export_zip(
 
                 if has_yolo_frames_seg:
                     yp = "yolo-frames-seg/" if multi else ""
-                    seg_labels = build_yolo_frame_seg_labels(
+                    seg_labels = await format_call(
+                        build_yolo_frame_seg_labels,
                         [
                             (ann.class_name, ann.geometry or {}, ann.attributes or {})
                             for ann in track_anns
@@ -2203,6 +2285,8 @@ async def _build_video_export_zip(
                         source_frames=selected_source_frames,
                     )
                     for frame_no, (lines, attrs_per_line) in sorted(seg_labels.items()):
+                        if check_cancel is not None:
+                            await check_cancel()
                         base = f"{yp}labels/{seq}/{frame_no:06d}"
                         zf.writestr(f"{base}.txt", "\n".join(lines))
                         file_count += 1
@@ -2256,6 +2340,8 @@ async def _build_video_export_zip(
                     davis_prefix = "davis/" if multi else ""
                     object_ids = derive_davis_object_ids(mask_tracks)
                     for output_index, source_frame in enumerate(selected_source_frames):
+                        if check_cancel is not None:
+                            await check_cancel()
                         zf.writestr(
                             f"{davis_prefix}Annotations/Full-Resolution/{seq}/{output_index:05d}.png",
                             build_davis_palette_png(
@@ -2301,6 +2387,8 @@ async def _build_video_export_zip(
                         )
                     }
                     for source_frame in youtube_sparse_frames:
+                        if check_cancel is not None:
+                            await check_cancel()
                         zf.writestr(
                             f"{youtube_prefix}Annotations/{seq}/"
                             f"{frame_name_by_source[source_frame]}.png",
@@ -2339,7 +2427,8 @@ async def _build_video_export_zip(
                 if has_mots:
                     mots_prefix = "mots/" if multi else ""
                     mots_path = f"{mots_prefix}instances/{seq}.txt"
-                    mots_text, mots_meta = build_mots_sequence(
+                    mots_text, mots_meta = await format_call(
+                        build_mots_sequence,
                         [
                             (
                                 ann.id,
@@ -2364,38 +2453,60 @@ async def _build_video_export_zip(
 
                 # manifest 视频条目（含网格帧号供 fetch_frames.py 抽帧）。
                 dataset_name = _dataset_name_for_task(t, item)
-                video_source = video_source_contract(
-                    project, t, item, vmeta, video_scope
-                )
-                video_rel = relative_path_from_file_path(
-                    video_source["source_key"], dataset_name
-                )
-                presigned = storage_service.generate_download_url(
-                    video_source["source_key"],
-                    expires_in=PRESIGN_EXPIRES_SECONDS,
-                    bucket=storage_service.datasets_bucket,
-                )
+                video_source = svc.video_source(project, t, item, vmeta, video_scope)
+                if video_media is not None:
+                    video_rel = video_media.paths[t.id]
+                    receipt = video_media.entry(t.id)
+                    presigned = receipt["presigned_url"]
+                else:
+                    video_rel = relative_path_from_file_path(
+                        video_source["source_key"], dataset_name, item
+                    )
+                    presigned = storage_service.generate_download_url(
+                        video_source["source_key"],
+                        expires_in=PRESIGN_EXPIRES_SECONDS,
+                        bucket=storage_service.datasets_bucket,
+                    )
+                    receipt = {}
                 frame_output_dirs: list[str] = []
-                if has_mot or has_kitti:
-                    frame_output_dirs.append(f"{seq}/img1")
+                frame_outputs = []
+                for enabled, target, base in (
+                    (has_mot, "mot", 1),
+                    (has_kitti, "kitti", 0),
+                ):
+                    if enabled:
+                        directory = f"{target}/" if multi else ""
+                        frame_output_dirs.append(f"{directory}{seq}/img1")
+                        frame_outputs.append(
+                            {
+                                "dir": frame_output_dirs[-1],
+                                "start_number": base,
+                                "padding": 6,
+                                "extension": "jpg",
+                            }
+                        )
+                other_frame_dirs = []
                 if has_yolo_frames:
                     yp = "yolo-frames-det/" if multi else ""
-                    frame_output_dirs.append(f"{yp}images/{seq}")
+                    other_frame_dirs.append(f"{yp}images/{seq}")
                 if has_yolo_frames_seg:
                     yp = "yolo-frames-seg/" if multi else ""
-                    frame_output_dirs.append(f"{yp}images/{seq}")
+                    other_frame_dirs.append(f"{yp}images/{seq}")
                 if has_coco_frames_seg:
                     cp = "coco-frames-seg/" if multi else ""
-                    frame_output_dirs.append(f"{cp}images/{seq}")
-                frame_outputs = [
-                    {
-                        "dir": output_dir,
-                        "start_number": frame_start_number,
-                        "padding": 6,
-                        "extension": "jpg",
-                    }
-                    for output_dir in frame_output_dirs
-                ]
+                    other_frame_dirs.append(f"{cp}images/{seq}")
+                frame_output_dirs.extend(other_frame_dirs)
+                frame_outputs.extend(
+                    [
+                        {
+                            "dir": output_dir,
+                            "start_number": frame_start_number,
+                            "padding": 6,
+                            "extension": "jpg",
+                        }
+                        for output_dir in other_frame_dirs
+                    ]
+                )
                 if has_davis:
                     davis_prefix = "davis/" if multi else ""
                     davis_images = f"{davis_prefix}JPEGImages/Full-Resolution/{seq}"
@@ -2440,7 +2551,16 @@ async def _build_video_export_zip(
                         "task_display_id": t.display_id,
                         "rel_path": video_rel,
                         "presigned_url": presigned,
-                        "expires_at": expires_iso,
+                        "expires_at": receipt.get("expires_at", expires_iso),
+                        **(
+                            {
+                                "sha256": receipt["sha256"],
+                                "size_bytes": receipt["size_bytes"],
+                                "metadata_receipt": video_media.metadata_receipts[t.id],
+                            }
+                            if video_media is not None
+                            else {}
+                        ),
                         "video_metadata": vmeta,
                         "sampling": sampling,
                         "step": step,
@@ -2459,7 +2579,8 @@ async def _build_video_export_zip(
             zf.writestr(
                 f"{cp}annotations.json",
                 json.dumps(
-                    build_coco_frames_seg(
+                    await format_call(
+                        build_coco_frames_seg,
                         coco_seq_records,
                         cat_map,
                         frame_start_number=frame_start_number,

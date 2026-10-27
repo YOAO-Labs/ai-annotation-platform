@@ -35,17 +35,54 @@ class _PredictionRetryTerminalFailure(Exception):
         super().__init__(str(result.get("reason") or result.get("status") or "failed"))
 
 
+def _require_qualified_image_retry(task, project, retry_job_id):
+    """A late historical image delivery must not invent today's original source."""
+    if retry_job_id is None and (
+        (task is not None and task.file_type == "image")
+        or (project is not None and project.data_type == "image")
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_original_requires_new_request", 409)
+
+
+def _require_qualified_video_retry(task, project, retry_job_id, execution_unit=None):
+    if (
+        retry_job_id is None
+        and execution_unit in {None, "video"}
+        and (
+            (task is not None and task.file_type == "video")
+            or (project is not None and project.data_type == "video")
+        )
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_video_requires_new_request", 409)
+
+
 @celery_app.task(
     bind=True, name="app.workers.predictions_retry.retry_failed_prediction"
 )
-def retry_failed_prediction(self, failed_id: str, user_id: str) -> dict:
+def retry_failed_prediction(
+    self, failed_id: str, user_id: str, async_job_id: str | None = None
+) -> dict:
     return asyncio.run(
-        _run_retry(failed_id, user_id, celery_task_id=getattr(self.request, "id", None))
+        _run_retry(
+            failed_id,
+            user_id,
+            celery_task_id=getattr(self.request, "id", None),
+            async_job_id=async_job_id,
+            worker_node_id=f"worker:{self.request.hostname}",
+        )
     )
 
 
 async def _run_retry(
-    failed_id: str, user_id: str, celery_task_id: str | None = None
+    failed_id: str,
+    user_id: str,
+    celery_task_id: str | None = None,
+    async_job_id: str | None = None,
+    worker_node_id: str | None = None,
 ) -> dict:
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -53,7 +90,12 @@ async def _run_retry(
     )
     try:
         return await _do_retry_with_factory(
-            SessionLocal, failed_id, user_id, celery_task_id=celery_task_id
+            SessionLocal,
+            failed_id,
+            user_id,
+            celery_task_id=celery_task_id,
+            async_job_id=async_job_id,
+            worker_node_id=worker_node_id,
         )
     finally:
         await engine.dispose()
@@ -64,10 +106,22 @@ async def _do_retry_with_factory(
     failed_id: str,
     user_id: str,
     celery_task_id: str | None = None,
+    async_job_id: str | None = None,
+    worker_node_id: str | None = None,
 ) -> dict:
     """实际 retry 逻辑；session_factory 暴露便于测试 mock。"""
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if async_job_id is not None:
+        return await _run_qualified_retry(
+            session_factory,
+            failed_id,
+            user_id,
+            async_job_id,
+            celery_task_id,
+            worker_node_id,
+        )
 
     fid = uuid.UUID(failed_id)
     uid = uuid.UUID(user_id)
@@ -161,6 +215,7 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
     """重试业务逻辑。终态通知由外层 async_jobs 统一发。"""
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.prediction import FailedPrediction
+    from app.db.models.project import Project
     from app.db.models.task import Task
     from app.services.gpu_arbitration.dispatch import (
         build_gpu_dispatch_context_factory,
@@ -187,6 +242,10 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
         snapshot_id = fp.execution_snapshot_id
         stored_context = (fp.extra or {}).get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
+        project = await db.get(Project, fp.project_id)
+        _require_qualified_image_retry(task, project, None)
+        if snapshot_id is None:
+            _require_qualified_video_retry(task, project, None)
         ns = NotificationService(db)
         pending = await ns.notify(
             user_id=uid,
@@ -303,9 +362,15 @@ async def _bump_retry_counter(
     pipeline_errors: list | None = None,
 ) -> None:
     from app.db.models.prediction import FailedPrediction
+    from sqlalchemy import select
 
-    fp = await db.get(FailedPrediction, fid)
-    if fp:
+    fp = await db.scalar(
+        select(FailedPrediction)
+        .where(FailedPrediction.id == fid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if fp and not (fp.extra or {}).get("retry_job_id"):
         fp.retry_count = (fp.retry_count or 0) + 1
         fp.last_retry_at = datetime.now(timezone.utc)
         extra = dict(fp.extra or {})
@@ -318,7 +383,87 @@ async def _bump_retry_counter(
         await db.flush()
 
 
-async def _run_snapshot_retry(session_factory, failed_id, actor_id):
+async def _run_qualified_retry(
+    factory, failed_id, actor_id, job_id, celery_task_id, node_id
+):
+    from app.services import async_job as jobs
+    from app.services.content_snapshot import ContentError
+
+    fid, uid, jid = uuid.UUID(failed_id), uuid.UUID(actor_id), uuid.UUID(job_id)
+    async with factory() as db:
+        job = await jobs.lock_job(db, jid)
+        if (
+            job is None
+            or job.kind != "prediction_retry"
+            or job.user_id != uid
+            or (job.payload or {}).get("failed_prediction_id") != str(fid)
+            or job.celery_task_id != celery_task_id
+        ):
+            raise ContentError("prediction_retry_attempt_invalid")
+        if job.status != "pending":
+            return job.result or {"status": "already_running", "failed_id": str(fid)}
+        from app.services.notification import NotificationService
+
+        notifications = NotificationService(db)
+        pending = await notifications.notify(
+            user_id=uid,
+            type="failed_prediction.retry.started",
+            target_type="failed_prediction",
+            target_id=fid,
+            payload={"project_id": str(job.project_id)},
+        )
+        await jobs.mark_running(db, jid)
+        await db.commit()
+        if pending is not None:
+            await notifications.publish_committed([pending])
+    return await _run_snapshot_retry(
+        factory,
+        fid,
+        uid,
+        retry_job_id=jid,
+        node_id=node_id,
+        celery_task_id=celery_task_id,
+    )
+
+
+async def _finish_qualified_failure(
+    factory,
+    failed_id,
+    job_id,
+    reason,
+    pipeline_errors,
+    *,
+    gpu_arbiter_error=None,
+    celery_task_id=None,
+):
+    from app.services.prediction_retries import finish_retry_attempt
+
+    async with factory() as db:
+        result = await finish_retry_attempt(
+            db,
+            job_id,
+            reason=reason,
+            pipeline_errors=pipeline_errors,
+            gpu_arbiter_error=gpu_arbiter_error,
+            celery_task_id=celery_task_id,
+        )
+        await db.commit()
+        return result or {
+            "status": "failed",
+            "failed_id": str(failed_id),
+            "reason": reason,
+        }
+
+
+async def _run_snapshot_retry(
+    session_factory,
+    failed_id,
+    actor_id,
+    *,
+    retry_job_id=None,
+    node_id=None,
+    celery_task_id=None,
+):
     """Replay one failed task's original pipeline without resolving a new release."""
     from sqlalchemy import select
     from app.db.models.prediction import FailedPrediction
@@ -334,27 +479,34 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
     )
     from app.services.prediction import PredictionService
     from app.services import trained_models
-    from app.services.storage import resolve_task_url, StorageService
+    from app.services.storage import resolve_task_url
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
     from app.workers.tasks import (
         _run_task_pipeline,
         _resolve_input_mode,
-        _make_crop_uploader,
         _hold_preannotation_authority,
         _preannotation_actor_revoked,
+        _require_image_job_proof,
+        _require_image_inputs,
+        _require_video_job_proof,
+        _require_video_inputs,
+        _input_receipt_kwargs,
     )
 
     pipeline_errors = None
+    reference_owner = None
+    task_uuid = None
     try:
         async with session_factory() as db:
             # Serialize duplicate deliveries and retain the snapshot reference during cleanup.
-            fp = await db.scalar(
-                select(FailedPrediction)
-                .where(FailedPrediction.id == failed_id)
-                .with_for_update()
-            )
+            query = select(FailedPrediction).where(FailedPrediction.id == failed_id)
+            if retry_job_id is None:
+                query = query.with_for_update()
+            fp = await db.scalar(query.execution_options(populate_existing=True))
             if not fp:
+                if retry_job_id is not None:
+                    raise ValueError("original_failure_unavailable")
                 return {"status": "not_found", "failed_id": str(failed_id)}
             if fp.dismissed_at is not None:
                 raise ValueError("失败记录已放弃，请先恢复")
@@ -363,13 +515,113 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
             project = await db.get(Project, fp.project_id)
             if not task or not actor or not project:
                 raise ValueError("原始任务或执行者已不可用")
+            _require_qualified_image_retry(task, project, retry_job_id)
             payload, digest = await load_snapshot(
                 db, fp.execution_snapshot_id, project.id
+            )
+            _require_qualified_video_retry(
+                task, project, retry_job_id, payload.get("execution_unit")
             )
             scope = payload["execution_scope"]
             if await _preannotation_actor_revoked(db, actor, project.id, scope):
                 raise ValueError("重试操作权限已失效")
             await validate_task_scope(db, project, task, actor, scope)
+            if retry_job_id is not None:
+                from copy import deepcopy
+                from app.db.models.async_job import AsyncJob
+                from app.services.prediction_references import ReferencePredictionJob
+                from app.services.content_snapshot import ContentError
+
+                job = await db.get(AsyncJob, retry_job_id, populate_existing=True)
+                proof = (
+                    deepcopy((job.payload or {}).get("prediction_authority"))
+                    if job
+                    else None
+                )
+                video_proof = (
+                    deepcopy((job.payload or {}).get("video_prediction_authority"))
+                    if job
+                    else None
+                )
+                _require_image_job_proof(project, proof)
+                _require_video_job_proof(
+                    project, video_proof, payload.get("execution_unit")
+                )
+                if (
+                    not (proof or video_proof)
+                    or bool(proof and video_proof)
+                    or (fp.extra or {}).get("retry_job_id") != str(retry_job_id)
+                    or fp.execution_snapshot_id != job.execution_snapshot_id
+                    or (video_proof and job.celery_task_id != celery_task_id)
+                ):
+                    raise ContentError("prediction_retry_attempt_changed")
+                owner_type = ReferencePredictionJob
+                if video_proof:
+                    from app.services.video_prediction_references import (
+                        VideoPredictionJob,
+                    )
+
+                    owner_type = VideoPredictionJob
+                reference_owner = owner_type(
+                    db,
+                    retry_job_id,
+                    video_proof or proof,
+                    project_id=project.id,
+                    actor_id=actor_id,
+                    task_ids=[task.id],
+                    batch_id=task.batch_id,
+                    scope=scope,
+                    predict_mode="append",
+                    snapshot_id=fp.execution_snapshot_id,
+                    snapshot_digest=digest,
+                    node_id=node_id,
+                    execution_unit=payload.get("execution_unit"),
+                    job_kind="prediction_retry",
+                    **({"celery_task_id": celery_task_id} if video_proof else {}),
+                )
+                task_uuid = task.id
+                if video_proof:
+                    await db.commit()
+                task_inputs = await reference_owner.open_inputs(task, session_factory)
+            else:
+                task_inputs = None
+            _require_image_inputs(task, reference_owner, task_inputs)
+            _require_video_inputs(
+                task, reference_owner, task_inputs, payload.get("execution_unit")
+            )
+            video_owner = (
+                reference_owner
+                if getattr(reference_owner, "media_type", None) == "video"
+                else None
+            )
+
+            async def before_video_transport(transport, stage_id):
+                await db.commit()
+                await video_owner.before_dispatch(task, transport, stage_id=stage_id)
+                await db.commit()
+
+            async def validate_video_results(results, stage_id, context):
+                from app.services.video_prediction_results import adapt_results
+
+                context = context or {}
+                window = (
+                    (context.get("from_frame"), context.get("to_frame"))
+                    if "from_frame" in context or "to_frame" in context
+                    else None
+                )
+                direction = context.get("direction") or "forward"
+                qualified = await adapt_results(
+                    results,
+                    task.id,
+                    video_owner.video_probe(task.id),
+                    window=window,
+                    direction=direction,
+                )
+                await video_owner.register_results(
+                    task.id, stage_id, qualified, window=window, direction=direction
+                )
+                return qualified.results
+
             stages = sorted(payload["stages"], key=lambda stage: stage["stage"])
             clients, contexts, modes = [], [], []
             for stage in stages:
@@ -410,21 +662,60 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
                 stages,
                 clients,
                 contexts,
-                resolve_url=resolve_task_url,
+                resolve_url=reference_owner.resolve_url
+                if task_inputs
+                else resolve_task_url,
+                upload_crop=task_inputs.upload_crop if task_inputs else None,
+                load_image=task_inputs.load_image if task_inputs else None,
+                before_dispatch=(lambda: reference_owner.before_dispatch(task))
+                if reference_owner and video_owner is None
+                else None,
+                before_transport=before_video_transport if video_owner else None,
+                max_response_bytes=64 * 1024**2 if video_owner else None,
+                settle_model_requests=bool(video_owner),
+                validate_results=validate_video_results if video_owner else None,
                 stage_modes=modes,
                 execution_snapshot_id=fp.execution_snapshot_id,
-                upload_crop=_make_crop_uploader(StorageService(), f"retry-{failed_id}")
-                if len(stages) > 1
-                else None,
+                input_session_factory=None if task_inputs else session_factory,
+                input_owner_id=retry_job_id or failed_id,
+                input_owner_kind="prediction_retry",
             )
+            if video_owner is not None:
+                await video_owner.finish_source(task.id)
             if (extra or {}).get("pipeline", {}).get("partial"):
                 pipeline_errors = extra["pipeline"].get("stage_errors", [])
                 raise ValueError("管线下游阶段仍有失败，已保留原失败记录和原候选结果")
             if not results:
                 raise ValueError("推理实例未返回结果")
+            if reference_owner is not None:
+                from app.services import async_job as jobs
+
+                await jobs.lock_job(db, retry_job_id)
             if not await _hold_preannotation_authority(db, actor, project.id, scope):
                 raise ValueError("重试期间操作权限已撤销")
+            reference_receipt = None
+            if reference_owner is not None:
+                fp = await db.scalar(
+                    select(FailedPrediction)
+                    .where(FailedPrediction.id == failed_id)
+                    .with_for_update(nowait=True)
+                    .execution_options(populate_existing=True)
+                )
+                if (
+                    fp is None
+                    or fp.dismissed_at is not None
+                    or (fp.extra or {}).get("retry_job_id") != str(retry_job_id)
+                    or fp.execution_snapshot_id != job.execution_snapshot_id
+                ):
+                    raise ContentError("prediction_retry_attempt_changed")
+                await reference_owner.lock_key()
             await validate_task_scope(db, project, task, actor, scope, lock=True)
+            if reference_owner is not None:
+                reference_receipt = await reference_owner.final_receipt(task)
+            receipt_kwargs = _input_receipt_kwargs(
+                reference_owner, task_uuid, reference_receipt
+            )
+
             extra = {
                 **(extra or {}),
                 "execution_snapshot": {
@@ -433,10 +724,8 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
                     "stages": execution_summary(stages),
                 },
             }
-            service = PredictionService(db)
-            first = None
-            for result in results:
-                pred = await service.create_from_ml_result(
+            writes = [
+                dict(
                     task_id=task.id,
                     project_id=project.id,
                     ml_backend_id=clients[0].last_instance_id
@@ -452,6 +741,28 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
                         {"model_provenance": stages[0]["frozen_model_ref"]}
                         if stages[0].get("frozen_model_ref")
                         else {}
+                    ),
+                )
+                for result in results
+            ]
+            native_receipts = (
+                await reference_owner.qualify_native_results(
+                    task, reference_receipt, writes
+                )
+                if reference_owner
+                else [None] * len(writes)
+            )
+            service = PredictionService(db)
+            first = None
+            for write, native_receipt in zip(writes, native_receipts, strict=True):
+                pred = await service.create_from_ml_result(
+                    **write,
+                    **(
+                        {**receipt_kwargs, "video_result_receipt": native_receipt}
+                        if video_owner is not None
+                        else {"background_native_reference_receipt": native_receipt}
+                        if native_receipt is not None
+                        else receipt_kwargs
                     ),
                 )
                 first = first or pred
@@ -483,13 +794,55 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
                         "superseded_by_prediction_id": str(first.id),
                     }
             await db.delete(fp)
-            await db.commit()
-            return {
+            result = {
                 "status": "succeeded",
                 "failed_id": str(failed_id),
                 "prediction_id": str(first.id),
             }
+            if reference_owner is not None:
+                from app.services.async_job_notify import notify_job_terminal
+
+                await jobs.mark_complete(
+                    db, retry_job_id, result=_retry_result_payload(result)
+                )
+                await notify_job_terminal(db, job_id=retry_job_id)
+            if video_owner is not None:
+                await video_owner.recheck_credentials()
+            await db.commit()
+            return result
     except Exception as exc:
+        if retry_job_id is not None:
+            from app.services.content_snapshot import ContentError
+            from app.services.gpu_arbitration.contracts import (
+                gpu_arbiter_failure_record,
+            )
+            from fastapi import HTTPException
+
+            gpu_arbiter_error = gpu_arbiter_failure_record(exc)
+            reason = (
+                gpu_arbiter_error["message"]
+                if gpu_arbiter_error is not None
+                else (
+                    exc.code
+                    if isinstance(exc, ContentError)
+                    else (
+                        exc.detail.get("code", "prediction_retry_authority_changed")
+                        if isinstance(exc, HTTPException)
+                        and isinstance(exc.detail, dict)
+                        else (str(exc) or "prediction_retry_failed")[:200]
+                    )
+                )
+            )
+            return await _finish_qualified_failure(
+                session_factory,
+                failed_id,
+                retry_job_id,
+                reason,
+                pipeline_errors,
+                gpu_arbiter_error=gpu_arbiter_error,
+                celery_task_id=celery_task_id,
+            )
+
         async with session_factory() as db:
             from app.services.gpu_arbitration.contracts import (
                 gpu_arbiter_failure_record,
@@ -507,3 +860,7 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
             "failed_id": str(failed_id),
             "reason": str(exc)[:200],
         }
+
+    finally:
+        if reference_owner is not None and task_uuid is not None:
+            await reference_owner.close_inputs(task_uuid)

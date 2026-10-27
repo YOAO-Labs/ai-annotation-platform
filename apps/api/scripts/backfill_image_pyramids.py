@@ -81,13 +81,20 @@ async def main() -> None:
     )
     queued = 0
     if not args.dry_run:
-        for row in rows:
-            enqueue_image_pyramid(
-                args.owner_kind,
-                row.id,
-                force=args.owner_kind == "task",
-            )
-            queued += 1
+        from app.services import image_pyramid_originals as originals
+
+        async with async_session() as db:
+            for row in rows:
+                source = await originals.pin(db, args.owner_kind, row.id)
+                enqueue_image_pyramid(
+                    args.owner_kind,
+                    row.id,
+                    force=args.owner_kind == "task",
+                    delegation=originals.system_authorization(
+                        args.owner_kind, row.id, source
+                    ),
+                )
+                queued += 1
     next_cursor = str(rows[-1].id) if len(rows) == args.limit else None
     print(
         json.dumps(

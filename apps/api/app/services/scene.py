@@ -84,6 +84,9 @@ async def create_scene(
     created_by: uuid.UUID | None = None,
 ) -> Scene:
     """新建 scene。同 dataset 下 name 重复 → SceneNameConflict。"""
+    from app.services.dataset_lifecycle import require_writable
+
+    await require_writable(db, dataset_id, lock=True)
     display_id = await next_display_id(db, "scenes")
     scene = Scene(
         id=uuid.uuid4(),
@@ -124,6 +127,11 @@ async def assign_items_to_scene(
     返回 update 的行数。本函数 *不* 跳过已有 scene_id 的 item——调用方
     应在外部决定是否覆盖。
     """
+    from app.services.dataset_lifecycle import require_writable
+
+    scene = await db.get(Scene, scene_id, populate_existing=True)
+    if scene is not None:
+        await require_writable(db, scene.dataset_id, lock=True)
     updated = 0
     for idx, item in enumerate(items_in_order):
         item.scene_id = scene_id

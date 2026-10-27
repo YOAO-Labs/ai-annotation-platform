@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import logging
-import re
 import time
 from typing import TYPE_CHECKING
 
@@ -10,6 +9,23 @@ import boto3
 from botocore.exceptions import ClientError
 
 from app.config import settings
+from app.services.reference_keys import reject_reference
+from app.services import storage_presigning
+
+
+def _reject_reference_s3(params, **kwargs):
+    for field in ("Key", "Prefix"):
+        reject_reference(params.get(field))
+    for obj in params.get("Delete", {}).get("Objects", []):
+        reject_reference(obj.get("Key"))
+    copy = params.get("CopySource")
+    if isinstance(copy, dict):
+        reject_reference(copy.get("Key"))
+    elif isinstance(copy, str):
+        from urllib.parse import unquote
+
+        reject_reference(unquote(copy).lstrip("/").partition("/")[2])
+
 
 if TYPE_CHECKING:
     from app.db.models.task import Task
@@ -37,14 +53,19 @@ def _aligned_expires_in(expires_in: int) -> int:
 
 
 class StorageService:
-    def __init__(self) -> None:
+    def __init__(self, *, client_config=None) -> None:
         scheme = "https" if settings.minio_use_ssl else "http"
         self.client = boto3.client(
             "s3",
             endpoint_url=f"{scheme}://{settings.minio_endpoint}",
             aws_access_key_id=settings.minio_access_key,
             aws_secret_access_key=settings.minio_secret_key,
+            config=client_config,
         )
+        self.client.meta.events.register(
+            "before-parameter-build.s3", _reject_reference_s3
+        )
+        storage_presigning.install(self.client)
         self.bucket = settings.minio_bucket
         self.datasets_bucket = settings.minio_datasets_bucket
         self.bug_reports_bucket = settings.minio_bug_reports_bucket
@@ -75,45 +96,82 @@ class StorageService:
         self._ensure_lifecycle()
 
     def _ensure_lifecycle(self) -> None:
-        """v0.6.6 · 评论附件 90 天过期。
-        B-4 · bug 截图迁到独立桶 ``bug-reports``,在该桶上挂 180 天 lifecycle。
-        v0.10.17 · 派生媒体缓存独立桶 ``media-cache`` 整桶 30 天过期。
-        若 MinIO 不支持（旧版本）静默忽略。
-        """
-        anno_rules = [
-            {
-                "ID": "comment-attachments-90d",
-                "Status": "Enabled",
-                "Filter": {"Prefix": "comment-attachments/"},
-                "Expiration": {"Days": 90},
-            },
-        ]
-        try:
-            self.client.put_bucket_lifecycle_configuration(
-                Bucket=self.bucket,
-                LifecycleConfiguration={"Rules": anno_rules},
-            )
-        except ClientError as exc:
-            logger.warning("Failed to set bucket lifecycle on %s: %s", self.bucket, exc)
+        """Keep attachment expiration behind saved owners and read permits."""
+        self._remove_comment_attachment_lifecycle()
 
-        bug_rules = [
-            {
-                "ID": "bug-screenshots-180d",
-                "Status": "Enabled",
-                "Filter": {"Prefix": ""},
-                "Expiration": {"Days": 180},
-            },
-        ]
         try:
-            self.client.put_bucket_lifecycle_configuration(
-                Bucket=self.bug_reports_bucket,
-                LifecycleConfiguration={"Rules": bug_rules},
-            )
+            self.client.delete_bucket_lifecycle(Bucket=self.bug_reports_bucket)
         except ClientError as exc:
             logger.warning(
-                "Failed to set bucket lifecycle on %s: %s", self.bug_reports_bucket, exc
+                "Failed to remove bucket lifecycle on %s: %s",
+                self.bug_reports_bucket,
+                exc,
             )
 
+        self._ensure_cache_lifecycle()
+
+    def _remove_comment_attachment_lifecycle(self) -> None:
+        """Remove only the application-owned rule, preserving operator rules."""
+        try:
+            rules = self.client.get_bucket_lifecycle_configuration(Bucket=self.bucket)[
+                "Rules"
+            ]
+            retained = [
+                rule for rule in rules if rule.get("ID") != "comment-attachments-90d"
+            ]
+            if len(retained) == len(rules):
+                return
+            if retained:
+                self.client.put_bucket_lifecycle_configuration(
+                    Bucket=self.bucket,
+                    LifecycleConfiguration={"Rules": retained},
+                )
+            else:
+                self.client.delete_bucket_lifecycle(Bucket=self.bucket)
+        except ClientError as exc:
+            if (
+                exc.response.get("Error", {}).get("Code")
+                == "NoSuchLifecycleConfiguration"
+            ):
+                return
+            logger.warning(
+                "Failed to remove comment attachment lifecycle on %s: %s",
+                self.bucket,
+                exc,
+            )
+
+    def _remove_import_artifact_lifecycle(self) -> None:
+        """Keep prediction input expiry behind durable owners and I/O permits."""
+        try:
+            rules = self.client.get_bucket_lifecycle_configuration(
+                Bucket=self.import_bucket
+            )["Rules"]
+            retained = [
+                rule for rule in rules if rule.get("ID") != "import-artifacts-7d"
+            ]
+            if len(retained) == len(rules):
+                return
+            if retained:
+                self.client.put_bucket_lifecycle_configuration(
+                    Bucket=self.import_bucket,
+                    LifecycleConfiguration={"Rules": retained},
+                )
+            else:
+                self.client.delete_bucket_lifecycle(Bucket=self.import_bucket)
+        except ClientError as exc:
+            if (
+                exc.response.get("Error", {}).get("Code")
+                == "NoSuchLifecycleConfiguration"
+            ):
+                return
+            logger.warning(
+                "Failed to remove import artifact lifecycle on %s: %s",
+                self.import_bucket,
+                exc,
+            )
+
+    def _ensure_cache_lifecycle(self) -> None:
+        self._remove_import_artifact_lifecycle()
         # 只过期「可按需重新抽取」的帧图 / 分块缓存(videos/<id>/frames|chunks)。
         # playback/(非 h264 视频的浏览器播放代理) 与 thumbnails/(海报) 是 DB 元数据
         # 持久引用、入库时一次性生成、不会惰性重建,必须随原视频同寿命——绝不能进过期规则。
@@ -137,9 +195,8 @@ class StorageService:
                 "Failed to set bucket lifecycle on %s: %s", self.media_cache_bucket, exc
             )
 
-        # v0.10.27 · 导入/导出产物桶整桶 7 天过期(短生命周期产物)。
+        # Import objects require owner-driven cleanup, including unresolved I/O.
         for short_lived_bucket, rule_id in (
-            (self.import_bucket, "import-artifacts-7d"),
             (self.export_bucket, "export-artifacts-7d"),
         ):
             try:
@@ -166,34 +223,6 @@ class StorageService:
         # 持久引用;一旦过期就会出现"DB 指向已删对象"的破图(与上面 playback 同类故障)。
         # 修改头像时由 API 显式删除旧对象,不依赖 lifecycle。
 
-    def _public_url(self, url: str) -> str:
-        if settings.minio_public_url:
-            scheme = "https" if settings.minio_use_ssl else "http"
-            internal = f"{scheme}://{settings.minio_endpoint}"
-            url = url.replace(internal, settings.minio_public_url.rstrip("/"), 1)
-        return url
-
-    def rewrite_host_for_ml_backend(self, url: str) -> str:
-        """把 presigned URL 的 host 重写为 ``ml_backend_storage_host`` (容器可达地址)。
-
-        平台 api 跑在 host 进程而 ML backend 在 docker 网内时, presigned URL 里的 host
-        (宿主可达) 在 backend 容器内解析不到; 重写成容器可达地址。v0.18.4 从
-        ``ml_backends._resolve_task_url`` 抽出共用 (task URL 与 ROI crop URL 共享), 行为逐字一致。
-        """
-        # Browser proxy paths have no origin, even when no gateway override is needed.
-        if settings.minio_public_url:
-            public = settings.minio_public_url.rstrip("/")
-            if (
-                settings.ml_backend_storage_host or public.startswith("/")
-            ) and url.startswith(public + "/"):
-                scheme = "https" if settings.minio_use_ssl else "http"
-                url = f"{scheme}://{settings.minio_endpoint}" + url[len(public) :]
-        if settings.ml_backend_storage_host:
-            return re.sub(
-                r"://[^/]+", f"://{settings.ml_backend_storage_host}", url, count=1
-            )
-        return url
-
     def put_bytes(
         self,
         key: str,
@@ -217,22 +246,16 @@ class StorageService:
     def upload_crop_bytes(
         self, jpeg_bytes: bytes, key: str, *, expires_in: int = 3600
     ) -> str:
-        """v0.18.4 · 上传 ROI crop JPEG 字节到 import 桶, 返回下游 backend 可拉取的 presigned URL。
-
-        import 桶挂 7 天 lifecycle 自动清理临时 crop。返回 URL 经 ml_backend host 重写,
-        与 task URL 投递路径一致——对所有走 ``httpx.get`` 的下游 backend (gsam2/sam3 不支持
-        ``data:`` URI) 通用。
-        """
+        """Upload a crop and sign directly for the ML backend's storage endpoint."""
         self.client.put_object(
             Bucket=self.import_bucket,
             Key=key,
             Body=jpeg_bytes,
             ContentType="image/jpeg",
         )
-        url = self.generate_download_url(
-            key, expires_in=expires_in, bucket=self.import_bucket
+        return self.generate_download_url(
+            key, expires_in=expires_in, bucket=self.import_bucket, audience="ml"
         )
-        return self.rewrite_host_for_ml_backend(url)
 
     def generate_upload_url(
         self,
@@ -241,16 +264,27 @@ class StorageService:
         expires_in: int = 900,
         bucket: str | None = None,
     ) -> str:
-        url = self.client.generate_presigned_url(
+        from app.services.dataset_storage_keys import MANAGED_DATASET_PREFIX
+
+        if key.lstrip("/").startswith(
+            (
+                MANAGED_DATASET_PREFIX + "/",
+                "__aap_task_originals__/",
+                "__aap_auxiliary_originals__/",
+            )
+        ):
+            raise ValueError("Managed originals require controlled server creation")
+        return storage_presigning.generate_url(
+            self.client,
             "put_object",
-            Params={
+            params={
                 "Bucket": bucket or self.bucket,
                 "Key": key,
                 "ContentType": content_type,
             },
-            ExpiresIn=expires_in,
+            expires_in=expires_in,
+            audience="browser",
         )
-        return self._public_url(url)
 
     def generate_download_url(
         self,
@@ -259,21 +293,28 @@ class StorageService:
         bucket: str | None = None,
         download_name: str | None = None,
         align: bool = True,
+        version_id: str | None = None,
+        *,
+        audience: storage_presigning.Audience = "browser",
     ) -> str:
         # v0.10.43 · download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
+        reject_reference(key)
         params: dict = {"Bucket": bucket or self.bucket, "Key": key}
+        if version_id is not None:
+            params["VersionId"] = version_id
         if download_name:
             params["ResponseContentDisposition"] = (
                 f'attachment; filename="{download_name}"'
             )
         # align=True (默认) 把 Expires 对齐到 10 分钟网格以复用浏览器缓存 (缩略图/原图);
         # 非缓存类、要求严格短有效期的调用者 (如评论附件私链) 传 align=False 走精确 expires_in。
-        url = self.client.generate_presigned_url(
+        return storage_presigning.generate_url(
+            self.client,
             "get_object",
-            Params=params,
-            ExpiresIn=_aligned_expires_in(expires_in) if align else expires_in,
+            params=params,
+            expires_in=_aligned_expires_in(expires_in) if align else expires_in,
+            audience=audience,
         )
-        return self._public_url(url)
 
     def upload_file(
         self,
@@ -485,21 +526,31 @@ class StorageService:
 storage_service = StorageService()
 
 
+def require_legacy_task_path(task):
+    """Old synchronous bypasses cannot locate a rooted standalone original."""
+    original_id = getattr(task, "original_id", None)
+    if original_id is not None:
+        from app.services.content_snapshot import ContentError
+        from app.services.task_originals import key_for
+
+        if task.file_path != key_for(task.id, original_id):
+            raise ContentError("location_unavailable")
+
+
 def resolve_task_url(task: "Task") -> str:
-    """把 task.file_path (MinIO 对象 key) 转成 ML backend 可访问的 presigned URL。
+    """Sign the task key directly for the ML backend's storage endpoint."""
+    from app.services.reference_keys import is_reference
 
-    SAM backend 协议要求 file_path 是 http(s):// URL 或本地路径; tasks 表里存的是 key,
-    必须先签发 presigned URL。当平台 api 跑在 host 进程而 ML backend 在 docker 网内时,
-    再把 host 替换为 ``settings.ml_backend_storage_host`` (容器可达地址)。
+    if is_reference(task.file_path):
+        from fastapi import HTTPException
 
-    v0.23.0 · 从 ``app.api.v1.ml_backends._resolve_task_url`` 下沉到 service 层,
-    让 router、worker 与 video tracker runner 共用同一 helper, 消除 service → API
-    反向依赖。行为与原 router 内私有函数逐字一致。
-    """
+        raise HTTPException(409, detail={"code": "reference_operation_not_supported"})
+    require_legacy_task_path(task)
     bucket = (
         storage_service.datasets_bucket
         if task.dataset_item_id
         else storage_service.bucket
     )
-    url = storage_service.generate_download_url(task.file_path, bucket=bucket)
-    return storage_service.rewrite_host_for_ml_backend(url)
+    return storage_service.generate_download_url(
+        task.file_path, bucket=bucket, audience="ml"
+    )

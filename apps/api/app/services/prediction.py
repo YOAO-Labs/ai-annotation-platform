@@ -9,7 +9,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
+from app.db.models.prediction import (
+    Prediction,
+    PredictionMeta,
+    FailedPrediction,
+    INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
+)
 from app.db.models.task import Task
 from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
@@ -21,6 +26,12 @@ logger = logging.getLogger("app.services.prediction")
 # point_mask_3d 而漂移)。'ai_interactive' 已退役: result item 若显式带该值, 不在白名单内,
 # derive_tool_unit_from_result 会绕过它、改按几何类型派生并记 warning。
 TOOL_UNIT_IDS = frozenset(_SCHEMA_TOOL_UNIT_IDS)
+
+
+def _public_video_provenance(evidence):
+    from app.services.video_prediction_references import public_provenance
+
+    return public_provenance(evidence)
 
 
 async def claim_failed_prediction_retry(
@@ -51,8 +62,17 @@ async def claim_failed_prediction_retry(
 async def release_failed_prediction_retry_claim(
     db: AsyncSession, failed_id: uuid.UUID
 ) -> None:
-    row = await db.get(FailedPrediction, failed_id)
-    if row and (row.extra or {}).get("retry_pending"):
+    row = await db.scalar(
+        select(FailedPrediction)
+        .where(FailedPrediction.id == failed_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        row
+        and not (row.extra or {}).get("retry_job_id")
+        and (row.extra or {}).get("retry_pending")
+    ):
         extra = dict(row.extra or {})
         extra.pop("retry_pending", None)
         row.extra = extra
@@ -247,9 +267,8 @@ def to_internal_shape(s: dict) -> dict:
     if not isinstance(s, dict):
         return {}
     if "geometry" in s:
-        # 老路径已经是内部 schema; v0.10.17 在缺 tool_unit_id 时按 type 反推**就地**回填,
-        # 保留原 dict identity (`is raw`) 以保兼容历史调用方依赖.
-        if "tool_unit_id" not in s:
+        # Normalize missing/retired tool IDs from geometry while preserving dict identity.
+        if s.get("tool_unit_id") not in TOOL_UNIT_IDS:
             s["tool_unit_id"] = _tool_unit_from_internal_geometry(
                 s.get("geometry")
             ) or derive_tool_unit_from_ls_type(s.get("type"))
@@ -474,17 +493,273 @@ class PredictionService:
         pipeline_extra: dict | None = None,
         ml_backend_pool_id: uuid.UUID | None = None,
         model_provenance: dict | None = None,
+        reference_receipt=None,
+        native_reference_receipt=None,
+        repair_reference_receipt=None,
+        background_native_reference_receipt=None,
+        original_receipt=None,
+        native_original_receipt=None,
+        repair_original_receipt=None,
+        video_input_receipt=None,
+        video_result_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
+        from app.services.reference_access import reject_reference_scope
+
+        reference_evidence = None
+        original_evidence = None
+        video_evidence = None
+        native_qualification = None
+        if video_input_receipt is not None:
+            from app.services.video_prediction_references import validate_result_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                source != "ml_backend"
+                or video_result_receipt is None
+                or any(
+                    receipt is not None
+                    for receipt in (
+                        reference_receipt,
+                        native_reference_receipt,
+                        repair_reference_receipt,
+                        background_native_reference_receipt,
+                        original_receipt,
+                        native_original_receipt,
+                        repair_original_receipt,
+                    )
+                )
+            ):
+                raise ContentError("prediction_video_receipt_invalid")
+            if getattr(video_result_receipt, "anchor", None) is not video_input_receipt:
+                raise ContentError("prediction_video_receipt_invalid")
+            video_evidence = await validate_result_receipt(
+                self.db,
+                task_id,
+                project_id,
+                video_result_receipt,
+                dict(
+                    task_id=task_id,
+                    project_id=project_id,
+                    ml_backend_id=ml_backend_id,
+                    result=result,
+                    score=score,
+                    model_version=model_version,
+                    inference_time_ms=inference_time_ms,
+                    token_meta=token_meta,
+                    source=source,
+                    pipeline_extra=pipeline_extra,
+                    ml_backend_pool_id=ml_backend_pool_id,
+                    model_provenance=model_provenance,
+                ),
+            )
+        elif video_result_receipt is not None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("prediction_video_receipt_invalid")
+        elif repair_original_receipt is not None:
+            from app.services.managed_mask_repair import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                any(
+                    value is not None
+                    for value in (
+                        reference_receipt,
+                        native_reference_receipt,
+                        repair_reference_receipt,
+                        background_native_reference_receipt,
+                        original_receipt,
+                        native_original_receipt,
+                    )
+                )
+                or source != "mask_repair"
+                or (token_meta or {}).get("mask_objects") is not None
+                or len(result) != 1
+                or (result[0].get("geometry") or {}).get("type") != "raster_mask"
+            ):
+                raise ContentError("repair_original_receipt_invalid")
+            original_evidence = await validate_receipt(
+                self.db,
+                task_id,
+                None,
+                repair_original_receipt,
+                "prediction",
+                result,
+                project_id=project_id,
+            )
+        elif native_original_receipt is not None:
+            from app.services.managed_native_inference import validate_native_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                any(
+                    receipt is not None
+                    for receipt in (
+                        original_receipt,
+                        reference_receipt,
+                        native_reference_receipt,
+                        repair_reference_receipt,
+                        background_native_reference_receipt,
+                    )
+                )
+                or source != INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+                or (token_meta or {}).get("mask_objects") is not None
+            ):
+                raise ContentError("prediction_original_receipt_invalid")
+            original_evidence = await validate_native_receipt(
+                self.db, task_id, project_id, native_original_receipt, result=result
+            )
+        elif original_receipt is not None:
+            from app.services.prediction_originals import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or native_reference_receipt is not None
+                or repair_reference_receipt is not None
+                or background_native_reference_receipt is not None
+                or source != "ml_backend"
+            ):
+                raise ContentError("prediction_original_receipt_invalid")
+            original_evidence = await validate_receipt(
+                self.db, task_id, project_id, original_receipt
+            )
+        elif background_native_reference_receipt is not None:
+            from app.services.reference_native_predictions import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or native_reference_receipt is not None
+                or repair_reference_receipt is not None
+                or source != "ml_backend"
+            ):
+                raise ContentError("background_native_reference_receipt_invalid")
+            reference_evidence, native_qualification = await validate_receipt(
+                self.db,
+                task_id,
+                project_id,
+                background_native_reference_receipt,
+                dict(
+                    task_id=task_id,
+                    project_id=project_id,
+                    ml_backend_id=ml_backend_id,
+                    result=result,
+                    score=score,
+                    model_version=model_version,
+                    inference_time_ms=inference_time_ms,
+                    token_meta=token_meta,
+                    source=source,
+                    pipeline_extra=pipeline_extra,
+                    ml_backend_pool_id=ml_backend_pool_id,
+                    model_provenance=model_provenance,
+                ),
+            )
+        elif repair_reference_receipt is not None:
+            from app.services.reference_mask_repair import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or native_reference_receipt is not None
+                or source != "mask_repair"
+                or (token_meta or {}).get("mask_objects") is not None
+                or len(result) != 1
+                or (result[0].get("geometry") or {}).get("type") != "raster_mask"
+            ):
+                raise ContentError("repair_reference_receipt_invalid")
+            reference_evidence = await validate_receipt(
+                self.db,
+                task_id,
+                None,
+                repair_reference_receipt,
+                "prediction",
+                result,
+                project_id=project_id,
+            )
+        elif native_reference_receipt is not None:
+            from app.services.reference_inference import validate_native_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or source != INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+                or (token_meta or {}).get("mask_objects") is not None
+            ):
+                raise ContentError("prediction_reference_receipt_invalid")
+            reference_evidence = await validate_native_receipt(
+                self.db, task_id, project_id, native_reference_receipt, result=result
+            )
+        elif reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[task_id])
+        else:
+            from app.services.prediction_references import validate_receipt
+
+            reference_evidence = await validate_receipt(
+                self.db, task_id, project_id, reference_receipt
+            )
+            from app.services.raster_mask_storage import collect_mask_geometries
+
+            if (
+                (token_meta or {}).get("mask_objects") is not None
+                or collect_mask_geometries(result)
+                or any(
+                    isinstance(shape, dict) and shape.get("type") == "brushlabels"
+                    for shape in result
+                )
+            ):
+                from app.services.content_snapshot import ContentError
+
+                raise ContentError("reference_prediction_geometry_not_supported")
         result = _remap_track_ids(result)
         task = await self.db.scalar(
-            select(Task).where(Task.id == task_id).with_for_update()
+            select(Task)
+            .where(Task.id == task_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        if (token_meta or {}).get("mask_objects") is not None:
-            from app.services.controlled_segmentation import materialize_masks
+        if (
+            task is not None
+            and task.file_type == "image"
+            and source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+            and native_original_receipt is None
+        ):
+            from app.services.content_snapshot import ContentError
+            from app.services.reference_keys import is_reference
 
-            await materialize_masks(self.db, result, token_meta, task_id=task_id)
-        await prepare_mask_payload_for_write(self.db, task, result)
+            if not is_reference(task.file_path):
+                raise ContentError("prediction_requires_original_provenance")
+        if task is not None and task.file_type == "image" and source == "mask_repair":
+            from app.services.reference_keys import is_reference
+            from app.services.content_snapshot import ContentError
+
+            if not is_reference(task.file_path) and repair_original_receipt is None:
+                raise ContentError("repair_original_requires_new_plan")
+        if (
+            task is not None
+            and task.file_type == "video"
+            and source == "ml_backend"
+            and result
+            and video_evidence is None
+        ):
+            from types import SimpleNamespace
+            from app.services.video_prediction_acceptance import requires_qualification
+            from app.services.content_snapshot import ContentError
+
+            if requires_qualification(SimpleNamespace(source=source, result=result)):
+                raise ContentError("prediction_video_requires_new_request")
+        await prepare_mask_payload_for_write(
+            self.db,
+            task,
+            result,
+            portable_mask_meta=token_meta
+            if (token_meta or {}).get("mask_objects") is not None
+            else None,
+            native_original_receipt=native_original_receipt,
+            repair_original_receipt=repair_original_receipt,
+            video_result_receipt=video_result_receipt,
+        )
         prediction = Prediction(
             id=uuid.uuid4(),
             task_id=task_id,
@@ -518,7 +793,30 @@ class PredictionService:
             # v0.18.1 · 多阶段预标注阶段元信息 (stage_count / enriched_attr_keys),
             # 追溯「哪个属性来自哪个阶段」; MVP 暂存 extra JSONB 不改表。
             extra={
-                **(pipeline_extra or {}),
+                **{
+                    key: value
+                    for key, value in (pipeline_extra or {}).items()
+                    if key
+                    not in {
+                        "reference_input",
+                        "reference_execution",
+                        "reference_native",
+                        "original_input",
+                        "original_video_input",
+                        "video_prediction_proof",
+                    }
+                },
+                **(
+                    {"reference_input": reference_evidence}
+                    if reference_evidence
+                    else {}
+                ),
+                **({"original_input": original_evidence} if original_evidence else {}),
+                **(
+                    {"original_video_input": _public_video_provenance(video_evidence)}
+                    if video_evidence is not None
+                    else {}
+                ),
                 **({"trained_model": model_provenance} if model_provenance else {}),
                 **(
                     {"inference_runtime": meta_data["inference_runtime"]}
@@ -532,6 +830,30 @@ class PredictionService:
                 ),
             },
         )
+        if native_qualification is not None:
+            from app.services.reference_native_predictions import (
+                PROOF_KEY,
+                persisted_qualification,
+            )
+
+            meta.extra = {
+                **meta.extra,
+                PROOF_KEY: persisted_qualification(
+                    prediction, meta.extra, native_qualification
+                ),
+            }
+        if video_evidence is not None:
+            from app.services.video_prediction_acceptance import (
+                PROOF_KEY as VIDEO_PROOF_KEY,
+                persisted_qualification as qualify_video_prediction,
+            )
+
+            meta.extra = {
+                **meta.extra,
+                VIDEO_PROOF_KEY: qualify_video_prediction(
+                    prediction, meta.extra, video_evidence
+                ),
+            }
         self.db.add(meta)
 
         await self.db.execute(select(Task).where(Task.id == task_id).with_for_update())
@@ -540,6 +862,12 @@ class PredictionService:
             task.total_predictions = (task.total_predictions or 0) + 1
 
         await self.db.flush()
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
+        if video_input_receipt is not None:
+            await video_input_receipt.owner.recheck_credentials()
         return prediction
 
     async def create_failed(

@@ -9,6 +9,10 @@
 from __future__ import annotations
 
 import uuid
+from copy import deepcopy
+import hashlib
+from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 from unittest.mock import patch
@@ -22,6 +26,18 @@ from app.db.models.notification import Notification
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.task import Task
+from tests.managed_prediction_worker_fixtures import (
+    freeze_job,
+    input_world as input_world,
+    managed_worker_world as managed_worker_world,
+)
+
+
+@pytest.fixture
+async def db_session(managed_worker_world):
+    """Real commits remain visible to independent source/auth and worker sessions."""
+    async with managed_worker_world.factory() as db:
+        yield db
 
 
 async def _seed_project(db: AsyncSession, owner_id: uuid.UUID) -> Project:
@@ -33,6 +49,13 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID) -> Project:
         type_label="image-det",
         type_key="image-det",
         owner_id=owner_id,
+        tool_bindings={
+            "bbox": {
+                "enabled": True,
+                "classes": [{"name": "car", "order": 0}],
+                "attribute_schema": {"fields": []},
+            }
+        },
     )
     db.add(proj)
     await db.flush()
@@ -92,6 +115,99 @@ async def _seed_failed(
     db.add(fp)
     await db.flush()
     return fp
+
+
+def _frozen_model_contract(project, backend):
+    """Use the real serializer at the controlled transport test boundary."""
+    from app.services.trained_models import frozen_reference
+    from app.services.training_dataset_bridge import content_digest
+
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        artifact={"sha256": "a" * 64},
+        classes=["car"],
+        bindings=["car"],
+        binding_digest=content_digest({"classes": ["car"], "bindings": ["car"]}),
+        framework="ultralytics",
+        framework_version="8.4.177",
+        provenance={"task": "detect", "base_model": {"id": "yolo11n"}},
+    )
+    deployment = SimpleNamespace(id=uuid.uuid4(), registry_id=backend.id, receipt={})
+    return frozen_reference(version, deployment)
+
+
+async def _freeze_failed(db, project, task, backend, actor, failure, *, context=None):
+    """A historical failure retains its actual canonical input and frozen config."""
+    from app.services import async_job as jobs
+    from app.services.prediction_execution import load_snapshot
+
+    context = context or {}
+    stage = {
+        "stage": 0,
+        "parent_stage": None,
+        "ml_backend_id": str(backend.id),
+        "model_id": context.get("model_id"),
+        "task": context.get("task"),
+        "params": context.get("params"),
+        "frozen_model_ref": context.get("frozen_model_ref"),
+    }
+    job = await freeze_job(
+        db,
+        project=project,
+        actor=actor,
+        backend=backend,
+        tasks=[task],
+        scope="workbench",
+        config={"stages": [stage]},
+    )
+    _, digest = await load_snapshot(db, job.execution_snapshot_id, project.id)
+    failure.execution_snapshot_id = job.execution_snapshot_id
+    failure.extra = {
+        "request_context": deepcopy(context),
+        "original_input": deepcopy(job.payload["prediction_authority"]["tasks"][0]),
+        "execution_snapshot": {"id": str(job.execution_snapshot_id), "digest": digest},
+    }
+    await jobs.mark_failed(
+        db,
+        job.id,
+        error="fixture failure",
+        result={"failed_prediction_ids": [str(failure.id)]},
+    )
+    await db.commit()
+    return job
+
+
+async def _prepare_retry(db, failure, actor, token):
+    from app.services.prediction import claim_failed_prediction_retry
+    from app.services.prediction_retries import prepare_retry
+
+    claimed = await claim_failed_prediction_retry(db, failure.id, 3)
+    assert claimed is not None
+    request = SimpleNamespace(
+        headers={"authorization": "Bearer " + token},
+        state=SimpleNamespace(api_key_id=None, api_key_scopes=None),
+    )
+    plan = await prepare_retry(db, claimed, actor, request)
+    assert plan.job_id is not None
+    await db.commit()
+    job = await db.get(AsyncJob, plan.job_id)
+    assert job.payload["prediction_authority"]["schema"] == 2
+    assert job.execution_snapshot_id == failure.execution_snapshot_id
+    assert (
+        job.payload["prediction_authority"]["tasks"][0]["original"]
+        == failure.extra["original_input"]["original"]
+    )
+    return job
+
+
+def _assert_owned_payload(payload, input_world, source):
+    bucket, key = urlsplit(payload["file_path"]).path.lstrip("/").split("/", 1)
+    assert bucket == input_world.bucket and key.startswith("prediction-inputs/")
+    assert "/original/" in key
+    raw = input_world.objects[bucket, key]
+    assert len(raw) == source["size_bytes"]
+    assert hashlib.sha256(raw).hexdigest() == source["sha256"]
 
 
 async def test_list_failed_predictions_basic_fields(
@@ -157,18 +273,21 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     fp = await _seed_failed(
         db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
     )
+    request_context = None
     if controlled:
         backend.health_meta = {
             "compute": {"effective_device": "cpu"},
             "capabilities": {},
         }
-        fp.extra = {
-            "request_context": {
-                "model_id": "trained:" + str(uuid.uuid4()),
-                "frozen_model_ref": {"version": "fixed"},
-            }
+        frozen = _frozen_model_contract(proj, backend)
+        request_context = {
+            "model_id": "trained:" + frozen["model_version_id"],
+            "task": "detect",
+            "frozen_model_ref": frozen,
         }
-    await db_session.commit()
+    await _freeze_failed(
+        db_session, proj, task, backend, user, fp, context=request_context
+    )
 
     headers = {"Authorization": f"Bearer {token}"}
     # v0.19.5 起 retry 改 apply_async(queue=...) 以走设备感知路由(原 .delay() 静态落 ml/gpu)。
@@ -187,7 +306,20 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     call_kwargs = mock_apply.call_args.kwargs
     assert call_kwargs["args"] == [str(fp.id), str(user.id)]
     # 未自报 device 的 backend 保守落 gpu(ml)队列。
-    assert call_kwargs["queue"] == ("ml.cpu" if controlled else "ml")
+    from app.config import settings
+
+    assert call_kwargs["queue"] == (
+        settings.preannotate_cpu_queue if controlled else settings.preannotate_gpu_queue
+    )
+    retry_id = uuid.UUID(call_kwargs["kwargs"]["async_job_id"])
+    assert call_kwargs["task_id"] == str(retry_id)
+    retry = await db_session.get(AsyncJob, retry_id)
+    assert retry.execution_snapshot_id == fp.execution_snapshot_id
+    assert retry.payload["prediction_authority"]["schema"] == 2
+    assert (
+        retry.payload["prediction_authority"]["tasks"][0]["original"]
+        == fp.extra["original_input"]["original"]
+    )
 
     repeated = await httpx_client.post(
         f"/api/v1/admin/failed-predictions/{fp.id}/retry", headers=headers
@@ -228,44 +360,36 @@ async def test_retry_404_for_unknown_id(httpx_client, super_admin):
     assert resp.status_code == 404
 
 
-def _passthrough_session_factory(db_session: AsyncSession):
-    class _Ctx:
-        async def __aenter__(self):
-            return db_session
-
-        async def __aexit__(self, *args):
-            return False
-
-    return lambda: _Ctx()
-
-
 @pytest.mark.parametrize("controlled", [False, True])
 async def test_retry_worker_tracks_success_in_async_jobs(
-    db_session, super_admin, monkeypatch, controlled
+    db_session, super_admin, monkeypatch, controlled, managed_worker_world, input_world
 ):
     from app.services.ml_client import PredictionResult
     from app.workers import predictions_retry as retry_worker
 
-    user, _ = super_admin
+    user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
     backend = await _seed_backend(db_session, proj.id)
     fp = await _seed_failed(
         db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
     )
-    frozen = {"model_version_id": str(uuid.uuid4()), "sha256": "a" * 64}
+    frozen = _frozen_model_contract(proj, backend)
     request_context = (
         {
-            "type": "detection",
+            "task": "detect",
             "model_id": "trained:" + frozen["model_version_id"],
             "frozen_model_ref": frozen,
         }
         if controlled
-        else {"type": "ocr", "model_id": "ocr-e2e"}
+        else {"task": "ocr", "model_id": "ocr-e2e"}
     )
-    fp.extra = {"request_context": request_context}
-    await db_session.commit()
-    session_factory = _passthrough_session_factory(db_session)
+    await _freeze_failed(
+        db_session, proj, task, backend, user, fp, context=request_context
+    )
+    job = await _prepare_retry(db_session, fp, user, token)
+    session_factory = managed_worker_world.factory
+    original = fp.extra["original_input"]["original"]
     authority_marker = object()
     built_from: list[object] = []
 
@@ -278,10 +402,19 @@ async def test_retry_worker_tracks_success_in_async_jobs(
         build_authority,
     )
 
-    monkeypatch.setattr(
-        "app.services.storage.resolve_task_url",
-        lambda received_task: f"http://minio.test/{received_task.file_name}",
-    )
+    validated_deployments = []
+    if controlled:
+        from app.services import trained_models
+
+        async def validate_deployment(received_db, project_id, received_ref):
+            assert project_id == proj.id and received_ref == frozen
+            assert await received_db.get(Project, project_id) is not None
+            validated_deployments.append(deepcopy(received_ref))
+            return backend.id
+
+        monkeypatch.setattr(
+            trained_models, "validate_frozen_reference", validate_deployment
+        )
 
     async def fake_predict(self, tasks_payload, context=None):
         assert (
@@ -300,8 +433,15 @@ async def test_retry_worker_tracks_success_in_async_jobs(
             )
             is authority_marker
         )
-        assert tasks_payload[0]["file_path"] == "http://minio.test/x.jpg"
-        assert context == request_context
+        _assert_owned_payload(tasks_payload[0], input_world, original)
+        if controlled:
+            assert context == {
+                **request_context,
+                "model_variants": {},
+                "params": {},
+            }
+        else:
+            assert context == request_context
         return [
             PredictionResult(
                 task_id=tasks_payload[0]["id"],
@@ -321,7 +461,12 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     )
 
     result = await retry_worker._do_retry_with_factory(
-        session_factory, str(fp.id), str(user.id)
+        session_factory,
+        str(fp.id),
+        str(user.id),
+        async_job_id=str(job.id),
+        celery_task_id=str(job.id),
+        worker_node_id="worker:failed-predictions@test",
     )
 
     assert result["status"] == "succeeded"
@@ -337,7 +482,7 @@ async def test_retry_worker_tracks_success_in_async_jobs(
         .all()
     )
     assert len(jobs) == 1
-    job = jobs[0]
+    job = await db_session.get(AsyncJob, jobs[0].id, populate_existing=True)
     assert job.status == AsyncJobStatus.COMPLETED.value
     assert job.user_id == user.id
     assert job.project_id == proj.id
@@ -347,15 +492,19 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     assert job.result["success_count"] == 1
     assert job.result["failed_count"] == 0
 
-    assert await db_session.get(FailedPrediction, fp.id) is None
-    if controlled:
-        from app.db.models.prediction import PredictionMeta
+    assert await db_session.get(FailedPrediction, fp.id, populate_existing=True) is None
+    assert managed_worker_world.captured
+    from app.db.models.prediction import PredictionMeta
 
-        meta = await db_session.scalar(
-            select(PredictionMeta).where(
-                PredictionMeta.prediction_id == uuid.UUID(result["prediction_id"])
-            )
+    meta = await db_session.scalar(
+        select(PredictionMeta).where(
+            PredictionMeta.prediction_id == uuid.UUID(result["prediction_id"])
         )
+    )
+    assert meta.extra["original_input"]["original"]["sha256"] == original["sha256"]
+    assert meta.extra["original_input"]["job_id"] == str(job.id)
+    if controlled:
+        assert validated_deployments == [frozen]
         assert meta.extra["trained_model"] == frozen
     notifications = (
         (
@@ -373,26 +522,34 @@ async def test_retry_worker_tracks_success_in_async_jobs(
 
 
 async def test_retry_worker_tracks_backend_failure_in_async_jobs(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, managed_worker_world, input_world
 ):
     from app.workers import predictions_retry as retry_worker
 
-    user, _ = super_admin
+    user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
     backend = await _seed_backend(db_session, proj.id)
     fp = await _seed_failed(
         db_session, project_id=proj.id, task_id=task.id, backend_id=backend.id
     )
-    await db_session.commit()
+    await _freeze_failed(db_session, proj, task, backend, user, fp)
+    job = await _prepare_retry(db_session, fp, user, token)
+    original = fp.extra["original_input"]["original"]
 
-    async def fake_predict(self, tasks_payload):
+    async def fake_predict(self, tasks_payload, context=None):
+        _assert_owned_payload(tasks_payload[0], input_world, original)
         raise RuntimeError("backend down")
 
     monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
 
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(fp.id), str(user.id)
+        managed_worker_world.factory,
+        str(fp.id),
+        str(user.id),
+        async_job_id=str(job.id),
+        celery_task_id=str(job.id),
+        worker_node_id="worker:failed-predictions@test",
     )
 
     assert result["status"] == "failed"
@@ -401,7 +558,9 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
     job = (
         (
             await db_session.execute(
-                select(AsyncJob).where(AsyncJob.kind == "prediction_retry")
+                select(AsyncJob)
+                .where(AsyncJob.kind == "prediction_retry")
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -431,7 +590,7 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
 
 
 async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, managed_worker_world, input_world
 ):
     from app.services.gpu_arbitration.contracts import (
         GPUArbiterDispatchError,
@@ -439,7 +598,7 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     )
     from app.workers import predictions_retry as retry_worker
 
-    user, _ = super_admin
+    user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)
     backend = await _seed_backend(db_session, proj.id)
@@ -451,9 +610,12 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
         error_type="ORIGINAL",
         message="original failure",
     )
-    await db_session.commit()
+    await _freeze_failed(db_session, proj, task, backend, user, fp)
+    job = await _prepare_retry(db_session, fp, user, token)
+    original = fp.extra["original_input"]["original"]
 
-    async def fake_predict(self, tasks_payload):
+    async def fake_predict(self, tasks_payload, context=None):
+        _assert_owned_payload(tasks_payload[0], input_world, original)
         raise GPUArbiterDispatchError(
             GPUArbiterErrorCode.DRAIN_TIMEOUT,
             message="victim still busy",
@@ -463,7 +625,12 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
 
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(fp.id), str(user.id)
+        managed_worker_world.factory,
+        str(fp.id),
+        str(user.id),
+        async_job_id=str(job.id),
+        celery_task_id=str(job.id),
+        worker_node_id="worker:failed-predictions@test",
     )
 
     expected = {
@@ -478,7 +645,9 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     job = (
         (
             await db_session.execute(
-                select(AsyncJob).where(AsyncJob.kind == "prediction_retry")
+                select(AsyncJob)
+                .where(AsyncJob.kind == "prediction_retry")
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()

@@ -1,9 +1,10 @@
 ---
+title: 端口暴露与网络安全
 audience: [ops, dev]
 type: explanation
 since: v0.15.17
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-26
 ---
 
 # 端口暴露与网络安全
@@ -159,6 +160,14 @@ export AAP_BASE_URL=http://1.2.3.4:8000
 如果后端签发的 URL 指向 MinIO **内网地址**（`http://minio:9000` 或内网 IP），远程机器**连不上**——表现为「API 调用成功，但上传/下载卡住或连接失败」。
 
 修复：后端配 `MINIO_PUBLIC_URL` 为对外可解析、可访问的 HTTPS 地址（与容器内 `MINIO_ENDPOINT` 是两层视角，详见[生产部署 §2.3](/ops/deploy/docker-compose)）。`MINIO_USE_SSL` 控制的是 API / worker 到 `MINIO_ENDPOINT` 这一段：只有内部 endpoint 本身提供 TLS 时才设为 `true`，它不代替公网 URL 的 HTTPS 配置。
+
+### 5.4 只读站点 Agent 的出站 HTTPS 边界
+
+当数据目录位于中心无法主动入站访问的内网或远端机房时，可部署[只读站点 Agent](/ops/deploy/site-agents)（`aap-storage-agent`）：
+
+- **零入站端口**：Agent 进程不监听任何本地或公网端口，仅向中心外层反代的 `443`（HTTPS origin）发起出站长轮询（`POST /api/v1/site-agents/commands/poll`）、分块上传与结果回执。数据服务器防火墙只需放行到中心 HTTPS 域名的出站 443。
+- **严格 TLS 与无重定向**：Agent 强制校验中心 TLS 证书（内部私有 CA 通过本地 `0600` 配置中的 `ca_file` 指定），拒绝 HTTP 明文、拒绝任何 3xx 重定向，且不读取环境变量代理，防止中间人诱导分块上传流向非受控端点。
+- **独立凭证域**：Agent 使用一次性配对换取的专用 Bearer token 与 `X-Agent-Session` 头访问 `/api/v1/site-agents/commands/*`，与用户 JWT / SDK API Key 完全隔离；中心反代无需为 Agent 额外暴露内部端口。
 
 ---
 

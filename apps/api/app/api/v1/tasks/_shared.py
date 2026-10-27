@@ -29,7 +29,6 @@ from app.services.scheduler import (
     visible_batch_statuses_for_project_role,
     annotator_can_rework_task,
 )
-from app.services.storage import storage_service
 from app.db.models.task_batch import TaskBatch
 from app.db.models.project_member import ProjectMember
 from app.services.annotation_evidence import freeze_review_contributor_evidence
@@ -694,37 +693,49 @@ def _task_with_url(
     ``skipped_at``、未来新增列）通过 ``from_attributes`` 自动映射，无需在此手写。
     本 helper 仅负责无法从 ORM 直读的部分：
 
-    * ``file_url`` / ``thumbnail_url`` — MinIO presigned 签发
+    * ``original_identity_path`` — authenticated original identity lookup
+    * ``thumbnail_url`` — derived media
     * ``image_width`` / ``image_height`` / ``blurhash`` —— 来源可能是
       task 自身或关联的 :class:`DatasetItem`
     * ``assignee`` / ``reviewer`` (UserBrief) —— 调用方批量解析后传入
       ``briefs={str(user_id): UserBrief}``
     """
-    bucket = (
-        storage_service.datasets_bucket
-        if task.dataset_item_id or task.file_type == "point_cloud"
-        else storage_service.bucket
-    )
-    try:
-        file_url = storage_service.generate_download_url(task.file_path, bucket=bucket)
-    except Exception:
-        file_url = None
+    from app.services.reference_keys import is_reference, parse_reference
+
+    reference = is_reference(task.file_path)
+    if reference:
+        thumbnail_path, blurhash = None, None
+    content_sha256 = None
+    file_url = None
+    original_identity_path = None
+    if reference:
+        try:
+            _, content_sha256 = parse_reference(task.file_path)
+        except ValueError:
+            pass
+    else:
+        # A lookup address is not a claim that the original is verified/readable.
+        original_identity_path = f"/api/v1/files/tasks/{task.id}/original-identity"
 
     thumbnail_url: str | None = None
-    if thumbnail_path:
-        # v0.10.17 · thumbnails/* 走 media-cache 桶,其它(如旧路径)按 helper 默认走 datasets
-        thumb_bucket = storage_service.bucket_for_cache_key(
-            thumbnail_path, default=bucket
-        )
-        try:
-            thumbnail_url = storage_service.generate_download_url(
-                thumbnail_path, bucket=thumb_bucket
-            )
-        except Exception:
-            pass
+    if task.file_type == "video":
+        checked = getattr(task, "_video_derivative_thumbnail", None)
+        if thumbnail_path and checked is not None and checked[0] == thumbnail_path:
+            thumbnail_url = checked[1]
+        blurhash = None
+    elif thumbnail_path:
+        # The asynchronous sidecar checks the exact active owner and path.
+        for name in ("_image_pyramid_thumbnail", "_media_cache_thumbnail"):
+            checked = getattr(task, name, None)
+            if checked is not None and checked[0] == thumbnail_path:
+                thumbnail_url = checked[1]
+                break
 
     out = TaskOut.model_validate(task, from_attributes=True)
     out.file_url = file_url
+    out.original_identity_path = original_identity_path
+    out.storage_mode = "reference" if reference else "managed"
+    out.content_sha256 = content_sha256
     out.thumbnail_url = thumbnail_url
     out.image_width = width
     out.image_height = height
@@ -732,7 +743,7 @@ def _task_with_url(
     out.video_metadata = (
         VideoMetadata.model_validate(video_metadata) if video_metadata else None
     )
-    out.image_pyramid = image_pyramid
+    out.image_pyramid = None if reference else image_pyramid
     if briefs is not None:
         if task.assignee_id is not None:
             out.assignee = briefs.get(str(task.assignee_id))
@@ -750,6 +761,9 @@ async def _attach_dimensions(
 
         item = await db.get(DatasetItem, task.dataset_item_id)
         if item:
+            from app.services.directory_policy import owns_media
+
+            directory_owned = await owns_media(db, item.id)
             video_metadata = (
                 dict((item.metadata_ or {}).get("video") or {})
                 if item.file_type == "video"
@@ -758,8 +772,8 @@ async def _attach_dimensions(
             return (
                 item.width,
                 item.height,
-                item.thumbnail_path,
-                item.blurhash,
+                None if directory_owned else item.thumbnail_path,
+                None if directory_owned else item.blurhash,
                 video_metadata,
             )
     return None, None, task.thumbnail_path, task.blurhash, None
@@ -795,14 +809,15 @@ async def _attach_dimensions_batch(
     item_ids = [t.dataset_item_id for t in tasks if t.dataset_item_id]
     if item_ids:
         from app.db.models.dataset import DatasetItem
+        from app.services.directory_policy import legacy_media_column
 
         rows = await db.execute(
             select(
                 DatasetItem.id,
                 DatasetItem.width,
                 DatasetItem.height,
-                DatasetItem.thumbnail_path,
-                DatasetItem.blurhash,
+                legacy_media_column(DatasetItem.thumbnail_path),
+                legacy_media_column(DatasetItem.blurhash),
                 DatasetItem.file_type,
                 DatasetItem.metadata_,
             ).where(DatasetItem.id.in_(item_ids))
@@ -853,6 +868,7 @@ async def perform_task_submit(
     task: Task,
     *,
     actor: User,
+    reference_verified: bool = False,
     now: datetime | None = None,
 ) -> dict:
     """Apply the pending/in_progress → review transition for one task.
@@ -864,6 +880,12 @@ async def perform_task_submit(
     """
     from app.services.task_lock import TaskLockService
 
+    from app.services.reference_keys import is_reference
+
+    if is_reference(task.file_path) and not reference_verified:
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(db, task_ids=[task.id])
     now = now or datetime.now(timezone.utc)
     if task.assignee_id is None:
         # Preserve the effective assignee (task-level, else the batch annotator)
@@ -961,15 +983,42 @@ async def _attach_image_pyramids_batch(
     ],
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
     from app.services.image_pyramid import pyramid_summary, task_pyramid_assets
+    from app.services.image_pyramid_objects import thumbnail_url
+    from app.services import thumbnail_outputs
 
     assets = await task_pyramid_assets(db, tasks)
     result: dict[uuid.UUID, ImagePyramidSummary] = {}
     for task in tasks:
+        width, height, path, *_ = dimensions.get(
+            task.id, (None, None, None, None, None)
+        )
+        task._image_pyramid_thumbnail = None
+        task._media_cache_thumbnail = None
+        task._video_derivative_thumbnail = None
+        if task.file_type == "video":
+            from app.services import video_derivatives
+
+            checked = await video_derivatives.thumbnail(db, task_id=task.id)
+            if checked is not None and checked[0] == path:
+                task._video_derivative_thumbnail = checked
+        elif path:
+            pair = assets.get(task.id)
+            if (
+                pair is not None and getattr(pair[1], "overview_key", None) == path
+            ) or path.startswith("image-pyramids/"):
+                task._image_pyramid_thumbnail = (
+                    path,
+                    await thumbnail_url(db, "task", task.id, path),
+                )
+            else:
+                task._media_cache_thumbnail = (
+                    path,
+                    await thumbnail_outputs.thumbnail_url(db, "task", task.id, path),
+                )
         pair = assets.get(task.id)
         if pair is None:
             continue
         _, generation = pair
-        width, height, *_ = dimensions.get(task.id, (None, None, None, None, None))
         summary = pyramid_summary(generation, width=width, height=height)
         if summary is not None:
             result[task.id] = summary

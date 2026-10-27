@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from PIL import Image
 from sqlalchemy import select
 
 from app.db.models.annotation import Annotation
@@ -15,6 +17,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.mask_qc.topology import rle_and_not, rle_or
 from app.services.mask_repair import canonical_digest
+from app.services.dataset_assets import register_item_asset
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import coco_rle_area, encode_coco_rle
 from app.workers.mask_repair import _execute_shard, _rollback_shard
@@ -32,7 +35,11 @@ def _rle(rows: list[str]) -> dict:
     return encode_coco_rle(pixels, width, height)
 
 
-async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
+async def _seed_repair_issue(
+    db, *, owner_id: uuid.UUID, locked: bool = False, source=None, island=None
+):
+    source = source if source is not None else _rle([".....", ".###.", "....#"])
+    island = island if island is not None else _rle([".....", ".....", "....#"])
     suffix = uuid.uuid4().hex[:8]
     project = Project(
         display_id=f"P-RPR-{suffix}",
@@ -65,11 +72,21 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
         file_name="repair.png",
         file_path="repair.png",
         file_type="image",
-        width=5,
-        height=3,
+        width=source["size"][1],
+        height=source["size"][0],
     )
     db.add(item)
     await db.flush()
+    # Request qualification freezes real registered source facts. Physical image
+    # reads belong to the committed managed-owner integration tests.
+    output = io.BytesIO()
+    with Image.new("RGB", (item.width, item.height), "red") as image:
+        image.save(output, "PNG")
+    raw = output.getvalue()
+    item.file_size = len(raw)
+    await register_item_asset(
+        db, item, sha256=hashlib.sha256(raw).hexdigest(), size_bytes=len(raw)
+    )
     # The review task carries a distinct literal annotator as its frozen round
     # contributor, so the owner's QC repair is not a self-review of own work.
     author = await create_user(
@@ -91,8 +108,6 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
     )
     db.add(task)
     await db.flush()
-    source = _rle([".....", ".###.", "....#"])
-    island = _rle([".....", ".....", "....#"])
     source_ref = build_rle_reference(source)
     island_ref = build_rle_reference(island)
     annotation = Annotation(
@@ -337,9 +352,11 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     plan = dry_run.json()
     dispatches: list[tuple[uuid.UUID, bool]] = []
 
-    async def fake_dispatch(batch_id: uuid.UUID, *, rollback: bool = False) -> str:
+    async def fake_dispatch(
+        batch_id: uuid.UUID, *, async_job_id: uuid.UUID, rollback: bool = False
+    ) -> str:
         dispatches.append((batch_id, rollback))
-        return "celery-mask-repair-1"
+        return str(async_job_id)
 
     monkeypatch.setattr("app.api.v1.mask_qc.dispatch_repair_batch", fake_dispatch)
     payload = {"receipt": plan["receipt"], "plan_digest": plan["plan_digest"]}
@@ -375,11 +392,18 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     monkeypatch.setattr(
         "app.services.mask_mutation.prepare_mask_payload_for_write", no_store
     )
+    from tests.test_mask_repair_execution import _install_unit_owner
+
+    make_owner = _install_unit_owner(monkeypatch)
+    owner = make_owner(db_session, annotation.task_id, user.id)
+    await owner.open()
+    await owner.final()
     shard_result = await _execute_shard(
         db_session,
         batch=batch,
         shard=batch.plan_json["shards"][0],
         actor=user,
+        reference_owner=owner,
     )
     assert shard_result["status"] == "completed"
     assert shard_result["items"][0]["changed_pixels"] == 1
@@ -394,6 +418,7 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
             plan_items=batch.plan_json["items"],
             shard_result=shard_result,
             actor=user,
+            reference_owner=owner,
         )
 
 

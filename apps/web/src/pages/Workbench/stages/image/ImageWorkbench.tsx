@@ -31,6 +31,7 @@ export interface ImageWorkbenchProps {
   resourceCoordinator?: RasterResourceCoordinator;
   maskCompareStore?: MaskCompareTileStore | null;
   rasterMaskRecords: readonly RasterMaskRenderRecord<"annotation">[];
+  predictionRasterMaskRecords?: readonly RasterMaskRenderRecord<"prediction">[];
   rasterMaskStatusById: ReadonlyMap<string, RasterMaskRecordStatus>;
   onRetryRasterMask: (id: string) => void;
   editingRasterMaskId?: string | null;
@@ -168,6 +169,7 @@ export function ImageWorkbench({
   resourceCoordinator,
   maskCompareStore,
   rasterMaskRecords,
+  predictionRasterMaskRecords,
   rasterMaskStatusById,
   onRetryRasterMask,
   editingRasterMaskId,
@@ -345,6 +347,7 @@ export function ImageWorkbench({
       resourceCoordinator={resourceCoordinator}
       maskCompareStore={maskCompareStore}
       rasterMaskRecords={displayedRasterMaskRecords}
+      predictionRasterMaskRecords={predictionRasterMaskRecords}
       tiledMaskOverviewRecord={editingRasterMaskRecord}
       rasterMaskStatusById={rasterMaskStatusById}
       onRetryRasterMask={onRetryRasterMask}

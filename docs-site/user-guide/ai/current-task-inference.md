@@ -77,6 +77,8 @@ last_reviewed: 2026-09-07
 
 二次推理直接更新已确认标注的属性或子标注，不走“AI 待审”候选列表。因此开始前应确认选中的父框与模型输出类型；要对整图重新生成候选，请使用单图 AI 或批量预标。
 
+托管图片从已登记的原图完整核验后裁剪，每次请求使用独立副本，独立上传任务和 primary 关联也可使用。运行期间若原图来源、权限或父标注发生变化，本次结果不会写入；刷新页面并重新选择对象后再运行。人工修改过的属性继续保留，模型只补缺失项或更新仍标记为 AI 来源的属性。
+
 <DocsVideo
   src="/media/ai/secondary-inference-attribute.mp4"
   poster="/media/ai/secondary-inference-attribute-poster.webp"

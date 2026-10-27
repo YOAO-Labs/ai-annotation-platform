@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.mask_format_upload import MASK_BATCH_REF_CHECK
 
 
 class MaskFormatImport(Base):
@@ -26,6 +27,11 @@ class MaskFormatImport(Base):
         ),
         Index("ix_mask_format_imports_project_status", "project_id", "status"),
         Index("ix_mask_format_imports_receipt_expiry", "receipt_expires_at"),
+        CheckConstraint(
+            "staging_ref IS NULL OR (" + MASK_BATCH_REF_CHECK + ")",
+            name="ck_mask_format_import_staging_ref",
+        ),
+        Index("ix_mask_format_import_location", text("(staging_ref->>'location_id')")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -49,6 +55,7 @@ class MaskFormatImport(Base):
     adapter_version: Mapped[str] = mapped_column(String(40), nullable=False)
     manifest_version: Mapped[str] = mapped_column(String(40), nullable=False)
     staged_object_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    staging_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     staged_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     mapping_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     options_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

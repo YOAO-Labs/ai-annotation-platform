@@ -1,3 +1,6 @@
+vi.mock("./useCameraOriginalImage", () => ({
+  useCameraOriginalImage: (source: string) => ({ url: source }),
+}));
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

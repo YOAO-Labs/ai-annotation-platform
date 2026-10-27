@@ -1,15 +1,17 @@
+import { StorageJobProgress } from "./StorageJobProgress";
 import { CopyableError } from "@/components/ui/CopyableError";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
-import { asyncJobsApi } from "@/api/asyncJobs";
+import { asyncJobsApi, type AsyncJob } from "@/api/asyncJobs";
 import { datasetsApi } from "@/api/datasets";
 import { projectsApi } from "@/api/projects";
 import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
 import { activeLearningApi } from "@/api/activeLearning";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
+import { useSessionRevision } from "@/hooks/useSessionGuard";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -19,7 +21,9 @@ import {
   exportDownloadState,
   JOB_KIND_LABEL,
   JOB_STATUS_LABEL,
+  VIDEO_ASSET_LABEL,
   jobNumber,
+  jobProgressText,
   jobResultSummary,
   jobStage,
   jobString,
@@ -67,13 +71,22 @@ export function AsyncJobDetailModal({
   onClose,
   onRetryQueued,
   navigate: navigateExternal,
+  returnFocusRef,
+  renderContext,
+  initialFocusRef,
 }: {
+  renderContext?: (job: AsyncJob) => ReactNode;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   jobId: string;
   onClose: () => void;
   onRetryQueued?: (queued: number) => void;
   navigate?: GuardedNavigate;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const userId = useAuthStore((state) => state.user?.id);
+  const role = useAuthStore((state) => state.user?.role);
+  const token = useAuthStore((state) => state.token);
+  const revision = useSessionRevision();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.push);
@@ -81,8 +94,9 @@ export function AsyncJobDetailModal({
   const [openingTarget, setOpeningTarget] = useState(false);
   const navigationRequest = useRef(0);
   const jobQ = useQuery({
-    queryKey: ["async-jobs", "detail", jobId, userId],
+    queryKey: ["async-jobs", "detail", jobId, userId, revision, role],
     queryFn: () => asyncJobsApi.get(jobId),
+    enabled: !!userId && !!token,
     retry: false,
     refetchInterval: (query) =>
       ["pending", "running"].includes(query.state.data?.status ?? "") ? 5000 : false,
@@ -109,7 +123,7 @@ export function AsyncJobDetailModal({
     return () => {
       navigationRequest.current += 1;
     };
-  }, [jobId, resetRetryMutation, userId]);
+  }, [jobId, resetRetryMutation, userId, revision, role]);
   const job = jobQ.isError ? undefined : jobQ.data;
   const failedIds = job?.result.failed_prediction_ids;
   const canRetry =
@@ -137,7 +151,7 @@ export function AsyncJobDetailModal({
     job?.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
 
   const openTarget = async (
-    kind: "dataset" | "project" | "dashboard" | "evaluation" | "active-learning",
+    kind: "dataset" | "project" | "dashboard" | "evaluation" | "active-learning" | "migration",
   ) => {
     if (!job) return;
     const request = ++navigationRequest.current;
@@ -147,7 +161,16 @@ export function AsyncJobDetailModal({
     setTargetError(null);
     try {
       let url: string;
-      if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
+      if (
+        kind === "migration" &&
+        ["storage_migration_inventory", "storage_migration_copy"].includes(job.kind)
+      ) {
+        const copyId =
+          job.kind === "storage_migration_copy"
+            ? (jobString(job.result, "copy_id") ?? jobString(job.payload, "copy_id"))
+            : null;
+        url = `/storage?${new URLSearchParams({ tab: "migration", ...(copyId ? { migration_copy: copyId } : {}) })}`;
+      } else if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
         const round = await activeLearningApi.get(job.project_id, roundId);
         if (!current()) return;
         if (
@@ -170,7 +193,12 @@ export function AsyncJobDetailModal({
       } else if (kind === "dataset" && datasetId) {
         await datasetsApi.get(datasetId);
         if (!current()) return;
-        url = `/datasets?dataset=${encodeURIComponent(datasetId)}`;
+        url =
+          job?.kind === "dataset_quality_review"
+            ? `/datasets/${encodeURIComponent(datasetId)}?tab=quality&quality_run=${encodeURIComponent(jobString(job.payload, "run_id") ?? "")}&quality_batch=${encodeURIComponent(jobString(job.payload, "batch_id") ?? "")}`
+            : job?.kind === "dataset_quality"
+              ? `/datasets/${encodeURIComponent(datasetId)}?tab=quality&quality_run=${encodeURIComponent(jobString(job.payload, "run_id") ?? "")}`
+              : `/datasets?dataset=${encodeURIComponent(datasetId)}`;
       } else if (kind === "dashboard") {
         url = "/dashboard";
       } else if (job.project_id) {
@@ -196,7 +224,14 @@ export function AsyncJobDetailModal({
   };
 
   return (
-    <Modal open onClose={onClose} title="后台任务详情" width={640}>
+    <Modal
+      open
+      onClose={onClose}
+      title="后台任务详情"
+      width={640}
+      returnFocusRef={returnFocusRef}
+      initialFocusRef={initialFocusRef}
+    >
       {jobQ.isPending && (
         <p role="status" className="text-sm text-muted-foreground">
           {jobQ.fetchStatus === "paused" ? "当前离线，联网后加载任务详情。" : "正在加载任务详情…"}
@@ -212,6 +247,7 @@ export function AsyncJobDetailModal({
       )}
       {job && (
         <div className="space-y-4 text-sm">
+          {renderContext?.(job)}
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="m-0 text-base font-semibold">
@@ -221,6 +257,12 @@ export function AsyncJobDetailModal({
                 {job.project_name ?? job.project_display_id ?? "未关联项目"}
                 {datasetName ? ` · ${datasetName}` : ""}
               </p>
+              {job.kind === "video_asset_retry" && (
+                <p className="mb-0 mt-1 text-xs text-muted-foreground">
+                  重试目标：
+                  {VIDEO_ASSET_LABEL[jobString(job.payload, "asset_type") ?? ""] ?? "视频资产"}
+                </p>
+              )}
             </div>
             <Badge
               variant={
@@ -237,7 +279,7 @@ export function AsyncJobDetailModal({
           <div className="rounded-md border border-border bg-muted p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>当前阶段：{jobStage(job)}</span>
-              <span className="tabular-nums">{Math.max(0, Math.min(100, job.progress_pct))}%</span>
+              <span className="tabular-nums">{jobProgressText(job)}</span>
             </div>
             {summary && <p className="mb-0 mt-2 font-medium tabular-nums">{summary}</p>}
             {job.kind === "export" && jobNumber(job.result, "size_bytes") !== null && (
@@ -246,6 +288,7 @@ export function AsyncJobDetailModal({
               </p>
             )}
           </div>
+          <StorageJobProgress job={job} />
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
             {jobNumber(job.result, "total_cost") !== null && (
               <>
@@ -330,6 +373,15 @@ export function AsyncJobDetailModal({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
+            {["storage_migration_inventory", "storage_migration_copy"].includes(job.kind) && (
+              <Button
+                size="sm"
+                disabled={openingTarget}
+                onClick={() => void openTarget("migration")}
+              >
+                查看迁移准备
+              </Button>
+            )}
             {roundId && roundAttemptId && job.project_id && (
               <Button
                 size="sm"

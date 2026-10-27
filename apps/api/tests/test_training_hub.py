@@ -39,6 +39,9 @@ async def add_run(
     )
     db.add(run)
     await db.flush()
+    from app.services.training_run_storage import allocate
+
+    await allocate(db, run)
     return run
 
 

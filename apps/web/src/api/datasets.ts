@@ -1,9 +1,99 @@
 import { apiClient } from "./client";
-import type { DatasetOut } from "./generated/types.gen";
+import type {
+  DatasetOut,
+  DatasetLifecyclePreview,
+  DatasetLifecycleResult,
+  DatasetSavedViewOut,
+  DatasetSavedViewWrite,
+  DatasetSceneOptions,
+  AgentSourceStatus,
+} from "./generated/types.gen";
 import type { LidarAxisConvention } from "@/types";
 
-export type DatasetResponse = DatasetOut;
+function datasetGet<T>(path: string, init?: RequestInit): Promise<T> {
+  return init ? apiClient.get<T>(path, init) : apiClient.get<T>(path);
+}
 
+export type DatasetResponse = DatasetOut;
+export type DatasetLifecycleState = "active" | "archived" | "all";
+export type { DatasetLifecyclePreview, DatasetLifecycleResult };
+
+export type DatasetAvailabilityState =
+  | "verified"
+  | "missing"
+  | "changed"
+  | "preview_only"
+  | "unavailable"
+  | "unverified";
+export interface DatasetItemAvailability {
+  agent_status?: AgentSourceStatus | null;
+  state: DatasetAvailabilityState;
+  reason_code: string;
+  observed_at: string | null;
+  preview_available: boolean;
+  original_cache_recorded?: boolean;
+  original_cache_recorded_at?: string | null;
+  original_cache_expires_at?: string | null;
+  source_id: string | null;
+  source_name: string | null;
+  location_id: string | null;
+  allowed_actions: string[];
+}
+export interface DatasetWorkbenchProject {
+  id: string;
+  name: string;
+  display_id: string;
+  type_label: string;
+  total_tasks: number;
+  labeled_tasks: number;
+  completed_tasks: number;
+  review_tasks: number;
+  can_manage: boolean;
+}
+export interface DatasetWorkbench {
+  dataset_id: string;
+  availability_counts: Record<string, number>;
+  sources: {
+    id: string;
+    name: string;
+    location_id: string;
+    enabled: boolean;
+    unregistered_at: string | null;
+  }[];
+  projects: DatasetWorkbenchProject[];
+}
+export interface DatasetTrainingVersions {
+  items: {
+    id: string;
+    project_id: string;
+    project_name: string;
+    name: string;
+    status: string;
+    created_at: string;
+  }[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+export type DatasetSavedView = DatasetSavedViewOut;
+export type DatasetSavedViewPayload = DatasetSavedViewWrite;
+export interface DatasetItemFilters {
+  search?: string;
+  source_id?: string;
+  scene_id?: string;
+  availability?: DatasetAvailabilityState;
+  media_type?: "image" | "video" | "point_cloud" | "other";
+  extension?: string;
+  dimension_state?: "known" | "unknown";
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
+}
+export interface DatasetItemListParams extends DatasetItemFilters {
+  limit?: number;
+  offset?: number;
+}
 export interface DatasetItemResponse {
   id: string;
   dataset_id: string;
@@ -16,9 +106,11 @@ export interface DatasetItemResponse {
   height: number | null;
   metadata: Record<string, unknown>;
   file_url: string | null;
+  original_identity_path?: string | null;
   thumbnail_url: string | null;
   blurhash: string | null;
   created_at: string;
+  availability?: DatasetItemAvailability;
 }
 
 export interface DatasetListResponse {
@@ -75,8 +167,10 @@ export const datasetsApi = {
   list: (
     params?: {
       search?: string;
+      state?: DatasetLifecycleState;
       data_type?: string;
       has_scenes?: boolean;
+      location_id?: string;
       limit?: number;
       offset?: number;
     },
@@ -84,7 +178,9 @@ export const datasetsApi = {
   ) => {
     const q = new URLSearchParams();
     if (params?.search) q.set("search", params.search);
+    if (params?.state) q.set("state", params.state);
     if (params?.data_type) q.set("data_type", params.data_type);
+    if (params?.location_id) q.set("location_id", params.location_id);
     if (params?.has_scenes !== undefined) {
       q.set("has_scenes", String(params.has_scenes));
     }
@@ -92,12 +188,41 @@ export const datasetsApi = {
     if (params?.offset) q.set("offset", String(params.offset));
     const qs = q.toString();
     const path = `/datasets${qs ? `?${qs}` : ""}`;
-    return init
-      ? apiClient.get<DatasetListResponse>(path, init)
-      : apiClient.get<DatasetListResponse>(path);
+    return datasetGet<DatasetListResponse>(path, init);
   },
 
-  get: (id: string) => apiClient.get<DatasetResponse>(`/datasets/${id}`),
+  get: (id: string, init?: RequestInit) => datasetGet<DatasetResponse>(`/datasets/${id}`, init),
+  workbench: (id: string, init?: RequestInit) =>
+    datasetGet<DatasetWorkbench>(`/datasets/${id}/workbench`, init),
+  sceneOptions: (
+    id: string,
+    params: { limit: number; offset: number; search?: string; selected_id?: string },
+    init?: RequestInit,
+  ) => {
+    const query = new URLSearchParams({
+      limit: String(params.limit),
+      offset: String(params.offset),
+    });
+    if (params.search) query.set("search", params.search);
+    if (params.selected_id) query.set("selected_id", params.selected_id);
+    return datasetGet<DatasetSceneOptions>(`/datasets/${id}/scene-options?${query}`, init);
+  },
+  item: (id: string, itemId: string, init?: RequestInit) =>
+    datasetGet<DatasetItemResponse>(`/datasets/${id}/items/${itemId}`, init),
+  trainingVersions: (id: string, params: { limit: number; offset: number }, init?: RequestInit) =>
+    datasetGet<DatasetTrainingVersions>(
+      `/datasets/${id}/training-versions?${new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) })}`,
+      init,
+    ),
+
+  previewLifecycle: (
+    id: string,
+    payload: { operation: "archive" | "restore"; expected_revision: number },
+  ) => apiClient.post<DatasetLifecyclePreview>(`/datasets/${id}/lifecycle-preview`, payload),
+  setLifecycle: (
+    id: string,
+    payload: { operation: "archive" | "restore"; expected_revision: number; impact_token: string },
+  ) => apiClient.post<DatasetLifecycleResult>(`/datasets/${id}/lifecycle`, payload),
 
   create: (payload: DatasetCreatePayload) => apiClient.post<DatasetResponse>("/datasets", payload),
 
@@ -109,12 +234,39 @@ export const datasetsApi = {
 
   delete: (id: string) => apiClient.delete<void>(`/datasets/${id}`),
 
-  listItems: (id: string, params?: { limit?: number; offset?: number }) => {
+  savedViews: (id: string, init?: RequestInit) =>
+    datasetGet<{ items: DatasetSavedView[] }>(`/datasets/${id}/saved-views`, init),
+  saveView: (id: string, payload: DatasetSavedViewPayload, viewId?: string) =>
+    viewId
+      ? apiClient.put<DatasetSavedView>(`/datasets/${id}/saved-views/${viewId}`, payload)
+      : apiClient.post<DatasetSavedView>(`/datasets/${id}/saved-views`, payload),
+  deleteView: (id: string, viewId: string) =>
+    apiClient.delete<void>(`/datasets/${id}/saved-views/${viewId}`),
+
+  listItems: (id: string, params?: DatasetItemListParams, init?: RequestInit) => {
     const q = new URLSearchParams();
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.offset) q.set("offset", String(params.offset));
+    if (params?.search) q.set("search", params.search);
+    if (params?.source_id) q.set("source_id", params.source_id);
+    if (params?.scene_id) q.set("scene_id", params.scene_id);
+    if (params?.availability) q.set("availability", params.availability);
+    (
+      [
+        "media_type",
+        "extension",
+        "dimension_state",
+        "min_width",
+        "max_width",
+        "min_height",
+        "max_height",
+      ] as const
+    ).forEach((key) => {
+      const value = params?.[key];
+      if (value !== undefined) q.set(key, String(value));
+    });
     const qs = q.toString();
-    return apiClient.get<DatasetItemListResponse>(`/datasets/${id}/items${qs ? `?${qs}` : ""}`);
+    return datasetGet<DatasetItemListResponse>(`/datasets/${id}/items${qs ? `?${qs}` : ""}`, init);
   },
 
   uploadInit: (id: string, payload: { file_name: string; content_type?: string }) =>
@@ -211,19 +363,19 @@ export const datasetsApi = {
       soft: boolean;
     }>(`/datasets/${id}/link/${projectId}`),
 
-  previewUnlink: (id: string, projectId: string) =>
-    apiClient.get<{
+  previewUnlink: (id: string, projectId: string, init?: RequestInit) =>
+    datasetGet<{
       will_delete_tasks: number;
       will_delete_annotations: number;
       will_delete_batches: number;
-    }>(`/datasets/${id}/link/${projectId}/preview-unlink`),
+    }>(`/datasets/${id}/link/${projectId}/preview-unlink`, init),
 
-  getLinkedProjects: (id: string) =>
-    apiClient.get<import("./projects").ProjectResponse[]>(`/datasets/${id}/projects`),
+  getLinkedProjects: (id: string, init?: RequestInit) =>
+    datasetGet<import("./projects").ProjectResponse[]>(`/datasets/${id}/projects`, init),
 
   // v0.7.3 · 项目侧反查：列出本项目已关联的所有数据集
-  listForProject: (projectId: string) =>
-    apiClient.get<
+  listForProject: (projectId: string, init?: RequestInit) =>
+    datasetGet<
       {
         id: string;
         display_id: string;
@@ -233,5 +385,5 @@ export const datasetsApi = {
         items_count: number;
         tasks_in_project: number;
       }[]
-    >(`/projects/${projectId}/datasets`),
+    >(`/projects/${projectId}/datasets`, init),
 };

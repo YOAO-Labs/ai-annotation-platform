@@ -35,19 +35,45 @@ from app.schemas.image_pyramid import (
 )
 from app.services.image_pyramid import (
     ImagePyramidError,
-    generation_manifest,
     get_active_generation_for_task,
     manifest_etag,
+    pyramid_levels,
     pyramid_eligible,
     pyramid_required,
     source_matches_generation,
-    tile_key,
     utcnow,
 )
+from app.services import (
+    image_pyramid_originals as originals,
+    image_pyramid_objects as objects,
+)
+from app.services import image_pyramid_storage as physical, storage_access
+from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
+from functools import wraps
+from sqlalchemy.exc import DBAPIError
 from app.workers.image_pyramid import enqueue_image_pyramid
 
 router = APIRouter()
+
+
+def _errors(call):
+    @wraps(call)
+    async def guarded(*args, **kwargs):
+        try:
+            return await call(*args, **kwargs)
+        except ContentError as exc:
+            raise HTTPException(exc.status, {"reason": exc.code}) from None
+        except ImagePyramidError as exc:
+            raise HTTPException(409, {"reason": exc.code}) from None
+        except physical.ImagePyramidStorageError as exc:
+            raise HTTPException(exc.status_code, {"reason": exc.code}) from None
+        except DBAPIError as exc:
+            if storage_access.unavailable(exc):
+                raise HTTPException(409, {"reason": "content_busy"}) from None
+            raise
+
+    return guarded
 
 
 async def _latest_generation(
@@ -77,13 +103,17 @@ async def _invalidate_ready(
     generation: ImagePyramidGeneration,
     error_code: str,
 ) -> None:
+    expected_output_id = generation.output_id
     locked_asset = (
         await db.execute(
             select(ImagePyramidAsset)
             .where(ImagePyramidAsset.id == asset.id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if locked_asset is None:
+        return
     locked_generation = (
         await db.execute(
             select(ImagePyramidGeneration)
@@ -92,8 +122,15 @@ async def _invalidate_ready(
                 ImagePyramidGeneration.generation == generation.generation,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if (
+        locked_generation is None
+        or locked_generation.output_id != expected_output_id
+        or locked_generation.status != "ready"
+    ):
+        return
     if locked_asset.active_generation == locked_generation.generation:
         locked_asset.active_generation = None
     locked_generation.status = "failed"
@@ -127,6 +164,7 @@ def _status_response(
     response_model=ImagePyramidResponse,
     dependencies=[Depends(require_scopes("annotations:read"))],
 )
+@_errors
 async def get_image_pyramid(
     task_id: uuid.UUID,
     request: Request,
@@ -136,7 +174,15 @@ async def get_image_pyramid(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    owner, asset, generation = await get_active_generation_for_task(db, task)
+    if task.file_type != "image":
+        return _status_response(
+            task_id=task.id, status_value="not_available", required=False
+        )
+    authority = await originals.authorize(db, task.id, current_user, request)
+    try:
+        owner, asset, generation = await get_active_generation_for_task(db, task)
+    except ImagePyramidError as exc:
+        raise HTTPException(409, detail={"reason": exc.code}) from None
     required = pyramid_required(owner.width, owner.height)
     response.headers["Cache-Control"] = "private, no-store"
 
@@ -198,10 +244,16 @@ async def get_image_pyramid(
             error_code=error_code,
         )
 
-    if not source_matches_generation(owner, generation):
+    if not source_matches_generation(owner, generation) or generation.output_id is None:
+        await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         if settings.image_pyramid_auto_generate:
-            enqueue_image_pyramid(owner.kind, owner.id, force=True)
+            enqueue_image_pyramid(
+                "task",
+                task.id,
+                force=True,
+                delegation=originals.authorization(authority),
+            )
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
             operation="manifest", outcome="stale"
         ).inc()
@@ -214,20 +266,47 @@ async def get_image_pyramid(
             error_code="source_changed",
         )
 
+    await db.commit()
     try:
-        manifest = generation_manifest(generation)
-        if not generation.overview_key or not storage_service.verify_upload(
-            generation.overview_key,
-            bucket=storage_service.media_cache_bucket,
-        ):
-            raise ImagePyramidError("object_missing")
-    except ImagePyramidError as exc:
+        async with objects.reading(
+            db,
+            owner,
+            generation,
+            authority=authority,
+            keys=(generation.manifest_key, generation.overview_key),
+        ) as output_owner:
+            async with objects.transport(db, output_owner) as storage:
+                manifest = await objects.manifest(storage, output_owner, generation)
+                await originals.physical(
+                    physical.verify_object,
+                    storage,
+                    output_owner,
+                    generation.overview_key,
+                )
+                overview_url = physical.signed_url(
+                    storage,
+                    output_owner,
+                    generation.overview_key,
+                    settings.image_pyramid_url_expiry_seconds,
+                )
+    except (ContentError, physical.ImagePyramidStorageError) as exc:
+        if exc.code not in {
+            "image_pyramid_storage_missing",
+            "image_pyramid_storage_integrity_mismatch",
+            "image_pyramid_storage_invalid_receipt",
+        }:
+            raise
+        await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, exc.code)
         if settings.image_pyramid_auto_generate:
-            enqueue_image_pyramid(owner.kind, owner.id, force=True)
-        IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
-            operation="manifest", outcome="inconsistent"
-        ).inc()
+            await originals.check(db, authority, lock=True)
+            await db.commit()
+            enqueue_image_pyramid(
+                "task",
+                task.id,
+                force=True,
+                delegation=originals.authorization(authority),
+            )
         return _status_response(
             task_id=task.id,
             status_value="inconsistent",
@@ -250,12 +329,6 @@ async def get_image_pyramid(
         )
 
     expiry = utcnow() + timedelta(seconds=settings.image_pyramid_url_expiry_seconds)
-    overview_url = storage_service.generate_download_url(
-        generation.overview_key,
-        expires_in=settings.image_pyramid_url_expiry_seconds,
-        bucket=storage_service.media_cache_bucket,
-        align=False,
-    )
     building = await _building_generation(db, asset)
     if (
         generation.last_accessed_at is None
@@ -263,6 +336,14 @@ async def get_image_pyramid(
     ):
         generation.last_accessed_at = utcnow()
         await db.commit()
+    await objects.check(
+        db,
+        owner,
+        asset.id,
+        generation.generation,
+        generation.output_id,
+        authority=authority,
+    )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="manifest", outcome="ready").inc()
     return ImagePyramidResponse(
         task_id=task.id,
@@ -286,6 +367,7 @@ async def get_image_pyramid(
     dependencies=[Depends(require_scopes("annotations:read"))],
 )
 @limiter.limit("120/minute")
+@_errors
 async def create_image_pyramid_asset_urls(
     task_id: uuid.UUID,
     payload: ImagePyramidAssetUrlsRequest,
@@ -303,26 +385,108 @@ async def create_image_pyramid_asset_urls(
         )
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    owner, asset, generation = await get_active_generation_for_task(db, task)
+    if task.file_type != "image":
+        raise HTTPException(409, {"reason": "asset_not_ready"})
+    authority = await originals.authorize(db, task.id, current_user, request)
+    try:
+        owner, asset, generation = await get_active_generation_for_task(db, task)
+    except ImagePyramidError as exc:
+        raise HTTPException(409, detail={"reason": exc.code}) from None
     if asset is None or generation is None or generation.status != "ready":
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
             operation="asset_urls", outcome="not_ready"
         ).inc()
         raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
-    if not source_matches_generation(owner, generation):
+    if not source_matches_generation(owner, generation) or generation.output_id is None:
+        await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         raise HTTPException(
             status_code=409,
             detail={"reason": "stale_generation", "active_generation": None},
         )
 
+    await db.commit()
     try:
-        manifest = generation_manifest(generation)
-    except ImagePyramidError as exc:
+        keys = _requested_keys(generation, payload)
+        async with objects.reading(
+            db, owner, generation, authority=authority, keys=keys
+        ) as output_owner:
+            async with objects.transport(db, output_owner) as storage:
+                manifest = await objects.manifest(storage, output_owner, generation)
+                return await _asset_urls(
+                    db,
+                    task,
+                    asset,
+                    generation,
+                    manifest,
+                    payload,
+                    output_owner,
+                    storage=storage,
+                )
+    except (ContentError, physical.ImagePyramidStorageError) as exc:
+        if exc.code not in {
+            "image_pyramid_storage_missing",
+            "image_pyramid_storage_integrity_mismatch",
+            "image_pyramid_storage_invalid_receipt",
+        }:
+            raise
+        await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, exc.code)
-        raise HTTPException(
-            status_code=409, detail={"reason": "inconsistent_ready"}
-        ) from exc
+        raise HTTPException(409, {"reason": "inconsistent_ready"}) from None
+
+
+def _requested_keys(generation, payload):
+    if (
+        type(generation.width) is not int
+        or type(generation.height) is not int
+        or generation.width <= 0
+        or generation.height <= 0
+        or not isinstance(generation.manifest_key, str)
+        or not generation.manifest_key.endswith("/manifest.json")
+    ):
+        raise physical.ImagePyramidStorageError("invalid_receipt")
+    levels = {
+        level["level"]: level
+        for level in pyramid_levels(generation.width, generation.height)
+    }
+    keys = [generation.manifest_key]
+    for item in payload.items:
+        if item.generation != generation.generation:
+            raise HTTPException(
+                409,
+                {
+                    "reason": "stale_generation",
+                    "active_generation": generation.generation,
+                },
+            )
+        if item.kind == "overview":
+            if (
+                not isinstance(generation.overview_key, str)
+                or not generation.overview_key
+            ):
+                raise physical.ImagePyramidStorageError("invalid_receipt")
+            keys.append(generation.overview_key)
+        else:
+            level = levels.get(item.level)
+            if level is None or item.x >= level["columns"] or item.y >= level["rows"]:
+                raise HTTPException(422, {"reason": "invalid_coordinate"})
+            # Only the saved output's namespace is used below; no current binding.
+            suffix = f"tiles/{item.level}/{item.x}/{item.y}.webp"
+            keys.append(generation.manifest_key.removesuffix("manifest.json") + suffix)
+    return tuple(dict.fromkeys(keys))
+
+
+async def _asset_urls(
+    db,
+    task,
+    asset,
+    generation,
+    manifest,
+    payload,
+    output_owner,
+    *,
+    storage=storage_service,
+):
     levels = {int(level["level"]): level for level in manifest["levels"]}
     unique: list[Any] = []
     seen: set[tuple[Any, ...]] = set()
@@ -366,12 +530,8 @@ async def create_image_pyramid_asset_urls(
                 raise HTTPException(
                     status_code=422, detail={"reason": "invalid_coordinate"}
                 )
-            key = tile_key(
-                asset.id,
-                generation.generation,
-                item.level,
-                item.x,
-                item.y,
+            key = physical.resolve(output_owner).key(
+                f"tiles/{item.level}/{item.x}/{item.y}.webp"
             )
             output_item = {
                 "kind": "tile",
@@ -380,21 +540,9 @@ async def create_image_pyramid_asset_urls(
                 "x": item.x,
                 "y": item.y,
             }
-        if not storage_service.verify_upload(
-            key, bucket=storage_service.media_cache_bucket
-        ):
-            await _invalidate_ready(db, asset, generation, "object_missing")
-            IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
-                operation="asset_urls", outcome="object_missing"
-            ).inc()
-            raise HTTPException(
-                status_code=409, detail={"reason": "inconsistent_ready"}
-            )
-        url = storage_service.generate_download_url(
-            key,
-            expires_in=settings.image_pyramid_url_expiry_seconds,
-            bucket=storage_service.media_cache_bucket,
-            align=False,
+        await originals.physical(physical.verify_object, storage, output_owner, key)
+        url = physical.signed_url(
+            storage, output_owner, key, settings.image_pyramid_url_expiry_seconds
         )
         output.append(ImagePyramidAssetUrl(**output_item, url=url))
         IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL.labels(kind=item.kind).inc()
@@ -417,6 +565,7 @@ async def create_image_pyramid_asset_urls(
     dependencies=[Depends(require_scopes("annotations:read"))],
 )
 @limiter.limit("10/minute")
+@_errors
 async def retry_image_pyramid(
     task_id: uuid.UUID,
     request: Request,
@@ -425,7 +574,13 @@ async def retry_image_pyramid(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    owner, asset, generation = await get_active_generation_for_task(db, task)
+    if task.file_type != "image":
+        raise HTTPException(409, {"reason": "not_image"})
+    authority = await originals.authorize(db, task.id, current_user, request)
+    try:
+        owner, asset, generation = await get_active_generation_for_task(db, task)
+    except ImagePyramidError as exc:
+        raise HTTPException(409, detail={"reason": exc.code}) from None
     if owner.file_type != "image":
         raise HTTPException(status_code=409, detail={"reason": "not_image"})
     if (
@@ -437,7 +592,10 @@ async def retry_image_pyramid(
 
     invalidated_stale = False
     if generation is not None and generation.status == "ready":
-        if source_matches_generation(owner, generation):
+        if (
+            source_matches_generation(owner, generation)
+            and generation.output_id is not None
+        ):
             raise HTTPException(status_code=409, detail={"reason": "already_ready"})
         if asset is not None:
             await _invalidate_ready(db, asset, generation, "source_changed")
@@ -465,7 +623,11 @@ async def retry_image_pyramid(
                     headers={"Retry-After": str(retry_after)},
                 )
 
-    celery_task_id = enqueue_image_pyramid(owner.kind, owner.id, force=True)
+    await originals.check(db, authority, lock=True)
+    await db.commit()
+    celery_task_id = enqueue_image_pyramid(
+        "task", task.id, force=True, delegation=originals.authorization(authority)
+    )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="retry", outcome="queued").inc()
     return ImagePyramidRetryResponse(
         task_id=task.id,

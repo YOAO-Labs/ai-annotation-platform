@@ -1,9 +1,10 @@
 ---
+title: 系统监控
 audience: [super_admin]
 type: reference
 since: v0.8.7
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-26
 ---
 
 # 系统监控
@@ -89,11 +90,9 @@ docker logs ai-annotation-platform-api-1 2>&1 | jq 'select(.status>=500)'
 
 前后端错误打到 Sentry（DSN 见 `.env`）。前端 BUG 反馈侧通过 `BugReportDrawer` 入 `bug_reports` 表；超管也可从侧边栏 **管理 → BUG反馈** 进入 `/bugs` 处理状态、查看 Markdown 描述/评论和截图附件。
 
-「存储管理」的「视频资产失败」集中展示视频探测、封面、帧时间表、分块与帧缓存错误。点击错误文字或旁边的复制图标可复制完整日志，也可用键盘聚焦后按回车复制；表格中的省略不影响复制内容。处理原因后，点击对应行的「重试」重新生成该资产。
+存储位置的在线诊断、视频派生资产失败排查与重试、桶容量盘点及账目对账统一在「存储管理」中处理，详见[存储诊断与容量账目](../datasets/storage-operations)。
 
 ## 容量规划经验值
-
-「存储管理」中的桶容量统计需要扫描对象存储。大桶或存储响应缓慢时，统计结果可能较晚返回，等待期间仍可继续使用工作台和其他平台页面。
 
 | 资源                                                               | 经验值 |
 | ------------------------------------------------------------------ | ------ |
@@ -105,8 +104,8 @@ docker logs ai-annotation-platform-api-1 2>&1 | jq 'select(.status>=500)'
 ## 备份
 
 - Postgres：`pg_dump` 每日 + WAL 归档
-- MinIO：bucket 镜像到对象存储或外部 S3
+- 对象存储与受控存储位置：桶镜像、元数据与对象一致性备份及隔离环境恢复演练，详见[一致备份与隔离恢复](/ops/deploy/storage-recovery)
 - Redis：可丢（broker），不需要备份
 - SAM 缓存：可丢（性能优化）
 
-详见 [部署拓扑](../../dev/concepts/deployment-topology)。
+服务架构详见 [部署拓扑](../../dev/concepts/deployment-topology)。

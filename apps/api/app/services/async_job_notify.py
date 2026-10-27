@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -29,11 +30,23 @@ TERMINAL_NOTIFY_KINDS = {
     "audit_archive",
     "prediction_retry",
     "dataset_import",
+    "dataset_scan",
+    "dataset_registration",
+    "storage_usage",
+    "video_asset_retry",
+    "managed_original_verification",
+    "managed_original_reclaim",
+    "managed_reference_reconciliation",
+    "storage_migration_inventory",
+    "storage_migration_copy",
+    "dataset_quality",
+    "dataset_quality_review",
     "mask_qc",
     "mask_repair",
     "mask_repair_rollback",
     "mask_format_import",
     "point_cloud_cross_frame",
+    "point_cloud_quality",
 }
 
 _STATUS_TO_TYPE = {
@@ -75,6 +88,13 @@ _PAYLOAD_SUMMARY_KEYS = (
 )
 
 _RESULT_SUMMARY_KEYS = (
+    "applied_count",
+    "conflict_count",
+    "blocked_count",
+    "partial",
+    "processed_count",
+    "directory_count",
+    "complete",
     "success_count",
     "failed_count",
     "done_count",
@@ -99,6 +119,9 @@ _RESULT_SUMMARY_KEYS = (
     "round_id",
     "attempt_id",
     "issue_count",
+    "checked_count",
+    "duplicate_group_count",
+    "duplicate_member_count",
     "result_digest",
     "rolled_back_count",
     "stale_count",
@@ -121,6 +144,83 @@ def _terminal_payload(job: AsyncJob) -> dict[str, Any]:
         "kind": job.kind,
         "status": job.status,
     }
+    if job.kind == "managed_original_reclaim":
+        for key in ("reclaim_id", "retirement_id"):
+            value = payload_in.get(key)
+            try:
+                payload[key] = str(uuid.UUID(value))
+            except (TypeError, ValueError, AttributeError):
+                pass
+        if result_in.get("outcome") in {
+            "deleted",
+            "already_absent",
+            "missing",
+            "changed",
+            "failed",
+            "unknown",
+            "cancelled",
+        }:
+            payload["outcome"] = result_in["outcome"]
+        for key in ("delete_started", "absence_proven", "physical_settled"):
+            if type(result_in.get(key)) is bool:
+                payload[key] = result_in[key]
+        return payload
+    if job.kind == "storage_migration_copy":
+        from app.schemas.storage_migration_copy import StorageMigrationCopyCounts
+
+        payload["migration_ready"] = False
+        for key in ("prepared", "copy_subset_complete", "attempt_subset_complete"):
+            if type(result_in.get(key)) is bool:
+                payload[key] = result_in[key]
+        for key in ("selected_count", "selected_verified_count"):
+            if type(result_in.get(key)) is int and result_in[key] >= 0:
+                payload[key] = result_in[key]
+        if result_in.get("operation") in {"prepare", "run", "verify"}:
+            payload["operation"] = result_in["operation"]
+        try:
+            payload["copy_id"] = str(uuid.UUID(result_in["copy_id"]))
+        except (ValueError, TypeError, KeyError):
+            pass
+        try:
+            payload["counts"] = StorageMigrationCopyCounts.model_validate(
+                result_in.get("counts")
+            ).model_dump()
+        except ValueError:
+            pass
+        code = result_in.get("error_code")
+        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
+            payload["error_code"] = code
+        return payload
+    if job.kind == "storage_migration_inventory":
+        # This global private-report task has a deliberately closed summary.
+        from app.schemas.storage_migration_inventory import (
+            StorageMigrationInventoryCounts,
+        )
+
+        payload["scope"] = "selected-configured-source"
+        payload["migration_ready"] = False
+        counts = result_in.get("counts")
+        if counts is not None:
+            try:
+                payload["counts"] = StorageMigrationInventoryCounts.model_validate(
+                    counts
+                ).model_dump()
+            except ValueError:
+                pass
+        for key in ("complete", "report_available"):
+            if type(result_in.get(key)) is bool:
+                payload[key] = result_in[key]
+        sha = result_in.get("report_sha256")
+        if (
+            isinstance(sha, str)
+            and len(sha) == 64
+            and all(c in "0123456789abcdef" for c in sha)
+        ):
+            payload["report_sha256"] = sha
+        code = result_in.get("error_code")
+        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
+            payload["error_code"] = code
+        return payload
     if job.project_id is not None:
         payload["project_id"] = str(job.project_id)
     _copy_present(payload, payload_in, _PAYLOAD_SUMMARY_KEYS)

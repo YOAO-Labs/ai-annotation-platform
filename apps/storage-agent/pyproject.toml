@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aap-storage-agent"
+version = "0.1.0"
+description = "Outbound-only, controlled read-only dataset storage Agent"
+requires-python = ">=3.11"
+dependencies = ["aap-filesystem-read", "aap-site-agent-contract"]
+
+[project.scripts]
+aap-storage-agent = "storage_agent.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["storage_agent*"]
+
+[tool.uv.sources]
+aap-filesystem-read = { path = "../_shared/filesystem_read", editable = true }
+aap-site-agent-contract = { path = "../_shared/site_agent_contract", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../_shared/filesystem_read/src", "../_shared/site_agent_contract/src"]

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
+import { useSessionRevision } from "@/hooks/useSessionGuard";
 import { authApi } from "@/api/auth";
 import { buildWsUrl } from "@/lib/wsHost";
 import { useToastStore } from "@/components/ui/Toast";
@@ -46,7 +48,7 @@ function alertKind(type: string): "error" | "warning" {
 
 function alertText(type: string, payload: Record<string, unknown>): string {
   const str = (key: string) => (typeof payload[key] === "string" ? payload[key] : "");
-  const jobVerb = jobNotificationVerb(type, payload.kind);
+  const jobVerb = jobNotificationVerb(type, payload.kind, payload);
   if (jobVerb) return `${jobVerb}${str("error_message") ? `：${str("error_message")}` : ""}`;
   switch (type) {
     case "task.rejected":
@@ -85,6 +87,7 @@ export function useNotificationSocket() {
   const token = useAuthStore((s) => s.token);
   const setToken = useAuthStore((s) => s.setToken);
   const userId = useAuthStore((s) => s.user?.id);
+  const revision = useSessionRevision();
   const qc = useQueryClient();
   const pushToast = useToastStore((s) => s.push);
   // 该查询在此 hook 保持活跃（认证会话内）；设置入口复用同一缓存。
@@ -110,6 +113,18 @@ export function useNotificationSocket() {
     // 本次连接绑定的会话（token）；refresh 迟到的结果不得写回后续会话。
     const sessionToken = token;
 
+    const migrationAlertAllowed = (payload: Record<string, unknown>): boolean => {
+      if (!["storage_migration_inventory", "storage_migration_copy"].includes(String(payload.kind)))
+        return true;
+      const current = useAuthStore.getState();
+      return (
+        current.user?.role === "super_admin" &&
+        current.user.id === userId &&
+        current.token === sessionToken &&
+        getAuthSessionRevision() === revision
+      );
+    };
+
     // ── 告警去重 + 1s 批量合并（当前账号） ──────────────────────────
     const seenAlertIds = new Set<string>();
     const seenAlertOrder: string[] = [];
@@ -129,7 +144,7 @@ export function useNotificationSocket() {
 
     const flushAlerts = () => {
       alertFlushTimer = null;
-      const batch = pendingAlerts;
+      const batch = pendingAlerts.filter((alert) => migrationAlertAllowed(alert.payload));
       pendingAlerts = [];
       if (batch.length === 0) return;
       // 批量窗口内标签页可能已切到后台：此时丢弃这批提醒，避免回到前台
@@ -166,6 +181,7 @@ export function useNotificationSocket() {
       const id = typeof message.id === "string" ? message.id : null;
       const type = typeof message.type === "string" ? message.type : null;
       if (!id || !type) return;
+      if (!migrationAlertAllowed(message.payload ?? {})) return;
       if (!alertAllowedFor(type)) return;
       if (!rememberAlertId(id)) return;
       pendingAlerts.push({ id, type, payload: message.payload ?? {} });
@@ -289,6 +305,6 @@ export function useNotificationSocket() {
         /* noop */
       }
     };
-    // token/账号变化都会重开连接并清空待发提醒批次。
-  }, [token, userId, qc, setToken, pushToast]);
+    // Session replacement retires pending alerts even when credentials are reused.
+  }, [token, userId, revision, qc, setToken, pushToast]);
 }

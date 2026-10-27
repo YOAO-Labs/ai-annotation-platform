@@ -68,3 +68,13 @@ docker compose exec redis redis-cli LLEN celery
 - **协程调用与数据库连接池**：Celery Worker 采用同步 prefork/solo 进程模型。在任务内调用异步 Service 时，应使用 `asyncio.run(...)` 搭配任务级独立 `create_async_engine`（并在 `finally` 中 `await engine.dispose()`），切勿在多进程 Worker 中跨事件循环复用模块级全局 `async_session`。
 - **参数必须可 JSON 序列化**：不要向 `.delay()` / `.apply_async()` 直接传递 SQLAlchemy ORM 实例，一律传递主键 UUID 并在任务内部重新查询。
 - **幂等与围栏校验**：任务可能因 Worker 重启或超时被重试。写入结果前应校验目标业务行（如 `AsyncJob`、`TrainingDatasetVersion`、`VideoTrackerJob`）的当前状态与版本号。
+
+## 目录观测扫描未完成
+
+先查看 `/api/v1/dataset-scans/{run_id}` 的 error_code、phase、complete 和当前 async_job_id；长期清单通过 `/entries` 分页读取。确认来源对应的完整 Celery hostname 已注册 `app.workers.dataset_scan.run_dataset_scan`，且使用该节点专属队列；不能用其他节点的成功探测代替。
+
+`dispatch_unavailable` 可在 broker 恢复后调用 `/resume`。pending 发布前中断或 running 租约过期也可显式恢复；有效租约内返回409。每次恢复创建新任务ID，旧检查点保留；不要改数据库代次、令牌或手工把 Job 标 completed。取消走现有 AsyncJob 入口，不需强杀进程。
+
+`configuration_changed` 需核对位置修订后启动新运行；`directory_changed` 或 `directory_identity_changed` 需先确认目录是否被移动、替换或继续写入。受控根身份变化必须核查部署映射；不以重试静默改绑。`directory_too_large` / `scan_budget_exceeded` 应缩小目录范围。失败、取消和超限都不代表文件不存在，不能据此删除历史样本。
+
+代表性文件树的资源、取消与恢复测量使用[目录扫描资源基线](../reference/dataset-scan-benchmark.md)。它运行于一次性环境，保留现有预算，区分元信息扫描与图片正文读取。

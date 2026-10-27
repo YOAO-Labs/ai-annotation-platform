@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import DatasetItem, Project, Task
 from app.schemas._jsonb_types import SensorCalibration
 from app.services import async_job as async_job_svc
+from app.services.dataset_storage_keys import dataset_item_relative_path
 from app.services.role_patterns import (
     DEFAULT_ROLE_PATTERNS,
     RolePatterns,
@@ -57,7 +58,7 @@ def group_frames(
       frames: {frame_id: {"lidar": item | None, "cameras": {cam: item}}}
       calib_items: {cam: item}
 
-    分组规则（按 file_path 的 PurePosixPath.parts，定位段名取最后一次出现）:
+    分组规则（按逻辑相对路径的 PurePosixPath.parts，旧样本回退 file_path）:
       - calib: 末两段是 calib/camera 且后缀 .json → cam = stem(front)，记入 calib_items。
       - lidar: parts 命中 lidar pattern 且 (file_type==point_cloud 或后缀属点云集) → frame=stem。
       - camera: parts 命中 camera pattern → cam = camera 后一段或 camera 段名，frame=stem。
@@ -67,7 +68,7 @@ def group_frames(
     calib_items: dict[str, DatasetItem] = {}
 
     for item in items:
-        path = PurePosixPath(item.file_path)
+        path = PurePosixPath(dataset_item_relative_path(item))
         parts = path.parts
         stem = path.stem
         suffix = path.suffix.lower()
@@ -146,6 +147,7 @@ async def build_pointcloud_tasks_for_link(
     project_id: uuid.UUID,
     job_id: uuid.UUID | None = None,
     chunk_size: int = 5000,
+    directory_authority=None,
 ) -> dict:
     """v0.13.1 · 为点云 scene dataset link 分块建 task（镜像 build_tasks_for_link）。
 
@@ -168,6 +170,11 @@ async def build_pointcloud_tasks_for_link(
     尚无 scene,推断出 1 个 scene + 给 lidar/cam items 写 frame_index,这样建出
     的 task 通过 dataset_item_id → scene_id 反查能拿到 frame_index。
     """
+    from app.services.dataset_source_access import validate_dataset_write
+
+    await validate_dataset_write(
+        db, dataset_id, directory_authority, project_id=project_id, lock=True
+    )
     # v0.14.0 · scene 推断 hook(放在 _load_dataset_items 之前,避免对已 assign 的 items
     # 重复 inference;infer_and_apply 内部本身也幂等,这层是性能优化)。
     await _maybe_infer_single_scene(db, dataset_id=dataset_id)
@@ -221,6 +228,9 @@ async def build_pointcloud_tasks_for_link(
     created = 0
     last_pct = 0
     for start in range(0, total_pending, chunk_size):
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
+        )
         chunk = pending_frame_ids[start : start + chunk_size]
         seq_result = await db.execute(
             text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),

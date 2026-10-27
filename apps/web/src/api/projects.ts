@@ -353,31 +353,23 @@ export const projectsApi = {
   removeMember: (id: string, memberId: string) =>
     apiClient.delete<void>(`/projects/${id}/members/${memberId}`),
 
-  // v0.10.13 · E1 · 标注指引图片资源
+  // Guide images use authenticated, server-verified bytes in both directions.
   guideAssets: {
-    uploadInit: (
-      projectId: string,
-      payload: { filename: string; content_type: string; size: number },
-    ) =>
-      apiClient.post<GuideAssetUploadInitResponse>(
-        `/projects/${projectId}/guide-assets/upload-init`,
-        payload,
+    upload: (projectId: string, file: File, init?: RequestInit) =>
+      apiClient.silentPost<GuideAssetEntry>(
+        `/projects/${projectId}/guide-assets/upload?file_name=${encodeURIComponent(file.name)}`,
+        undefined,
+        { ...init, body: file, headers: { ...init?.headers, "Content-Type": file.type } },
       ),
-    uploadComplete: (
-      projectId: string,
-      payload: { key: string; original_name: string; content_type: string },
-    ) =>
-      apiClient.post<GuideAssetEntry>(
-        `/projects/${projectId}/guide-assets/upload-complete`,
-        payload,
-      ),
-    remove: (projectId: string, key: string) =>
-      apiClient.delete<{ deleted: string }>(
+    remove: (projectId: string, key: string, init?: RequestInit) =>
+      apiClient.silentDelete<{ deleted: string }>(
         `/projects/${projectId}/guide-assets?key=${encodeURIComponent(key)}`,
+        init,
       ),
-    signUrl: (projectId: string, key: string) =>
-      apiClient.get<GuideAssetSignedUrlResponse>(
-        `/projects/${projectId}/guide-assets/sign-url?key=${encodeURIComponent(key)}`,
+    content: (projectId: string, key: string, init?: RequestInit) =>
+      apiClient.silentGetBlob(
+        `/projects/${projectId}/guide-assets/content?key=${encodeURIComponent(key)}`,
+        init,
       ),
   },
 

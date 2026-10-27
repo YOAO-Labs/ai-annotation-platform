@@ -252,7 +252,7 @@ test.describe("shared Markdown authoring", () => {
       firstUploadReady = resolve;
     });
     let heldUpload = false;
-    await page.route("**/guide-assets/upload-complete", async (route) => {
+    await page.route("**/guide-assets/upload?**", async (route) => {
       if (heldUpload) return route.continue();
       heldUpload = true;
       const response = await route.fetch();
@@ -262,9 +262,9 @@ test.describe("shared Markdown authoring", () => {
     });
     const upload = page.waitForResponse(
       (response) =>
-        response.url().includes("/guide-assets/upload-complete") &&
+        response.url().includes("/guide-assets/upload?") &&
         response.request().method() === "POST" &&
-        response.request().postDataJSON().original_name === "标注反例.png",
+        new URL(response.url()).searchParams.get("file_name") === "标注反例.png",
     );
     try {
       await pasteImages(body, ["标注边界示例.png", "标注反例.png"]);
@@ -348,7 +348,7 @@ test.describe("shared Markdown authoring", () => {
     const editor = await openGuide(page, fixture.project_id);
     const body = richText(editor);
     let rejectFirstUpload = true;
-    await page.route("**/guide-assets/upload-init", (route) => {
+    await page.route("**/guide-assets/upload?**", (route) => {
       if (rejectFirstUpload) {
         rejectFirstUpload = false;
         return route.fulfill({
@@ -401,7 +401,7 @@ test.describe("shared Markdown authoring", () => {
     const editor = await openGuide(page, fixture.project_id);
     const body = richText(editor);
     let rejectFirstUpload = true;
-    await page.route("**/guide-assets/upload-init", (route) => {
+    await page.route("**/guide-assets/upload?**", (route) => {
       if (!rejectFirstUpload) return route.continue();
       rejectFirstUpload = false;
       return route.fulfill({
@@ -456,7 +456,7 @@ test.describe("shared Markdown authoring", () => {
     const uploadReadyGate = new Promise<void>((resolve) => {
       uploadReady = resolve;
     });
-    await page.route("**/guide-assets/upload-complete", async (route) => {
+    await page.route("**/guide-assets/upload?**", async (route) => {
       const response = await route.fetch();
       uploadReady();
       await uploadGate;
@@ -530,11 +530,7 @@ test.describe("shared Markdown authoring", () => {
     const fixture = await prepareGuide(page, request, seed, "排队图片正文");
     const editor = await openGuide(page, fixture.project_id);
     const body = richText(editor);
-    let uploadInitCount = 0;
-    await page.route("**/guide-assets/upload-init", async (route) => {
-      uploadInitCount += 1;
-      await route.continue();
-    });
+    let uploadCount = 0;
     let releaseFirstUpload!: () => void;
     const firstUploadGate = new Promise<void>((resolve) => {
       releaseFirstUpload = resolve;
@@ -544,7 +540,8 @@ test.describe("shared Markdown authoring", () => {
       firstUploadReady = resolve;
     });
     let gateFirstCompletion = true;
-    await page.route("**/guide-assets/upload-complete", async (route) => {
+    await page.route("**/guide-assets/upload?**", async (route) => {
+      uploadCount += 1;
       const response = await route.fetch();
       if (gateFirstCompletion) {
         gateFirstCompletion = false;
@@ -569,7 +566,7 @@ test.describe("shared Markdown authoring", () => {
 
     await expect.poll(async () => await source.innerText()).toContain("guide-asset:");
     await page.waitForTimeout(250);
-    expect(uploadInitCount).toBe(1);
+    expect(uploadCount).toBe(1);
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect.poll(async () => (await fixture.read()).guide_assets).toHaveLength(1);
     const saved = await fixture.read();
@@ -740,7 +737,7 @@ test.describe("shared Markdown authoring", () => {
     const uploadReadyGate = new Promise<void>((resolve) => {
       uploadReady = resolve;
     });
-    await page.route("**/guide-assets/upload-complete", async (route) => {
+    await page.route("**/guide-assets/upload?**", async (route) => {
       const response = await route.fetch();
       uploadReady();
       await uploadGate;
@@ -792,7 +789,7 @@ test.describe("shared Markdown authoring", () => {
       .getByRole("cell", { name: "前后", exact: true })
       .locator('[contenteditable="true"]');
     let rejectFirstUpload = true;
-    await page.route("**/guide-assets/upload-init", (route) => {
+    await page.route("**/guide-assets/upload?**", (route) => {
       if (!rejectFirstUpload) return route.continue();
       rejectFirstUpload = false;
       return route.fulfill({
@@ -898,9 +895,9 @@ test.describe("shared Markdown authoring", () => {
       "| 类别 | 反例 |\n| --- | --- |\n| 车辆 | 前后 |\n",
     );
     const editor = await openGuide(page, fixture.project_id);
-    let uploadInitCount = 0;
-    await page.route("**/guide-assets/upload-init", (route) => {
-      uploadInitCount += 1;
+    let uploadCount = 0;
+    await page.route("**/guide-assets/upload?**", (route) => {
+      uploadCount += 1;
       return route.fulfill({
         status: 503,
         contentType: "application/json",
@@ -921,7 +918,7 @@ test.describe("shared Markdown authoring", () => {
     await expect(errors).toBeVisible();
     // Positive baseline: the upload failed once before the node was deleted, so
     // the later count is not comparing two accidental zeros.
-    expect(uploadInitCount).toBe(1);
+    expect(uploadCount).toBe(1);
 
     // Remove the failed placeholder; the editor must drop the pending upload
     // rather than keep a retry that could re-upload a deleted node. The paste
@@ -931,41 +928,28 @@ test.describe("shared Markdown authoring", () => {
     await expect(targetCell).toContainText("前后");
 
     // The real save and persisted readback is the observable completion
-    // boundary: no further upload-init may run, and neither the pending marker
+    // boundary: no further upload may run, and neither the pending marker
     // nor an asset may persist.
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByTestId("guide-save-status")).toHaveText("已保存");
     const saved = await fixture.read();
-    expect(uploadInitCount).toBe(1);
+    expect(uploadCount).toBe(1);
     expect(saved.annotation_guide).not.toContain("markdown-upload-pending:");
     expect(saved.guide_assets).toHaveLength(0);
   });
 
-  test("a 100 KB guide with repeated images stays responsive without repeated signing", async ({
+  test("a 100 KB guide with repeated images stays responsive without repeated content reads", async ({
     page,
     request,
     seed,
   }, testInfo) => {
     const fixture = await prepareGuide(page, request, seed);
-    const init = await request.post(`${fixture.url}/guide-assets/upload-init`, {
-      headers: fixture.headers,
-      data: { filename: "性能示例.png", content_type: "image/png", size: PNG.length },
-    });
-    expect(init.ok()).toBe(true);
-    const asset = await init.json();
-    expect(
-      (
-        await request.put(asset.upload_url, { headers: { "Content-Type": "image/png" }, data: PNG })
-      ).ok(),
-    ).toBe(true);
-    expect(
-      (
-        await request.post(`${fixture.url}/guide-assets/upload-complete`, {
-          headers: fixture.headers,
-          data: { key: asset.key, original_name: "性能示例.png", content_type: "image/png" },
-        })
-      ).ok(),
-    ).toBe(true);
+    const upload = await request.post(
+      `${fixture.url}/guide-assets/upload?file_name=${encodeURIComponent("性能示例.png")}`,
+      { headers: { ...fixture.headers, "Content-Type": "image/png" }, data: PNG },
+    );
+    expect(upload.ok()).toBe(true);
+    const asset = await upload.json();
     let content = "# 长指引编辑验收\n\n";
     const paragraph =
       "边界规则：沿可见轮廓绘制，遇到遮挡时记录遮挡属性，类别不确定时提交复核。".repeat(8);
@@ -982,9 +966,9 @@ test.describe("shared Markdown authoring", () => {
         })
       ).ok(),
     ).toBe(true);
-    let signingRequests = 0;
+    let contentRequests = 0;
     page.on("request", (req) => {
-      if (new URL(req.url()).pathname.endsWith("/guide-assets/sign-url")) signingRequests += 1;
+      if (new URL(req.url()).pathname.endsWith("/guide-assets/content")) contentRequests += 1;
     });
     const editor = await openGuide(page, fixture.project_id);
     const exampleImages = editor.getByRole("img", { name: /^性能示例 \d+$/ });
@@ -996,8 +980,8 @@ test.describe("shared Markdown authoring", () => {
         ),
       )
       .toBe(true);
-    const signedAtLoad = signingRequests;
-    expect(signedAtLoad).toBe(1);
+    const readAtLoad = contentRequests;
+    expect(readAtLoad).toBe(1);
     const body = richText(editor);
     await body.focus();
     await body.press("Control+Home");
@@ -1044,14 +1028,14 @@ test.describe("shared Markdown authoring", () => {
       images: 20,
       edits: 50,
       p95,
-      signingRequests,
+      contentRequests,
     };
     console.info("Markdown browser measurement:", JSON.stringify(measurement));
     await testInfo.attach("markdown-input-performance", {
       body: JSON.stringify(measurement),
       contentType: "application/json",
     });
-    expect(signingRequests).toBe(signedAtLoad);
+    expect(contentRequests).toBe(readAtLoad);
     expect(p95).toBeLessThan(100);
   });
 

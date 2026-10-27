@@ -1,0 +1,165 @@
+# Reusable backend test workflow: one deterministic shard per call.
+
+name: Backend test shards
+
+on:
+  workflow_call:
+    inputs:
+      shard-index:
+        description: "Zero-based shard index; must satisfy 0 <= shard-index < shard-count"
+        required: true
+        type: number
+      shard-count:
+        description: "Total number of shards (CI uses four)"
+        required: true
+        type: number
+    secrets:
+      CODECOV_TOKEN:
+        description: "Optional Codecov token; uploads merge under the `backend` flag"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Backend test shard execution
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: annotation_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
+      TEST_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
+      # Some pytest modules import the API router during collection. Enable the
+      # guarded test-only router before the first application import.
+      E2E_SEED_ENABLED: "true"
+      SECRET_KEY: ci-test-secret
+      REDIS_URL: redis://localhost:6379/0
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: annotations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install video fixture tools
+        run: |
+          # Avoid the regional HTTP mirror that consumed over 20 minutes of the
+          # backend job; the HTTPS archive is the same package set.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - name: Install uv
+        run: pip install uv
+      - name: Sync deps
+        working-directory: apps/api
+        run: uv sync --extra test
+      - name: Worktree runtime and setup tests
+        working-directory: apps/api
+        run: |
+          uv run python -m unittest discover -s ../../scripts -p 'test_worktree*.py' -v
+          uv run python ../../scripts/test-orca-worktree-setup.py
+      - name: Local service maintenance tests
+        working-directory: apps/api
+        run: |
+          uv run python ../../scripts/test_production_health_recover.py
+          uv run python ../../scripts/test_development_restart.py
+      # IBM mirrors the removed Quay image with the same verified digest.
+      # https://www.ibm.com/support/pages/node/7289585
+      - name: Start MinIO
+        run: |
+          minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          for attempt in 1 2 3; do
+            if docker pull "$minio_image"; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep "$((attempt * 5))"
+          done
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            "$minio_image" server /data
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs minio
+          exit 1
+      - name: Initialize MinIO buckets
+        working-directory: apps/api
+        run: uv run python -c "from app.services.storage import storage_service; storage_service.ensure_all_buckets()"
+      - name: Worktree resource isolation acceptance
+        working-directory: apps/api
+        run: uv run python ../../scripts/verify_worktree_isolation.py -v
+      - name: alembic upgrade head
+        working-directory: apps/api
+        run: uv run alembic upgrade head
+      - name: Migration validation (fresh / reversible / forward / restore)
+        working-directory: apps/api
+        env:
+          AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
+          MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: uv run python ../../scripts/validate_migrations.py
+      - name: OpenAPI snapshot drift check
+        working-directory: apps/api
+        run: |
+          if ! uv run python ../../scripts/export_openapi.py --check; then
+            echo "::error::OpenAPI snapshot drift. 请在 apps/api 下运行 'uv run python ../../scripts/export_openapi.py' 重生 snapshot 并提交（建议本地装 pre-commit 让它自动跑）。"
+            exit 1
+          fi
+      - name: pytest with coverage
+        working-directory: apps/api
+        run: >-
+          uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
+          --durations=30 --junitxml=pytest-results.xml
+          --shard-index ${{ inputs.shard-index }} --shard-count ${{ inputs.shard-count }}
+      # P6 交接：migration policy 纯规则测试（scripts/ 下不被 apps/api pytest
+      # 收集），在此以同一 venv 显式运行。
+      - name: Migration policy pure tests
+        working-directory: apps/api
+        run: uv run python ../../scripts/test_alembic_migration_policy.py
+      - name: Upload backend test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results-${{ inputs.shard-index }}
+          path: apps/api/pytest-results.xml
+          retention-days: 7
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: apps/api/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}

@@ -194,7 +194,7 @@ export default function DataManagerAnnotationPreview({
     [projectQ.data?.tool_bindings],
   );
 
-  const imageSource = useWorkbenchImageSource(task);
+  const imageSource = useWorkbenchImageSource(task, undefined, taskId);
   const previewUrl = workbenchImagePreviewUrl(imageSource.source);
   const [imageAttempt, setImageAttempt] = useState(0);
   const [image, imageStatus] = useAbortableImage(previewUrl ?? "", imageAttempt);
@@ -381,12 +381,20 @@ export default function DataManagerAnnotationPreview({
         aria-label="标注预览"
         className={cn("rounded-md border border-border bg-card p-3 text-sm", className)}
       >
-        <div role="alert" className="text-status-danger">
-          图片加载失败，签名可能已过期
+        <div
+          role={imageSource.contentPending ? "status" : "alert"}
+          className={imageSource.contentPending ? "text-muted-foreground" : "text-status-danger"}
+        >
+          {imageSource.contentBlockedReason ??
+            (imageStatus === "failed"
+              ? "浏览器无法显示此图片，请重新读取或下载原件"
+              : "正在核验并读取原图，请稍候")}
         </div>
-        <Button size="sm" className="mt-2" onClick={() => void refreshMedia()}>
-          重新加载预览
-        </Button>
+        {!imageSource.contentPending && (
+          <Button size="sm" className="mt-2" onClick={() => void refreshMedia()}>
+            重新加载预览
+          </Button>
+        )}
       </section>
     );
   }

@@ -1,6 +1,5 @@
 """Owner-controlled registration, authenticated deployment, and release CAS."""
 
-import asyncio
 import uuid
 from typing import Literal
 
@@ -10,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.training_datasets import lock_owner
 from app.db.models.project import Project
+from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.trained_model import (
     ModelDeployment,
     ModelRelease,
@@ -144,18 +144,39 @@ async def model_detail(
         )
     ).all()
     rendered_deployments = []
+    dataset = None
     for item in deployments:
         rendered = ModelDeploymentOut.model_validate(item).model_dump(mode="json")
         if item.status == "ready" and item.trial.get("task_id"):
-            from app.services.storage import storage_service
-
-            key = f"projects/{project.id}/datasets/{version.provenance['dataset_id']}/media/{item.trial['task_id']}"
-            url = await asyncio.to_thread(
-                storage_service.generate_download_url,
-                key,
-                expires_in=600,
-                bucket=storage_service.training_bucket,
-                align=False,
+            if dataset is None:
+                dataset = await db.get(
+                    TrainingDatasetVersion,
+                    uuid.UUID(version.provenance["dataset_id"]),
+                )
+            owner, key = service.frozen_sample_location(
+                project.id, dataset, item.trial["task_id"]
+            )
+            sample = next(
+                (
+                    member
+                    for member in dataset.manifest.get("samples", [])
+                    if member.get("task_id") == item.trial["task_id"]
+                ),
+                {},
+            )
+            url = await service.storage_io.read(
+                db,
+                owner,
+                "training_model_url",
+                lambda transport: transport.generate_download_url(
+                    key,
+                    expires_in=600,
+                    bucket=owner.bucket,
+                    align=False,
+                ),
+                object_key=key,
+                sha256=sample.get("sha256"),
+                size_bytes=sample.get("size_bytes"),
             )
             rendered["trial"] = {**rendered["trial"], "sample_url": url}
         rendered_deployments.append(rendered)
@@ -300,15 +321,21 @@ async def download_model(
 ) -> dict:
     await lock_owner(db, user, project)
     version = await service.load_version(db, project.id, version_id)
-    from app.services.storage import storage_service
-
-    url = await asyncio.to_thread(
-        storage_service.generate_download_url,
-        version.artifact["key"],
-        expires_in=600,
-        bucket=storage_service.training_bucket,
-        download_name="best.pt",
-        align=False,
+    owner = await service.owner_for_model(db, version)
+    url = await service.storage_io.read(
+        db,
+        owner,
+        "training_model_url",
+        lambda transport: transport.generate_download_url(
+            version.artifact["key"],
+            expires_in=600,
+            bucket=owner.bucket,
+            download_name="best.pt",
+            align=False,
+        ),
+        object_key=version.artifact["key"],
+        sha256=version.artifact["sha256"],
+        size_bytes=version.artifact["size_bytes"],
     )
     return {
         "url": url,

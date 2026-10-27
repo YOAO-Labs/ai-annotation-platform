@@ -29,6 +29,54 @@ function makeAiBox(overrides: Partial<AiBox> = {}): AiBox {
 const noop = () => {};
 
 describe("AIPredictionCardContent", () => {
+  it("distinguishes unavailable content, loading and retryable errors for the original candidate", () => {
+    const retry = vi.fn();
+    const box = makeAiBox({
+      geometry: {
+        type: "raster_mask",
+        mask: {
+          encoding: "coco_rle_ref",
+          size: [3, 3],
+          sha256: "a".repeat(64),
+          object_key: "mask.json",
+          runs: 4,
+          bytes: 20,
+        },
+      },
+    });
+    const props = {
+      box,
+      imageWidth: 3,
+      imageHeight: 3,
+      readOnly: false,
+      onAccept: noop,
+      onReject: noop,
+      onRefine: noop,
+      onRetryRasterMask: retry,
+    };
+    const view = render(<AIPredictionCardContent {...props} />);
+    expect(view.getByRole("status")).toHaveTextContent("尚未加载");
+    expect(view.queryByText("Mask 内容加载中…")).toBeNull();
+    view.rerender(<AIPredictionCardContent {...props} rasterMaskStatus={{ state: "loading" }} />);
+    expect(view.getByRole("status")).toHaveTextContent("加载中");
+    view.rerender(
+      <AIPredictionCardContent
+        {...props}
+        rasterMaskStatus={{
+          state: "error",
+          message: "像素读取失败",
+          retryable: true,
+          reason: "load_failed",
+          backendReason: "mask_storage_unavailable",
+        }}
+      />,
+    );
+    expect(view.getByRole("status")).toHaveTextContent("像素读取失败");
+    fireEvent.click(view.getByText("重试加载"));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(retry).toHaveBeenCalledWith("pred-p1-2");
+  });
+
   it("渲染置信度 + 来源 + 候选序号", () => {
     const { getByText } = render(
       <AIPredictionCardContent

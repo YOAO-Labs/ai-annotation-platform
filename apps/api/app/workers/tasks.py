@@ -2,7 +2,9 @@ from aap_task_contract import normalize_task_fields
 from app.services.ml_capabilities import resolve_model_task
 from app.services.prediction_execution import execution_summary
 import asyncio
+from copy import deepcopy
 import json
+import inspect
 import logging
 import time
 import uuid
@@ -76,6 +78,125 @@ def _retryable_request_context(context: dict | None) -> dict | None:
         return None
     payload = json.dumps(context, ensure_ascii=False, separators=(",", ":")).encode()
     return context if len(payload) <= _MAX_FAILED_PREDICTION_CONTEXT_BYTES else None
+
+
+def _require_image_job_proof(project, proof):
+    if (
+        project is not None
+        and project.data_type == "image"
+        and (not isinstance(proof, dict) or not proof)
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_original_requires_new_request", 409)
+
+
+def _require_image_inputs(task, owner, inputs):
+    if task.file_type == "image" and (owner is None or inputs is None):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_original_requires_new_request", 409)
+
+
+def _require_video_job_proof(project, proof, execution_unit=None):
+    if (
+        project is not None
+        and project.data_type == "video"
+        and execution_unit in {None, "video"}
+        and (
+            not isinstance(proof, dict)
+            or type(proof.get("schema")) is not int
+            or proof["schema"] != 1
+            or proof.get("media_type") != "video"
+        )
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_video_requires_new_request", 409)
+
+
+def _require_video_inputs(task, owner, inputs, execution_unit=None):
+    if (
+        task.file_type == "video"
+        and execution_unit in {None, "video"}
+        and (
+            getattr(owner, "media_type", None) != "video"
+            or inputs is None
+            or inputs.record.contract_version != 3
+        )
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_video_requires_new_request", 409)
+
+
+def _failure_input(owner, task_id):
+    """Keep the original binding even when capture failed before opening inputs."""
+    if owner is None or task_id not in owner.bindings:
+        return {}
+    if getattr(owner, "media_type", None) == "video":
+        return owner.failure_evidence(task_id)
+    binding = owner.failure_binding(task_id)
+    if "original" in binding:
+        return {"original_input": binding}
+    if "reference" in binding:
+        return {"reference_input": binding}
+    return {}
+
+
+def _input_receipt_kwargs(owner, task_id, receipt):
+    if getattr(owner, "media_type", None) == "video":
+        if receipt is None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("prediction_video_requires_new_request", 409)
+        return {"video_input_receipt": receipt}
+    if owner is not None and owner.is_managed(task_id):
+        if receipt is None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("prediction_original_requires_new_request", 409)
+        return {"original_receipt": receipt}
+    return {"reference_receipt": receipt} if receipt is not None else {}
+
+
+async def _upload_crop_inputs(
+    image, boxes, *, task, upload_crop, before_dispatch, cache, **options
+):
+    """Hold at most one encoded crop; only completed URLs enter the parent cache."""
+    from app.workers.roi import CropBatch, box_class_name, crop_inputs_from_boxes
+
+    batch = CropBatch()
+    classes = options.get("parent_class_filter")
+    allowed = set(classes) if classes else None
+    for index, box in enumerate(boxes):
+        if not isinstance(box, dict) or (
+            allowed is not None and box_class_name(box) not in allowed
+        ):
+            continue
+        key = (index, round(options.get("pad", 0.05), 4))
+        if key in cache:
+            cached = cache[key]
+            batch.inputs.append(cached["input"])
+            batch.transforms[str(index)] = cached["transform"]
+            continue
+        prepared = crop_inputs_from_boxes(image, [box], delivery="deferred", **options)
+        batch.skipped_geometry += prepared.skipped_geometry
+        if not prepared.inputs:
+            continue
+        if before_dispatch:
+            await before_dispatch()
+        content = prepared.contents.pop("0")
+        uploaded = upload_crop(task, index, content)
+        url = await uploaded if inspect.isawaitable(uploaded) else uploaded
+        del content, uploaded
+        item = {"id": str(index), "file_path": url}
+        transform = prepared.transforms["0"]
+        batch.inputs.append(item)
+        batch.transforms[str(index)] = transform
+        cache[key] = {"input": item, "transform": transform}
+        del prepared
+    return batch
 
 
 def _stage_totals_snapshot(totals: dict[int, dict]) -> list[dict]:
@@ -245,34 +366,23 @@ def _load_task_image(task):
     避免 worker 容器无法解析 ml_backend_storage_host 的问题。
     """
     import io
+    from contextlib import closing
 
     from PIL import Image
 
-    from app.services.storage import StorageService
+    from app.services.storage import StorageService, require_legacy_task_path
 
+    require_legacy_task_path(task)
     storage = StorageService()
     bucket = storage.datasets_bucket if task.dataset_item_id else storage.bucket
-    obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
-    raw = obj["Body"].read()
-    return Image.open(io.BytesIO(raw)).convert("RGB")
-
-
-def _make_crop_uploader(storage, job_id: str):
-    """v0.18.4 · 返回 ``upload_crop(task, box_idx, jpeg_bytes) -> presigned URL``。
-
-    crop 上传 import 桶 (7 天 lifecycle 自动清), key=``roi-crops/{job_id}/{task_id}/{box_idx}.jpg``,
-    经 ml_backend host 重写返回容器可拉取 URL——对所有走 ``httpx.get`` 的下游后端通用
-    (gsam2/sam3 不支持 ``data:`` URI)。
-    """
-
-    def upload_crop(task, box_idx: int, jpeg_bytes: bytes) -> str:
-        import hashlib
-
-        digest = hashlib.sha256(jpeg_bytes).hexdigest()[:20]
-        key = f"roi-crops/{job_id}/{task.id}/{box_idx}-{digest}.jpg"
-        return storage.upload_crop_bytes(jpeg_bytes, key)
-
-    return upload_crop
+    try:
+        obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
+        with closing(obj["Body"]) as body:
+            raw = body.read()
+        with io.BytesIO(raw) as content, Image.open(content) as image:
+            return image.convert("RGB")
+    finally:
+        storage.client.close()
 
 
 _PAD_BY_DEPTH: dict[int, float] = {1: 0.05, 2: 0.08, 3: 0.12}
@@ -350,6 +460,76 @@ async def _run_task_pipeline(
     upload_crop=None,
     stage_modes=None,
     execution_snapshot_id=None,
+    load_image=None,
+    input_session_factory=None,
+    input_owner_id=None,
+    input_owner_kind="batch_predict",
+    before_dispatch=None,
+    before_transport=None,
+    max_response_bytes=None,
+    settle_model_requests=False,
+    validate_results=None,
+):
+    """Own image handles and, for production ROI calls, durable temporary inputs."""
+    images = []
+
+    def owned_image(current_task):
+        image = (load_image or _load_task_image)(current_task)
+        images.append(image)
+        return image
+
+    async def execute(uploader):
+        return await _execute_task_pipeline(
+            task,
+            stages,
+            stage_clients,
+            stage_contexts,
+            resolve_url=resolve_url,
+            upload_crop=uploader,
+            stage_modes=stage_modes,
+            execution_snapshot_id=execution_snapshot_id,
+            load_image=owned_image,
+            before_dispatch=before_dispatch,
+            before_transport=before_transport,
+            max_response_bytes=max_response_bytes,
+            settle_model_requests=settle_model_requests,
+            validate_results=validate_results,
+        )
+
+    modes = stage_modes or ["crop"] * len(stages)
+    try:
+        if input_session_factory and any(mode == "crop" for mode in modes[1:]):
+            from app.services.prediction_inputs import prediction_inputs
+
+            async with prediction_inputs(
+                input_session_factory,
+                owner_id=input_owner_id,
+                owner_kind=input_owner_kind,
+                task_id=task.id,
+            ) as inputs:
+                return await execute(inputs.upload_crop)
+        return await execute(upload_crop)
+    finally:
+        for image in images:
+            image.close()
+
+
+async def _execute_task_pipeline(
+    task,
+    stages,
+    stage_clients,
+    stage_contexts,
+    *,
+    resolve_url,
+    upload_crop=None,
+    stage_modes=None,
+    execution_snapshot_id=None,
+    load_image=None,
+    before_dispatch=None,
+    before_transport=None,
+    max_response_bytes=None,
+    settle_model_requests=False,
+    validate_results=None,
 ):
     """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
 
@@ -367,11 +547,13 @@ async def _run_task_pipeline(
 
     注: 真正的几何 depth-3 (crop 内检测新子物体 + 坐标回映) 不在本版, 见 0.18.15 计划。
 
-    upload_crop: ``(task, box_idx, jpeg_bytes) -> url``; 非 None → presigned 投递, None → data URI。
+    upload_crop: ``(task, box_idx, jpeg_bytes) -> url | Awaitable[url]``;
+        production awaits each bounded crop upload before dispatch.
     stage_modes: ``list[str]`` 与 stages 等长 (按列表位置), 每项 ``"crop"|"geometry"``; None → 全 crop。
     stage_stats: ``{stage号: {...}}`` —— 源阶段 {detected}; 下游 {targeted, ok, failed, skipped_geometry}。
     """
     from app.workers.roi import (
+        NativeMaskChildOutputUnsupported,
         collect_geometry_shapes,
         crop_inputs_from_boxes,
         geometry_prompts_from_boxes,
@@ -379,6 +561,49 @@ async def _run_task_pipeline(
         remap_geometry_to_image,
     )
     from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
+    from app.services.controlled_segmentation import validate_portable_masks
+    from app.services.raster_mask_storage import (
+        collect_mask_geometries,
+        collect_mask_references,
+    )
+
+    async def predict(stage_index, tasks, context):
+        options = {}
+        if before_transport is not None:
+
+            async def dispatched(transport):
+                await before_transport(transport, stages[stage_index]["stage"])
+
+            options["before_dispatch"] = dispatched
+        if max_response_bytes is not None:
+            options["max_response_bytes"] = max_response_bytes
+        pending = stage_clients[stage_index].predict(tasks, context=context, **options)
+        if settle_model_requests:
+            from app.services.prediction_originals import settled
+
+            results = await settled(pending)
+        else:
+            results = await pending
+        if validate_results is not None:
+            checked = validate_results(results, stages[stage_index]["stage"], context)
+            checked = await checked if inspect.isawaitable(checked) else checked
+            if checked is not None:
+                results = checked
+        return results
+
+    def validate_child_results(child_results):
+        if any(
+            (getattr(result, "meta", None) or {}).get("mask_objects") is not None
+            or collect_mask_geometries(result.result)
+            or any(
+                isinstance(shape, dict) and shape.get("type") == "brushlabels"
+                for shape in result.result or []
+            )
+            for result in child_results
+        ):
+            raise NativeMaskChildOutputUnsupported(
+                "Native child output requires a qualified pixel remap contract"
+            )
 
     lineage = []
     executed_stages = set()
@@ -445,10 +670,17 @@ async def _run_task_pipeline(
         return extra
 
     url = resolve_url(task)
+    if before_dispatch:
+        await before_dispatch()
     executed_stages.add(0)
-    results = await stage_clients[0].predict(
-        [{"id": str(task.id), "file_path": url}], context=stage_contexts[0]
+    results = await predict(
+        0, [{"id": str(task.id), "file_path": url}], stage_contexts[0]
     )
+    # Validate every original envelope before pruning, enrichment or child I/O.
+    # The routed transport has already mapped native classes exactly once.
+    for result in results:
+        if (result.meta or {}).get("mask_objects") is not None:
+            validate_portable_masks(result.result, result.meta)
     if len(stages) == 1:
         for ri, result in enumerate(results):
             tag_shapes(result.result, stages[0], result_index=ri)
@@ -456,9 +688,21 @@ async def _run_task_pipeline(
 
     modes = stage_modes or ["crop"] * len(stages)
     depths = _compute_stage_depths(stages)
-    # geometry 模式纯坐标换算无需原图; 仅当存在 crop 下游阶段时才加载 (省去无谓全图拉取)。
-    needs_image = any(modes[si] == "crop" for si in range(1, len(stages)))
-    image = _load_task_image(task) if needs_image else None
+    # Native prompt parents also need the actual source dimensions before dispatch.
+    native_sizes = [
+        geometry["mask"]["size"]
+        for result in results
+        if (result.meta or {}).get("mask_objects") is not None
+        for geometry in collect_mask_geometries(result.result)
+    ]
+    needs_image = bool(native_sizes) or any(
+        modes[si] == "crop" for si in range(1, len(stages))
+    )
+    image = (load_image or _load_task_image)(task) if needs_image else None
+    if native_sizes and any(
+        size != [image.height, image.width] for size in native_sizes
+    ):
+        raise ValueError("Native root mask size differs from the source image")
     delivery = "presigned" if upload_crop is not None else "data_uri"
     enriched_keys: set[str] = set()
     gpu_arbiter_failures: list[dict] = []
@@ -486,11 +730,6 @@ async def _run_task_pipeline(
         # depth-3 阶段的子下标语义与 root_boxes 不同 (是中间几何), 按 parent_stage 分桶
         # 避免 (idx, pad) 撞键喂错图 (claude[bot] P1)。
         crop_cache_by_parent: dict[int | None, dict] = {}
-        upload_fn = (
-            (lambda idx, buf: upload_crop(task, idx, buf))
-            if upload_crop is not None
-            else None
-        )
         dropped: set[int] = set()
         new_shapes: list[
             dict
@@ -508,15 +747,22 @@ async def _run_task_pipeline(
             pcf = stage.get("parent_class_filter") or None
             if modes[si] == "geometry":
                 # geometry 投递: 全图 URL + 父框归一化列表, 下游 box-seg 出 polygon。
-                geo = geometry_prompts_from_boxes(parent_boxes, parent_class_filter=pcf)
+                geo = geometry_prompts_from_boxes(
+                    parent_boxes,
+                    parent_class_filter=pcf,
+                    mask_objects=(pred_result.meta or {}).get("mask_objects"),
+                )
                 stats[snum]["skipped_geometry"] += geo.skipped_geometry
                 if not geo.prompts:
                     stage_outputs[snum] = []
                     continue
                 stats[snum]["targeted"] += len(geo.prompts)
+                if before_dispatch:
+                    await before_dispatch()
                 try:
                     executed_stages.add(si)
-                    seg_results = await stage_clients[si].predict(
+                    seg_results = await predict(
+                        si,
                         [
                             {
                                 "id": str(task.id),
@@ -524,8 +770,9 @@ async def _run_task_pipeline(
                                 "prompts": geo.prompts,
                             }
                         ],
-                        context=stage_contexts[si],
+                        stage_contexts[si],
                     )
+                    validate_child_results(seg_results)
                     shapes = collect_geometry_shapes(seg_results, parent_boxes)
                     tag_shapes(shapes, stage, parent_boxes, result_index=result_index)
                     stats[snum]["ok"] += len(shapes)
@@ -572,16 +819,30 @@ async def _run_task_pipeline(
             pad = _resolve_pad(stage, depths.get(snum, 2))
             parent_key = stage.get("parent_stage")
             crop_cache = crop_cache_by_parent.setdefault(parent_key, {})
-            batch = crop_inputs_from_boxes(
-                image,
-                parent_boxes,
+            crop_options = dict(
                 pad=pad,
                 parent_class_filter=pcf,
-                delivery=delivery,
-                upload_fn=upload_fn,
-                cache=crop_cache,
                 min_crop_side_px=32,
+                mask_objects=(pred_result.meta or {}).get("mask_objects"),
             )
+            if upload_crop is not None:
+                batch = await _upload_crop_inputs(
+                    image,
+                    parent_boxes,
+                    task=task,
+                    upload_crop=upload_crop,
+                    before_dispatch=before_dispatch,
+                    cache=crop_cache,
+                    **crop_options,
+                )
+            else:
+                batch = crop_inputs_from_boxes(
+                    image,
+                    parent_boxes,
+                    delivery=delivery,
+                    cache=crop_cache,
+                    **crop_options,
+                )
             stats[snum]["skipped_geometry"] += batch.skipped_geometry
             crop_inputs = batch.inputs
             # 默认 (attributes): 对孙子暴露 (可能已富集属性的) 父框几何。
@@ -593,11 +854,12 @@ async def _run_task_pipeline(
                 continue  # 无符合类别/几何的父框 → 本阶段对本图降级跳过
             targeted = {int(ci["id"]) for ci in crop_inputs}
             stats[snum]["targeted"] += len(targeted)
+            if before_dispatch:
+                await before_dispatch()
             try:
                 executed_stages.add(si)
-                ds_results = await stage_clients[si].predict(
-                    crop_inputs, context=stage_contexts[si]
-                )
+                ds_results = await predict(si, crop_inputs, stage_contexts[si])
+                validate_child_results(ds_results)
                 if target == "attributes":
                     merged = merge_classify_attributes(
                         parent_boxes, ds_results, write_keys=write_keys, label=label
@@ -681,6 +943,18 @@ async def _run_task_pipeline(
             root_boxes[:] = [b for i, b in enumerate(root_boxes) if i not in dropped]
         if new_shapes:
             root_boxes.extend(new_shapes)
+        if (pred_result.meta or {}).get("mask_objects") is not None:
+            referenced = {
+                reference["sha256"] for reference in collect_mask_references(root_boxes)
+            }
+            pred_result.meta = {
+                **pred_result.meta,
+                "mask_objects": {
+                    digest: value
+                    for digest, value in pred_result.meta["mask_objects"].items()
+                    if digest in referenced
+                },
+            }
     extra = {
         "pipeline": {
             "stage_count": len(stages),
@@ -719,6 +993,7 @@ async def _run_batch(
     frozen_model_ref: dict | None = None,
     task: str | None = None,
     prompt_type: str | None = None,
+    worker_node_id: str | None = None,
 ):
     """v0.9.5 · 批量预标 worker.
 
@@ -772,6 +1047,7 @@ async def _run_batch(
     from app.services.prediction import PredictionService
     from app.services.task_lock import TaskLockService
     from app.services.batch_permissions import allows_bulk_preannotation
+    from app.services.task_scope import ids_clause
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -837,6 +1113,8 @@ async def _run_batch(
             else None
         )
         precreated_job: AsyncJob | None = None
+        reference_proof = None
+        video_proof = None
         if async_job_id is not None:
             try:
                 precreated_job_id = uuid.UUID(async_job_id)
@@ -865,6 +1143,17 @@ async def _run_batch(
             if frozen_model_ref is not None and saved_ref != frozen_model_ref:
                 raise ValueError("Queued model identity differs from the durable job")
             frozen_model_ref = saved_ref
+            reference_proof = deepcopy(
+                (precreated_job.payload or {}).get("prediction_authority")
+            )
+            video_proof = deepcopy(
+                (precreated_job.payload or {}).get("video_prediction_authority")
+            )
+            if video_proof is not None and (
+                precreated_job.celery_task_id != celery_task_id
+            ):
+                # Never let an old delivery replace the queued attempt identity.
+                return
             if precreated_job.execution_snapshot_id:
                 from app.services.prediction_execution import load_snapshot
 
@@ -897,11 +1186,18 @@ async def _run_batch(
                     snapshot_payload["execution_scope"],
                     snapshot_payload["execution_unit"],
                 )
+                predict_mode = snapshot_payload.get("predict_mode", predict_mode)
             precreated_job.celery_task_id = celery_task_id
             await async_job_svc.mark_running(
                 db, precreated_job.id, celery_task_id=celery_task_id
             )
             await db.commit()
+        _require_image_job_proof(project, reference_proof)
+        _require_video_job_proof(project, video_proof, execution_unit)
+        if reference_proof is not None and video_proof is not None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("video_prediction_authority_invalid")
         if batch_id:
             selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
             if (
@@ -922,7 +1218,7 @@ async def _run_batch(
                     .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
                     .where(
                         Task.project_id == project_uuid,
-                        Task.id.in_(requested_task_ids),
+                        ids_clause(Task.id, requested_task_ids),
                     )
                 )
             ).all()
@@ -1039,7 +1335,7 @@ async def _run_batch(
         if requested_task_ids is not None:
             base_conds = [
                 Task.project_id == project_uuid,
-                Task.id.in_(requested_task_ids),
+                ids_clause(Task.id, requested_task_ids),
             ]
             # 工作台单题交互可对 in_progress 任务运行; bulk 仍只捞 pending。
             if not workbench_scope:
@@ -1055,26 +1351,38 @@ async def _run_batch(
                 Task.project_id == uuid.UUID(project_id),
                 Task.status == "pending",
             ]
-        sel = select(Task).where(*base_conds)
-        if skip_predicted:
+        sel = select(Task).where(*base_conds).order_by(Task.id)
+        if skip_predicted and reference_proof is None and video_proof is None:
             sel = sel.where(Task.total_predictions == 0)
         result = await db.execute(sel)
         tasks = list(result.scalars().all())
         total = len(tasks)
+        from app.services.reference_keys import is_reference
+
+        if execution_unit not in {None, "image"} and any(
+            is_reference(row.file_path) for row in tasks
+        ):
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("reference_requires_image_execution")
+        if (reference_proof is not None or video_proof is not None) and {
+            row.id for row in tasks
+        } != set(requested_task_ids or []):
+            raise ValueError("Frozen prediction task scope changed")
 
         if controlled and any(task.file_type != "image" for task in tasks):
             raise ValueError("Controlled detection task is not an image")
 
-        # v0.11.24 · overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
-        # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
-        if predict_mode == "overwrite" and tasks:
+        # Frame fan-out delegates its writes to a separate owner and never
+        # enters the per-task result loop below. Preserve its existing reset
+        # contract until that owner implements atomic frame replacement.
+        if execution_unit == "frame" and predict_mode == "overwrite" and tasks:
             from app.services.batch import BatchService
 
-            overwrite_actor_id = uuid.UUID(user_id) if user_id else None
             await BatchService(db).clean_task_predictions(
-                [t.id for t in tasks], actor_id=overwrite_actor_id
+                [row.id for row in tasks],
+                actor_id=uuid.UUID(user_id) if user_id else None,
             )
-            await db.flush()
 
         # v0.10.49 · async_jobs 单一真值：建 batch_predict 行 (status=running)。
         # domain 字段（batch_id / ml_backend / prompt / total_tasks）进 payload。
@@ -1125,7 +1433,14 @@ async def _run_batch(
             )
             await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
         else:
-            aj = precreated_job
+            # Cancellation may commit after the initial pending-job claim.
+            # Refresh its payload under the same lock before merging metadata,
+            # otherwise the identity-map copy can erase cancel_requested.
+            aj = await async_job_svc.lock_job(db, precreated_job.id)
+            if aj is None or aj.status != AsyncJobStatus.RUNNING.value:
+                await db.rollback()
+                await engine.dispose()
+                return
             aj.payload = {**(aj.payload or {}), **job_payload}
         await db.commit()
         async_job_id = aj.id
@@ -1144,16 +1459,28 @@ async def _run_batch(
             job_meta=job_meta_base,
         )
 
-        async def _cancel_requested() -> bool:
-            job_for_cancel = await db.get(AsyncJob, async_job_id)
+        async def _cancel_requested(*, lock=False) -> bool:
+            job_for_cancel = (
+                await async_job_svc.lock_job(db, async_job_id)
+                if lock
+                else await db.get(AsyncJob, async_job_id, populate_existing=True)
+            )
             if job_for_cancel is None:
-                return False
-            await db.refresh(job_for_cancel)
+                raise ValueError("preannotation async job is unavailable")
             if job_for_cancel.status == AsyncJobStatus.CANCELLED.value:
                 return True
+            if job_for_cancel.status not in {"pending", "running"}:
+                raise ValueError("preannotation async job is no longer active")
             return bool((job_for_cancel.payload or {}).get("cancel_requested"))
 
         async def _finish_cancelled(cancelled_at_index: int) -> None:
+            job_for_cancel = await async_job_svc.lock_job(db, async_job_id)
+            if job_for_cancel is None or job_for_cancel.status not in {
+                "pending",
+                "running",
+            }:
+                await db.rollback()
+                return
             processed_count = success_count + failed_count
             skipped_count = max(0, total - processed_count)
             duration_ms = int((time.perf_counter() - started_perf) * 1000)
@@ -1197,7 +1524,53 @@ async def _run_batch(
                 },
             )
 
+        snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
+        reference_job = None
+        if reference_proof is not None or video_proof is not None:
+            from app.services.content_snapshot import ContentError
+            from app.services.prediction_references import ReferencePredictionJob
+
+            owner_type = ReferencePredictionJob
+            proof = reference_proof
+            owner_options = {}
+            if video_proof is not None:
+                from app.services.video_prediction_references import VideoPredictionJob
+
+                owner_type = VideoPredictionJob
+                proof = video_proof
+                owner_options["celery_task_id"] = celery_task_id
+            reference_job = owner_type(
+                db,
+                async_job_id,
+                proof,
+                project_id=project_uuid,
+                actor_id=uuid.UUID(user_id) if user_id else None,
+                task_ids=requested_task_ids,
+                batch_id=uuid.UUID(batch_id) if batch_id else None,
+                scope=execution_scope,
+                predict_mode=predict_mode,
+                snapshot_id=snapshot_id,
+                snapshot_digest=snapshot_digest,
+                node_id=worker_node_id,
+                execution_unit=execution_unit,
+                **owner_options,
+            )
+            try:
+                await reference_job.authorize()
+            except ContentError:
+                # Cancellation can commit after scope admission and before
+                # this first source check. Preserve its terminal semantics.
+                await db.rollback()
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=0)
+                    await engine.dispose()
+                    return
+                raise
         if total == 0:
+            if await _cancel_requested(lock=True):
+                await _finish_cancelled(cancelled_at_index=0)
+                await engine.dispose()
+                return
             duration_ms = int((time.perf_counter() - started_perf) * 1000)
             result_payload: dict = {
                 "success_count": 0,
@@ -1330,7 +1703,7 @@ async def _run_batch(
                 stage_clients.append(
                     RoutedMLBackendClient(
                         db,
-                        backend,
+                        uuid.UUID(ml_backend_id),
                         project_id=uuid.UUID(project_id),
                         owner=f"batch:{async_job_id}:stage:{s['stage']}",
                         operation="batch_predict",
@@ -1341,11 +1714,10 @@ async def _run_batch(
                 stage_contexts.append(context)
                 stage_modes.append("crop")
             else:
-                s_backend = await db.get(MLBackend, uuid.UUID(s["ml_backend_id"]))
                 stage_clients.append(
                     RoutedMLBackendClient(
                         db,
-                        s_backend,
+                        uuid.UUID(s["ml_backend_id"]),
                         project_id=uuid.UUID(project_id),
                         owner=f"batch:{async_job_id}:stage:{s['stage']}",
                         operation="batch_predict",
@@ -1372,15 +1744,6 @@ async def _run_batch(
                     )
                 )
 
-        # v0.18.4 · 多阶段时构造 crop 上传器 (presigned 投递, 对所有下游后端通用)。
-        # 单阶段无下游 crop, 不建 (省去对象存储往返)。
-        crop_uploader = None
-        if len(stages) > 1:
-            from app.services.storage import StorageService
-
-            crop_uploader = _make_crop_uploader(StorageService(), str(async_job_id))
-
-        snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
         retry_request_context = (
             None if snapshot_id else _retryable_request_context(stage_contexts[0])
         )
@@ -1406,19 +1769,44 @@ async def _run_batch(
                 for k, v in s.items():
                     bucket[k] = bucket.get(k, 0) + v
 
-        for i, task in enumerate(tasks):
-            if await _cancel_requested():
+        # Rollback expires ORM instances, including unprocessed tasks and cached
+        # backend rows. Keep selection identities independent of that session
+        # state and reload the next task/authority before every attempt. Routed
+        # clients also resolve backend IDs afresh before reusing their transport.
+        selected_ids = [row.id for row in tasks]
+        actor_uuid = uuid.UUID(user_id) if user_id else None
+        backend_uuid = uuid.UUID(ml_backend_id)
+        for i, task_uuid in enumerate(selected_ids):
+            if await _cancel_requested(lock=True):
                 await _finish_cancelled(cancelled_at_index=i)
                 await engine.dispose()
                 return
+            # Also respect a cancellation already waiting for the preceding
+            # task's commit, then release this short lock before any inference.
+            await db.commit()
 
+            project = await db.get(Project, project_uuid, populate_existing=True)
+            actor = (
+                await db.get(User, actor_uuid, populate_existing=True)
+                if actor_uuid
+                else None
+            )
+            task = await db.get(Task, task_uuid, populate_existing=True)
             # Reauthorize the initiating actor against fresh state before each
             # final write: a long inference must not keep writing after the
             # actor's account or project authority was revoked.  A bounded
             # system job (actor is None) keeps its own explicit authority.
-            if actor is not None and await _preannotation_actor_revoked(
-                db, actor, project_uuid, execution_scope
+            if actor_uuid and (
+                actor is None
+                or project is None
+                or await _preannotation_actor_revoked(
+                    db, actor, project_uuid, execution_scope
+                )
             ):
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=i)
+                    await engine.dispose()
+                    return
                 await async_job_svc.mark_failed(
                     db, async_job_id, error="preannotation_actor_revoked"
                 )
@@ -1435,29 +1823,101 @@ async def _run_batch(
                 await engine.dispose()
                 return
 
+            task_inputs = None
             try:
+                if task is None:
+                    raise ValueError("preannotation task is unavailable")
                 if actor is not None:
                     from app.services.prediction_execution import validate_task_scope
 
                     await validate_task_scope(db, project, task, actor, execution_scope)
+                if reference_job is not None:
+                    if getattr(reference_job, "media_type", None) == "video":
+                        await db.commit()
+                    task_inputs = await reference_job.open_inputs(task, SessionLocal)
+                _require_image_inputs(task, reference_job, task_inputs)
+                _require_video_inputs(task, reference_job, task_inputs, execution_unit)
+                video_owner = (
+                    reference_job
+                    if getattr(reference_job, "media_type", None) == "video"
+                    else None
+                )
+
+                async def before_video_transport(transport, stage_id):
+                    # Routing reads belong to the caller; end them before setup
+                    # and source/storage checks perform any physical I/O.
+                    await db.commit()
+                    await video_owner.before_dispatch(
+                        task, transport, stage_id=stage_id
+                    )
+                    await db.commit()
+
+                async def validate_video_results(results, stage_id, context):
+                    from app.services.video_prediction_results import adapt_results
+
+                    context = context or {}
+                    window = (
+                        (context.get("from_frame"), context.get("to_frame"))
+                        if "from_frame" in context or "to_frame" in context
+                        else None
+                    )
+                    direction = context.get("direction") or "forward"
+                    qualified = await adapt_results(
+                        results,
+                        task_uuid,
+                        video_owner.video_probe(task_uuid),
+                        window=window,
+                        direction=direction,
+                    )
+                    await video_owner.register_results(
+                        task_uuid,
+                        stage_id,
+                        qualified,
+                        window=window,
+                        direction=direction,
+                    )
+                    return qualified.results
+
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
                     stages,
                     stage_clients,
                     stage_contexts,
-                    resolve_url=_resolve_task_url,
-                    upload_crop=crop_uploader,
+                    resolve_url=reference_job.resolve_url
+                    if task_inputs
+                    else _resolve_task_url,
+                    upload_crop=task_inputs.upload_crop if task_inputs else None,
+                    load_image=task_inputs.load_image if task_inputs else None,
+                    before_dispatch=(lambda: reference_job.before_dispatch(task))
+                    if reference_job and video_owner is None
+                    else None,
+                    before_transport=before_video_transport if video_owner else None,
+                    max_response_bytes=64 * 1024**2 if video_owner else None,
+                    settle_model_requests=video_owner is not None,
+                    validate_results=validate_video_results if video_owner else None,
                     stage_modes=stage_modes,
                     execution_snapshot_id=snapshot_id,
+                    input_session_factory=None if task_inputs else SessionLocal,
+                    input_owner_id=async_job_id,
                 )
+                if video_owner is not None:
+                    # The original file and source permit end before taking
+                    # cancellation, account, task or candidate write locks.
+                    await video_owner.finish_source(task_uuid)
                 _accumulate_stage_stats(stage_stats)
                 gpu_arbiter_failures.extend(
                     (pipeline_extra or {})
                     .get("pipeline", {})
                     .get("gpu_arbiter_failures", [])
                 )
-                executed_backend_id = stage_clients[0].last_instance_id or backend.id
+                executed_backend_id = stage_clients[0].last_instance_id or backend_uuid
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
+                # This lock is deliberately acquired after inference. Cancel and
+                # every result for this task share the same commit boundary.
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=i)
+                    await engine.dispose()
+                    return
                 # Re-check under locks after inference: a revocation landing
                 # mid-run must not let this write commit.  The account/project
                 # share locks are held until the commit below, so a concurrent
@@ -1466,6 +1926,10 @@ async def _run_batch(
                     db, actor, project_uuid, execution_scope
                 ):
                     await db.rollback()
+                    if await _cancel_requested(lock=True):
+                        await _finish_cancelled(cancelled_at_index=i)
+                        await engine.dispose()
+                        return
                     await async_job_svc.mark_failed(
                         db, async_job_id, error="preannotation_actor_revoked"
                     )
@@ -1481,10 +1945,18 @@ async def _run_batch(
                     )
                     await engine.dispose()
                     return
+                if reference_job is not None:
+                    await reference_job.lock_key()
                 if actor is not None:
                     await validate_task_scope(
                         db, project, task, actor, execution_scope, lock=True
                     )
+                reference_receipt = (
+                    await reference_job.final_receipt(task) if reference_job else None
+                )
+                receipt_kwargs = _input_receipt_kwargs(
+                    reference_job, task_uuid, reference_receipt
+                )
                 if snapshot_id:
                     pipeline_extra = {
                         **(pipeline_extra or {}),
@@ -1495,12 +1967,22 @@ async def _run_batch(
                         },
                     }
                 partial_prediction_ids = []
-                if snapshot_id and not results:
+                if not results:
                     raise ValueError("管线未返回任务结果")
-                for pred_result in results:
-                    created_prediction = await pred_svc.create_from_ml_result(
+                # Replace only a successfully qualified task, in the same
+                # transaction as *all* its new candidates and metadata. Any
+                # subsequent error restores old predictions and accepted AI
+                # annotations together with their counters and evidence.
+                if predict_mode == "overwrite":
+                    from app.services.batch import BatchService
+
+                    await BatchService(db).clean_task_predictions(
+                        [task_uuid], actor_id=actor_uuid
+                    )
+                writes = [
+                    dict(
                         task_id=task.id,
-                        project_id=uuid.UUID(project_id),
+                        project_id=project_uuid,
                         ml_backend_id=executed_backend_id,
                         result=pred_result.result,
                         score=pred_result.score,
@@ -1515,15 +1997,39 @@ async def _run_batch(
                             else {}
                         ),
                     )
+                    for pred_result in results
+                ]
+                native_receipts = (
+                    await reference_job.qualify_native_results(
+                        task, reference_receipt, writes
+                    )
+                    if reference_job
+                    else [None] * len(writes)
+                )
+                task_cost = 0.0
+                for pred_result, write, native_receipt in zip(
+                    results, writes, native_receipts, strict=True
+                ):
+                    created_prediction = await pred_svc.create_from_ml_result(
+                        **write,
+                        **(
+                            {**receipt_kwargs, "video_result_receipt": native_receipt}
+                            if video_owner is not None
+                            else {"background_native_reference_receipt": native_receipt}
+                            if native_receipt is not None
+                            else receipt_kwargs
+                        ),
+                    )
                     partial_prediction_ids.append(str(created_prediction.id))
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
                         cost = pred_result.meta.get("total_cost")
                         if cost is not None:
-                            running_total_cost += float(cost)
-                if snapshot_id and (pipeline_extra or {}).get("pipeline", {}).get(
-                    "partial"
-                ):
+                            task_cost += float(cost)
+                partial = snapshot_id and (pipeline_extra or {}).get(
+                    "pipeline", {}
+                ).get("partial")
+                if partial:
                     partial_failure = await pred_svc.create_failed(
                         task_id=task.id,
                         project_id=project_uuid,
@@ -1541,19 +2047,33 @@ async def _run_batch(
                             "stage_errors": pipeline_extra["pipeline"].get(
                                 "stage_errors", []
                             ),
+                            **_failure_input(reference_job, task_uuid),
                         },
                     )
                     partial_failure.execution_snapshot_id = snapshot_id
-                    failed_prediction_ids.append(str(partial_failure.id))
+                    partial_failure_id = str(partial_failure.id)
+                if video_owner is not None:
+                    await video_owner.recheck_credentials()
+                await db.commit()
+                running_total_cost += task_cost
+                if partial:
+                    failed_prediction_ids.append(partial_failure_id)
                     failed_count += 1
                 else:
                     success_count += 1
-                await db.commit()
             except Exception as exc:
+                # In particular, never commit the first candidate (or an
+                # overwrite deletion) together with a later write's failure.
+                await db.rollback()
                 gpu_arbiter_error = gpu_arbiter_failure_record(exc)
                 if gpu_arbiter_error is not None:
                     gpu_arbiter_failures.append(gpu_arbiter_error)
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=i)
+                    await engine.dispose()
+                    return
                 failure_extra: dict = {"execution_scope": execution_scope}
+                failure_extra.update(_failure_input(reference_job, task_uuid))
                 if snapshot_id:
                     failure_extra["execution_snapshot"] = {
                         "id": str(snapshot_id),
@@ -1564,9 +2084,9 @@ async def _run_batch(
                 if gpu_arbiter_error is not None:
                     failure_extra["gpu_arbiter_error"] = gpu_arbiter_error
                 failed = await pred_svc.create_failed(
-                    task_id=task.id,
+                    task_id=task_uuid,
                     project_id=uuid.UUID(project_id),
-                    ml_backend_id=stage_clients[0].last_instance_id or backend.id,
+                    ml_backend_id=stage_clients[0].last_instance_id or backend_uuid,
                     error_type=(
                         gpu_arbiter_error["error_code"]
                         if gpu_arbiter_error is not None
@@ -1584,6 +2104,13 @@ async def _run_batch(
                 failed_prediction_ids.append(str(failed.id))
                 await db.commit()
                 failed_count += 1
+            finally:
+                if reference_job is not None:
+                    # A hard cancellation can bypass the ordinary error path.
+                    # Release business locks before independent storage cleanup.
+                    if db.in_transaction():
+                        await db.rollback()
+                    await reference_job.close_inputs(task_uuid)
 
             # v0.18.6 · 逐阶段累加快照随进度推送 (多阶段才有), 让前端运行中实时更新卡上徽标。
             # 按 5% 步长 (或末条) 节流, 避免每条都塞快照; 阶段数少, payload 增量可忽略。
@@ -1609,7 +2136,7 @@ async def _run_batch(
                     except Exception:
                         await db.rollback()
 
-        if await _cancel_requested():
+        if await _cancel_requested(lock=True):
             await _finish_cancelled(cancelled_at_index=success_count + failed_count)
             await engine.dispose()
             return
@@ -1623,10 +2150,14 @@ async def _run_batch(
         # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
         # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
         if batch_id and not all_failed:
-            batch = await db.get(TaskBatch, uuid.UUID(batch_id))
+            batch = await db.scalar(
+                select(TaskBatch)
+                .where(TaskBatch.id == uuid.UUID(batch_id))
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
             if batch and batch.status == BatchStatus.ACTIVE:
                 batch.status = BatchStatus.PRE_ANNOTATED
-                await db.commit()
 
         # v0.10.49 · 结束时点 → 写 async_job final stats (result JSONB)
         duration_ms = int((time.perf_counter() - started_perf) * 1000)
@@ -1703,7 +2234,15 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> None:
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
                 return
-            await async_job_svc.mark_failed(db, aj.id, error=error_message)
+            aj = await async_job_svc.lock_job(db, aj.id)
+            if aj is None or aj.status not in {"pending", "running"}:
+                return
+            if (aj.payload or {}).get("cancel_requested"):
+                await async_job_svc.mark_cancelled(
+                    db, aj.id, result={"reason": "cancelled_by_user"}
+                )
+            else:
+                await async_job_svc.mark_failed(db, aj.id, error=error_message)
             await notify_job_terminal(db, job_id=aj.id)
             await db.commit()
     finally:
@@ -1788,5 +2327,6 @@ def batch_predict(
             execution_scope=execution_scope,
             async_job_id=async_job_id,
             frozen_model_ref=frozen_model_ref,
+            worker_node_id=f"worker:{self.request.hostname}",
         )
     )

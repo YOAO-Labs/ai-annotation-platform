@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
 from typing import Literal
@@ -7,6 +7,17 @@ from app.schemas._jsonb_types import LidarAxisConvention, SensorCalibration
 from app.schemas.scene_pose import FramePose
 from app.schemas.user import UserBrief
 from app.schemas.image_pyramid import ImagePyramidSummary
+
+
+class TaskContentIdentity(BaseModel):
+    owner_kind: Literal["dataset_asset", "task_original"]
+    asset_id: UUID | None
+    task_original_id: UUID | None
+    sha256: str
+    size_bytes: int
+    verification_state: Literal["verified"]
+    original_availability: Literal["unchecked"]
+    preview_availability: Literal["unknown"]
 
 
 class VideoMetadata(BaseModel):
@@ -32,6 +43,9 @@ class TaskOut(BaseModel):
     display_id: str
     file_name: str
     file_url: str | None = None
+    original_identity_path: str | None = None
+    storage_mode: str = "managed"
+    content_sha256: str | None = None
     file_type: str
     tags: list = []
     status: str
@@ -106,9 +120,11 @@ class TaskMaskCapabilitiesResponse(BaseModel):
 
 
 class TaskVideoManifestResponse(BaseModel):
+    metadata_generation_id: UUID | None = None
     task_id: UUID
     dataset_item_id: UUID | None = None
-    video_url: str
+    original_identity_path: str | None = None
+    video_url: str | None = None
     poster_url: str | None = None
     metadata: VideoMetadata
     expires_in: int = 3600
@@ -118,7 +134,9 @@ class PointCloudCameraOut(BaseModel):
     name: str
     role: str
     dataset_item_id: UUID
-    image_url: str
+    link_id: UUID | None = None
+    original_identity_path: str | None = None
+    image_url: str | None = None
     width: int | None = None
     height: int | None = None
     calibration: SensorCalibration | None = None
@@ -128,7 +146,8 @@ class PointCloudCameraOut(BaseModel):
 
 class TaskPointCloudManifestResponse(BaseModel):
     task_id: UUID
-    point_cloud_url: str
+    original_identity_path: str | None = None
+    point_cloud_url: str | None = None
     point_cloud_format: str = "pcd"
     cameras: list[PointCloudCameraOut]
     expires_in: int
@@ -153,6 +172,7 @@ class VideoFrameTimetableEntry(BaseModel):
 
 
 class TaskVideoFrameTimetableResponse(BaseModel):
+    metadata_generation_id: UUID | None = None
     task_id: UUID
     fps: float | None = None
     frame_count: int | None = None
@@ -181,8 +201,8 @@ class TaskListResponse(BaseModel):
 
 class UploadInitRequest(BaseModel):
     project_id: UUID
-    file_name: str
-    content_type: str = "image/jpeg"
+    file_name: str = Field(min_length=1, max_length=500)
+    content_type: str = Field(default="image/jpeg", min_length=1, max_length=255)
 
 
 class UploadInitResponse(BaseModel):

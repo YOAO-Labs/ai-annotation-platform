@@ -15,6 +15,7 @@ import type {
 import { randomUUID } from "node:crypto";
 
 import { expect, test as base, type SeedData } from "../fixtures/seed";
+import { injectVideoResponseFault } from "../fixtures/video-response-fault";
 import {
   expectVideoFramePixels,
   sampleFrameMarkers,
@@ -48,8 +49,6 @@ const navigation = (page: Page) => page.getByTestId("issue-frame-navigation");
 const modal = (page: Page) => page.getByRole("dialog").filter({ hasText: "标记问题 (Issue)" });
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 const pathOf = (url: string) => new URL(url).pathname;
-const isFixtureMedia = (url: URL, fixture: string) =>
-  url.pathname.endsWith(`/e2e/video/webcodecs/${fixture}/source.mp4`);
 
 /** Fixture-specific cancellations beyond the shared workbench policy. */
 function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
@@ -62,8 +61,8 @@ function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
     },
     {
       method: "GET",
-      path: new RegExp(`/e2e/video/webcodecs/${fixture.fixtureName}/source\\.mp4$`),
-      reason: "retiring the task aborts in-flight fixture media fetches",
+      path: /^\/api\/v1\/media\/original-playback\/[0-9a-f-]{36}$/,
+      reason: "retiring the task aborts its held original-video response",
     },
   ];
 }
@@ -106,6 +105,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
   issueCase: async ({ page, request, seed, browser, videoFixture }, provideFixture, testInfo) => {
     const data = await seed.owned();
     const video = await seed.videoWebCodecs(data.project_id, { fixture: videoFixture });
+    await injectVideoResponseFault(page, video.dataset_item_id, video.frame_expectations);
     const token = await seed.accessToken(data.admin_email);
     await json(
       await request.patch(`${API_BASE}/api/v1/projects/${data.project_id}`, {
@@ -156,8 +156,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     };
     const errors: RequestErrorSignal[] = [];
     const pending: Promise<void>[] = [];
-    const relevant = (url: string) =>
-      pathOf(url).startsWith("/api/v1/") || isFixtureMedia(new URL(url), videoFixture);
+    const relevant = (url: string) => pathOf(url).startsWith("/api/v1/");
     page.on("pageerror", (error) => errors.push({ kind: "page", message: error.message }));
     page.on("console", (message) => {
       if (message.type() === "error")
@@ -511,6 +510,7 @@ async function holdMedia(page: Page, fixture: IssueCase) {
   const fetched: Array<{ path: string; status: number; bytes: number }> = [];
   const deliveries: Promise<void>[] = [];
   const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
     const delivery = (async () => {
       const response = await route.fetch();
       const bytes = (await response.body()).byteLength;
@@ -524,7 +524,8 @@ async function holdMedia(page: Page, fixture: IssueCase) {
     deliveries.push(delivery);
     await delivery;
   };
-  const matcher = (url: URL) => isFixtureMedia(url, fixture.fixtureName);
+  const matcher = (url: URL) =>
+    /^\/api\/v1\/media\/original-playback\/[0-9a-f-]{36}$/.test(url.pathname);
   await page.route(matcher, handler);
   return {
     release,

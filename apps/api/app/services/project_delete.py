@@ -77,6 +77,16 @@ async def delete_project_records(db: AsyncSession, project: Project) -> None:
         delete(ProjectTaskDataset).where(ProjectTaskDataset.project_id == project.id)
     )
     params = {"pid": str(project.id)}
+    from app.db.models.annotation_comment import AnnotationComment
+    from app.services.comment_attachment_uploads import retire_for_comments
+
+    await retire_for_comments(
+        db,
+        select(AnnotationComment.id).where(AnnotationComment.project_id == project.id),
+    )
+    from app.services.guide_asset_references import retire_for_projects
+
+    await retire_for_projects(db, [project.id])
     await db.execute(
         text("DELETE FROM annotation_comments WHERE project_id = :pid"), params
     )

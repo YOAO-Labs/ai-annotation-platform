@@ -14,7 +14,7 @@ const REPO_ROOT = resolve(here, "../..");
 const ROUTES_DIR = resolve(REPO_ROOT, "apps/api/app/api/v1");
 const OUT = resolve(here, "../api/guides/_routes.generated.md");
 
-const ROUTE_RE = /@router\.(get|post|put|patch|delete)\s*\(\s*["']([^"']+)["']/gi;
+const ROUTE_RE = /@router\.(get|post|put|patch|delete)\s*\(\s*["']([^"']*)["']/gi;
 const SKIP = new Set(["__init__.py", "router.py", "_test_seed.py"]);
 
 // 递归收集路由模块:顶层 *.py + 子包(如 tasks/)内的 *.py。
@@ -48,7 +48,7 @@ for (const mod of modules) {
   let m;
   ROUTE_RE.lastIndex = 0;
   while ((m = ROUTE_RE.exec(src)) !== null) {
-    routes.push({ method: m[1].toUpperCase(), path: m[2] });
+    routes.push({ method: m[1].toUpperCase(), path: m[2] || "/" });
   }
   if (!routes.length) continue;
   md += `## \`${mod.label}\`\n\n`;

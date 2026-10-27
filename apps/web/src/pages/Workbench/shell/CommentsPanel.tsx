@@ -184,6 +184,12 @@ function attachmentErrorMessage(error: unknown): string {
       ? (error as { status?: unknown }).status
       : undefined;
   const detail = errorMessage(error);
+  if (status === 409) {
+    return `HTTP 409：${detail}。历史附件尚未登记时，请联系原上传者重新上传并发送评论。`;
+  }
+  if (status === 410) {
+    return "HTTP 410：附件已过期，请联系原上传者重新上传并发送评论。";
+  }
   return typeof status === "number" ? `HTTP ${status}${detail ? `：${detail}` : ""}` : detail;
 }
 
@@ -255,7 +261,9 @@ export function CommentsPanel({
     Record<string, string>
   >({});
   const rowActionPendingRef = useRef(new Set<string>());
-  const attachmentDownloadPendingRef = useRef(new Set<string>());
+  const attachmentDownloadRequestsRef = useRef(new Map<string, AbortController>());
+  const attachmentDownloadMountedRef = useRef(false);
+  const attachmentDownloadScopeRef = useRef<string | null>(null);
   const taskScopeKey = `${projectId ?? ""}:${taskId ?? ""}`;
   const [readAnnotationOverride, setReadAnnotationOverride] = useState<{
     owner: string;
@@ -742,10 +750,22 @@ export function CommentsPanel({
     projectId ?? null,
     composerTaskId ?? null,
   ]);
+  attachmentDownloadScopeRef.current = mutationScopeKey;
+  useLayoutEffect(() => {
+    attachmentDownloadMountedRef.current = true;
+    setAttachmentDownloadStates({});
+    const requests = attachmentDownloadRequestsRef.current;
+    return () => {
+      attachmentDownloadMountedRef.current = false;
+      for (const controller of requests.values()) controller.abort();
+      requests.clear();
+    };
+  }, [mutationScopeKey]);
+
   const handleAttachmentDownload = useCallback(
     async (rowKey: string, rowAnnotationId: string, storageKey: string, fileName: string) => {
       const stateKey = `${mutationScopeKey}:${rowKey}:${storageKey}`;
-      if (attachmentDownloadPendingRef.current.has(stateKey)) return;
+      if (attachmentDownloadRequestsRef.current.has(stateKey)) return;
 
       // Capture the owner before the first await. A retained panel may finish
       // this flow after logout, account replacement, or a task switch.
@@ -762,63 +782,59 @@ export function CommentsPanel({
         }
       };
 
-      if (!isOwnerCurrent()) return;
-      attachmentDownloadPendingRef.current.add(stateKey);
+      if (!isOwnerCurrent() || !attachmentDownloadMountedRef.current) return;
+      const controller = new AbortController();
+      attachmentDownloadRequestsRef.current.set(stateKey, controller);
+      const isRequestCurrent = () =>
+        attachmentDownloadMountedRef.current &&
+        attachmentDownloadScopeRef.current === mutationScopeKey &&
+        attachmentDownloadRequestsRef.current.get(stateKey) === controller &&
+        !controller.signal.aborted &&
+        isOwnerCurrent();
       setAttachmentDownloadStates((previous) => ({
         ...previous,
         [stateKey]: { pending: true, error: null },
       }));
 
       try {
-        const signed = await commentsApi.attachmentDownloadUrl(rowAnnotationId, storageKey);
-        if (!isOwnerCurrent()) return;
-        if (
-          !signed ||
-          typeof signed.download_url !== "string" ||
-          signed.download_url.length === 0
-        ) {
-          throw new Error("下载地址无效");
-        }
-
-        const response = await fetch(signed.download_url, { credentials: "omit" });
-        if (!isOwnerCurrent()) return;
-        if (!response.ok) {
-          const error = new Error(`HTTP ${response.status}`) as Error & { status: number };
-          error.status = response.status;
-          throw error;
-        }
-
-        const blob = await response.blob();
-        if (!isOwnerCurrent()) return;
+        const blob = await commentsApi.attachmentDownload(
+          rowAnnotationId,
+          storageKey,
+          controller.signal,
+        );
+        if (!isRequestCurrent()) return;
         if (typeof URL.createObjectURL !== "function") {
           throw new Error("当前浏览器不支持附件下载");
         }
-        if (!isOwnerCurrent()) return;
+        if (!isRequestCurrent()) return;
 
         const objectUrl = URL.createObjectURL(blob);
         let anchor: HTMLAnchorElement | null = null;
         try {
-          if (!isOwnerCurrent()) return;
+          if (!isRequestCurrent()) return;
           anchor = document.createElement("a");
           anchor.href = objectUrl;
           anchor.download = fileName || "附件";
           anchor.style.display = "none";
           document.body.appendChild(anchor);
-          if (!isOwnerCurrent()) return;
+          if (!isRequestCurrent()) return;
           anchor.click();
         } finally {
           anchor?.remove();
           if (typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(objectUrl);
         }
       } catch (error) {
-        if (!isOwnerCurrent()) return;
+        if (!isRequestCurrent()) return;
         setAttachmentDownloadStates((previous) => ({
           ...previous,
           [stateKey]: { pending: false, error: attachmentErrorMessage(error) },
         }));
       } finally {
-        attachmentDownloadPendingRef.current.delete(stateKey);
-        if (isOwnerCurrent()) {
+        const current = isRequestCurrent();
+        if (attachmentDownloadRequestsRef.current.get(stateKey) === controller) {
+          attachmentDownloadRequestsRef.current.delete(stateKey);
+        }
+        if (current) {
           setAttachmentDownloadStates((previous) => {
             const current = previous[stateKey];
             if (!current) return previous;

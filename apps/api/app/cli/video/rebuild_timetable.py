@@ -2,22 +2,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import tempfile
 import uuid
-from pathlib import Path
 from typing import Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import async_session, engine
-from app.db.models.dataset import DatasetItem, VideoFrameIndex
-from app.services.storage import StorageService
-from app.services.video_frame_service import (
-    select_sparse_anchor_rows,
-    source_key_for_item,
-)
-from app.workers.media import probe_video_frame_timetable
+from app.db.models.dataset import DatasetItem
+from app.services.video_frame_service import select_sparse_anchor_rows
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,65 +80,62 @@ async def rebuild_item_timetable(
     db: AsyncSession,
     item: DatasetItem,
     *,
-    storage: StorageService | None = None,
+    storage: object | None = None,
     dry_run: bool = False,
     sparse_stride: int = 1,
 ) -> int:
-    storage = storage or StorageService()
-    meta = dict(item.metadata_ or {})
-    video_meta = dict(meta.get("video") or {})
-    source_key = source_key_for_item(item)
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives as derivatives
+    from app.services.content_snapshot import ContentError
+    from app.workers.media_derivatives import run_outputs
 
-    with tempfile.TemporaryDirectory(prefix="anno-video-timetable-") as tmp:
-        suffix = Path(item.file_name).suffix or ".mp4"
-        input_path = Path(tmp) / f"source{suffix}"
-        with input_path.open("wb") as fh:
-            storage.client.download_fileobj(
-                Bucket=storage.bucket_for_cache_key(source_key),
-                Key=source_key,
-                Fileobj=fh,
-            )
-        rows = probe_video_frame_timetable(input_path)
-
-    # sparse: 只持久化锚点行 (+ 关键帧)。frame_timetable_frame_count 仍记录源视频
-    # 总帧数, 中间帧的 pts_ms 在读取时由相邻锚点插值/估算补齐 (对外语义不变)。
-    total_frames = len(rows)
-    persisted_rows = select_sparse_anchor_rows(rows, sparse_stride)
-
+    source = await originals.pin(db, "dataset_item", item.id)
+    delegation = originals.system_authorization("dataset_item", item.id, source)
+    authority = await originals.delegated(db, delegation)
+    stride = max(1, int(sparse_stride))
     if dry_run:
-        return len(persisted_rows)
+        try:
+            current = await derivatives.metadata(db, item, source)
+            _, frames = derivatives.metadata_result(current)
+        except ContentError as exc:
+            if exc.code not in {
+                "video_metadata_unpinned",
+                "video_metadata_changed",
+                "video_metadata_invalid",
+            }:
+                raise
+            return 0
+        return len(select_sparse_anchor_rows(frames, stride))
 
-    await db.execute(
-        delete(VideoFrameIndex).where(VideoFrameIndex.dataset_item_id == item.id)
+    output, _ = await derivatives.prepare(
+        db,
+        item.id,
+        authority,
+        "metadata",
+        spec={"schema": 1, "timetable_stride": stride},
+        force=True,
     )
-    db.add_all(
-        [
-            VideoFrameIndex(
-                dataset_item_id=item.id,
-                frame_index=row["frame_index"],
-                pts_ms=row["pts_ms"],
-                is_keyframe=row["is_keyframe"],
-                pict_type=row.get("pict_type"),
-                byte_offset=row.get("byte_offset"),
-            )
-            for row in persisted_rows
-        ]
+    output_id, item_id = output.id, item.id
+    await db.commit()
+    await run_outputs([str(output_id)])
+    current_item = await db.get(DatasetItem, item_id, populate_existing=True)
+    current_output = await db.get(
+        VideoDerivativeOutput, output_id, populate_existing=True
     )
-    video_meta["frame_timetable_frame_count"] = total_frames
-    video_meta.pop("frame_timetable_error", None)
-    meta["video"] = video_meta
-    item.metadata_ = meta
-    await db.commit()
-    return len(persisted_rows)
-
-
-async def _mark_item_error(db: AsyncSession, item: DatasetItem, error: str) -> None:
-    meta = dict(item.metadata_ or {})
-    video_meta = dict(meta.get("video") or {})
-    video_meta["frame_timetable_error"] = error
-    meta["video"] = video_meta
-    item.metadata_ = meta
-    await db.commit()
+    if (
+        current_item is None
+        or current_output is None
+        or current_item.video_output_id != output_id
+    ):
+        raise ContentError("video_metadata_rebuild_failed", 409)
+    # Recheck the exact pinned original before accepting the newly published owner.
+    current_source = await originals.check(db, authority)
+    published = await derivatives.metadata(db, current_item, current_source)
+    info, frames = derivatives.metadata_result(published)
+    if info.frame_timetable_error:
+        raise ContentError("video_timetable_rebuild_failed", 409)
+    return len(select_sparse_anchor_rows(frames, stride))
 
 
 async def async_main(argv: Sequence[str] | None = None) -> int:
@@ -177,8 +167,6 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
             except Exception as exc:
                 failures += 1
                 await db.rollback()
-                if not args.dry_run:
-                    await _mark_item_error(db, item, str(exc))
                 print(f"failed {item.id}: {exc}")
                 if not args.keep_going:
                     break

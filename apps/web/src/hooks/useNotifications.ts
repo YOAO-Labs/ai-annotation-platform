@@ -1,9 +1,19 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notificationsApi } from "../api/notifications";
+import { useAuthStore } from "@/stores/authStore";
+import { useSessionRevision } from "@/hooks/useSessionGuard";
+
+function useNotificationOwner() {
+  const userId = useAuthStore((state) => state.user?.id ?? null);
+  const superAdmin = useAuthStore((state) => state.user?.role === "super_admin");
+  const revision = useSessionRevision();
+  return { userId, superAdmin, revision };
+}
 
 export function useNotifications(enabled = true, limit = 30) {
+  const owner = useNotificationOwner();
   return useInfiniteQuery({
-    queryKey: ["notifications", "list", { limit }],
+    queryKey: ["notifications", "list", { limit }, owner],
     queryFn: ({ pageParam }: { pageParam: number }) =>
       notificationsApi.list({ limit, offset: pageParam }),
     initialPageParam: 0,
@@ -20,8 +30,9 @@ export function useNotifications(enabled = true, limit = 30) {
 }
 
 export function useUnreadCount() {
+  const owner = useNotificationOwner();
   return useQuery({
-    queryKey: ["notifications", "unread-count"],
+    queryKey: ["notifications", "unread-count", owner],
     queryFn: () => notificationsApi.unreadCount(),
     refetchInterval: 30_000,
     // 断线期间错过的事件在回到前台时立即补偿；后台节流由浏览器决定。

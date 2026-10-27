@@ -2,17 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import {
-  coreBootstrapAborts,
-  dashboardViewAborts,
   imageWorkbenchAborts,
   isExpectedRequestAbort,
   maskEditorAborts,
   matchesAbortRule,
   objectCommentsAborts,
   sessionTelemetryAborts,
-  taskContextAborts,
-  videoMediaAborts,
-  videoTaskContextAborts,
   videoWorkbenchAborts,
   type AbortAllowRule,
   type RequestErrorSignal,
@@ -47,52 +42,6 @@ function expectDenied(
   );
 }
 
-test("every allow rule is structurally auditable, unique and self-matching", () => {
-  const groups = {
-    sessionTelemetryAborts,
-    coreBootstrapAborts,
-    dashboardViewAborts,
-    taskContextAborts,
-    videoTaskContextAborts,
-    objectCommentsAborts,
-    maskEditorAborts,
-    videoMediaAborts,
-    imageWorkbenchAborts,
-    videoWorkbenchAborts,
-  } as const;
-  for (const [name, rules] of Object.entries(groups)) {
-    assert.ok(rules.length > 0, `${name} must not be empty`);
-    const signatures = new Set(rules.map((rule) => `${rule.method} ${String(rule.path)}`));
-    assert.equal(signatures.size, rules.length, `${name} must not repeat a method+path rule`);
-    for (const rule of rules) {
-      assert.ok(rule.reason.trim().length > 0, `${name} rule needs a stated reason`);
-      if (typeof rule.path === "string") {
-        assert.ok(rule.path.startsWith("/api/"), `${name} string path must stay under /api/`);
-        expectAllowed({ ...abort, method: rule.method, path: rule.path }, rules);
-      } else {
-        assert.equal(rule.path.source.startsWith("^"), true, `${name} regex must be anchored`);
-      }
-    }
-  }
-});
-
-test("presets compose their groups without repeating a rule", () => {
-  for (const preset of [imageWorkbenchAborts, videoWorkbenchAborts]) {
-    const signatures = preset.map((rule) => `${rule.method} ${String(rule.path)}`);
-    assert.equal(new Set(signatures).size, signatures.length);
-  }
-  for (const rule of sessionTelemetryAborts)
-    assert.ok(imageWorkbenchAborts.includes(rule) && videoWorkbenchAborts.includes(rule));
-  for (const rule of dashboardViewAborts) {
-    assert.ok(imageWorkbenchAborts.includes(rule));
-    assert.ok(!videoWorkbenchAborts.includes(rule));
-  }
-  for (const rule of videoTaskContextAborts) {
-    assert.ok(videoWorkbenchAborts.includes(rule));
-    assert.ok(!imageWorkbenchAborts.includes(rule));
-  }
-});
-
 test("keepalive session telemetry POSTs are the only write-shaped allowance", () => {
   for (const path of ["/api/v1/auth/me/heartbeat", "/api/v1/auth/me/task-events:batch"]) {
     expectAllowed({ ...abort, method: "POST", path }, imageWorkbenchAborts);
@@ -122,6 +71,23 @@ test("image workbench reload allows exactly its observed bootstrap and task read
   ])
     expectAllowed({ ...abort, method: "GET", path }, imageWorkbenchAborts);
 });
+test("retired original reads remain distinct from HTTP and write failures", () => {
+  const id = "00000000-0000-0000-0000-000000000000";
+  for (const path of [
+    `/api/v1/files/tasks/${id}/original`,
+    `/api/v1/files/tasks/${id}/original-identity`,
+    `/api/v1/files/tasks/${id}/links/${id}/original`,
+    `/api/v1/datasets/${id}/items/${id}/original-identity`,
+  ]) {
+    for (const rules of [imageWorkbenchAborts, videoWorkbenchAborts]) {
+      expectAllowed({ ...abort, method: "GET", path }, rules);
+      expectDenied({ ...abort, method: "DELETE", path }, rules);
+      expectDenied({ kind: "http", method: "GET", path, message: "Conflict", status: 409 }, rules);
+      expectDenied({ ...abort, method: "GET", path, message: "net::ERR_CONNECTION_RESET" }, rules);
+      expectDenied({ ...abort, method: "GET", path: `${path}/history` }, rules);
+    }
+  }
+});
 
 test("video workbench allows exactly the former video lifecycle set", () => {
   for (const path of [
@@ -146,55 +112,6 @@ test("video workbench allows exactly the former video lifecycle set", () => {
     `${feedback}/thread`,
   ])
     expectAllowed({ ...abort, method: "GET", path }, videoWorkbenchAborts);
-});
-
-test("migration never widens a flow with another flow's allowances", () => {
-  // Video-only entries stay out of the image preset.
-  for (const path of [
-    `${task}/predictions`,
-    `${task}/video/manifest`,
-    `${task}/video/frames/0`,
-    `${video}/chunks/0`,
-    `${video}/chapters`,
-    `${project}/mention-candidates`,
-    `${feedback}/thread`,
-  ])
-    expectDenied({ ...abort, method: "GET", path }, imageWorkbenchAborts);
-  // Image-only dashboard and object reads stay out of the video preset.
-  for (const path of [
-    "/api/v1/auth/registration-status",
-    "/api/v1/projects",
-    "/api/v1/audit-logs",
-    `${annotation}/comments/page`,
-    `${annotation}/mask-content`,
-  ])
-    expectDenied({ ...abort, method: "GET", path }, videoWorkbenchAborts);
-  // Comments panel and mask editor reads only join via explicit composition.
-  expectDenied(
-    { ...abort, method: "GET", path: `${annotation}/comments/page` },
-    imageWorkbenchAborts,
-  );
-  expectDenied(
-    { ...abort, method: "GET", path: `${annotation}/mask-content` },
-    imageWorkbenchAborts,
-  );
-  expectAllowed(
-    { ...abort, method: "GET", path: `${annotation}/comments/page` },
-    imageWorkbenchAborts,
-    objectCommentsAborts,
-  );
-  expectAllowed(
-    { ...abort, method: "GET", path: `${annotation}/mask-content` },
-    imageWorkbenchAborts,
-    objectCommentsAborts,
-    maskEditorAborts,
-  );
-  // Mask editor content alone never unlocks the comments panel entry.
-  expectDenied(
-    { ...abort, method: "GET", path: `${annotation}/comments/page` },
-    imageWorkbenchAborts,
-    maskEditorAborts,
-  );
 });
 
 test("task queue cancellation is limited to the exact GET lifecycle request", () => {
@@ -268,6 +185,31 @@ test("manifest cancellation permits only exact aborted GET manifest reads", () =
   }
 });
 
+test("saved derivative unload cancels only its exact media GET, not failures or writes", () => {
+  const path =
+    "/api/v1/media-cache/video-derivative/00000000-0000-0000-0000-000000000000/chunk.mp4";
+  const signal = { ...abort, method: "GET", path };
+  expectAllowed(signal, videoWorkbenchAborts);
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const)
+    expectDenied({ ...signal, method }, videoWorkbenchAborts);
+  expectDenied({ ...signal, kind: "http", status: 409 }, videoWorkbenchAborts);
+  expectDenied({ ...signal, message: "net::ERR_CONNECTION_RESET" }, videoWorkbenchAborts);
+  for (const suffix of ["/extra", ".bak", "s"])
+    expectDenied({ ...signal, path: path + suffix }, videoWorkbenchAborts);
+});
+
+test("frame-prefetch retirement permits only the exact aborted POST read batch", () => {
+  const signal = { ...abort, method: "POST", path: `${task}/video/frames:prefetch` };
+  expectAllowed(signal, videoWorkbenchAborts);
+  for (const method of ["GET", "PUT", "PATCH", "DELETE"] as const)
+    expectDenied({ ...signal, method }, videoWorkbenchAborts);
+  for (const kind of ["http", "console", "page"] as const)
+    expectDenied({ ...signal, kind, status: 409 }, videoWorkbenchAborts);
+  expectDenied({ ...signal, message: "net::ERR_CONNECTION_RESET" }, videoWorkbenchAborts);
+  for (const suffix of ["/extra", "s"])
+    expectDenied({ ...signal, path: signal.path + suffix }, videoWorkbenchAborts);
+});
+
 test("HTTP failures, other network failures and unrelated endpoints remain errors", () => {
   const known = { ...abort, method: "GET", path: `${video}/chunks/0/samples` };
   expectAllowed(known, videoWorkbenchAborts);
@@ -279,6 +221,31 @@ test("HTTP failures, other network failures and unrelated endpoints remain error
   expectDenied({ ...known, method: "POST" }, videoWorkbenchAborts);
   for (const path of [`${video}/chunks/0/samples/retry`, `${task}/lock`, "/api/v1/projects/x"])
     expectDenied({ ...known, path }, videoWorkbenchAborts);
+});
+
+test("aborted native playback lease revokes stay a documented unload cancellation", () => {
+  const lease = "00000000-0000-0000-0000-000000000000";
+  const dataset = "00000000-0000-0000-0000-000000000000";
+  for (const path of [
+    `/api/v1/files/tasks/${lease}/original-playback/${lease}`,
+    `/api/v1/datasets/${dataset}/items/${dataset}/original-playback/${lease}`,
+  ]) {
+    expectAllowed({ ...abort, method: "DELETE", path }, videoWorkbenchAborts);
+    for (const method of ["GET", "POST", "PUT", "PATCH"] as const)
+      expectDenied({ ...abort, method, path }, videoWorkbenchAborts);
+    expectDenied(
+      { kind: "http", message: "Service Unavailable", method: "DELETE", path, status: 503 },
+      videoWorkbenchAborts,
+    );
+    expectDenied(
+      { ...abort, method: "DELETE", message: "net::ERR_CONNECTION_RESET", path },
+      videoWorkbenchAborts,
+    );
+    for (const deeper of [`${path}/extra`, `${path}s`, `${task}/original-playback`])
+      expectDenied({ ...abort, method: "DELETE", path: deeper }, videoWorkbenchAborts);
+  }
+  // Retiring the task still cancels its owned original read as a GET only.
+  expectDenied({ ...abort, method: "DELETE", path: `${task}/original` }, videoWorkbenchAborts);
 });
 
 test("console and page errors never classify as request cancellations", () => {

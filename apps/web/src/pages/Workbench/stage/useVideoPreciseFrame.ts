@@ -3,13 +3,31 @@ import { useQuery } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
 import { videoApi } from "@/api/videos";
 import type { VideoChunkOut, VideoChunkSamplesResponse, VideoManifestV2Response } from "@/types";
-import { useVideoChunkDecoder } from "./useVideoChunkDecoder";
+import {
+  useVideoChunkDecoder,
+  detectWebCodecsSupport,
+  resolveVideoChunkDecoderEnabled,
+} from "./useVideoChunkDecoder";
+import {
+  assertVideoDerivativeOwner,
+  assertVideoSamplesIdentity,
+  isVideoGeneration,
+  useVideoDerivativeOwnerKey,
+  videoDerivativeKey,
+  verifyVideoChunkBytes,
+  retryPreparingVideoMetadata,
+  retryTransientVideoDerivative,
+  transientVideoDerivativeRetryDelay,
+  videoMetadataRetryDelay,
+} from "@/api/videoDerivatives";
 import { ByteLru } from "./videoByteLru";
 import { buildGopPlan, type PreciseFrameFallbackReason } from "./videoChunkDemux";
 import type { CachedVideoBitmap } from "./useVideoBitmapCache";
 
 export interface UseVideoPreciseFrameArgs {
   taskId: string | null | undefined;
+  /** Main manifest generation; every derivative and bitmap must belong to this owner. */
+  metadataGenerationId: string | null | undefined;
   frameIndex: number;
   /** 暂停态为 true；允许立即展示已经缓存的精确帧。 */
   enabled: boolean;
@@ -110,7 +128,9 @@ const MAX_POLL_MS = 10_000;
 interface ChunkBytesSource {
   targetKey: string;
   url: string;
-  generation: number;
+  refresh: number;
+  identityKey: string;
+  identity: VideoChunkOut;
 }
 
 interface ChunkBytesCacheEntry {
@@ -149,6 +169,7 @@ function errorStatus(err: unknown): number | undefined {
  */
 export function useVideoPreciseFrame({
   taskId,
+  metadataGenerationId,
   frameIndex,
   enabled,
   decodeEnabled = enabled,
@@ -156,17 +177,23 @@ export function useVideoPreciseFrame({
   chunkBudgetBytes,
   prefetchFrames,
 }: UseVideoPreciseFrameArgs): UseVideoPreciseFrameResult {
-  const decoder = useVideoChunkDecoder({ taskId, bitmapBudgetBytes });
-  const active = decoder.active;
+  const ownerKey = useVideoDerivativeOwnerKey();
+  const decoderEnabled = resolveVideoChunkDecoderEnabled();
+  const active = detectWebCodecsSupport() && decoderEnabled;
   // 1-2. decoder inactive(无 flag / 无 WebCodecs)→ 全链路 disabled。
-  const pipelineEnabled = active && !!taskId && enabled;
+  const pipelineEnabled =
+    active && !!taskId && !!ownerKey && isVideoGeneration(metadataGenerationId) && enabled;
   const canDecode = pipelineEnabled && decodeEnabled;
 
-  const decoderRef = useRef(decoder);
-  decoderRef.current = decoder;
   // latest-request-wins:effect 内异步 decode 完成后只激活仍匹配的 frame。
-  const latestRef = useRef({ taskId, frameIndex, enabled: canDecode });
-  latestRef.current = { taskId, frameIndex, enabled: canDecode };
+  const latestRef = useRef({
+    taskId,
+    ownerKey,
+    metadataGenerationId,
+    frameIndex,
+    enabled: canDecode,
+  });
+  latestRef.current = { taskId, ownerKey, metadataGenerationId, frameIndex, enabled: canDecode };
   // 单调递增的请求 token;decode 完成后与 latestRef 一起保证旧请求不覆盖当前显示帧。
   const generationRef = useRef(0);
   // 方向感知预取:记录上次 frameIndex,差值符号决定预取方向;0 表示方向未知不预取。
@@ -257,19 +284,31 @@ export function useVideoPreciseFrame({
 
   // 3. task manifest v2(仅 precise pipeline 激活时增量查询,不切主工作台 manifest)。
   const manifestQuery = useQuery({
-    queryKey: ["video-manifest-v2", taskId],
-    queryFn: ({ signal }) => tasksApi.getVideoManifestV2(taskId as string, { signal }),
+    queryKey: ["video-manifest-v2", ownerKey, taskId, metadataGenerationId],
+    queryFn: async ({ signal }) => {
+      assertVideoDerivativeOwner(ownerKey, signal);
+      const value = await tasksApi.getVideoManifestV2(taskId as string, { signal });
+      assertVideoDerivativeOwner(ownerKey, signal);
+      return value;
+    },
     enabled: pipelineEnabled,
     staleTime: MANIFEST_STALE_MS,
-    retry: false,
+    refetchInterval: (query) => (query.state.error ? false : MANIFEST_STALE_MS),
+    gcTime: 0,
+    retry: retryPreparingVideoMetadata,
+    retryDelay: videoMetadataRetryDelay,
   });
 
-  const manifest: VideoManifestV2Response | undefined = manifestQuery.data;
+  const manifest: VideoManifestV2Response | undefined =
+    manifestQuery.data?.metadata_generation_id === metadataGenerationId
+      ? manifestQuery.data
+      : undefined;
   const datasetItemId = manifest?.dataset_item_id ?? null;
   const chunkSizeFrames = manifest?.chunk_size_frames ?? null;
   const manifestValid =
     !!manifest &&
     !!manifest.dataset_item_id &&
+    isVideoGeneration(manifest.metadata_generation_id) &&
     Number.isInteger(manifest.chunk_size_frames) &&
     manifest.chunk_size_frames > 0;
 
@@ -279,7 +318,15 @@ export function useVideoPreciseFrame({
     return Math.floor(Math.max(0, frameIndex) / manifest.chunk_size_frames);
   }, [manifestValid, manifest, frameIndex]);
   const targetKey =
-    datasetItemId && targetChunkId !== null ? `${datasetItemId}:${targetChunkId}` : null;
+    datasetItemId && targetChunkId !== null
+      ? JSON.stringify([
+          ownerKey,
+          taskId,
+          manifest?.metadata_generation_id,
+          datasetItemId,
+          targetChunkId,
+        ])
+      : null;
   latestTargetKeyRef.current = targetKey;
 
   // 新帧先清旧 decode reason;跨 chunk / task 时还要重置 URL refresh 与 bytes source。
@@ -289,27 +336,8 @@ export function useVideoPreciseFrame({
     setPaintedFrameIndex(null);
     setLastPaintMs(null);
     setLastVisibleMs(null);
-  }, [taskId, frameIndex]);
+  }, [taskId, metadataGenerationId, frameIndex]);
 
-  // 原生 <video> seek 尚未完成时不启动新 decode，但缓存帧不需要等待媒体元素。这样逐帧
-  // 回看 / 小范围往返可以直接进入 Konva，缓存未命中仍保留“稳定 seek 后解码”的限流合同。
-  useEffect(() => {
-    if (!pipelineEnabled) return;
-    const startedAt = typeof performance !== "undefined" ? performance.now() : 0;
-    const shown = decoderRef.current.showFrame(frameIndex);
-    if (!shown || shown.frameIndex !== frameIndex) return;
-    const readyAt = typeof performance !== "undefined" ? performance.now() : startedAt;
-    visibleTimingRef.current = {
-      taskId,
-      frameIndex,
-      startedAt,
-      readyAt,
-    };
-    if (prefetchedFramesRef.current.has(frameIndex)) {
-      setPrefetchHits((n) => n + 1);
-    }
-    setFallbackReason(null);
-  }, [frameIndex, pipelineEnabled, taskId]);
   useEffect(() => {
     refreshedKeyRef.current = null;
     refreshingUrlKeyRef.current = null;
@@ -318,47 +346,122 @@ export function useVideoPreciseFrame({
     setBytesSource(null);
   }, [targetKey]);
 
-  // 5. 单 chunk 状态:pending 按 retry_after 轮询;ready metadata 保留到显式 403 refresh。
+  // 5. pending follows server polling hints; ready identity and leases refresh periodically.
   const chunkQuery = useQuery({
-    queryKey: ["video-chunk", datasetItemId, targetChunkId],
-    queryFn: ({ signal }) =>
-      videoApi.getChunk(datasetItemId as string, targetChunkId as number, { signal }),
+    queryKey: [
+      "video-chunk",
+      ownerKey,
+      taskId,
+      manifest?.metadata_generation_id,
+      datasetItemId,
+      targetChunkId,
+    ],
+    queryFn: async ({ signal }) => {
+      assertVideoDerivativeOwner(ownerKey, signal);
+      const value = await videoApi.getChunk(datasetItemId as string, targetChunkId as number, {
+        signal,
+      });
+      assertVideoDerivativeOwner(ownerKey, signal);
+      return value;
+    },
     enabled: pipelineEnabled && manifestValid && targetChunkId !== null && !!datasetItemId,
     refetchInterval: (query) => {
       const data = query.state.data as VideoChunkOut | undefined;
       if (data && data.status === "pending") {
         return retryAfterSecondsToMs(data.retry_after);
       }
-      return false;
+      return MANIFEST_STALE_MS;
     },
-    // ready metadata / signed URL 保持到显式 403 refresh;pending 仍由 refetchInterval 驱动。
-    staleTime: Infinity,
-    retry: false,
+    // Keep metadata briefly; a renewed lease may publish a different output.
+    staleTime: MANIFEST_STALE_MS,
+    gcTime: 0,
+    retry: retryTransientVideoDerivative,
+    retryDelay: transientVideoDerivativeRetryDelay,
   });
 
   const chunk: VideoChunkOut | undefined = chunkQuery.data;
   const refetchChunk = chunkQuery.refetch;
-  const chunkReady = !!chunk && chunk.status === "ready" && !!chunk.url;
+  const chunkIdentity = chunk ? videoDerivativeKey(chunk) : null;
+  const chunkReady =
+    !manifestQuery.isError &&
+    !chunkQuery.isError &&
+    !!chunk &&
+    chunk.status === "ready" &&
+    !!chunk.url &&
+    !!chunkIdentity &&
+    chunk.metadata_generation_id === manifest?.metadata_generation_id;
   const chunkFailed = !!chunk && chunk.status === "failed";
   const chunkUrl = chunk?.url ?? null;
 
-  // 6. packet sample manifest:按 dataset + chunk 长缓存(chunk 内容不变);404 不重试。
+  const decoderTaskId = JSON.stringify([ownerKey, taskId, metadataGenerationId]);
+  const decoder = useVideoChunkDecoder({
+    taskId: decoderTaskId,
+    resourceKey: chunkReady ? chunkIdentity : null,
+    enabled: decoderEnabled,
+    bitmapBudgetBytes,
+  });
+  const decoderRef = useRef(decoder);
+  decoderRef.current = decoder;
+
+  useEffect(() => {
+    if (!pipelineEnabled || !chunkReady) return;
+    const startedAt = typeof performance !== "undefined" ? performance.now() : 0;
+    const shown = decoderRef.current.showFrame(frameIndex);
+    if (!shown || shown.frameIndex !== frameIndex) return;
+    const readyAt = typeof performance !== "undefined" ? performance.now() : startedAt;
+    visibleTimingRef.current = { taskId, frameIndex, startedAt, readyAt };
+    if (prefetchedFramesRef.current.has(frameIndex)) setPrefetchHits((n) => n + 1);
+    setFallbackReason(null);
+  }, [frameIndex, pipelineEnabled, taskId, chunkReady, chunkIdentity, decoderTaskId]);
+
+  const refetchManifest = manifestQuery.refetch;
+  useEffect(() => {
+    if (
+      chunk?.metadata_generation_id &&
+      chunk.metadata_generation_id !== manifest?.metadata_generation_id
+    ) {
+      void refetchManifest();
+    }
+  }, [chunk?.metadata_generation_id, manifest?.metadata_generation_id, refetchManifest]);
+
+  // 6. Packet offsets belong to this immutable output, including its metadata generation.
   const samplesQuery = useQuery({
-    queryKey: ["video-chunk-samples", datasetItemId, targetChunkId],
-    queryFn: ({ signal }) =>
-      videoApi.getChunkSamples(datasetItemId as string, targetChunkId as number, { signal }),
+    queryKey: [
+      "video-chunk-samples",
+      ownerKey,
+      taskId,
+      datasetItemId,
+      targetChunkId,
+      chunkIdentity,
+    ],
+    queryFn: async ({ signal }) => {
+      assertVideoDerivativeOwner(ownerKey, signal);
+      const value = await videoApi.getChunkSamples(
+        datasetItemId as string,
+        targetChunkId as number,
+        { signal },
+        chunk?.output_id ?? undefined,
+      );
+      assertVideoDerivativeOwner(ownerKey, signal);
+      assertVideoSamplesIdentity(chunk!, value);
+      return value;
+    },
     enabled: pipelineEnabled && chunkReady && !!datasetItemId,
-    staleTime: Infinity,
-    retry: false,
+    staleTime: MANIFEST_STALE_MS,
+    gcTime: 0,
+    retry: retryTransientVideoDerivative,
+    retryDelay: transientVideoDerivativeRetryDelay,
   });
   const samples: VideoChunkSamplesResponse | undefined = samplesQuery.data;
 
   useEffect(() => {
     if (!targetKey || !chunkReady || !chunkUrl) return;
     setBytesSource((current) =>
-      current?.targetKey === targetKey ? current : { targetKey, url: chunkUrl, generation: 0 },
+      current?.targetKey === targetKey && current.identityKey === chunkIdentity
+        ? current
+        : { targetKey, url: chunkUrl, refresh: 0, identityKey: chunkIdentity!, identity: chunk! },
     );
-  }, [chunkReady, chunkUrl, targetKey]);
+  }, [chunkReady, chunkUrl, targetKey, chunkIdentity, chunk]);
 
   // 性能档位切换时立即把原始 chunk 缓存收缩到新预算；当前 query 正在使用的 buffer
   // 由 React Query 持有，不会因缓存淘汰而失效。
@@ -367,15 +470,24 @@ export function useVideoPreciseFrame({
     setChunkCacheVersion((v) => v + 1);
   }, [chunkBudgetBytes]);
 
-  // 7. chunk bytes:raw fetch(signed URL,无需 auth header)。generation 仅在显式 403 refresh
-  // 后递增,既不把敏感 signed URL 放进 query key,也能保证新 URL 必定发起一次新请求。
+  // 7. Raw bytes are keyed by immutable output identity, with a separate bounded lease retry.
+  // Signed URLs never enter query keys; verified buffers use the existing budget and TTL.
   // React Query 只负责当前请求生命周期(gcTime=0);跨目标复用由显式 byte-LRU + 60s TTL
   // 控制，确保累计保留的 chunk bytes 真正受 chunkBudgetBytes 约束。
   const bytesQuery = useQuery({
-    queryKey: ["video-chunk-bytes", datasetItemId, targetChunkId, bytesSource?.generation ?? 0],
+    queryKey: [
+      "video-chunk-bytes",
+      ownerKey,
+      taskId,
+      datasetItemId,
+      targetChunkId,
+      chunkIdentity,
+      bytesSource?.refresh ?? 0,
+    ],
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      assertVideoDerivativeOwner(ownerKey, signal);
       const source = bytesSource as ChunkBytesSource;
-      const cacheKey = `${source.targetKey}:${source.generation}`;
+      const cacheKey = JSON.stringify([ownerKey, source.identityKey]);
       const cached = chunkBytesCacheRef.current.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         setChunkByteCacheHits((n) => n + 1);
@@ -394,6 +506,8 @@ export function useVideoPreciseFrame({
         throw e;
       }
       const buffer = await res.arrayBuffer();
+      await verifyVideoChunkBytes(buffer, source.identity);
+      assertVideoDerivativeOwner(ownerKey, signal);
       const fetchMs =
         typeof performance !== "undefined" ? Math.round(performance.now() - startedAt) : 0;
       setBytesFetched((n) => n + buffer.byteLength);
@@ -413,15 +527,23 @@ export function useVideoPreciseFrame({
       !!datasetItemId &&
       !!targetKey &&
       bytesSource?.targetKey === targetKey &&
+      bytesSource.identityKey === chunkIdentity &&
       !!bytesSource.url,
     // 当前 query 失去 observer 后立即释放引用；60s TTL 只在受预算约束的 byte-LRU 内实现。
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
   });
-  const bytes = bytesQuery.data;
+  const bytes =
+    chunkReady &&
+    !samplesQuery.isError &&
+    !bytesQuery.isError &&
+    bytesSource?.identityKey === chunkIdentity &&
+    videoDerivativeKey(samples ?? {}) === chunkIdentity
+      ? bytesQuery.data
+      : undefined;
 
-  // signed URL 过期(403):先等待 chunk metadata 刷新完成,再递增 generation 触发新 URL bytes。
+  // On 403 refresh the lease; a changed output also requires new offsets and bytes.
   // 同一 target visit 只刷新一次;第二次 403 进入 chunk_fetch_failed。
   useEffect(() => {
     if (!bytesQuery.isError || !targetKey || !bytesSource) return;
@@ -434,14 +556,19 @@ export function useVideoPreciseFrame({
     void refetchChunk()
       .then((result) => {
         if (latestTargetKeyRef.current !== targetKey) return;
+        assertVideoDerivativeOwner(ownerKey);
         const refreshed = result.data;
-        if (!result.isSuccess || refreshed?.status !== "ready" || !refreshed.url) return;
+        const identityKey = refreshed ? videoDerivativeKey(refreshed) : null;
+        if (!result.isSuccess || refreshed?.status !== "ready" || !refreshed.url || !identityKey)
+          return;
         setBytesSource((current) => {
           if (!current || current.targetKey !== targetKey) return current;
           return {
             targetKey,
             url: refreshed.url as string,
-            generation: current.generation + 1,
+            refresh: current.refresh + 1,
+            identityKey,
+            identity: refreshed,
           };
         });
       })
@@ -452,7 +579,11 @@ export function useVideoPreciseFrame({
         }
         setRefreshingUrlKey((current) => (current === targetKey ? null : current));
       });
-  }, [bytesQuery.isError, bytesQuery.error, bytesSource, refetchChunk, targetKey]);
+  }, [bytesQuery.isError, bytesQuery.error, bytesSource, refetchChunk, targetKey, ownerKey]);
+
+  useEffect(() => {
+    if (samplesQuery.isError && errorStatus(samplesQuery.error) === 409) void refetchChunk();
+  }, [samplesQuery.isError, samplesQuery.error, refetchChunk]);
 
   // manifest / chunk / samples / bytes 的失败 → fallback reason(chunk_pending 是过渡态,不计)。
   // 仅覆盖 query 阶段 reason;decode 阶段 reason(invalid_sample_range / description_unavailable /
@@ -461,9 +592,11 @@ export function useVideoPreciseFrame({
     let next: PreciseFrameFallbackReason | null = null;
     if (!pipelineEnabled) {
       next = null;
-    } else if (manifestQuery.isError || (manifest && !manifestValid)) {
+    } else if (manifestQuery.isError || (manifestQuery.data && !manifestValid)) {
       next = "api_unavailable";
     } else if (chunkQuery.isError) {
+      next = "api_unavailable";
+    } else if (chunk?.status === "ready" && !chunkReady) {
       next = "api_unavailable";
     } else if (chunkFailed) {
       next = "chunk_failed";
@@ -486,10 +619,12 @@ export function useVideoPreciseFrame({
   }, [
     pipelineEnabled,
     manifestQuery.isError,
-    manifest,
+    manifestQuery.data,
     manifestValid,
     chunkQuery.isError,
     chunkFailed,
+    chunk,
+    chunkReady,
     samplesQuery.isError,
     samplesQuery.error,
     bytesQuery.isError,
@@ -540,11 +675,11 @@ export function useVideoPreciseFrame({
       readyAt: null,
     };
     const gopIdentity = {
-      taskId: taskId as string,
+      taskId: decoderTaskId,
       datasetItemId,
       chunkId: plan.chunkId,
       gopStartDecodeIndex: plan.gopStartDecodeIndex,
-      configFingerprint: plan.configFingerprint,
+      configFingerprint: JSON.stringify([plan.configFingerprint, chunkIdentity]),
     };
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -562,7 +697,13 @@ export function useVideoPreciseFrame({
       if (cancelled) return;
       setDecoding(false);
       const latest = latestRef.current;
-      if (latest.taskId !== taskId || latest.frameIndex !== frameIndex || !latest.enabled) {
+      if (
+        latest.taskId !== taskId ||
+        latest.ownerKey !== ownerKey ||
+        latest.metadataGenerationId !== metadataGenerationId ||
+        latest.frameIndex !== frameIndex ||
+        !latest.enabled
+      ) {
         return; // latest-request-wins:旧 decode 不激活
       }
       if (!decoded.bitmap) {
@@ -595,13 +736,32 @@ export function useVideoPreciseFrame({
     datasetItemId,
     taskId,
     pipelineEnabled,
+    decoderTaskId,
+    chunkIdentity,
+    ownerKey,
+    metadataGenerationId,
   ]);
 
   const bitmap = useMemo<CachedVideoBitmap | null>(() => {
     const ab = decoder.activeBitmap;
-    if (ab && ab.frameIndex === frameIndex) return ab;
+    if (
+      pipelineEnabled &&
+      chunkReady &&
+      !samplesQuery.isError &&
+      !bytesQuery.isError &&
+      ab &&
+      ab.frameIndex === frameIndex
+    )
+      return ab;
     return null;
-  }, [decoder.activeBitmap, frameIndex]);
+  }, [
+    decoder.activeBitmap,
+    frameIndex,
+    pipelineEnabled,
+    chunkReady,
+    samplesQuery.isError,
+    bytesQuery.isError,
+  ]);
 
   const markFramePainted = useCallback(
     (paintedFrame: number) => {
@@ -649,10 +809,10 @@ export function useVideoPreciseFrame({
   }, [pipelineEnabled]);
 
   // task 切换清空预取统计与方向记忆(mount 时跳过,避免覆盖初始方向追踪)。
-  const lastTaskIdRef = useRef<string | null | undefined>(taskId);
+  const lastTaskIdRef = useRef(decoderTaskId);
   useEffect(() => {
-    if (lastTaskIdRef.current === taskId) return;
-    lastTaskIdRef.current = taskId;
+    if (lastTaskIdRef.current === decoderTaskId) return;
+    lastTaskIdRef.current = decoderTaskId;
     prefetchedFramesRef.current = new Set();
     setPrefetchRequests(0);
     setPrefetchHits(0);
@@ -670,7 +830,7 @@ export function useVideoPreciseFrame({
     }
     setChunkCacheVersion((v) => v + 1);
     directionRef.current = 0;
-    lastFrameIndexRef.current = null;
+    lastFrameIndexRef.current = frameIndex;
     setPlanMeta({
       taskId: null,
       frameIndex: null,
@@ -678,7 +838,7 @@ export function useVideoPreciseFrame({
       targetTimestampUs: null,
       codec: null,
     });
-  }, [taskId]);
+  }, [decoderTaskId, frameIndex]);
 
   // 受控预取:暂停态 + 同 chunk/GOP + 方向已知 + tab 可见时,沿最近方向预取少量帧。
   // 播放态 / seeking(enabled=false → pipelineEnabled=false)完全不预取,保持零额外请求。
@@ -714,11 +874,11 @@ export function useVideoPreciseFrame({
         const decoded = await decoderRef.current.decodePlan({
           plan: result.plan,
           identity: {
-            taskId: taskId as string,
+            taskId: decoderTaskId,
             datasetItemId,
             chunkId: result.plan.chunkId,
             gopStartDecodeIndex: result.plan.gopStartDecodeIndex,
-            configFingerprint: result.plan.configFingerprint,
+            configFingerprint: JSON.stringify([result.plan.configFingerprint, chunkIdentity]),
           },
           targetFrameIndex: fi,
           generation: gen,
@@ -742,6 +902,8 @@ export function useVideoPreciseFrame({
     datasetItemId,
     taskId,
     manifest,
+    decoderTaskId,
+    chunkIdentity,
   ]);
 
   const sourceState = useMemo<PreciseFrameSourceState>(() => {

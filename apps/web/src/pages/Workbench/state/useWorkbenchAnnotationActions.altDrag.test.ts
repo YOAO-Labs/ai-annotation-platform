@@ -11,7 +11,8 @@ import { describe, expect, it, vi } from "vitest";
 import { useWorkbenchAnnotationActions } from "./useWorkbenchAnnotationActions";
 import type { BboxGeometry, Geometry } from "@/types";
 
-vi.mock("@/stores/authStore", () => ({
+vi.mock("@/stores/authStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/stores/authStore")>()),
   isCurrentAuthOwner: (userId: string) => userId === "U-1",
 }));
 

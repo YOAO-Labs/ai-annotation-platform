@@ -13,6 +13,7 @@ import pytest
 
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import training_artifacts as artifacts
+from app.services import training_run_storage
 from app.services.training_evaluations import SEMANTICS, parse_evaluation
 from tests.factory import create_membership
 from tests.test_training_runs import training_config, ready_dataset, create_run  # noqa: F401, F811
@@ -258,14 +259,19 @@ async def test_authorized_final_reader_is_independent_of_registration_and_curren
     report["comparison"]["evaluator"]["options"]["imgsz"] = 640
     raw = json.dumps(report).encode()
     attempt.status = run.status = "succeeded"
+    storage_owner = training_run_storage.resolve(run)
     attempt.artifacts = {
         "metrics.json": {
             "role": "metrics",
-            "key": "owned/report",
+            "key": storage_owner.key(f"attempts/{attempt.id}/metrics.json"),
             "size_bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(),
         },
-        "best.pt": {"role": "weights", "sha256": "b" * 64},
+        "best.pt": {
+            "role": "weights",
+            "key": storage_owner.key(f"attempts/{attempt.id}/best.pt"),
+            "sha256": "b" * 64,
+        },
     }
     historical = attempt.id
     second = TrainingAttempt(run_id=run.id, ordinal=2, status="queued")
@@ -348,6 +354,7 @@ async def test_report_read_serializes_run_deletion(test_engine, monkeypatch, mis
         )
         seed.add(run)
         await seed.flush()
+        await training_run_storage.allocate(seed, run)
         attempt = TrainingAttempt(
             run_id=run.id,
             ordinal=1,
@@ -364,6 +371,14 @@ async def test_report_read_serializes_run_deletion(test_engine, monkeypatch, mis
         )
         seed.add(attempt)
         await seed.flush()
+        storage_owner = training_run_storage.resolve(run)
+        attempt.artifacts = {
+            name: {
+                **artifact,
+                "key": storage_owner.key(f"attempts/{attempt.id}/{name}"),
+            }
+            for name, artifact in attempt.artifacts.items()
+        }
         run.current_attempt_id = attempt.id
         await seed.commit()
     entered, release = threading.Event(), threading.Event()
@@ -377,11 +392,13 @@ async def test_report_read_serializes_run_deletion(test_engine, monkeypatch, mis
 
     monkeypatch.setattr(artifacts.storage.client, "get_object", blocked_read)
     deleted = []
-    monkeypatch.setattr(
-        artifacts.storage,
-        "delete_prefix",
-        lambda *args, **kwargs: deleted.append(args[0]),
-    )
+
+    def delete_prefix(_service, prefix, **_kwargs):
+        deleted.append(prefix)
+
+    # Saved-target routing runs the callback on a bound service copy, so the
+    # exact physical transport contract is patched on the service class.
+    monkeypatch.setattr(type(artifacts.storage), "delete_prefix", delete_prefix)
     delete_pid = None
 
     async def reading():

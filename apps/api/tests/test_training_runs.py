@@ -34,6 +34,9 @@ IMAGE = "sha256:" + "1" * 64
 
 @pytest.fixture
 def training_config(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     monkeypatch.setattr(settings, "training_enabled", True)
     monkeypatch.setattr(settings, "training_executor_token", TOKEN)
     monkeypatch.setattr(settings, "training_gpu_uuid", GPU)
@@ -52,7 +55,9 @@ def training_config(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        service, "internal_download", lambda key: "http://owned-storage/" + key
+        service,
+        "internal_download",
+        lambda key, **kwargs: "http://owned-storage/" + key,
     )
 
 
@@ -78,6 +83,10 @@ async def ready_dataset(db, owner):
     )
     db.add(dataset)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    ref = await allocate(db, dataset)
+    dataset.package_key = ref["prefix"] + "dataset.zip"
     return project, dataset
 
 
@@ -482,10 +491,14 @@ def test_real_artifact_stream_digest_and_partial_delete_errors(monkeypatch):
         "owned/a",
         {"sha256": hashlib.sha256(b"abc").hexdigest(), "size_bytes": 3},
         attempt_id,
+        bucket="saved-run",
     )
     with pytest.raises(ValueError):
         service.verify_artifact(
-            "owned/a", {"sha256": "0" * 64, "size_bytes": 3}, attempt_id
+            "owned/a",
+            {"sha256": "0" * 64, "size_bytes": 3},
+            attempt_id,
+            bucket="saved-run",
         )
     storage = StorageService.__new__(StorageService)
     storage.client, storage.bucket = client, "owned"

@@ -28,6 +28,7 @@ helper, because flattening those values would erase the difference between
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,11 +92,13 @@ async def reconcile_point_cloud_quality(
     run.completed_at = _now()
 
 
-def _completed_repair_shards(batch: MaskRepairBatch) -> int:
+def committed_repair_units(batch: MaskRepairBatch) -> int:
     return sum(
         1
-        for value in ((batch.result_json or {}).get("shards") or {}).values()
-        if isinstance(value, dict) and value.get("status") == "completed"
+        for section in ("shards", "candidates")
+        for value in ((batch.result_json or {}).get(section) or {}).values()
+        if isinstance(value, dict)
+        and value.get("status") in {"completed", "dispatch_pending"}
     )
 
 
@@ -112,25 +115,37 @@ async def reconcile_mask_repair(
 ) -> None:
     """Reconcile a ``MaskRepairBatch`` for ``mask_repair`` / rollback jobs.
 
-    A cancelled forward repair keeps an already-committed shard as ``partial``.
-    The fallback cancellation path intentionally does not reconcile a rollback
-    job: rollback cancellation is driven by the requested-repair lifecycle, and
-    the failed path is the one that owns ``rollback_failed``.
+    Forward repair preserves committed shards, candidates and child dispatch
+    intents as ``partial``. Interrupted rollback preserves its checkpoints and
+    becomes ``rollback_failed`` so another attempt can continue them.
     """
 
     if cancelled:
-        if job.kind != "mask_repair":
-            return
         batch = (
             await db.execute(
                 select(MaskRepairBatch)
-                .where(MaskRepairBatch.async_job_id == job.id)
+                .where(
+                    (
+                        MaskRepairBatch.rollback_async_job_id
+                        if job.kind == "mask_repair_rollback"
+                        else MaskRepairBatch.async_job_id
+                    )
+                    == job.id
+                )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
-        if batch is None or not _locks_open(batch.status):
+        if batch is None:
             return
-        batch.status = "partial" if _completed_repair_shards(batch) else "cancelled"
+        if job.kind == "mask_repair_rollback":
+            if batch.status != "rolling_back":
+                return
+            batch.status = "rollback_failed"
+        elif _locks_open(batch.status):
+            batch.status = "partial" if committed_repair_units(batch) else "cancelled"
+        else:
+            return
         batch.completed_at = _now()
         return
 
@@ -140,11 +155,23 @@ async def reconcile_mask_repair(
         else MaskRepairBatch.async_job_id == job.id
     )
     batch = (
-        await db.execute(select(MaskRepairBatch).where(condition).with_for_update())
+        await db.execute(
+            select(MaskRepairBatch)
+            .where(condition)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if batch is None:
         return
-    batch.status = "rollback_failed" if job.kind == "mask_repair_rollback" else "failed"
+    if job.kind == "mask_repair_rollback":
+        if batch.status != "rolling_back":
+            return
+        batch.status = "rollback_failed"
+    elif _locks_open(batch.status):
+        batch.status = "partial" if committed_repair_units(batch) else "failed"
+    else:
+        return
     batch.completed_at = _now()
 
 
@@ -194,12 +221,81 @@ async def reconcile_training_dataset(db, job, *, cancelled, error):
         )
     ).scalar_one_or_none()
     if version is not None and _locks_open(version.status):
-        version.status = "cancelled" if cancelled else "failed"
-        version.error_code = "cancelled" if cancelled else "worker_failed"
-        version.error_message = (
-            "训练数据构建已取消" if cancelled else "构建进程异常终止，可重试同一快照"
+        _finish_training_dataset(version, cancelled=cancelled)
+
+
+def _finish_training_dataset(version, *, cancelled):
+    version.status = "cancelled" if cancelled else "failed"
+    version.error_code = "cancelled" if cancelled else "worker_failed"
+    version.error_message = (
+        "训练数据构建已取消" if cancelled else "构建进程异常终止，可重试同一快照"
+    )
+    version.completed_at = _now()
+
+
+def _training_execution(args, kwargs):
+    """Use the actual task envelope, never infer a signal's attempt from live rows."""
+    names = ("version_id", "job_id", "attempt_id")
+    args = () if args is None else args
+    kwargs = {} if kwargs is None else kwargs
+    if (
+        not isinstance(args, (list, tuple))
+        or len(args) > len(names)
+        or not isinstance(kwargs, dict)
+        or set(kwargs) != set(names[len(args) :])
+    ):
+        return None
+    try:
+        return tuple(
+            uuid.UUID(str(value))
+            for value in (*args, *(kwargs[n] for n in names[len(args) :]))
         )
-        version.completed_at = _now()
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+async def signal_training_dataset(
+    db, job_id, celery_task_id, *, task_args=None, task_kwargs=None, cancelled, error
+):
+    """Match the worker's Version -> Job lock order and exact execution fence."""
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.services import async_job as jobs
+
+    expected = _training_execution(task_args, task_kwargs)
+    if expected is None or expected[1] != job_id:
+        return False
+    version_id, expected_job_id, attempt_id = expected
+    version = await db.scalar(
+        select(TrainingDatasetVersion)
+        .where(TrainingDatasetVersion.id == version_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        version is None
+        or version.async_job_id != expected_job_id
+        or version.attempt_id != attempt_id
+        or not _locks_open(version.status)
+    ):
+        return False
+    job = await jobs.lock_job(db, expected_job_id)
+    if (
+        job is None
+        or job.kind != "training_dataset"
+        or job.celery_task_id != celery_task_id
+        or job.project_id != version.project_id
+        or job.user_id != version.creator_id
+        or not isinstance(job.payload, dict)
+        or job.payload.get("training_dataset_id") != str(version.id)
+        or not _locks_open(job.status)
+    ):
+        return False
+    if cancelled:
+        await jobs.mark_cancelled(db, job.id)
+    else:
+        await jobs.mark_failed(db, job.id, error=error or "")
+    _finish_training_dataset(version, cancelled=cancelled)
+    return True
 
 
 DOMAIN_TERMINAL_RECONCILERS["training_dataset"] = reconcile_training_dataset
@@ -218,3 +314,43 @@ async def reconcile_domain_terminal(
     if reconciler is None:
         return
     await reconciler(db, job, cancelled=cancelled, error=error)
+
+
+async def reconcile_dataset_quality(db, job, *, cancelled, error):
+    from app.db.models.dataset_quality import DatasetQualityRun
+    from app.services.dataset_quality import now
+
+    run = await db.scalar(
+        select(DatasetQualityRun)
+        .where(DatasetQualityRun.async_job_id == job.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if run is not None and _locks_open(run.status):
+        run.status = "cancelled" if cancelled else "failed"
+        run.error_code = "cancelled" if cancelled else "worker_failed"
+        run.completed_at, run.lease_until = now(), None
+        run.generation += 1
+
+
+DOMAIN_TERMINAL_RECONCILERS["dataset_quality"] = reconcile_dataset_quality
+
+
+async def reconcile_dataset_quality_review(db, job, *, cancelled, error):
+    from app.db.models.dataset_quality_review import DatasetQualityReviewBatch
+    from app.services.dataset_quality_review import now
+
+    batch = await db.scalar(
+        select(DatasetQualityReviewBatch)
+        .where(DatasetQualityReviewBatch.async_job_id == job.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if batch is not None and _locks_open(batch.status):
+        batch.status = "cancelled" if cancelled else "failed"
+        batch.error_code = "cancelled" if cancelled else "worker_failed"
+        batch.completed_at, batch.lease_until = now(), None
+        batch.generation += 1
+
+
+DOMAIN_TERMINAL_RECONCILERS["dataset_quality_review"] = reconcile_dataset_quality_review

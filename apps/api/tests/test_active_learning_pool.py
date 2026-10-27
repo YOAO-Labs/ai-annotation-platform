@@ -7,13 +7,18 @@ from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import func, select
 
+from app.db.models.active_learning import ActiveLearningDecision
+from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.active_learning import DecisionCreate
 from app.services import active_learning as service, active_learning_pool as pool
+from app.services.content_snapshot import ContentError
 from app.services.training_dataset_bridge import content_digest
 from tests.active_learning_fixtures import complete, create, seed
+from tests.test_original_binary import request
 from tests.test_training_dataset_analysis import inputs
 
 
@@ -44,7 +49,9 @@ async def test_pool_rejects_current_or_historical_human_work(
         )
     await db_session.flush()
     with pytest.raises(HTTPException) as error:
-        await pool.prepare(db_session, world.project, world.selection, owner.id)
+        await pool.prepare(
+            db_session, world.project, world.selection, owner.id, request=request(owner)
+        )
     assert error.value.detail["code"] == "pool_stale"
 
 
@@ -72,12 +79,20 @@ async def test_accept_revalidates_every_duplicate_member_not_only_representative
         other.assignee_id = owner.id
         await db_session.flush()
     else:
-        world.objects.put_object(
-            Bucket=service.storage.bucket,
-            Key=other.file_path,
-            Body=world.objects.objects[world.tasks[-1].file_path]["raw"],
+        replica = world.replicas[other.id]
+        replacement = world.replicas[world.tasks[-1].id]
+        world.originals.put(
+            replica.bucket,
+            replica.object_key,
+            world.originals.objects[replacement.bucket, replacement.object_key],
         )
-    with pytest.raises(HTTPException) as error:
+    batches_before = await db_session.scalar(
+        select(func.count())
+        .select_from(TaskBatch)
+        .where(TaskBatch.project_id == world.project.id)
+    )
+    expected_error = HTTPException if change == "assignment" else ContentError
+    with pytest.raises(expected_error):
         await service.decide(
             db_session,
             world.project,
@@ -86,9 +101,24 @@ async def test_accept_revalidates_every_duplicate_member_not_only_representative
             DecisionCreate(
                 request_id=uuid.uuid4(), action="accept", ordinals=[grouped["ordinal"]]
             ),
+            request=request(owner),
         )
-    assert error.value.detail["code"] in {"pool_stale", "source_stale"}
     assert round.accepted_tasks == 0
+    assert not await db_session.scalar(
+        select(ActiveLearningDecision).where(
+            ActiveLearningDecision.round_id == round.id
+        )
+    )
+    assert all(task.batch_id is None for task in world.tasks)
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(TaskBatch)
+            .where(TaskBatch.project_id == world.project.id)
+        )
+        == batches_before
+    )
+    assert all(body.closed for body in world.originals.bodies)
 
 
 async def test_conditional_reads_compute_actual_sha_and_detect_inflight_object_change(
@@ -96,23 +126,32 @@ async def test_conditional_reads_compute_actual_sha_and_detect_inflight_object_c
 ):
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
-    preview = await pool.prepare(db_session, world.project, world.selection, owner.id)
+    preview = await pool.prepare(
+        db_session, world.project, world.selection, owner.id, request=request(owner)
+    )
     for sample in preview["pool"]:
-        raw = world.objects.objects[sample["snapshot"]["source_key"]]["raw"]
+        replica = world.replicas[uuid.UUID(sample["task_id"])]
+        raw = world.originals.objects[replica.bucket, replica.object_key]
         assert sample["sha256"] == hashlib.sha256(raw).hexdigest()
-    original = world.objects.get_object
+    assert world.originals.bodies and all(
+        body.closed for body in world.originals.bodies
+    )
+    body_count = len(world.originals.bodies)
+    original = world.originals.get_object
 
     def replaced(**kwargs):
-        key = kwargs["Key"]
-        world.objects.put_object(
-            Bucket=service.storage.bucket, Key=key, Body=b"changed after HEAD"
-        )
+        world.originals.put(kwargs["Bucket"], kwargs["Key"], b"changed after HEAD")
         return original(**kwargs)
 
-    monkeypatch.setattr(world.objects, "get_object", replaced)
-    with pytest.raises(HTTPException) as error:
-        await pool.prepare(db_session, world.project, world.selection, owner.id)
-    assert error.value.detail["code"] == "source_unavailable"
+    monkeypatch.setattr(world.originals, "get_object", replaced)
+    with pytest.raises(ContentError):
+        await pool.prepare(
+            db_session, world.project, world.selection, owner.id, request=request(owner)
+        )
+    # The conditional GET must reject the replaced object before opening a
+    # response body, not decode or publish a preview of unverified bytes.
+    assert len(world.originals.bodies) == body_count
+    assert all(body.closed for body in world.originals.bodies)
 
 
 @pytest.mark.parametrize("manifest", [None, {}])
@@ -124,7 +163,9 @@ async def test_retained_version_without_complete_manifest_fails_closed(
     world.dataset.manifest = manifest
     await db_session.flush()
     with pytest.raises(HTTPException) as error:
-        await pool.prepare(db_session, world.project, world.selection, owner.id)
+        await pool.prepare(
+            db_session, world.project, world.selection, owner.id, request=request(owner)
+        )
     assert error.value.detail["code"] == "history_unready"
 
 
@@ -176,6 +217,7 @@ async def test_later_content_alias_membership_blocks_accept_and_retained_window_
             DecisionCreate(
                 request_id=uuid.uuid4(), action="accept", ordinals=[chosen["ordinal"]]
             ),
+            request=request(owner),
         )
     assert error.value.detail["code"] == "source_stale"
 

@@ -1,4 +1,7 @@
 import { apiClient } from "./client";
+import { captureOriginalOwner } from "./originals";
+import { hydratePointCloudOriginals } from "./pointCloudOriginals";
+import type { DatasetItemFilters } from "./datasets";
 import type {
   TaskResponse,
   AnnotationResponse,
@@ -88,6 +91,8 @@ export interface TaskListResponse {
 }
 
 export interface TaskListParams {
+  dataset_filter?: DatasetItemFilters;
+  dataset_id?: string;
   status?: string;
   assignee_id?: string;
   batch_id?: string;
@@ -292,6 +297,7 @@ export interface SceneTrackOperationItem {
 }
 
 export interface VideoFrameTimetableParams {
+  expected_metadata_generation_id?: string;
   from?: number;
   to?: number;
 }
@@ -309,6 +315,9 @@ export interface SubmitResponse {
 export const tasksApi = {
   listByProject: (projectId: string, params?: TaskListParams, init?: RequestInit) => {
     const q = new URLSearchParams({ project_id: projectId });
+    if (params?.dataset_id) q.set("dataset_id", params.dataset_id);
+    if (params?.dataset_filter !== undefined)
+      q.set("dataset_filter", JSON.stringify(params.dataset_filter));
     if (params?.status) q.set("status", params.status);
     if (params?.assignee_id) q.set("assignee_id", params.assignee_id);
     if (params?.batch_id) q.set("batch_id", params.batch_id);
@@ -346,15 +355,21 @@ export const tasksApi = {
     apiClient.post<ImagePyramidRetryResponse>(`/tasks/${id}/image-pyramid/retry`, {}),
 
   getVideoManifest: (id: string, init?: RequestInit) =>
-    apiClient.get<TaskVideoManifestResponse>(`/tasks/${id}/video/manifest`, init),
+    apiClient.silentGet<TaskVideoManifestResponse>(`/tasks/${id}/video/manifest`, init),
 
   // manifest v2:精确帧 pipeline(WebCodecs)激活时增量查询 chunk_size_frames / dataset_item_id。
   // 实验链路失败会静默回退,不弹全局 toast;signal 让切 task / 卸载能取消旧请求。
   getVideoManifestV2: (id: string, init?: RequestInit) =>
     apiClient.silentGet<VideoManifestV2Response>(`/tasks/${id}/video/manifest-v2`, init),
 
-  getPointCloudManifest: (id: string, init?: RequestInit) =>
-    apiClient.get<TaskPointCloudManifestResponse>(`/tasks/${id}/point-cloud/manifest`, init),
+  getPointCloudManifest: async (id: string, init?: RequestInit) => {
+    const owner = captureOriginalOwner();
+    const manifest = await apiClient.get<TaskPointCloudManifestResponse>(
+      `/tasks/${id}/point-cloud/manifest`,
+      init,
+    );
+    return hydratePointCloudOriginals(manifest, id, owner, init?.signal ?? undefined);
+  },
 
   getCameraAnnotationMembers: (
     taskId: string,
@@ -489,6 +504,8 @@ export const tasksApi = {
     const q = new URLSearchParams();
     if (params?.from !== undefined) q.set("from", String(params.from));
     if (params?.to !== undefined) q.set("to", String(params.to));
+    if (params?.expected_metadata_generation_id)
+      q.set("expected_metadata_generation_id", params.expected_metadata_generation_id);
     const suffix = q.toString() ? `?${q}` : "";
     return apiClient.get<TaskVideoFrameTimetableResponse>(
       `/tasks/${id}/video/frame-timetable${suffix}`,

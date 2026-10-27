@@ -95,14 +95,24 @@ test("慢点云加载中暂停，迟到资源只完成一次导航", async ({ pa
     release = resolve;
   });
   page.on("close", release);
-  await page.route("**/*.pcd*", async (route) => {
-    if (new URL(route.request().url()).pathname.endsWith("-1.pcd")) await gate;
-    await route.continue().catch(() => undefined);
-  });
+  let gated = false;
+  await page.route(
+    (url) => url.pathname === `/api/v1/files/tasks/${data.lidar_task_ids[1]}/original`,
+    async (route) => {
+      const url = new URL(route.request().url());
+      expect(route.request().method()).toBe("GET");
+      expect(url.searchParams.get("content_id")).toMatch(/^[0-9a-f-]{36}$/);
+      expect(url.searchParams.get("sha256")).toMatch(/^[0-9a-f]{64}$/);
+      gated = true;
+      await gate;
+      await route.continue().catch(() => undefined);
+    },
+  );
   await open(page, data.lidar_project_id, data.lidar_task_ids[0]);
   await play(page).click();
   await expect(page).toHaveURL(new RegExp(`task=${data.lidar_task_ids[1]}`));
   await expect(player(page)).toHaveAttribute("data-scene-frame-state", "loading");
+  await expect.poll(() => gated).toBe(true);
   await expect(play(page)).toBeEnabled();
   await play(page).click();
   await expect(player(page)).toHaveAttribute("data-scene-playback", "paused");
@@ -196,11 +206,20 @@ test("容器宽度响应、主题与展开偏好不重建点云画布", async ({
 test("点云错误立即暂停，重试成功仍保持暂停", async ({ page, seed }) => {
   const data = await prepare(page, seed);
   let failTarget = true;
-  await page.route("**/*.pcd*", async (route) => {
-    if (failTarget && new URL(route.request().url()).pathname.endsWith("-1.pcd")) {
-      await route.fulfill({ status: 503, body: "temporary point cloud failure" });
-    } else await route.continue();
-  });
+  let failures = 0;
+  await page.route(
+    (url) => url.pathname === `/api/v1/files/tasks/${data.lidar_task_ids[1]}/original`,
+    async (route) => {
+      const url = new URL(route.request().url());
+      expect(route.request().method()).toBe("GET");
+      expect(url.searchParams.get("content_id")).toMatch(/^[0-9a-f-]{36}$/);
+      expect(url.searchParams.get("sha256")).toMatch(/^[0-9a-f]{64}$/);
+      if (failTarget) {
+        failures++;
+        await route.fulfill({ status: 503, body: "temporary point cloud failure" });
+      } else await route.continue();
+    },
+  );
   await open(page, data.lidar_project_id, data.lidar_task_ids[0]);
   await play(page).click();
   await expect(page).toHaveURL(new RegExp(`task=${data.lidar_task_ids[1]}`));
@@ -208,6 +227,7 @@ test("点云错误立即暂停，重试成功仍保持暂停", async ({ page, se
     timeout: 20_000,
   });
   await expect(player(page)).toHaveAttribute("data-scene-playback", "paused");
+  expect(failures).toBeGreaterThan(0);
   failTarget = false;
   await timeline(page).getByRole("button", { name: "重试", exact: true }).click();
   await expect(player(page)).toHaveAttribute("data-scene-frame-state", "ready", {

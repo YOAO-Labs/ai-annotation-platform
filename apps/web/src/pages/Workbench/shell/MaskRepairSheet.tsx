@@ -100,7 +100,7 @@ export function MaskRepairSheet({
   const isTerminal = currentBatch ? TERMINAL.has(currentBatch.status) : false;
   const canRollback = Boolean(
     currentBatch &&
-    ["completed", "partial"].includes(currentBatch.status) &&
+    ["completed", "partial", "rollback_failed"].includes(currentBatch.status) &&
     currentBatch.rollback_expires_at &&
     new Date(currentBatch.rollback_expires_at).getTime() > Date.now(),
   );
@@ -354,7 +354,7 @@ export function MaskRepairSheet({
           {canRollback && (
             <Button variant="danger" disabled={rollback.isPending} onClick={submitRollback}>
               {rollback.isPending && <Spinner data-icon="inline-start" />}
-              回滚本批修复
+              {currentBatch?.status === "rollback_failed" ? "继续回滚" : "回滚本批修复"}
             </Button>
           )}
           {currentBatch && ["failed", "partial"].includes(currentBatch.status) && (

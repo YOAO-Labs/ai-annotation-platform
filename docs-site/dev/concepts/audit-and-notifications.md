@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-25
 ---
 
 # 审计与通知
@@ -48,6 +48,16 @@ last_reviewed: 2026-10-19
 | `apps/api/app/api/v1/ws.py`                         | `/ws/notifications` 在线推送                      |
 
 ## Audit：记录发生了什么
+
+### 本地来源故障观测
+
+`services/storage_fault_events.py` 将本地数据集来源的读取、扫描及预览生成故障写入现有 `AuditLog`：action 为 `storage.fault`，target 为已解析的 `storage_location`，明细只接受固定分类、阶段和白名单 UUID。调用点必须先完成当前用户／Key 授权及来源定位，不能从请求参数猜位置；客户端 SHA 错误和普通权限拒绝不会被记成物理原件变化。
+
+filesystem 只在打开配置根的实际失败处标记根不可用；S3／SFTP 在真实服务认证拒绝处保留内部分类，不改变已有公开错误码。读取的完整摘要不符与预览生成失败分别记录。现有 Run／Preview／AsyncJob 仍拥有业务状态，观测事件不代替成功发布或失败提交证明。
+
+旁路持久化使用 `storage_access.engine(db)`，由当前 API／Worker 的正确 Engine 新建事务，不提交或回滚调用者业务。数据库锁等待限制为250ms、语句为1s，观测尝试另有2s超时；失败只输出固定安全日志，不输出异常原文，也不改原读取异常。调用者回滚后观测仍可存在；它记录已发生的尝试，不保证关联业务最终提交。已删除或尚未提交的账号不强造用户外键，已解析的账号 UUID 仍可保留在明细。
+
+HTTP 事件沿现有上下文保留不超过36字符的安全 request_id，不改写其格式；不安全或过长值省略，不丢弃其余故障事实。后台扫描在原 task／fence 检查通过后关联真实 Run／Job，旧投递不重复记录；没有原 HTTP request_id 时不补造。现有审计 API 的 action、target 和 JSONB 明细过滤即可追溯，没有新增监控标签、事件表、队列或通知渠道。当前覆盖边界见[存储故障关联](/user-guide/superadmin/audit-logs#存储故障关联)。
 
 ### 核心模型
 
@@ -152,6 +162,14 @@ last_reviewed: 2026-10-19
 | `video_mask.keyframe_correct` / `keyframe_operate`  | operation、帧号、segment、源/结果版本、前后 digest、删除后解析到的 held 来源帧                                       | RLE counts、完整 geometry                          |
 | `video_tracker_job.decision`（与标注变更同事务）    | 目标标识、帧窗口、决定、候选数量、前后 revision、显式覆盖人工帧时的 before / after geometry digest                   | staged geometry、Mask RLE、原始媒体                |
 | `video_correction_job.create` / `cancel`            | 源 annotation / track、纠错帧、窗口、方向、源版本、corrected digest、backend / pool / model、lease、seed mode / 原因 | RLE counts、scribble 坐标、logits、receipt、原文本 |
+
+### 审计归档的独立存储归属
+
+`audit_archive_outputs` 永久保留每个归档候选的独立所有权，记录作业 ID、规范月份、源分区及父表的历史 OID、源行数与字节回执、压缩对象回执和固定 `storage_ref`。作业删除或源分区删除不会级联删除这些事实；同一月份最多只有一个 `ready` 记录。`pending` 候选可能对应尚未完成核验的远端对象，不能据此重放、覆盖或清理对象。
+
+对象键使用 `{year}/{month}/{archive_id}.jsonl.gz`，月份补足两位。只有分配新候选时读取当前 `audit-archive` 绑定；既有归档始终使用自身保存的桶与端点身份。恢复映射仅允许表所有者在专用事务标记下修改桶和存储身份，历史 OID、月份、对象键和内容回执保持不变。
+
+读取先执行 HEAD 和条件 GET，核验完整压缩字节的 SHA-256 与大小，再分块核验单个 gzip 成员中的全部 JSONL 内容、源行顺序、UTC 月份、源行数、源字节摘要及唯一末尾元数据。追加 gzip 成员和尾部零填充均被拒绝，压缩输入与解压输出分别受分块预算约束。分页只限制返回内存中的条目，不缩减核验范围；元数据仍作为最后一项返回。创建对象使用条件 PUT，完整读回核验成功后才允许发布，失败保留候选和对象，不执行补偿删除。
 
 ## Notification：提醒谁该处理什么
 
@@ -468,3 +486,9 @@ WS 握手时会校验 JWT，然后订阅：
 - [批次生命周期（端到端）](./batch-lifecycle-end-to-end)
 - [可见性与权限](./visibility-and-permissions)
 - [WebSocket 协议](/dev/reference/ws-protocol)
+
+存储位置注册、更新和节点探测记录 `storage_location.create / update / probe` 审计；只记录种类、修订、启停与脱敏结果码，不记录绝对根、凭据或内部目录指纹。
+
+目录来源登记/更新和扫描启动/恢复记录 `dataset_source.create / update` 与 `dataset_scan.start / resume`。`dataset_scan` 的终态复用 job 通知，摘要只带ID、计数和完整性，不含目录路径、根身份或原始异常；扫描取消及失联由同一领域 owner 保留不完整状态。
+
+目录条目首次成功内容核验记录 `dataset_content.verify`，目标仅为 run/路径摘要，不记录根指纹、绝对路径或原图字节。重复同内容核验不改写历史回执。

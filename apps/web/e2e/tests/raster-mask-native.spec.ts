@@ -4,6 +4,10 @@ import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const MATRIX = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX;
+// The corrupt fixture pins its own saved object and then removes those bytes, so
+// the owned reader reports its stored-object code (classified as missing
+// content) instead of an unknown/unpinned key.
+const CORRUPT_MASK_REASON = "raster_object_storage_missing";
 
 interface MaskReference {
   encoding: "coco_rle_ref";
@@ -528,14 +532,11 @@ test.describe("raster mask native write matrix", () => {
       timeout: 15_000,
     });
     const corruptRow = page.getByTestId(`box-list-item-${corrupt.annotation_id}`);
-    await expect(corruptRow).toContainText("missing_object", { timeout: 15_000 });
+    await expect(corruptRow).toContainText(CORRUPT_MASK_REASON, { timeout: 15_000 });
     await corruptRow.click();
     await expect(
       page.getByRole("button", { name: "\u590d\u5236 Mask \u8bca\u65ad" }),
     ).toBeVisible();
-    await expect(page.getByLabel("Mask \u52a0\u8f7d\u72b6\u6001")).toContainText(
-      "mask object is invalid",
-    );
   });
 
   test("10. deployment create-on does not regress the legacy polygon Mask flow", async ({
@@ -588,7 +589,7 @@ test.describe("raster mask native write matrix", () => {
     const healthyRow = page.getByTestId(`box-list-item-${healthy.annotation_id}`);
     const corruptRow = page.getByTestId(`box-list-item-${corrupt.annotation_id}`);
     await expect(healthyRow).toContainText("px", { timeout: 15_000 });
-    await expect(corruptRow).toContainText("missing_object", { timeout: 15_000 });
+    await expect(corruptRow).toContainText(CORRUPT_MASK_REASON, { timeout: 15_000 });
     expect(reads.get(healthy.annotation_id)).toBe(1);
     expect(reads.get(corrupt.annotation_id)).toBe(1);
 

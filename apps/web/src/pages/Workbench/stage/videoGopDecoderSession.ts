@@ -411,6 +411,8 @@ export class VideoGopDecoderSession {
     if (this.state === "ready" && this.decoder) return;
     if (this.state === "closed" || this.state === "failed") return;
 
+    const generation = this.generation;
+    const isCurrent = () => this.getState() !== "closed" && this.generation === generation;
     let supportedConfig: VideoDecoderConfig = this.plan.config;
     if (
       typeof VideoDecoder !== "undefined" &&
@@ -418,10 +420,12 @@ export class VideoGopDecoderSession {
     ) {
       try {
         let support = await VideoDecoder.isConfigSupported(this.plan.config);
+        if (!isCurrent()) return;
         if (!support.supported && this.plan.config.hardwareAcceleration === "prefer-hardware") {
           const fallbackConfig = { ...this.plan.config };
           delete fallbackConfig.hardwareAcceleration;
           support = await VideoDecoder.isConfigSupported(fallbackConfig);
+          if (!isCurrent()) return;
           if (support.supported) supportedConfig = support.config ?? fallbackConfig;
         }
         if (!support.supported) {
@@ -432,11 +436,12 @@ export class VideoGopDecoderSession {
           supportedConfig = support.config ?? this.plan.config;
         }
       } catch {
-        this.markFailed("codec_unsupported");
+        if (isCurrent()) this.markFailed("codec_unsupported");
         return;
       }
     }
 
+    if (!isCurrent()) return;
     try {
       this.decoder = new VideoDecoder({
         output: (frame) => this.onOutput(frame),

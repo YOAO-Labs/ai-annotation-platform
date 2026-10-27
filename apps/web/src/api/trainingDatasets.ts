@@ -44,7 +44,10 @@ export type DatasetSampleChange =
   | "task_ids_changed"
   | "reintroduced"
   | "unchanged"
-  | "unknown";
+  | "unknown"
+  | "source_relation_changed"
+  | "source_evidence_updated"
+  | "source_unknown";
 export type DatasetSampleFilters = {
   limit?: number;
   offset?: number;

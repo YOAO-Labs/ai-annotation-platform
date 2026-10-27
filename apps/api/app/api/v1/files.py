@@ -1,62 +1,73 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_current_user
+from app.deps import get_db, get_current_user, require_scopes
 from app.db.models.user import User
 from app.db.models.task import Task
-from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
-from app.services.display_id import next_display_id
-from app.services.storage import storage_service
+from app.schemas.task import (
+    UploadInitRequest,
+    UploadInitResponse,
+    TaskFileUrlResponse,
+    TaskContentIdentity,
+)
+from app.services.content_snapshot import VERIFIED_IMAGE_RESPONSES
 
 router = APIRouter()
 
 
-@router.post("/upload-init", response_model=UploadInitResponse)
+@router.post(
+    "/upload-init",
+    response_model=UploadInitResponse,
+    dependencies=[Depends(require_scopes("tasks:write"))],
+)
 async def upload_init(
     data: UploadInitRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task_id = uuid.uuid4()
-    storage_key = f"{data.project_id}/{task_id}/{data.file_name}"
+    from app.services import task_uploads
 
-    task = Task(
-        id=task_id,
-        project_id=data.project_id,
-        display_id=await next_display_id(db, "tasks"),
-        file_name=data.file_name,
-        file_path=storage_key,
-        file_type=_infer_file_type(data.content_type),
-        status="uploading",
+    try:
+        task_id, upload_url = await task_uploads.initialize(
+            db, current_user, request, data, _infer_file_type(data.content_type)
+        )
+        expires_in = int(
+            (upload_url.deadline - datetime.now(timezone.utc)).total_seconds()
+        )
+        if expires_in <= 0:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("import_storage_expired", 409)
+    except Exception as exc:
+        raise task_uploads.http_error(exc) from None
+    return UploadInitResponse(
+        task_id=task_id,
+        upload_url=upload_url,
+        expires_in=expires_in,
     )
-    db.add(task)
-    await db.commit()
-
-    upload_url = storage_service.generate_upload_url(storage_key, data.content_type)
-    return UploadInitResponse(task_id=task_id, upload_url=upload_url, expires_in=900)
 
 
-@router.post("/upload-complete/{task_id}")
+@router.post(
+    "/upload-complete/{task_id}",
+    dependencies=[Depends(require_scopes("tasks:write"))],
+)
 async def upload_complete(
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = await db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if task.status != "uploading":
-        raise HTTPException(status_code=400, detail="Task is not in uploading state")
+    from app.services import task_uploads
 
-    meta = storage_service.verify_upload(task.file_path)
-    if not meta:
-        raise HTTPException(status_code=400, detail="File not found in storage")
+    try:
+        file_type = await task_uploads.complete(db, current_user, request, task_id)
+    except Exception as exc:
+        raise task_uploads.http_error(exc) from None
 
-    task.status = "pending"
-    await db.commit()
-
-    if task.file_type == "image":
+    if file_type == "image":
         from app.workers.media import generate_task_thumbnail
 
         generate_task_thumbnail.delay(str(task_id))
@@ -64,18 +75,90 @@ async def upload_complete(
     return {"status": "ok", "task_id": str(task_id)}
 
 
-@router.get("/tasks/{task_id}/file-url", response_model=TaskFileUrlResponse)
+@router.get(
+    "/tasks/{task_id}/file-url",
+    response_model=TaskFileUrlResponse,
+    deprecated=True,
+    summary="旧原件签名入口（请使用认证下载）",
+    dependencies=[Depends(require_scopes("tasks:read"))],
+)
 async def get_file_url(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Check current visibility, then reject the retired original signature path."""
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    url = storage_service.generate_download_url(task.file_path)
-    return TaskFileUrlResponse(url=url, expires_in=3600)
+    from app.api.v1.tasks._shared import _assert_task_visible
+
+    await _assert_task_visible(db, task, current_user)
+
+    raise HTTPException(
+        409, detail={"code": "original_requires_authenticated_download"}
+    )
+
+
+@router.get(
+    "/tasks/{task_id}/content",
+    dependencies=[Depends(require_scopes("tasks:read"))],
+    response_class=Response,
+    responses=VERIFIED_IMAGE_RESPONSES,
+)
+async def get_verified_task_content(
+    task_id: uuid.UUID,
+    request: Request,
+    sha256: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.dataset_content import task_snapshot, content_http_error
+    from app.services.content_snapshot import SnapshotResponse
+
+    try:
+        snapshot = await task_snapshot(
+            db,
+            task_id,
+            current_user,
+            sha256,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+            require_range_support=request.headers.get("range") is not None,
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(
+        snapshot,
+        range_header=request.headers.get("range"),
+        if_range=request.headers.get("if-range"),
+    )
+
+
+@router.get(
+    "/tasks/{task_id}/content-identity",
+    response_model=TaskContentIdentity,
+    dependencies=[Depends(require_scopes("tasks:read"))],
+)
+async def get_task_content_identity(
+    task_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.dataset_content import public_task_identity, content_http_error
+
+    try:
+        return await public_task_identity(
+            db,
+            task_id,
+            current_user,
+            request=request,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
 
 
 @router.post("/projects/{project_id}/backfill-thumbnails")
@@ -86,7 +169,7 @@ async def backfill_project_thumbnails(
 ):
     from app.workers.media import backfill_tasks
 
-    task = backfill_tasks.delay(str(project_id))
+    task = backfill_tasks.delay(str(project_id), allow_pyramid=False)
     return {"status": "queued", "celery_task_id": task.id}
 
 

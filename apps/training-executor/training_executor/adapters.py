@@ -23,6 +23,7 @@ from training_contract.observability import (
     InputMismatchError,
     NativeConfigurationMismatch,
 )
+from training_contract.lineage import validate_source_lineage
 
 
 def adapter_for(config):
@@ -72,6 +73,7 @@ def validate_dataset(spec):
     else:
         ordered = names
     manifest = json.loads((root / "manifest.json").read_text())
+    validate_source_lineage(manifest)
     contract = data_contract(manifest)
     frozen = spec["frozen_config"]
     segmentation = normalize_task(contract["task"]) == SEGMENTATION
@@ -173,6 +175,7 @@ def validate_dataset(spec):
                 raise ValueError("Invalid normalized detection label")
     if splits != {"train", "val"}:
         raise ValueError("Frozen training and validation partitions required")
+    return manifest
 
 
 def train(spec, output, *, progress=None):
@@ -181,17 +184,21 @@ def train(spec, output, *, progress=None):
     except ValueError as exc:
         raise NativeConfigurationMismatch(str(exc)) from exc
     try:
-        validate_dataset(spec)
+        manifest = validate_dataset(spec)
     except (ValueError, KeyError, OSError) as exc:
         raise InputMismatchError(str(exc)) from exc
+    from .input_membership import membership_for
+
+    membership = membership_for(spec, output, manifest=manifest)
+    options = {"membership": membership} if membership is not None else {}
     if spec["framework"] == "ultralytics":
         from .train import ultralytics_train
 
-        ultralytics_train(spec, output, progress=progress)
+        ultralytics_train(spec, output, progress=progress, **options)
     elif spec["framework"] == "libreyolo":
         from .libreyolo_adapter import libreyolo_train
 
-        libreyolo_train(spec, output, progress=progress)
+        libreyolo_train(spec, output, progress=progress, **options)
 
 
 def validate_instance_rle_sample(label, sample, classes):

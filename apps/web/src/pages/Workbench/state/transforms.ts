@@ -328,13 +328,16 @@ export function predictionsToBoxes(
 ): AiBox[] {
   const resolverCache = new Map<ToolUnitId, (raw: string) => string>();
   return predictions.flatMap((p) => {
-    const unit = (p.tool_unit_id ?? "bbox") as ToolUnitId;
-    let resolve = resolverCache.get(unit);
-    if (!resolve) {
-      resolve = aliasResolverForUnit(toolBindings, unit);
-      resolverCache.set(unit, resolve);
-    }
     return p.result.map((shape, i) => {
+      const unit = (shape.tool_unit_id ?? p.tool_unit_id ?? "bbox") as ToolUnitId;
+      let resolve = resolverCache.get(unit);
+      if (!resolve) {
+        resolve = aliasResolverForUnit(toolBindings, unit);
+        resolverCache.set(unit, resolve);
+      }
+      const nativeBoundClass =
+        shape.geometry.type === "raster_mask" &&
+        toolBindings?.[unit]?.classes?.some((entry) => entry.name === shape.class_name);
       const s = geometryToShape(shape.geometry);
       const shapeIndex = typeof shape.shape_index === "number" ? shape.shape_index : i;
       // v0.14.9 · OCR / doc_layout 的 attributes (text / language / orientation 等) 是协议外字段,
@@ -349,7 +352,7 @@ export function predictionsToBoxes(
         predictionId: p.id,
         shapeIndex,
         ...s,
-        cls: resolve(shape.class_name),
+        cls: nativeBoundClass ? shape.class_name : resolve(shape.class_name),
         conf: shape.confidence,
         source: "prediction_based" as const,
         predictionSource: p.source ?? null,

@@ -15,6 +15,8 @@ import { hexToRgba } from "@/pages/Workbench/stage/colors";
 import type { NormalizedCameraBbox } from "@/api/generated";
 import type { SensorCalibration } from "@/types";
 
+import { useCameraOriginalImage } from "./useCameraOriginalImage";
+
 import { psrToCorners } from "./geometry/box3d";
 import { BOX_EDGES, projectPoints, unprojectPixelAtDepth } from "./geometry/projection";
 import { normalizeRect, type SeedRect } from "./geometry/frustum";
@@ -40,7 +42,7 @@ const CAMERA_FIGCAPTION = "mt-1 text-xs text-muted-foreground text-center";
 
 interface CameraProjectionViewProps {
   name: string;
-  imageUrl: string;
+  imageUrl: string | null | undefined;
   calibration?: SensorCalibration | null;
   /** 非隐藏的 3D 框(PSR + 类别色),与主视图同源。 */
   boxes: SceneBox[];
@@ -250,13 +252,15 @@ export function CameraProjectionView({
   const [hover, setHover] = useState<{ depth: number; point: [number, number, number] } | null>(
     null,
   );
-  const imageFailed = !imageUrl || failedImageUrl === imageUrl;
-  const imageReady = loadedImageUrl === imageUrl && !imageFailed;
+  const originalImage = useCameraOriginalImage(imageUrl);
+  const displayUrl = originalImage.url;
+  const imageFailed = !imageUrl || originalImage.failed || failedImageUrl === displayUrl;
+  const imageReady = !!displayUrl && loadedImageUrl === displayUrl && !imageFailed;
 
   useEffect(() => {
     setNatSize(null);
     setHover(null);
-  }, [imageUrl]);
+  }, [displayUrl]);
 
   // 深度栅格:开关开 + 有点 + 有标定 + 知道原图尺寸时建一次(换帧/换相机重建);否则清空。
   useEffect(() => {
@@ -518,11 +522,11 @@ export function CameraProjectionView({
     const img = imgRef.current;
     if (img?.naturalWidth) {
       setFailedImageUrl(null);
-      setLoadedImageUrl(imageUrl);
+      setLoadedImageUrl(displayUrl ?? null);
       setNatSize({ w: img.naturalWidth, h: img.naturalHeight });
     }
     draw();
-  }, [draw, imageUrl]);
+  }, [draw, displayUrl]);
 
   // 光标相对 canvas 的显示坐标。
   const localXY = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -928,8 +932,9 @@ export function CameraProjectionView({
         className={`${CAMERA_VIEW} ${fitToPanel ? "w-full" : expanded ? CAMERA_VIEW_EXPANDED : CAMERA_VIEW_THUMBNAIL}`}
       >
         <img
+          key={displayUrl ?? "pending-original"}
           ref={imgRef}
-          src={imageUrl || undefined}
+          src={displayUrl}
           alt={name}
           className={`${CAMERA_IMG} ${
             fitToPanel
@@ -941,7 +946,7 @@ export function CameraProjectionView({
           loading="eager"
           decoding="async"
           onLoad={handleImgLoad}
-          onError={() => setFailedImageUrl(imageUrl)}
+          onError={() => setFailedImageUrl(displayUrl ?? null)}
         />
         {!imageReady && (
           <span className={CAMERA_LOADING} role="status">

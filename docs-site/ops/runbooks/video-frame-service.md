@@ -4,10 +4,23 @@ audience: [ops]
 type: how-to
 since: v0.9.25
 status: stable
-last_reviewed: 2026-07-22
+last_reviewed: 2026-10-24
 ---
 
 # Runbook：视频帧服务
+
+## 原件与输出归属
+
+先确认实际服务的 checkout、数据库和 media worker；工作树环境通过自己的启动器刷新，不重启其他 checkout 的 Compose 服务。迁移后的物理责任位于 `video_derivative_outputs`，逻辑 Frame／Chunk 的 ready 状态本身不证明对象有效。接口合同见[视频派生媒体](../../api/guides/video-derivatives)。
+
+- `video_metadata_preparing`（503）：原件已登记，正在建立新元数据；检查 Item 的 `video_building_output_id`、对应 output 的 state／lease／error_code 和消费 media 队列的 worker。
+- `video_metadata_changed`／`video_derivative_generation_changed`（409）：客户端仍持有旧 generation/output，重新获取清单。不能把旧 samples 与新 chunk 字节组合。
+- 来源未知或不完整：先核实原件登记；旧 raw key 不是归属证据。Storage 失败资产重试和 timetable CLI 均使用同一套 owner 发布流程。
+- 维护、撤权或来源关系变化：先解决实际门禁／关系问题，不按缓存缺失反复排队。
+
+租约固定 1800 秒；长批次超限可能不发布，需要缩小请求后重试新的尝试。软时限会等待正在执行的原生工作真实结束，不以硬杀确认关闭。若日志或账本显示关闭不确定，保留对应 StorageOperation 和 `anno-video-derived-{output_id}-...` 目录，按该 UUID 查验子进程、FD、临时文件与客户端的真实状态；不要直接删账或按年龄清理目录。
+
+常规 GC 只处理已知 owner，先解除过期逻辑引用，再退役和等待签名宽限期。`retiring` 至少等待一小时后才能删除曾发布对象；活动元数据不按帧缓存 TTL 到期。旧 `videos/` 对象不由新协议猜测归属，需单独核对。
 
 ## 症状
 
@@ -81,7 +94,7 @@ ready chunk 会返回 `generation_mode` 与 `diagnostics`。常见 fallback：
 - `unsupported_codec`：源 codec 不是 H.264 / H.265，worker 会走 H.264 transcode。
 - `missing_start_frame_timetable`：缺少 chunk 起始帧 timetable 行，先重建帧时间表。
 - `start_frame_not_keyframe`：chunk 起始帧不是 keyframe，stream copy 不安全，worker 会转码。
-- `smart_copy_failed: ...`：ffmpeg stream copy 失败，但已尝试回退 transcode；如果最终仍 failed，查看 `video_chunks.error`。
+- `smart_copy_failed`：ffmpeg stream copy 失败或其样本不能覆盖冻结帧范围，已尝试回退 transcode；如果最终仍 failed，查看逻辑行与 output 的错误码。
 
 查看最近 chunk 诊断：
 

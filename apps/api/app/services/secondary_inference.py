@@ -22,6 +22,7 @@ from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.task import Task
+from app.services.content_snapshot import ContentError
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -116,38 +117,21 @@ def _resolve_text_output_mode(backend: MLBackendRegistry, model_id: str | None) 
     return "mask"
 
 
-async def run_secondary_inference(
-    db,
-    *,
+def prepare_secondary_request(
     annotation: Annotation,
-    task: Task,
     backend: MLBackendRegistry,
-    write_target: str,
-    write_keys: list[str] | None,
-    label: str | None,
+    *,
     model_id: str | None,
     model_variants: dict | None,
     params: dict | None,
     task_type: str | None = None,
     prompt: str | None,
     class_filter: list[int] | None,
-    pad: float,
-    user_id: uuid.UUID,
-    shadow_session_factory: GPUShadowSessionFactory | None = None,
-    dispatch_context_factory: GPUDispatchContextFactory | None = None,
     visual_task: str | None = None,
     prompt_type: str | None = None,
-) -> tuple[Annotation, list[Annotation]]:
-    """在选中框 ROI 上跑一次能力, 产物落库。返回 (更新后的原框, 新建子框列表)。
-
-    - write_target="attributes": 分类 / OCR 属性 union 回原框, 写入键标 origin=ai。
-    - write_target="geometry":   crop 上检出的子物几何回映后建子框, 挂在原框下。
-    """
-    # 惰性导入 worker 助手, 避免 API 进程在 import 期拉起 celery 相关重依赖。
-    from app.workers.tasks import _build_predict_context, _load_task_image
-    from app.services.ml_routing.client import RoutedMLBackendClient
-    from app.services.prediction import to_internal_shape
-    from app.services.storage import StorageService
+) -> tuple[dict, dict]:
+    """Validate model and geometry before acquiring any physical source input."""
+    from app.workers.tasks import _build_predict_context
     from app.services.trained_models import is_controlled
 
     if is_controlled(model_id):
@@ -194,27 +178,79 @@ async def run_secondary_inference(
                 "旋转框 / 线 / 点 / 多连通多边形不支持)"
             ),
         )
+    return ls_box, context
 
-    # 2. 读原图 (RGB) 供裁 ROI。
-    image = _load_task_image(task)
 
-    # 3. 裁 crop + 上传 (presigned, 对所有走 httpx.get 的 backend 通用)。
-    #    自建 2 参 upload_fn (crop_inputs_from_boxes 调 upload_fn(idx, bytes));
-    #    key 复用 batch 的 roi-crops/ 前缀 → 同享 import 桶 7 天 lifecycle 自清。
-    storage = StorageService()
+async def _run_secondary_inference(
+    db,
+    *,
+    annotation: Annotation,
+    task: Task,
+    backend: MLBackendRegistry,
+    write_target: str,
+    write_keys: list[str] | None,
+    label: str | None,
+    model_id: str | None,
+    model_variants: dict | None,
+    params: dict | None,
+    task_type: str | None = None,
+    prompt: str | None,
+    class_filter: list[int] | None,
+    pad: float,
+    user_id: uuid.UUID,
+    shadow_session_factory: GPUShadowSessionFactory | None = None,
+    dispatch_context_factory: GPUDispatchContextFactory | None = None,
+    visual_task: str | None = None,
+    prompt_type: str | None = None,
+    original_operation=None,
+    inputs=None,
+    prepared_request=None,
+) -> tuple[Annotation, list[Annotation]]:
+    """Write attributes or child geometries from one selected annotation's ROI."""
+    from app.services.ml_routing.client import RoutedMLBackendClient
+    from app.services.prediction import to_internal_shape
+    from app.services.reference_keys import is_reference
 
-    def upload_fn(box_idx: int, jpeg_bytes: bytes) -> str:
-        key = f"roi-crops/secondary/{annotation.id}/{box_idx}.jpg"
-        return storage.upload_crop_bytes(jpeg_bytes, key)
-
-    batch = crop_inputs_from_boxes(
-        image,
-        [ls_box],
-        pad=pad,
-        delivery="presigned",
-        upload_fn=upload_fn,
-        min_crop_side_px=32,
+    ls_box, context = prepared_request or prepare_secondary_request(
+        annotation,
+        backend,
+        model_id=model_id,
+        model_variants=model_variants,
+        params=params,
+        task_type=task_type,
+        prompt=prompt,
+        class_filter=class_filter,
+        visual_task=visual_task,
+        prompt_type=prompt_type,
     )
+    managed_image = task.file_type == "image"
+    if is_reference(task.file_path):
+        raise HTTPException(409, detail={"code": "reference_operation_not_supported"})
+    if managed_image:
+        if original_operation is None:
+            raise ContentError("prediction_original_requires_new_request")
+        batch = await original_operation.prepare_crop(ls_box, pad=pad)
+    else:
+        if original_operation is not None:
+            raise ContentError("prediction_original_receipt_invalid")
+        from app.workers.tasks import _load_task_image
+
+        image = _load_task_image(task)
+        try:
+            batch = crop_inputs_from_boxes(
+                image,
+                [ls_box],
+                pad=pad,
+                delivery="deferred",
+                min_crop_side_px=32,
+            )
+        finally:
+            image.close()
+        for item in batch.inputs:
+            index = str(item["id"])
+            item["file_path"] = await inputs.upload_crop(
+                task, int(index), batch.contents.pop(index)
+            )
     if not batch.inputs:
         # v0.20.21 · 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
         #   框太小 (短边 < min_crop_side_px=32) 或贴边裁出零面积。明确报错, 不再静默返回空。
@@ -241,7 +277,15 @@ async def run_secondary_inference(
         dispatch_context_factory=dispatch_context_factory,
     )
     try:
-        results = await client.predict(batch.inputs, context=context)
+        results = await client.predict(
+            batch.inputs,
+            context=context,
+            **(
+                {"before_dispatch": original_operation.before_dispatch}
+                if original_operation is not None
+                else {}
+            ),
+        )
     except httpx.TimeoutException as exc:
         raise HTTPException(
             status_code=504,
@@ -265,6 +309,12 @@ async def run_secondary_inference(
             detail=f"ML backend error (HTTP {status})",
         ) from exc
 
+    if inputs is not None:
+        # Temporary crop delivery ends before any annotation mutation.
+        await inputs.close()
+    if original_operation is not None:
+        task, annotation = await original_operation.final()
+
     model_ref = {
         "backend_id": str(client.last_instance_id or backend.id),
         "model_id": model_id,
@@ -286,9 +336,15 @@ async def run_secondary_inference(
                     continue
                 cur_attrs[k] = v
                 cur_meta[k] = {"origin": "ai", "model_ref": model_ref}
-            annotation.attributes = cur_attrs
-            annotation.attributes_meta = cur_meta
-            await db.flush()
+            changed = cur_attrs != dict(
+                annotation.attributes or {}
+            ) or cur_meta != dict(annotation.attributes_meta or {})
+            if changed or not managed_image:
+                annotation.attributes = cur_attrs
+                annotation.attributes_meta = cur_meta
+                if managed_image:
+                    annotation.version = int(annotation.version or 1) + 1
+                await db.flush()
         return annotation, []
 
     # 6b. 几何型: crop 检出几何回映回原图坐标 → 建子框, 挂原框下。
@@ -322,3 +378,42 @@ async def run_secondary_inference(
     if children:
         await db.flush()
     return annotation, children
+
+
+async def run_secondary_inference(db, *, input_session_factory=None, **kwargs):
+    """Keep the existing inference operation inside its temporary-input owner."""
+    prepared = prepare_secondary_request(
+        kwargs["annotation"],
+        kwargs["backend"],
+        model_id=kwargs.get("model_id"),
+        model_variants=kwargs.get("model_variants"),
+        params=kwargs.get("params"),
+        task_type=kwargs.get("task_type"),
+        prompt=kwargs.get("prompt"),
+        class_filter=kwargs.get("class_filter"),
+        visual_task=kwargs.get("visual_task"),
+        prompt_type=kwargs.get("prompt_type"),
+    )
+    if kwargs["task"] is None or kwargs["task"].file_type == "image":
+        return await _run_secondary_inference(db, prepared_request=prepared, **kwargs)
+    from app.services.reference_keys import is_reference
+
+    if is_reference(kwargs["task"].file_path):
+        raise HTTPException(409, detail={"code": "reference_operation_not_supported"})
+    if kwargs.get("original_operation") is not None:
+        raise ContentError("prediction_original_receipt_invalid")
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services import prediction_inputs, storage_access
+
+    factory = input_session_factory or async_sessionmaker(
+        storage_access.engine(db), expire_on_commit=False
+    )
+    async with prediction_inputs.prediction_inputs(
+        factory,
+        owner_id=uuid.uuid4(),
+        owner_kind="secondary_inference",
+        task_id=kwargs["task"].id,
+    ) as inputs:
+        return await _run_secondary_inference(
+            db, inputs=inputs, prepared_request=prepared, **kwargs
+        )

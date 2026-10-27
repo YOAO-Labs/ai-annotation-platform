@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-23
 ---
 
 # 标注模块
@@ -170,6 +170,16 @@ execute 必须同时提交原 receipt 和 canonical plan digest，重放同一�
 仍在同一原子事务内校验与写入。`mask_repair_batches` 持久化每片的 operation IDs 与 after versions，允许只重试失败片；
 SAM / Tracker 重跑项只创建候选，不越过候选审阅直接改写 annotation。回滚按原分片逆序执行，先确认全部对象仍处于记录的 after version，
 再恢复 before geometry；任一版本不等时整片失败。收据与回滚保留期内的 before refs 都是 Raster GC live roots。
+
+每次执行和回滚都有独立 AsyncJob UUID，并在发布前固定为 Celery task ID；消息携带该 Job，旧消息只能解析自己记录的尝试，
+不能认领恢复后的新 Job。认领、每个提交边界和终态都以 fresh Job → Batch 顺序加锁并核对当前指针、actor、plan digest 和状态，
+运行中重复投递直接退出。取消先提交数据库标记再 best-effort revoke；发布应答丢失只能失败仍 pending 的原尝试，不能覆盖已运行或完成的作业。
+
+SAM 模型调用位于最终事务之外，返回后重新核对当前权限、任务绑定、来源版本和锁；全部候选、元信息和 parent item 完成记录原子提交。
+每个确定性 shard 先锁 Task，再按全局顺序取得本片的全部 Raster 内容锁，最后才写 Annotation；跨片范围版本只接受冻结版本或该批已提交的 after version。
+Tracker child 与 parent 派发意图同事务持久化，事务外按相同 child / task ID 发布；应答未知保留待派发状态，恢复复用原 child，确认发布不能被迟到异常降级。
+这些已提交 child 在父修复取消后保留，使用自身审阅与取消流程。回滚以本次 Job 的 actor 执行，按计划分片的逆序逐片原子提交 geometry 和检查点；
+`rollback_failed` 可继续未完成片，原地引用修复门禁仍保留。尚无自动接管 running 硬失联尝试的租约，此增量不承诺硬杀后的自动恢复。
 
 ### 属性 schema 与派生渲染
 

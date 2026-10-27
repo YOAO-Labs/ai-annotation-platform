@@ -3,12 +3,12 @@ title: 内部 API 端点
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 内部 API 端点
 
-`/api/v1/internal/*` 面向 Prometheus 服务发现和独立训练执行器。部署反向代理拦截外部访问，消费方通过受控内网直连 API；跨主机执行器需要单独规划可达路径。监控发现端点不进入 OpenAPI Schema，训练执行器路由保留在快照中。是否公开 Schema 不代表是否允许匿名调用，各端点仍有独立的认证规则。
+`/api/v1/internal/*` 面向 Prometheus 服务发现和独立训练执行器，`/api/v1/site-agents/commands/*` 面向跨网络只读站点 Agent（`apps/storage-agent`）。部署反向代理拦截未授权访问，消费方通过受控内网或出站 HTTPS 访问 API；监控发现端点不进入 OpenAPI Schema，训练执行器与站点 Agent 路由保留在快照中。是否公开 Schema 不代表是否允许匿名调用，各端点仍有独立的认证与凭据规则。
 
 ---
 
@@ -90,10 +90,32 @@ curl -H "Authorization: Bearer $METRICS_SD_TOKEN" \
 
 ---
 
+## 3. 跨网络只读站点 Agent 传输端点（`/api/v1/site-agents/commands/*`）
+
+跨网络只读站点 Agent（`apps/storage-agent`）不监听任何入站端口，在通过一次性配对接口（`POST /api/v1/site-agents/pair`）换取专属身份凭据后，仅通过出站 HTTPS 调用以下三个命令传输端点。路由位于 `apps/api/app/api/v1/site_agent_transport.py`，共享协议包位于 `apps/_shared/site_agent_contract/`（完整契约见 [API 指南 · 只读站点 Agent](/api/guides/site-agents) 与 [对象存储迁移、站点 Agent 与容量观测架构](/dev/concepts/storage-migration-and-ops#只读站点-agent-与显式引用副本)）。
+
+### 鉴权、会话与防重放
+
+- **请求头**：`Authorization: Bearer <agent_token>`、`X-Agent-Protocol: 1`（分块上传另带 `X-Command-Digest`、`X-Chunk-Offset`、`X-Chunk-Sha256`）
+- **凭据隔离**：仅接受由中心配对签发的 Agent 专用凭据（校验 `credential_revision` 与到期时间），**严禁**使用平台个人 JWT、API Key 或训练执行器 Token 替代。
+- **会话与关闭回执**：Agent 在本地 SQLite 独占日志中维护持久 `session_id`，中心可向同一会话重投丢失响应的未到期命令；已撤销或过期凭据仅允许向 `/result` 端点（`retired=True`）补交物理句柄关闭回执（`closed=true/false`），绝不允许拉取新命令或上传分块。
+
+### 命令轮询、分块与结果端点
+
+| 方法   | 路径                                               | 请求/响应要点与职责说明                                                                                                                                                                                                        |
+| ------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST` | `/api/v1/site-agents/commands/poll`                | 上报 `session_id` 与本地根句柄观测并长轮询（最多 15 秒）租用一条待执行命令（`probe`、`browse`、`scan` 或 `read`，最长 120 秒租约与可选带宽上限）                                                                               |
+| `POST` | `/api/v1/site-agents/commands/{command_id}/chunks` | 当 `read` 命令需要传输原图字节时，按最多 `256 KiB` 的 `application/octet-stream` 分块上传至中心有界 Redis 中继，校验命令摘要、偏移量与单块 SHA-256                                                                             |
+| `POST` | `/api/v1/site-agents/commands/{command_id}/result` | 提交最多 2 MiB 的命令执行结果 JSON 与句柄关闭证据；若原图分块尚未齐备则返回 `409 agent_content_incomplete`，驱动 Agent 上传同一本地 `0600 VerifiedStage` 的分块后重交结果，中心核验完整 SHA-256 后返回 `applied` 或 `rejected` |
+
+---
+
 ## 关联文档
 
 - [在线学习与训练体系](/dev/concepts/training-datasets) — 训练数据版本、执行器拉取式协议与自训模型回流闭环
 - [MinIO 存储桶布局](/dev/reference/storage-buckets) — `training` 桶的对象前缀结构与备份策略
 - [可观测性总览](/ops/observability/) — Prometheus / Grafana 接入指南
 - [环境变量参考](/dev/reference/env-vars) — `METRICS_SD_TOKEN` 与 `TRAINING_EXECUTOR_TOKEN` 配置说明
+- [API 指南 · 只读站点 Agent 与传输 API](/api/guides/site-agents) — 站点管理、一次性配对与出站命令传输契约
+- [对象存储迁移、站点 Agent 与容量观测架构](/dev/concepts/storage-migration-and-ops) — 站点 Agent、显式引用副本与存储迁移架构
 - [Runbook · ML Backend 不可用](/ops/runbooks/ml-backend-down)

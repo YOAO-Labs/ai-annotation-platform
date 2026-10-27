@@ -257,4 +257,29 @@ describe("MaskRepairSheet", () => {
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
   });
+
+  it("回滚失败后可用当前结果摘要继续，保留已完成的检查点", () => {
+    mocks.batchData = {
+      id: "repair-1",
+      status: "rollback_failed",
+      result_digest: "c".repeat(64),
+      result: { rollback: { status: "failed", shards: { done: { status: "completed" } } } },
+      rollback_expires_at: "2099-07-30T01:00:00Z",
+    };
+    render(
+      <MaskRepairSheet
+        open
+        projectId="project-1"
+        actions={[{ issue_id: "issue-1", kind: "delete_small_islands" }]}
+        onOpenChange={vi.fn()}
+        onFinished={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "继续回滚" }));
+    expect(mocks.rollbackMutate).toHaveBeenCalledWith(
+      { repairId: "repair-1", resultDigest: "c".repeat(64) },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    expect(screen.queryByRole("button", { name: "重试未完成分片" })).toBeNull();
+  });
 });

@@ -1,4 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
+import { Button } from "@/components/ui/Button";
 import type { TrackerReviewProjection } from "@/hooks/videoTrackerReviewScope";
 import {
   forwardRef,
@@ -180,6 +181,15 @@ interface VideoKonvaStageProps {
   frameTimetable?: TaskVideoFrameTimetableResponse;
   isLoading?: boolean;
   error?: unknown;
+  onVideoNode?: (node: HTMLVideoElement | null) => void;
+  sourceStatus?: "idle" | "preparing" | "ready" | "refreshing" | "error";
+  sourceContentKey?: string | null;
+  sourceError?: string | null;
+  onSourceRetry?: () => void;
+  onSourceRecover?: () => void;
+  onSourcePrimed?: () => void;
+  onPauseIntent?: () => void;
+  isSourceReady?: () => boolean;
   frameIndex?: number;
   autoFitOnResize?: boolean;
   /** v0.21.11 · 选中自动聚焦(common.focusSelectionEnabled); 关闭时选中不移动视口。 */
@@ -325,6 +335,15 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       frameTimetable,
       isLoading = false,
       error,
+      onVideoNode,
+      sourceStatus,
+      sourceContentKey,
+      sourceError,
+      onSourceRetry,
+      onSourceRecover,
+      onSourcePrimed,
+      onPauseIntent,
+      isSourceReady,
       frameIndex: controlledFrameIndex,
       autoFitOnResize = true,
       focusSelectionEnabled = false,
@@ -404,14 +423,19 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
     const stageRef = useRef<Konva.Stage>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
-    const setVideoNode = useCallback((node: HTMLVideoElement | null) => {
-      videoRef.current = node;
-      setVideoEl(node);
-    }, []);
+    const setVideoNode = useCallback(
+      (node: HTMLVideoElement | null) => {
+        videoRef.current = node;
+        setVideoEl(node);
+        onVideoNode?.(node);
+      },
+      [onVideoNode],
+    );
 
     const { ref: setContainerNode, size: viewportSize } = useElementSize(containerRef);
     const { vp, vpRef, setVp: setViewport, fit, zoomAt: zoomViewportAt } = useViewportTransform();
     const sourceKey = JSON.stringify([manifest?.task_id ?? null, manifest?.video_url ?? null]);
+    const logicalSourceKey = sourceContentKey ?? sourceKey;
     const sourceOwnerRef = useRef({ key: sourceKey, epoch: 0 });
     if (sourceOwnerRef.current.key !== sourceKey) {
       sourceOwnerRef.current = { key: sourceKey, epoch: sourceOwnerRef.current.epoch + 1 };
@@ -595,6 +619,10 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
     // 是同一帧解析,与 frameViews.entries 语义等价;后续可回填)。
     const controller = useVideoPlaybackController({
       manifest,
+      onSourceRecover,
+      onSourcePrimed,
+      onPauseIntent,
+      isSourceReady,
       frameTimetable,
       videoRef,
       controlledFrameIndex,
@@ -1866,7 +1894,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
     }, [setVp, size.h, size.w, viewportSize.h, viewportSize.w]);
 
     const issueView = useVideoIssueView({
-      sourceKey,
+      sourceKey: logicalSourceKey,
       taskId: manifest?.task_id ?? null,
       frameIndex,
       selectedId,
@@ -1875,6 +1903,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       containerSize: viewportSize,
       mediaSize: size,
       hasRealMediaSize,
+      sourceReady: isSourceReady?.() ?? true,
       autoFitOnResize,
       focusSelectionEnabled,
       focusObject,
@@ -2368,17 +2397,29 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
 
     const videoMinimapVisible = viewportSize.w > 0 && viewportSize.h > 0;
 
-    if (isLoading) {
+    if (isLoading || (sourceStatus === "preparing" && !manifest?.video_url)) {
       return (
         <div className={styles.loadingState}>
-          <Icon name="loader2" className="spin" /> 加载视频信息...
+          <Icon name="loader2" className="spin" />{" "}
+          {isLoading ? "加载视频信息…" : "正在核验并准备视频原件…"}
         </div>
       );
     }
     if (error || !manifest) {
       return (
         <div className={styles.errorState}>
-          <Icon name="warning" size={28} /> 视频 manifest 不可用
+          <Icon name="warning" size={28} /> 视频信息暂时不可用
+        </div>
+      );
+    }
+    if (sourceError) {
+      return (
+        <div className={styles.errorState} role="alert" data-testid="video-original-error">
+          <Icon name="warning" size={28} />
+          <CopyableError message={sourceError} />
+          <Button size="sm" onClick={onSourceRetry}>
+            重新准备视频
+          </Button>
         </div>
       );
     }
@@ -2431,10 +2472,9 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
         <video
           ref={setVideoNode}
           data-testid="video-konva-source"
-          src={manifest.video_url}
+          src={manifest.video_url || undefined}
           poster={manifest.poster_url ?? undefined}
-          // v0.21.4 · CORS-clean 加载, 否则 createImageBitmap(video) → canvas 会被跨域 MinIO 视频
-          // 污染, 单题 AI 抓帧导出 JPEG 抛 SecurityError。storage 已对 presigned GET 返回 ACAO。
+          // Same-origin native media sends the path-scoped cookie and stays Canvas-clean.
           crossOrigin="anonymous"
           playsInline
           className={styles.hiddenVideo}
@@ -2889,7 +2929,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
         )}
         <VideoQcWarnings warnings={qualityWarnings} />
         <VideoPlaybackOverlay
-          sourceKey={sourceKey}
+          sourceKey={logicalSourceKey}
           windowControlsRef={timelineWindowControlsRef}
           onViewInteraction={interruptIssueNavigation}
           frameIndex={frameIndex}

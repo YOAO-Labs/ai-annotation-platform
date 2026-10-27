@@ -165,6 +165,32 @@ POST /api/v1/projects/:id/ml-backends/:bid/capabilities/refresh
 
 原生候选的 ID 与采纳回执绑定其在完整 `result` 中的索引，例如第二个实例的 Mask 索引为 `3`。`accept_receipts` 只为 Mask 签发；客户端删除或采纳其他候选后，仍须使用原索引采纳 Mask，不得按过滤后的列表重新编号。框沿用普通标注创建路径，Mask 使用[原子采纳接口](./tasks-and-annotations#原生-ai-mask-候选采纳)。
 
+## 托管图片的同步预测
+
+`predict-test` 和图片 `interactive-annotating` 按已登记原件保存的位置完整核验图片，支持 TaskOriginal、直接 DatasetItem 以及 primary 关联，不按当前用途桶拼接同名 URL。模型收到版本固定的独占临时副本，setup 后和响应前复核本次原 JWT／API Key、任务版本、权限、来源及维护状态；缺原件归属、来源变化或权限撤销时拒绝结果。
+
+predict-test 保持当前项目管理权限和只读语义，可读取管理者可见的已完成任务，不要求开启交互 AI。交互要求当前可编辑、有效分派与编辑锁允许、项目交互 AI 开启；原有端点 scope 要求保持，带 `mask_prompt_source` 另需 `annotations:read`。
+
+原生候选 receipt 和加密 `mask_input_next` 使用服务器生成的 `original_input` 身份，绑定 Task、原件、完整摘要、真实尺寸及 canonical 来源摘要，与引用图片的 `reference_input` 分开。客户端不能补写来源；旧托管候选、续点或 decision 缺少证据时需重新推理。原生接受重新完整核验原件，支持独立任务与 primary 关联，保持 create／refine、If-Match 和原子幂等合同；来源变化时已有 decision 也不能绕过检查。公开来源投影不包含对象路径、凭据或签名 URL。
+
+这两个同步接口不创建后台作业，临时输入沿既有独立账本清理。导入桶版本控制和未知关闭的部署要求与[后台图片输入](./predictions#托管图片的固定输入)一致。视频帧、二次推理、批量 mask repair 和整段追踪仍使用各自的输入流程。
+
+## 托管视频的预测测试
+
+`predict-test?task_id=...` 对托管视频沿登记原件完整核验并实际探测，支持独立 TaskOriginal、直接 DatasetItem 和 primary 关联。模型读取本次独立且版本固定的临时视频；实际派发前和返回前复核当前管理权限、原凭据、来源、任务与实际模型配置。单视频最多 5GiB、一百万帧，响应最多 64MiB；不创建后台作业。
+
+该接口保留原有只读测试请求，不额外发送 model／task／context，也不额外要求交互 AI 开关。它资格化安全供图，不提供新的 Tracker 选择入口；整视频交互、当前帧上传和专用追踪仍按各自合同执行。部署与恢复要求见[整视频输入](../../ops/deploy/storage-recovery.md#整视频预标输入的部署与恢复)。
+
+## 原地引用图片的同步预测
+
+`POST /projects/{project_id}/ml-backends/{backend_id}/predict-test?task_id=...` 支持引用图片，要求当前项目管理权限及 `tasks:read`。这是只读测试，可用于管理者可见的已完成任务，不要求任务处于可编辑状态。
+
+图片 `interactive-annotating` 支持引用原图及普通几何/原生 Mask 输出，要求当前任务可编辑、分派与编辑锁允许、项目交互 AI 开启，以及 `tasks:read` 和 `annotations:write`；带 `mask_prompt_source` 的精修另需 `annotations:read`。API 节点必须具有当前位置的读取锚点。输入完整核验后通过独占临时对象交给现有 HTTP 后端，响应前再次验证原发起 Key、Task 版本、当前权限与来源绑定。来源、内容或权限变化时拒绝结果；资源占用返回可重试 `409`，临时输入仍清理。
+
+原生 Mask 的候选回执与 `mask_input_next` 同时绑定原图 Item/Asset/SHA/大小/尺寸。旧会话缺少原图证据或绑定另一份内容时返回 `mask_session_mismatch`；客户端不能自行补充内容证据。原生采纳沿用既有[原子采纳接口](./tasks-and-annotations#原生-ai-mask-候选采纳)，服务端重新核验原图并写入候选内容血缘；重放既有有效 decision 不要求短期候选回执仍未到期，也不会重复创建候选。
+
+这两个同步接口不会创建后台预标作业。后台原生掩码预标与批量 mask repair 使用各自的引用资格，视频 frame 消费尚未接入；这些入口不使用全局 URL resolver 绕过门禁。
+
 ## 审计
 
 全局注册写入 `ml_registry.created / updated / deleted`，服务池及成员操作写入 `ml_service_pool.*`；项目兼容端点继续记录 `ml_backend.*`。全部事件进入 `audit_logs`。

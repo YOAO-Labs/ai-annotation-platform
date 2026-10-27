@@ -87,6 +87,10 @@ def test_bitmap_consumer_and_segmentation_initialization_are_explicit_capabiliti
         "TRAINING_IMAGE_REFERENCE", "registry.test/training:latest@sha256:" + "a" * 64
     )
     runtime = runtime_identity()
+    assert runtime["training_saved_prefix_schema"] == 2
+    from training_contract.input_membership import POLICY_DIGEST as INPUT_POLICY_DIGEST
+
+    assert runtime["input_receipt_policy_digest"] == INPUT_POLICY_DIGEST
     assert runtime["instance_rle_consumer"] == instance_rle_capability(
         runtime["frameworks"]["ultralytics"]
     )

@@ -4,7 +4,7 @@
 中心场景色),用 ffmpeg 编码成不同 profile / GOP / B 帧的 H.264,再复用生产同构的
 ffprobe packet probe 与 avcC 提取产出 chunk samples + codec description。这样前端
 demux / decode 路径在 E2E 里拿到的是与真实 worker 完全相同的字节结构,而不是手搓的
-假数据。unsupported / malformed 场景在真实 baseline 基础上确定性篡改 metadata。
+假数据。unsupported / malformed 的故障描述供浏览器测试响应注入，不修改合法输出。
 
 帧身份编码(供 Playwright 像素采样):
   - 背景顶部窄条:灰度 = clip(32 + (i % 8) * 28),按帧分组,辅助识别相邻帧误取;
@@ -25,7 +25,7 @@ from PIL import Image
 
 from app.workers.media_codec import _extract_decoder_config
 from app.workers.media_chunks import extract_video_chunk, extract_video_chunk_smart_copy
-from app.workers.media_probe import probe_chunk_samples, probe_video_frame_timetable
+from app.services.media_probe import probe_chunk_samples, probe_video_frame_timetable
 
 FRAME_W = 160
 FRAME_H = 120
@@ -209,6 +209,7 @@ def generate_fixture(
     tmpdir: str | Path,
     *,
     chunk_size_frames: int = QUALIFICATION_CHUNK_SIZE_FRAMES,
+    include_chunks: bool = True,
 ) -> dict[str, Any]:
     """生成真实编码 fixture 的 mp4 bytes 与生产同结构 chunk samples / codec metadata。
 
@@ -252,7 +253,7 @@ def generate_fixture(
         "frame_count": spec["frames"],
         "duration_ms": duration_ms,
     }
-    if fixture == "h264-issue-context":
+    if fixture == "h264-issue-context" and include_chunks:
         # Frame-count transcode keeps B-frame packet overlap out of chunk boundaries.
         meta["chunk_size_frames"] = chunk_size_frames
         meta["chunks"] = _generate_chunks(
@@ -318,7 +319,9 @@ def _generate_chunks(
     return chunks
 
 
-def generate_qualification_fixture(fixture: str, tmpdir: str | Path) -> dict[str, Any]:
+def generate_qualification_fixture(
+    fixture: str, tmpdir: str | Path, *, include_chunks: bool = True
+) -> dict[str, Any]:
     """生成 61 秒 benchmark 源视频和 production-sized ready chunks。"""
     spec = QUALIFICATION_FIXTURE_SPECS[fixture]
     root = Path(tmpdir)
@@ -377,13 +380,17 @@ def generate_qualification_fixture(fixture: str, tmpdir: str | Path) -> dict[str
             or f"webcodecs qualification fixture {fixture} encode failed"
         )
 
-    chunks = _generate_chunks(
-        source,
-        root,
-        frame_count,
-        spec["fps"],
-        QUALIFICATION_CHUNK_SIZE_FRAMES,
-        generation_mode="smart_copy",
+    chunks = (
+        _generate_chunks(
+            source,
+            root,
+            frame_count,
+            spec["fps"],
+            QUALIFICATION_CHUNK_SIZE_FRAMES,
+            generation_mode="smart_copy",
+        )
+        if include_chunks
+        else []
     )
     return {
         "mp4_bytes": source.read_bytes(),
@@ -405,7 +412,7 @@ def _real_fixture_name(fixture: str) -> str:
 
 
 def apply_metadata_mutation(fixture: str, meta: dict[str, Any]) -> dict[str, Any]:
-    """对 unsupported / malformed 场景做确定性 metadata 篡改,其余原样返回。"""
+    """Pure response-fault helper; never persist this as an immutable output."""
     if fixture == "unsupported-config":
         # 真实 avcC description 保留,codec string 改成浏览器必拒的值 → isConfigSupported false。
         meta = {**meta, "codec_string": "avc1.ffff00"}
@@ -451,6 +458,11 @@ def frame_expectations(
         )
     return {
         "scene_id": fixture,
+        "response_fault": (
+            {"target": "chunk-samples", "mutation": fixture}
+            if fixture in {"unsupported-config", "malformed-samples"}
+            else None
+        ),
         "scene_color": spec["scene"],
         "width": FRAME_W,
         "height": FRAME_H,

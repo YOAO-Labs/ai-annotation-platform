@@ -237,6 +237,26 @@
   background: var(--sc-muted);
 }
 
+.attachmentDownload {
+  width: 100%;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attachmentDownload:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.attachmentError {
+  margin-top: 4px;
+  color: var(--sc-status-danger);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .truncate {
   flex: 1;
   min-width: 0;

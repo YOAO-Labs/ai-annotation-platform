@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from app.services import training_storage_io as storage_io
+from app.services import training_write_accounting as write_accounting
+from contextlib import nullcontext
+from app.services import storage_access
+
 from aap_task_contract import normalize_task
 
 import asyncio
@@ -30,6 +35,7 @@ from app.schemas.sample_evaluation import (
 from app.services import (
     async_job as jobs,
     sample_evaluation_engine as engine,
+    sample_evaluation_storage as owners,
     trained_models,
 )
 from app.services.async_job_notify import notify_job_terminal
@@ -65,7 +71,7 @@ def engine_for(value):
     return engine
 
 
-async def frozen_mask_truth(project_id, version, member, source, classes):
+async def frozen_mask_truth(project_id, version, member, source, classes, *, db):
     from app.services import sample_evaluation_masks as masks
     from training_contract.dataset import segmentation_labels
 
@@ -83,16 +89,29 @@ async def frozen_mask_truth(project_id, version, member, source, classes):
             or sum(encoded_bytes) > masks.MAX_SAMPLE_RLE_BYTES
         ):
             raise ValueError("Frozen masks exceed the sample RLE budget")
-        retained_instances = await asyncio.to_thread(
-            read_instance_masks,
-            project_id,
-            version,
-            SimpleNamespace(
-                included=True,
-                label_sha256=member["label_sha256"],
-                task_id=uuid.UUID(member["task_id"]),
+        from app.services import training_dataset_storage
+
+        source_owner = training_dataset_storage.resolve(version)
+        retained_instances = await storage_io.read(
+            db,
+            source_owner,
+            "sample_evaluation_source",
+            lambda transport: read_instance_masks(
+                project_id,
+                version,
+                SimpleNamespace(
+                    included=True,
+                    label_sha256=member["label_sha256"],
+                    task_id=uuid.UUID(member["task_id"]),
+                ),
+                [
+                    uuid.UUID(instance["annotation_id"])
+                    for instance in member["instances"]
+                ],
+                transport=transport,
             ),
-            [uuid.UUID(instance["annotation_id"]) for instance in member["instances"]],
+            object_key=source_owner.key(f"masks/{member['task_id']}.json"),
+            sha256=member["label_sha256"],
         )
         for instance in member["instances"]:
             index = instance["class_index"]
@@ -275,7 +294,7 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
             raise reject("sample_budget", "所选图片超过评估大小或像素上限", 422)
         if segmentation:
             truth = await frozen_mask_truth(
-                project.id, version, member, source, classes
+                project.id, version, member, source, classes, db=db
             )
         else:
             text = detection_labels(source["annotations"], classes)
@@ -360,6 +379,7 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
 
 
 async def new_attempt(db, run):
+    owners.resolve(run)
     run.generation += 1
     ordinal = (
         await db.scalar(
@@ -442,16 +462,16 @@ def validate_spec(run):
     return spec
 
 
-def prepare_input(run, version, frozen):
+def prepare_input(run, version, frozen, *, transport=None):
     if frozen["size_bytes"] > engine.MAX_RAW_BYTES:
         raise ValueError("Frozen input exceeds byte budget")
     source, _content_type = read_media(
-        run.project_id, version, SimpleNamespace(**frozen)
+        run.project_id, version, SimpleNamespace(**frozen), transport=transport
     )
     try:
         raw = source.read(engine.MAX_RAW_BYTES + 1)
     finally:
-        source.close()
+        storage_access.close_registered(source)
     png, preprocessing = engine.normalize_image(
         raw, width=frozen["width"], height=frozen["height"]
     )
@@ -691,10 +711,16 @@ def report_metadata(run, attempt):
 
 
 def report_prefix(run):
-    return f"projects/{run.project_id}/sample-evaluations/{run.id}/"
+    return owners.resolve(run).prefix
 
 
-def upload_report(run, attempt, report):
+def upload_report(run, attempt, report, *, transport=None):
+    transport = storage if transport is None else transport
+    owner = owners.resolve(run)
+    if attempt.run_id != run.id:
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "报告执行尝试不属于该评估", status_code=409
+        )
     _bounded(report, budget=[engine.REPORT_NODE_BUDGET])
     raw = json.dumps(
         report, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -707,41 +733,75 @@ def upload_report(run, attempt, report):
         "sha256": sha,
         "size_bytes": len(raw),
     }
-    storage.client.put_object(
-        Bucket=storage.training_bucket,
-        Key=artifact["key"],
-        Body=raw,
-        ContentType="application/json",
-        Metadata=report_metadata(run, attempt),
+    owners.expect_report(owner, attempt.id, artifact["key"], sha)
+    accounting = getattr(transport, "_write_accounting", None)
+    observation = (
+        write_accounting.Observation(
+            accounting,
+            transport.client,
+            artifact["key"],
+            artifact,
+        )
+        if accounting is not None
+        else None
     )
+    with observation.hooks() if observation is not None else nullcontext():
+        transport.client.put_object(
+            Bucket=owner.bucket,
+            Key=artifact["key"],
+            Body=raw,
+            ContentType="application/json",
+            Metadata=report_metadata(run, attempt),
+        )
     if (
         read_json_artifact(
             artifact,
             attempt.id,
+            bucket=owner.bucket,
+            transport=transport,
             required_metadata=report_metadata(run, attempt),
             node_budget=engine.REPORT_NODE_BUDGET,
+            observation=observation,
         )
         != report
     ):
         raise ValueError("Uploaded evaluation report differs")
+    if observation is not None:
+        observation.complete()
     return artifact
 
 
 async def read_report(db, run, attempt):
     if run.deletion_requested_at:
         raise reject("evaluation_deleting", "评估正在删除，报告已停止提供")
+    if attempt.run_id != run.id:
+        raise reject("report_corrupt", "报告执行尝试不属于该评估")
     if attempt.status not in TERMINAL or not attempt.report:
         raise reject("report_pending", "该执行尝试尚无已核验报告")
     artifact = attempt.report
-    if not artifact.get("key", "").startswith(f"{report_prefix(run)}{attempt.id}/"):
-        raise reject("report_corrupt", "报告存储身份不匹配")
     try:
-        report = await asyncio.to_thread(
-            read_json_artifact,
-            artifact,
-            attempt.id,
-            required_metadata=report_metadata(run, attempt),
-            node_budget=engine.REPORT_NODE_BUDGET,
+        owner = owners.resolve(run)
+        owners.expect_report(owner, attempt.id, artifact["key"], artifact["sha256"])
+    except TrainingDatasetError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
+    except (KeyError, TypeError) as exc:
+        raise reject("report_corrupt", "报告存储身份不匹配") from exc
+    try:
+        report = await storage_io.read(
+            db,
+            owner,
+            "sample_evaluation_read",
+            lambda transport: read_json_artifact(
+                artifact,
+                attempt.id,
+                bucket=owner.bucket,
+                transport=transport,
+                required_metadata=report_metadata(run, attempt),
+                node_budget=engine.REPORT_NODE_BUDGET,
+            ),
+            object_key=artifact["key"],
+            sha256=artifact["sha256"],
+            size_bytes=artifact["size_bytes"],
         )
         if report.get("status") != attempt.status:
             raise ValueError("Report state differs from terminal attempt")
@@ -847,19 +907,39 @@ async def output(db, run):
 
 
 async def purge_requested(db, run_id):
-    run = await db.get(Run, run_id)
+    run = await db.scalar(
+        select(Run)
+        .where(Run.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if not run or not run.deletion_requested_at or run.status not in TERMINAL:
         return False
     from app.services.active_learning_pool import guard_source
 
+    owner = owners.resolve(run)
     await guard_source(db, evaluation_id=run.id)
-    prefix = report_prefix(run)
     await db.commit()
-    await asyncio.to_thread(
-        storage.delete_prefix, prefix, bucket=storage.training_bucket
+    await storage_io.run(
+        db,
+        owner,
+        "sample_evaluation_cleanup",
+        lambda transport: transport.delete_prefix(owner.prefix, bucket=owner.bucket),
     )
-    run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
+    run = await db.scalar(
+        select(Run)
+        .where(Run.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if run and run.deletion_requested_at and run.status in TERMINAL:
+        if owners.resolve(run).ref != owner.ref:
+            raise TrainingDatasetError(
+                "training_storage_unproven",
+                "评估清理期间存储归属已变化",
+                status_code=409,
+            )
+        await guard_source(db, evaluation_id=run.id)
         await db.delete(run)
         await db.commit()
     return True

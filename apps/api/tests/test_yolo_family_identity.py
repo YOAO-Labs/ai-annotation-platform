@@ -68,7 +68,7 @@ def test_receipt_freezes_exact_family_scale_and_head(base_model):
 async def test_source_pin_and_public_schema_resolve_source_version_and_family(
     monkeypatch, base_model
 ):
-    project, version, DB, _, _ = source_fixture(monkeypatch)
+    project, version, DB, _, _, _ = source_fixture(monkeypatch)
     _, run, dataset = list(DB().rows)
     config = run.config
     config.update(
@@ -263,9 +263,8 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
 ):
     from app.schemas.training_initialization import TrainingInitialization
     from app.services import training_runs
-    from unittest.mock import Mock
 
-    project, version, DB, _, _ = source_fixture(monkeypatch)
+    project, version, DB, _, _, _ = source_fixture(monkeypatch)
     pin, metrics = await initialization.source_pin(DB(), project, version.id)
     monkeypatch.setattr(
         initialization, "source_pin", AsyncMock(return_value=(pin, metrics))
@@ -275,23 +274,23 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
         "controlled_template",
         lambda *_: {"framework_version": "8.4.183"},
     )
-    storage_check = Mock()
-    monkeypatch.setattr(initialization, "verify_storage", storage_check)
+    read_storage = AsyncMock()
+    monkeypatch.setattr(initialization, "read_storage", read_storage)
     source = TrainingInitialization(**initialization.reference(pin))
     with pytest.raises(HTTPException, match="跨版本"):
         await initialization.resolve(
-            None, project, source, "ultralytics", "yolo11n-seg"
+            DB(), project, source, "ultralytics", "yolo11n-seg"
         )
-    storage_check.assert_not_called()
+    read_storage.assert_not_awaited()
     eligibility = await initialization.eligibility(
-        None, project, version.id, "ultralytics", "yolo11n-seg"
+        DB(), project, version.id, "ultralytics", "yolo11n-seg"
     )
     assert not eligibility["eligible"]
     assert any("跨版本" in reason for reason in eligibility["reasons"])
     # An accepted historical pin validates against its own immutable runtime.
     assert (
         await initialization.validate_accepted(
-            None, project, pin, "ultralytics", "yolo11n-seg"
+            DB(), project, pin, "ultralytics", "yolo11n-seg"
         )
         == pin
     )
@@ -303,7 +302,7 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
 async def test_segment_source_pin_resolves_the_new_family_policy_and_raw_report(
     monkeypatch, base_model
 ):
-    project, version, DB, report, metrics = source_fixture(
+    project, version, DB, report, metrics, _ = source_fixture(
         monkeypatch, base_model=base_model, framework_version="8.4.183"
     )
     pin, frozen_metrics = await initialization.source_pin(DB(), project, version.id)

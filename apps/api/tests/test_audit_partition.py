@@ -83,3 +83,40 @@ async def test_export_detail_helper_includes_actor_and_request(
     assert "_export_meta" in body
     assert body["_export_meta"]["exported_by"] == user.email
     assert body["_export_meta"]["filter_criteria"] == {"action": "auth.login"}
+
+
+async def test_ensure_rejects_independent_same_named_table(db_session):
+    from datetime import date
+
+    from app.services.audit_archive_partitions import AuditArchiveError, partition_name
+    from app.services import audit_partition_service as service
+
+    # Override only the clock, so the collision is reached without creating a
+    # large span of unrelated future partitions in this savepoint-backed test.
+    target = date(2080, 1, 1)
+    name = partition_name(target)
+    await db_session.execute(text(f'CREATE TABLE public."{name}" (id bigint)'))
+
+    class Clock:
+        @staticmethod
+        def now(_timezone):
+            from datetime import datetime, timezone
+
+            return datetime(2080, 1, 1, tzinfo=timezone.utc)
+
+    from unittest.mock import patch
+
+    with patch.object(service, "datetime", Clock):
+        with pytest.raises(AuditArchiveError, match="audit_archive_source_invalid"):
+            await AuditPartitionService.ensure_future_partitions(
+                db_session, months_ahead=0
+            )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT relispartition FROM pg_class WHERE oid=CAST(:name AS regclass)"
+            ),
+            {"name": f"public.{name}"},
+        )
+        is False
+    )

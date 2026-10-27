@@ -16,18 +16,20 @@ E2E（Playwright）通过 `POST /api/v1/__test/seed/reset` 在每个 spec 前重
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 import secrets
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -283,7 +285,12 @@ def _parse_owned_namespace(namespace: str) -> _OwnedFixtureScope:
 
 
 def _delete_seed_object_prefix(
-    storage: Any, *, bucket: str, prefix: str, label: str
+    storage: Any,
+    *,
+    bucket: str,
+    prefix: str,
+    label: str,
+    protect_canonical: bool = False,
 ) -> None:
     """Delete an already resolved fixture prefix and verify complete removal."""
     continuation_token: str | None = None
@@ -302,6 +309,12 @@ def _delete_seed_object_prefix(
         continuation_token = response.get("NextContinuationToken")
         if not continuation_token:
             raise RuntimeError(f"{label} cleanup missing MinIO continuation token")
+    if protect_canonical and any(
+        _canonical_comment_attachment_key(key) for key in keys
+    ):
+        raise HTTPException(
+            409, detail={"code": "e2e_seed_attachment_canonical_residual"}
+        )
     for offset in range(0, len(keys), 1000):
         delete_response = storage.client.delete_objects(
             Bucket=bucket,
@@ -321,6 +334,12 @@ def _delete_seed_object_prefix(
         MaxKeys=1,
     ).get("Contents", [])
     if remaining:
+        if protect_canonical and any(
+            _canonical_comment_attachment_key(item["Key"]) for item in remaining
+        ):
+            raise HTTPException(
+                409, detail={"code": "e2e_seed_attachment_canonical_residual"}
+            )
         raise RuntimeError(f"{label} cleanup left MinIO objects")
 
 
@@ -333,6 +352,16 @@ def _delete_webcodecs_seed_objects(storage: Any) -> None:
     )
 
 
+def _canonical_comment_attachment_key(key: str) -> bool:
+    parts = key.split("/")
+    if len(parts) != 3 or parts[0] != "comment-attachments":
+        return False
+    try:
+        return str(UUID(parts[1])) == parts[1] and str(UUID(parts[2])) == parts[2]
+    except (ValueError, AttributeError):
+        return False
+
+
 def _delete_comment_attachment_seed_objects(storage: Any, annotation_ids: list) -> None:
     # These IDs are resolved from fixture projects before their database rows
     # are deleted. Include unfinished uploads, not only attachments in comments.
@@ -343,6 +372,7 @@ def _delete_comment_attachment_seed_objects(storage: Any, annotation_ids: list) 
             bucket=storage.bucket,
             prefix=f"comment-attachments/{identifier}/",
             label="comment-attachment",
+            protect_canonical=True,
         )
 
 
@@ -381,8 +411,583 @@ def _is_transaction_abort(exc: BaseException) -> bool:
     return False
 
 
+async def _resolve_fixture_scope(db, owned):
+    from app.api.v1._test_seed_attachments import FixtureScope
+
+    if owned is None:
+        project_selector = "name = 'E2E Demo Project' OR display_id LIKE 'P-E2E-%'"
+        project_params = {}
+        user_selector, user_params = "email LIKE '%@e2e.test'", {}
+        dataset_selector, dataset_params = "display_id LIKE 'DS-E2E-%'", {}
+    else:
+        project_selector = "name = ANY(:names) OR display_id = ANY(:display_ids)"
+        project_params = {
+            "names": owned.all_project_names,
+            "display_ids": owned.all_project_display_ids,
+        }
+        user_selector, user_params = (
+            "email = ANY(:emails)",
+            {"emails": owned.all_user_emails},
+        )
+        dataset_selector = "display_id = ANY(:display_ids)"
+        dataset_params = {"display_ids": owned.all_dataset_display_ids}
+
+    async def ids(table, selector, parameters):
+        return tuple(
+            await db.scalars(
+                text(f"SELECT id FROM {table} WHERE {selector} ORDER BY id"), parameters
+            )
+        )
+
+    projects = await ids("projects", project_selector, project_params)
+    users = await ids("users", user_selector, user_params)
+    datasets = await ids("datasets", dataset_selector, dataset_params)
+    tasks = await ids("tasks", "project_id = ANY(:pids)", {"pids": list(projects)})
+    annotations = await ids(
+        "annotations", "project_id = ANY(:pids)", {"pids": list(projects)}
+    )
+    return FixtureScope(projects, users, annotations, tasks, datasets)
+
+
+def _cleanup_fixture_storage(owned, annotation_ids):
+    """All legacy network I/O precedes the final fixture transaction locks."""
+    from app.services.storage import storage_service
+
+    if owned is None:
+        _delete_webcodecs_seed_objects(storage_service)
+        _delete_filtering_seed_objects(storage_service)
+    else:
+        for prefix in owned.all_storage_prefixes:
+            _delete_seed_object_prefix(
+                storage_service,
+                bucket=storage_service.datasets_bucket,
+                prefix=prefix,
+                label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
+            )
+    _delete_comment_attachment_seed_objects(storage_service, annotation_ids)
+
+
+@dataclass
+class _FixtureVideoCleanup:
+    scope: Any
+    item_ids: tuple
+    receipts: tuple
+    revisions: dict = field(default_factory=dict)
+    # Monotonic budget for the physical delete phase; the first guarded receipt
+    # starts it, so every receipt of one plan shares the same bound.
+    deadline: float = 0.0
+
+
+# The Playwright seed fixture tears down before the page closes, so work that was
+# already admitted for this fixture (a source read, a derivative read whose HTTP
+# response outlived the closed page) can still hold a storage permit when cleanup
+# begins. Settling that exact, known work is a drain, not a retry: each cleanup
+# phase carries its own bounded budget and shares one budget across every receipt
+# it guards, and a permit that outlives it still ends in
+# ``e2e_seed_video_operation_unsettled`` so no physical output is removed while a
+# live or unknown permit remains. Same bounded-authority convention as
+# ``_test_seed_attachments.FENCE_LOCK_TIMEOUT``.
+FIXTURE_VIDEO_DRAIN_SECONDS = 5.0
+FIXTURE_VIDEO_DRAIN_INTERVAL = 0.05
+FIXTURE_VIDEO_SOURCE_PURPOSE = "video_derivative_original"
+
+
+def _fixture_video_source_locations(outputs):
+    """Locations whose ``video_derivative_original`` read permits gate deletion."""
+    return {UUID(output.original_ref["location_id"]) for output in outputs}
+
+
+def _fixture_video_busy(exc):
+    """Map a bounded ownership conflict to the same busy convention.
+
+    A request that is allocating a new owner for the same item holds that row
+    with ``FOR UPDATE``. That is known fixture work, so teardown reports a busy
+    rejection instead of a driver error; an unrelated database fault still raises.
+    """
+    if not isinstance(exc, DBAPIError):
+        return None
+    state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    if state not in {"55P03", "40P01", "40001"}:
+        return None
+    return HTTPException(409, detail={"code": "e2e_seed_video_cleanup_busy"})
+
+
+def _fixture_video_purposes(outputs):
+    from app.services import video_derivative_objects as objects
+
+    return tuple(objects.purpose(output.id) for output in outputs)
+
+
+async def _fixture_video_operations(db, *, locations, purposes, excluding=()):
+    """Probe the exact permits that can still touch these fixture outputs."""
+    from sqlalchemy import and_, or_, select
+    from app.db.models.storage_maintenance import StorageOperation
+
+    predicates = []
+    if locations:
+        predicates.append(
+            and_(
+                StorageOperation.location_id.in_(tuple(locations)),
+                StorageOperation.purpose == FIXTURE_VIDEO_SOURCE_PURPOSE,
+            )
+        )
+    if purposes:
+        predicates.append(StorageOperation.purpose.in_(tuple(purposes)))
+    if not predicates:
+        return ()
+    statement = select(StorageOperation.id).where(or_(*predicates))
+    if excluding:
+        statement = statement.where(StorageOperation.id.not_in(tuple(excluding)))
+    with db.no_autoflush:
+        return tuple(await db.scalars(statement))
+
+
+async def _drain_fixture_video_operations(
+    db, deadline, *, locations=(), purposes=(), excluding=()
+):
+    """Wait (bounded) until only this collector's own permits remain.
+
+    Returns ``False`` when the caller's budget expired, so each caller keeps its
+    own fail-closed rejection instead of treating an unsettled owner as settled.
+    """
+    while True:
+        live = await _fixture_video_operations(
+            db, locations=locations, purposes=purposes, excluding=excluding
+        )
+        if not live:
+            return True
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return False
+        await asyncio.sleep(min(FIXTURE_VIDEO_DRAIN_INTERVAL, remaining))
+
+
+async def _fixture_video_lock_deadline(db, deadline):
+    remaining = int((deadline - asyncio.get_running_loop().time()) * 1000)
+    if remaining <= 0:
+        raise HTTPException(409, detail={"code": "e2e_seed_video_cleanup_busy"})
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": f"{remaining}ms"},
+    )
+
+
+async def _fixture_video_outputs(db, scope, *, lock=False, deadline=0):
+    from sqlalchemy import select
+    from app.db.models.dataset import Dataset, DatasetItem
+    from app.db.models.video_derivative import VideoDerivativeOutput
+
+    if lock:
+        deadline = deadline or (
+            asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+        )
+        previous_timeout = await db.scalar(
+            text("SELECT current_setting('lock_timeout')")
+        )
+    if lock and scope.dataset_ids:
+        await _fixture_video_lock_deadline(db, deadline)
+        await db.execute(
+            select(Dataset.id)
+            .where(Dataset.id.in_(scope.dataset_ids))
+            .order_by(Dataset.id)
+            .with_for_update()
+        )
+    item_ids = tuple(
+        await db.scalars(
+            select(DatasetItem.id)
+            .where(
+                DatasetItem.dataset_id.in_(scope.dataset_ids),
+                DatasetItem.file_type == "video",
+            )
+            .order_by(DatasetItem.id)
+        )
+    )
+    if lock and item_ids:
+        await _fixture_video_lock_deadline(db, deadline)
+        await db.execute(
+            select(DatasetItem.id)
+            .where(DatasetItem.id.in_(item_ids))
+            .order_by(DatasetItem.id)
+            .with_for_update()
+        )
+    statement = (
+        select(VideoDerivativeOutput)
+        .where(VideoDerivativeOutput.dataset_item_id.in_(item_ids))
+        .order_by(VideoDerivativeOutput.id)
+    )
+    if lock:
+        await _fixture_video_lock_deadline(db, deadline)
+        statement = statement.with_for_update()
+    outputs = list(
+        await db.scalars(statement.execution_options(populate_existing=True))
+    )
+    if lock:
+        await db.execute(
+            text("SELECT set_config('lock_timeout', :timeout, true)"),
+            {"timeout": previous_timeout},
+        )
+    return item_ids, outputs
+
+
+async def _fixture_video_foreign_refs(db, item_ids, output_ids):
+    from sqlalchemy import or_, select
+    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
+    from app.db.models.video_derivative import VideoDerivativeOutput
+
+    if not output_ids:
+        return
+    tests = (
+        select(DatasetItem.id).where(
+            DatasetItem.id.not_in(item_ids),
+            or_(
+                DatasetItem.video_output_id.in_(output_ids),
+                DatasetItem.video_building_output_id.in_(output_ids),
+            ),
+        ),
+        select(VideoChunk.id).where(
+            VideoChunk.dataset_item_id.not_in(item_ids),
+            VideoChunk.output_id.in_(output_ids),
+        ),
+        select(VideoFrameCache.id).where(
+            VideoFrameCache.dataset_item_id.not_in(item_ids),
+            VideoFrameCache.output_id.in_(output_ids),
+        ),
+        select(VideoDerivativeOutput.id).where(
+            VideoDerivativeOutput.dataset_item_id.not_in(item_ids),
+            VideoDerivativeOutput.metadata_output_id.in_(output_ids),
+        ),
+    )
+    if any([await db.scalar(statement.limit(1)) is not None for statement in tests]):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_foreign_reference"})
+
+
+async def _fixture_video_source_operations(db, receipts):
+    from sqlalchemy import select
+    from app.db.models.storage_maintenance import StorageOperation
+
+    locations = {UUID(receipt.original_ref["location_id"]) for receipt in receipts}
+    if (
+        locations
+        and await db.scalar(
+            select(StorageOperation.id)
+            .where(
+                StorageOperation.location_id.in_(locations),
+                StorageOperation.purpose == "video_derivative_original",
+            )
+            .limit(1)
+        )
+        is not None
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+
+
+async def _prepare_fixture_video_cleanup(db, scope):
+    from app.services import video_derivative_objects as objects
+
+    deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+    # Drain before taking the ownership locks: a request that is still returning
+    # bytes must be allowed to release its permit instead of holding the item
+    # rows this cleanup must lock within the same drain deadline.
+    _, pending = await _fixture_video_outputs(db, scope)
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(pending),
+        purposes=_fixture_video_purposes(pending),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    try:
+        item_ids, outputs = await _fixture_video_outputs(
+            db, scope, lock=True, deadline=deadline
+        )
+    except DBAPIError as exc:
+        busy = _fixture_video_busy(exc)
+        if busy is None:
+            raise
+        raise busy from None
+    await _fixture_video_foreign_refs(db, item_ids, [output.id for output in outputs])
+    for output in outputs:
+        output.state = "retiring"
+    await db.flush()
+    plan = _FixtureVideoCleanup(
+        scope,
+        item_ids,
+        tuple(objects.snapshot(output) for output in outputs),
+    )
+    await db.commit()
+    # A reader may allocate another output between the first snapshot and the
+    # ownership fence. Retire every locked owner before draining that newer
+    # work; holding Item locks here would prevent its final checks from exiting.
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(plan.receipts),
+        purposes=_fixture_video_purposes(plan.receipts),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    return plan
+
+
+async def _delete_fixture_video_objects(db, plan, resolve_scope):
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import storage_access, video_derivative_originals as originals
+    from app.services import (
+        video_derivative_objects as objects,
+        video_derivative_storage as physical,
+    )
+
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    if plan.receipts and plan.deadline <= 0:
+        plan.deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+    for receipt in plan.receipts:
+        served = []
+
+        async def acquired(permit, served=served):
+            served.append(permit.id)
+
+        async def guard(revision, receipt=receipt, served=served):
+            async with factory() as fresh:
+                if await resolve_scope(fresh) != plan.scope:
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_scope_changed"}
+                    )
+                # This collector already owns the exact purpose, so a read admitted
+                # before it can no longer be replaced; only that earlier work is
+                # drained, and it must settle before the row lock is taken so an
+                # exiting reader can complete before ownership is fenced.
+                if not await _drain_fixture_video_operations(
+                    fresh,
+                    plan.deadline,
+                    locations={UUID(receipt.original_ref["location_id"])},
+                    purposes=(objects.purpose(receipt.id),),
+                    excluding=served,
+                ):
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_operation_unsettled"}
+                    )
+                previous_timeout = await fresh.scalar(
+                    text("SELECT current_setting('lock_timeout')")
+                )
+                await _fixture_video_lock_deadline(fresh, plan.deadline)
+                current = await fresh.scalar(
+                    select(VideoDerivativeOutput)
+                    .where(VideoDerivativeOutput.id == receipt.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                await fresh.execute(
+                    text("SELECT set_config('lock_timeout', :timeout, true)"),
+                    {"timeout": previous_timeout},
+                )
+                if (
+                    current is None
+                    or objects.snapshot(current) != receipt
+                    or current.state != "retiring"
+                ):
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_owner_changed"}
+                    )
+                await _fixture_video_source_operations(fresh, [receipt])
+                operations = list(
+                    await fresh.scalars(
+                        select(StorageOperation).where(
+                            StorageOperation.purpose == objects.purpose(receipt.id)
+                        )
+                    )
+                )
+                if len(operations) != 1 or operations[0].revision != revision:
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_operation_unsettled"}
+                    )
+                location = receipt.storage_ref["location_id"]
+                if location in plan.revisions and plan.revisions[location] != revision:
+                    raise HTTPException(
+                        409, detail={"code": "storage_maintenance_changed"}
+                    )
+                plan.revisions[location] = revision
+                await fresh.commit()
+
+        try:
+            async with objects.access(
+                db, receipt, guard, on_acquired=acquired
+            ) as storage:
+                await originals.physical(
+                    physical.delete_output,
+                    storage,
+                    receipt,
+                    timeout=originals.JOB_SECONDS,
+                )
+        except DBAPIError as exc:
+            busy = _fixture_video_busy(exc)
+            if busy is None:
+                raise
+            raise busy from None
+
+
+async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
+    from sqlalchemy import delete, update
+    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import storage_access, video_derivative_objects as objects
+
+    if await resolve_scope(db) != plan.scope:
+        raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
+    deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+    _, pending = await _fixture_video_outputs(db, plan.scope)
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(pending),
+        purposes=_fixture_video_purposes(pending),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    item_ids, outputs = await _fixture_video_outputs(
+        db, plan.scope, lock=True, deadline=deadline
+    )
+    expected = {receipt.id: receipt for receipt in plan.receipts}
+    current = {output.id for output in outputs}
+    if item_ids != plan.item_ids or set(expected) - current:
+        raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
+    # A browser read of a collecting owner may legitimately allocate a *fresh*
+    # owner for the same item slot while this cleanup runs. That owner owns no
+    # saved object, no lease and no permit yet, so it joins the plan under the
+    # same retirement fence; anything already published or claimed stays
+    # unknown ownership and still fails the cleanup.
+    stale = []
+    for output in outputs:
+        if output.id in expected:
+            continue
+        if (
+            output.state != "building"
+            or output.lease_token is not None
+            or output.inventory is not None
+            or await objects._in_use(db, output.id)
+        ):
+            raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
+        stale.append(output.id)
+    identifiers = [*expected, *stale]
+    await _fixture_video_foreign_refs(db, item_ids, identifiers)
+    await _fixture_video_source_operations(db, plan.receipts)
+    for output in outputs:
+        if output.id in expected:
+            changed = objects.snapshot(output) != expected[output.id]
+        else:
+            changed = False
+            output.state = "retiring"
+        if changed or await objects._in_use(db, output.id):
+            raise HTTPException(
+                409, detail={"code": "e2e_seed_video_operation_unsettled"}
+            )
+    for location, revision in sorted(plan.revisions.items()):
+        await storage_access.check(
+            db, UUID(location), expected_revision=revision, lock=True
+        )
+    await db.execute(
+        update(VideoChunk)
+        .where(VideoChunk.dataset_item_id.in_(item_ids))
+        .values(output_id=None)
+    )
+    await db.execute(
+        update(VideoFrameCache)
+        .where(VideoFrameCache.dataset_item_id.in_(item_ids))
+        .values(output_id=None)
+    )
+    await db.execute(
+        update(DatasetItem)
+        .where(DatasetItem.id.in_(item_ids))
+        .values(video_output_id=None, video_building_output_id=None)
+    )
+    await db.execute(
+        update(VideoDerivativeOutput)
+        .where(
+            VideoDerivativeOutput.id.in_(identifiers),
+            VideoDerivativeOutput.state == "retiring",
+        )
+        .values(state="deleted")
+    )
+    await db.flush()
+    await db.execute(
+        delete(VideoDerivativeOutput).where(VideoDerivativeOutput.id.in_(identifiers))
+    )
+    await db.flush()
+
+
 async def _cleanup_e2e_fixtures(
-    db: AsyncSession, owned: _OwnedFixtureScope | None = None
+    db: AsyncSession, owned: _OwnedFixtureScope | None = None, *, registry=None
+) -> None:
+    """Destroy only terminal fixture owners, then fence and delete the fixture."""
+    from app.api.v1 import _test_seed_attachments as attachments
+    from app.api.v1 import _test_seed_guide_assets as guides
+    from app.services.original_binary import AuthorizedOriginal, Resource
+    from app.services.original_playback import PlaybackContext
+    from app.services.storage_access import finish
+
+    async def resolve(session):
+        return await _resolve_fixture_scope(session, owned)
+
+    try:
+        await _require_e2e_seed_database(db)
+        scope = await resolve(db)
+        await guides.preflight(db, scope)
+        plan = await attachments.prepare(db, scope)
+        if registry is not None:
+
+            def fixture_context(context):
+                if not isinstance(context, PlaybackContext) or not isinstance(
+                    context.original, AuthorizedOriginal
+                ):
+                    return False
+                resource = context.original.resource
+                if not isinstance(resource, Resource):
+                    return False
+                return (
+                    resource.kind == "task" and resource.task_id in scope.task_ids
+                ) or (
+                    resource.kind == "item" and resource.dataset_id in scope.dataset_ids
+                )
+
+            await registry.revoke_contexts(fixture_context)
+        video_plan = await _prepare_fixture_video_cleanup(db, scope)
+        if registry is not None:
+            await registry.revoke_contexts(fixture_context)
+        await attachments.delete_objects(db, plan, resolve)
+        await _delete_fixture_video_objects(db, video_plan, resolve)
+        await db.commit()
+        legacy_cleanup = asyncio.create_task(
+            asyncio.to_thread(_cleanup_fixture_storage, owned, plan.annotation_ids)
+        )
+        try:
+            await asyncio.shield(legacy_cleanup)
+        except asyncio.CancelledError:
+            # These deterministic keys may be reused by the next seed request.
+            # Keep the fixture anchor until this physical deletion has settled.
+            try:
+                await finish(legacy_cleanup)
+            except BaseException:
+                pass
+            raise
+
+        async def retire_guides():
+            await guides.retire_references(db, scope)
+            await _finalize_fixture_video_cleanup(db, video_plan, resolve)
+
+        await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
+        # The audit exemption belongs to this final transaction, not retirement.
+        await _cleanup_fixture_records(db, owned, scope)
+        await attachments.assert_empty(db, plan)
+        if await resolve(db) != attachments.FixtureScope():
+            attachments.reject("e2e_seed_cleanup_incomplete", 500)
+        await db.commit()
+    except BaseException:
+        await finish(asyncio.create_task(db.rollback()))
+        raise
+
+
+async def _cleanup_fixture_records(
+    db: AsyncSession, owned: _OwnedFixtureScope | None, scope
 ) -> None:
     """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。
 
@@ -400,37 +1005,16 @@ async def _cleanup_e2e_fixtures(
     #    SAVEPOINT 自动继承。
     await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
 
-    # 1) 找 fixture 项目 / 用户的 id（按 scope 选择谓词）
     if owned is None:
-        project_selector = "name = 'E2E Demo Project' OR display_id LIKE 'P-E2E-%'"
-        project_params: dict = {}
-        user_selector = "email LIKE '%@e2e.test'"
-        user_params: dict = {}
+        user_selector, user_params = "email LIKE '%@e2e.test'", {}
     else:
-        # 项目按本命名空间的精确名称或 display_id 匹配（不同 fixture kind 用不同寻址）。
-        project_selector = "name = ANY(:owned_project_names) OR display_id = ANY(:owned_project_display_ids)"
-        project_params = {
-            "owned_project_names": owned.all_project_names,
-            "owned_project_display_ids": owned.all_project_display_ids,
-        }
-        user_selector = "email = ANY(:owned_emails)"
-        user_params = {"owned_emails": owned.all_user_emails}
-
-    fixture_proj_rows = (
-        await db.execute(
-            text(f"SELECT id FROM projects WHERE {project_selector}"), project_params
+        user_selector, user_params = (
+            "email = ANY(:owned_emails)",
+            {"owned_emails": owned.all_user_emails},
         )
-    ).fetchall()
-    fixture_project_ids = [r[0] for r in fixture_proj_rows]
-    log.info("seed_cleanup · fixture project ids: %s", fixture_project_ids)
 
-    fixture_user_rows = (
-        await db.execute(
-            text(f"SELECT id FROM users WHERE {user_selector}"), user_params
-        )
-    ).fetchall()
-    fixture_user_ids = [r[0] for r in fixture_user_rows]
-    log.info("seed_cleanup · fixture user ids: %s", fixture_user_ids)
+    fixture_project_ids = list(scope.project_ids)
+    fixture_user_ids = list(scope.user_ids)
 
     # 2) 按 FK 依赖顺序定向 DELETE。
     #    用 SAVEPOINT 隔离每个 DELETE：单条失败（如表不存在 / 列名漂移）不让外层
@@ -452,33 +1036,8 @@ async def _cleanup_e2e_fixtures(
 
     fixture_annotation_ids: list = []
     if fixture_project_ids:
-        # 2a) 找 fixture 项目下所有 task/annotation 的 id（在 SAVEPOINT 里）
-        fixture_task_ids: list = []
-        async with db.begin_nested() as sp:
-            try:
-                fixture_task_ids = [
-                    r[0]
-                    for r in (
-                        await db.execute(
-                            text("SELECT id FROM tasks WHERE project_id = ANY(:pids)"),
-                            {"pids": fixture_project_ids},
-                        )
-                    ).fetchall()
-                ]
-                fixture_annotation_ids = [
-                    r[0]
-                    for r in (
-                        await db.execute(
-                            text(
-                                "SELECT id FROM annotations WHERE project_id = ANY(:pids)"
-                            ),
-                            {"pids": fixture_project_ids},
-                        )
-                    ).fetchall()
-                ]
-            except Exception as exc:
-                log.warning("seed_cleanup · child id lookup failed: %s", exc)
-                await sp.rollback()
+        fixture_task_ids = list(scope.task_ids)
+        fixture_annotation_ids = list(scope.annotation_ids)
 
         # The filtering fixture owns these rows outside the ordinary task cascade.
         # Delete them before tasks/projects so their restrictive foreign keys cannot
@@ -638,8 +1197,6 @@ async def _cleanup_e2e_fixtures(
             ("bug_reports", "assigned_to_id"),
             ("task_locks", "user_id"),
             ("annotation_drafts", "user_id"),
-            ("annotation_comments", "author_id"),
-            ("annotations", "user_id"),
             ("user_invitations", "invited_by"),
             ("organization_members", "user_id"),
         ]:
@@ -677,23 +1234,6 @@ async def _cleanup_e2e_fixtures(
     )
 
     await db.flush()
-
-    # WebCodecs seed 的 chunk mp4 对象不随 DB 级联删除,按前缀显式清空并复查。
-    # cleanup 是测试隔离合同的一部分：对象存储失败必须让 teardown 失败，不能只记 warning。
-    from app.services.storage import storage_service
-
-    if owned is None:
-        _delete_webcodecs_seed_objects(storage_service)
-        _delete_filtering_seed_objects(storage_service)
-    else:
-        for prefix in owned.all_storage_prefixes:
-            _delete_seed_object_prefix(
-                storage_service,
-                bucket=storage_service.datasets_bucket,
-                prefix=prefix,
-                label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
-            )
-    _delete_comment_attachment_seed_objects(storage_service, fixture_annotation_ids)
 
     if owned is None:
         residual_query = (
@@ -746,9 +1286,13 @@ class SeedCleanup(BaseModel):
     status_code=200,
     include_in_schema=False,
 )
-async def seed_cleanup(db: AsyncSession = Depends(get_db)) -> SeedCleanup:
+async def seed_cleanup(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> SeedCleanup:
     """幂等清除固定 E2E fixture，同时保留所有非 E2E 数据。"""
-    await _cleanup_e2e_fixtures(db)
+    await _cleanup_e2e_fixtures(
+        db, registry=getattr(request.app.state, "original_playback_registry", None)
+    )
     await db.commit()
     return SeedCleanup()
 
@@ -764,6 +1308,41 @@ class SeedReset(BaseModel):
     # SAM 工具按钮直接 disabled. 这个 backend 的 url 是 mock://e2e-sam (前端不会真的请求,
     # 由 Playwright page.route 拦截). 字段返回让 spec 可声明依赖.
     ml_backend_id: str
+
+
+async def _register_fixture_original(db, item, payload: bytes):
+    """Pin only bytes produced by this isolated fixture, never adopt old paths."""
+    from app.services.dataset_assets import register_item_asset
+
+    return await register_item_asset(
+        db, item, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload)
+    )
+
+
+def _raster_image_bytes(index: int, *, width: int = 64, height: int = 48) -> bytes:
+    """Supported raster originals with portable, bundled-font fixture pixels."""
+    import colorsys
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    red, green, blue = colorsys.hls_to_rgb((index * 48 % 360) / 360, 0.88, 0.30)
+    fill = (round(red * 255), round(green * 255), round(blue * 255))
+    image = Image.new("RGB", (width, height), fill)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((4, 4, width - 5, height - 5), outline="#64748b", width=1)
+    label = f"E2E {index + 1}"
+    font = ImageFont.load_default(size=9)
+    left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+    draw.text(
+        ((width - (right - left)) / 2 - left, (height - (bottom - top)) / 2 - top),
+        label,
+        fill="#334155",
+        font=font,
+    )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 @dataclass(frozen=True)
@@ -862,7 +1441,8 @@ async def _build_image_workbench_fixture(
     await db.flush()
 
     # 原生图片 raster_mask 校验必须有真实 DatasetItem 及宽高。
-    # 用固定 MinIO key 覆写一组小 SVG，避免每次 reset 制造孤儿对象。
+    # 用固定 MinIO key 覆写一组 64x48 真彩 PNG：qualified original reader
+    # 只接受可解码的栅格原件，Mask/SAM 回执需要原生像素。
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.services.storage import storage_service
 
@@ -882,33 +1462,26 @@ async def _build_image_workbench_fixture(
     tasks = []
     task_created_at = datetime.now(timezone.utc)
     for index in range(5):
-        image_key = f"{ids.image_key_prefix}task-{index + 1}.svg"
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" '
-            'viewBox="0 0 64 48">'
-            f'<rect width="64" height="48" fill="hsl({index * 48} 30% 88%)"/>'
-            '<rect x="4" y="4" width="56" height="40" rx="3" '
-            'fill="none" stroke="#64748b" stroke-width="1"/>'
-            f'<text x="32" y="27" text-anchor="middle" font-size="9" '
-            f'fill="#334155">E2E {index + 1}</text></svg>'
-        ).encode("utf-8")
+        image_key = f"{ids.image_key_prefix}task-{index + 1}.png"
+        raster = _raster_image_bytes(index)
         storage_service.client.put_object(
             Bucket=storage_service.datasets_bucket,
             Key=image_key,
-            Body=svg,
-            ContentType="image/svg+xml",
+            Body=raster,
+            ContentType="image/png",
         )
         item = DatasetItem(
             dataset_id=image_dataset.id,
-            file_name=f"task-{index + 1}.svg",
+            file_name=f"task-{index + 1}.png",
             file_path=image_key,
             file_type="image",
-            file_size=len(svg),
+            file_size=len(raster),
             width=64,
             height=48,
         )
         db.add(item)
         await db.flush()
+        await _register_fixture_original(db, item, raster)
         t = await create_task(
             db,
             project_id=project.id,
@@ -998,13 +1571,15 @@ async def _build_image_workbench_fixture(
     status_code=200,
     include_in_schema=False,
 )
-async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
+async def seed_reset(request: Request, db: AsyncSession = Depends(get_db)) -> SeedReset:
     """先清理旧 fixture，再重建固定 E2E 数据（幂等）。
 
     共享固定命名空间的破坏性重建：这是已记录的串行例外路径，会收敛所有
     E2E fixture（含 owned 命名空间）。每个测试私有的数据请改用 `/seed/owned`。
     """
-    await _cleanup_e2e_fixtures(db)
+    await _cleanup_e2e_fixtures(
+        db, registry=getattr(request.app.state, "original_playback_registry", None)
+    )
     return await _build_image_workbench_fixture(db, _BASE_IMAGE_WORKBENCH)
 
 
@@ -1019,7 +1594,7 @@ class SeedOwnedRequest(BaseModel):
     include_in_schema=False,
 )
 async def seed_owned(
-    payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+    payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedReset:
     """Build this namespace's own image-workbench fixture without touching others.
 
@@ -1032,7 +1607,11 @@ async def seed_owned(
     scope = _parse_owned_namespace(payload.namespace)
     # Retry on the same namespace must converge: drop only this namespace's
     # leftovers, then rebuild it. Neighbouring namespaces are untouched.
-    await _cleanup_e2e_fixtures(db, owned=scope)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
     return await _build_image_workbench_fixture(
         db,
         _ImageWorkbenchFixture(
@@ -1058,7 +1637,7 @@ async def seed_owned(
     include_in_schema=False,
 )
 async def seed_owned_cleanup(
-    payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+    payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedCleanup:
     """Delete exactly the named namespace's fixture; idempotent and exact.
 
@@ -1068,7 +1647,11 @@ async def seed_owned_cleanup(
     request instead of being swallowed.
     """
     scope = _parse_owned_namespace(payload.namespace)
-    await _cleanup_e2e_fixtures(db, owned=scope)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
     await db.commit()
     return SeedCleanup()
 
@@ -1158,6 +1741,7 @@ async def _build_project_roles_image_project(
         )
         db.add(item)
         await db.flush()
+        await _register_fixture_original(db, item, svg)
         task = Task(
             display_id=f"{task_display_prefix}{index + 1:03d}",
             project_id=project.id,
@@ -1223,7 +1807,9 @@ class ProjectRolesSeed(BaseModel):
     include_in_schema=False,
 )
 async def seed_project_roles(
-    payload: SeedOwnedRequest | None = None, db: AsyncSession = Depends(get_db)
+    request: Request,
+    payload: SeedOwnedRequest | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> ProjectRolesSeed:
     """Build the deterministic multi-project employee-role acceptance fixture.
 
@@ -1244,7 +1830,9 @@ async def seed_project_roles(
     namespace = payload.namespace if payload is not None else None
     scope = _parse_owned_namespace(namespace) if namespace is not None else None
     if scope is None:
-        await _cleanup_e2e_fixtures(db)
+        await _cleanup_e2e_fixtures(
+            db, registry=getattr(request.app.state, "original_playback_registry", None)
+        )
 
         def user_email(local: str) -> str:
             return f"{local}@e2e.test"
@@ -1268,7 +1856,11 @@ async def seed_project_roles(
             return f"e2e/project-roles/{key.lower()}/"
 
     else:
-        await _cleanup_e2e_fixtures(db, owned=scope)
+        await _cleanup_e2e_fixtures(
+            db,
+            owned=scope,
+            registry=getattr(request.app.state, "original_playback_registry", None),
+        )
 
         def user_email(local: str) -> str:
             return f"{local}-{scope.namespace}@e2e.test"
@@ -1521,6 +2113,10 @@ async def seed_project_roles(
     )
 
 
+class SeedFilteringRequest(SeedOwnedRequest):
+    video_ready: bool = False
+
+
 @router.post(
     "/seed/filtering",
     response_model=FilteringSeedManifest,
@@ -1528,7 +2124,9 @@ async def seed_project_roles(
     include_in_schema=False,
 )
 async def seed_filtering(
-    payload: SeedOwnedRequest | None = None, db: AsyncSession = Depends(get_db)
+    request: Request,
+    payload: SeedFilteringRequest | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> FilteringSeedManifest:
     """Build the deterministic filtering acceptance fixture.
 
@@ -1538,12 +2136,17 @@ async def seed_filtering(
     exception for callers that have not migrated yet.
     """
     namespace = payload.namespace if payload is not None else None
+    video_ready = payload.video_ready if payload is not None else False
     if namespace is None:
-        await seed_reset(db)
-        return await build_filtering_seed(db)
+        await seed_reset(request, db)
+        return await build_filtering_seed(db, video_ready=video_ready)
     scope = _parse_owned_namespace(namespace)
-    await _cleanup_e2e_fixtures(db, owned=scope)
-    return await build_filtering_seed(db, namespace)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
+    return await build_filtering_seed(db, namespace, video_ready=video_ready)
 
 
 class SeedLidar(BaseModel):
@@ -1765,7 +2368,6 @@ async def seed_lidar(
             Body=pcd_bytes,
         )
         pcd_keys.append(pcd_key)
-    camera_key = f"{scope.lidar_storage_prefix}{suffix}-camera-front.svg"
     camera_svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" '
         'viewBox="0 0 640 480">'
@@ -1773,12 +2375,23 @@ async def seed_lidar(
         '<path d="M0 240h640M320 0v480" stroke="#51616d" stroke-width="2"/>'
         "</svg>"
     ).encode()
-    storage_service.client.put_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=camera_key,
-        Body=camera_svg,
-        ContentType="image/svg+xml",
-    )
+    # Delivery keys by camera channel and frame, mirroring the per-frame
+    # basenames KITTI archives fetch as `images/<channel>/<basename>`.
+    camera_keys = [
+        (
+            f"{scope.lidar_storage_prefix}e2e-lidar-{suffix}-{idx}-front.svg",
+            f"{scope.lidar_storage_prefix}e2e-lidar-{suffix}-{idx}-side.svg",
+        )
+        for idx in range(2)
+    ]
+    for front_key, side_key in camera_keys:
+        for key in (front_key, side_key):
+            storage_service.client.put_object(
+                Bucket=storage_service.datasets_bucket,
+                Key=key,
+                Body=camera_svg,
+                ContentType="image/svg+xml",
+            )
 
     # 建 lidar 项目(data_type 默认 image,必须显式 lidar;manifest 据此放行点云端点)。
     # tool_bindings 必须把类别落在 lidar_box_3d unit(前端 LIDAR_TOOL_UNIT 据此取 boxClasses /
@@ -1872,7 +2485,7 @@ async def seed_lidar(
         camera_item = DatasetItem(
             dataset_id=dataset.id,
             file_name=f"e2e-lidar-{suffix}-{idx}-front.svg",
-            file_path=camera_key,
+            file_path=camera_keys[idx][0],
             file_type="image",
             width=640,
             height=480,
@@ -1883,7 +2496,7 @@ async def seed_lidar(
         camera_side_item = DatasetItem(
             dataset_id=dataset.id,
             file_name=f"e2e-lidar-{suffix}-{idx}-side.svg",
-            file_path=camera_key,
+            file_path=camera_keys[idx][1],
             file_type="image",
             width=640,
             height=480,
@@ -1893,6 +2506,9 @@ async def seed_lidar(
         )
         db.add_all([lidar_item, camera_item, camera_side_item])
         await db.flush()
+        await _register_fixture_original(db, lidar_item, pcd_frames[idx])
+        await _register_fixture_original(db, camera_item, camera_svg)
+        await _register_fixture_original(db, camera_side_item, camera_svg)
 
         t = Task(
             display_id=f"T-E2E-LIDAR-{suffix}-{idx}",
@@ -2173,6 +2789,144 @@ async def seed_configure_raster_mask(
     )
 
 
+async def _require_fixture_video_item(db, item):
+    scope = await _resolve_fixture_scope(db, None)
+    if (
+        item is None
+        or item.file_type != "video"
+        or item.dataset_id not in scope.dataset_ids
+        or not item.file_path.startswith("e2e/video/")
+        or not isinstance((item.metadata_ or {}).get("_e2e_video_fixture"), str)
+    ):
+        raise HTTPException(422, detail="expected E2E-owned video fixture")
+
+
+async def _publish_fixture_video_outputs(db, output_ids):
+    """Complete only this fixture's existing claims through the production builder."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import storage_access, video_derivative_originals as originals
+    from app.services import video_derivative_objects as objects, video_derivatives
+    from app.workers import media_derivatives as worker
+
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    claims = []
+    for identifier in output_ids:
+        output = await db.get(VideoDerivativeOutput, identifier, populate_existing=True)
+        item = await db.get(DatasetItem, output.dataset_item_id) if output else None
+        await _require_fixture_video_item(db, item)
+        if output.state != "building" or output.lease_token is None:
+            raise HTTPException(409, detail="fixture output is not pending")
+        authority = await originals.delegated(db, output.auth_ref)
+        source = await originals.check(db, authority)
+        metadata = (
+            objects.snapshot(
+                await db.get(VideoDerivativeOutput, output.metadata_output_id)
+            )
+            if output.metadata_output_id
+            else None
+        )
+        claims.append(
+            worker.Claimed(
+                objects.snapshot(output),
+                authority,
+                source,
+                output.lease_token,
+                metadata,
+            )
+        )
+    await db.commit()
+    if not claims:
+        return
+    first = claims[0]
+    if any(
+        claim.output.original_ref != first.output.original_ref
+        or claim.output.auth_ref != first.output.auth_ref
+        for claim in claims
+    ):
+        raise HTTPException(409, detail="fixture output group changed")
+    completed = []
+    try:
+        async with originals.media(db, first.authority, first.source) as stage:
+            for claimed in claims:
+                revisions = []
+
+                async def guard(revision, claimed=claimed):
+                    async with factory() as fresh:
+                        await video_derivatives.check(
+                            fresh,
+                            claimed.output,
+                            claimed.authority,
+                            token=claimed.token,
+                            gate_revision=revision,
+                        )
+                    if revisions and revisions[0] != revision:
+                        video_derivatives.reject("storage_maintenance_changed")
+                    if not revisions:
+                        revisions.append(revision)
+
+                async with objects.access(db, claimed.output, guard) as storage:
+                    result, inventory = await originals.physical(
+                        worker.build,
+                        storage,
+                        claimed.output,
+                        stage,
+                        claimed.metadata,
+                        timeout=originals.JOB_SECONDS,
+                    )
+                completed.append((claimed, result, inventory, revisions[0]))
+        for claimed, result, inventory, revision in completed:
+            async with factory() as final:
+                await video_derivatives.publish(
+                    final,
+                    claimed.output,
+                    claimed.authority,
+                    claimed.token,
+                    result,
+                    inventory,
+                    revision,
+                )
+                await final.commit()
+    except BaseException as exc:
+        for claimed in claims:
+            await originals.drain(
+                asyncio.create_task(
+                    worker.fail_with_retry(
+                        factory,
+                        claimed.output.id,
+                        claimed.token,
+                        worker.error_code(exc),
+                    )
+                )
+            )
+        raise
+
+
+async def _stage_fixture_video_outputs(db, item, kind, specs=None, *, pending=False):
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivative_objects as objects, video_derivatives
+
+    await _require_fixture_video_item(db, item)
+    source = await originals.pin(db, "dataset_item", item.id)
+    authority = await originals.delegated(
+        db, originals.system_authorization("dataset_item", item.id, source)
+    )
+    identifiers = []
+    for spec in specs or [None]:
+        output, _ = await video_derivatives.prepare(
+            db, item.id, authority, kind, spec=spec
+        )
+        token = await objects.claim(db, output, ttl_seconds=originals.JOB_SECONDS)
+        if token is None:
+            raise HTTPException(409, detail="fixture output already claimed")
+        identifiers.append(output.id)
+    await db.commit()
+    if not pending:
+        await _publish_fixture_video_outputs(db, identifiers)
+    return identifiers
+
+
 class SeedVideoTaskRequest(BaseModel):
     project_id: str
 
@@ -2229,6 +2983,12 @@ async def seed_video_task(
     image_item = await db.get(DatasetItem, image_task.dataset_item_id)
     if image_item is None:
         raise HTTPException(status_code=404, detail="dataset fixture not found")
+    scope = await _resolve_fixture_scope(db, None)
+    if (
+        project_id not in scope.project_ids
+        or image_item.dataset_id not in scope.dataset_ids
+    ):
+        raise HTTPException(422, detail="expected E2E-owned project and dataset")
 
     source_path = (
         Path(__file__).resolve().parents[5]
@@ -2248,21 +3008,11 @@ async def seed_video_task(
         file_path=video_key,
         file_type="video",
         file_size=len(video),
-        width=1440,
-        height=810,
-        metadata_={
-            "video": {
-                "duration_ms": 5000,
-                "fps": 12,
-                "frame_count": 60,
-                "width": 1440,
-                "height": 810,
-                "codec": "vp9",
-            }
-        },
+        metadata_={"_e2e_video_fixture": "native-mask"},
     )
     db.add(item)
     await db.flush()
+    await _register_fixture_original(db, item, video)
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -2278,6 +3028,7 @@ async def seed_video_task(
     await db.flush()
     task_id = str(task.id)
     await db.commit()
+    await _stage_fixture_video_outputs(db, item, "metadata")
     return SeedVideoTaskResponse(task_id=task_id)
 
 
@@ -2307,12 +3058,11 @@ async def seed_video_webcodecs(
 ) -> SeedVideoWebCodecsResponse:
     """Seed a deterministic H.264 WebCodecs fixture for precise-frame E2E.
 
-    Generates a small machine-readable H.264 clip (numpy → ffmpeg), probes it with
-    the same ffprobe / avcC pipeline the worker uses, and writes dataset item +
-    task + source frame timetable + production-shaped VideoChunk diagnostics. Short correctness fixtures use
-    one chunk; Issue fixtures follow the manifest chunk size, while qualification
-    fixtures use ready 60-frame chunks. ``chunk_status``
-    lets specs exercise the pending → ready contract without a media Celery worker.
+    Known uploaded bytes establish the canonical original. Metadata and chunks
+    use real independent owners and the production builder. A pending fixture
+    retains its one claim until the explicit transition endpoint publishes it;
+    malformed-response scenarios describe browser injection without corrupting
+    a valid immutable result.
     """
     from tempfile import mkdtemp
     from uuid import UUID
@@ -2322,14 +3072,13 @@ async def seed_video_webcodecs(
 
     from app.api.v1._test_seed_webcodecs import (
         FIXTURE_SPECS,
-        QUALIFICATION_CHUNK_SIZE_FRAMES,
         QUALIFICATION_FIXTURE_SPECS,
-        apply_metadata_mutation,
         frame_expectations,
         generate_fixture,
         generate_qualification_fixture,
     )
-    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameIndex
+    from app.db.models.dataset import DatasetItem
+    from app.services import video_derivative_originals as originals, video_derivatives
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
     from app.services.storage import storage_service
@@ -2366,22 +3115,31 @@ async def seed_video_webcodecs(
     if ref_item is None:
         raise HTTPException(status_code=404, detail="dataset fixture not found")
 
+    scope = await _resolve_fixture_scope(db, None)
+    if (
+        project_id not in scope.project_ids
+        or ref_item.dataset_id not in scope.dataset_ids
+    ):
+        raise HTTPException(422, detail="expected E2E-owned project and dataset")
+
     fixture = payload.fixture
     tmp = mkdtemp(prefix="webcodecs-seed-")
     try:
         qualification = fixture in QUALIFICATION_FIXTURE_SPECS
         meta = (
-            await asyncio.to_thread(generate_qualification_fixture, fixture, tmp)
+            await asyncio.to_thread(
+                generate_qualification_fixture, fixture, tmp, include_chunks=False
+            )
             if qualification
             else generate_fixture(
-                fixture, tmp, chunk_size_frames=settings.video_chunk_size_frames
+                fixture,
+                tmp,
+                chunk_size_frames=settings.video_chunk_size_frames,
+                include_chunks=False,
             )
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    if not qualification:
-        meta = apply_metadata_mutation(fixture, meta)
-
     mp4_bytes = meta["mp4_bytes"]
     # 幂等 key:同一 fixture 反复 seed 覆盖同一对象,cleanup 按前缀一次清空。
     source_key = f"e2e/video/webcodecs/{fixture}/source.mp4"
@@ -2393,35 +3151,17 @@ async def seed_video_webcodecs(
         ContentType="video/mp4",
     )
 
-    duration_ms = int(meta["duration_ms"])
     item = DatasetItem(
         dataset_id=ref_item.dataset_id,
         file_name=f"{fixture}.mp4",
         file_path=source_key,
         file_type="video",
         file_size=len(mp4_bytes),
-        width=meta["width"],
-        height=meta["height"],
-        metadata_={
-            "video": {
-                "duration_ms": duration_ms,
-                "fps": meta["fps"],
-                "frame_count": meta["frame_count"],
-                "width": meta["width"],
-                "height": meta["height"],
-                "codec": "h264",
-            }
-        },
+        metadata_={"_e2e_video_fixture": fixture},
     )
     db.add(item)
     await db.flush()
-    # Keep native presentation evidence independent of intentionally damaged chunk metadata.
-    db.add_all(
-        [
-            VideoFrameIndex(dataset_item_id=item.id, **entry)
-            for entry in meta["frame_timetable"]
-        ]
-    )
+    await _register_fixture_original(db, item, mp4_bytes)
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -2434,81 +3174,51 @@ async def seed_video_webcodecs(
     )
     db.add(task)
     await db.flush()
-    if "chunks" in meta:
-        for chunk_meta in meta["chunks"]:
-            chunk_key = (
-                f"e2e/video/webcodecs/{fixture}/chunk-{chunk_meta['chunk_id']:04d}.mp4"
-            )
-            chunk_bytes = chunk_meta["bytes"]
-            await asyncio.to_thread(
-                storage_service.client.put_object,
-                Bucket=storage_service.datasets_bucket,
-                Key=chunk_key,
-                Body=chunk_bytes,
-                ContentType="video/mp4",
-            )
-            db.add(
-                VideoChunk(
-                    dataset_item_id=item.id,
-                    chunk_id=chunk_meta["chunk_id"],
-                    start_frame=chunk_meta["start_frame"],
-                    end_frame=chunk_meta["end_frame"],
-                    start_pts_ms=chunk_meta["start_pts_ms"],
-                    end_pts_ms=chunk_meta["end_pts_ms"],
-                    storage_key=chunk_key,
-                    byte_size=len(chunk_bytes),
-                    generation_mode=chunk_meta["generation_mode"],
-                    status="ready" if qualification else payload.chunk_status,
-                    diagnostics={
-                        "samples": chunk_meta["samples"],
-                        "codec_string": chunk_meta["codec_string"],
-                        "description": chunk_meta["description"],
-                        "width": meta["width"],
-                        "height": meta["height"],
-                        "source_codec": "h264",
-                        "output_codec": "h264",
-                    },
-                )
-            )
-    else:
-        db.add(
-            VideoChunk(
-                dataset_item_id=item.id,
-                chunk_id=0,
-                start_frame=0,
-                end_frame=meta["frame_count"] - 1,
-                start_pts_ms=0,
-                end_pts_ms=duration_ms,
-                storage_key=source_key,
-                byte_size=len(mp4_bytes),
-                generation_mode="transcode",
-                status=payload.chunk_status,
-                diagnostics={
-                    "samples": meta["samples"],
-                    "codec_string": meta["codec_string"],
-                    "description": meta["description"],
-                    "width": meta["width"],
-                    "height": meta["height"],
-                    "source_codec": "h264",
-                    "output_codec": "h264",
-                },
-            )
-        )
     batch.total_tasks = int(batch.total_tasks or 0) + 1
     await db.flush()
+    task_id, item_id = str(task.id), item.id
     await db.commit()
+    await _stage_fixture_video_outputs(db, item, "metadata")
+    item = await db.get(DatasetItem, item_id, populate_existing=True)
+    source = await originals.pin(db, "dataset_item", item_id)
+    generation = await video_derivatives.metadata(db, item, source)
+    count = video_derivatives.metadata_result(generation)[0].frame_count
+    chunk_size = max(1, settings.video_chunk_size_frames)
+    specs = [
+        video_derivatives.chunk_spec(generation, chunk_id)
+        for chunk_id in range((count + chunk_size - 1) // chunk_size)
+    ]
+    chunk_outputs = await _stage_fixture_video_outputs(
+        db, item, "chunk", specs, pending=payload.chunk_status == "pending"
+    )
+    expected_samples = meta.get("samples", [])
+    if not qualification and payload.chunk_status == "ready":
+        from app.db.models.video_derivative import VideoDerivativeOutput
+
+        expected_samples = []
+        for identifier in chunk_outputs:
+            output = await db.get(
+                VideoDerivativeOutput, identifier, populate_existing=True
+            )
+            expected_samples.extend(output.result["diagnostics"].get("samples", []))
+    expectations = (
+        {} if qualification else frame_expectations(fixture, expected_samples)
+    )
+    if not qualification:
+        # Pixel signatures remain independently defined by the source fixture.
+        # Decoder timestamps use the actual muxed chunk clock, which can shift
+        # for B-frame DTS preroll without changing presentation frame identity.
+        source_pts = {
+            entry["frame_index"]: entry["pts_ms"] for entry in meta["frame_timetable"]
+        }
+        for frame in expectations["frames"]:
+            frame["source_pts_ms"] = source_pts.get(frame["frame_index"])
     return SeedVideoWebCodecsResponse(
-        task_id=str(task.id),
-        dataset_item_id=str(item.id),
+        task_id=task_id,
+        dataset_item_id=str(item_id),
         chunk_id=0,
-        chunk_size_frames=(
-            QUALIFICATION_CHUNK_SIZE_FRAMES
-            if qualification
-            else meta.get("chunk_size_frames", meta["frame_count"])
-        ),
-        frame_expectations=(
-            {} if qualification else frame_expectations(fixture, meta["samples"])
-        ),
+        chunk_size_frames=chunk_size,
+        frame_expectations=expectations,
     )
 
 
@@ -2594,26 +3304,30 @@ async def seed_video_webcodecs_transition(
     payload: SeedVideoWebCodecsTransitionRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoWebCodecsTransitionResponse:
-    """Deterministically flip a seeded chunk pending → ready (no Celery worker needed)."""
-    from uuid import UUID
-
+    """Publish the same fixture claim after physical generation really closes."""
     from sqlalchemy import select
+    from app.db.models.dataset import DatasetItem, VideoChunk
+    from app.db.models.video_derivative import VideoDerivativeOutput
 
-    from app.db.models.dataset import VideoChunk
-
-    row = (
-        await db.execute(
-            select(VideoChunk).where(
-                VideoChunk.dataset_item_id == UUID(payload.dataset_item_id),
-                VideoChunk.chunk_id == payload.chunk_id,
-            )
+    item = await db.get(DatasetItem, UUID(payload.dataset_item_id))
+    await _require_fixture_video_item(db, item)
+    row = await db.scalar(
+        select(VideoChunk).where(
+            VideoChunk.dataset_item_id == item.id,
+            VideoChunk.chunk_id == payload.chunk_id,
         )
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="chunk_not_found")
-    row.status = "ready"
-    await db.commit()
-    return SeedVideoWebCodecsTransitionResponse(status=row.status)
+    )
+    if row is None or row.output_id is None:
+        raise HTTPException(404, detail="fixture chunk owner not found")
+    output = await db.get(VideoDerivativeOutput, row.output_id)
+    if output is None or output.dataset_item_id != item.id:
+        raise HTTPException(409, detail="fixture output changed")
+    if output.state != "ready":
+        await _publish_fixture_video_outputs(db, [output.id])
+    await db.refresh(row)
+    if row.status != "ready":
+        raise HTTPException(409, detail="fixture output was not published")
+    return SeedVideoWebCodecsTransitionResponse(status="ready")
 
 
 class SeedTrackerReviewRequest(BaseModel):
@@ -2802,6 +3516,54 @@ async def seed_native_mask_candidate(
     if pool is None or pool.legacy_instance_id is None:
         raise HTTPException(status_code=404, detail="backend fixture not found")
 
+    original_input = None
+    if item.file_type == "image":
+        from app.services import prediction_originals as originals
+        from app.services.managed_image_inference import normalize_identity
+        from app.services.storage_location import api_node_id
+
+        original = originals.source_receipt(
+            await originals.resolve(db, task.id, lock=True)
+        )
+        task_id = task.id
+        await db.commit()
+
+        async def guard(owned):
+            await _require_e2e_seed_database(owned)
+
+        opened = await originals.open_snapshot(
+            db,
+            task_id,
+            original,
+            guard=guard,
+            purpose="e2e_native_mask_" + task_id.hex,
+            node_id=api_node_id(),
+        )
+        try:
+            original_input = normalize_identity(
+                {
+                    "schema": 1,
+                    "task_id": str(task_id),
+                    **{
+                        name: original[name]
+                        for name in (
+                            "owner_kind",
+                            "content_id",
+                            "sha256",
+                            "size_bytes",
+                            "location_id",
+                            "location_revision",
+                            "maintenance_revision",
+                            "facts_digest",
+                        )
+                    },
+                    "width": opened.snapshot.width,
+                    "height": opened.snapshot.height,
+                }
+            )
+        finally:
+            await originals.settled(opened.close())
+
     total = int(item.width) * int(item.height)
     foreground_start = total // 4
     foreground_length = max(
@@ -2953,6 +3715,11 @@ async def seed_native_mask_candidate(
                 "prompt_summary": prompt_summary,
                 "prompt_source": prompt_source,
                 "accept_target": accept_target,
+                **(
+                    {"original_input": original_input}
+                    if original_input is not None
+                    else {}
+                ),
             }
         )
     response = {
@@ -3101,8 +3868,18 @@ def _make_test_raster_mask(
     elif variant == "smart_scribble_source":
         return list(_make_smart_scribble_mask(width, height))
     else:
-        # 损坏 fixture 使用独立形状，并故意不存对象。
+        # 损坏 fixture 必须拥有独有内容：保留标记矩形，并在首行写入 64 位随机
+        # 位图，使每次注入的 RLE 摘要唯一。这样它建立的是自己的存储归属，随后
+        # 删除物理对象只影响本夹具，绝不会波及共享或未知的同内容行。
+        if len(pixels) < 64:
+            raise HTTPException(
+                status_code=422,
+                detail="corrupt mask fixture needs 64 pixels for unique content",
+            )
         _rect(6, 30, 18, 42)
+        for offset, byte in enumerate(secrets.token_bytes(8)):
+            for bit in range(8):
+                pixels[offset * 8 + bit] = (byte >> bit) & 1
     return pixels
 
 
@@ -3124,6 +3901,48 @@ def _make_sparse_test_rle(width: int, height: int) -> dict:
         "size": [height, width],
         "counts": counts,
     }
+
+
+async def _delete_owned_raster_mask_object(db, reference) -> None:
+    """Remove the physical bytes this fixture just published for itself.
+
+    The ready owner row is left untouched, so the annotation still points at a
+    pinned saved object; only its bytes are gone. Every corrupt fixture writes
+    unique content, therefore this deletes exactly one object it owns and never
+    an object shared with healthy rows.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.db.models.raster_mask_object import RasterMaskObject
+    from app.services import raster_object_storage as physical, storage_access
+    from app.services.storage import storage_service
+
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False
+    ) as owned:
+        try:
+            row = await owned.scalar(
+                select(RasterMaskObject).where(
+                    RasterMaskObject.logical_key == reference["object_key"],
+                    RasterMaskObject.state == "ready",
+                )
+            )
+            if row is None:
+                raise HTTPException(
+                    status_code=409, detail="corrupt fixture owner missing"
+                )
+            receipt = physical.snapshot(row)
+        finally:
+            await owned.rollback()
+    deletion = asyncio.create_task(
+        asyncio.to_thread(physical.delete, storage_service.client, receipt)
+    )
+    try:
+        await asyncio.shield(deletion)
+    except asyncio.CancelledError:
+        await storage_access.finish(deletion)
+        raise
 
 
 @router.post(
@@ -3149,9 +3968,8 @@ async def seed_inject_raster_mask(
     from app.db.models.task import Task
     from app.db.models.user import User
     from app.services.raster_mask_storage import (
-        build_rle_reference,
-        rle_object_key,
         store_coco_rle,
+        lock_raster_mask_references,
     )
     from app.utils.raster_mask_rle import encode_coco_rle
 
@@ -3193,15 +4011,13 @@ async def seed_inject_raster_mask(
         item.width = width
         item.height = height
     if payload.variant == "corrupt":
-        reference = build_rle_reference(rle)
-        missing_digest = secrets.token_hex(32)
-        reference = {
-            **reference,
-            "sha256": missing_digest,
-            "object_key": rle_object_key(missing_digest),
-        }
+        # Store the fixture's own content, then remove exactly the saved object.
+        # The owner row stays pinned and ready, so readers diagnose genuine
+        # missing masks content instead of an unknown/unpinned reference.
+        reference = await store_coco_rle(rle, db=db)
+        await _delete_owned_raster_mask_object(db, reference)
     else:
-        reference = await store_coco_rle(rle)
+        reference = await store_coco_rle(rle, db=db)
 
     annotation = Annotation(
         task_id=task.id,
@@ -3219,6 +4035,8 @@ async def seed_inject_raster_mask(
     task.total_annotations = int(task.total_annotations or 0) + 1
     await db.flush()
     annotation_id = str(annotation.id)
+    if payload.variant != "corrupt":
+        await lock_raster_mask_references(db, reference)
     await db.commit()
     return InjectRasterMaskResponse(
         annotation_id=annotation_id,
@@ -3241,14 +4059,17 @@ async def seed_inject_raster_prediction(
 
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
-    from app.services.raster_mask_storage import store_coco_rle
+    from app.services.raster_mask_storage import (
+        store_coco_rle,
+        lock_raster_mask_references,
+    )
     from app.utils.raster_mask_rle import encode_coco_rle
 
     task = await db.get(Task, UUID(payload.task_id))
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     rle = encode_coco_rle(_make_test_raster_mask("single"), 64, 48)
-    reference = await store_coco_rle(rle)
+    reference = await store_coco_rle(rle, db=db)
     prediction = Prediction(
         task_id=task.id,
         project_id=task.project_id,
@@ -3268,6 +4089,7 @@ async def seed_inject_raster_prediction(
     db.add(prediction)
     await db.flush()
     prediction_id = str(prediction.id)
+    await lock_raster_mask_references(db, reference)
     await db.commit()
     return InjectRasterPredictionResponse(
         prediction_id=prediction_id,

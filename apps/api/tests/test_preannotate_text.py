@@ -1,12 +1,7 @@
-"""v0.9.5 · POST /projects/{id}/preannotate 文本批量预标触发端点。
+"""Text-prompt requests preserve scope checks and freeze canonical image inputs.
 
-覆盖参数校验四条主路径：
-1. backend 不存在 → 404
-2. batch 不存在 / 跨项目 → 404
-3. batch 状态非 active / 未分派 draft → 400/409（issue #124 放行未分派 draft）
-4. happy path → 202 风格响应携带 channel + total_tasks
-
-不跑 Celery（mock batch_predict.delay）。
+Exercise backend/batch validation, draft assignment, durable Job identity and
+configuration budgets. Broker dispatch is mocked; no source object is read.
 """
 
 from __future__ import annotations
@@ -19,11 +14,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import BatchStatus
+from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.db.models.user import User
+from app.services.prediction_execution import (
+    MAX_SNAPSHOT_BYTES,
+    build_stage_context,
+    load_snapshot,
+)
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_prediction_requests import managed_task
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -75,19 +78,21 @@ async def _seed(
     db.add(batch)
     await db.flush()
 
+    owner = await db.get(User, owner_id)
+    assert owner is not None
     for i in range(3):
-        db.add(
-            Task(
-                id=uuid.uuid4(),
-                project_id=proj.id,
-                batch_id=batch.id,
-                display_id=f"T-{suffix}-{i}",
-                file_name=f"img{i}.jpg",
-                file_path=f"items/{suffix}-{i}.jpg",
-                file_type="image",
-                status="pending",
-            )
+        task = Task(
+            id=uuid.uuid4(),
+            project_id=proj.id,
+            batch_id=batch.id,
+            display_id=f"T-{suffix}-{i}",
+            file_name=f"img{i}.jpg",
+            file_path=f"items/{suffix}-{i}.jpg",
+            file_type="image",
+            status="pending",
         )
+        db.add(task)
+        await managed_task(db, proj, owner, task=task)
     await db.commit()
     return proj, backend, batch
 
@@ -101,10 +106,11 @@ def _mock_celery(monkeypatch):
         id = "fake-job-uuid"
 
     # v0.19.5 · 派发改用 apply_async(args=, kwargs=, queue=)。
-    def _fake_apply_async(args=None, kwargs=None, queue=None, **_extra):
+    def _fake_apply_async(args=None, kwargs=None, queue=None, **extra):
         captured["args"] = tuple(args or ())
         captured["kwargs"] = kwargs or {}
         captured["queue"] = queue
+        captured["task_id"] = extra.get("task_id")
         return _FakeJob()
 
     from app.workers import tasks as worker_tasks
@@ -328,7 +334,10 @@ async def test_preannotate_happy_path_text_box_mode(
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["status"] == "queued"
-    assert data["job_id"] == "fake-job-uuid"
+    job = await db_session.get(AsyncJob, uuid.UUID(data["job_id"]))
+    assert job is not None and job.execution_snapshot_id is not None
+    assert job.celery_task_id == data["job_id"] == _mock_celery["task_id"]
+    assert job.payload["prediction_authority"]["schema"] == 2
     assert data["total_tasks"] == 3
     assert data["channel"] == f"project:{proj.id}:preannotate"
 
@@ -380,7 +389,7 @@ async def test_preannotate_invalid_output_mode_rejected(
 
 
 @pytest.mark.asyncio
-async def test_preannotate_rejects_oversized_retry_context(
+async def test_preannotate_rejects_oversized_frozen_execution(
     httpx_client, super_admin, db_session, _mock_celery
 ):
     owner, token = super_admin
@@ -391,15 +400,41 @@ async def test_preannotate_rejects_oversized_retry_context(
         json={
             "ml_backend_id": str(backend.id),
             "batch_id": str(batch.id),
-            "prompt": "x" * (8 * 1024),
+            "prompt": "x" * MAX_SNAPSHOT_BYTES,
         },
     )
     assert resp.status_code == 422
-    assert "8 KiB" in resp.text
+    assert "1 MiB" in resp.text
+    assert _mock_celery == {}
 
 
 @pytest.mark.asyncio
-async def test_preannotate_sizes_normalized_retry_context(
+async def test_image_request_freezes_prompt_beyond_legacy_inline_retry_budget(
+    httpx_client, super_admin, db_session, _mock_celery
+):
+    owner, token = super_admin
+    proj, backend, batch = await _seed(db_session, owner.id)
+    prompt = "x" * (8 * 1024)
+    resp = await httpx_client.post(
+        f"/api/v1/projects/{proj.id}/preannotate",
+        headers=_bearer(token),
+        json={
+            "ml_backend_id": str(backend.id),
+            "batch_id": str(batch.id),
+            "prompt": prompt,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    job = await db_session.get(AsyncJob, uuid.UUID(resp.json()["job_id"]))
+    assert job is not None and job.execution_snapshot_id is not None
+    frozen, digest = await load_snapshot(db_session, job.execution_snapshot_id, proj.id)
+    assert frozen["prompt"] == prompt
+    assert job.payload["prediction_authority"]["snapshot_digest"] == digest
+    assert len(job.payload["prediction_authority"]["tasks"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_preannotate_sizes_normalized_frozen_context(
     httpx_client, super_admin, db_session, _mock_celery
 ):
     owner, token = super_admin
@@ -415,6 +450,12 @@ async def test_preannotate_sizes_normalized_retry_context(
         },
     )
     assert resp.status_code == 200, resp.text
+    job = await db_session.get(AsyncJob, uuid.UUID(resp.json()["job_id"]))
+    assert job is not None and job.execution_snapshot_id is not None
+    frozen, _ = await load_snapshot(db_session, job.execution_snapshot_id, proj.id)
+    context = build_stage_context(frozen["stages"][0], frozen)
+    assert context["text"] == "bus"
+    assert not any(key.startswith("unset_") for key in context)
 
 
 def test_preannotate_rejects_child_stage_sorted_before_root():

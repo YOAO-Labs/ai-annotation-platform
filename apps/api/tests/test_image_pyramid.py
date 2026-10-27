@@ -1,78 +1,37 @@
+"""Pyramid business contracts; independent authority tests live in HTTP tests."""
+
 from __future__ import annotations
 
 import io
-import uuid
 from datetime import timedelta
 
 import pytest
 from PIL import Image
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.image_pyramid import (
-    ImagePyramidAsset,
-    ImagePyramidGeneration,
-)
-from app.db.models.project import Project
-from app.db.models.task import Task
-from app.services.image_pyramid import (
-    build_manifest,
-    expected_tile_dimensions,
-    get_asset_for_owner,
-    owner_for_dataset_item,
-    prepare_generation,
-    pyramid_levels,
-    sha256_digest,
-)
+from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
+from app.services import image_pyramid as pyramids
+from app.services import image_pyramid_objects as objects
+from app.services import image_pyramid_originals as originals
+from app.services import image_pyramid_storage as physical
+from app.services.content_snapshot import ContentError
 from app.services.storage import StorageService
-from app.workers import image_pyramid as image_pyramid_worker
-from tests.factory import build_tool_bindings
+from tests.image_pyramid_fixtures import (
+    PhysicalTransport,
+    make_image_task,
+    ready_generation,
+    same_session_reading,
+)
 
 
-async def _make_image_task(db_session, owner_id, *, width=8193, height=6145):
-    project = Project(
-        display_id=f"P-PYR-{uuid.uuid4().hex[:6]}",
-        name="Pyramid project",
-        type_key="image-segmentation",
-        type_label="Image",
-        owner_id=owner_id,
-        tool_bindings=build_tool_bindings(["defect"], unit="region"),
-    )
-    dataset = Dataset(
-        display_id=f"D-PYR-{uuid.uuid4().hex[:6]}",
-        name=f"pyramid-{uuid.uuid4().hex[:6]}",
-        data_type="image",
-        created_by=owner_id,
-    )
-    db_session.add_all([project, dataset])
-    await db_session.flush()
-    item = DatasetItem(
-        dataset_id=dataset.id,
-        file_name="large.png",
-        file_path=f"pyramid/{uuid.uuid4()}.png",
-        file_type="image",
-        file_size=1234,
-        width=width,
-        height=height,
-    )
-    db_session.add(item)
-    await db_session.flush()
-    task = Task(
-        project_id=project.id,
-        dataset_item_id=item.id,
-        display_id=f"T-PYR-{uuid.uuid4().hex[:6]}",
-        file_name=item.file_name,
-        file_path=item.file_path,
-        file_type="image",
-        status="pending",
-    )
-    db_session.add(task)
-    await db_session.flush()
-    return task, item
+@pytest.fixture
+def transport(monkeypatch):
+    same_session_reading(monkeypatch)
+    return PhysicalTransport(monkeypatch)
 
 
 def test_levels_and_overlap_are_full_resolution_first():
-    levels = pyramid_levels(1025, 513)
+    levels = pyramids.pyramid_levels(1025, 513)
     assert levels[:3] == [
         {
             "level": 0,
@@ -100,13 +59,13 @@ def test_levels_and_overlap_are_full_resolution_first():
         },
     ]
     assert levels[-1]["width"] == levels[-1]["height"] == 1
-    assert expected_tile_dimensions(levels[0], 0, 0) == (513, 513)
-    assert expected_tile_dimensions(levels[0], 1, 0) == (514, 513)
-    assert expected_tile_dimensions(levels[0], 2, 1) == (2, 2)
+    assert pyramids.expected_tile_dimensions(levels[0], 0, 0) == (513, 513)
+    assert pyramids.expected_tile_dimensions(levels[0], 1, 0) == (514, 513)
+    assert pyramids.expected_tile_dimensions(levels[0], 2, 1) == (2, 2)
 
 
 def test_manifest_is_deterministic_and_does_not_expose_storage():
-    manifest = build_manifest(
+    manifest = pyramids.build_manifest(
         generation=4,
         source_fingerprint="sha256:source",
         width=1025,
@@ -118,368 +77,265 @@ def test_manifest_is_deterministic_and_does_not_expose_storage():
     encoded = str(manifest)
     assert manifest["schema"] == "aap-image-pyramid/v1"
     assert manifest["generation"] == 4
-    assert "image-pyramids/" not in encoded
-    assert "http://" not in encoded
-    assert "https://" not in encoded
-    assert "bucket" not in encoded.lower()
+    assert not any(
+        private in encoded.lower()
+        for private in ("image-pyramids/", "http://", "https://", "bucket")
+    )
+    assert pyramids.canonical_manifest_bytes(
+        manifest
+    ) == pyramids.canonical_manifest_bytes(dict(reversed(list(manifest.items()))))
 
 
 def test_image_dimensions_apply_exif_orientation_without_decode():
-    image = Image.new("RGB", (7, 11), "red")
-    exif = image.getexif()
-    exif[274] = 6
-    payload = io.BytesIO()
-    image.save(payload, format="JPEG", exif=exif)
-
-    assert StorageService.read_image_dimensions_from_bytes(payload.getvalue()) == (
-        11,
-        7,
-    )
+    with Image.new("RGB", (7, 11), "red") as image, io.BytesIO() as payload:
+        exif = image.getexif()
+        exif[274] = 6
+        image.save(payload, format="JPEG", exif=exif)
+        assert StorageService.read_image_dimensions_from_bytes(payload.getvalue()) == (
+            11,
+            7,
+        )
 
 
 async def test_asset_owner_constraint_rejects_zero_or_two_owners(
     db_session, super_admin
 ):
     user, _ = super_admin
-    task, item = await _make_image_task(db_session, user.id)
-
-    with pytest.raises(IntegrityError):
-        async with db_session.begin_nested():
-            db_session.add(ImagePyramidAsset(profile_version="pyramid-v1"))
-            await db_session.flush()
-
-    with pytest.raises(IntegrityError):
-        async with db_session.begin_nested():
-            db_session.add(
-                ImagePyramidAsset(
-                    dataset_item_id=item.id,
-                    task_id=task.id,
-                    profile_version="pyramid-v1",
+    task, item = await make_image_task(db_session, user.id)
+    for values in ({}, {"dataset_item_id": item.id, "task_id": task.id}):
+        with pytest.raises(IntegrityError):
+            async with db_session.begin_nested():
+                db_session.add(
+                    ImagePyramidAsset(profile_version="pyramid-v1", **values)
                 )
-            )
-            await db_session.flush()
+                await db_session.flush()
 
 
-async def test_prepare_generation_is_singleflight_and_fences_source_replacement(
-    db_session, super_admin, monkeypatch
+async def test_prepare_generation_is_singleflight_and_fences_metadata_rebinding(
+    db_session, super_admin
 ):
     user, _ = super_admin
-    _, item = await _make_image_task(db_session, user.id)
-    owner = owner_for_dataset_item(item)
-    identity = ["etag:a:bytes:1234"]
-    monkeypatch.setattr(
-        "app.services.image_pyramid.source_identity",
-        lambda owner: (identity[0], 1234),
+    _, item = await make_image_task(db_session, user.id)
+    owner = await pyramids.owner_for_dataset_item(db_session, item)
+    delegation = originals.system_authorization("dataset_item", item.id, owner.source)
+    first = await pyramids.prepare_generation(
+        db_session, owner, force=False, delegation=delegation
+    )
+    duplicate = await pyramids.prepare_generation(
+        db_session, owner, force=False, delegation=delegation
+    )
+    assert first is not None and duplicate is first and first.status == "pending"
+    asset = await pyramids.get_asset_for_owner(db_session, owner)
+    await ready_generation(db_session, item, asset=asset, generation=first)
+    assert (
+        await pyramids.prepare_generation(
+            db_session, owner, force=False, delegation=delegation
+        )
+        is first
     )
 
-    first = await prepare_generation(db_session, owner, force=False)
-    duplicate = await prepare_generation(db_session, owner, force=False)
-    assert first is not None
-    assert duplicate is first
-    assert first.status == "pending"
-
-    asset = await get_asset_for_owner(db_session, owner)
-    assert asset is not None
-    first.status = "ready"
-    first.width = item.width
-    first.height = item.height
-    first.format = "webp"
-    asset.active_generation = first.generation
-    asset.building_generation = None
+    # Dimensions may be corrected without replacing immutable verified content.
+    # They are still part of the exact input receipt owned by an earlier job.
+    item.width += 1
     await db_session.flush()
-
-    reused = await prepare_generation(db_session, owner, force=False)
-    assert reused is first
-
-    identity[0] = "etag:b:bytes:1234"
-    replacement = await prepare_generation(db_session, owner, force=False)
-    assert replacement is not None
+    replacement_owner = await pyramids.owner_for_dataset_item(db_session, item)
+    with pytest.raises(ContentError, match="content_binding_changed"):
+        await pyramids.prepare_generation(
+            db_session, replacement_owner, force=False, delegation=delegation
+        )
+    replacement = await pyramids.prepare_generation(
+        db_session,
+        replacement_owner,
+        force=False,
+        delegation=originals.system_authorization(
+            "dataset_item", item.id, replacement_owner.source
+        ),
+    )
     assert replacement.generation == first.generation + 1
+    assert replacement.original_ref != first.original_ref
     assert asset.active_generation is None
 
 
 async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, transport, monkeypatch
 ):
     user, token = super_admin
-    task, item = await _make_image_task(db_session, user.id)
-    asset = ImagePyramidAsset(
-        dataset_item_id=item.id,
-        profile_version="pyramid-v1",
-        active_generation=1,
-    )
-    db_session.add(asset)
-    await db_session.flush()
-    manifest = build_manifest(
-        generation=1,
-        source_fingerprint="sha256:source",
-        width=item.width,
-        height=item.height,
-        overview_width=512,
-        overview_height=384,
-        overview_digest="sha256:overview",
-    )
-    generation = ImagePyramidGeneration(
-        asset_id=asset.id,
-        generation=1,
-        source_identity="etag:a:bytes:1234",
-        source_fingerprint="sha256:source",
-        status="ready",
-        width=item.width,
-        height=item.height,
-        max_level=len(manifest["levels"]) - 1,
-        format="webp",
-        normalization_version="exif-autorotate-srgb-v1",
-        manifest_key=f"image-pyramids/{asset.id}/g1/manifest.json",
-        manifest_digest=sha256_digest(b"manifest"),
-        overview_key=f"image-pyramids/{asset.id}/g1/overview.webp",
-        overview_width=512,
-        overview_height=384,
-        overview_digest="sha256:overview",
-        tile_count=1,
-        retained_bytes=100,
-    )
-    db_session.add(generation)
-    await db_session.flush()
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.source_matches_generation",
-        lambda owner, generation: True,
-    )
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.generation_manifest",
-        lambda generation: manifest,
-    )
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.storage_service.verify_upload",
-        lambda key, bucket=None: {"ContentLength": 1},
-    )
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.storage_service.generate_download_url",
-        lambda key, **kwargs: f"https://storage.invalid/{key}",
-    )
-    headers = {"Authorization": f"Bearer {token}"}
-
-    unauthorized_response = await httpx_client.get(
-        f"/api/v1/tasks/{task.id}/image-pyramid"
-    )
-    assert unauthorized_response.status_code == 401
-
-    manifest_response = await httpx_client.get(
-        f"/api/v1/tasks/{task.id}/image-pyramid", headers=headers
-    )
-    assert manifest_response.status_code == 200
-    body = manifest_response.json()
-    assert body["status"] == "ready"
-    assert body["manifest"] == manifest
-    assert "image-pyramids/" not in str(body["manifest"])
-    assert manifest_response.headers["etag"].startswith('"pyramid-1-')
-
-    not_modified_response = await httpx_client.get(
+    task, item = await make_image_task(db_session, user.id)
+    asset, generation, output, manifest = await ready_generation(db_session, item)
+    transport.register(output, manifest)
+    headers, route = (
+        {"Authorization": f"Bearer {token}"},
         f"/api/v1/tasks/{task.id}/image-pyramid",
-        headers={
-            **headers,
-            "If-None-Match": manifest_response.headers["etag"],
-        },
     )
-    assert not_modified_response.status_code == 304
-    assert not not_modified_response.content
+    assert (await httpx_client.get(route)).status_code == 401
+    response = await httpx_client.get(route, headers=headers)
+    assert response.status_code == 200
+    assert (
+        response.json()["status"] == "ready" and response.json()["manifest"] == manifest
+    )
+    assert "image-pyramids/" not in str(response.json()["manifest"])
+    assert response.headers["etag"].startswith('"pyramid-1-')
+    response304 = await httpx_client.get(
+        route, headers={**headers, "If-None-Match": response.headers["etag"]}
+    )
+    assert response304.status_code == 304 and not response304.content
 
+    transport.verified.clear()
     items = [
         {"kind": "overview", "generation": 1},
         {"kind": "overview", "generation": 1},
         {"kind": "tile", "generation": 1, "level": 0, "x": 0, "y": 0},
     ]
-    urls_response = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
-        headers=headers,
-        json={"items": items},
+    urls = await httpx_client.post(
+        route + "/asset-urls", headers=headers, json={"items": items}
     )
-    assert urls_response.status_code == 200
-    assert [row["kind"] for row in urls_response.json()["items"]] == [
-        "overview",
-        "tile",
-    ]
+    assert urls.status_code == 200
+    assert [row["kind"] for row in urls.json()["items"]] == ["overview", "tile"]
+    assert len(transport.verified) == 2
+    assert all(
+        options["bucket"] == output.storage_ref["bucket"]
+        for _, options in transport.signed
+    )
 
-    invalid_response = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
+    monkeypatch.setattr(
+        "app.api.v1.tasks.image_pyramid.settings.image_pyramid_asset_url_batch_max", 2
+    )
+    bounded = await httpx_client.post(
+        route + "/asset-urls", headers=headers, json={"items": items}
+    )
+    assert (
+        bounded.status_code == 422
+        and bounded.json()["detail"]["reason"] == "batch_too_large"
+    )
+    invalid = await httpx_client.post(
+        route + "/asset-urls",
         headers=headers,
         json={
             "items": [{"kind": "tile", "generation": 1, "level": 0, "x": 999, "y": 0}]
         },
     )
-    assert invalid_response.status_code == 422
-    assert invalid_response.json()["detail"]["reason"] == "invalid_coordinate"
-
-    stale_generation_response = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
+    assert (
+        invalid.status_code == 422
+        and invalid.json()["detail"]["reason"] == "invalid_coordinate"
+    )
+    stale = await httpx_client.post(
+        route + "/asset-urls",
         headers=headers,
         json={"items": [{"kind": "overview", "generation": 2}]},
     )
-    assert stale_generation_response.status_code == 409
-    assert stale_generation_response.json()["detail"] == {
+    assert stale.status_code == 409 and stale.json()["detail"] == {
         "reason": "stale_generation",
         "active_generation": 1,
     }
 
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.storage_service.verify_upload",
-        lambda key, bucket=None: False,
-    )
-    missing_object_response = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/image-pyramid/asset-urls",
+    transport.missing.add(generation.overview_key)
+    missing = await httpx_client.post(
+        route + "/asset-urls",
         headers=headers,
         json={"items": [{"kind": "overview", "generation": 1}]},
     )
-    assert missing_object_response.status_code == 409
-    assert missing_object_response.json()["detail"]["reason"] == "inconsistent_ready"
+    assert missing.status_code == 409
+    assert missing.json()["detail"]["reason"] == "inconsistent_ready"
     await db_session.refresh(asset)
     await db_session.refresh(generation)
-    assert asset.active_generation is None
-    assert generation.status == "failed"
-    assert generation.error_code == "object_missing"
+    assert asset.active_generation is None and generation.status == "failed"
 
 
-async def test_source_replacement_invalidates_ready_generation(
-    db_session, httpx_client, super_admin, monkeypatch
+async def test_original_metadata_rebinding_invalidates_ready_generation(
+    db_session, httpx_client, super_admin, transport
 ):
     user, token = super_admin
-    task, item = await _make_image_task(db_session, user.id)
-    asset = ImagePyramidAsset(
-        dataset_item_id=item.id,
-        profile_version="pyramid-v1",
-        active_generation=1,
-    )
-    db_session.add(asset)
+    task, item = await make_image_task(db_session, user.id)
+    asset, generation, output, manifest = await ready_generation(db_session, item)
+    transport.register(output, manifest)
+    item.width += 1
     await db_session.flush()
-    generation = ImagePyramidGeneration(
-        asset_id=asset.id,
-        generation=1,
-        source_identity="etag:old:bytes:1234",
-        source_fingerprint="sha256:source",
-        status="ready",
-        width=item.width,
-        height=item.height,
-        max_level=14,
-        format="webp",
-        normalization_version="exif-autorotate-srgb-v1",
-        tile_count=400,
-        retained_bytes=1000,
-    )
-    db_session.add(generation)
-    await db_session.flush()
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.source_matches_generation",
-        lambda owner, generation: False,
-    )
-
     response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 200
-    assert response.json()["status"] == "stale"
+    assert response.status_code == 200 and response.json()["status"] == "stale"
     assert response.json()["error_code"] == "source_changed"
     await db_session.refresh(asset)
     await db_session.refresh(generation)
-    assert asset.active_generation is None
-    assert generation.status == "failed"
+    assert asset.active_generation is None and generation.status == "failed"
+    assert not transport.verified and not transport.signed
 
 
-async def test_reconcile_removes_processed_failed_generation(
-    db_session, super_admin, monkeypatch
+async def test_reconcile_retains_unpinned_legacy_generation_without_storage_scans(
+    db_session, super_admin
 ):
     user, _ = super_admin
-    _, item = await _make_image_task(db_session, user.id)
-    asset = ImagePyramidAsset(dataset_item_id=item.id, profile_version="pyramid-v1")
-    db_session.add(asset)
-    await db_session.flush()
-    generation = ImagePyramidGeneration(
-        asset_id=asset.id,
-        generation=1,
-        source_identity="etag:failed:bytes:1234",
-        status="failed",
-        normalization_version="exif-autorotate-srgb-v1",
-        updated_at=image_pyramid_worker.utcnow() - timedelta(days=2),
+    _, item = await make_image_task(db_session, user.id)
+    asset, generation, _, _ = await ready_generation(db_session, item, pinned=False)
+    generation.status, generation.updated_at = (
+        "failed",
+        pyramids.utcnow() - timedelta(days=2),
     )
-    db_session.add(generation)
+    asset.active_generation = None
     await db_session.flush()
 
-    class SessionContext:
-        async def __aenter__(self):
-            return db_session
+    class ForbiddenStorage:
+        def __getattr__(self, name):
+            pytest.fail(f"Unowned legacy generation must never touch storage: {name}")
 
-        async def __aexit__(self, exc_type, exc, traceback):
-            return False
-
-    class Engine:
-        async def dispose(self):
-            pass
-
-    class Client:
-        def list_objects_v2(self, **kwargs):
-            return {"Contents": []}
-
-    class Storage:
-        media_cache_bucket = "cache"
-        client = Client()
-
-    deleted_prefixes: list[str] = []
-    monkeypatch.setattr(
-        image_pyramid_worker,
-        "create_async_engine",
-        lambda *args, **kwargs: Engine(),
-    )
-    monkeypatch.setattr(
-        image_pyramid_worker,
-        "async_sessionmaker",
-        lambda *args, **kwargs: lambda: SessionContext(),
-    )
-    monkeypatch.setattr(image_pyramid_worker, "StorageService", Storage)
-    monkeypatch.setattr(
-        image_pyramid_worker,
-        "_delete_prefix",
-        lambda _storage, prefix: deleted_prefixes.append(prefix),
-    )
-
-    await image_pyramid_worker._reconcile_image_pyramids()
-
-    assert deleted_prefixes == [image_pyramid_worker.generation_prefix(asset.id, 1)]
+    assert await objects.reconcile(db_session, ForbiddenStorage()) == 0
     assert (
-        await db_session.get(
-            ImagePyramidGeneration,
-            {"asset_id": asset.id, "generation": 1},
-        )
-        is None
+        await db_session.get(ImagePyramidGeneration, (asset.id, generation.generation))
+        is not None
     )
+
+
+@pytest.mark.parametrize("operation", ["get", "retry"])
+async def test_unpinned_legacy_ready_is_stale_or_regenerated(
+    db_session, httpx_client, super_admin, monkeypatch, operation
+):
+    user, token = super_admin
+    task, item = await make_image_task(db_session, user.id)
+    _, generation, _, _ = await ready_generation(db_session, item, pinned=False)
+    queued = []
+    monkeypatch.setattr(
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
+        lambda *args, **kwargs: queued.append((args, kwargs)) or "new-job",
+    )
+    monkeypatch.setattr(
+        "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
+    )
+    headers, route = (
+        {"Authorization": f"Bearer {token}"},
+        f"/api/v1/tasks/{task.id}/image-pyramid",
+    )
+    response = (
+        await httpx_client.get(route, headers=headers)
+        if operation == "get"
+        else await httpx_client.post(route + "/retry", headers=headers)
+    )
+    assert response.status_code == (200 if operation == "get" else 202)
+    assert response.json()["status"] == ("stale" if operation == "get" else "queued")
+    assert generation.output_id is None
+    if operation == "retry":
+        assert queued[0][0] == ("task", task.id)
+        assert queued[0][1]["delegation"]["original"]["content_id"]
 
 
 async def test_retry_is_idempotent_while_generation_is_pending(
     db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
-    task, item = await _make_image_task(db_session, user.id)
-    asset = ImagePyramidAsset(
-        dataset_item_id=item.id,
-        profile_version="pyramid-v1",
-        building_generation=1,
+    task, item = await make_image_task(db_session, user.id)
+    owner = await pyramids.owner_for_dataset_item(db_session, item)
+    await pyramids.prepare_generation(
+        db_session,
+        owner,
+        force=False,
+        delegation=originals.system_authorization(
+            "dataset_item", item.id, owner.source
+        ),
     )
-    db_session.add(asset)
-    await db_session.flush()
-    db_session.add(
-        ImagePyramidGeneration(
-            asset_id=asset.id,
-            generation=1,
-            source_identity="etag:a:bytes:1234",
-            status="pending",
-            normalization_version="exif-autorotate-srgb-v1",
-        )
-    )
-    await db_session.flush()
     monkeypatch.setattr(
         "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: pytest.fail("pending generation must not enqueue"),
+        lambda *args, **kwargs: pytest.fail("Pending generation must not enqueue"),
     )
-
     response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/retry",
         headers={"Authorization": f"Bearer {token}"},
@@ -492,48 +348,53 @@ async def test_retry_is_idempotent_while_generation_is_pending(
     }
 
 
-async def test_task_summary_is_lightweight(
+async def test_retry_failed_generation_keeps_cooldown(
     db_session, httpx_client, super_admin, monkeypatch
 ):
     user, token = super_admin
-    task, item = await _make_image_task(db_session, user.id)
-    asset = ImagePyramidAsset(
-        dataset_item_id=item.id,
-        profile_version="pyramid-v1",
-        active_generation=1,
-    )
-    db_session.add(asset)
-    await db_session.flush()
-    db_session.add(
-        ImagePyramidGeneration(
-            asset_id=asset.id,
-            generation=1,
-            source_identity="etag:a:bytes:1234",
-            source_fingerprint="sha256:source",
-            status="ready",
-            width=item.width,
-            height=item.height,
-            max_level=14,
-            format="webp",
-            normalization_version="exif-autorotate-srgb-v1",
-            tile_count=400,
-            retained_bytes=1000,
-        )
-    )
+    task, item = await make_image_task(db_session, user.id)
+    asset, generation, _, _ = await ready_generation(db_session, item, pinned=False)
+    asset.active_generation = None
+    generation.status = "failed"
+    generation.updated_at = pyramids.utcnow()
     await db_session.flush()
     monkeypatch.setattr(
-        "app.api.v1.tasks._shared.storage_service.generate_download_url",
-        lambda *args, **kwargs: "https://storage.invalid/source",
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
+        lambda *args, **kwargs: pytest.fail("Cooldown must not enqueue"),
     )
-
-    response = await httpx_client.get(
-        f"/api/v1/tasks/{task.id}",
+    response = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/image-pyramid/retry",
         headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 429
+    assert response.json()["detail"]["reason"] == "retry_cooldown"
+    assert int(response.headers["retry-after"]) > 0
+
+
+@pytest.mark.parametrize("pinned", [True, False])
+async def test_task_summary_is_lightweight(
+    db_session, httpx_client, super_admin, monkeypatch, pinned
+):
+    user, token = super_admin
+    task, item = await make_image_task(db_session, user.id)
+    await ready_generation(db_session, item, pinned=pinned)
+    monkeypatch.setattr(
+        physical,
+        "read_manifest",
+        lambda *args: pytest.fail("Summary must not read manifest"),
+    )
+    monkeypatch.setattr(
+        physical,
+        "verify_object",
+        lambda *args: pytest.fail("Summary must not read tiles"),
+    )
+    response = await httpx_client.get(
+        f"/api/v1/tasks/{task.id}", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200
     summary = response.json()["image_pyramid"]
     assert summary == {
-        "status": "ready",
+        "status": "ready" if pinned else "failed",
         "generation": 1,
         "width": item.width,
         "height": item.height,
@@ -541,5 +402,4 @@ async def test_task_summary_is_lightweight(
         "format": "webp",
         "required": True,
     }
-    assert "levels" not in summary
-    assert "url" not in summary
+    assert "levels" not in summary and "url" not in summary

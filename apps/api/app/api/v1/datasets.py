@@ -1,3 +1,5 @@
+from typing import Literal
+from typing import Annotated
 import asyncio
 import hashlib
 import io
@@ -5,7 +7,16 @@ import mimetypes
 import uuid
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,14 +29,19 @@ from app.deps import (
 )
 from app.db.enums import UserRole
 from app.db.models.project import Project
+from app.db.models.dataset import Dataset
 from app.db.models.user import User
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
+    DatasetItemOut,
+    DatasetWorkbench,
+    DatasetTrainingVersionList,
     DatasetCreate,
     DatasetUpdate,
     DatasetOut,
     DatasetListResponse,
     DatasetItemListResponse,
+    DatasetSceneOptions,
     DatasetLinkRequest,
     DatasetUploadInitRequest,
     DatasetUploadInitResponse,
@@ -33,6 +49,7 @@ from app.schemas.dataset import (
     DatasetImportFromConnectionResponse,
     SniffAxisConventionResponse,
 )
+from app.schemas.dataset_view import DatasetItemQuery
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
 from app.services.axis_sniffer import AxisSnifferService
@@ -46,9 +63,46 @@ from app.services.mask_formats.safe_archive import (
     SafeZipArchive,
 )
 from app.services.storage import storage_service
+from app.services.content_snapshot import IMAGE_RESPONSES
 from app.services.system_settings_service import SystemSettingsService
 
-router = APIRouter()
+
+async def directory_dataset_write_access(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    if (
+        request.method in {"GET", "HEAD", "OPTIONS"}
+        or "dataset_id" not in request.path_params
+    ):
+        return
+    from app.services.dataset_source_access import (
+        capture_dataset_write,
+    )
+
+    try:
+        dataset_id = uuid.UUID(str(request.path_params["dataset_id"]))
+    except ValueError:
+        raise HTTPException(422, "Invalid dataset ID") from None
+    request.state.directory_dataset_authority = await capture_dataset_write(
+        db, dataset_id, actor, getattr(request.state, "api_key_id", None)
+    )
+
+
+async def recheck_directory_write(request, db, dataset_id, *, project_id=None):
+    from app.services.dataset_source_access import validate_dataset_write
+
+    await validate_dataset_write(
+        db,
+        dataset_id,
+        getattr(request.state, "directory_dataset_authority", None),
+        project_id=project_id,
+        lock=True,
+    )
+
+
+router = APIRouter(dependencies=[Depends(directory_dataset_write_access)])
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
@@ -60,20 +114,31 @@ _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 )
 async def list_datasets(
     search: str | None = None,
+    state: Literal["active", "archived", "all"] = "active",
     data_type: str | None = None,
     has_scenes: bool | None = None,
+    location_id: uuid.UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    actor: User = Depends(get_current_user),
 ):
+    if location_id is not None:
+        from app.services.dataset_source_access import require_manager
+        from app.services.storage_location import get_visible
+
+        actor = await require_manager(db, actor.id)
+        await get_visible(db, location_id, actor)
     svc = DatasetService(db)
     items, total = await svc.list(
         search=search,
+        state=state,
         data_type=data_type,
         has_scenes=has_scenes,
         limit=limit,
         offset=offset,
+        location_id=location_id,
+        actor=actor,
     )
     return DatasetListResponse(items=items, total=total, limit=limit, offset=offset)
 
@@ -118,11 +183,13 @@ async def get_dataset(
 
 @router.put("/{dataset_id}", response_model=DatasetOut)
 async def update_dataset(
+    request: Request,
     dataset_id: uuid.UUID,
     data: DatasetUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     # v0.13.11 · 用 model_fields_set 区分「字段未传」与「显式传 None」(后者清除
     # metadata_["axis_convention"])。未传时不进 kwargs，让 service 走 _UNSET。
@@ -177,10 +244,12 @@ async def sniff_axis_convention(
 
 @router.delete("/{dataset_id}", status_code=204)
 async def delete_dataset(
+    request: Request,
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     cleanup = await svc.delete(dataset_id)
     if cleanup is None:
@@ -192,20 +261,155 @@ async def delete_dataset(
 # ── Items ───────────────────────────────────────────────────────────────────
 
 
-@router.get("/{dataset_id}/items", response_model=DatasetItemListResponse)
+@router.get(
+    "/{dataset_id}/scene-options",
+    response_model=DatasetSceneOptions,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def dataset_scene_options(
+    dataset_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    search: str | None = Query(None, max_length=200),
+    selected_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import scene_options
+
+    return await scene_options(
+        db,
+        dataset_id,
+        limit=limit,
+        offset=offset,
+        search=search,
+        selected_id=selected_id,
+    )
+
+
+@router.get(
+    "/{dataset_id}/items",
+    response_model=DatasetItemListResponse,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def list_dataset_items(
     dataset_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200),
+    query: Annotated[DatasetItemQuery, Query()],
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import item_page
+
+    items, total = await item_page(
+        db,
+        dataset_id,
+        actor,
+        limit=query.limit,
+        offset=query.offset,
+        source_id=query.source_id,
+        state=query.availability,
+        search=query.search,
+        filters=query,
+    )
+    return DatasetItemListResponse(
+        items=items, total=total, limit=query.limit, offset=query.offset
+    )
+
+
+@router.get(
+    "/{dataset_id}/items/{item_id}",
+    response_model=DatasetItemOut,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_item(
+    dataset_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import item_page
+
+    items, _ = await item_page(
+        db, dataset_id, actor, limit=1, offset=0, item_id=item_id
+    )
+    if not items:
+        raise HTTPException(404, "Dataset item not found")
+    return items[0]
+
+
+@router.get(
+    "/{dataset_id}/items/{item_id}/preview",
+    response_class=Response,
+    responses=IMAGE_RESPONSES,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_item_preview(
+    dataset_id: uuid.UUID,
+    item_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles(*_MANAGERS)),
+):
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.dataset_source import DatasetSourceItem
+    from app.services.content_snapshot import SnapshotResponse
+    from app.services.dataset_content import content_http_error
+    from app.services.directory_previews import read_preview
+    from app.services.dataset_workbench import visible_mapping_query
+
+    if request.headers.get("range") is not None:
+        raise HTTPException(416, "Range is not supported for previews")
+    mapping = await db.scalar(
+        visible_mapping_query(item_id, actor)
+        .join(DatasetItem, DatasetItem.id == DatasetSourceItem.dataset_item_id)
+        .where(DatasetItem.id == item_id, DatasetItem.dataset_id == dataset_id)
+        .limit(1)
+    )
+    if mapping is None:
+        raise HTTPException(404, "Dataset item preview not found")
+    try:
+        snapshot = await read_preview(
+            db,
+            mapping.source_id,
+            mapping.path_digest,
+            actor,
+            getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(snapshot)
+
+
+@router.get(
+    "/{dataset_id}/workbench",
+    response_model=DatasetWorkbench,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_workbench(
+    dataset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import workbench
+
+    return await workbench(db, dataset_id, actor)
+
+
+@router.get(
+    "/{dataset_id}/training-versions",
+    response_model=DatasetTrainingVersionList,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_training_versions(
+    dataset_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    actor: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    items, total = await svc.list_items(dataset_id, limit=limit, offset=offset)
-    return DatasetItemListResponse(items=items, total=total, limit=limit, offset=offset)
+    from app.services.dataset_workbench import training_versions
+
+    return await training_versions(db, dataset_id, actor, limit=limit, offset=offset)
 
 
 @router.post(
@@ -222,7 +426,10 @@ async def import_from_connection(
 ):
     from app.db.models.async_job import AsyncJobKind
     from app.services import async_job as async_job_svc
-    from app.services import connector_guard
+    from app.services import connector_guard, storage_access
+    from app.services.content_snapshot import ContentError
+    from app.services.dataset_content import key_authority
+    from app.services.storage_location import connector_location_id
     from app.services.sources import SourcePathError, validate_source_path
     from app.services.storage_connection import (
         ConnectorAccessDenied,
@@ -257,6 +464,18 @@ async def import_from_connection(
         for pattern in (payload.include_globs or [])
         if pattern and pattern.strip()
     ]
+    connection_key_id = getattr(request.state, "api_key_id", None)
+    connection_key_proof = await key_authority(
+        db, current_user, connection_key_id, "datasets:write"
+    )
+    source_location_id = connector_location_id(conn.id)
+
+    try:
+        maintenance_revision = await storage_access.check(
+            db, source_location_id, lock=True
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     # Capture both import budgets in the same committed request snapshot.  The
     # worker must never re-read global settings while enumerating files: queued
     # jobs retain the limits accepted here even after an admin changes them.
@@ -272,10 +491,20 @@ async def import_from_connection(
             "connection_id": str(conn.id),
             "connection_name": conn.name,
             "connection_kind": conn.kind,
+            "connection_revision": conn.revision,
+            "source_location_id": str(source_location_id),
+            "source_maintenance_revision": maintenance_revision,
+            "connection_authority": {
+                "api_key_id": str(connection_key_id) if connection_key_id else None,
+                "key_proof": connection_key_proof,
+            },
             "source_path": payload.source_path,
             "recursive": payload.recursive,
             "include_globs": clean_globs,
             "settings_snapshot": import_limits,
+            "directory_authority": getattr(
+                request.state, "directory_dataset_authority", None
+            ),
         },
     )
     await AuditService.log(
@@ -295,6 +524,13 @@ async def import_from_connection(
             "settings_version": import_limits["version"],
         },
     )
+    try:
+        await storage_access.check(
+            db, source_location_id, expected_revision=maintenance_revision, lock=True
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
     task = run_dataset_import.delay(str(job.id))
@@ -307,35 +543,97 @@ async def import_from_connection(
     "/{dataset_id}/items/upload-init", response_model=DatasetUploadInitResponse
 )
 async def upload_init(
+    request: Request,
     dataset_id: uuid.UUID,
     data: DatasetUploadInitRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from app.services import comment_attachment_authority as credentials
+
+    current_user, upload_authority = await credentials.lock_authority(
+        db, current_user, request, allowed_roles=frozenset(UserRole)
+    )
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     ensure_dataset_storage_name_is_writable(ds.name)
-    storage_key = f"{ds.name}/{data.file_name}"
+    from app.services import managed_original_creation as creations
+    from app.services.dataset_assets import MAX_DIRECT_UPLOAD_BYTES
+    from app.services.content_snapshot import ContentError
+
+    try:
+        relative_name = await svc._unique_file_name(dataset_id, data.file_name)
+        allocation = await creations.allocate(
+            db,
+            dataset_id=dataset_id,
+            logical_path=relative_name,
+            origin="direct",
+            max_bytes=MAX_DIRECT_UPLOAD_BYTES,
+            requested_by=current_user.id,
+            authority=getattr(request.state, "directory_dataset_authority", None),
+            staging=True,
+            content_type=data.content_type,
+        )
+        storage_key = allocation["object_key"]
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="Invalid dataset relative path"
+        ) from exc
     file_type = _infer_file_type(data.content_type)
 
     item = await svc.add_item(
         dataset_id=dataset_id,
-        file_name=data.file_name,
+        file_name=relative_name,
         file_path=storage_key,
         file_type=file_type,
+        logical_path=relative_name,
+        storage_binding=creations.original_locator(allocation),
+        storage_ref=creations.original_ref(allocation),
     )
+    item_id = item.id
+    item_facts = (item.dataset_id, item.file_path, item.file_name, item.file_type)
     await db.commit()
 
-    upload_url = storage_service.generate_upload_url(
-        storage_key,
-        data.content_type,
-        bucket=storage_service.datasets_bucket,
-    )
+    try:
+        upload_url = await creations.prepare_upload_url(db, allocation)
+        await credentials.reauthorize(db, upload_authority)
+        await recheck_directory_write(request, db, dataset_id)
+        from app.db.models.dataset import DatasetItem
+
+        item = await db.scalar(
+            select(DatasetItem)
+            .where(DatasetItem.id == item_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        if (
+            item is None
+            or (
+                item.dataset_id,
+                item.file_path,
+                item.file_name,
+                item.file_type,
+            )
+            != item_facts
+        ):
+            raise ContentError("managed_original_creation_input_changed")
+        await creations._validate(db, allocation, lock=True)
+        await creations.validate_staging(db, allocation, lock=True)
+        await credentials.reauthorize(db, upload_authority)
+        await creations.validate_upload_url(db, allocation, upload_url, lock=True)
+        await db.commit()
+        credentials.check_clock(upload_authority)
+        expires_in = creations.upload_expires_in(allocation)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     return DatasetUploadInitResponse(
-        item_id=item.id, upload_url=upload_url, expires_in=900
+        item_id=item_id, upload_url=upload_url, expires_in=expires_in
     )
 
 
@@ -343,61 +641,187 @@ async def upload_init(
 async def upload_complete(
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     from app.db.models.dataset import DatasetItem
 
     svc = DatasetService(db)
+    await db.get(Dataset, dataset_id, with_for_update={"key_share": True})
     item = await db.get(DatasetItem, item_id)
     if not item or item.dataset_id != dataset_id:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    meta = storage_service.verify_upload(
-        item.file_path, bucket=storage_service.datasets_bucket
+    from app.services.dataset_assets import (
+        find_verified_content,
+        hash_stored_object,
+        register_item_asset,
+        MAX_DIRECT_UPLOAD_BYTES,
     )
-    if not meta:
-        # 上传未完成 — 清理占位 DatasetItem
-        await svc.delete_item(item_id)
-        await db.commit()
-        raise HTTPException(status_code=400, detail="File not found in storage")
+    from app.services.dataset_storage_keys import managed_dataset_prefix
 
-    content_length = meta.get("ContentLength")
-    if content_length:
-        item.file_size = content_length
+    from starlette.concurrency import run_in_threadpool
+    from botocore.exceptions import ClientError
+    from app.services import managed_original_creation as creations
+    from app.services.content_snapshot import ContentError
 
-    # ETag（MinIO 单 PUT = md5）用于去重
-    etag = (meta.get("ETag") or "").strip('"')
-    if len(etag) == 32:
-        existing = await svc.find_by_hash(dataset_id, etag)
-        if existing and existing.id != item_id:
-            # 删除刚上传的对象与占位记录，返回 409 告知前端
-            try:
+    try:
+        allocation = await creations.for_key(
+            db, dataset_id=dataset_id, object_key=item.file_path
+        )
+        if allocation is not None:
+            if allocation["origin"] != "direct":
+                raise HTTPException(409, detail={"code": "creation_origin_changed"})
+            from app.services import comment_attachment_authority as credentials
+
+            _, upload_authority = await credentials.lock_authority(
+                db, current_user, request, allowed_roles=frozenset(UserRole)
+            )
+            item_facts = (
+                item.dataset_id,
+                item.file_path,
+                item.file_name,
+                item.file_type,
+            )
+            # A durable Creation owns the source and destination while no
+            # business or credential lock spans client construction or I/O.
+            await db.commit()
+            credentials.check_clock(upload_authority)
+            created = await creations.complete_direct(db, allocation)
+            image_dims = (
+                await creations.image_dimensions(db, allocation, created)
+                if item_facts[3] == "image"
+                else None
+            )
+            await credentials.reauthorize(db, upload_authority)
+            await recheck_directory_write(request, db, dataset_id)
+            item = await db.scalar(
+                select(DatasetItem)
+                .where(DatasetItem.id == item_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if (
+                item is None
+                or (
+                    item.dataset_id,
+                    item.file_path,
+                    item.file_name,
+                    item.file_type,
+                )
+                != item_facts
+            ):
+                raise ContentError("managed_original_creation_input_changed")
+            content_hash, sha256, size, etag = (
+                created.md5,
+                created.sha256,
+                created.size_bytes,
+                created.etag,
+            )
+        else:
+            # Existing upload URLs retain their historical completion contract.
+            meta = storage_service.verify_upload(
+                item.file_path, bucket=storage_service.datasets_bucket
+            )
+            if not meta:
+                await recheck_directory_write(request, db, dataset_id)
+                await svc.delete_item(item_id)
+                await recheck_directory_write(request, db, dataset_id)
+                await db.commit()
+                await svc.cleanup_directory_previews()
+                raise HTTPException(400, detail="File not found in storage")
+            if (meta.get("ContentLength") or 0) > MAX_DIRECT_UPLOAD_BYTES:
+                raise HTTPException(413, detail="Direct upload exceeds 5 GiB")
+            content_hash, sha256, size, etag = await run_in_threadpool(
+                hash_stored_object, item.file_path, meta
+            )
+        await recheck_directory_write(request, db, dataset_id)
+        await register_item_asset(
+            db,
+            item,
+            sha256=sha256,
+            size_bytes=size,
+            etag=etag,
+            binding=creations.original_locator(allocation)
+            if allocation is not None
+            else None,
+            storage_ref=creations.original_ref(allocation)
+            if allocation is not None
+            else None,
+        )
+        if allocation is not None:
+            await creations.attach(db, item, created.creation_id)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409, detail="Dataset content or storage identity changed"
+        ) from exc
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {
+            "PreconditionFailed",
+            "412",
+            "NoSuchKey",
+            "NoSuchVersion",
+            "404",
+        }:
+            raise HTTPException(
+                status_code=409, detail="Dataset content or storage identity changed"
+            ) from exc
+        raise
+    existing = await find_verified_content(
+        db, dataset_id, sha256, exclude_item_id=item_id, legacy_md5=content_hash
+    )
+    if existing:
+        # A new sealed object remains a durable, unlinked creation responsibility.
+        await recheck_directory_write(request, db, dataset_id)
+        try:
+            if allocation is None and item.file_path.startswith(
+                managed_dataset_prefix(dataset_id)
+            ):
                 storage_service.delete_object(
                     item.file_path, bucket=storage_service.datasets_bucket
                 )
-            except Exception:
-                pass
-            await svc.delete_item(item_id)
-            await db.commit()
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "msg": "文件已存在（内容重复）",
-                    "duplicate_of": str(existing.id),
-                },
-            )
-        item.content_hash = etag
+        except Exception:
+            pass
+        await svc.delete_item(item_id)
+        await recheck_directory_write(request, db, dataset_id)
+        await db.commit()
+        await svc.cleanup_directory_previews()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "msg": "文件已存在（内容重复）",
+                "duplicate_of": str(existing.id),
+            },
+        )
+    item.content_hash = content_hash
+    item.file_size = size
 
     if item.file_type == "image" and (item.width is None or item.height is None):
-        dims = storage_service.read_image_dimensions(
-            item.file_path,
-            bucket=storage_service.datasets_bucket,
+        dims = (
+            image_dims
+            if allocation is not None
+            else storage_service.read_image_dimensions(
+                item.file_path,
+                bucket=storage_service.datasets_bucket,
+            )
         )
         if dims:
             item.width, item.height = dims
 
+    await recheck_directory_write(request, db, dataset_id)
     linked_tasks = await svc.create_tasks_for_items(dataset_id, [item.id])
+    video_delegation = None
+    if item.file_type == "video":
+        from app.services import video_derivative_originals as originals
+
+        video_delegation = originals.system_authorization(
+            "dataset_item", item.id, await originals.pin(db, "dataset_item", item.id)
+        )
+    await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
     if item.file_type == "image":
@@ -407,7 +831,7 @@ async def upload_complete(
     elif item.file_type == "video":
         from app.workers.media import generate_video_metadata
 
-        generate_video_metadata.delay(str(item_id))
+        generate_video_metadata.delay(str(item_id), delegation=video_delegation)
 
     return {"status": "ok", "item_id": str(item_id), "linked_tasks": linked_tasks}
 
@@ -468,15 +892,17 @@ def _normalize_zip_relpath(name: str) -> str | None:
 @router.post("/{dataset_id}/items/upload-zip")
 async def upload_zip(
     dataset_id: uuid.UUID,
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """前端 multipart 上传单个 ZIP 包，由后端解压并把每个文件入库 + 上传到 MinIO。
 
     限制：≤ 200MB 整包、≤ 5000 文件、单文件 ≤ 100MB；自动跳过 macOS 元数据（__MACOSX/）
     与隐藏文件（.DS_Store 等）；同名文件以路径 hash 后缀去重。
     """
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
@@ -535,24 +961,41 @@ async def upload_zip(
     deduped = 0
     skipped: list[str] = list(archive.skipped_paths)
     errors: list[dict] = []
-    written_keys: list[str] = []  # 已写入 MinIO 的对象 key，校验失败时回滚清理
     new_image_item_ids: list[uuid.UUID] = []
     new_video_item_ids: list[uuid.UUID] = []
     new_item_ids: list[uuid.UUID] = []
+    sealed_entries: list[dict] = []
     zip_top_level_dirs: set[str] = set()
 
     from sqlalchemy import select as sa_select
     from app.db.models.dataset import DatasetItem
 
-    # 收集已有 hash，用于内容去重（仅按 content_hash 去重，保留子目录同名文件）
+    from app.db.models.dataset_asset import DatasetAsset
+    from app.services import managed_original_creation as creations
+    from app.services.content_snapshot import ContentError
+
+    # Only verified byte digests establish duplicates; legacy hashes may be ETags.
     hash_rows = await db.execute(
-        sa_select(DatasetItem.content_hash).where(
-            DatasetItem.dataset_id == dataset_id, DatasetItem.content_hash.isnot(None)
+        sa_select(DatasetAsset.checksum_value)
+        .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+        .where(
+            DatasetItem.dataset_id == dataset_id,
+            DatasetAsset.verification_state == "verified",
         )
     )
     existing_hashes: set[str] = {r[0] for r in hash_rows.all()}
     ensure_dataset_storage_name_is_writable(ds.name)
+    existing_names = await svc._existing_file_names(dataset_id)
 
+    async def check_authority():
+        try:
+            await recheck_directory_write(request, db, dataset_id)
+        except HTTPException:
+            archive.close()
+            await db.rollback()
+            raise
+
+    await db.commit()
     for info in infos:
         name = info.source_name
         safe_relpath = info.normalized_path
@@ -578,28 +1021,42 @@ async def upload_zip(
             continue
 
         content_hash = hashlib.md5(data).hexdigest()
-        if content_hash in existing_hashes:
+        sha256 = hashlib.sha256(data).hexdigest()
+        from app.services.dataset_assets import find_verified_content
+
+        if sha256 in existing_hashes or await find_verified_content(
+            db, dataset_id, sha256, legacy_md5=content_hash
+        ):
             deduped += 1
+            await db.commit()
             continue
-        existing_hashes.add(content_hash)
 
         basename = PurePosixPath(safe_relpath).name
         content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
         file_type = _infer_file_type(content_type)
-        storage_key = f"{ds.name}/{safe_relpath}"
-
+        logical_path = await svc._unique_file_name(
+            dataset_id, safe_relpath, existing_names=existing_names
+        )
+        await check_authority()
         try:
-            storage_service.client.put_object(
-                Bucket=storage_service.datasets_bucket,
-                Key=storage_key,
-                Body=data,
-                ContentType=content_type,
+            allocation = await creations.allocate(
+                db,
+                dataset_id=dataset_id,
+                logical_path=logical_path,
+                origin="zip",
+                max_bytes=_PER_FILE_MAX_BYTES,
+                requested_by=current_user.id,
+                authority=getattr(request.state, "directory_dataset_authority", None),
+                content_type=content_type,
             )
-        except Exception as e:  # noqa: BLE001
-            errors.append({"name": name, "error": f"对象存储写入失败: {e}"})
+            await db.commit()
+            created = await creations.create_stream(
+                db, allocation, io.BytesIO(data), content_type=content_type
+            )
+        except ContentError as exc:
+            await db.rollback()
+            errors.append({"name": name, "error": exc.code})
             continue
-        written_keys.append(storage_key)
-
         width: int | None = None
         height: int | None = None
         if file_type == "image":
@@ -607,24 +1064,64 @@ async def upload_zip(
             if dims:
                 width, height = dims
 
-        item = await svc.add_item(
-            dataset_id=dataset_id,
-            file_name=basename,
-            file_path=storage_key,
-            file_type=file_type,
-            file_size=len(data),
-            content_hash=content_hash,
-            width=width,
-            height=height,
+        # Keep only bounded metadata and the durable Creation identifier. The
+        # archive's existing per-file buffer is released on the next iteration.
+        sealed_entries.append(
+            {
+                "creation_id": created.creation_id,
+                "logical_path": logical_path,
+                "file_type": file_type,
+                "size_bytes": len(data),
+                "md5": content_hash,
+                "sha256": sha256,
+                "etag": created.etag,
+                "width": width,
+                "height": height,
+            }
         )
-        added += 1
-        new_item_ids.append(item.id)
-        if file_type == "image":
-            new_image_item_ids.append(item.id)
-        elif file_type == "video":
-            new_video_item_ids.append(item.id)
+        existing_names.add(logical_path)
+        existing_hashes.add(sha256)
 
     archive.close()
+    # Preserve one request-level publication transaction. A later authority
+    # failure still rolls back every Item, task, scene and dataset counter.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": str(dataset_id)},
+    )
+    await check_authority()
+    publication_names = await svc._existing_file_names(dataset_id)
+    for entry in sealed_entries:
+        if await find_verified_content(db, dataset_id, entry["sha256"]):
+            deduped += 1
+            continue
+        allocation = await creations._read(db, entry["creation_id"])
+        logical_path = await svc._unique_file_name(
+            dataset_id, entry["logical_path"], existing_names=publication_names
+        )
+        item = await svc.add_item(
+            dataset_id=dataset_id,
+            file_name=PurePosixPath(logical_path).name,
+            file_path=allocation["object_key"],
+            file_type=entry["file_type"],
+            file_size=entry["size_bytes"],
+            content_hash=entry["md5"],
+            width=entry["width"],
+            height=entry["height"],
+            sha256=entry["sha256"],
+            object_etag=entry["etag"],
+            storage_binding=creations.original_locator(allocation),
+            storage_ref=creations.original_ref(allocation),
+            logical_path=logical_path,
+        )
+        await creations.attach(db, item, entry["creation_id"])
+        publication_names.add(logical_path)
+        added += 1
+        new_item_ids.append(item.id)
+        if entry["file_type"] == "image":
+            new_image_item_ids.append(item.id)
+        elif entry["file_type"] == "video":
+            new_video_item_ids.append(item.id)
     linked_tasks = await svc.create_tasks_for_items(dataset_id, new_item_ids)
 
     # v0.14.0 · 上传完跑 scene_inference(mode="auto"):
@@ -633,7 +1130,16 @@ async def upload_zip(
     # - 纯 image / video 帧序列 → 1 scene + 自然排序 frame_index
     # 幂等:若 dataset 已有 scene → 整体跳过(下次上传不重赋)。
     scene_inference_notes: list[str] = []
-    if added > 0:
+    from app.services.dataset_source_access import has_directory_source
+
+    directory_images = (
+        ds.data_type == "image"
+        and not ds.is_temporal
+        and await has_directory_source(db, dataset_id)
+    )
+    if added > 0 and directory_images:
+        scene_inference_notes.append("目录图片数据集保留原地引用，不自动创建 Scene。")
+    if added > 0 and not directory_images:
         from app.services import scene_inference as _scene_inference
 
         reserved_top_levels = sorted(
@@ -662,18 +1168,21 @@ async def upload_zip(
     try:
         await svc.assert_temporal_dataset_has_scenes(dataset_id)
     except ValueError as exc:
-        # 校验失败 → 事务将 rollback，但本次已写入 MinIO 的对象不在事务内，
-        # 需显式删除，否则变成孤儿对象。
+        # The independent creation ledger survives a rolled back ZIP batch.
         await db.rollback()
-        for key in written_keys:
-            try:
-                storage_service.delete_object(
-                    key, bucket=storage_service.datasets_bucket
-                )
-            except Exception:  # noqa: BLE001
-                pass
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    video_delegations = {}
+    if new_video_item_ids:
+        from app.services import video_derivative_originals as originals
+
+        for item_id in new_video_item_ids:
+            video_delegations[str(item_id)] = originals.system_authorization(
+                "dataset_item",
+                item_id,
+                await originals.pin(db, "dataset_item", item_id),
+            )
+    await check_authority()
     await db.commit()
 
     if new_image_item_ids:
@@ -685,7 +1194,9 @@ async def upload_zip(
         from app.workers.media import generate_video_metadata
 
         for iid in new_video_item_ids:
-            generate_video_metadata.delay(str(iid))
+            generate_video_metadata.delay(
+                str(iid), delegation=video_delegations[str(iid)]
+            )
 
     return {
         "added": added,
@@ -701,6 +1212,7 @@ async def upload_zip(
 @router.post("/{dataset_id}/items/scan")
 async def scan_items(
     dataset_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
@@ -708,13 +1220,17 @@ async def scan_items(
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    outcomes = await svc.scan_and_import(dataset_id)
+    outcomes = await svc.scan_and_import(
+        dataset_id,
+        directory_authority=getattr(request.state, "directory_dataset_authority", None),
+    )
     new_ids = [
         outcome.item_id
         for outcome in outcomes
         if outcome.status == "added" and outcome.item_id is not None
     ]
     linked_tasks = sum(outcome.linked_tasks for outcome in outcomes)
+    await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
     if new_ids:
@@ -725,6 +1241,7 @@ async def scan_items(
 
 @router.post("/{dataset_id}/backfill-dimensions")
 async def backfill_dimensions(
+    request: Request,
     dataset_id: uuid.UUID,
     batch: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -734,6 +1251,7 @@ async def backfill_dimensions(
 
     一次最多处理 batch 条（默认 50），多次调用直到 processed == 0 视为完成。
     """
+    await recheck_directory_write(request, db, dataset_id)
     from sqlalchemy import select as sa_select
     from app.db.models.dataset import DatasetItem
 
@@ -769,24 +1287,50 @@ async def backfill_dimensions(
 
 @router.post("/{dataset_id}/backfill-media")
 async def backfill_media_endpoint(
+    request: Request,
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
     """异步触发存量图像缩略图 / 视频元数据与 poster 回填。"""
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, dataset_id=dataset_id)
+
+    from app.db.models.dataset import DatasetItem
+    from app.services import video_derivative_originals as originals
+    from app.services.content_snapshot import ContentError
     from app.workers.media import backfill_media
 
-    backfill_media.delay(str(dataset_id))
+    video_delegations = {}
+    identifiers = await db.scalars(
+        select(DatasetItem.id)
+        .where(DatasetItem.dataset_id == dataset_id, DatasetItem.file_type == "video")
+        .order_by(DatasetItem.id)
+    )
+    try:
+        for item_id in identifiers:
+            authority = await originals.authorize_policy(
+                db, "dataset", item_id, current_user, request
+            )
+            video_delegations[str(item_id)] = originals.authorization(authority)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    await recheck_directory_write(request, db, dataset_id)
+    await db.commit()
+    backfill_media.delay(str(dataset_id), video_delegations=video_delegations)
     return {"status": "queued", "dataset_id": str(dataset_id)}
 
 
 @router.post("/{dataset_id}/scenes/backfill")
 async def backfill_scenes_endpoint(
+    request: Request,
     dataset_id: uuid.UUID,
     mode: str = Query(
         "auto",
@@ -802,6 +1346,7 @@ async def backfill_scenes_endpoint(
     幂等:dataset 已有 scene → 直接返回(notes 提示)。
     dry_run:不写库,返回会创建 / 赋值的统计。
     """
+    await recheck_directory_write(request, db, dataset_id)
     from app.schemas.scene import InferenceResult
     from app.services.scene_inference import infer_and_apply
 
@@ -809,6 +1354,10 @@ async def backfill_scenes_endpoint(
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
+
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, dataset_id=dataset_id)
 
     try:
         result: InferenceResult = await infer_and_apply(
@@ -827,16 +1376,19 @@ async def backfill_scenes_endpoint(
 
 @router.delete("/{dataset_id}/items/{item_id}", status_code=204)
 async def delete_item(
+    request: Request,
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ok = await svc.delete_item(item_id, dataset_id=dataset_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Item not found")
     await db.commit()
+    await svc.cleanup_directory_previews()
 
 
 # ── Project linking ─────────────────────────────────────────────────────────
@@ -864,7 +1416,11 @@ async def link_project(
         raise HTTPException(
             status_code=403, detail="仅项目负责人或超级管理员可关联数据集"
         )
-    link_result = await svc.link_project(dataset_id, data.project_id)
+    link_result = await svc.link_project(
+        dataset_id,
+        data.project_id,
+        directory_authority=getattr(request.state, "directory_dataset_authority", None),
+    )
     await AuditService.log(
         db,
         actor=current_user,
@@ -875,6 +1431,7 @@ async def link_project(
         status_code=200,
         detail={"project_id": str(data.project_id)},
     )
+    await recheck_directory_write(request, db, dataset_id, project_id=data.project_id)
     await db.commit()
 
     # v0.12.0 · enqueue-after-commit：大 dataset 的建 task 走 Celery，必须在 commit
@@ -978,6 +1535,7 @@ async def unlink_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     info = await svc.unlink_project(dataset_id, project_id)
     if info is None:
@@ -1007,10 +1565,21 @@ async def unlink_project(
 async def get_linked_projects(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    actor: User = Depends(get_current_user),
 ):
+    from app.services.project_aggregates import project_scope_clause
+
     svc = DatasetService(db)
-    return await svc.get_linked_projects(dataset_id)
+    projects = await svc.get_linked_projects(dataset_id)
+    scope = project_scope_clause(actor, Project.id)
+    if scope is None:
+        return projects
+    ids = set(
+        await db.scalars(
+            select(Project.id).where(Project.id.in_([p.id for p in projects]), scope)
+        )
+    )
+    return [p for p in projects if p.id in ids]
 
 
 def _infer_file_type(content_type: str) -> str:

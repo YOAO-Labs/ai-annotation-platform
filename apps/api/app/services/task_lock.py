@@ -51,13 +51,28 @@ class TaskLockService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _lock_task_scope(self, task_id: uuid.UUID) -> None:
-        """Serialize lock-table decisions with annotation writes for one task."""
+    async def _lock_task_scope(
+        self,
+        task_id: uuid.UUID,
+        *,
+        nowait: bool = False,
+        shared: bool = False,
+    ) -> None:
+        """Serialize lock-table decisions with annotation writes for one task.
 
-        await self.db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        ``shared`` takes the read form of the same scope: concurrent readers
+        coexist, while a writer's exclusive form still excludes them.
+        """
+
+        function = (
+            "pg_try_advisory_xact_lock" if nowait else "pg_advisory_xact_lock"
+        ) + ("_shared" if shared else "")
+        result = await self.db.execute(
+            text(f"SELECT {function}(hashtextextended(:key, 0))"),
             {"key": f"aap:task-edit-lock:{task_id}"},
         )
+        if nowait and not result.scalar():
+            raise TaskLockConflictError("task edit scope is busy")
 
     async def acquire(
         self,
@@ -236,17 +251,21 @@ class TaskLockService:
         )
         return result.scalars().first()
 
-    async def active_locks(self, task_id: uuid.UUID) -> list[TaskLock]:
+    async def active_locks(
+        self, task_id: uuid.UUID, *, cleanup: bool = True
+    ) -> list[TaskLock]:
         """同一 task 的全部未过期锁。
 
         unique 约束是 ``(task_id, user_id)``, 并不阻止历史/并发残留产生多行
         (见 ``acquire`` 的清理说明), 因此「是否有他人持锁」必须逐行判断, 不能只看
         ``active_lock`` 返回的最新一行 (issue #121)。
         """
-        await self._cleanup_expired(task_id)
-        result = await self.db.execute(
-            select(TaskLock).where(TaskLock.task_id == task_id)
-        )
+        if cleanup:
+            await self._cleanup_expired(task_id)
+        query = select(TaskLock).where(TaskLock.task_id == task_id)
+        if not cleanup:
+            query = query.where(TaskLock.expire_at >= datetime.now(timezone.utc))
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def _cleanup_expired(self, task_id: uuid.UUID | None = None) -> int:

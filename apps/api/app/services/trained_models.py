@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from app.services import training_storage_io as storage_io
+
 from aap_protocol_v2.backend_auth import managed_provider
 
 from aap_task_contract import normalize_task, normalize_task_fields
 from training_contract.dataset import config_task
 from training_contract.inference_runtime import validate_inference_runtime
 
-import asyncio
 import math
 import uuid
 from datetime import datetime, timezone
@@ -29,8 +30,10 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services.ml_backend import MLBackendService
 from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service as storage
-from app.services.training_dataset_bridge import content_digest
-from app.services.training_runs import internal_download, verify_artifact
+from app.services import training_dataset_storage
+from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services import training_run_storage
+from app.services.training_runs import verify_artifact
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_evaluations import parse_evaluation
 
@@ -91,6 +94,54 @@ def validate_bindings(project, classes, bindings, task="detect"):
         assert_raster_mask_write_enabled(project)
 
 
+def owner_for_attempt(run, attempt, *artifacts):
+    """Resolve physical ownership without changing any frozen model payload."""
+    if run is None or attempt is None or attempt.run_id != run.id:
+        raise HTTPException(status_code=409, detail="训练产物的来源执行不一致")
+    try:
+        owner = training_run_storage.resolve(run)
+        for artifact in artifacts:
+            training_run_storage.expect_attempt(owner, attempt.id, artifact["key"])
+        return owner
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+    except (KeyError, TypeError):
+        raise HTTPException(
+            status_code=409, detail="训练产物缺少固定对象定位"
+        ) from None
+
+
+async def owner_for_model(db, version):
+    """Models retain the referenced run namespace instead of duplicating it."""
+    run = await db.scalar(
+        select(TrainingRun).where(
+            TrainingRun.id == version.run_id,
+            TrainingRun.project_id == version.project_id,
+        )
+    )
+    attempt = await db.get(TrainingAttempt, version.attempt_id)
+    if (
+        run is None
+        or attempt is None
+        or run.id != version.run_id
+        or run.project_id != version.project_id
+        or attempt.id != version.attempt_id
+        or attempt.run_id != run.id
+        or not isinstance(version.artifact, dict)
+        or not isinstance(attempt.artifacts, dict)
+        or version.artifact.get("role") != "weights"
+        or not any(
+            artifact == version.artifact
+            for artifact in (attempt.artifacts or {}).values()
+        )
+    ):
+        raise HTTPException(status_code=409, detail="模型缺少一致的保留权重来源")
+    return owner_for_attempt(run, attempt, version.artifact)
+
+
 async def register(db, project, user, body):
     request_digest = content_digest(body.model_dump(mode="json"))
     existing = await db.scalar(
@@ -143,11 +194,36 @@ async def register(db, project, user, body):
             status_code=409, detail="来源执行缺少唯一的已验证权重与最终评估"
         )
     weights, metrics = weight_artifacts[0], metric_artifacts[0]
+    owner = owner_for_attempt(run, attempt, weights, metrics)
     classes = run.config["classes"]
     validate_bindings(project, classes, body.bindings, config_task(run.config))
     try:
-        await asyncio.to_thread(verify_artifact, weights["key"], weights, attempt.id)
-        evaluation = await asyncio.to_thread(read_json_artifact, metrics, attempt.id)
+        await storage_io.read(
+            db,
+            owner,
+            "training_model_read",
+            lambda transport: verify_artifact(
+                weights["key"],
+                weights,
+                attempt.id,
+                bucket=owner.bucket,
+                transport=transport,
+            ),
+            object_key=weights["key"],
+            sha256=weights["sha256"],
+            size_bytes=weights["size_bytes"],
+        )
+        evaluation = await storage_io.read(
+            db,
+            owner,
+            "training_model_read",
+            lambda transport: read_json_artifact(
+                metrics, attempt.id, bucket=owner.bucket, transport=transport
+            ),
+            object_key=metrics["key"],
+            sha256=metrics["sha256"],
+            size_bytes=metrics["size_bytes"],
+        )
         if (
             run.config["framework"] == "libreyolo"
             or config_task(run.config) == "segment"
@@ -378,28 +454,75 @@ async def assert_routable_backend(db, project_id, registry_id):
         raise HTTPException(status_code=409, detail="推理实例健康或能力校验尚未就绪")
 
 
-def download_url(key):
-    return storage.rewrite_host_for_ml_backend(internal_download(key))
+def download_url(key, *, bucket, transport=None):
+    transport = storage if transport is None else transport
+    return transport.generate_download_url(
+        key, bucket=bucket, expires_in=600, align=False, audience="ml"
+    )
+
+
+def frozen_sample_location(project_id, dataset, task_id):
+    """Keep retained trial inputs under their dataset owner, apart from weights."""
+    try:
+        if dataset is None or dataset.project_id != project_id:
+            raise TrainingDatasetError(
+                "training_storage_dataset_mismatch",
+                "冻结训练版本不属于当前项目",
+                status_code=409,
+            )
+        owner = training_dataset_storage.resolve(dataset)
+        return owner, owner.key(f"media/{task_id}")
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
 
 
 async def install_and_trial(db, project, version, deployment):
+    weights_owner = await owner_for_model(db, version)
+    dataset = await db.get(
+        TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
+    )
+    if dataset is None:
+        raise HTTPException(status_code=409, detail="固定训练版本不可用")
+    sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
+    if not sample:
+        raise HTTPException(status_code=409, detail="缺少固定验证样本")
+    owner, sample_key = frozen_sample_location(project.id, dataset, sample["task_id"])
     backend = await enabled_backend(db, project.id, deployment.registry_id)
     await assert_routable_backend(db, project.id, deployment.registry_id)
     client = MLBackendClient(backend)
+    weights_url = await storage_io.read(
+        db,
+        weights_owner,
+        "training_model_url",
+        lambda transport: download_url(
+            version.artifact["key"], bucket=weights_owner.bucket, transport=transport
+        ),
+        object_key=version.artifact["key"],
+        sha256=version.artifact["sha256"],
+        size_bytes=version.artifact["size_bytes"],
+    )
+    sample_url = await storage_io.read(
+        db,
+        owner,
+        "training_model_url",
+        lambda transport: download_url(
+            sample_key, bucket=owner.bucket, transport=transport
+        ),
+        object_key=sample_key,
+        sha256=sample.get("sha256"),
+        size_bytes=sample.get("size_bytes"),
+    )
     receipt = await client.install_trained_model(
         {
             **expected_receipt(version),
             "size_bytes": version.artifact["size_bytes"],
-            "download_url": download_url(version.artifact["key"]),
+            "download_url": weights_url,
         }
     )
     check_receipt(version, receipt)
-    dataset = await db.get(
-        TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
-    )
-    sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
-    if not sample:
-        raise HTTPException(status_code=409, detail="缺少固定验证样本")
     ref = frozen_reference(
         version, deployment, runtime=receipt.get("inference_runtime")
     )
@@ -407,9 +530,7 @@ async def install_and_trial(db, project, version, deployment):
         [
             {
                 "id": sample["task_id"],
-                "file_path": download_url(
-                    f"projects/{project.id}/datasets/{dataset.id}/media/{sample['task_id']}"
-                ),
+                "file_path": sample_url,
             },
         ],
         context=wire_context(ref, {"conf": 0.01}),

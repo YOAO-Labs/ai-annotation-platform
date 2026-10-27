@@ -22,6 +22,10 @@ from app.services.sources.base import SourceObject, SourcePathError
 from app.services.sources.s3 import S3CompatibleSource, validate_s3_source_path
 from app.services.sources.sftp import SftpSource, validate_sftp_source_path
 from app.workers import dataset_import
+from app.services.dataset_storage_keys import (
+    dataset_relative_path,
+    managed_dataset_prefix,
+)
 from app.services.storage import storage_service
 
 
@@ -32,6 +36,7 @@ def _bearer(token: str) -> dict[str, str]:
 class _FakeS3Client:
     def __init__(self, objects: dict[str, bytes]) -> None:
         self.objects = objects
+        self.closed = False
 
     def list_objects_v2(self, **kwargs):
         prefix = kwargs.get("Prefix") or ""
@@ -50,6 +55,9 @@ class _FakeS3Client:
 
     def get_object(self, *, Bucket, Key):
         return {"Body": io.BytesIO(self.objects[Key])}
+
+    def close(self):
+        self.closed = True
 
 
 def test_s3_adapter_lists_opens_and_filters(monkeypatch):
@@ -313,41 +321,20 @@ def test_sftp_adapter_lists_and_opens(monkeypatch):
     assert source.open("batch/a.jpg").read() == b"image"
 
 
-class _FakeDatasetBucketClient:
-    def __init__(self) -> None:
-        self.objects: dict[tuple[str, str], bytes] = {}
-        self.parts: dict[str, list[bytes]] = {}
-        self.deleted: list[tuple[str, str]] = []
-        self.next_upload_id = 1
-
-    def create_multipart_upload(self, *, Bucket, Key, ContentType):
-        upload_id = f"upload-{self.next_upload_id}"
-        self.next_upload_id += 1
-        self.parts[upload_id] = []
-        return {"UploadId": upload_id}
-
-    def upload_part(self, *, Bucket, Key, PartNumber, UploadId, Body):
-        self.parts[UploadId].append(bytes(Body))
-        return {"ETag": f"etag-{PartNumber}"}
-
-    def complete_multipart_upload(self, *, Bucket, Key, UploadId, MultipartUpload):
-        self.objects[(Bucket, Key)] = b"".join(self.parts.pop(UploadId))
-
-    def abort_multipart_upload(self, *, Bucket, Key, UploadId):
-        self.parts.pop(UploadId, None)
-
-    def put_object(self, *, Bucket, Key, Body, ContentType=None):
-        self.objects[(Bucket, Key)] = bytes(Body)
-
-    def delete_object(self, *, Bucket, Key):
-        self.deleted.append((Bucket, Key))
-        self.objects.pop((Bucket, Key), None)
-
-
 class _ChunkOnlyStream(io.BytesIO):
     def read(self, size: int = -1) -> bytes:
         assert size != -1
         return super().read(size)
+
+
+def _creation_client(monkeypatch):
+    from app.services import managed_original_creation as originals
+    from tests.fakes.managed_creation_storage import CreationStorage
+
+    client = CreationStorage()
+    monkeypatch.setattr(originals, "create_client", lambda **_: client)
+    monkeypatch.setattr(storage_service, "client", client)
+    return client
 
 
 async def _seed_dataset(db_session, owner_id: uuid.UUID) -> Dataset:
@@ -368,7 +355,7 @@ async def test_ingest_one_streams_upload_and_skips_duplicate(
 ):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    fake_client = _FakeDatasetBucketClient()
+    fake_client = _creation_client(monkeypatch)
     monkeypatch.setattr(storage_service, "client", fake_client)
     monkeypatch.setattr(storage_service, "read_image_dimensions", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -385,10 +372,10 @@ async def test_ingest_one_streams_upload_and_skips_duplicate(
     assert first.status == "added"
     assert first.file_size == 10
     assert first.content_hash == hashlib.md5(b"same-bytes").hexdigest()
-    assert (
-        fake_client.objects[(storage_service.datasets_bucket, f"{ds.name}/sample.txt")]
-        == b"same-bytes"
-    )
+    original = await db_session.get(DatasetItem, first.item_id)
+    assert original.file_path.startswith(managed_dataset_prefix(ds.id))
+    assert dataset_relative_path(original.file_path) == "sample.txt"
+    assert fake_client.objects[original.file_path] == b"same-bytes"
 
     second = await svc.ingest_one(
         ds.id,
@@ -398,10 +385,10 @@ async def test_ingest_one_streams_upload_and_skips_duplicate(
     )
     assert second.status == "skipped"
     assert second.reason == "content_hash_exists"
-    assert (
-        storage_service.datasets_bucket,
-        f"{ds.name}/sample-1.txt",
-    ) in fake_client.deleted
+    assert not any(call[0] == "delete" for call in fake_client.calls)
+    unlinked = [key for key in fake_client.objects if key != original.file_path]
+    assert len(unlinked) == 1
+    assert dataset_relative_path(unlinked[0]) == "sample-1.txt"
 
     count = (
         await db_session.execute(
@@ -442,7 +429,7 @@ async def test_ingest_one_preserves_subdirectory_structure(
 ):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    fake_client = _FakeDatasetBucketClient()
+    fake_client = _creation_client(monkeypatch)
     monkeypatch.setattr(storage_service, "client", fake_client)
     monkeypatch.setattr(storage_service, "read_image_dimensions", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -466,11 +453,8 @@ async def test_ingest_one_preserves_subdirectory_structure(
     ).scalar_one()
     # 子目录层级保留进 file_name 与 file_path（无多余嵌套）
     assert item.file_name == "a/img.jpg"
-    assert item.file_path == f"{ds.name}/a/img.jpg"
-    assert (
-        storage_service.datasets_bucket,
-        f"{ds.name}/a/img.jpg",
-    ) in fake_client.objects
+    assert dataset_relative_path(item.file_path) == "a/img.jpg"
+    assert fake_client.objects[item.file_path] == b"bytes"
 
 
 async def test_import_from_connection_api_creates_secretless_job(

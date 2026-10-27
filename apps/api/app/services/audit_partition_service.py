@@ -1,79 +1,344 @@
-"""v0.8.1 · audit_logs 分区维护 + 冷数据归档
-
-- ensure_future_audit_partitions(months_ahead=3): 检查 [今月, 今月+months_ahead]
-  缺失分区时 CREATE TABLE ... PARTITION OF audit_logs ...
-- archive_old_audit_partitions(retain_months): 把 > retain_months 的子分区
-  COPY TO STDOUT → gzip → MinIO `audit-archive/{YYYY}/{MM}.jsonl.gz`，成功后 DROP PARTITION。
-
-策略：
-  - 归档失败时不删除分区，下次 cron 重试
-  - DROP PARTITION 是元操作，秒级，无 IO；优于 DELETE WHERE
-  - jsonl.gz 行格式：每行一条 audit_log JSON；UTF-8；最末行含 `_partition_meta`
-"""
+"""Publish verified audit archives before atomically removing their exact source."""
 
 from __future__ import annotations
 
-import gzip
-import json
-import logging
-from datetime import date, datetime, timezone
+import asyncio
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from tempfile import TemporaryFile
+from uuid import UUID, uuid4
 
-from botocore.exceptions import ClientError
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
+from app.db.models.audit_archive_output import AuditArchiveOutput
+from app.services import audit_archive_storage as archive_storage
+from app.services import conditional_write_accounting
+from app.services import storage_access
+from app.services.async_job import lock_job
 from app.services.audit import AuditAction, AuditService
-from app.services.storage import storage_service
+from app.services.audit_archive_partitions import (
+    AuditArchiveCancelled,
+    AuditArchiveError,
+    SourcePartition,
+    build_archive,
+    catalog,
+    lock_source,
+    month_mutex,
+    next_month,
+    partition_name,
+    retention_cutoff,
+    stream_source,
+    verify_source,
+)
 
 
-logger = logging.getLogger(__name__)
+def _empty_result() -> dict:
+    return {
+        "archived_partitions": [],
+        "archive_keys": [],
+        "output_ids": [],
+        "total_rows": 0,
+    }
 
 
-def _next_month(d: date) -> date:
-    if d.month == 12:
-        return d.replace(year=d.year + 1, month=1, day=1)
-    return d.replace(month=d.month + 1, day=1)
+def _result(current: dict | None) -> dict:
+    """Preserve only the committed archive receipt, including earlier months."""
+    if not current:
+        return _empty_result()
+    result = {}
+    for field in ("archived_partitions", "archive_keys", "output_ids"):
+        value = current.get(field, [])
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) for item in value
+        ):
+            raise AuditArchiveError("audit_archive_job_result_invalid")
+        result[field] = list(value)
+    total = current.get("total_rows", 0)
+    if type(total) is not int or total < 0:
+        raise AuditArchiveError("audit_archive_job_result_invalid")
+    result["total_rows"] = total
+    return result
 
 
-def _month_floor(d: date) -> date:
-    return d.replace(day=1)
+def _not_cancelled() -> None:
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError
 
 
-def _partition_name(d: date) -> str:
-    return f"audit_logs_y{d.year}m{d.month:02d}"
+async def _begin(db: AsyncSession) -> None:
+    """Select isolation before the first statement of every owned transaction."""
+    if db.in_transaction():
+        raise AuditArchiveError("audit_archive_transaction_required")
+    await db.connection(execution_options={"isolation_level": "READ COMMITTED"})
+    await db.execute(text("SET LOCAL lock_timeout = '1s'"))
+    await db.execute(text("SET LOCAL statement_timeout = '600s'"))
+    if await db.scalar(text("SHOW transaction_isolation")) != "read committed":
+        raise AuditArchiveError("audit_archive_transaction_required")
 
 
-async def _list_partition_children(db: AsyncSession) -> list[tuple[str, date, date]]:
-    """返回 [(child_name, range_from, range_to), ...]，按时间升序。"""
-    rows = (
-        await db.execute(
-            text(
-                """
-                SELECT
-                    child.relname AS child_name,
-                    pg_get_expr(child.relpartbound, child.oid) AS bound
-                FROM pg_inherits i
-                JOIN pg_class parent ON i.inhparent = parent.oid
-                JOIN pg_class child ON i.inhrelid = child.oid
-                WHERE parent.relname = 'audit_logs'
-                """
+async def _rollback(db: AsyncSession) -> None:
+    await storage_access.finish(asyncio.create_task(db.rollback()))
+
+
+async def _running_job(
+    db: AsyncSession, job_id: UUID, *, lock: bool = True
+) -> AsyncJob:
+    _not_cancelled()
+    job = (
+        await lock_job(db, job_id)
+        if lock
+        else await db.scalar(
+            select(AsyncJob)
+            .where(AsyncJob.id == job_id)
+            .execution_options(populate_existing=True)
+        )
+    )
+    if job is None or job.kind != AsyncJobKind.AUDIT_ARCHIVE.value:
+        raise AuditArchiveError("audit_archive_job_unavailable")
+    if job.status == AsyncJobStatus.CANCELLED.value or (job.payload or {}).get(
+        "cancel_requested"
+    ):
+        raise AuditArchiveCancelled()
+    if job.status != AsyncJobStatus.RUNNING.value:
+        raise AuditArchiveError("audit_archive_job_unavailable")
+    return job
+
+
+async def _ready_exists(db: AsyncSession, source: SourcePartition) -> None:
+    if (
+        await db.scalar(
+            select(AuditArchiveOutput.id).where(
+                AuditArchiveOutput.year == source.year,
+                AuditArchiveOutput.month == source.month,
+                AuditArchiveOutput.state == "ready",
             )
         )
-    ).all()
-    out: list[tuple[str, date, date]] = []
-    for r in rows:
-        bound = r.bound or ""
-        # 形式: "FOR VALUES FROM ('2026-04-01 00:00:00+00') TO ('2026-05-01 00:00:00+00')"
+        is not None
+    ):
+        # A ready month is not permission to remove a subsequently recreated table.
+        raise AuditArchiveError("audit_archive_month_already_ready")
+
+
+async def _pending_owner(db: AsyncSession, receipt) -> AuditArchiveOutput:
+    row = await db.scalar(
+        select(AuditArchiveOutput)
+        .where(AuditArchiveOutput.id == receipt.id)
+        .with_for_update(nowait=True)
+        .execution_options(populate_existing=True)
+    )
+    if row is None or row.state != "pending" or not archive_storage.same(row, receipt):
+        raise AuditArchiveError("audit_archive_owner_changed")
+    return row
+
+
+async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, file):
+    await _begin(db)
+    await month_mutex(db, source.month_start)
+    # Local streaming is bounded but may be lengthy; allow cancellation to
+    # commit while it runs, then lock and recheck immediately before ownership.
+    await _running_job(db, job_id, lock=False)
+    await _ready_exists(db, source)
+    await lock_source(db, source)
+    row = AuditArchiveOutput(
+        id=uuid4(),
+        job_id=job_id,
+        year=source.year,
+        month=source.month,
+        source_schema="public",
+        source_table=source.name,
+        parent_oid=source.parent_oid,
+        source_oid=source.source_oid,
+        month_start=source.month_start,
+        month_end=source.month_end,
+        format_revision=1,
+        state="pending",
+        created_at=datetime.now(timezone.utc),
+    )
+    await build_archive(db, source, row, file)
+    row.storage_ref = await archive_storage.allocate(db, row)
+    db.add(row)
+    await db.flush()
+    receipt = archive_storage.snapshot(row)
+    await _running_job(db, job_id)
+    _not_cancelled()
+    # Unknown commit acknowledgement must never lead to physical writes or cleanup.
+    await db.commit()
+    return receipt
+
+
+@dataclass
+class _WriteAccounting:
+    recorder: object
+    permit: object = None
+
+
+async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) -> int:
+    revision = None
+    target = await archive_storage.io_target(db, receipt)
+    if target is not None:
+        await db.rollback()
+
+    async def acquired(permit):
+        nonlocal revision
+        if accounting is not None:
+            accounting.permit = permit
+        await _begin(db)
+        await _running_job(db, receipt.job_id)
+        await _pending_owner(db, receipt)
+        await storage_access.check(
+            db,
+            UUID(str(receipt.storage_ref["location_id"])),
+            expected_revision=permit.revision,
+            lock=True,
+        )
+        _not_cancelled()
+        revision = permit.revision
+        # No business or source locks survive into the physical operation.
+        await db.commit()
+
+    await storage_access.run(
+        db,
+        UUID(str(receipt.storage_ref["location_id"])),
+        f"audit_archive_write_{receipt.id.hex}",
+        archive_storage.write,
+        receipt,
+        file,
+        **({"target": target} if target is not None else {}),
+        **({"accounting": accounting.recorder} if accounting is not None else {}),
+        timeout=archive_storage.VERIFY_SECONDS,
+        on_acquired=acquired,
+    )
+    if revision is None:
+        raise AuditArchiveError("audit_archive_admission_unavailable", 503)
+    return revision
+
+
+async def _archive_partition(db, source, job_id, candidate_count):
+    accounting, failure, input_settled = None, None, False
+    file = TemporaryFile(mode="w+b")
+    try:
+        receipt = await _candidate(db, source, job_id, file)
+        accounting = _WriteAccounting(
+            conditional_write_accounting.recorder(
+                db,
+                receipt,
+                producer="audit_archive_outputs",
+                purpose="other_platform",
+            )
+        )
+        revision = await _write_candidate(db, receipt, file, accounting=accounting)
+        result = await _publish(db, source, receipt, revision, candidate_count)
+    except BaseException as exc:
+        failure = exc
+    finally:
+        # run() drains native I/O before this real input owner closes its file.
+        # Publishing may fail after a verified write without changing that fact.
         try:
-            from_part = bound.split("FROM (")[1].split(")")[0].strip().strip("'")
-            to_part = bound.split("TO (")[1].split(")")[0].strip().strip("'")
-            from_dt = datetime.fromisoformat(from_part.replace(" ", "T")).date()
-            to_dt = datetime.fromisoformat(to_part.replace(" ", "T")).date()
-            out.append((r.child_name, from_dt, to_dt))
-        except (IndexError, ValueError) as e:
-            logger.warning("partition bound parse failed %s: %s", r.child_name, e)
-    out.sort(key=lambda x: x[1])
-    return out
+            file.close()
+            input_settled = True
+        except BaseException as closing:
+            failure = storage_access.mark_unsettled(closing)
+        if accounting is not None:
+            failure = await conditional_write_accounting.finish(
+                accounting.recorder,
+                failure,
+                settled=input_settled
+                and getattr(accounting.permit, "_settled", False) is True,
+            )
+    if failure is not None:
+        raise failure
+    return result
+
+
+async def _publish(
+    db: AsyncSession,
+    source: SourcePartition,
+    receipt,
+    revision: int,
+    candidate_count: int,
+) -> dict:
+    await _begin(db)
+    await month_mutex(db, source.month_start)
+    job = await _running_job(db, receipt.job_id)
+    row = await _pending_owner(db, receipt)
+    await _ready_exists(db, source)
+    await lock_source(db, source)
+    observed = await stream_source(db, source, expected_rows=receipt.row_count)
+    if (
+        observed.size_bytes != receipt.source_size_bytes
+        or observed.sha256 != receipt.source_sha256
+    ):
+        raise AuditArchiveError("audit_archive_source_changed")
+    # Never wait while upgrading: parent-routed INSERT may already hold the
+    # parent and be waiting for our child SHARE lock. NOWAIT breaks that cycle.
+    await db.execute(
+        text("LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT")
+    )
+    await db.execute(
+        text(f"LOCK TABLE ONLY {source.qualified} IN ACCESS EXCLUSIVE MODE NOWAIT")
+    )
+    await verify_source(db, source)
+    await storage_access.check(
+        db,
+        UUID(str(receipt.storage_ref["location_id"])),
+        expected_revision=revision,
+        lock=True,
+    )
+    job = await _running_job(db, receipt.job_id)
+    row = await _pending_owner(db, receipt)
+    _not_cancelled()
+    await db.execute(text(f"DROP TABLE {source.qualified}"))
+    row.state = "ready"
+    row.published_at = datetime.now(timezone.utc)
+    key = archive_storage.key_for(source.year, source.month, receipt.id)
+    await AuditService.log(
+        db,
+        actor=None,
+        action=AuditAction.AUDIT_ARCHIVE,
+        target_type="audit_partition",
+        target_id=source.name,
+        request=None,
+        status_code=200,
+        detail={
+            "partition": source.name,
+            "archive_output_id": str(receipt.id),
+            "archive_key": key,
+            "row_count": receipt.row_count,
+            "source_sha256": receipt.source_sha256,
+            "from": source.month_start.isoformat(),
+        },
+    )
+    result = _result(job.result)
+    result["archived_partitions"].append(source.name)
+    result["archive_keys"].append(key)
+    result["output_ids"].append(str(receipt.id))
+    result["total_rows"] += receipt.row_count
+    job.result = result
+    job.progress_pct = min(99, len(result["output_ids"]) * 100 // candidate_count)
+    await db.flush()
+    _not_cancelled()
+    # DROP, ready, publication audit and partial job result have one outcome.
+    await db.commit()
+    return result
+
+
+def _classify(exc: Exception) -> AuditArchiveError:
+    if isinstance(exc, AuditArchiveError):
+        return exc
+    if isinstance(exc, archive_storage.AuditArchiveStorageError):
+        return AuditArchiveError(exc.code, exc.status_code)
+    if isinstance(exc, DBAPIError) and storage_access.unavailable(exc):
+        return AuditArchiveError("audit_archive_busy")
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and code.startswith("storage_"):
+        return AuditArchiveError(
+            f"audit_archive_{code}", getattr(exc, "status_code", 409)
+        )
+    return AuditArchiveError("audit_archive_unavailable", 503)
 
 
 class AuditPartitionService:
@@ -81,187 +346,88 @@ class AuditPartitionService:
     async def ensure_future_partitions(
         db: AsyncSession, *, months_ahead: int = 3
     ) -> list[str]:
-        """补建未来 N 个月分区。返回新创建的分区名列表。"""
-        existing = {name for name, _, _ in await _list_partition_children(db)}
-        today = datetime.now(timezone.utc).date()
-        cur = _month_floor(today)
-        target = cur
-        for _ in range(months_ahead):
-            target = _next_month(target)
-        # 含当前月、含 target+1（即 +months_ahead 个月）
-        end = _next_month(target)
-
-        created: list[str] = []
-        m = cur
-        while m < end:
-            name = _partition_name(m)
-            if name not in existing:
-                start_iso = m.isoformat()
-                end_iso = _next_month(m).isoformat()
-                await db.execute(
-                    text(
-                        f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF audit_logs "
-                        f"FOR VALUES FROM ('{start_iso}') TO ('{end_iso}')"
+        """Create exact UTC month leaves without adopting same-named tables."""
+        if type(months_ahead) is not int or months_ahead < 0:
+            raise AuditArchiveError("audit_archive_invalid_months_ahead", 422)
+        try:
+            current = datetime.now(timezone.utc).date().replace(day=1)
+            children = {source.name: source for source in await catalog(db)}
+            created = []
+            for _ in range(months_ahead + 1):
+                await month_mutex(db, current)
+                name = partition_name(current)
+                if name in children:
+                    await verify_source(db, children[name])
+                else:
+                    # The parent lock is short and has no physical storage work.
+                    await db.execute(
+                        text(
+                            "LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT"
+                        )
                     )
-                )
-                created.append(name)
-            m = _next_month(m)
-        return created
+                    if (
+                        await db.scalar(
+                            text("SELECT to_regclass(:name)"),
+                            {"name": f"public.{name}"},
+                        )
+                        is not None
+                    ):
+                        raise AuditArchiveError("audit_archive_source_invalid")
+                    end = next_month(current)
+                    await db.execute(
+                        text(
+                            f'CREATE TABLE public."{name}" PARTITION OF public.audit_logs '
+                            f"FOR VALUES FROM ('{current.isoformat()} 00:00:00+00') "
+                            f"TO ('{end.isoformat()} 00:00:00+00')"
+                        )
+                    )
+                    observed = {source.name: source for source in await catalog(db)}
+                    if name not in observed or observed[name].month_start != current:
+                        raise AuditArchiveError("audit_archive_source_invalid")
+                    children = observed
+                    created.append(name)
+                current = next_month(current)
+            return created
+        except Exception as exc:
+            raise _classify(exc) from None
 
     @staticmethod
     async def archive_old_partitions(
-        db: AsyncSession, *, retain_months: int = 12
+        db: AsyncSession,
+        *,
+        retain_months: int = 12,
+        job_id: UUID | None = None,
     ) -> dict:
-        """归档保留期外的分区到 MinIO 后 DROP。返回 {archived_partitions, total_rows, archive_keys}。"""
-        children = await _list_partition_children(db)
-        today = datetime.now(timezone.utc).date()
-        cutoff = _month_floor(today)
-        for _ in range(retain_months):
-            # 往前推 retain_months 个月
-            if cutoff.month == 1:
-                cutoff = cutoff.replace(year=cutoff.year - 1, month=12)
-            else:
-                cutoff = cutoff.replace(month=cutoff.month - 1)
-
-        archived: list[str] = []
-        archive_keys: list[str] = []
-        total_rows = 0
-
-        for name, from_dt, _to_dt in children:
-            if from_dt >= cutoff:
-                continue  # 还在保留期内，不归档
-
-            # 1. 数据 dump 为 jsonl.gz
-            rows = (
-                (await db.execute(text(f"SELECT * FROM {name} ORDER BY id")))
-                .mappings()
-                .all()
-            )
-            row_count = len(rows)
-
-            buf = gzip.compress(
-                ("\n".join(_serialize_row(dict(r)) for r in rows) + "\n").encode(
-                    "utf-8"
-                )
-            )
-
-            # v0.10.17 · 归档迁到独立桶 audit-archive,object 内 key 不再带 prefix
-            object_key = f"{from_dt.year}/{from_dt.month:02d}.jsonl.gz"
-            try:
-                storage_service.ensure_bucket(storage_service.audit_archive_bucket)
-                storage_service.client.put_object(
-                    Bucket=storage_service.audit_archive_bucket,
-                    Key=object_key,
-                    Body=buf,
-                    ContentType="application/gzip",
-                    Metadata={
-                        "partition": name,
-                        "row_count": str(row_count),
-                        "archived_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
-            except Exception as e:
-                logger.error("archive %s failed: %s", name, e)
-                continue  # 留待下次重试
-
-            # 2. DROP 分区（元操作，秒级）
-            await db.execute(text(f"DROP TABLE {name}"))
-
-            archived.append(name)
-            archive_keys.append(object_key)
-            total_rows += row_count
-
-            await AuditService.log(
-                db,
-                actor=None,
-                action=AuditAction.AUDIT_ARCHIVE,
-                target_type="audit_partition",
-                target_id=name,
-                request=None,
-                status_code=200,
-                detail={
-                    "partition": name,
-                    "row_count": row_count,
-                    "archive_key": object_key,
-                    "from": from_dt.isoformat(),
-                },
-            )
-
-        return {
-            "archived_partitions": archived,
-            "archive_keys": archive_keys,
-            "total_rows": total_rows,
-        }
-
-    @staticmethod
-    def list_archives() -> list[dict]:
-        """列出 audit-archive 桶内已归档的月份。
-
-        object key 形如 ``{YYYY}/{MM}.jsonl.gz``，返回按时间倒序的
-        [{year, month, object_key, size_bytes, archived_at}]。
-        """
-        bucket = storage_service.audit_archive_bucket
-        out: list[dict] = []
-        for obj in storage_service.list_objects("", bucket=bucket):
-            key = obj["key"]
-            if key.endswith("/") or not key.endswith(".jsonl.gz"):
-                continue
-            try:
-                year_str, fname = key.split("/", 1)
-                month_str = fname.removesuffix(".jsonl.gz")
-                year, month = int(year_str), int(month_str)
-            except (ValueError, IndexError):
-                logger.warning("skip non-archive key: %s", key)
-                continue
-            lm = obj.get("last_modified")
-            out.append(
-                {
-                    "year": year,
-                    "month": month,
-                    "object_key": key,
-                    "size_bytes": int(obj["size"]),
-                    "archived_at": lm.isoformat() if lm else None,
-                }
-            )
-        out.sort(key=lambda x: (x["year"], x["month"]), reverse=True)
-        return out
-
-    @staticmethod
-    def read_archive_rows(year: int, month: int) -> list[dict] | None:
-        """回源读取并解压指定月份的 jsonl.gz，逐行解析成 dict 列表。
-
-        对象不存在返回 None。最末行的 ``_partition_meta`` 行也作为普通行返回。
-        """
-        bucket = storage_service.audit_archive_bucket
-        object_key = f"{year}/{month:02d}.jsonl.gz"
+        """Own fresh transactions; leave every failed candidate pending for review."""
+        cutoff = retention_cutoff(datetime.now(timezone.utc).date(), retain_months)
+        fresh = isinstance(db.bind, AsyncEngine) and not db.in_transaction()
         try:
-            resp = storage_service.client.get_object(Bucket=bucket, Key=object_key)
-            raw = resp["Body"].read()
-        except storage_service.client.exceptions.NoSuchKey:
-            return None
-        except ClientError as e:
-            if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
-                return None
+            if fresh:
+                await _begin(db)
+            children = [
+                source for source in await catalog(db) if source.month_end <= cutoff
+            ]
+            if not children:
+                if fresh:
+                    await db.commit()
+                return _empty_result()
+            if not fresh:
+                raise AuditArchiveError("audit_archive_transaction_required")
+            if job_id is None or not isinstance(job_id, UUID):
+                raise AuditArchiveError("audit_archive_job_required", 422)
+            await db.commit()
+            result = _empty_result()
+            for source in children:
+                result = await _archive_partition(db, source, job_id, len(children))
+            return result
+        except BaseException as exc:
+            if fresh:
+                try:
+                    await _rollback(db)
+                except BaseException:
+                    if not isinstance(exc, Exception):
+                        raise exc from None
+                    raise AuditArchiveError("audit_archive_unavailable", 503) from None
+            if isinstance(exc, Exception):
+                raise _classify(exc) from None
             raise
-
-        text_data = gzip.decompress(raw).decode("utf-8")
-        rows: list[dict] = []
-        for line in text_data.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            rows.append(json.loads(line))
-        return rows
-
-
-def _serialize_row(row: dict) -> str:
-    """把一行（含 datetime / UUID / dict）序列化为 JSON 字符串。"""
-
-    def default(o):
-        if isinstance(o, datetime):
-            return o.isoformat()
-        if hasattr(o, "hex"):  # UUID
-            return str(o)
-        return str(o)
-
-    return json.dumps(row, default=default, ensure_ascii=False)

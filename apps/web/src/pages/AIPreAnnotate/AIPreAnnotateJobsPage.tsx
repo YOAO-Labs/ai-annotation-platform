@@ -222,7 +222,12 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   const offset = (page - 1) * pageSize;
   const hasNext = offset + pageSize < total;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  // The draft is ahead of the applied query: the debounced apply rewrites q and
+  // drops the page in the same navigation, so clamping an out-of-range page on
+  // its own here would fire an extra unfiltered first-page request in between.
+  const searchDraftPending = searchDraft.trim() !== search;
   useEffect(() => {
+    if (searchDraftPending) return;
     if (jobsQ.data && page > lastPage) {
       setSearchParams(
         (current) => {
@@ -234,7 +239,7 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
         { replace: true },
       );
     }
-  }, [jobsQ.data, lastPage, page, setSearchParams]);
+  }, [jobsQ.data, lastPage, page, searchDraftPending, setSearchParams]);
 
   return (
     <Card>

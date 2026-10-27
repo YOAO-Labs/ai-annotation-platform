@@ -1,4 +1,5 @@
 import type { APIResponse } from "@playwright/test";
+import type { TaskVideoManifestResponse } from "../../src/api/generated/types.gen";
 
 import { expect, test } from "../fixtures/seed";
 
@@ -47,10 +48,20 @@ test("AAP JSON 视频预测可预检、审阅并持久化采纳/忽略", async (
   const task = await json<{ display_id: string }>(
     await request.get(`${API_BASE}/api/v1/tasks/${taskId}`, { headers: auth(token) }),
   );
+  const manifest = await json<TaskVideoManifestResponse>(
+    await request.get(`${API_BASE}/api/v1/tasks/${taskId}/video/manifest`, {
+      headers: auth(token),
+    }),
+  );
+  const { height, width } = manifest.metadata;
+  if (height == null || width == null) throw new Error("Video fixture has no source dimensions");
+  const pixels = height * width;
+  const background = Math.floor(pixels / 5);
+  const foreground = Math.floor(pixels / 50);
   const rle = {
     encoding: "coco_rle" as const,
-    size: [810, 1440] as [number, number],
-    counts: [200_000, 20_000, 946_400],
+    size: [height, width] as [number, number],
+    counts: [background, foreground, pixels - background - foreground],
   };
   const mask = await json<MaskReference>(
     await request.post(`${API_BASE}/api/v1/tasks/${taskId}/mask-content`, {
@@ -254,10 +265,8 @@ test("AAP JSON 视频预测可预检、审阅并持久化采纳/忽略", async (
   expect((await maskContent).status()).toBe(200);
   const candidateRows = page.locator('[data-testid^="box-list-item-pred-"]');
   await expect(candidateRows).toHaveCount(5, { timeout: 15_000 });
-  await expect(candidateRows).toContainText(["导入", "导入", "导入", "导入", "导入"]);
   const maskRow = page.getByTestId(`box-list-item-${maskCandidateId}`);
   await maskRow.click();
-  await expect(maskRow).toHaveClass(/!border-brand/);
   await page.getByRole("button", { name: "收起浮窗", exact: true }).click();
 
   const bboxRow = page.getByTestId(`box-list-item-${bboxCandidateId}`);

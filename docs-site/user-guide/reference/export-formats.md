@@ -3,7 +3,7 @@ audience: [project_admin, super_admin]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-08-27
+last_reviewed: 2026-10-24
 ---
 
 # Mask 标注导入与数据导出格式
@@ -17,6 +17,14 @@ last_reviewed: 2026-08-27
 图片项目可选 **COCO / YOLO 检测 / YOLO 旋转框 / YOLO 分割 / Label Studio Brush / 逐实例 Binary PNG / Indexed PNG / AAP JSON**；视频轨迹项目可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / AAP JSON / MOT / KITTI**；点云项目可选 **AAP JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。nuScenes 只允许来源真实且包含完整 Scene 的数据入队。
 
 > **YOLO 拆三个变体（几何映射不同）**：`YOLO 检测`(det) 导矩形框、`YOLO 旋转框`(obb) 导 rotated_bbox 四角、`YOLO 分割`(seg) 导 polygon / mask 多边形。每个变体只取匹配的几何，其余跳过。
+
+## 原地引用图片
+
+引用图片可从整个项目、单个批次或 Data Manager 选中的任务导出，支持上列全部后台图片格式，也可与托管图片混合。平台在排队时固定本次任务和内容，worker 完整核验原图摘要后将图片放进 ZIP；源离线、文件变化或权限撤回时整包失败，不以预览代替原图。
+
+引用原图在 `images/<数据集 ID>/<样本 ID>/<任务 ID>/<文件名>`，不同任务和同名文件互不覆盖。YOLO 的 `labels/` 使用同一 ID 层级；多目标包还在各 YOLO 目标目录内提供对应图片。COCO、AAP JSON、Brush 和 PNG manifest 使用同一图片路径。托管图片由 `fetch_images.py` 下载独立交付副本，逻辑路径为 `images/tasks/<任务 ID>/<安全文件名>`，标签使用同一 Task 层级。
+
+解压后可运行 `python fetch_images.py` 校验包内引用图片并下载托管图片。即使托管链接已过期，脚本仍会先核对引用原图的 SHA-256；失败会明确列出校验错误。托管链接是相对地址时，使用 `python fetch_images.py --base-url https://平台地址`。运行中的导出可在后台任务列表取消，取消和失败不会发布部分包。同步 VOC 暂不支持引用图片。
 
 ## 格式 × 项目类型对照（先看这张表）
 
@@ -62,6 +70,8 @@ last_reviewed: 2026-08-27
 2. 预检展示无损、有损或不支持，并列出尺寸冲突、任务未匹配和未知类别。未知类别必须映射到项目类别并重新预检。
 3. 有损计划需显式确认，不支持计划不可执行。提交后按 task 原子导入，可在任务铃查看进度。
 
+后台会核对预检计划摘要，计划内容被修改时拒绝发布标注。若旧批次报 `format_plan_digest_conflict`，请重新上传并预检，确认新计划后再提交；「继续」保留原计划，不能修复旧摘要。
+
 COCO 导入接受 polygon、uncompressed RLE 和 compressed RLE。Label Studio 必须提供与 labeling config 一致的 `from_name` / `to_name`、原图尺寸与 `value.format="rle"`。PNG 包必须带 `manifest.json`：Binary PNG 为 8-bit `L`、0/255 像素，每个实例独立文件；Indexed PNG 为 8-bit `P`，0 是背景，1–255 是实例 ID。manifest 中的媒体路径、尺寸、类别、实例身份和内容 SHA-256 都会校验。
 
 视频格式导入会按序列匹配任务。COCO Frames 从 `source_frame_index` 与 `attributes.__track_id` 恢复源帧和轨迹；DAVIS 使用 palette ID 与 `davis_manifest.json`；MOTS 必须带 `mots_manifest.json`，明确类别、轨迹、帧号基准和源帧映射。YouTube-VOS 的稀疏帧必须选择「未标注帧记为 outside」或「最近关键帧保持」，预检会把前者的语义折叠报告为有损。
@@ -87,9 +97,9 @@ COCO 导入接受 polygon、uncompressed RLE 和 compressed RLE。Label Studio �
 
 1. 在**右上角任务铃（JobsBell）**里能看到一条「数据导出」任务，附带进度条。
 2. 任务完成后，该条目出现「下载」按钮；个人通知中心也会出现「导出完成」通知，点击通知可查看该次导出详情，并在链接有效期内下载；过期时从项目列表重新导出。
-3. 产物（ZIP）的下载链接 **7 天内有效，可反复点击下载**（任务铃在后台不轮询，故不会自动下载，需手动点）。下载文件名为可读的 `{项目编号}_{数据集名}_{任务号前 8 位}.zip`（项目跨多个数据集时省略数据集名）。
+3. 产物（ZIP）保存期限固定为生成时分配起七天，下载链接在剩余期限内可反复点击（任务铃在后台不轮询，故不会自动下载，需手动点）。下载文件名为可读的 `{项目编号}_{数据集名}_{任务号前 8 位}.zip`（项目跨多个数据集时省略数据集名）。
 
-> **重复导出走缓存**：一周内对**同一范围（项目 / 批次）+ 同一组导出目标 + 同一参数**、且标注与项目类别 / 属性配置均未变化的重复导出会**瞬间完成**（复用上次生成的产物）。目标集合顺序无关（勾选顺序不影响命中）。只要标注、类别 / 属性定义、导出选项或格式 adapter 合同发生变化，就会重新生成。多个相同的未命中请求只会构建一份产物，其余任务等待并复用它。
+> **重复导出走缓存**：一周内对**同一范围（项目 / 批次）+ 同一组导出目标 + 同一参数**、且标注与项目类别 / 属性配置均未变化的重复导出会复用上次生成的产物，并在完整校验后完成。目标集合顺序无关（勾选顺序不影响命中）。只要标注、类别 / 属性定义、导出选项或格式 adapter 合同发生变化，就会重新生成。多个相同的未命中请求会等待正在构建的任务；缓存命中不会延长文件保存期，以该次任务显示的过期时间为准。
 
 ## 点云 Multi-camera COCO
 
@@ -101,17 +111,17 @@ ZIP 同时包含 `media_manifest.json`、`fetch_media.py`、`export_report.json`
 
 普通图片和视频目标会自动跳过当前类别定义中不存在的孤儿标注，并只导出当前 attribute schema 内的用户属性 key。Multi-camera COCO 为保证 2D/3D 身份合同完整，会在预检阶段拒绝未知类别，不会静默跳过。
 
-## 图片产物形态：仅标注 + 回源脚本（不含图片本体）
+## 图片产物形态：标注、媒体清单与下载脚本
 
-为了控制体积、并尊重「用户本地往往已有原图」的现实，图片导出的 ZIP **只包含标注与回源脚本，不打包图片本体**。无论图片项目选哪种格式，包内都含以下公共文件：
+图片导出在入队时固定任务、标注、格式配置及原件身份。托管原图完整核对 SHA／大小后保存为独立交付副本，由脚本下载；引用原图严格核验后直接嵌入 ZIP。各格式共享以下元数据与下载入口：
 
-| 文件                    | 条件                                                                       | 说明                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `classes.txt`           | 总是                                                                       | 类别清单（每行一个类名，行号即类别索引）                                                   |
-| `attribute_schema.json` | **仅 `include_attributes=True`**（导出弹窗「包含属性数据」勾选，默认勾选） | 属性 schema；取消勾选则**不产出**此文件                                                    |
-| `data.yaml`             | 总是                                                                       | YOLO 训练入口，`path` / `train` / `val` / `nc` / `names` 已配好                            |
-| `images_manifest.json`  | 总是                                                                       | 每张图一条记录，含相对路径、所属 dataset，以及 **7 天有效的预签名下载 URL + `expires_at`** |
-| `fetch_images.py`       | 总是                                                                       | 回源脚本（纯 Python stdlib），跑它把原图按相对路径下载到 `images/`，与 `labels/` 平行      |
+| 文件                    | 条件                                                                       | 说明                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `classes.txt`           | 总是                                                                       | 类别清单（每行一个类名，行号即类别索引）                                             |
+| `attribute_schema.json` | **仅 `include_attributes=True`**（导出弹窗「包含属性数据」勾选，默认勾选） | 属性 schema；取消勾选则**不产出**此文件                                              |
+| `data.yaml`             | YOLO 目标及单独 COCO／AAP／Mask 包                                         | YOLO 训练入口，`path` / `train` / `val` / `nc` / `names` 已配好                      |
+| `images_manifest.json`  | 总是                                                                       | 每张图的逻辑路径、真实 SHA／大小；托管条目另含独立副本 URL 和固定 `expires_at`       |
+| `fetch_images.py`       | 总是                                                                       | 纯 Python stdlib，校验嵌入／已有图片并下载托管副本，保持 `images/` 与 `labels/` 对应 |
 
 **回源脚本用法**：解压 ZIP 后执行
 
@@ -119,7 +129,11 @@ ZIP 同时包含 `media_manifest.json`、`fetch_media.py`、`export_report.json`
 python fetch_images.py
 ```
 
-脚本读取 `images_manifest.json` 里的预签名 URL，把图片下载到 `images/<同相对路径>`，与 `labels/` 严格平行 → 即取即训。本地已有原图时可不跑此脚本。预签名 URL **7 天有效**（与导出产物生命周期对齐，无需配置 MinIO 密钥）；脚本启动时会校验 `expires_at`，临近过期会提示尽快下载。
+脚本按清单下载并校验真实 SHA-256／大小，已有文件也要通过校验；下载失败保留原文件并清理本次临时文件。站内相对 URL 使用 `--base-url https://平台地址`。媒体、ZIP 与缓存共用入队登记时起七天截止，重复导出命中缓存不延期，链接过期后应重新导出。引用图片在托管链接到期后仍可独立核验。
+
+单次最多20000个图片任务（含引用），托管单件256MiB，所有唯一托管原件加引用声明累计20GiB，冻结 JSON256MiB；标注和预测各最多100000行。引用仍限制64MiB／3200万像素，Data Manager 选中最多200题。超限请缩小范围。未知托管原件须先完成核验登记，旧未完成任务缺少新合同需重新发起。
+
+AAP JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON；Indexed PNG 每图最多255个实例、累计400万条游程，实例数量在读取 mask 前检查。超限需拆分导出；Binary PNG 和 Brush 仍逐实例处理。
 
 各格式的标注落点不同，详见下文。
 
@@ -186,13 +200,13 @@ YOLO 不同变体的标注行格式互不相同，因此导出拆成三个可独
 - `binary-png`：`manifest.json` 将每个 annotation 映射到独立 `masks/<task>/<annotation>.png`，因此实例重叠仍然无损。
 - `indexed-png`：每个 task 只写一张 palette PNG。单图超过 255 个实例会阻止导出；存在重叠时默认阻止，也可显式选择 `z_order`、`larger_area` 或 `smaller_area`。非 `error` 策略会在 manifest 的 `loss_report` 记录被覆盖实例、像素数和 winner 策略。
 
-label 文件按**镜像目录**组织，保留原数据集的递归子目录结构：
+托管图片的 label 使用与图片一致的 Task 逻辑层级：
 
 ```
-{project_id}/{dataset_id}/labels/<原图相对路径>.txt
+labels/tasks/<task UUID>/<安全文件名去扩展名>.txt
 ```
 
-例如 `animals/cat/001.jpg` → `{project_id}/{dataset_id}/labels/animals/cat/001.txt`。这修复了过去只用叶子文件名、导致同名跨目录文件互相覆盖、丢失目录结构的问题。`fetch_images.py` 拉下来的原图会落在与之平行的 `images/` 树下。
+例如任务 A 的 `001.jpg` 对应 `labels/tasks/<A>/001.txt` 和 `images/tasks/<A>/001.jpg`。不同任务即使同名也互不覆盖；COCO 文件名、AAP 匹配字段和 Mask 清单使用同一逻辑图片路径，不暴露物理对象键。引用图片保留前述数据集／样本／Task 层级。
 
 启用 `include_attributes` 时，每个 label 旁会附一个同名的 `.attrs.json`（如 `001.attrs.json`）。
 
@@ -219,7 +233,7 @@ names:
 
 <!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/export/yolo-dir-tree.png — 解压后 YOLO 单目标导出包目录树（terminal 截图）；标注红框：labels/ 镜像层级。[manual] -->
 
-**单目标**（只勾一个 YOLO 变体）落包根，`labels/` 按 `{project_id}/{dataset_id}/labels/<原图相对路径>.txt` 镜像层级：
+**单目标**（只勾一个 YOLO 变体）落包根，托管图片和标签使用平行 Task 层级：
 
 ```
 {下载文件名}.zip 解压后/
@@ -228,16 +242,12 @@ names:
 ├── data.yaml
 ├── images_manifest.json
 ├── fetch_images.py
-├── {project_id}/
-│   └── {dataset_id}/
-│       └── labels/                 # ← 镜像原数据集递归子目录
-│           ├── 001.txt             # 来自 dataset 根的 001.jpg
-│           └── animals/
-│               └── cat/
-│                   └── 002.txt     # 来自 animals/cat/002.jpg
-└── images/                         # fetch_images.py 回源后才出现，与 labels/ 平行同层级
-    ├── 001.jpg
-    └── animals/cat/002.jpg
+├── labels/tasks/
+│   ├── <任务 A>/001.txt
+│   └── <任务 B>/002.txt
+└── images/tasks/                   # fetch_images.py 下载后出现
+    ├── <任务 A>/001.jpg
+    └── <任务 B>/002.jpg
 ```
 
 **多目标**（如同时勾 `yolo-det` + `yolo-seg`，或再加 `coco`）时，每个目标各落自己的 `{target}/` 子目录，`classes.txt` / `attribute_schema.json` / `images_manifest.json` / `fetch_images.py` 仍在包根共享：
@@ -250,10 +260,12 @@ names:
 ├── fetch_images.py
 ├── yolo-det/
 │   ├── data.yaml
-│   └── {project_id}/{dataset_id}/labels/...
+│   ├── labels/tasks/...
+│   └── images/tasks/...            # 下载脚本按清单生成
 ├── yolo-seg/
 │   ├── data.yaml
-│   └── {project_id}/{dataset_id}/labels/...
+│   ├── labels/tasks/...
+│   └── images/tasks/...
 └── coco/
     └── annotations.json
 ```
@@ -366,17 +378,25 @@ AAP JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image
 
 ## 点云标准训练格式
 
-`lidar` 项目导出统一走异步 zip 管线，可选 **AAP JSON / KITTI 3D / nuScenes / Point Mask**。标准点云目标只打包标注、标定、manifest 和回源脚本；相机图片与点云本体通过预签名 URL 回源。
+`lidar` 项目导出统一走异步 ZIP 管线，可选 **AAP JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。标准点云目标打包标注、标定、manifest 和下载脚本。
+
+KITTI、Point Mask、Multi-camera COCO 与 NuScenes 在请求时固定标注、关联和标定。后台按原件登记的位置完整核对 SHA-256 和大小，再逐字节保存独立交付副本；manifest 中的链接指向这些副本，不依赖当前数据集默认桶。ZIP 和副本共用请求时起七天的截止，重复导出命中缓存也不会延长。下载脚本校验 SHA-256、大小及安全相对路径；当链接为站内相对路径时，使用 `python fetch_images.py --base-url https://平台地址`（点云脚本为 `fetch_pointclouds.py`，多相机 COCO 为 `fetch_media.py`，NuScenes 为 `fetch_nuscenes_media.py`）。链接过期后请重新发起导出。恢复到新桶后，应重新导出生成新的媒体链接。
+
+KITTI 交付主 PCD 和所选相机；Point Mask 交付主 PCD 和全部关联相机；Multi-camera COCO 只要求相机图片，不额外要求主 PCD。当前只支持已核验登记的托管原件；外部目录引用需要先复制导入。相机名称或帧名称造成输出文件重名时，预检会拒绝并要求修正名称。
+
+Point Mask 的 `.label` 长度严格为原 PCD 记录数乘四，使用小端 uint32 和从一开始的类别编号，零表示未标注。NaN／Inf 记录仍占原始序号；越界索引、未知类别或与实际记录数不符的声明会使作业失败，不静默截断或过滤。
+
+单次相机图片最多 20,000 张、每张 256MiB、合计 20GiB；PCD 最多 1,000 帧、每帧 256MiB／400 万记录、合计 4GiB／一亿记录。NuScenes 的原始 `.pcd.bin` 和地图每件也不超过 256MiB，全部媒体合计最多 21,000 件、24GiB。空原始点云保留零字节和对应 SHA，不伪造点记录。超过预算请缩小项目或批次范围。
 
 | 目标       | 主要文件                                                                                            | 用途                                                           |
 | ---------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | KITTI 3D   | `label_2/<frame>.txt`、`calib/<frame>.txt`、`calib_raw/<camera>/<frame>.json`、`export_report.json` | 3D 检测训练前处理，box 输出为所选 KITTI camera 坐标            |
-| nuScenes   | `v1.0-aap/*.json`、`media_manifest.json`、`fetch_nuscenes_media.py`                                 | 官方 13 表关键帧子集，原路径回源点云、相机图和地图             |
+| nuScenes   | `v1.0-aap/*.json`、`media_manifest.json`、`fetch_nuscenes_media.py`                                 | 官方 13 表关键帧子集，保留原路径的点云、相机图和地图副本       |
 | Point Mask | `segmentation/<frame>.label`、`category_map.json`                                                   | `point_mask_3d` 逐点语义 label（little-endian uint32 类别 id） |
 
-KITTI 3D 必须在弹窗中显式选择一条相机通道。系统会逐任务核对主点云轴约定、所选相机图、内外参和真实宽高；任一缺口都会列出 task / frame / camera 并阻止创建后台任务。预检通过后，`label_2` 的 2D bbox 来自真实角点投影，`location` 是相机坐标下的 3D 框底面中心，`rotation_y`、`alpha` 与 `truncated` 也由同一投影计算。完全在相机后方或画面外的对象不会伪造 bbox，而会记录到 `export_report.json`。
+KITTI 3D 会先按当前范围列出已登记相机通道；未选择时提示 `kitti_camera_required` 并阻止导出，必须显式选定一条。系统会逐任务核对主点云轴约定、所选相机图、内外参和真实宽高；任一缺口都会列出 task / frame / camera 并阻止创建后台任务。预检通过后，`label_2` 的 2D bbox 来自真实角点投影，`location` 是相机坐标下的 3D 框底面中心，`rotation_y`、`alpha` 与 `truncated` 也由同一投影计算。完全在相机后方或画面外的对象不会伪造 bbox，而会记录到 `export_report.json`。
 
-nuScenes 会在入队前核对来源 scene / log / map、完整帧链、逐传感器时钟与位姿、标定指纹和原始资产指纹。批次截断 Scene、`--frame sensor`、历史数据未重跑导入器回填，或单次超过 1000 帧 / 30000 个有效 3D 框及 PCD / 精确点数统计资源预算时都会拒绝。解压后运行 `python fetch_nuscenes_media.py`，即可物化为官方 devkit 可加载和查询的 `v1.0-aap` 目录树。该产物不是官方 benchmark split，也不会自动把项目类别映射到官方 ontology。删除 Dataset 时会保留已冻结的可信来源资产，避免已签发包在链接有效期内无法回源。
+nuScenes 会在入队前核对来源 scene / log / map、完整帧链、逐传感器时钟与位姿、标定指纹和原始资产指纹。批次截断 Scene、`--frame sensor`、历史数据未重跑导入器回填，或单次超过 1000 帧 / 30000 个有效 3D 框及 PCD / 精确点数统计资源预算时都会拒绝。解压后运行 `python fetch_nuscenes_media.py`，站内相对链接加 `--base-url https://平台地址`，即可物化为官方 devkit 可加载和查询的 `v1.0-aap` 目录树。原始五通道点云逐字节保留；平台 PCD 仅用于精确框内点统计。单独或混合导出都包含全部已关联相机和登记地图，不从当前默认桶猜测来源。该产物不是官方 benchmark split，也不会自动把项目类别映射到官方 ontology。历史缺少原件归属时，需用原始 NuScenes 数据显式重跑导入器；预检不会凭旧路径或 SHA 自动认领文件。删除 Dataset 后，独立交付副本仍受原截止保护；辅助原件归属保留，物理回收需另行核验。
 
 ### `axis_frame` 坐标系参数（`iso` | `source`）
 
@@ -411,8 +431,8 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 ├── velodyne/                      # 空占位目录，fetch_pointclouds.py 回源点云到此
 ├── images/
 │   └── cam_front/                 # 空占位目录，fetch_images.py 回源相机图到此
-├── pointclouds_manifest.json      # 点云预签名 URL + expires_at
-├── images_manifest.json           # 相机图预签名 URL + expires_at
+├── pointclouds_manifest.json      # 副本 URL + SHA-256 / size_bytes / expires_at
+├── images_manifest.json           # 副本 URL + SHA-256 / size_bytes / expires_at
 ├── export_report.json             # 可见性跳过明细与导出计数
 ├── fetch_pointclouds.py
 └── fetch_images.py
@@ -424,12 +444,18 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 `video-track` 项目导出统一走异步 zip 管线，可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / AAP JSON / MOT / KITTI**。导出包含标注主体 + `manifest.json` + `fetch_videos.py`；需要图像序列的目标另带 `fetch_frames.py`，按每个输出目录自己的起始编号、位数与扩展名抽帧。
 
-部分导出会把同一 task 和闭区间应用到所有已选目标：单帧标注只保留范围内帧，轨迹裁剪后保留范围内关键帧与 outside，并补齐可见边界状态。帧格式先按原视频的全局采样网格取帧，再过滤范围，所以不会因范围起点改变采样相位；`manifest.json` 的 `export_scope` 与 `grid_source_frames` 可还原源帧。
+项目和批次导出在排队时固定本次任务、标注、采样设置、分段和质检关联。已登记的数据集视频与独立 TaskOriginal 视频沿保存位置完整核验，再实际解码计帧；旧 JSON 帧数、播放转码或最大标注帧不作为源长度。探测得到的 fps、实际帧数、尺寸与原件 SHA-256／大小组成 `metadata_receipt`，随 manifest、Video JSON 和 AAP 视频来源保存。输入、权限或内容在执行期间变化时整包失败，需要重新导出。
+
+原视频逐字节复制为独立交付文件，下载链接指向副本。副本与 ZIP 共用首次登记起七天截止，重试或命中缓存不延长。解压后先运行 `python fetch_videos.py`：脚本校验已有文件和下载字节的完整 SHA-256／大小，错误文件仅在新副本校验成功后原子替换。站内相对链接需加 `--base-url https://平台地址`；过期返回退出码2，需重新导出。然后运行 `python fetch_frames.py`，使用本地 FFmpeg 从已核验视频抽帧；此脚本按 manifest 中每种格式的 `frame_outputs` 工作。
+
+每个任务使用唯一目录：视频在 `videos/tasks/<任务 UUID>/<安全文件名>`，下文 `{sequence}` 为 `tasks/<任务 UUID>/<安全文件名去扩展名>`。同名视频不会互相覆盖。旧未完成视频导出缺少冻结媒体证明时须重新发起；不会按当前桶猜测旧文件位置。
+
+部分导出会把同一 task 和闭区间应用到所有已选目标：单帧标注只保留范围内帧，轨迹裁剪后保留范围内关键帧与 outside，并补齐可见边界状态。帧格式先按原视频的全局采样网格取帧，再过滤范围，所以不会因范围起点改变采样相位；`manifest.json` 的 `export_scope` 与 `grid_source_frames` 可还原源帧。请求时只检查任务、范围形状和分段关系，实际边界在后台完整计帧后检查；越界作业失败，不自动截短。独立 TaskOriginal 可按帧范围导出，分段选择仍须关联数据集样本。
 
 **Video JSON**（帧模式二选一）：
 
 - **关键帧**：默认模式，只导出人工 / 预测关键帧，适合备份、质检和后续继续编辑。
-- **所有帧**：导出时按相邻有效关键帧线性插值展开每帧 bbox，适合下游训练或逐帧质检。
+- **所有帧**：导出时按相邻有效关键帧线性插值展开每帧 bbox，适合下游训练或逐帧质检。展开限于实际计帧结果与本次范围，先检查资源预算，不以最大标注帧补长视频。
 - 顶层包含 `export_type: "video_tracks"`、`frame_mode`、项目 / 类别 / 任务信息、`tracks[]`、扁平 `keyframes[]`、旧版 `video_bbox[]` 和 `video_metadata`。
 
 **YOLO 逐帧（检测）**：目标名 `yolo-frames-det`。每个视频 = 一个 sequence，按项目采样网格抽帧，包内写 `labels/{sequence}/{frame:06d}.txt`，行格式与图片 YOLO 检测一致：`<cls> <cx> <cy> <w> <h>`（归一化）。来源同时包含：
@@ -443,9 +469,9 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 **COCO 逐帧（分割）**：目标名 `coco-frames-seg`。产出单个标准 COCO `annotations.json`。polygon 使用顶点数组与 `iscrowd=0`；Mask 轨迹使用标准 compressed RLE、像素面积、紧致 bbox 与 `iscrowd=1`，并在 attributes 中携带轨迹与遮挡信息。bbox / polyline 跳过。帧由 `fetch_frames.py` 抽到 `images/{sequence}/`，ZIP 不含帧图。
 
-**DAVIS Mask**：目标名 `davis`。每个采样帧写 `Annotations/Full-Resolution/{sequence}/{frame:05d}.png`，PNG 模式为 `P`，背景为 0，对象 ID 在整个 sequence 内稳定分配为 1–254，255 保留为 void。存在实例重叠时默认阻止导出，也可显式选择 `z_order`、`larger_area` 或 `smaller_area` winner；取舍会进入有损报告。`outside` 帧不写该对象，`occluded` 通过 `davis_manifest.json` 保留。`fetch_frames.py` 把对应图像抽到 `JPEGImages/Full-Resolution/{sequence}/{frame:05d}.jpg`。
+**DAVIS Mask**：目标名 `davis`。输出帧号为0基五位，每个采样帧写 `Annotations/Full-Resolution/{sequence}/{frame:05d}.png`，PNG 模式为 `P`，背景为 0，对象 ID 在整个 sequence 内稳定分配为 1–254，255 保留为 void。存在实例重叠时默认阻止导出，也可显式选择 `z_order`、`larger_area` 或 `smaller_area` winner；取舍会进入有损报告。`outside` 帧不写该对象，`occluded` 通过 `davis_manifest.json` 保留。`fetch_frames.py` 把对应图像抽到 `JPEGImages/Full-Resolution/{sequence}/{frame:05d}.jpg`。
 
-**YouTube-VOS**：目标名 `youtube-vos`。只把 Mask 关键帧写为 `Annotations/{sequence}/{frame:05d}.png`，`meta.json` 保存对象类别、轨迹身份、输出帧与源帧映射。palette 约束和实例重叠策略与 DAVIS 一致。导入时必须显式选择稀疏 gap 语义，避免把数据集未采样帧静默解释为对象离场。
+**YouTube-VOS**：目标名 `youtube-vos`。只把裁剪后的精确 Mask 关键帧写为 `Annotations/{sequence}/{frame:05d}.png`，输出为0基五位，`meta.json` 保存对象类别、轨迹身份、输出帧与源帧映射。`fetch_frames.py` 使用相同的精确源帧集合抽到 `JPEGImages/{sequence}/`，包含普通采样网格之外的关键帧。palette 约束和实例重叠策略与 DAVIS 一致。导入时必须显式选择稀疏 gap 语义，避免把数据集未采样帧静默解释为对象离场。
 
 **MOTS**：目标名 `mots`。每行使用 `frame track class height width compressed_rle` 六列格式；可选择 0-based 或 1-based 输出帧号。`mots_manifest.json` 明确序列路径、类别、轨迹、源 annotation 与输出帧到源帧的映射，因此导入不依赖整数 ID 猜测业务身份。MOTS 没有遮挡字段，预检会报告对应损失。
 
@@ -457,13 +483,13 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 ### 视频 ZIP 包目录树（多目标 MOT + YOLO 逐帧示例）
 
-视频导出不物理打包帧：包内只带标注 + 网格帧号，帧由 `fetch_frames.py` 用本地 FFmpeg 5.1 或更新版本就地抽取。MOT/KITTI 的 `{sequence}/img1/` 与 YOLO 逐帧的 `images/{sequence}/` 都是抽帧后才出现的目录。
+视频 ZIP 包含标注、独立视频副本的下载清单及源帧映射，不直接打包视频或帧图。帧由 `fetch_frames.py` 用本地 FFmpeg 5.1 或更新版本抽取。MOT 为1基、KITTI为0基，二者混合时各在 `mot/{sequence}/img1/` 与 `kitti/{sequence}/img1/`，不共享编号不同的目录；YOLO／COCO为1基。图像目录均在抽帧后出现。
 
 ```
 {下载文件名}.zip 解压后/
-├── manifest.json                  # 各 sequence 的预签名 URL + 网格帧号 + frame_start_number
-├── fetch_videos.py                # 回源视频到 videos/
-├── fetch_frames.py                # 按网格帧号抽帧（MOT/KITTI/YOLO 逐帧才有）
+├── manifest.json                  # 副本 URL、固定截止、SHA/大小、元数据回执与 frame_outputs
+├── fetch_videos.py                # 核验并下载独立视频副本到 videos/
+├── fetch_frames.py                # 各格式使用自己的源帧、起始编号与位数
 ├── mot/
 │   └── {sequence}/
 │       ├── gt/gt.txt              # frame,id,bb_left,bb_top,bb_w,bb_h,conf,x,y,z（帧号 1-based）
@@ -476,11 +502,21 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 │       └── {sequence}/
 │           ├── 000001.txt         # 每个采样帧一个 .txt，空帧写空文件
 │           └── 000002.txt
-└── videos/                        # fetch_videos.py 回源后出现
-    └── {sequence}.mp4
+└── videos/                        # fetch_videos.py 下载后出现
+    └── tasks/
+        └── {task UUID}/
+            └── {安全文件名}.mp4
 ```
 
 > 视频**单目标**时该目标落包根（无 `{target}/` 前缀），多目标才各落子目录；`manifest.json` / `fetch_videos.py` 始终在包根共享。
+
+### 视频导出资源边界
+
+单次最多1000个视频任务，单原件5GiB，去重后的原件总量20GiB；冻结 JSON256MiB，标注与预测各100000行。每视频最多1000000个实际源帧，累计采样帧和额外稀疏 Mask 帧最多1000000帧。原件共享不抵消各任务的标签和抽帧开销。
+
+逐帧求值累计最多10000000次，解析工作估算最多100000000，展开字节估算256MiB；插值浮点、属性、逐帧结构和多目标重复输出都计入估算，因此可能在帧数上限前要求拆分。每轨关键帧／outside各最多10000条，两者合计1000000条；单帧最多1024顶点，累计4000000顶点。
+
+可移植 Mask 累计4000000条游程／256MiB JSON，单Mask4MiB、边长4096及16777216像素。DAVIS／YouTube-VOS每序列最多254对象；栅格工作累计268435456像素，预计 ZIP 成员最多200000个，另保留单成员512MiB与临时ZIP8GiB限制。超限需减少任务、范围或目标，平台不会省略部分任务来完成导出。完整接口限制见[视频独立媒体交付](/api/guides/export#视频独立媒体交付)。
 
 目标消失语义（各格式共用）：
 

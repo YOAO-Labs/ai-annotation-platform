@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,8 @@ from app.services import (
     active_learning_pool as pool,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.content_snapshot import ContentError
+from app.services.original_request import connected_snapshot
 
 router = APIRouter(
     prefix="/projects/{project_id}/active-learning-rounds",
@@ -40,11 +42,39 @@ router = APIRouter(
 WRITE = [Depends(require_scopes("datasets:write"))]
 
 
+@router.post("/{round_id}/storage-pin", response_model=RoundOut, dependencies=WRITE)
+async def pin_legacy_round_storage(
+    round_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    round = await pin(
+        db,
+        "active-learning",
+        round_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(db, round)
+
+
 async def attempt_for(db, round, attempt_id):
     attempt = await db.get(Attempt, attempt_id)
     if not attempt or attempt.round_id != round.id:
         raise service.reject("attempt_missing", "选样执行尝试不存在", 404)
     return attempt
+
+
+async def connected(request, operation):
+    value = await connected_snapshot(request, operation, close_result=False)
+    if value is None:
+        raise HTTPException(499, {"code": "client_disconnected"})
+    return value
 
 
 @router.get("/pool")
@@ -66,11 +96,21 @@ async def preview(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        prepared = await pool.prepare(
-            db, project, body, user.id, getattr(request.state, "api_key_id", None)
+        prepared = await connected(
+            request,
+            pool.prepare(
+                db,
+                project,
+                body,
+                user.id,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+            ),
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     except ValueError as exc:
         raise service.reject("pool_insufficient", str(exc), 422) from exc
     return {
@@ -115,8 +155,16 @@ async def create(
         selection = Selection.model_validate(
             body.model_dump(exclude={"request_id", "name", "preview_digest"})
         )
-        prepared = await pool.prepare(
-            db, project, selection, user.id, getattr(request.state, "api_key_id", None)
+        prepared = await connected(
+            request,
+            pool.prepare(
+                db,
+                project,
+                selection,
+                user.id,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+            ),
         )
         round = await service.create_round(
             db,
@@ -128,6 +176,8 @@ async def create(
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     except ValueError as exc:
         raise service.reject("pool_invalid", str(exc), 422) from exc
     await db.commit()
@@ -220,6 +270,7 @@ async def retry(
         )
     try:
         await service.authority(db, round)
+        service.owners.resolve(round)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await attempt_for(db, round, round.current_attempt_id)
@@ -292,9 +343,12 @@ async def image(
         raise service.reject("candidate_missing", "冻结候选不存在", 404)
     await db.commit()
     try:
+        service.owners.resolve(round)
         png = await asyncio.to_thread(
             service.read_retained_png, round, spec["samples"][ordinal]
         )
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     except Exception as exc:
         raise service.reject(
             "frozen_image_unavailable", "冻结图片尚未就绪或未通过完整性检查"
@@ -346,16 +400,22 @@ async def decide(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        row = await service.decide(
-            db,
-            project,
-            user,
-            round_id,
-            body,
-            getattr(request.state, "api_key_id", None),
+        row = await connected(
+            request,
+            service.decide(
+                db,
+                project,
+                user,
+                round_id,
+                body,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+            ),
         )
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
     await db.commit()
     return service.decision_output(row)
 

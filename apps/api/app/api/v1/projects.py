@@ -631,12 +631,19 @@ async def get_stats(
 @router.post("", response_model=ProjectOut)
 async def create_project(
     data: ProjectCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
     # v0.10.11 · exclude_unset 让"未显式给出"与"显式给出默认值"可区分; 兜底字段
     # 优先用 source_project_id 项目的值, 其次走 Project 模型列默认值.
     payload = data.model_dump(exclude_unset=True)
+    guide_proof = None
+    guide_snapshot = None
+    if data.copy_annotation_guide:
+        from app.services import guide_asset_uploads as guide_flow
+
+        guide_proof = await guide_flow.capture_authority(db, current_user, request)
 
     # v0.10.28 · B 路线: 新建以 data_type 为主. type_key 缺省时由 data_type 派生兼容值;
     # data_type 缺省时由 type_key 反推, 二者互填后均落库 (Project.type_key NOT NULL).
@@ -715,9 +722,7 @@ async def create_project(
     # 若源项目带 ml_backend_id 且 caller 未单独指定 ml_backend_source_id,
     # 自动把源项目的 backend 作为 backend 克隆源.
     source_project_id = payload.pop("source_project_id", None)
-    # v0.10.13 · E1 · annotation_guide / guide_assets 不在默认克隆白名单 (避免信息错位);
-    # 通过独立 flag 触发, 仅当 source_project_id 给定时有效. 图片资源 storage key
-    # 复用 (不重新上传) — 源项目删除资源会影响新项目, UI 已在 wizard 标注.
+    # Guide images share immutable owners through independent project references.
     copy_guide = payload.pop("copy_annotation_guide", False)
     if source_project_id is not None:
         source_project = await assert_project_visible(
@@ -727,12 +732,21 @@ async def create_project(
         if copy_guide:
             import copy as _copy
 
-            if source_project.annotation_guide is not None:
-                payload.setdefault("annotation_guide", source_project.annotation_guide)
-            if source_project.guide_assets:
-                payload.setdefault(
-                    "guide_assets", _copy.deepcopy(source_project.guide_assets)
-                )
+            from app.db.models.project_guide_asset import ProjectGuideAsset
+
+            guide_snapshot = (
+                source_project.owner_id,
+                source_project.annotation_guide,
+                _copy.deepcopy(source_project.guide_assets),
+                source_project.guide_assets_revision,
+                tuple(
+                    await db.scalars(
+                        select(ProjectGuideAsset.upload_id)
+                        .where(ProjectGuideAsset.project_id == source_project_id)
+                        .order_by(ProjectGuideAsset.upload_id)
+                    )
+                ),
+            )
         if source_backend is None and source_project.ml_backend_pool_id is not None:
             from app.db.models.ml_backend_pool import MLBackendServicePool
 
@@ -772,6 +786,12 @@ async def create_project(
             db, requested_main_backend_id, payload["data_type"]
         )
 
+    # Complete remote capability checks before creating or locking business rows.
+    if source_backend is not None:
+        await _validate_backend_modality(db, source_backend.id, payload["data_type"])
+    if guide_proof is not None:
+        current_user = await guide_flow.reauthorize(db, guide_proof)
+
     new_project_id = uuid.uuid4()
     # v0.19.0 ADR-0044 · 直接指定主 backend (非克隆路径) 时, 同步在新项目建启用关联;
     # 不然 project_ml_backend_pool 缺行, trigger_preannotation 的 is_enabled 校验 404 +
@@ -793,9 +813,6 @@ async def create_project(
             db, source=source_backend, new_project_id=new_project_id
         )
         project.ml_backend_pool_id = new_pool_id
-        # v0.10.37 · 克隆源项目 backend 落定后, 同样按新项目 data_type 校验模态
-        # (clone 复制了 url/auth, 实时探 /setup 与校验 source 等价).
-        await _validate_backend_modality(db, source_backend.id, project.data_type)
     elif main_backend_to_enable is not None:
         from app.services.ml_backend import MLBackendService
 
@@ -809,14 +826,48 @@ async def create_project(
     if template is not None:
         template.usage_count = (template.usage_count or 0) + 1
 
+    if guide_proof is not None:
+        from app.services.guide_asset_references import copy_references
+
+        # The final lock refresh must not discard the new backend pointer.
+        await db.flush()
+        current_user = await guide_flow.reauthorize(db, guide_proof)
+        locked = await guide_flow.lock_projects(
+            db, current_user, [source_project_id, project.id], write_ids=[project.id]
+        )
+        source_project = locked[source_project_id]
+        current_refs = tuple(
+            await db.scalars(
+                select(ProjectGuideAsset.upload_id)
+                .where(ProjectGuideAsset.project_id == source_project_id)
+                .order_by(ProjectGuideAsset.upload_id)
+            )
+        )
+        if guide_snapshot != (
+            source_project.owner_id,
+            source_project.annotation_guide,
+            source_project.guide_assets,
+            source_project.guide_assets_revision,
+            current_refs,
+        ):
+            raise HTTPException(409, {"code": "guide_asset_source_changed"})
+        await copy_references(db, source_project, project)
+        project.annotation_guide = source_project.annotation_guide
+        await guide_flow.reauthorize(db, guide_proof)
+        guide_flow.check_clock(guide_proof)
     await db.commit()
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
     await db.refresh(project)
     if template is not None:
         # 测试环境共享 dependency-override session, 后续 GET /project-templates/{id}
         # 会从 identity map 取出本 template; commit 后属性可能进入"待重新加载"
         # 状态触发 sync I/O. 显式 refresh 保证下次访问不触发 lazy load.
         await db.refresh(template)
-    return await _serialize_project(db, project)
+    result = await _serialize_project(db, project)
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
+    return result
 
 
 async def _clone_backend_to_new_project(
@@ -1057,10 +1108,34 @@ async def get_project_readiness(
 @router.patch("/{project_id}", response_model=ProjectOut)
 async def update_project(
     data: ProjectUpdate,
+    request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     payload = data.model_dump(exclude_unset=True)
+    guide_requested = "guide_assets" in payload
+    guide_revision = payload.pop("guide_assets_revision", None)
+    guide_assets = payload.pop("guide_assets", None)
+    guide_proof = None
+    if guide_requested:
+        from app.services import guide_asset_uploads as guide_flow
+
+        guide_proof = await guide_flow.capture_authority(db, current_user, request)
+        probe_data_type = payload.get("data_type") or project.data_type
+        if payload.get("ml_backend_id"):
+            await _validate_backend_modality(
+                db, payload["ml_backend_id"], probe_data_type
+            )
+        current_user = await guide_flow.reauthorize(db, guide_proof)
+        locked = await guide_flow.lock_projects(
+            db, current_user, [project.id], write_ids=[project.id]
+        )
+        project = locked[project.id]
+        if payload.get("ml_backend_id") and probe_data_type != (
+            payload.get("data_type") or project.data_type
+        ):
+            raise HTTPException(409, {"code": "guide_asset_context_changed"})
     if (
         "video_collaboration" in payload
         or "video_sampling" in payload
@@ -1163,18 +1238,33 @@ async def update_project(
         requested_main_backend_id = payload.pop("ml_backend_id")
         if requested_main_backend_id:
             # v0.10.37 · 绑定按 data_type 校验模态 (用应用 payload 后的有效 data_type)
-            await _validate_backend_modality(
-                db,
-                requested_main_backend_id,
-                payload.get("data_type") or project.data_type,
-            )
+            if guide_proof is None:
+                await _validate_backend_modality(
+                    db,
+                    requested_main_backend_id,
+                    payload.get("data_type") or project.data_type,
+                )
             # v0.19.0 ADR-0044 · 设主 backend 即视为「本项目启用该 backend」;
             # 否则 trigger_preannotation 的 is_enabled 校验 404, 而 ai_enabled 又自动派生 true
             # → 工作台显示「已启用 AI 却跑不起来」。与 PUT /ml-backends/{rid}/enablement 对称。
             from app.services.ml_backend import MLBackendService
 
             svc = MLBackendService(db)
-            await svc.set_enabled(project.id, requested_main_backend_id, enabled=True)
+            if guide_proof is None:
+                await svc.set_enabled(
+                    project.id, requested_main_backend_id, enabled=True
+                )
+            else:
+                from sqlalchemy.exc import DBAPIError
+
+                from app.services.guide_asset_references import db_error
+
+                try:
+                    await svc.set_enabled(
+                        project.id, requested_main_backend_id, enabled=True, nowait=True
+                    )
+                except DBAPIError as exc:
+                    db_error(exc)
             pool = await svc._pool_for_registry(requested_main_backend_id)
             payload["ml_backend_pool_id"] = pool.id if pool is not None else None
         else:
@@ -1194,13 +1284,23 @@ async def update_project(
 
     for k, v in payload.items():
         setattr(project, k, v)
+    if guide_proof is not None:
+        from app.services.guide_asset_references import reconcile_assets
+
+        await reconcile_assets(db, project, guide_revision, guide_assets)
+        await guide_flow.reauthorize(db, guide_proof)
+        guide_flow.check_clock(guide_proof)
     await db.commit()
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
     await db.refresh(project)
     result = await _serialize_project(db, project)
     # v0.19.3 WS1 · 保存编排能力软提示 (不挡, dispatch-time 422 仍是最终闸)。
     result["capability_warnings"] = await _compute_pipeline_capability_warnings(
         db, project.preannotate_pipeline
     )
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
     return result
 
 
@@ -1270,11 +1370,25 @@ async def apply_project_pipeline(
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(
+    request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await delete_project_records(db, project)
+    from app.services import guide_asset_uploads as guide_flow
+    from app.services.project_task_dataset import lock_project
+
+    current_user, proof = await guide_flow.lock_authority(db, current_user, request)
+    # Match snapshot creation's advisory-before-Project order.
+    await lock_project(db, project.id)
+    locked = await guide_flow.lock_projects(
+        db, current_user, [project.id], write_ids=[project.id]
+    )
+    await delete_project_records(db, locked[project.id])
+    await guide_flow.reauthorize(db, proof)
+    guide_flow.check_clock(proof)
     await db.commit()
+    guide_flow.check_clock(proof)
     return Response(status_code=204)
 
 
@@ -1919,21 +2033,6 @@ async def export_project(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     video_scope_payload = video_scope.as_dict() if video_scope else None
-    if project.data_type == "video":
-        from app.services.video_canonical import (
-            VideoBoundaryUnreconciledError,
-            assert_export_boundaries_reconciled,
-        )
-
-        try:
-            await assert_export_boundaries_reconciled(
-                db,
-                project=project,
-                batch_id=None,
-                scope=video_scope,
-            )
-        except VideoBoundaryUnreconciledError as exc:
-            raise HTTPException(status_code=409, detail=exc.detail) from exc
 
     if "voc" in targets:
         if targets != ["voc"]:
@@ -1972,29 +2071,56 @@ async def export_project(
     from app.db.models.async_job import AsyncJobKind
     from app.workers.export import run_export
 
+    from app.services.exporting.reference_media import capture_export_authority
+
+    from app.services.exporting import output_authority
+
+    output_proof = await output_authority.capture(db, project, actor, request)
+    export_opts = {
+        "include_attributes": include_attributes,
+        "video_frame_mode": video_frame_mode,
+        "axis_frame": axis_frame,
+        "indexed_overlap_policy": indexed_overlap_policy,
+        "video_overlap_policy": video_overlap_policy,
+        "mots_frame_base": mots_frame_base,
+        **({"video_export_scope": video_scope_payload} if video_scope_payload else {}),
+        **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+    }
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.EXPORT.value,
         user_id=actor.id,
         project_id=project.id,
         payload={
+            "output_authority": output_proof,
+            "batch_id": None,
             "targets": targets,
             "format": ",".join(targets),
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "indexed_overlap_policy": indexed_overlap_policy,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
             "project_display_id": project.display_id,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+            **export_opts,
         },
     )
+    from app.services.content_snapshot import ContentError
+    from app.services.exporting.media_jobs import capture_job
+    from app.services.video_canonical import VideoBoundaryUnreconciledError
+
+    try:
+        media_bundle = await capture_job(
+            db, job, project, batch_id=None, targets=targets, opts=export_opts
+        )
+    except VideoBoundaryUnreconciledError as exc:
+        raise HTTPException(409, detail=exc.detail) from None
+    except ContentError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
+    export_authority = await capture_export_authority(
+        db,
+        project,
+        actor,
+        request,
+        frozen_snapshot=media_bundle.input_snapshot if media_bundle else None,
+    )
+    if export_authority:
+        job.payload = {**job.payload, "export_authority": export_authority}
     await AuditService.log(
         db,
         actor=actor,
@@ -2007,20 +2133,7 @@ async def export_project(
             actor=actor,
             request=request,
             base={"targets": targets, "project_display_id": project.display_id},
-            filter_criteria={
-                "include_attributes": include_attributes,
-                "video_frame_mode": video_frame_mode,
-                "axis_frame": axis_frame,
-                "indexed_overlap_policy": indexed_overlap_policy,
-                "video_overlap_policy": video_overlap_policy,
-                "mots_frame_base": mots_frame_base,
-                **(
-                    {"video_export_scope": video_scope_payload}
-                    if video_scope_payload
-                    else {}
-                ),
-                **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-            },
+            filter_criteria=export_opts,
         ),
     )
     await db.commit()
@@ -2029,20 +2142,7 @@ async def export_project(
         project_id=str(project.id),
         batch_id=None,
         targets=targets,
-        opts={
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "indexed_overlap_policy": indexed_overlap_policy,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-        },
+        opts=export_opts,
         async_job_id=str(job.id),
     )
     return {"job_id": str(job.id)}
@@ -2297,7 +2397,9 @@ def _validate_saved_pipeline(stages) -> list[dict] | None:
         ) from e
 
 
-def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
+def _stage_supported_inputs(
+    backend, model_id: str | None, *, task: str | None = None
+) -> list[str]:
     """v0.18.15 · 从 backend 能力快照取某 model 的 supported_inputs (一等输入契约)。
 
     health_meta.capabilities.models[] 已由 extract_capabilities 规范化 (含合成默认)。
@@ -2306,7 +2408,7 @@ def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     from app.services.trained_models import is_controlled
 
     if is_controlled(model_id):
-        return ["full_image", "crop"]
+        return _stage_model(backend, model_id, task=task).get("supported_inputs", [])
     meta = getattr(backend, "health_meta", None)
     caps = meta.get("capabilities") if isinstance(meta, dict) else None
     models = caps.get("models") if isinstance(caps, dict) else None
@@ -2318,23 +2420,37 @@ def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     return []
 
 
-def _stage_model(backend, model_id: str | None) -> dict:
+def _stage_model(backend, model_id: str | None, *, task: str | None = None) -> dict:
     """v0.19.2 WS2 · 从 backend 能力快照取某 model 的规范化条目 (无快照/匹配不到 → {})。
 
     供 dispatch-time 校验读 resource_profile / output_attribute_types。读
     health_meta.capabilities.models[] (extract_capabilities 已规范化), 不走 /instances。
     """
-    from app.services.trained_models import is_controlled
+    from app.services.trained_models import is_controlled, release_task
 
     if is_controlled(model_id):
-        return {
+        caps = {
             "id": model_id,
-            "task": "detect",
-            "supported_inputs": ["full_image", "crop"],
-            "supported_geometric_outputs": ["bbox"],
             "resource_profile": {"batchable": True},
             "output_attribute_types": ["class"],
         }
+        # Opaque version IDs acquire their task when the server freezes the
+        # model reference. Never advertise detection for an unresolved version.
+        resolved_task = release_task(model_id) or (
+            normalize_task(task) if task else None
+        )
+        if resolved_task in {"detect", "segment"}:
+            segmentation = resolved_task == "segment"
+            caps.update(
+                task=resolved_task,
+                supported_inputs=["full_image"]
+                if segmentation
+                else ["full_image", "crop"],
+                supported_geometric_outputs=["raster_mask"]
+                if segmentation
+                else ["bbox"],
+            )
+        return caps
     meta = getattr(backend, "health_meta", None)
     caps = meta.get("capabilities") if isinstance(meta, dict) else None
     models = caps.get("models") if isinstance(caps, dict) else None
@@ -2399,7 +2515,7 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
         backend = await svc.get(s["ml_backend_id"])
         if not backend:
             continue
-        caps = _stage_model(backend, s.get("model_id"))
+        caps = _stage_model(backend, s.get("model_id"), task=s.get("task"))
         if s.get("stage") is not None:
             stage_caps[s["stage"]] = (caps, s.get("model_id"))
         is_source = s.get("parent_stage") is None
@@ -2593,7 +2709,29 @@ async def trigger_preannotation(
         trained_models.is_controlled(stage.model_id)
         for stage in (body.pipeline_stages or [])
     )
-    needs_snapshot = uses_controlled_model or bool(body.pipeline_stages)
+    from app.services import prediction_references
+
+    freeze_image_scope = project.data_type == "image"
+    # Frame fan-out keeps its own derived-frame contract. Whole-video models
+    # need a frozen source even when their pipeline has only one stage.
+    requested_unit = next(
+        (
+            (stage.source or {}).get("execution_unit")
+            for stage in (body.pipeline_stages or [])
+            if stage.parent_stage is None
+        ),
+        None,
+    )
+    freeze_video_scope = project.data_type == "video" and requested_unit in {
+        None,
+        "video",
+    }
+    needs_snapshot = (
+        uses_controlled_model
+        or bool(body.pipeline_stages)
+        or freeze_image_scope
+        or freeze_video_scope
+    )
     execution_snapshot = None
     frozen_model_ref = None
     if uses_controlled_model:
@@ -2679,7 +2817,7 @@ async def trigger_preannotation(
                 stage.stage
                 for stage in body.pipeline_stages
                 if stage.parent_stage is None
-            ): (_stage_model(backend, body.model_id), body.model_id)
+            ): (_stage_model(backend, body.model_id, task=body.task), body.model_id)
         }
         for st in body.pipeline_stages:
             resolved_input = st.input
@@ -2711,7 +2849,7 @@ async def trigger_preannotation(
                 stage_devices.append(_stage_device(st_backend, st.model_id))
                 # v0.20.21 · 记本阶段 caps, 供循环后校验其作为下游父阶段时几何可否作 ROI。
                 stage_caps[st.stage] = (
-                    _stage_model(st_backend, st.model_id),
+                    _stage_model(st_backend, st.model_id, task=st.task),
                     st.model_id,
                 )
                 # v0.18.15 · 按子模型 supported_inputs 解析投递方式 + 几何可达性门控。
@@ -2719,7 +2857,7 @@ async def trigger_preannotation(
                 # crop (普通检测器在 crop 上跑 + 坐标回映)。据此把投递方式烘焙进 input.mode,
                 # worker 直接消费 (无快照时 inputs=[] → 放过门控、不烘焙, 保持零退化)。
                 target = (st.write or {}).get("target", "attributes")
-                inputs = _stage_supported_inputs(st_backend, st.model_id)
+                inputs = _stage_supported_inputs(st_backend, st.model_id, task=st.task)
                 if target in {"geometry", "intermediate"} and inputs:
                     if INPUT_BBOX_PROMPT not in inputs and INPUT_CROP not in inputs:
                         raise HTTPException(
@@ -2928,8 +3066,16 @@ async def trigger_preannotation(
                     raise HTTPException(status_code=422, detail=str(exc)) from exc
                 stage["frozen_model_ref"] = ref
                 stage["model_id"] = f"trained:{ref['model_version_id']}"
+                stage["task"] = normalize_task(ref["task"])
                 if stage.get("parent_stage") is None:
                     root_ref = ref
+                elif stage["task"] == "detect":
+                    stage["input"] = {
+                        **(stage.get("input") or {}),
+                        "mode": (stage.get("input") or {}).get("mode")
+                        or (stage.get("roi") or {}).get("mode")
+                        or "crop",
+                    }
             else:
                 if not stage.get("model_id"):
                     capabilities = (stage_backend.health_meta or {}).get(
@@ -2979,6 +3125,15 @@ async def trigger_preannotation(
                 stage["class_metadata"] = metadata.model_dump(mode="json")
                 if metadata.verification_status == "verified":
                     stage["identity_guarantee"] = "checkpoint_verified"
+        if uses_controlled_model:
+            # The initial scope check cannot know an opaque version's task.
+            # Revalidate the server-resolved identity before recording a job.
+            trained_models.assert_image_scope(
+                project,
+                prompt=body.prompt,
+                pipeline_stages=stages,
+                execution_unit=execution_unit,
+            )
         pipeline_stages_payload = stages
         execution_snapshot = await create_snapshot(
             db,
@@ -2989,11 +3144,81 @@ async def trigger_preannotation(
                 "output_mode": body.output_mode,
                 "execution_scope": body.execution_scope,
                 "execution_unit": execution_unit,
+                "predict_mode": body.predict_mode,
                 "box_threshold": float(project.box_threshold),
                 "text_threshold": float(project.text_threshold),
             },
         )
         return root_ref
+
+    input_tasks = None
+
+    async def freeze_input_selection():
+        nonlocal input_tasks, explicit_task_ids, total_tasks_hint
+        if not (freeze_image_scope or freeze_video_scope):
+            return
+        query = prediction_references.selection_query(
+            project.id,
+            task_ids=explicit_task_ids,
+            batch_id=body.batch_id,
+            scope=body.execution_scope,
+        )
+        if body.predict_mode == "skip_predicted":
+            query = query.where(Task.total_predictions == 0)
+        input_tasks = list(
+            (await db.scalars(query.limit(prediction_references.MAX_TASKS + 1))).all()
+        )
+        if len(input_tasks) > prediction_references.MAX_TASKS:
+            raise HTTPException(
+                422,
+                detail={
+                    "code": "prediction_scope_budget_exceeded",
+                    "message": "单次预标最多选择1000题，请拆分批次后重试",
+                },
+            )
+        allowed_units = {None, "video"} if freeze_video_scope else {None, "image"}
+        if execution_unit not in allowed_units:
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "prediction_requires_video_execution"
+                    if freeze_video_scope
+                    else "prediction_requires_image_execution"
+                },
+            )
+        explicit_task_ids = [row.id for row in input_tasks]
+        total_tasks_hint = len(explicit_task_ids)
+
+    async def input_authority_payload():
+        if not (freeze_image_scope or freeze_video_scope):
+            return {}
+        from app.services.dataset_content import content_http_error
+
+        try:
+            owner = prediction_references
+            if freeze_video_scope:
+                from app.services import video_prediction_references
+
+                owner = video_prediction_references
+            proof = await owner.capture_authority(
+                db,
+                project,
+                current_user,
+                request,
+                input_tasks,
+                execution_snapshot,
+                scope=body.execution_scope,
+                batch_id=body.batch_id,
+                predict_mode=body.predict_mode,
+                execution_unit=execution_unit,
+            )
+        except Exception as exc:
+            raise content_http_error(exc) from None
+        return {
+            "video_prediction_authority"
+            if freeze_video_scope
+            else "prediction_authority": proof
+        }
 
     # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
     # - 数据管理重试可带幂等键 (复用/去重)。
@@ -3046,7 +3271,59 @@ async def trigger_preannotation(
             # before publishing to Celery. Reuse the row and safely republish;
             # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
-            if needs_snapshot:
+            saved_ids = ((existing.payload or {}).get("scope") or {}).get("task_ids")
+            if freeze_video_scope:
+                proof = (existing.payload or {}).get("video_prediction_authority")
+                if (
+                    saved_ids is None
+                    or existing.execution_snapshot_id is None
+                    or not isinstance(proof, dict)
+                    or type(proof.get("schema")) is not int
+                    or proof["schema"] != 1
+                    or proof.get("media_type") != "video"
+                    or not isinstance(proof.get("tasks"), list)
+                    or any(
+                        not isinstance(binding, dict)
+                        or not isinstance(binding.get("original"), dict)
+                        or binding["original"].get("schema") != 3
+                        for binding in proof["tasks"]
+                    )
+                ):
+                    raise HTTPException(
+                        409,
+                        detail={
+                            "code": "prediction_video_requires_new_request",
+                            "message": "旧任务缺少可信视频原件或配置证明，请重新发起预标",
+                        },
+                    )
+            if freeze_image_scope:
+                proof = (existing.payload or {}).get("prediction_authority")
+                if (
+                    saved_ids is None
+                    or existing.execution_snapshot_id is None
+                    or not isinstance(proof, dict)
+                    or proof.get("schema") not in {1, 2}
+                    or not isinstance(proof.get("tasks"), list)
+                    or any(
+                        not isinstance(binding, dict)
+                        or (
+                            "reference" not in binding
+                            and (proof["schema"] != 2 or "original" not in binding)
+                        )
+                        for binding in proof["tasks"]
+                    )
+                ):
+                    raise HTTPException(
+                        409,
+                        detail={
+                            "code": "prediction_original_requires_new_request",
+                            "message": "旧任务缺少可信原图或配置证明，请重新发起预标",
+                        },
+                    )
+            if saved_ids is not None:
+                explicit_task_ids = [uuid.UUID(value) for value in saved_ids]
+                total_tasks_hint = len(explicit_task_ids)
+            if existing.execution_snapshot_id:
                 from app.services.prediction_execution import load_snapshot
 
                 saved, _ = await load_snapshot(
@@ -3058,6 +3335,7 @@ async def trigger_preannotation(
                 )
                 frozen_model_ref = root.get("frozen_model_ref")
         else:
+            await freeze_input_selection()
             scoped_ids = (
                 [str(task_id) for task_id in explicit_task_ids]
                 if explicit_task_ids is not None
@@ -3080,6 +3358,7 @@ async def trigger_preannotation(
             if needs_snapshot:
                 frozen_model_ref = await freeze_execution()
                 precreated_payload["frozen_model_ref"] = frozen_model_ref
+            precreated_payload.update(await input_authority_payload())
             precreated_job = await async_job_svc.create_job(
                 db,
                 kind="batch_predict",
@@ -3095,11 +3374,15 @@ async def trigger_preannotation(
         precreated_job.celery_task_id = str(precreated_job.id)
         await db.commit()
     elif (
-        body.execution_scope == "workbench" and explicit_task_ids is not None
-    ) or needs_snapshot:
+        (body.execution_scope == "workbench" and explicit_task_ids is not None)
+        or needs_snapshot
+        or freeze_image_scope
+        or freeze_video_scope
+    ):
         # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
         # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
         # 工作台面板不会因找不到终态记录而无限轮询。
+        await freeze_input_selection()
         scoped_ids = (
             [str(task_id) for task_id in explicit_task_ids]
             if explicit_task_ids is not None
@@ -3126,6 +3409,7 @@ async def trigger_preannotation(
                     else {}
                 ),
                 **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
+                **(await input_authority_payload()),
             },
         )
         if execution_snapshot is not None:
@@ -3143,7 +3427,9 @@ async def trigger_preannotation(
             args=[
                 str(project.id),
                 str(source_backend_id),
-                [str(tid) for tid in explicit_task_ids] if explicit_task_ids else None,
+                [str(tid) for tid in explicit_task_ids]
+                if explicit_task_ids is not None
+                else None,
             ],
             kwargs={
                 "prompt": body.prompt,
@@ -3204,7 +3490,9 @@ async def trigger_preannotation(
             "ml_backend_id": str(source_backend_id),
             "batch_id": str(body.batch_id) if body.batch_id else None,
             "task_count": (
-                len(explicit_task_ids) if explicit_task_ids else total_tasks_hint
+                len(explicit_task_ids)
+                if explicit_task_ids is not None
+                else total_tasks_hint
             ),
             "prompt": (body.prompt or "")[:200],
             # output_mode 仅文本 prompt 路径生效; 几何路径不读它, 留 None 免误导 (与 job payload 一致)
@@ -3299,42 +3587,52 @@ async def cleanup_orphan_tasks(
     后续数据集被 unlink / 删除留下的孤儿 task。
     """
     pid = str(project.id)
-    # 用项目 delete 同款 raw SQL 但只针对孤儿 task ids
-    orphan_q = """
-        SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN (
-            SELECT t.id FROM tasks t
-            JOIN dataset_items di ON di.id = t.dataset_item_id
-            JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id
-            WHERE t.project_id = :pid
-        )
-    """
-    rows = (await db.execute(text(orphan_q), {"pid": pid})).all()
-    if not rows:
-        return {"deleted_tasks": 0, "deleted_annotations": 0}
-    orphan_count = len(rows)
-    from sqlalchemy import select as source_select
-    from app.db.models.task import Task as SourceTask
+    from sqlalchemy import column, table, select as source_select
+    from sqlalchemy.dialects.postgresql import UUID
+    from sqlalchemy.exc import DBAPIError
     from app.services.active_learning_pool import guard_source
+    from app.services.project_write_guard import lock_actor_account
 
-    orphan_ids = [row[0] for row in rows]
-    await db.execute(
-        source_select(SourceTask.id)
-        .where(SourceTask.id.in_(orphan_ids))
-        .order_by(SourceTask.id)
-        .with_for_update()
-    )
+    # Freeze and lock one transaction-local target set. Later membership changes
+    # belong to a future cleanup, and large sets never expand into bind parameters.
+    target_name = "aap_orphans_" + uuid.uuid4().hex
+    await lock_actor_account(db, current_user.id)
+    try:
+        # Block relinking a selected orphan through the project's foreign key.
+        await db.execute(
+            source_select(Project.id)
+            .where(Project.id == project.id)
+            .with_for_update(nowait=True)
+        )
+        await db.execute(
+            text(
+                f"CREATE TEMP TABLE {target_name} (id uuid PRIMARY KEY) ON COMMIT DROP"
+            )
+        )
+        await db.execute(
+            text(
+                f"INSERT INTO pg_temp.{target_name} (id) "
+                "SELECT t.id FROM tasks t WHERE t.project_id = :pid AND NOT EXISTS ("
+                " SELECT 1 FROM dataset_items di "
+                " JOIN project_datasets pd ON pd.dataset_id = di.dataset_id "
+                " AND pd.project_id = t.project_id WHERE di.id = t.dataset_item_id"
+                ") ORDER BY t.id FOR UPDATE OF t NOWAIT"
+            ),
+            {"pid": pid},
+        )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+            raise HTTPException(
+                status_code=409, detail="项目或任务正在变更，请稍后重试清理"
+            ) from exc
+        raise
+    orphan_subq = f"SELECT id FROM pg_temp.{target_name}"
+    orphan_count = await db.scalar(text(f"SELECT COUNT(*) FROM pg_temp.{target_name}"))
+    if not orphan_count:
+        return {"deleted_tasks": 0, "deleted_annotations": 0}
+    targets = table(target_name, column("id", UUID(as_uuid=True)), schema="pg_temp")
+    orphan_ids = source_select(targets.c.id)
     await guard_source(db, task_ids=orphan_ids)
-
-    # v0.7.0：把 ANY(:ids) 序列化数组改为子查询联查，避免 10 万级孤儿场景下的 array overflow。
-    # 所有 DELETE / UPDATE 共用同一 orphan-id 子查询。
-    orphan_subq = (
-        "SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN ("
-        "  SELECT t.id FROM tasks t"
-        "  JOIN dataset_items di ON di.id = t.dataset_item_id"
-        "  JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id"
-        "  WHERE t.project_id = :pid"
-        ")"
-    )
     ann_count = (
         await db.execute(
             text(f"SELECT COUNT(*) FROM annotations WHERE task_id IN ({orphan_subq})"),
@@ -3342,12 +3640,27 @@ async def cleanup_orphan_tasks(
         )
     ).scalar() or 0
 
+    from app.db.models.annotation import Annotation
+    from app.db.models.annotation_comment import AnnotationComment
+    from app.services.comment_attachment_uploads import retire_for_comments
+
+    await retire_for_comments(
+        db,
+        source_select(AnnotationComment.id).where(
+            AnnotationComment.annotation_id.in_(
+                source_select(Annotation.id).where(Annotation.task_id.in_(orphan_ids))
+            )
+        ),
+    )
     await db.execute(
         text(
             f"DELETE FROM annotation_comments WHERE annotation_id IN ("
             f"  SELECT id FROM annotations WHERE task_id IN ({orphan_subq}))"
         ),
         {"pid": pid},
+    )
+    await db.execute(
+        text(f"DELETE FROM annotation_feedbacks WHERE task_id IN ({orphan_subq})"),
     )
     await db.execute(
         text(f"DELETE FROM annotation_drafts WHERE task_id IN ({orphan_subq})"),

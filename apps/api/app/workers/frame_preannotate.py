@@ -552,51 +552,97 @@ async def _existing_frame_indices(db, task_uuid: uuid.UUID) -> set[int]:
     return done
 
 
+async def _frame_authority(db, ctx):
+    """Explicit technical delegation for the already-dispatched frame job.
+
+    This freezes the particular Task and canonical original. It does not grant
+    permission to start a job, choose another project, or invoke an ML backend.
+    """
+    from app.services import video_derivative_originals as originals
+
+    if ctx.task is None:
+        raise ValueError("video_derivative_authority_unrecorded")
+    source = await originals.pin(db, "task", ctx.task.id)
+    if source.item_id != ctx.item.id:
+        raise ValueError("content_binding_changed")
+    reference = originals.system_authorization("task", ctx.task.id, source)
+    return await originals.delegated(db, reference), reference
+
+
 async def _extract_frames_for_video(
     db, ctx, frame_indices: list[int]
 ) -> dict[int, str]:
-    """阶段 A: 抽这些帧 → VideoFrameCache (下载源视频一次), 返回 {frame_index: url}。
+    """Stage A generates only owned frames, reusing one verified original."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services import storage_access
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives as core
+    from app.workers.media_derivatives import run_legacy
 
-    先 ``_ensure_frame_row`` 建行, 再 ``_extract_video_frames`` (下载一次 + 逐帧落存储),
-    最后回读 URL。已 ready 帧命中缓存不重抽 (断点续跑一次下载即可)。
-    """
-    from app.services.video_frame_service import _ensure_frame_row
-    from app.workers.media import _extract_video_frames
-
-    for fi in frame_indices:
-        await _ensure_frame_row(db, ctx, fi, _FRAME_WIDTH, _FRAME_FORMAT)
-    await db.commit()
-
-    requests = [
-        {"frame_index": fi, "width": _FRAME_WIDTH, "format": _FRAME_FORMAT}
-        for fi in frame_indices
-    ]
-    await _extract_video_frames(str(ctx.item.id), requests)
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    async with factory() as fresh:
+        authority, reference = await _frame_authority(fresh, ctx)
+        source = await originals.check(fresh, authority)
+        item = await core.row(fresh, type(ctx.item), ctx.item.id)
+        needs_metadata = item.video_output_id is None
+        if not needs_metadata:
+            await core.metadata(fresh, item, source)
+    if needs_metadata:
+        await run_legacy("metadata", str(ctx.item.id), delegation=reference)
+    await run_legacy(
+        "frame",
+        str(ctx.item.id),
+        delegation=reference,
+        frame_indices=frame_indices,
+        width=_FRAME_WIDTH,
+        fmt=_FRAME_FORMAT,
+    )
     return await _read_frame_urls(db, ctx, frame_indices)
 
 
 async def _read_frame_urls(db, ctx, frame_indices: list[int]) -> dict[int, str]:
-    """只读 VideoFrameCache 取已抽好帧的 URL (阶段 B 段任务用, 不下载/不抽)。
-
-    帧未 ready (阶段 A 漏抽/失败) → 不入返回 map, 调用方记 failed, **不回退下载**。
-    """
+    """Stage B verifies current saved owners; a miss never signs a raw key."""
     from sqlalchemy import select
-
+    from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.db.models.dataset import VideoFrameCache
-    from app.services.video_frame_service import _asset_url
+    from app.services import storage_access
+    from app.services import video_derivative_objects as objects
+    from app.services import video_derivatives as core
 
-    urls: dict[int, str] = {}
-    rows = await db.execute(
-        select(VideoFrameCache).where(
-            VideoFrameCache.dataset_item_id == ctx.item.id,
-            VideoFrameCache.frame_index.in_(frame_indices),
-            VideoFrameCache.width == _FRAME_WIDTH,
-            VideoFrameCache.format == _FRAME_FORMAT,
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    outputs = []
+    async with factory() as fresh:
+        authority, _ = await _frame_authority(fresh, ctx)
+        rows = await fresh.scalars(
+            select(VideoFrameCache).where(
+                VideoFrameCache.dataset_item_id == ctx.item.id,
+                VideoFrameCache.frame_index.in_(frame_indices),
+                VideoFrameCache.width == _FRAME_WIDTH,
+                VideoFrameCache.format == _FRAME_FORMAT,
+            )
         )
-    )
-    for row in rows.scalars().all():
-        if row.status == "ready" and row.storage_key:
-            urls[row.frame_index] = _asset_url(row.storage_key)
+        for row in rows:
+            if row.status == "ready" and row.output_id is not None:
+                outputs.append(
+                    objects.snapshot(await core.ready_output(fresh, row, authority))
+                )
+    objects.begin_reads(db, authority)
+    urls = {}
+    for output in outputs:
+        urls[output.spec["frame_index"]] = await core.verified(
+            db, output, authority, relative=f"frame.{_FRAME_FORMAT}"
+        )
+    async with factory() as final:
+        for output in outputs:
+            _, slot, _, _ = await core.check(
+                final,
+                output,
+                authority,
+                write=True,
+                read_plan=objects.consumed(db, output, authority),
+            )
+            slot.last_accessed_at = core.now()
+        await final.commit()
     return urls
 
 

@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,29 @@ router = APIRouter(
     dependencies=[Depends(require_scopes("annotations:read", "datasets:read"))],
 )
 WRITE = [Depends(require_scopes("datasets:write"))]
+
+
+@router.post(
+    "/{run_id}/storage-pin", response_model=SampleEvaluationOut, dependencies=WRITE
+)
+async def pin_legacy_evaluation_storage(
+    run_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    run = await pin(
+        db,
+        "sample-evaluation",
+        run_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(db, run)
 
 
 async def attempt_for(db, run, attempt_id):
@@ -157,6 +180,10 @@ async def create(
     )
     db.add(run)
     await db.flush()
+    try:
+        await service.owners.allocate(db, run)
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     for frozen in spec["samples"]:
         db.add(
             Sample(
@@ -332,6 +359,7 @@ async def retry(
         )
     try:
         await service.authority(db, run)
+        service.owners.resolve(run)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await db.get(Attempt, run.current_attempt_id)
@@ -474,18 +502,28 @@ async def source(
     if not 0 <= ordinal < len(spec["samples"]):
         raise service.reject("sample_missing", "冻结样本不存在", 404)
     from app.services.sample_evaluation_sources import resolve_source
+    from app.services.content_snapshot import ContentError
+    from app.services.original_request import connected_snapshot
 
     try:
-        return await resolve_source(
-            db,
-            run,
-            attempt_id,
-            ordinal,
-            user,
-            getattr(request.state, "api_key_id", None),
+        result = await connected_snapshot(
+            request,
+            resolve_source(
+                db,
+                run,
+                attempt_id,
+                ordinal,
+                user,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+            ),
+            close_result=False,
         )
+        return result if result is not None else Response(status_code=499)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
 
 
 @router.delete(
@@ -504,6 +542,10 @@ async def delete(
     await guard_source(db, evaluation_id=run.id)
     if run.status not in service.TERMINAL:
         raise service.reject("evaluation_active", "评估尚未确认结束，不能删除")
+    try:
+        service.owners.resolve(run)
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     run.deletion_requested_at = run.deletion_requested_at or service.now()
     await db.commit()
     try:

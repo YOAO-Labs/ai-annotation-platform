@@ -150,8 +150,20 @@ export const trainingRunsApi = {
       size_bytes: number;
       source_sha256?: string;
       redaction_revision?: number;
+      requires_authentication?: boolean;
     }>(
       `${base(projectId)}/${id}/attempts/${attemptId}/artifacts/${encodeURIComponent(name)}/download`,
+      options,
+    ),
+  downloadContent: (
+    projectId: string,
+    id: string,
+    attemptId: string,
+    name: string,
+    options?: RequestInit,
+  ) =>
+    apiClient.getBlob(
+      `${base(projectId)}/${id}/attempts/${attemptId}/artifacts/${encodeURIComponent(name)}/content`,
       options,
     ),
 };

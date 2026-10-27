@@ -45,13 +45,13 @@ docker exec ai-annotation-platform-celery-worker-1 \
 
 ## 相关存储 host 配置
 
-SAM 工作流里 worker 把 task 文件路径转换成 presigned URL 给 ML Backend 拉取。MinIO presigned URL 默认拼 `MINIO_HOST`，但 ML Backend 在另一个网络命名空间访问该 URL 时也面临同样的 loopback 问题，因此支持配置：
+SAM 工作流里 worker 把 task 文件路径转换成 presigned URL 给 ML Backend 拉取。内部对象存储 URL 默认使用 `MINIO_ENDPOINT`，但 ML Backend 在另一个网络命名空间访问该 URL 时也面临同样的 loopback 问题，因此支持配置：
 
 ```bash
-ML_BACKEND_STORAGE_HOST=http://172.17.0.1:9000
+ML_BACKEND_STORAGE_HOST=172.17.0.1:9000
 ```
 
-worker 在生成给 ML Backend 的 URL 时优先用这个变量替换 host。配置在 `.env`，参考 `.env.example`。
+worker 在签名前使用这个 Host 与内部端点的协议生成模型访问 URL，不替换已签名链接。留空时模型直接访问内部端点；不能把浏览器同源 `/minio` 填在这里。配置在 `.env`，参考 `.env.example` 及[部署签名契约](/ops/deploy/docker-compose#对象存储访问与签名契约)。
 
 ## 相关
 

@@ -34,6 +34,17 @@ class AsyncJobKind(str, enum.Enum):
     TRAINING_PREVIEW = "training_preview"
     SAMPLE_EVALUATION = "sample_evaluation"
     ACTIVE_LEARNING_ROUND = "active_learning_round"
+    STORAGE_MIGRATION_INVENTORY = "storage_migration_inventory"
+    STORAGE_MIGRATION_COPY = "storage_migration_copy"
+    STORAGE_USAGE = "storage_usage"
+    VIDEO_ASSET_RETRY = "video_asset_retry"
+    MANAGED_ORIGINAL_VERIFICATION = "managed_original_verification"
+    MANAGED_ORIGINAL_RECLAIM = "managed_original_reclaim"
+    MANAGED_REFERENCE_RECONCILIATION = "managed_reference_reconciliation"
+    DATASET_QUALITY = "dataset_quality"
+    DATASET_QUALITY_REVIEW = "dataset_quality_review"
+    DATASET_SCAN = "dataset_scan"
+    DATASET_REGISTRATION = "dataset_registration"
     DATASET_IMPORT = "dataset_import"  # 外部连接器数据集导入
     CREATE_TASKS = "create_tasks"  # dataset link → 建 task
     MASK_QC = "mask_qc"  # Raster / Video Mask 异步质量扫描
@@ -87,6 +98,10 @@ class AsyncJob(Base):
     progress_pct: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    last_progress_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    progress_observation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # 输入摘要（不要塞大对象，仅放 batch_id / 文件数等元数据）
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # 完成后的结果摘要（success_count / failed_count / 路径等）

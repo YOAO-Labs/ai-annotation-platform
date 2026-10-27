@@ -1,8 +1,9 @@
 ---
+title: 计数与派生字段
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 计数与派生字段
@@ -193,6 +194,13 @@ last_reviewed: 2026-10-19
 - `projects.cleanup_orphans`
 
 它们会直接重算 project / batch counters，而不是等用户下一次操作被动纠正。
+
+### 5. 数据集工作台的关联项目可见任务统计（即时聚合）
+
+除了持久化在 `Project` 行上的全局计数（`total_tasks / completed_tasks / review_tasks / in_progress_tasks`），数据集工作台（`GET /api/v1/datasets/{id}/workbench`，实现于 `services/dataset_workbench.py::workbench`）还会返回该数据集在各关联项目中的任务进度（`total_tasks`、`labeled_tasks`、`completed_tasks`、`review_tasks`）：
+
+- **按调用者可见性即时聚合**：该统计**不直接读取** `Project` 表上的缓存列，而是按当前用户在每个关联项目中的实际访问身份（特权管理者或 `annotator` / `reviewer` / `viewer` 成员角色）分组，复用 Data Manager 的 `apply_task_visibility` 与 `dataset.dataset_id` 过滤，在单条 `UNION ALL` SQL 中即时计算**当前用户在该数据集下可见的任务进度**。
+- 因此，同一数据集关联的同一项目，在管理员与普通标注员视角下看到的 `total_tasks` / `completed_tasks` 可能不同——这是遵守任务级可见性边界的预期行为，而非缓存未同步。
 
 ## Dashboard 为什么依赖这些字段
 

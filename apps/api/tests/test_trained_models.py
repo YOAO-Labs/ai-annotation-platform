@@ -21,7 +21,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.db.models.user import User
 from app.schemas.trained_model import TrainedModelCreate
-from app.services import trained_models as service
+from app.services import trained_models as service, training_run_storage
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
 from tests.conftest import _create_user, create_registry_with_pool
@@ -32,8 +32,8 @@ def headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-async def seed_source(db, owner):
-    project = await create_project(db, owner_id=owner.id)
+async def seed_source(db, owner, *, project=None):
+    project = project or await create_project(db, owner_id=owner.id)
     project.ai_enabled = True
     dataset = TrainingDatasetVersion(
         project_id=project.id,
@@ -50,6 +50,10 @@ async def seed_source(db, owner):
     )
     db.add(dataset)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    ref = await allocate(db, dataset)
+    dataset.package_key = ref["prefix"] + "dataset.zip"
     run = TrainingRun(
         project_id=project.id,
         creator_id=owner.id,
@@ -70,6 +74,7 @@ async def seed_source(db, owner):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     attempt = TrainingAttempt(
         run_id=run.id,
         ordinal=1,
@@ -93,17 +98,25 @@ async def seed_source(db, owner):
     )
     db.add(attempt)
     await db.flush()
+    storage_owner = training_run_storage.resolve(run)
+    attempt.artifacts = {
+        name: {**artifact, "key": storage_owner.key(f"attempts/{attempt.id}/{name}")}
+        for name, artifact in attempt.artifacts.items()
+    }
     run.current_attempt_id = attempt.id
     return project, run, attempt
 
 
 @pytest.fixture
 def controlled_artifacts(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     monkeypatch.setattr(service, "verify_artifact", Mock())
     monkeypatch.setattr(
         service,
         "read_json_artifact",
-        lambda *_: {
+        lambda *_, bucket, transport=None: {
             "summary": {"mAP50-95": 0.4},
             "validation_digest": "f" * 64,
             "evaluation": {
@@ -142,6 +155,11 @@ async def next_successful_attempt(db, run, previous):
     )
     db.add(attempt)
     await db.flush()
+    storage_owner = training_run_storage.resolve(run)
+    attempt.artifacts = {
+        name: {**artifact, "key": storage_owner.key(f"attempts/{attempt.id}/{name}")}
+        for name, artifact in attempt.artifacts.items()
+    }
     run.current_attempt_id = attempt.id
     return attempt
 
@@ -160,7 +178,7 @@ async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qual
     monkeypatch.setattr(
         service,
         "read_json_artifact",
-        lambda *_: {
+        lambda *_, bucket, transport=None: {
             "validation_digest": run.config["validation_digest"],
             "evaluation": {
                 "framework": "libreyolo",
@@ -319,7 +337,7 @@ async def test_registration_is_immutable_idempotent_and_guards_source_storage(
     assert changed.status_code == 409
     delete_objects = Mock()
     monkeypatch.setattr(
-        "app.api.v1.training_runs.storage.delete_prefix", delete_objects
+        "app.services.storage.storage_service.delete_prefix", delete_objects
     )
     deleted = await httpx_client.delete(
         f"/api/v1/projects/{project.id}/training-runs/{run.id}", headers=headers(token)
@@ -611,6 +629,14 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     db_session.add(d2)
     await db_session.flush()
     task = await create_task(db_session, project_id=project.id)
+    from app.services import prediction_references
+
+    async def capture_authority(*args, **kwargs):
+        # Original-reader ownership has dedicated coverage; this case freezes
+        # the job's model reference across publication replay.
+        return {"schema": 2, "tasks": [{"original": {"schema": 1}}]}
+
+    monkeypatch.setattr(prediction_references, "capture_authority", capture_authority)
     mock_live_receipts(monkeypatch, db_session)
     await publish(httpx_client, token, project, v1, d1, 0)
     dispatch = Mock(
@@ -877,13 +903,16 @@ def test_backend_download_is_absolute_with_a_relative_browser_proxy(monkeypatch)
 
     monkeypatch.setattr(settings, "minio_public_url", "/minio")
     monkeypatch.setattr(settings, "ml_backend_storage_host", "")
-    url = service.download_url("owned/weights.pt")
+    url = service.download_url("owned/weights.pt", bucket="retained-model-bucket")
     assert urlsplit(url).scheme in {"http", "https"}
     assert urlsplit(url).netloc
     assert "/owned/weights.pt" in urlsplit(url).path
+    assert "/retained-model-bucket/" in urlsplit(url).path
     public_url = service.storage.generate_download_url("owned/input.png")
     assert public_url.startswith("/minio/")
-    backend_url = service.storage.rewrite_host_for_ml_backend(public_url)
+    backend_url = service.storage.generate_download_url(
+        "owned/input.png", audience="ml"
+    )
     assert urlsplit(backend_url).netloc == settings.minio_endpoint
     assert urlsplit(backend_url).query == urlsplit(public_url).query
 

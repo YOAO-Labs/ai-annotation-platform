@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, Awaitable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -191,6 +191,7 @@ class RoutedMLBackendClient:
         context: dict | None = None,
         *,
         max_response_bytes: int | None = None,
+        before_dispatch: Callable[[Any], Awaitable[None]] | None = None,
     ) -> list[Any]:
         from app.services import trained_models
 
@@ -224,6 +225,8 @@ class RoutedMLBackendClient:
             {"required_instance_id": required_instance_id} if controlled else {}
         )
         async with self._routed_transport(**route_args) as client:
+            if before_dispatch is not None:
+                await before_dispatch(client)
             response_limit = (
                 {"max_response_bytes": max_response_bytes}
                 if max_response_bytes is not None
@@ -250,6 +253,7 @@ class RoutedMLBackendClient:
         context: dict,
         *,
         max_response_bytes: int | None = None,
+        before_dispatch: Callable[[Any], Awaitable[None]] | None = None,
     ) -> Any:
         if (
             (context.get("model_id") or "").startswith("trained:")
@@ -258,6 +262,8 @@ class RoutedMLBackendClient:
         ):
             raise ValueError("Controlled models do not support interactive prediction")
         async with self._routed_transport() as client:
+            if before_dispatch is not None:
+                await before_dispatch(client)
             response_limit = (
                 {"max_response_bytes": max_response_bytes}
                 if max_response_bytes is not None

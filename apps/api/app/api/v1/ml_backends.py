@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import io
 import json
@@ -22,6 +21,7 @@ from app.deps import (
     get_db,
     get_gpu_dispatch_context_factory,
     get_gpu_shadow_session_factory,
+    get_prediction_input_session_factory,
     project_access_for_path,
     require_roles,
     require_project_capability,
@@ -65,6 +65,7 @@ from app.services.ml_backend import (
     MLBackendURLConflict,
 )
 from app.services import ml_client as ml_client_module
+from app.services.reference_inference import reference_image_operation
 from app.services.ml_capabilities import extract_capabilities
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
@@ -73,10 +74,12 @@ from app.services.ml_interaction_proxy import (
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.prediction import PredictionService, to_video_bbox_result
 from app.services.project_access import ProjectAccess, ProjectCapability
-from app.services.storage import StorageService
 from app.services.audit import AuditService
 from app.services.ai_mask_receipt import issue_ai_mask_receipt
-from app.services.ai_mask_prompt import resolve_authorized_mask_prompt
+from app.services.ai_mask_prompt import (
+    capture_image_mask_prompt_source,
+    resolve_authorized_mask_prompt,
+)
 from app.services.ai_mask_session import issue_ai_mask_session
 from app.api.v1.tasks._shared import (
     _assert_review_adjustment_evidence,
@@ -813,6 +816,8 @@ async def _prepare_safe_interactive_context(
     *,
     task_id: uuid.UUID,
     frame_index: int | None = None,
+    reference_input: dict | None = None,
+    original_input: dict | None = None,
 ) -> tuple[dict, str | None]:
     from app.services.trained_models import is_controlled
 
@@ -840,6 +845,8 @@ async def _prepare_safe_interactive_context(
         task_id=str(task_id),
         frame_index=frame_index,
         requested_backend_id=str(backend_id),
+        reference_input=reference_input,
+        original_input=original_input,
     )
 
 
@@ -878,7 +885,18 @@ def _interactive_response(
     model_id: str | None,
     task_id: uuid.UUID,
     frame_index: int | None,
+    reference_input: dict | None = None,
+    original_input: dict | None = None,
 ) -> dict:
+    if reference_input is not None and original_input is not None:
+        raise ValueError("Mask source identities are mutually exclusive")
+    source_claims = (
+        {"original_input": original_input}
+        if original_input is not None
+        else {"reference_input": reference_input}
+        if reference_input is not None
+        else {}
+    )
     operation = mask_ai_operation(context)
     decode_started = time.monotonic()
     try:
@@ -950,6 +968,7 @@ def _interactive_response(
                     "prompt_summary": prompt_summary,
                     "prompt_source": prompt_source,
                     "accept_target": accept_target,
+                    **source_claims,
                 }
             )
     mask_input_next = None
@@ -978,6 +997,7 @@ def _interactive_response(
                     "origin_prompt_revision": prompt_revision,
                     "candidate_id": normalized[0].get("candidate_id"),
                     "candidate_index": 0,
+                    **source_claims,
                 },
             )
         except ValueError as exc:
@@ -1197,7 +1217,9 @@ async def predict_test(
     project_id: uuid.UUID,
     backend_id: uuid.UUID,
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    input_session_factory=Depends(get_prediction_input_session_factory),
     shadow_session_factory: GPUShadowSessionFactory = Depends(
         get_gpu_shadow_session_factory
     ),
@@ -1214,24 +1236,72 @@ async def predict_test(
     task = await _get_task_in_project(db, task_id, project_id)
     await db.commit()
 
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=project_id,
-        owner=f"api:predict-test:{task.id}",
-        operation="predict_test",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    results = await client.predict(
-        [{"id": str(task.id), "file_path": _resolve_task_url(task)}]
-    )
-    return {
-        "results": [
-            {"task_id": r.task_id, "result": r.result, "score": r.score}
-            for r in results
-        ]
-    }
+    video_input = task.file_type == "video"
+    if video_input:
+        from app.services.video_sync_inference import video_predict_test_operation
+
+        operation = video_predict_test_operation(
+            db,
+            task,
+            current_user,
+            request,
+            input_session_factory,
+            backend_id=backend_id,
+        )
+    else:
+        operation = reference_image_operation(
+            db, task, current_user, request, "predict_test", input_session_factory
+        )
+    async with operation as image_input:
+
+        async def before_dispatch(transport):
+            if video_input:
+                await db.commit()
+                await image_input.before_dispatch(transport)
+            else:
+                await image_input.validate()
+                await db.commit()
+
+        client = RoutedMLBackendClient(
+            db,
+            backend,
+            project_id=project_id,
+            owner=f"api:predict-test:{task.id}",
+            operation="predict_test",
+            shadow_session_factory=shadow_session_factory,
+            dispatch_context_factory=dispatch_context_factory,
+        )
+        pending = client.predict(
+            [
+                {
+                    "id": str(task.id),
+                    "file_path": image_input.url
+                    if image_input
+                    else _resolve_task_url(task),
+                }
+            ],
+            **({"before_dispatch": before_dispatch} if image_input else {}),
+            **({"max_response_bytes": 64 * 1024**2} if video_input else {}),
+        )
+        if video_input:
+            from app.services.prediction_originals import settled
+            from app.services.content_snapshot import ContentError
+
+            results = await settled(pending)
+            if len(results) > 1 or any(
+                str(result.task_id) != str(task.id) for result in results
+            ):
+                raise ContentError("prediction_video_result_task_mismatch", 502)
+        else:
+            results = await pending
+        if image_input:
+            await image_input.final()
+        return {
+            "results": [
+                {"task_id": r.task_id, "result": r.result, "score": r.score}
+                for r in results
+            ]
+        }
 
 
 @router.post(
@@ -1245,6 +1315,7 @@ async def interactive_annotating(
     body: InteractiveRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    input_session_factory=Depends(get_prediction_input_session_factory),
     shadow_session_factory: GPUShadowSessionFactory = Depends(
         get_gpu_shadow_session_factory
     ),
@@ -1269,117 +1340,162 @@ async def interactive_annotating(
     await _assert_task_visible(db, task, current_user, access=access)
     if (body.context or {}).get("mask_prompt_source") is not None:
         assert_request_scopes(request, "annotations:read")
+    # Release initial membership/editability locks before any original or RLE I/O.
+    await db.commit()
 
     # AI 推理参数 (阈值 / 变体等) 已统一改走工作台 AI 面板: 前端按所绑定 backend 的
     # /setup.params 动态渲染、每用户独立调整, 并随 context 透传。平台不再注入项目级 DINO
     # 阈值 (那会把 gsam2 专属参数塞给 sam3 等不支持的后端); 各 backend 缺省值由自身 /setup 决定。
-    resolved_context = await resolve_authorized_mask_prompt(
+    prompt_source = await capture_image_mask_prompt_source(
         db,
         task=task,
         context=dict(body.context or {}),
-        frame_index=None,
     )
-    context, model_id = await _prepare_safe_interactive_context(
-        backend,
-        backend_id,
-        resolved_context,
-        task_id=task.id,
-        frame_index=None,
-    )
-    expected_size = (
-        await _task_media_size(db, task)
-        if context.get("output_geometry") == "mask"
-        else None
-    )
-    await db.commit()
-
-    client = RoutedMLBackendClient(
+    async with reference_image_operation(
         db,
-        backend,
-        project_id=project_id,
-        owner=f"api:interactive:{task.id}",
-        operation="interactive_predict",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    predict_kwargs = (
-        {"max_response_bytes": MAX_MASK_RESPONSE_BYTES}
-        if context.get("output_geometry") == "mask"
-        else {}
-    )
-    metric_operation = mask_ai_operation(context)
-    metric_prompt = mask_ai_prompt_family(context)
-    metric_geometry = str(context.get("output_geometry") or "unknown")
-    inference_started = time.monotonic()
-    try:
-        result = await client.predict_interactive(
-            task_data={"id": str(task.id), "file_path": _resolve_task_url(task)},
-            context=context,
-            **predict_kwargs,
+        task,
+        current_user,
+        request,
+        "interactive_predict",
+        input_session_factory,
+        annotations_read=(body.context or {}).get("mask_prompt_source") is not None,
+        prompt_source=prompt_source,
+    ) as image_input:
+        verified_size = (
+            (image_input.snapshot.width, image_input.snapshot.height)
+            if image_input
+            else None
         )
-    except Exception:
+        resolved_context = await resolve_authorized_mask_prompt(
+            db,
+            task=task,
+            context=dict(body.context or {}),
+            frame_index=None,
+            verified_image_size=verified_size,
+        )
+        provenance = (
+            {image_input.provenance_key: image_input.identity()} if image_input else {}
+        )
+        context, model_id = await _prepare_safe_interactive_context(
+            backend,
+            backend_id,
+            resolved_context,
+            task_id=task.id,
+            frame_index=None,
+            **provenance,
+        )
+        expected_size = (
+            verified_size or await _task_media_size(db, task)
+            if context.get("output_geometry") == "mask"
+            else None
+        )
+        await db.commit()
+
+        client = RoutedMLBackendClient(
+            db,
+            backend,
+            project_id=project_id,
+            owner=f"api:interactive:{task.id}",
+            operation="interactive_predict",
+            shadow_session_factory=shadow_session_factory,
+            dispatch_context_factory=dispatch_context_factory,
+        )
+        predict_kwargs = (
+            {"max_response_bytes": MAX_MASK_RESPONSE_BYTES}
+            if context.get("output_geometry") == "mask"
+            else {}
+        )
+        metric_operation = mask_ai_operation(context)
+        metric_prompt = mask_ai_prompt_family(context)
+        metric_geometry = str(context.get("output_geometry") or "unknown")
+        inference_started = time.monotonic()
+        if image_input:
+            await image_input.validate()
+            await db.commit()
+
+        async def before_dispatch(_transport):
+            await image_input.validate()
+            await db.commit()
+
+        try:
+            result = await client.predict_interactive(
+                task_data={
+                    "id": str(task.id),
+                    "file_path": image_input.url
+                    if image_input
+                    else _resolve_task_url(task),
+                },
+                context=context,
+                **({"before_dispatch": before_dispatch} if image_input else {}),
+                **predict_kwargs,
+            )
+        except Exception:
+            observe_mask_ai_phase(
+                operation=metric_operation,
+                phase="inference",
+                outcome="error",
+                duration_seconds=time.monotonic() - inference_started,
+            )
+            record_mask_ai_operation(
+                operation=metric_operation,
+                prompt_family=metric_prompt,
+                output_geometry=metric_geometry,
+                outcome="error",
+            )
+            raise
         observe_mask_ai_phase(
             operation=metric_operation,
             phase="inference",
-            outcome="error",
+            outcome="success",
             duration_seconds=time.monotonic() - inference_started,
         )
-        record_mask_ai_operation(
-            operation=metric_operation,
-            prompt_family=metric_prompt,
-            output_geometry=metric_geometry,
-            outcome="error",
-        )
-        raise
-    observe_mask_ai_phase(
-        operation=metric_operation,
-        phase="inference",
-        outcome="success",
-        duration_seconds=time.monotonic() - inference_started,
-    )
-    # Do not return restricted candidates from a revoked/role-changed authority:
-    # re-acquire the task row and locked membership at the response boundary.
-    await _reacquire_write_boundary(db, task.id, current_user)
-    encode_started = time.monotonic()
-    try:
-        response_body = _interactive_response(
-            result,
-            context=context,
-            expected_size=expected_size,
-            client=client,
-            requested_backend_id=backend_id,
-            model_id=model_id,
-            task_id=task.id,
-            frame_index=None,
-        )
-    except Exception:
+        # Do not return restricted candidates from a revoked/role-changed authority:
+        # re-acquire the task row and locked membership at the response boundary.
+        if image_input:
+            await image_input.final()
+        else:
+            await _reacquire_write_boundary(db, task.id, current_user)
+        encode_started = time.monotonic()
+        try:
+            response_body = _interactive_response(
+                result,
+                context=context,
+                expected_size=expected_size,
+                client=client,
+                requested_backend_id=backend_id,
+                model_id=model_id,
+                task_id=task.id,
+                frame_index=None,
+                **provenance,
+            )
+        except Exception:
+            observe_mask_ai_phase(
+                operation=metric_operation,
+                phase="encode",
+                outcome="error",
+                duration_seconds=time.monotonic() - encode_started,
+            )
+            record_mask_ai_operation(
+                operation=metric_operation,
+                prompt_family=metric_prompt,
+                output_geometry=metric_geometry,
+                outcome="error",
+            )
+            raise
         observe_mask_ai_phase(
             operation=metric_operation,
             phase="encode",
-            outcome="error",
+            outcome="success",
             duration_seconds=time.monotonic() - encode_started,
         )
         record_mask_ai_operation(
             operation=metric_operation,
             prompt_family=metric_prompt,
             output_geometry=metric_geometry,
-            outcome="error",
+            candidate_count=len(response_body["result"]),
+            outcome="success",
         )
-        raise
-    observe_mask_ai_phase(
-        operation=metric_operation,
-        phase="encode",
-        outcome="success",
-        duration_seconds=time.monotonic() - encode_started,
-    )
-    record_mask_ai_operation(
-        operation=metric_operation,
-        prompt_family=metric_prompt,
-        output_geometry=metric_geometry,
-        candidate_count=len(response_body["result"]),
-        outcome="success",
-    )
-    return response_body
+        return response_body
 
 
 @router.post(
@@ -1402,12 +1518,13 @@ async def predict_frame(
         get_gpu_dispatch_context_factory
     ),
     current_user: User = Depends(get_current_user),
+    input_session_factory=Depends(get_prediction_input_session_factory),
 ):
     """v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。
 
     视频 task 的 ``file_path`` 是整段 mp4, 图像 backend 从 task URL 取不到帧 (见
     ``_resolve_task_url``)。故前端把当前帧解成 JPEG 随 multipart 传入; 服务端上传 import 桶换
-    presigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走
+    presigned URL 投递 (独立临时输入归属, **通用**——gsam2/sam3 全支持 http URL, 不走
     ``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有
     ``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。
 
@@ -1474,53 +1591,58 @@ async def predict_frame(
     # + JPEG/PNG decode + dim/pixel limits) before any storage I/O.
     jpeg_bytes = await _read_capped_frame(frame, request=request)
 
-    storage = StorageService()
-    # v0.23.5 · WS-D · D5 · boto3 sync put_object wrapped in to_thread.
-    frame_url = await asyncio.to_thread(
-        storage.upload_crop_bytes,
-        jpeg_bytes,
-        f"frame-predict/{task_id}/{frame_index}.jpg",
-    )
+    from app.services.prediction_inputs import prediction_inputs
+
     await db.commit()
-
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=project_id,
-        owner=f"api:predict-frame:{task.id}:{frame_index}",
-        operation="frame_predict",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    results = await client.predict(
-        [{"id": str(task.id), "file_path": frame_url}], context=context
-    )
-
-    raw_shapes: list[dict] = []
-    for r in results:
-        if isinstance(r.result, list):
-            raw_shapes.extend(r.result)
-    video_shapes = to_video_bbox_result(raw_shapes, frame_index)
-
-    score = next((r.score for r in results if r.score is not None), None)
-    # Final mutation boundary: re-acquire the task row and locked membership so a
-    # revocation or role change during inference cannot persist a prediction.
-    await _reacquire_write_boundary(db, task.id, current_user)
-    pred_svc = PredictionService(db)
-    prediction = await pred_svc.create_from_ml_result(
+    async with prediction_inputs(
+        input_session_factory,
+        owner_id=uuid.uuid4(),
+        owner_kind="frame_predict",
         task_id=task.id,
-        project_id=project_id,
-        ml_backend_id=client.last_instance_id or backend_id,
-        result=video_shapes,
-        score=score,
-        ml_backend_pool_id=client.pool_id,
-    )
-    await db.commit()
-    return {
-        "prediction_id": str(prediction.id),
-        "candidate_count": len(video_shapes),
-        "frame_index": frame_index,
-    }
+    ) as inputs:
+        frame_url = await inputs.upload_frame(task, jpeg_bytes)
+        await db.commit()
+
+        client = RoutedMLBackendClient(
+            db,
+            backend,
+            project_id=project_id,
+            owner=f"api:predict-frame:{task.id}:{frame_index}",
+            operation="frame_predict",
+            shadow_session_factory=shadow_session_factory,
+            dispatch_context_factory=dispatch_context_factory,
+        )
+        results = await client.predict(
+            [{"id": str(task.id), "file_path": frame_url}], context=context
+        )
+
+        # Finish physical input cleanup before the final authority/write locks.
+        await inputs.close()
+        raw_shapes: list[dict] = []
+        for r in results:
+            if isinstance(r.result, list):
+                raw_shapes.extend(r.result)
+        video_shapes = to_video_bbox_result(raw_shapes, frame_index)
+
+        score = next((r.score for r in results if r.score is not None), None)
+        # Final mutation boundary: re-acquire the task row and locked membership so a
+        # revocation or role change during inference cannot persist a prediction.
+        await _reacquire_write_boundary(db, task.id, current_user)
+        pred_svc = PredictionService(db)
+        prediction = await pred_svc.create_from_ml_result(
+            task_id=task.id,
+            project_id=project_id,
+            ml_backend_id=client.last_instance_id or backend_id,
+            result=video_shapes,
+            score=score,
+            ml_backend_pool_id=client.pool_id,
+        )
+        await db.commit()
+        return {
+            "prediction_id": str(prediction.id),
+            "candidate_count": len(video_shapes),
+            "frame_index": frame_index,
+        }
 
 
 @router.post(
@@ -1544,6 +1666,7 @@ async def interactive_annotating_frame(
         get_gpu_dispatch_context_factory
     ),
     current_user: User = Depends(get_current_user),
+    input_session_factory=Depends(get_prediction_input_session_factory),
 ):
     """视频当前帧的**交互式** SAM 提示 (point / interactive_box / exemplar)。
 
@@ -1616,132 +1739,137 @@ async def interactive_annotating_frame(
         else None
     )
 
-    storage = StorageService()
-    # v0.23.5 · WS-D · D5 · boto3 sync put_object wrapped in to_thread.
-    metric_operation = mask_ai_operation(ctx)
-    metric_prompt = mask_ai_prompt_family(ctx)
-    metric_geometry = str(ctx.get("output_geometry") or "unknown")
-    upload_started = time.monotonic()
-    try:
-        frame_url = await asyncio.to_thread(
-            storage.upload_crop_bytes,
-            jpeg_bytes,
-            f"frame-interactive/{task_id}/{frame_index}.jpg",
-        )
-    except Exception:
+    from app.services.prediction_inputs import prediction_inputs
+
+    await db.commit()
+    async with prediction_inputs(
+        input_session_factory,
+        owner_id=uuid.uuid4(),
+        owner_kind="frame_interactive",
+        task_id=task.id,
+    ) as inputs:
+        # v0.23.5 · WS-D · D5 · boto3 sync put_object wrapped in to_thread.
+        metric_operation = mask_ai_operation(ctx)
+        metric_prompt = mask_ai_prompt_family(ctx)
+        metric_geometry = str(ctx.get("output_geometry") or "unknown")
+        upload_started = time.monotonic()
+        try:
+            frame_url = await inputs.upload_frame(task, jpeg_bytes)
+        except Exception:
+            observe_mask_ai_phase(
+                operation=metric_operation,
+                phase="upload",
+                outcome="error",
+                duration_seconds=time.monotonic() - upload_started,
+            )
+            record_mask_ai_operation(
+                operation=metric_operation,
+                prompt_family=metric_prompt,
+                output_geometry=metric_geometry,
+                outcome="error",
+            )
+            raise
         observe_mask_ai_phase(
             operation=metric_operation,
             phase="upload",
-            outcome="error",
+            outcome="success",
             duration_seconds=time.monotonic() - upload_started,
         )
-        record_mask_ai_operation(
-            operation=metric_operation,
-            prompt_family=metric_prompt,
-            output_geometry=metric_geometry,
-            outcome="error",
-        )
-        raise
-    observe_mask_ai_phase(
-        operation=metric_operation,
-        phase="upload",
-        outcome="success",
-        duration_seconds=time.monotonic() - upload_started,
-    )
-    await db.commit()
+        await db.commit()
 
-    # 与 interactive_annotating 一致: 不注入项目级 DINO 阈值 (那是 gsam2 专属, 塞给 sam3
-    # 等后端会出错); 推理参数由前端按 /setup.params 渲染后随 context 透传。
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=project_id,
-        owner=f"api:interactive-frame:{task.id}:{frame_index}",
-        operation="interactive_frame_predict",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    predict_kwargs = (
-        {"max_response_bytes": MAX_MASK_RESPONSE_BYTES}
-        if ctx.get("output_geometry") == "mask"
-        else {}
-    )
-    inference_started = time.monotonic()
-    try:
-        result = await client.predict_interactive(
-            task_data={"id": str(task.id), "file_path": frame_url},
-            context=ctx,
-            **predict_kwargs,
+        # 与 interactive_annotating 一致: 不注入项目级 DINO 阈值 (那是 gsam2 专属, 塞给 sam3
+        # 等后端会出错); 推理参数由前端按 /setup.params 渲染后随 context 透传。
+        client = RoutedMLBackendClient(
+            db,
+            backend,
+            project_id=project_id,
+            owner=f"api:interactive-frame:{task.id}:{frame_index}",
+            operation="interactive_frame_predict",
+            shadow_session_factory=shadow_session_factory,
+            dispatch_context_factory=dispatch_context_factory,
         )
-    except Exception:
+        predict_kwargs = (
+            {"max_response_bytes": MAX_MASK_RESPONSE_BYTES}
+            if ctx.get("output_geometry") == "mask"
+            else {}
+        )
+        inference_started = time.monotonic()
+        try:
+            result = await client.predict_interactive(
+                task_data={"id": str(task.id), "file_path": frame_url},
+                context=ctx,
+                **predict_kwargs,
+            )
+        except Exception:
+            observe_mask_ai_phase(
+                operation=metric_operation,
+                phase="inference",
+                outcome="error",
+                duration_seconds=time.monotonic() - inference_started,
+            )
+            record_mask_ai_operation(
+                operation=metric_operation,
+                prompt_family=metric_prompt,
+                output_geometry=metric_geometry,
+                outcome="error",
+            )
+            raise
         observe_mask_ai_phase(
             operation=metric_operation,
             phase="inference",
-            outcome="error",
+            outcome="success",
             duration_seconds=time.monotonic() - inference_started,
         )
-        record_mask_ai_operation(
-            operation=metric_operation,
-            prompt_family=metric_prompt,
-            output_geometry=metric_geometry,
-            outcome="error",
-        )
-        raise
-    observe_mask_ai_phase(
-        operation=metric_operation,
-        phase="inference",
-        outcome="success",
-        duration_seconds=time.monotonic() - inference_started,
-    )
-    # Do not return restricted candidates from a revoked/role-changed authority:
-    # re-acquire the task row and locked membership at the response boundary.
-    await _reacquire_write_boundary(db, task.id, current_user)
-    encode_started = time.monotonic()
-    try:
-        response_body = _interactive_response(
-            result,
-            context=ctx,
-            expected_size=expected_size,
-            client=client,
-            requested_backend_id=backend_id,
-            model_id=model_id,
-            task_id=task.id,
-            frame_index=frame_index,
-        )
-    except Exception:
+        # Finish physical input cleanup before the final authority locks.
+        await inputs.close()
+        # Do not return restricted candidates from a revoked/role-changed authority:
+        # re-acquire the task row and locked membership at the response boundary.
+        await _reacquire_write_boundary(db, task.id, current_user)
+        encode_started = time.monotonic()
+        try:
+            response_body = _interactive_response(
+                result,
+                context=ctx,
+                expected_size=expected_size,
+                client=client,
+                requested_backend_id=backend_id,
+                model_id=model_id,
+                task_id=task.id,
+                frame_index=frame_index,
+            )
+        except Exception:
+            observe_mask_ai_phase(
+                operation=metric_operation,
+                phase="encode",
+                outcome="error",
+                duration_seconds=time.monotonic() - encode_started,
+            )
+            record_mask_ai_operation(
+                operation=metric_operation,
+                prompt_family=metric_prompt,
+                output_geometry=metric_geometry,
+                outcome="error",
+            )
+            raise
         observe_mask_ai_phase(
             operation=metric_operation,
             phase="encode",
-            outcome="error",
+            outcome="success",
             duration_seconds=time.monotonic() - encode_started,
         )
         record_mask_ai_operation(
             operation=metric_operation,
             prompt_family=metric_prompt,
             output_geometry=metric_geometry,
-            outcome="error",
+            candidate_count=len(response_body["result"]),
+            outcome="success",
         )
-        raise
-    observe_mask_ai_phase(
-        operation=metric_operation,
-        phase="encode",
-        outcome="success",
-        duration_seconds=time.monotonic() - encode_started,
-    )
-    record_mask_ai_operation(
-        operation=metric_operation,
-        prompt_family=metric_prompt,
-        output_geometry=metric_geometry,
-        candidate_count=len(response_body["result"]),
-        outcome="success",
-    )
-    return response_body
+        return response_body
 
-
-# ── v0.23.3 ADR-0050 §12.2 · 项目服务池绑定 API (pool-level) ──────────────────
-# 与上面的 /{backend_id}/* (registry-level) 端点并存: 后者继续按 registry 实例操作
-# (lifecycle / smoke), 本组按 pool 操作 (项目启用 / 可用清单)。off/observe 下每池
-# 是 singleton, legacy_instance 指向唯一 registry, 行为与 registry-level 等价。
+    # ── v0.23.3 ADR-0050 §12.2 · 项目服务池绑定 API (pool-level) ──────────────────
+    # 与上面的 /{backend_id}/* (registry-level) 端点并存: 后者继续按 registry 实例操作
+    # (lifecycle / smoke), 本组按 pool 操作 (项目启用 / 可用清单)。off/observe 下每池
+    # 是 singleton, legacy_instance 指向唯一 registry, 行为与 registry-level 等价。
 
 
 @router.get(

@@ -12,18 +12,20 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.project import Project
-from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.user import User
-from app.deps import get_current_user, get_db
+from app.deps import get_current_user, get_db, assert_request_scopes
 from app.services.async_job_terminal import reconcile_domain_terminal
+from app.services import dataset_source_access as source_access
+from app.services import dataset_quality as quality_svc
+from app.services import dataset_quality_review as review_svc
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
     AsyncJobListResponse,
@@ -36,12 +38,22 @@ log = logging.getLogger(__name__)
 
 # v0.10.51 · batch_predict 支持协作取消；其它长任务保持软取消。
 CANCELLABLE_KINDS = {
+    "export",
     "sample_evaluation",
     "training_dataset",
     "batch_predict",
     "predictions_import",
     "audit_archive",
     "dataset_import",
+    "dataset_scan",
+    "dataset_registration",
+    "storage_usage",
+    "managed_original_verification",
+    "managed_original_reclaim",
+    "storage_migration_inventory",
+    "storage_migration_copy",
+    "dataset_quality",
+    "dataset_quality_review",
     "mask_qc",
     "mask_repair",
     "mask_format_import",
@@ -84,23 +96,39 @@ def _build_async_job_query(
             project_roles=(ProjectRole.REVIEWER.value,),
         )
         query = query.where(
-            AsyncJob.user_id == current_user.id,
             or_(
-                # Genuine global non-export jobs stay visible; a global export
-                # row has no legitimate mode and must fail closed.
+                source_access.job_scope_clause(current_user),
+                quality_svc.job_scope_clause(current_user),
+                review_svc.job_scope_clause(current_user),
                 and_(
-                    AsyncJob.kind != EXPORT_JOB_KIND,
-                    AsyncJob.project_id.is_(None),
+                    AsyncJob.kind.not_in(
+                        [
+                            "storage_usage",
+                            "managed_original_verification",
+                            "managed_original_reclaim",
+                            "managed_reference_reconciliation",
+                            "storage_migration_inventory",
+                            "storage_migration_copy",
+                            "dataset_scan",
+                            "dataset_registration",
+                            "dataset_quality",
+                            "dataset_quality_review",
+                        ]
+                    ),
+                    AsyncJob.user_id == current_user.id,
+                    or_(
+                        and_(
+                            AsyncJob.kind != EXPORT_JOB_KIND,
+                            AsyncJob.project_id.is_(None),
+                        ),
+                        project_scope,
+                    ),
+                    or_(
+                        AsyncJob.kind != EXPORT_JOB_KIND,
+                        and_(AsyncJob.project_id.is_not(None), export_scope),
+                    ),
                 ),
-                project_scope,
-            ),
-            or_(
-                AsyncJob.kind != EXPORT_JOB_KIND,
-                and_(
-                    AsyncJob.project_id.is_not(None),
-                    export_scope,
-                ),
-            ),
+            )
         )
     if status:
         query = query.where(AsyncJob.status.in_(status))
@@ -132,8 +160,46 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     be able to see the job's project, and the reviewer scope-expansion paths use
     the *current* project role rather than a stale global account role.
     """
+    if job.kind in {
+        "storage_usage",
+        "managed_original_verification",
+        "managed_original_reclaim",
+        "managed_reference_reconciliation",
+        "storage_migration_inventory",
+        "storage_migration_copy",
+    }:
+        return user.is_active and user.role == PlatformRole.SUPER_ADMIN.value
+    if job.kind in {"dataset_quality", "dataset_quality_review"}:
+        try:
+            actor = await source_access.require_manager(db, user.id)
+        except HTTPException:
+            return False
+        return bool(
+            await db.scalar(
+                select(AsyncJob.id).where(
+                    AsyncJob.id == job.id,
+                    (
+                        review_svc
+                        if job.kind == "dataset_quality_review"
+                        else quality_svc
+                    ).job_scope_clause(actor),
+                )
+            )
+        )
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return True
+    if job.kind in {"dataset_scan", "dataset_registration"}:
+        try:
+            user = await source_access.require_manager(db, user.id)
+        except HTTPException:
+            return False
+        return bool(
+            await db.scalar(
+                select(AsyncJob.id).where(
+                    AsyncJob.id == job.id, source_access.job_scope_clause(user)
+                )
+            )
+        )
     if job.project_id is None:
         # Annotation export has no legitimate global mode: a malformed/legacy
         # export row without an actual project must not expose its signed URL.
@@ -207,6 +273,7 @@ async def _to_async_job_out(
 
 @router.get("/async-jobs", response_model=AsyncJobListResponse)
 async def list_async_jobs(
+    request: Request,
     status: list[AsyncJobStatusParam] | None = Query(default=None),
     kind: list[str] | None = Query(default=None),
     project_id: uuid.UUID | None = Query(default=None),
@@ -227,6 +294,31 @@ async def list_async_jobs(
         project_id=project_id,
         search=search,
     )
+    scopes = getattr(request.state, "api_key_scopes", None)
+    if scopes is not None and "*" not in scopes and "datasets:read" not in scopes:
+        stmt = stmt.where(
+            AsyncJob.kind.not_in(
+                [
+                    "dataset_scan",
+                    "dataset_registration",
+                    "dataset_quality",
+                    "dataset_quality_review",
+                ]
+            )
+        )
+    if scopes is not None and "*" not in scopes:
+        stmt = stmt.where(
+            AsyncJob.kind.not_in(
+                {
+                    "storage_usage",
+                    "managed_original_verification",
+                    "managed_original_reclaim",
+                    "managed_reference_reconciliation",
+                    "storage_migration_inventory",
+                    "storage_migration_copy",
+                }
+            )
+        )
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
 
     stmt = (
@@ -247,6 +339,7 @@ async def list_async_jobs(
 @router.get("/async-jobs/{job_id}", response_model=AsyncJobOut)
 async def get_async_job(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AsyncJobOut:
@@ -255,19 +348,36 @@ async def get_async_job(
         raise HTTPException(status_code=404, detail="async_job not found")
     if not await _can_access_job(db, job=job, user=current_user):
         raise HTTPException(status_code=403, detail="not your job")
+    if job.kind in {
+        "dataset_scan",
+        "dataset_registration",
+        "dataset_quality",
+        "dataset_quality_review",
+    }:
+        assert_request_scopes(request, "datasets:read")
+    if job.kind in {
+        "storage_usage",
+        "managed_original_verification",
+        "managed_original_reclaim",
+        "managed_reference_reconciliation",
+        "storage_migration_inventory",
+        "storage_migration_copy",
+    }:
+        assert_request_scopes(request, "*")
     return await _to_async_job_out(db, job)
 
 
 @router.post("/async-jobs/{job_id}/cancel")
 async def cancel_async_job(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """v0.10.51 · 软取消。
+    """软取消。
 
     batch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，
-    worker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。
+    worker 在结果提交前或下一题边界落 cancelled 终态；video_tracker 仍走自身取消路径。
     """
     job = await db.get(AsyncJob, job_id)
     if job is None:
@@ -287,6 +397,156 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "audit_archive":
+        from app.services import audit_archive_reads
+
+        actor, authority = await audit_archive_reads.lock_authority(
+            db, current_user, request
+        )
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None or job.kind != "audit_archive":
+            raise HTTPException(404, detail="async_job not found")
+        if not await _can_access_job(db, job=job, user=actor):
+            raise HTTPException(403, detail="not your job")
+        if job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="audit archive is no longer cancellable")
+        await audit_archive_reads.reauthorize(db, authority)
+        # The source DROP/ready transaction holds this same job lock. Previously
+        # committed months remain in result; no physical attempt is deleted.
+        await async_job_svc.mark_cancelled(db, job.id)
+        await notify_job_terminal(db, job_id=job.id)
+        await audit_archive_reads.reauthorize(db, authority)
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
+
+    if job.kind == "export":
+        # Match the worker's final publication lock: a cancelled job cannot publish.
+        job = await db.scalar(
+            select(AsyncJob)
+            .where(AsyncJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="export is no longer cancellable")
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
+        await async_job_svc.mark_cancelled(db, job.id)
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
+
+    if job.kind in {"storage_migration_inventory", "storage_migration_copy"}:
+        assert_request_scopes(request, "*")
+        from app.services import (
+            storage_migration_copies,
+            storage_migration_inventories,
+            storage_maintenance,
+        )
+
+        key_id = getattr(request.state, "api_key_id", None)
+        _, proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*", lock=True
+        )
+        domain = (
+            storage_migration_copies
+            if job.kind == "storage_migration_copy"
+            else storage_migration_inventories
+        )
+        status = await domain.cancel(db, job.id)
+        _, current_proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*"
+        )
+        if current_proof != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if status == "cancelled":
+            await notify_job_terminal(db, job_id=job.id)
+        await db.commit()
+        return {"status": status, "id": str(job.id)}
+
+    if job.kind == "managed_original_reclaim":
+        assert_request_scopes(request, "*")
+        from app.services import managed_original_reclaim, storage_maintenance
+
+        key_id = getattr(request.state, "api_key_id", None)
+        _, proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*", lock=True
+        )
+        status = await managed_original_reclaim.cancel(db, job.id)
+        _, current_proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*"
+        )
+        if current_proof != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if status == "cancelled":
+            await notify_job_terminal(db, job_id=job.id)
+        await db.commit()
+        return {"status": status, "id": str(job.id)}
+
+    if job.kind == "managed_original_verification":
+        assert_request_scopes(request, "*")
+        from app.services import managed_original_verification, storage_maintenance
+
+        key_id = getattr(request.state, "api_key_id", None)
+        _, proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*", lock=True
+        )
+        status = await managed_original_verification.cancel(db, job.id)
+        _, current_proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*"
+        )
+        if current_proof != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if status == "cancelled":
+            await notify_job_terminal(db, job_id=job.id)
+        await db.commit()
+        return {"status": status, "id": str(job.id)}
+
+    if job.kind == "storage_usage":
+        assert_request_scopes(request, "*")
+        from app.services import storage_usage
+        from app.services.dataset_content import key_authority
+
+        key_id = getattr(request.state, "api_key_id", None)
+        proof = await key_authority(db, current_user, key_id, "*")
+        await storage_usage.require_admin(db, current_user.id)
+        await storage_usage.cancel(db, job.id)
+        await storage_usage.require_admin(db, current_user.id)
+        if await key_authority(db, current_user, key_id, "*") != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
+
+    if job.kind in {"dataset_quality", "dataset_quality_review"}:
+        assert_request_scopes(request, "datasets:write")
+        from app.services.dataset_content import key_authority
+
+        key_id = getattr(request.state, "api_key_id", None)
+        proof = await key_authority(db, current_user, key_id, "datasets:write")
+        await (
+            review_svc if job.kind == "dataset_quality_review" else quality_svc
+        ).cancel_job(db, job, current_user)
+        if await key_authority(db, current_user, key_id, "datasets:write") != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
+
+    if job.kind in {"dataset_scan", "dataset_registration"}:
+        assert_request_scopes(request, "datasets:write")
+        from app.services.dataset_content import key_authority
+
+        key_id = getattr(request.state, "api_key_id", None)
+        key_proof = await key_authority(db, current_user, key_id, "datasets:write")
+        if job.kind == "dataset_scan":
+            from app.services.dataset_scans import cancel_job
+        else:
+            from app.services.dataset_registration import cancel_job
+
+        await cancel_job(db, job.id, current_user)
+        if await key_authority(db, current_user, key_id, "datasets:write") != key_proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
 
     if job.kind == "sample_evaluation":
         from app.api.v1.training_datasets import lock_owner
@@ -368,6 +628,13 @@ async def cancel_async_job(
         return {"status": "cancelled", "id": str(job_id)}
 
     if job.kind == "point_cloud_quality":
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None or job.status not in {"pending", "running"}:
+            raise HTTPException(
+                409, detail="point cloud quality is no longer cancellable"
+            )
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
         if job.celery_task_id:
             try:
                 from app.workers.celery_app import celery_app
@@ -384,33 +651,33 @@ async def cancel_async_job(
         return {"status": "cancelled", "id": str(job_id)}
 
     if job.kind == "mask_repair":
-        if job.celery_task_id:
-            try:
-                from app.workers.celery_app import celery_app
-
-                celery_app.control.revoke(job.celery_task_id, terminate=False)
-            except Exception:
-                log.exception("mask_repair revoke failed job=%s", job.id)
-        batch = (
-            await db.execute(
-                select(MaskRepairBatch)
-                .where(MaskRepairBatch.async_job_id == job.id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        # Match the worker's Job -> Batch publication locks. Cancellation must
+        # be durable before contacting the broker, including response loss.
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None or job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="repair is no longer cancellable")
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
+        celery_task_id = job.celery_task_id
         if job.status == AsyncJobStatus.PENDING.value:
             await async_job_svc.mark_cancelled(
                 db, job.id, result={"reason": "cancelled_by_user"}
             )
-            if batch is not None and batch.status == "pending":
-                batch.status = "cancelled"
-                batch.completed_at = datetime.now(timezone.utc)
+            await reconcile_domain_terminal(db, job, cancelled=True)
             await notify_job_terminal(db, job_id=job.id)
-            await db.commit()
-            return {"status": "cancelled", "id": str(job_id)}
-        await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancelled"
+        else:
+            await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancel_requested"
         await db.commit()
-        return {"status": "cancel_requested", "id": str(job_id)}
+        if celery_task_id:
+            try:
+                from app.workers.celery_app import celery_app
+
+                celery_app.control.revoke(celery_task_id, terminate=False)
+            except Exception:
+                log.exception("mask_repair revoke failed job=%s", job_id)
+        return {"status": response_status, "id": str(job_id)}
 
     if job.kind == "mask_format_import":
         if job.celery_task_id:
@@ -442,14 +709,16 @@ async def cancel_async_job(
         return {"status": "cancel_requested", "id": str(job_id)}
 
     if job.kind == "batch_predict":
-        if job.celery_task_id:
-            try:
-                from app.workers.celery_app import celery_app
-
-                celery_app.control.revoke(job.celery_task_id, terminate=False)
-            except Exception:
-                log.exception("batch_predict revoke failed job=%s", job.id)
-
+        # Use the worker's result/terminal lock, then recheck fresh state. A
+        # cancellation that wins this lock prevents the in-flight result write.
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None:
+            raise HTTPException(404, detail="async_job not found")
+        if job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="batch prediction is no longer cancellable")
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
+        celery_task_id = job.celery_task_id
         total_tasks = _payload_int(job.payload or {}, "total_tasks") or 0
         if job.status == AsyncJobStatus.PENDING.value:
             await async_job_svc.mark_cancelled(
@@ -464,12 +733,21 @@ async def cancel_async_job(
                 },
             )
             await notify_job_terminal(db, job_id=job.id)
-            await db.commit()
-            return {"status": "cancelled", "id": str(job_id)}
-
-        await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancelled"
+        else:
+            await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancel_requested"
         await db.commit()
-        return {"status": "cancel_requested", "id": str(job_id)}
+        # Broker I/O must not hold the result lock. The durable cancellation is
+        # authoritative even when the best-effort revoke cannot reach Celery.
+        if celery_task_id:
+            try:
+                from app.workers.celery_app import celery_app
+
+                celery_app.control.revoke(celery_task_id, terminate=False)
+            except Exception:
+                log.exception("batch_predict revoke failed job=%s", job_id)
+        return {"status": response_status, "id": str(job_id)}
 
     if job.kind == "point_cloud_cross_frame":
         if job.celery_task_id:
@@ -520,6 +798,7 @@ async def cancel_async_job(
 )
 async def retry_failed_async_job_items(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AsyncJobRetryFailedResponse:
@@ -561,32 +840,31 @@ async def retry_failed_async_job_items(
         )
 
     from app.api.v1.predictions import MAX_RETRY_COUNT
-    from app.services.prediction import (
-        claim_failed_prediction_retry,
-        release_failed_prediction_retry_claim,
-    )
-    from app.workers.predictions_retry import retry_failed_prediction as task_fn
+    from app.services.prediction import claim_failed_prediction_retry
+    from app.services.prediction_retries import prepare_retry, release_unpublished_retry
 
-    claimed_ids: list[uuid.UUID] = []
-    for failed_id in failed_ids:
-        if await claim_failed_prediction_retry(db, failed_id, MAX_RETRY_COUNT):
-            claimed_ids.append(failed_id)
-
-    if not claimed_ids:
+    plans = []
+    for failed_id in sorted(failed_ids, key=str):
+        claimed = await claim_failed_prediction_retry(db, failed_id, MAX_RETRY_COUNT)
+        if claimed is not None:
+            plans.append(
+                await prepare_retry(
+                    db, claimed, current_user, request, project_id=job.project_id
+                )
+            )
+    if not plans:
         raise HTTPException(
-            status_code=409,
-            detail="no retryable failed predictions remain for this job",
+            409, detail="no retryable failed predictions remain for this job"
         )
     await db.commit()
-
     queued = 0
     try:
-        for failed_id in claimed_ids:
-            task_fn.delay(str(failed_id), str(current_user.id))
+        for plan in plans:
+            plan.publish(current_user.id)
             queued += 1
     except Exception:
-        for failed_id in claimed_ids[queued:]:
-            await release_failed_prediction_retry_claim(db, failed_id)
+        for plan in plans[queued:]:
+            await release_unpublished_retry(db, plan)
         await db.commit()
         raise
 

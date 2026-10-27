@@ -75,7 +75,14 @@ async def submit_task(
     _assert_task_editable(task, current_user, access=access)
 
     now = datetime.now(timezone.utc)
-    result = await perform_task_submit(db, task, actor=current_user, now=now)
+    result = await perform_task_submit(
+        db,
+        task,
+        actor=current_user,
+        now=now,
+        reference_verified=getattr(request.state, "reference_verified_task_id", None)
+        == task.id,
+    )
 
     from app.services.batch import BatchService
 

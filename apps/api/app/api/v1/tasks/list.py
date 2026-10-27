@@ -1,5 +1,6 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
 from sqlalchemy import select, func, or_, and_, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +8,7 @@ from app.deps import (
     get_db,
     get_current_user,
     assert_project_visible,
+    assert_request_scopes,
 )
 from app.db.models.user import User
 from app.db.models.task import Task
@@ -91,10 +93,13 @@ def _build_task_query(
 
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
+    request: Request,
     project_id: uuid.UUID = Query(...),
     status: str | None = None,
     assignee_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    dataset_id: uuid.UUID | None = None,
+    dataset_filter: str | None = Query(None, max_length=2000),
     unbatched: bool = False,
     reject_reason_type: str | None = None,
     class_name: str | None = None,
@@ -118,6 +123,29 @@ async def list_tasks(
         reject_reason_type=reject_reason_type,
         class_name=class_name,
     )
+    if dataset_id is not None:
+        from app.db.models.dataset import DatasetItem
+
+        filtered = filtered.where(
+            Task.dataset_item_id.in_(
+                select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
+            )
+        )
+    if dataset_filter is not None:
+        assert_request_scopes(request, "datasets:read")
+        from app.schemas.dataset_view import DatasetItemFilters
+        from app.services.dataset_workbench import project_filtered_item_ids
+
+        if dataset_id is None:
+            raise HTTPException(422, "筛选范围必须指定数据集")
+        if not access.is_manager:
+            raise HTTPException(403, "筛选训练范围需要项目管理权限")
+        try:
+            filters = DatasetItemFilters.model_validate_json(dataset_filter)
+        except ValidationError:
+            raise HTTPException(422, "无效的数据集筛选条件") from None
+        ids = await project_filtered_item_ids(db, project_id, dataset_id, filters, user)
+        filtered = filtered.where(Task.dataset_item_id.in_(ids))
     count_q = select(func.count()).select_from(filtered.order_by(None).subquery())
 
     # v0.6.8 B-15：首屏与游标分支统一排序，并都产出 next_cursor，修前端 useInfiniteQuery

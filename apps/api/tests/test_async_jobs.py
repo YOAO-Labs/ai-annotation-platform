@@ -7,12 +7,16 @@
 """
 
 from __future__ import annotations
+from copy import deepcopy
+from types import SimpleNamespace
+import uuid
+
 
 import pytest
 from sqlalchemy import select
 
 from app.db.models.notification import Notification
-from app.db.models.async_job import AsyncJobStatus
+from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -225,17 +229,19 @@ class TestAsyncJobTerminalNotifications:
         await notify_job_terminal(db_session, job_id=cancelled.id)
 
         rows = await self._notification_rows(db_session, user.id)
-        assert [row.type for row in rows] == [
+        assert len(rows) == 3
+        by_type = {row.type: row for row in rows}
+        assert set(by_type) == {
             "job.completed",
             "job.failed",
             "job.cancelled",
-        ]
-        assert rows[0].target_type == "async_job"
-        assert rows[0].target_id == completed.id
-        assert rows[0].payload["kind"] == "batch_predict"
-        assert rows[0].payload["batch_display_id"] == "BATCH-1"
-        assert rows[0].payload["success_count"] == 2
-        assert rows[1].payload["error_message"] == "tracker failed"
+        }
+        assert by_type["job.completed"].target_type == "async_job"
+        assert by_type["job.completed"].target_id == completed.id
+        assert by_type["job.completed"].payload["kind"] == "batch_predict"
+        assert by_type["job.completed"].payload["batch_display_id"] == "BATCH-1"
+        assert by_type["job.completed"].payload["success_count"] == 2
+        assert by_type["job.failed"].payload["error_message"] == "tracker failed"
 
     async def test_terminal_notification_skips_export_and_system_jobs(
         self, db_session, annotator
@@ -410,23 +416,33 @@ class TestAsyncJobsAPI:
     async def test_retry_failed_batch_predict_items_queues_recorded_failures(
         self, httpx_client, db_session, project_admin, monkeypatch
     ):
+        from app.workers.tasks import batch_predict
+        from tests.test_batch_predict_idempotency import _seed
+
         user, token = project_admin
-        project = Project(
-            display_id="PROJ-AJ-RETRY",
-            name="Retry Project",
-            type_label="Image Classification",
-            type_key="image_classification",
-            owner_id=user.id,
+        project, backend, _batch, tasks = await _seed(db_session, user.id)
+        monkeypatch.setattr(
+            batch_predict,
+            "apply_async",
+            lambda **kwargs: SimpleNamespace(id=kwargs["task_id"]),
         )
-        db_session.add(project)
-        await db_session.flush()
+        submitted = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/preannotate",
+            headers=_bearer(token),
+            json={"ml_backend_id": str(backend.id), "task_ids": [str(tasks[0].id)]},
+        )
+        assert submitted.status_code == 200, submitted.text
+        aj = await db_session.get(AsyncJob, uuid.UUID(submitted.json()["job_id"]))
+        original_input = deepcopy(aj.payload["prediction_authority"]["tasks"][0])
 
         retryable = FailedPrediction(
             project_id=project.id,
-            task_id=None,
-            ml_backend_id=None,
+            task_id=tasks[0].id,
+            ml_backend_id=backend.id,
+            execution_snapshot_id=aj.execution_snapshot_id,
             error_type="TimeoutError",
             message="timeout",
+            extra={"original_input": original_input},
         )
         skipped = FailedPrediction(
             project_id=project.id,
@@ -439,12 +455,6 @@ class TestAsyncJobsAPI:
         db_session.add_all([retryable, skipped])
         await db_session.flush()
 
-        aj = await async_job_svc.create_job(
-            db_session,
-            kind="batch_predict",
-            user_id=user.id,
-            project_id=project.id,
-        )
         await async_job_svc.mark_complete(
             db_session,
             aj.id,
@@ -460,8 +470,8 @@ class TestAsyncJobsAPI:
         queued: list[tuple[str, str]] = []
         monkeypatch.setattr(
             predictions_retry.retry_failed_prediction,
-            "delay",
-            lambda failed_id, user_id: queued.append((failed_id, user_id)),
+            "apply_async",
+            lambda *, args, **kwargs: queued.append(tuple(args)),
         )
 
         r = await httpx_client.post(
@@ -472,6 +482,15 @@ class TestAsyncJobsAPI:
         assert r.json()["queued"] == 1
         assert r.json()["skipped"] == 1
         assert queued == [(str(retryable.id), str(user.id))]
+        await db_session.refresh(retryable)
+        retry_job = await db_session.get(
+            AsyncJob, uuid.UUID(retryable.extra["retry_job_id"])
+        )
+        assert retry_job.execution_snapshot_id == aj.execution_snapshot_id
+        assert (
+            retry_job.payload["prediction_authority"]["tasks"][0]["original"]
+            == (original_input["original"])
+        )
 
         repeated = await httpx_client.post(
             f"/api/v1/async-jobs/{aj.id}/retry-failed", headers=_bearer(token)

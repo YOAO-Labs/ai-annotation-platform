@@ -4,7 +4,7 @@ audience: [ops]
 type: how-to
 since: v0.9.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-26
 ---
 
 # 版本升级指南
@@ -53,6 +53,72 @@ curl -f http://localhost:8088
 - 前端静态资源由 Vite 构建，版本号在文件名中，无缓存问题
 
 ## 重点注意事项
+
+### 数据集与存储演进迁移索引（0196–0267）
+
+跨过数据集与存储治理链路（`0196`–`0267`）升级时，请按下表核对所涉迁移段、受影响表族、进程刷新要求及降级保护边界（逐项恢复与切换顺序详见[一致备份与隔离恢复演练](/ops/deploy/storage-recovery)与[对象存储迁移与切换](/ops/deploy/storage-migration-inventory)）：
+
+| 迁移范围                                     | 核心能力与表族                                                                                                                                                        | 升级后需刷新的组件                                                                 | 回退与降级约束                                                                                           |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `0196`–`0205`                                | 目录来源扫描账本、内容核验、原地引用（`dataset_references`）、登记作业、预览策略、预检差异、周期同步计划与重定位顺序                                                  | API、`default` / 定向 `worker_direct` Worker、Beat                                 | 存在扫描轮次、引用或同步计划记录时禁止破坏性降级；回退前先暂停周期同步并排空活动任务。                   |
+| `0206`–`0208`                                | 数据集个人动态视图、图片质量检测运行與固定范围批量复核                                                                                                                | API、`default` Worker                                                              | 降级会移除个人视图或复核批次表；有质量运行或复核历史时保留 schema。                                      |
+| `0209`–`0215`                                | 平台桶占用快照、连接器修订、导出格式、预测输入租约、完整原图缓存归属、数据集生命周期归档与位置访问维护门禁                                                            | API、`default` / `cleanup` / `ml` Worker、Beat                                     | `original_cache_entries` 与 `storage_operations` 随库保留；未收尾访问禁止按 TTL 强清。                   |
+| `0216`–`0219`                                | 托管原件退役断言、保留策略与 Hold、完整核验及条件创建账本                                                                                                             | API、`default` / `cleanup` Worker、Beat                                            | 存在创建回执、退役断言或保留 Hold 时拒绝破坏性降级。                                                     |
+| `0220`–`0237`                                | 27 类持久对象归属（训练版本/实验/预览/评估/选样、头像、导出 ZIP/媒体包、报告/评论/指南附件、审计归档、持久 RLE、独立 Task 原件、金字塔、视频派生、NuScenes 辅助原件） | API、`default` / `export` / `media` / `cleanup` / `maintenance` Worker、Beat       | 不按当前环境变量静默回填历史归属；移除 bug/annotations/import 桶冲突自动过期规则；存在归属行时拒绝降级。 |
+| `0238`–`0241`                                | 预标临时输入所有权与版本化租约（图片、多文件、整视频 v3）                                                                                                             | API、`ml` / `cleanup` Worker、Beat                                                 | 升级前须在 `import` 桶启用版本控制；存在租约或 `deleted` 墓碑时拒绝降级。                                |
+| `0242`–`0246`, `0249`                        | 对象占用分类明细、外部来源保护声明、增量账目事件与本地来源去重故障状态                                                                                                | API、`default` / `maintenance` Worker、Beat                                        | 保留原始观测与增量事件；存在记录时拒绝破坏性降级。                                                       |
+| `0243`, `0245`, `0247`–`0248`, `0250`–`0254` | 九用途（头像、报告附件、审计归档、导出、导入暂存、数据集原件、媒体缓存、标注文件、训练文件）新分配切换与 `schema2` 引用                                               | API 及对应读写/清理 Worker                                                         | 仅后续新分配采用新目标；应用回退须保留新 schema，通过受控预览确认切回后续分配。                          |
+| `0255`–`0264`                                | 迁移源清单、初次复制、增量批次、迁移维护窗口、15 分钟任务进度提示、准确版本回收、每日观测率分母、窗口绑定最终封存、读取映射发布与九用途原子切换/回滚                  | API、全部存储消费 Worker、Beat                                                     | 复制计划、迁移窗口、回收墓碑、读取发布与切换组独立于 AsyncJob 保留；存在事实时禁止降级。                 |
+| `0265`–`0267`                                | 只读站点 Agent（`sites`、`agent_registrations`、`agent_credentials`、`site_agent_commands`）与引用样本同内容显式备用来源（`dataset_reference_replicas`）              | API（需加载 `aap-filesystem-read` 与 `aap-site-agent-contract`）、`default` Worker | 保留身份修订、关闭证据与副本授权记录；非空时拒绝破坏性降级。                                             |
+
+### 旧数据集内容身份
+
+升级新增的内容与位置映射保留既有 Item、任务、标注及冻结版本。先运行[定位回填](/dev/concepts/storage-connections#内容身份与兼容回填)并核对报告；其中 `--verify` 只检查数据库定位，不读取原件，不能作为内容可用证明。
+
+未知摘要的旧托管原件需按[显式补算流程](/dev/concepts/storage-connections#显式补算旧托管原件)先预览、核对当前字节，再按清单应用。不要把历史 hash 或 ETag 当作可信 SHA，不要为恢复读取而修改旧 Item／Task 路径。原件缺失或发生变化时先保留旧身份并处理数据问题。
+
+回退前停止写入并排空后台消费者，保留已使用的内容身份、来源、用途绑定和归属账本。旧应用不理解外部引用时，不得接管这些记录的写入、删除或清理；按具体回退方案维持受控只读。不能统一执行 `alembic downgrade -1`，也不能以 `stamp` 绕过迁移屏障；具体应用回退须在一次性环境按目标版本演练。
+
+### 数据集存储的受控只读应用回退
+
+数据集存储采用保留schema的受控应用回退，不提供独立读取开关、双路径回退或回退计数。当前应用继续严格校验内容身份；未知摘要的旧托管原件须先按上文显式补算，再核对目标旧应用的可用读取范围。
+
+旧应用不理解 `__aap_reference__/` 内容引用，也不能依赖新版的删除前检查。仅保留新表和迁移屏障仍可能被旧版级联删除，因此应先停全部API写入、Worker和Beat，排空活动任务，并保留可恢复的数据库及对象存储备份。不要让新旧应用同时写同一数据库，也不要运行旧镜像中自动迁移的入口。
+
+紧急只读回退使用独立的非owner数据库账号；不要复用schema owner、迁移账号或原运行账号。只授予选定旧读取页面需要的表SELECT，不授予写权限，并设置 `default_transaction_read_only=on`。以下为数据集列表和任务元数据涉及的表；任务详情的锁查询限制见下文，连接凭据表及新来源配置表不在其中：
+
+```sql
+CREATE ROLE rollback_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+-- 在交互式 psql 中使用 \password rollback_reader 设置独立密码，不写入脚本或历史。
+GRANT CONNECT ON DATABASE annotation TO rollback_reader;
+GRANT USAGE ON SCHEMA public TO rollback_reader;
+GRANT SELECT ON users, projects, project_members, task_batches,
+  datasets, dataset_items, project_datasets, tasks, annotations,
+  predictions, image_pyramid_assets, task_dataset_item_links TO rollback_reader;
+ALTER ROLE rollback_reader SET default_transaction_read_only = on;
+```
+
+数据库名须按部署替换。只读默认值不能替代权限裁剪：应在演练中临时设置事务READ WRITE，确认INSERT、UPDATE、DELETE和TRUNCATE仍因权限被拒。不要赋予连接凭据表SELECT，也不要给旧进程挂载外部目录或提供来源解密／连接凭据。
+
+对象存储也必须使用独立只读账号，不能沿用旧root凭据。仅允许对九个已存在用途桶执行HEAD所需的ListBucket／GetBucketLocation，并只对已核对的旧托管对象授予GetObject；不授予PUT、DELETE、生命周期变更或建桶。旧应用启动会HEAD九桶，HEAD失败可能转为建桶并导致启动失败；生命周期写入拒绝由旧代码记录告警，不能为消除告警授予写权限。即使平台桶中碰巧存在与不透明引用同名的对象，也不能允许旧应用读取该键。
+
+旧应用仅在内部维护入口启动，使用匹配的部署产物及显式环境，不执行数据库降级；不启动后台消费者，禁用环境模型发现和推理连接。入口层拒绝写方法与WebSocket，并限定维护人员访问。GET本身也可能有副作用，因此数据库和对象存储只读权限必须同时保留。使用仍有效的JWT；旧API Key认证会更新 `last_used_at`，密码登录也可能写入，不属于此只读回退范围。维护入口应明确显示只读，不能承诺继续编辑或提交标注。
+
+此模式主动停止Worker，旧版聚合 `/health` 因Celery无响应返回503是预期结果。分别核对数据库、Redis和MinIO健康，以及实际旧数据读取；不要为让聚合健康变绿而启动旧消费者。服务端返回的签名原图URL应使用不带平台Authorization头的独立请求下载。
+
+回退核对旧数据集列表返回的原图URL，并下载完整字节比较摘要。原始基线的任务详情GET会执行 `SELECT FOR SHARE`，因此在真正只读事务中返回500；这一路径不可用，不能为恢复它而放开写权限。关联DatasetItem的任务原件按datasets桶保存，也不能用旧 `/files/tasks/{id}/file-url` 默认annotations桶的结果代替。再经旧HTTP尝试改名、删样本、删数据集，并直接测试数据库与对象写权限。入口正常应在调用旧处理器前拒绝写请求；底层演练绕过入口层时，旧处理器可能返回500，但每次请求必须有对应的数据库只读或权限拒绝证据，不能将任意500视为保护成功。
+
+切回当前应用前停止旧进程并撤销专用凭据，保持schema不变；复核数据库身份、关系、标注、冻结快照及托管／外部字节，分别验证两类当前原件读取，再恢复匹配的Worker／Beat和写入口。应用回退不使外部引用变成旧版可读原件，也不恢复已丢失的外部文件。
+
+本地可复现演练只操作已初始化的工作树test命名空间，使用本地虚拟环境、现有 `mc` CLI、原始基线完整代码归档，以及随机临时DB角色和一小时内到期的MinIO service account：
+
+```bash
+pnpm dev:worktree -- init --mode test
+pnpm dev:worktree -- exec --mode test -- apps/api/.venv/bin/python \
+  scripts/verify_legacy_storage_rollback.py --report /private/rollback-report.json
+```
+
+报告记录实际旧提交、检查结果和完整数据库行摘要，不包含密码或签名URL。脚本退出前撤销临时账号并停止旧API；合成业务夹具留在test命名空间，按工作树doctor给出的精确确认值停止并销毁。失败时保留私有诊断日志，清理本轮诊断后再交付。该演练不操作人工环境，不重建镜像，不提供生产回退资格，也不实现读取模式开关、双路径回退或计数。
 
 ### 跨过员工项目职责迁移
 

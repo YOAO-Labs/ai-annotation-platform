@@ -36,6 +36,7 @@ from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
+from app.services.content_snapshot import ContentError
 from app.services.mask_conversion import (
     ConversionMetrics,
     mask_to_bbox_conversion,
@@ -49,9 +50,11 @@ from app.services.raster_mask_storage import (
     load_coco_rle,
     lock_raster_mask_references,
     prepare_mask_payload_for_write,
+    raster_mask_storage_contract_error,
     reserve_raster_mask_upload,
     store_coco_rle,
 )
+from app.services.raster_object_storage import RasterObjectStorageError
 from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
@@ -423,7 +426,13 @@ class AnnotationConversionService:
         for reference in references:
             object_key = str(reference["object_key"])
             try:
-                stored = await store_coco_rle(self._generated_rles[object_key])
+                stored = await store_coco_rle(
+                    self._generated_rles[object_key], db=self.db
+                )
+            except RasterMaskContractError:
+                raise
+            except (RasterObjectStorageError, ContentError) as exc:
+                raise raster_mask_storage_contract_error(exc) from exc
             except Exception as exc:
                 raise AnnotationConversionError(
                     status_code=503,
@@ -436,6 +445,10 @@ class AnnotationConversionService:
     async def _load_source_rle(self, reference: dict[str, Any]) -> dict[str, Any]:
         try:
             return await load_coco_rle(reference)
+        except RasterMaskContractError:
+            raise
+        except (RasterObjectStorageError, ContentError) as exc:
+            raise raster_mask_storage_contract_error(exc) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise AnnotationConversionError(
                 status_code=409,
@@ -830,7 +843,7 @@ class AnnotationConversionService:
                         report,
                         planned_uploads,
                     ) = await self._plan_video_mask_bbox(source, payload)
-            except AnnotationConversionError:
+            except (AnnotationConversionError, RasterMaskContractError):
                 raise
             except ValueError as exc:
                 raise AnnotationConversionError(

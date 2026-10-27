@@ -584,7 +584,7 @@ test("标准和浮动布局使用日间与夜间语义主题", { tag: "@visual" 
   const queue = page.getByRole("tabpanel", { name: "任务队列", exact: true });
   await expect(queue.getByText("1 / 5", { exact: true })).toBeVisible();
   await expect(queue.getByText(taskDisplayId, { exact: true })).toHaveClass(/text-brand/);
-  await expect(queue.getByText("task-1.svg", { exact: true })).toBeVisible();
+  await expect(queue.getByText("task-1.png", { exact: true })).toBeVisible();
   // Keep the fixture private to this test; only its path-derived IDs vary in screenshots.
   // The fourth and fifth rows sit behind the category panel, so masking them would
   // paint over that panel even though their text is occluded in the real UI.

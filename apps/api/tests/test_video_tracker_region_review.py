@@ -74,7 +74,7 @@ def _patch_mask_storage(monkeypatch, *rles: dict) -> dict[str, dict]:
     async def load(reference: dict) -> dict:
         return copy.deepcopy(objects[str(reference["sha256"])])
 
-    async def store(rle: dict) -> dict:
+    async def store(rle: dict, *, db) -> dict:
         reference = build_rle_reference(rle)
         objects[reference["sha256"]] = copy.deepcopy(rle)
         return reference

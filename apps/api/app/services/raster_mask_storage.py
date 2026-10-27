@@ -15,9 +15,11 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
+from app.services.content_snapshot import ContentError
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
 from app.services.storage import StorageService, storage_service
+from app.services.storage_access import finish, mark_unsettled
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,
@@ -77,6 +79,14 @@ def classify_raster_mask_content_error(exc: Exception) -> str:
         current = current.__cause__ or current.__context__
 
     for item in chain:
+        code = getattr(item, "code", None)
+        if isinstance(code, str) and code.startswith("raster_object_storage_"):
+            return {
+                "raster_object_storage_missing": "missing_object",
+                "raster_object_storage_integrity_mismatch": "digest_mismatch",
+                "raster_object_storage_unavailable": "storage_unavailable",
+                "raster_object_storage_budget": "storage_unavailable",
+            }.get(code, "invalid_payload")
         if isinstance(item, ClientError):
             code = str(item.response.get("Error", {}).get("Code", ""))
             if code in {"NoSuchKey", "404", "NotFound"}:
@@ -208,7 +218,13 @@ async def _verify_mask_reference_content(
     value: Any,
     require_raster_foreground: bool,
 ) -> None:
-    payload = await load_coco_rle(reference)
+    from app.services.content_snapshot import ContentError
+    from app.services.raster_object_storage import RasterObjectStorageError
+
+    try:
+        payload = await load_coco_rle(reference)
+    except (RasterObjectStorageError, ContentError) as exc:
+        raise raster_mask_storage_contract_error(exc) from exc
     if require_raster_foreground and not _rle_has_foreground(payload):
         raise RasterMaskContractError(
             status_code=422,
@@ -248,10 +264,18 @@ async def lock_raster_mask_references(
         for reference in collect_mask_references(value)
     }
     for key in sorted(references):
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"aap:raster-mask:{key}"},
-        )
+        acquired = (
+            await db.execute(
+                text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"aap:raster-mask:{key}"},
+            )
+        ).scalar_one()
+        if acquired is not True:
+            raise RasterMaskContractError(
+                status_code=409,
+                reason="mask_content_busy",
+                message="mask content is being changed; retry the operation",
+            )
         if verify:
             await _observe_content_operation(
                 "verify",
@@ -265,6 +289,15 @@ async def lock_raster_mask_references(
                     ),
                 ),
             )
+    if verify and references:
+        from app.services.content_snapshot import ContentError
+        from app.services.raster_mask_objects import bind_publications
+        from app.services.raster_object_storage import RasterObjectStorageError
+
+        try:
+            await bind_publications(db, value)
+        except (RasterObjectStorageError, ContentError) as exc:
+            raise raster_mask_storage_contract_error(exc) from exc
     if task_id is not None and references:
         await db.execute(
             update(RasterMaskUpload)
@@ -292,9 +325,9 @@ async def store_mask_reference_objects(
     await lock_raster_mask_references(db, value, verify=False)
     for reference, rle in resolved:
         if str(reference.get("object_key") or "").endswith(".json.gz"):
-            stored = await store_coco_rle_gzip(rle)
+            stored = await store_coco_rle_gzip(rle, db=db)
         else:
-            stored = await store_coco_rle(rle)
+            stored = await store_coco_rle(rle, db=db)
         if stored["object_key"] != reference.get("object_key"):
             raise ValueError("AAP mask object storage does not match reference")
     await lock_raster_mask_references(db, value, task_id=task_id)
@@ -340,16 +373,136 @@ async def reserve_raster_mask_upload(
     return current + 1
 
 
+def validate_image_mask_dimensions(geometry, width, height) -> None:
+    """Compare a raster Mask with dimensions whose authority belongs to the caller."""
+    if not width or not height:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="raster_mask_source_dimensions_missing",
+            message="source image width / height metadata is required for raster mask",
+        )
+    if (
+        int(width) > MAX_IMAGE_MASK_DIMENSION
+        or int(height) > MAX_IMAGE_MASK_DIMENSION
+        or int(width) * int(height) > MAX_IMAGE_MASK_PIXELS
+    ):
+        raise RasterMaskContractError(
+            status_code=422,
+            reason="raster_mask_dimensions_exceeded",
+            message=(
+                "source image exceeds the raster mask limit "
+                f"({MAX_IMAGE_MASK_DIMENSION}px / {MAX_IMAGE_MASK_PIXELS} pixels)"
+            ),
+            max_dimension=MAX_IMAGE_MASK_DIMENSION,
+            max_pixels=MAX_IMAGE_MASK_PIXELS,
+        )
+    expected_size = [int(height), int(width)]
+    mask = geometry.get("mask") or {}
+    if list(mask.get("size") or []) != expected_size:
+        raise RasterMaskContractError(
+            status_code=422,
+            reason="raster_mask_size_mismatch",
+            message=f"mask size must match source image {expected_size}",
+        )
+
+
 async def validate_mask_geometry_for_task(
     db: AsyncSession,
     task: Task,
     geometry: dict[str, Any],
+    *,
+    native_original_receipt=None,
+    repair_original_receipt=None,
+    repair_read_receipt=None,
+    video_read_receipt=None,
+    video_result_receipt=None,
+    video_acceptance_receipt=None,
 ) -> None:
     """验证掩码几何是否与任务数据集项匹配。
 
     支持 video_mask / video_track_mask（视频）和 raster_mask（图片）。
     """
     geom_type = geometry.get("type")
+
+    if video_read_receipt is not None:
+        if (
+            any(
+                value is not None
+                for value in (
+                    native_original_receipt,
+                    repair_original_receipt,
+                    repair_read_receipt,
+                    video_result_receipt,
+                    video_acceptance_receipt,
+                )
+            )
+            or geom_type != "video_track_mask"
+        ):
+            raise ContentError("prediction_video_read_receipt_invalid")
+        from app.services.video_prediction_reads import validate_geometry_receipt
+
+        await validate_geometry_receipt(db, task, video_read_receipt, geometry)
+        return
+
+    if video_result_receipt is not None or video_acceptance_receipt is not None:
+        if (
+            (video_result_receipt is not None and video_acceptance_receipt is not None)
+            or any(
+                value is not None
+                for value in (
+                    native_original_receipt,
+                    repair_original_receipt,
+                    repair_read_receipt,
+                )
+            )
+            or geom_type not in {"video_mask", "video_track_mask"}
+        ):
+            raise ContentError("prediction_video_receipt_invalid")
+        if video_result_receipt is not None:
+            from app.services.video_prediction_references import (
+                validate_result_geometry,
+            )
+
+            await validate_result_geometry(db, task, video_result_receipt, geometry)
+        else:
+            from app.services.video_prediction_acceptance import (
+                validate_geometry_receipt,
+            )
+
+            await validate_geometry_receipt(
+                db, task, video_acceptance_receipt, geometry
+            )
+        return
+
+    if repair_original_receipt is not None or repair_read_receipt is not None:
+        from app.services.managed_repair_acceptance import validate_geometry_receipt
+
+        if native_original_receipt is not None or (
+            repair_original_receipt is not None and repair_read_receipt is not None
+        ):
+            raise ContentError("repair_original_receipt_invalid")
+        await validate_geometry_receipt(
+            db,
+            task,
+            repair_original_receipt
+            if repair_original_receipt is not None
+            else repair_read_receipt,
+            geometry,
+            write=repair_original_receipt is not None,
+        )
+        return
+
+    if native_original_receipt is not None:
+        from app.services.managed_native_inference import validate_native_receipt
+
+        await validate_native_receipt(
+            db,
+            task.id,
+            task.project_id,
+            native_original_receipt,
+            result=[{"geometry": geometry}],
+        )
+        return
 
     if geom_type == "raster_mask":
         # v0.23.6 · 图片掩码验证
@@ -366,39 +519,7 @@ async def validate_mask_geometry_for_task(
                 reason="raster_mask_image_required",
                 message="raster mask requires an image dataset item",
             )
-        width = item.width
-        height = item.height
-        if not width or not height:
-            raise RasterMaskContractError(
-                status_code=409,
-                reason="raster_mask_source_dimensions_missing",
-                message=(
-                    "source image width / height metadata is required for raster mask"
-                ),
-            )
-        if (
-            int(width) > MAX_IMAGE_MASK_DIMENSION
-            or int(height) > MAX_IMAGE_MASK_DIMENSION
-            or int(width) * int(height) > MAX_IMAGE_MASK_PIXELS
-        ):
-            raise RasterMaskContractError(
-                status_code=422,
-                reason="raster_mask_dimensions_exceeded",
-                message=(
-                    "source image exceeds the raster mask limit "
-                    f"({MAX_IMAGE_MASK_DIMENSION}px / {MAX_IMAGE_MASK_PIXELS} pixels)"
-                ),
-                max_dimension=MAX_IMAGE_MASK_DIMENSION,
-                max_pixels=MAX_IMAGE_MASK_PIXELS,
-            )
-        expected_size = [int(height), int(width)]
-        mask = geometry.get("mask") or {}
-        if list(mask.get("size") or []) != expected_size:
-            raise RasterMaskContractError(
-                status_code=422,
-                reason="raster_mask_size_mismatch",
-                message=f"mask size must match source image {expected_size}",
-            )
+        validate_image_mask_dimensions(geometry, item.width, item.height)
         return
 
     if geom_type in {"video_mask", "video_track_mask"}:
@@ -465,6 +586,11 @@ async def prepare_mask_payload_for_write(
     *,
     reference_value: Any | None = None,
     required_upload_keys: set[str] | None = None,
+    portable_mask_meta: dict[str, Any] | None = None,
+    native_original_receipt=None,
+    repair_original_receipt=None,
+    video_result_receipt=None,
+    video_acceptance_receipt=None,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -475,6 +601,12 @@ async def prepare_mask_payload_for_write(
     """
     geometries = collect_mask_geometries(value)
     if not geometries:
+        if native_original_receipt is not None or repair_original_receipt is not None:
+            raise ContentError("prediction_original_geometry_not_supported")
+        if portable_mask_meta is not None:
+            from app.services.controlled_segmentation import validate_portable_masks
+
+            validate_portable_masks(value, portable_mask_meta)
         return
 
     if task is None:
@@ -505,13 +637,23 @@ async def prepare_mask_payload_for_write(
     # Check every image-mask gate before object reads, advisory locks, or upload
     # association. Video mask tracks keep their existing deployment contract.
     if any(geometry.get("type") == "raster_mask" for geometry in geometries):
-        project = await db.get(Project, task.project_id)
+        project = await db.get(Project, task.project_id, populate_existing=True)
         assert_raster_mask_write_enabled(project)
 
     for geometry in geometries:
         try:
-            await validate_mask_geometry_for_task(db, task, geometry)
+            await validate_mask_geometry_for_task(
+                db,
+                task,
+                geometry,
+                native_original_receipt=native_original_receipt,
+                repair_original_receipt=repair_original_receipt,
+                video_result_receipt=video_result_receipt,
+                video_acceptance_receipt=video_acceptance_receipt,
+            )
         except RasterMaskContractError:
+            raise
+        except ContentError:
             raise
         except ValueError as exc:
             raise RasterMaskContractError(
@@ -532,11 +674,30 @@ async def prepare_mask_payload_for_write(
         for reference in collect_mask_references(geometry)
     }
     try:
+        if portable_mask_meta is not None:
+            from app.services.controlled_segmentation import validate_portable_masks
+
+            # Validate the entire envelope before the first PUT. Shared SHA
+            # objects remain GC-owned if a later storage/DB operation fails.
+            resolved = validate_portable_masks(value, portable_mask_meta)
+            await store_mask_reference_objects(db, value, resolved, task_id=task.id)
         committed_keys = await lock_raster_mask_references(
             db,
             references_to_commit,
             foreground_object_keys=foreground_keys,
+            **(
+                {"verify": False}
+                if video_result_receipt is not None
+                or video_acceptance_receipt is not None
+                else {}
+            ),
         )
+        if video_result_receipt is not None or video_acceptance_receipt is not None:
+            # The private video receipt already verified physical RLE before
+            # business locks and rechecked its exact ready owner above.
+            from app.services.raster_mask_objects import bind_publications
+
+            await bind_publications(db, references_to_commit)
         required = sorted(required_upload_keys or set())
         if required:
             owned = set(
@@ -590,9 +751,18 @@ async def prepare_mask_geometry_for_annotation_write(
     db: AsyncSession,
     task: Task | None,
     geometry: dict[str, Any],
+    *,
+    native_original_receipt=None,
+    repair_original_receipt=None,
 ) -> None:
     """Backward-compatible direct-geometry wrapper for annotation writes."""
-    await prepare_mask_payload_for_write(db, task, geometry)
+    await prepare_mask_payload_for_write(
+        db,
+        task,
+        geometry,
+        native_original_receipt=native_original_receipt,
+        repair_original_receipt=repair_original_receipt,
+    )
 
 
 def canonical_rle_bytes(rle: dict[str, Any]) -> bytes:
@@ -674,117 +844,108 @@ def build_rle_gzip_reference(rle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _put_object_sync(
-    storage: StorageService, *, key: str, body: bytes, content_type: str
-) -> None:
-    """Sync boto3 put wrapped so both the async and sync helpers share one path."""
-    if storage.verify_upload(key) is None:
-        storage.client.put_object(
-            Bucket=storage.bucket,
-            Key=key,
-            Body=body,
-            ContentType=content_type,
-        )
-
-
-def _get_object_sync(storage: StorageService, *, key: str, max_bytes: int) -> bytes:
-    """Sync boto3 get with a caller-selected compressed/uncompressed bound."""
+async def _run_content_io(call, *args, **kwargs):
+    """A cancelled await must not release its caller's locks before thread exit."""
+    task = asyncio.create_task(asyncio.to_thread(call, *args, **kwargs))
     try:
-        response = storage.client.get_object(Bucket=storage.bucket, Key=key)
-    except ClientError as exc:
-        code = str(exc.response.get("Error", {}).get("Code", ""))
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            raise ValueError("stored mask RLE object is missing") from exc
+        return await asyncio.shield(task)
+    except asyncio.CancelledError as interrupted:
+        try:
+            await finish(task)
+        except BaseException as late:
+            if getattr(late, "storage_operation_unsettled", False):
+                mark_unsettled(interrupted)
         raise
-    try:
-        data = response["Body"].read(max_bytes + 1)
-    finally:
-        response["Body"].close()
-    return data
 
 
 def store_coco_rle_sync(
     rle: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync storage path retained for non-async callers (workers / sync imports).
+    """Owned synchronous entry for worker threads without an active loop."""
+    _require_sync_thread()
+    return asyncio.run(store_coco_rle(rle, storage=storage))
 
-    Most call sites are async and should ``await store_coco_rle(...)`` instead;
-    the async wrapper delegates the heavy lifting here through ``to_thread``.
-    """
-    data = canonical_rle_bytes(rle)
-    reference = build_rle_reference(rle)
-    _put_object_sync(
-        storage,
-        key=reference["object_key"],
-        body=data,
-        content_type="application/json",
+
+def _require_sync_thread():
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise RuntimeError("Use asynchronous mask storage inside an active event loop")
+
+
+def _encode_rle(rle, *, compressed=False):
+    if compressed:
+        canonical, encoded = canonical_rle_bytes_gzip(rle)
+        if len(canonical) <= len(encoded) * MAX_EXPANSION_RATIO:
+            return build_rle_gzip_reference(rle), encoded
+    return build_rle_reference(rle), canonical_rle_bytes(rle)
+
+
+def raster_mask_storage_contract_error(exc):
+    """Keep owned storage and admission failures outside input-validation errors."""
+    status = getattr(exc, "status_code", getattr(exc, "status", 409))
+    return RasterMaskContractError(
+        status_code=503 if status >= 500 else 409,
+        reason=exc.code,
+        message="mask storage is unavailable"
+        if status >= 500
+        else "mask ownership or storage admission changed; retry the operation",
+        retryable=True,
     )
-    return reference
+
+
+async def _store_owned(rle, *, compressed=False, db=None, storage=storage_service):
+    from app.services import raster_mask_objects
+    from app.services.content_snapshot import ContentError
+    from app.services.raster_object_storage import RasterObjectStorageError
+
+    reference, data = await _run_content_io(_encode_rle, rle, compressed=compressed)
+    try:
+        return await raster_mask_objects.store(reference, data, db=db, storage=storage)
+    except (RasterObjectStorageError, ContentError) as exc:
+        raise raster_mask_storage_contract_error(exc) from exc
 
 
 async def store_coco_rle(
-    rle: dict[str, Any], *, storage: StorageService = storage_service
+    rle: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Async wrapper of :func:`store_coco_rle_sync` (boto3 I/O in ``to_thread``)."""
+    """Create or reuse independently owned content, preserving caller publication."""
     return await _observe_content_operation(
         "store",
-        asyncio.to_thread(store_coco_rle_sync, rle, storage=storage),
+        _store_owned(rle, db=db, storage=storage),
     )
 
 
 def store_coco_rle_gzip_sync(
     rle: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync gzip storage path (see ``store_coco_rle_gzip`` for the async entry)."""
-    data, gzip_bytes = canonical_rle_bytes_gzip(rle)
-    # A reference written here must always be readable under the same bounded
-    # decompression contract. Highly compressible payloads fall back to JSON.
-    if len(data) > len(gzip_bytes) * MAX_EXPANSION_RATIO:
-        return store_coco_rle_sync(rle, storage=storage)
-    reference = build_rle_gzip_reference(rle)
-    _put_object_sync(
-        storage,
-        key=reference["object_key"],
-        body=gzip_bytes,
-        content_type="application/gzip",
-    )
-    # ``bytes`` must reflect uncompressed canonical length (ADR-0052 §D6); the
-    # reference is already built that way, so no override is needed here.
-    return reference
+    """Owned gzip entry for worker threads without an active loop."""
+    _require_sync_thread()
+    return asyncio.run(store_coco_rle_gzip(rle, storage=storage))
 
 
 async def store_coco_rle_gzip(
-    rle: dict[str, Any], *, storage: StorageService = storage_service
+    rle: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Async gzip storage entry (boto3 I/O in ``to_thread``).
-
-    Stores the ``.json.gz`` body and returns a reference with
-    ``encoding == "coco_rle_gzip"``; ``object_key`` / ``sha256`` / ``runs`` /
-    ``bytes`` / ``size`` are schema-identical to the uncompressed
-    ``coco_rle_ref`` (``bytes`` = uncompressed canonical length).
-    """
+    """Preserve canonical identity while independently owning compressed bytes."""
     return await _observe_content_operation(
         "store",
-        asyncio.to_thread(store_coco_rle_gzip_sync, rle, storage=storage),
+        _store_owned(rle, compressed=True, db=db, storage=storage),
     )
 
 
 def load_coco_rle_sync(
     reference: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync load path: handles legacy ``.json`` and new ``.json.gz`` keys.
+    """Owned read for training/evaluation threads; never guess a current bucket."""
+    _require_sync_thread()
+    return asyncio.run(load_coco_rle(reference, storage=storage))
 
-    All digest / byte-count / run / size checks operate on the **decompressed
-    canonical bytes**, so behavior is identical regardless of transport.
-    """
+
+def decode_rle_bytes(reference: dict[str, Any], raw: bytes) -> dict[str, Any]:
+    """Validate portable canonical content independently of its physical locator."""
     key = str(reference["object_key"])
-    raw = _get_object_sync(
-        storage,
-        key=key,
-        max_bytes=(
-            MAX_COMPRESSED_BYTES if key.endswith(".json.gz") else MAX_RLE_OBJECT_BYTES
-        ),
-    )
     storage_encoding = reference.get("storage_encoding")
     gzip_key = key.endswith(".json.gz")
     if storage_encoding not in (None, RLE_STORAGE_IDENTITY, RLE_STORAGE_GZIP):
@@ -830,12 +991,14 @@ def load_coco_rle_sync(
 
 
 async def load_coco_rle(
-    reference: dict[str, Any], *, storage: StorageService = storage_service
+    reference: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Async wrapper of :func:`load_coco_rle_sync` (boto3 I/O in ``to_thread``)."""
+    """Resolve a unique ready owner before reading and validating saved bytes."""
+    from app.services import raster_mask_objects
+
     return await _observe_content_operation(
         "load",
-        asyncio.to_thread(load_coco_rle_sync, reference, storage=storage),
+        raster_mask_objects.load(reference, db=db, storage=storage),
     )
 
 

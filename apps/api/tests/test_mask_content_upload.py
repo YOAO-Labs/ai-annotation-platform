@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
+from sqlalchemy import select
 
 from app.api.v1.annotations import (
     MAX_MASK_OBJECTS_PER_TASK,
@@ -174,6 +175,9 @@ async def test_upload_task_mask_content_routes_gzip_when_encoding_declared(
     )
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle_gzip", gzip_store)
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle", json_store)
+    monkeypatch.setattr(
+        "app.api.v1.annotations.lock_raster_mask_references", AsyncMock()
+    )
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -215,11 +219,17 @@ async def test_upload_task_mask_content_defaults_to_json_path(
     assert resp.status_code == 200, resp.text
     json_store.assert_awaited_once()
     gzip_store.assert_not_awaited()
-    content_lock.assert_awaited_once_with(
-        db_session,
-        build_rle_reference(RLE),
-        verify=False,
-    )
+    json_store.assert_awaited_once_with(RLE, db=db_session)
+    assert content_lock.await_args_list == [
+        call(db_session, build_rle_reference(RLE), verify=False),
+        call(db_session, build_rle_reference(RLE), verify=True),
+    ]
+    reservation = (
+        await db_session.execute(
+            select(RasterMaskUpload).where(RasterMaskUpload.task_id == task.id)
+        )
+    ).scalar_one()
+    assert reservation.linked_at is None
     assert resp.json()["encoding"] == "coco_rle_ref"
 
 

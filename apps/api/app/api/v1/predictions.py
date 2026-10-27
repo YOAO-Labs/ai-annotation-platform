@@ -53,13 +53,11 @@ from app.schemas.prediction import (
     PredictionPurgeRequest,
     PredictionPurgeResponse,
 )
-from app.config import settings
 from app.services.audit import AuditAction, AuditService
-from app.services.pipeline_validation import resolve_preannotate_queue
 from app.services.prediction import (
     claim_failed_prediction_retry,
-    release_failed_prediction_retry_claim,
 )
+from app.services.raster_mask_storage import RasterMaskContractError
 
 
 router = APIRouter()
@@ -195,6 +193,7 @@ async def list_failed_predictions(
 )
 async def retry_failed_prediction(
     failed_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ) -> Any:
@@ -216,46 +215,14 @@ async def retry_failed_prediction(
     if fp is None:
         raise HTTPException(status_code=409, detail="Retry already queued")
 
-    # 投递 Celery task，前端通过 ws 推送获得进度
-    from app.workers.predictions_retry import retry_failed_prediction as task_fn
+    from app.services.prediction_retries import prepare_retry, release_unpublished_retry
 
-    # v0.19.5 · 设备感知路由对齐: 原始失败的 backend 自报 device=cpu 时, 重试也落 ml.cpu 队列,
-    # 而不是按 task_routes 静态路由到 ml(gpu) 占 GPU 并发槽。无自报 → 保守落 gpu(与现状等价)。
-    device: str | None = None
-    if fp.ml_backend_id is not None:
-        backend = await db.get(MLBackend, fp.ml_backend_id)
-        if backend and isinstance(backend.health_meta, dict):
-            rp = (backend.health_meta.get("capabilities") or {}).get(
-                "resource_profile"
-            ) or {}
-            device = rp.get("device")
-            context = (fp.extra or {}).get("request_context") or {}
-            from app.services.trained_models import controlled_device, is_controlled
-
-            if is_controlled(context.get("model_id")) or context.get(
-                "frozen_model_ref"
-            ):
-                device = controlled_device(backend)
-    devices = [device]
-    if fp.execution_snapshot_id is not None:
-        from app.services.prediction_execution import load_snapshot
-        from app.api.v1.projects import _stage_device
-
-        snapshot, _ = await load_snapshot(db, fp.execution_snapshot_id, fp.project_id)
-        devices = []
-        for stage in snapshot["stages"]:
-            stage_backend = await db.get(MLBackend, uuid.UUID(stage["ml_backend_id"]))
-            devices.append(_stage_device(stage_backend, stage.get("model_id")))
-    queue = resolve_preannotate_queue(
-        devices,
-        gpu_queue=settings.preannotate_gpu_queue,
-        cpu_queue=settings.preannotate_cpu_queue,
-    )
+    plan = await prepare_retry(db, fp, current_user, request)
     await db.commit()
     try:
-        task_fn.apply_async(args=[str(failed_id), str(current_user.id)], queue=queue)
+        plan.publish(current_user.id)
     except Exception:
-        await release_failed_prediction_retry_claim(db, failed_id)
+        await release_unpublished_retry(db, plan)
         await db.commit()
         raise
     return RetryResponse(status="queued", failed_id=failed_id)
@@ -465,6 +432,8 @@ async def import_predictions(
                         dry_run=dry_run,
                         purged_tasks=purged_tasks,
                     )
+            except RasterMaskContractError:
+                raise
             except ValueError as exc:
                 if len(raw_files) == 1:
                     raise
@@ -489,6 +458,17 @@ async def import_predictions(
                 )
             else:
                 result.errors.extend(part.errors)
+    except RasterMaskContractError as exc:
+        # A retryable storage failure must not commit any partial import.
+        await db.rollback()
+        if aj_id is not None:
+            try:
+                await async_job_svc.mark_failed(db, aj_id, error=str(exc))
+                await notify_job_terminal(db, job_id=aj_id)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except ValueError as exc:
         if aj_id is not None:
             try:

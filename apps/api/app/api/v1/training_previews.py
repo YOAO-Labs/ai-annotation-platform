@@ -1,6 +1,5 @@
 """Authorized native-preview requests and purpose-specific trusted CPU protocol."""
 
-import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -80,9 +79,34 @@ async def create(
     preview = await service.create(
         db, project, user, body, getattr(request.state, "api_key_id", None)
     )
-    result = await service.output(preview)
+    result = await service.output(preview, db=db)
     await db.commit()
     return result
+
+
+@router.post(
+    "/{preview_id}/storage-pin",
+    response_model=TrainingPreviewOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def pin_legacy_preview_storage(
+    preview_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    preview = await pin(
+        db,
+        "training-preview",
+        preview_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(preview, include_report=False, db=db)
 
 
 @router.get("/{preview_id}", response_model=TrainingPreviewOut)
@@ -94,7 +118,7 @@ async def get(
 ):
     await lock_owner(db, user, project)
     preview = await load(db, project.id, preview_id, lock="share")
-    result = await service.output(preview)
+    result = await service.output(preview, db=db)
     await db.commit()
     return result
 
@@ -113,7 +137,7 @@ async def cancel(
     await lock_owner(db, user, project)
     preview = await load(db, project.id, preview_id, lock=True)
     await service.cancel(db, preview)
-    result = await service.output(preview)
+    result = await service.output(preview, db=db)
     await db.commit()
     return result
 
@@ -153,9 +177,30 @@ async def image(
         raise HTTPException(status_code=409, detail="原生预览尚未完成或图片不存在")
     source = None
     try:
-        report = await asyncio.to_thread(service.read_report, preview)
+        owner = service.storage_owner(preview)
+
+        report_artifact = preview.artifacts["report.json"]
+        report = await service.storage_io.read(
+            db,
+            owner,
+            "training_preview_read",
+            lambda transport: service.read_report(preview, transport=transport),
+            object_key=report_artifact["key"],
+            sha256=report_artifact["sha256"],
+            size_bytes=report_artifact["size_bytes"],
+        )
         output = next(item for item in report.outputs if item.index == index)
-        source = await asyncio.to_thread(service.read_image, preview, output)
+        image_artifact = preview.artifacts[output.image]
+        source = await service.storage_io.read(
+            db,
+            owner,
+            "training_preview_read",
+            lambda transport: service.read_image(preview, output, transport=transport),
+            object_key=image_artifact["key"],
+            sha256=image_artifact["sha256"],
+            size_bytes=image_artifact["size_bytes"],
+            close_result=lambda result: result.close(),
+        )
         await db.commit()
         return StreamingResponse(
             stream_media(source),
@@ -169,6 +214,8 @@ async def image(
     except BaseException as exc:
         if source is not None:
             source.close()
+        if isinstance(exc, HTTPException):
+            raise
         if isinstance(exc, Exception):
             raise HTTPException(
                 status_code=422, detail="原生预览图片缺失、损坏或身份不符"

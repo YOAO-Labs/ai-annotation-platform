@@ -218,6 +218,7 @@ interface WorkbenchStageHostImageProps {
   continuousCreation?: boolean;
   resourceCoordinator?: RasterResourceCoordinator;
   rasterMaskRecords: readonly RasterMaskRenderRecord<"annotation">[];
+  predictionRasterMaskRecords?: readonly RasterMaskRenderRecord<"prediction">[];
   rasterMaskStatusById: ReadonlyMap<string, RasterMaskRecordStatus>;
   onRetryRasterMask: (id: string) => void;
   editingRasterMaskId?: string | null;
@@ -477,6 +478,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
       bboxCreationMode,
       resourceCoordinator,
       rasterMaskRecords,
+      predictionRasterMaskRecords,
       rasterMaskStatusById,
       onRetryRasterMask,
       editingRasterMaskId,
@@ -606,6 +608,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
           </Suspense>
         ) : stageKind === "video" ? (
           <VideoWorkbench
+            taskId={taskId}
             overlays={overlays}
             maskCompareStore={maskCompareStore}
             ref={ref}
@@ -688,6 +691,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
             resourceCoordinator={resourceCoordinator}
             maskCompareStore={maskCompareStore}
             rasterMaskRecords={rasterMaskRecords}
+            predictionRasterMaskRecords={predictionRasterMaskRecords}
             rasterMaskStatusById={rasterMaskStatusById}
             onRetryRasterMask={onRetryRasterMask}
             editingRasterMaskId={editingRasterMaskId}

@@ -1,8 +1,9 @@
 ---
+title: 后端分层
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 后端分层
@@ -27,19 +28,23 @@ HTTP → 路由 (api/v1) → 服务 (services) → 模型 (db/models)
 
 服务层承载核心状态机、业务规则、跨表事务与外部 HTTP 通信（如调用 ML Backend）。规模较大的业务按领域拆分为独立子包（Domain Packages）：
 
-| 领域子包                   | 核心职责                                                     | 内部模块分层与边界                                                                                                                                                   |
-| :------------------------- | :----------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`gpu_arbitration/`**     | GPU 显存契约、租约账本、Redis Fence、静默卸载与抢占编排      | `contracts` / `policy` 为无环叶模块；`fences` / `proofs` / `reconciliation` / `retirement` 居中；`dispatch` / `membership_activation` / `rollout_control` 为高层编排 |
-| **`ml_routing/`**          | 服务池能力指纹、加权轮询（SWRR）、路由租约账本与排空安全校验 | `contracts` / `capability` / `policy` 为纯函数叶模块；`ledger` 维护 Redis 原子租约与被动熔断；`router` / `safety` / `diagnostics` 编排拓扑与快照                     |
-| **`video_tracking/`**      | 视频 AI 追踪适配器、分窗身份与候选暂存审阅                   | `adapter` / `job` / `runner` 单向协作，不反向耦合 WebSocket 路由                                                                                                     |
-| **`exporting/`**           | 项目/批次异步导出缓存、单飞锁与多格式归档打包                | `cache` / `service` / 格式导出器                                                                                                                                     |
-| **`data_management/`**     | Data Manager 多维过滤、聚合统计与批量任务操作                | `schemas` / 查询原语 / 高层批量服务                                                                                                                                  |
-| **`mask_formats/`**        | 光栅掩码（Raster Mask）导入导出格式注册表、预检与流式校验    | 统一管理 COCO RLE / PNG 等掩码格式转换契约                                                                                                                           |
-| **`mask_qc/`**             | 提交期与抽样光栅掩码质检（几何连通性、空洞与边界核验）       | 异步质检计算与质检报告持久化                                                                                                                                         |
-| **`point_cloud_quality/`** | 3D 点云场景与立体框质量度量                                  | 点云稀疏度、框体尺寸与跨帧一致性检查                                                                                                                                 |
-| **`sources/`**             | 外部对象存储连接器（S3/MinIO）安全校验、凭证解密与只读列举   | SSRF 防护、DNS 重绑定校验与流式导入                                                                                                                                  |
+| 领域子包                   | 核心职责                                                         | 内部模块分层与边界                                                                                                                                                   |
+| :------------------------- | :--------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`gpu_arbitration/`**     | GPU 显存契约、租约账本、Redis Fence、静默卸载与抢占编排          | `contracts` / `policy` 为无环叶模块；`fences` / `proofs` / `reconciliation` / `retirement` 居中；`dispatch` / `membership_activation` / `rollout_control` 为高层编排 |
+| **`ml_routing/`**          | 服务池能力指纹、加权轮询（SWRR）、路由租约账本与排空安全校验     | `contracts` / `capability` / `policy` 为纯函数叶模块；`ledger` 维护 Redis 原子租约与被动熔断；`router` / `safety` / `diagnostics` 编排拓扑与快照                     |
+| **`video_tracking/`**      | 视频 AI 追踪适配器、分窗身份与候选暂存审阅                       | `adapter` / `job` / `runner` 单向协作，不反向耦合 WebSocket 路由                                                                                                     |
+| **`exporting/`**           | 项目/批次异步导出缓存、单飞锁与多格式归档打包                    | `cache` / `service` / 格式导出器                                                                                                                                     |
+| **`data_management/`**     | Data Manager 多维过滤、聚合统计与批量任务操作                    | `schemas` / 查询原语 / 高层批量服务                                                                                                                                  |
+| **`mask_formats/`**        | 光栅掩码（Raster Mask）导入导出格式注册表、预检与流式校验        | 统一管理 COCO RLE / PNG 等掩码格式转换契约                                                                                                                           |
+| **`mask_qc/`**             | 提交期与抽样光栅掩码质检（几何连通性、空洞与边界核验）           | 异步质检计算与质检报告持久化                                                                                                                                         |
+| **`point_cloud_quality/`** | 3D 点云场景与立体框质量度量                                      | 点云稀疏度、框体尺寸与跨帧一致性检查                                                                                                                                 |
+| **`sources/`**             | 外部对象存储（S3/MinIO）与 SFTP 适配器（复制导入与严格持续引用） | SSRF 防护、DNS 重绑定校验、固定主机公钥校验与条件读取                                                                                                                |
 
-此外，在线学习与训练相关服务（`training_datasets.py`、`training_runs.py`、`training_studies.py`、`training_observability.py`、`trained_models.py`、`sample_evaluations.py`、`active_learning.py`、`learning_policies.py`、`model_lineage.py`）围绕共享契约包 `apps/_shared/task_contract` 与 `apps/_shared/training_contract` 构建。
+此外：
+
+- **数据集与受控存储服务群**（`storage_location*.py`、`storage_access.py`、`storage_maintenance*.py`、`dataset_sources.py`、`dataset_scans.py`、`dataset_registration.py`、`dataset_source_sync.py`、`dataset_workbench.py`、`dataset_quality*.py`、`original_sources.py`、`managed_original_*.py`、`original_cache.py`、`site_agents.py`、`agent_transport.py`、`storage_migration_*.py`、`storage_usage*.py`）围绕共享只读原语包 `apps/_shared/filesystem_read` 与站点协议包 `apps/_shared/site_agent_contract` 构建，并与独立守护进程 `apps/storage-agent` 协作（详见[存储位置、连接器与用途绑定](./storage-connections)）。
+- **在线学习与训练相关服务**（`training_datasets.py`、`training_runs.py`、`training_studies.py`、`training_observability.py`、`trained_models.py`、`sample_evaluations.py`、`active_learning.py`、`learning_policies.py`、`model_lineage.py`）围绕共享契约包 `apps/_shared/task_contract` 与 `apps/_shared/training_contract` 构建，并与独立拉取式执行器 `apps/training-executor` 协作。
+- **共享原生媒体原语**：`services/media_process.py` 负责已核验文件描述符与有界子进程收尾，`services/media_probe.py` 负责 ffprobe 探测及解析；导出与媒体 worker 都依赖服务层叶模块，不经 worker 反向调用。
 
 ### 领域子包架构守卫
 

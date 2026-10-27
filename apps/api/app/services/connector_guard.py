@@ -199,13 +199,19 @@ def _ip_in_cidr_entries(ip: ipaddress._BaseAddress, allowlist: list[str]) -> boo
 
 def assert_host_allowed(host_or_endpoint: str, allowlist: list[str]) -> None:
     """校验目标地址是否被白名单允许；不允许则抛 ConnectorHostDenied。"""
+    resolve_allowed_ips(host_or_endpoint, allowlist)
+
+
+def resolve_allowed_ips(host_or_endpoint: str, allowlist: list[str]) -> list[str]:
+    """Return the exact validated addresses for clients that can pin a socket."""
     if not allowlist:
         raise ConnectorHostDenied(
             "未配置连接器主机白名单，请联系超级管理员先配置允许的主机"
         )
     host = extract_host(host_or_endpoint)
     name_ok = _host_matches_name_entries(host, allowlist)
-    for ip in _resolve_ips(host):
+    addresses = _resolve_ips(host)
+    for ip in addresses:
         if _is_hard_blocked(ip):
             raise ConnectorHostDenied(
                 f"目标解析到受限地址（loopback/link-local 等），拒绝: {host} → {ip}"
@@ -217,6 +223,7 @@ def assert_host_allowed(host_or_endpoint: str, allowlist: list[str]) -> None:
         raise ConnectorHostDenied(
             f"目标不在白名单内: {host} → {ip}（需超管将其加入连接器主机白名单）"
         )
+    return [str(ip) for ip in addresses]
 
 
 async def get_allowlist(db: AsyncSession) -> list[str]:

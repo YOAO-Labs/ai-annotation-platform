@@ -80,6 +80,10 @@ async def update_scene(
     if scene is None:
         raise HTTPException(status_code=404, detail="Scene not found")
 
+    from app.services.dataset_lifecycle import require_writable
+
+    await require_writable(db, scene.dataset_id, lock=True)
+
     if payload.name is not None and payload.name != scene.name:
         from sqlalchemy import select
 

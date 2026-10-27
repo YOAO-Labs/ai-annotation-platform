@@ -3,28 +3,100 @@ title: 在线学习与模型训练 API
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-26
 ---
 
 # 在线学习与模型训练 API
 
-基路径为 `/api/v1/projects/{project_id}/training-datasets`。所有操作要求项目负责人或超级管理员；API Key 还需 `annotations:read` 与 `datasets:read`，删除另需 `datasets:write`。
+## 基路径与权限速查
 
-| 方法   | 路径后缀                 | 行为                                                 |
-| ------ | ------------------------ | ---------------------------------------------------- |
-| POST   | `:preflight`             | 校验范围、冻结候选数据，返回预检报告和 `digest`      |
-| POST   | 空                       | 创建版本并排队，返回 `202` 与版本、`async_job_id`    |
-| GET    | 空                       | `limit=20`、`offset=0` 分页；返回摘要列表与 `total`  |
-| GET    | `/{version_id}`          | 默认读取完整清单；`include_manifest=false` 只读摘要  |
-| POST   | `/{version_id}/retry`    | 对失败或取消版本重试同一快照，返回 `202`             |
-| GET    | `/{version_id}/download` | 就绪且对象可用时，返回 10 分钟 `url` 和包的 `sha256` |
-| DELETE | `/{version_id}`          | 删除无引用的终态版本，持久安排存储清理，返回 `204`   |
+| 模块                 | 基路径                                                                        | 角色要求                                  | API Key Scopes（读 / 写）                                                         | 详细章节                                              |
+| -------------------- | ----------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 训练数据版本         | `/api/v1/projects/{project_id}/training-datasets`                             | 项目负责人 / `super_admin`                | `annotations:read` + `datasets:read`（删除、`storage-pin` 另需 `datasets:write`） | [训练数据版本](#托管图片预检与构建)                   |
+| 项目任务数据集流     | `/api/v1/projects/{project_id}/task-datasets`                                 | 项目负责人 / `super_admin`                | `annotations:read` + `datasets:read`                                              | [项目任务数据集与版本筛选](#项目任务数据集与版本筛选) |
+| 人工主动选样         | `/api/v1/projects/{project_id}/active-learning-rounds`                        | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [人工主动选样 API](#人工主动选样-api)                 |
+| 逐样本评估           | `/api/v1/projects/{project_id}/sample-evaluations`                            | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [逐样本评估 API](#逐样本评估-api)                     |
+| 训练总览             | `/api/v1/training`                                                            | `project_admin` / `super_admin`           | `annotations:read` + `datasets:read`                                              | [训练总览 API](#训练总览-api)                         |
+| 训练实验             | `/api/v1/projects/{project_id}/training-runs`                                 | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [训练实验 API](#训练实验-api)                         |
+| 参数搜索             | `/api/v1/projects/{project_id}/training-studies`                              | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [参数搜索 API](#参数搜索-api)                         |
+| 原生增强预览         | `/api/v1/projects/{project_id}/training-previews`                             | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [原生增强预览 API](#原生增强预览-api)                 |
+| 训练配方与克隆       | `/api/v1/projects/{project_id}/training-recipes`                              | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写/解析：另需 `datasets:write`          | [项目训练配方与克隆](#项目训练配方与克隆)             |
+| 模型注册、部署与谱系 | `/api/v1/projects/{project_id}/{trained-models,model-releases,model-lineage}` | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [模型注册、部署与发布](#模型注册、部署与发布)         |
+| 自动训练策略         | `/api/v1/projects/{project_id}/learning-policy`                               | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [自动训练策略](#自动训练策略)                         |
+| 执行器内部回报       | `/api/v1/internal/training`                                                   | 独立执行器（`X-Training-Executor-Token`） | 不使用用户 JWT / API Key                                                          | [实际训练成员回执](#实际训练成员回执)                 |
+
+训练执行器容器部署与成员回执验收见[生产部署：实际训练成员回执的部署验收](/ops/deploy/docker-compose#5-实际训练成员回执的部署验收)，训练相关存储归属、历史 `storage-pin` 与新分配位置切换的恢复边界见[一致备份与隔离恢复演练](/ops/deploy/storage-recovery)。
+
+原地引用图片使用相同项目版本 API。含引用的预检 `summary` 增加 `reference_samples` 与 `original_copy_bytes`（所选原图预计新增持久字节）；读取异常写入逐任务 `issues` 并令 `ready=false`。新 snapshot/manifest 以 `asset_source_contract.schema=1` 和样本 `asset_reference.schema=1` 固定业务 Asset/SHA；不改变几何合同、历史字节或现有 ZIP 消费。Worker 必须具备自身节点的读取 anchor，源变化返回明确构建错误，未就绪版本无法下载。
+
+已选中且当前获授权的引用成员，其预检问题还包含可选的`dataset_id`和`dataset_item_id`，供管理界面进入对应样本检查器准备原图。字段只定位本次成员，不含物理路径或备用来源枚举；进入后仍按当前权限核验、关联副本或查看存储位置。旧问题或无法定位的成员可以没有这两个字段；处理后必须重新预检，不能直接使用原失败报告创建版本。
+
+基路径为 `/api/v1/projects/{project_id}/training-datasets`。所有操作要求项目负责人或超级管理员；API Key 还需 `annotations:read` 与 `datasets:read`，删除和历史存储归属核验另需 `datasets:write`。
+
+| 方法   | 路径后缀                    | 行为                                                 |
+| ------ | --------------------------- | ---------------------------------------------------- |
+| POST   | `:preflight`                | 校验范围、冻结候选数据，返回预检报告和 `digest`      |
+| POST   | 空                          | 创建版本并排队，返回 `202` 与版本、`async_job_id`    |
+| GET    | 空                          | `limit=20`、`offset=0` 分页；返回摘要列表与 `total`  |
+| GET    | `/{version_id}`             | 默认读取完整清单；`include_manifest=false` 只读摘要  |
+| POST   | `/{version_id}/retry`       | 对失败或取消版本重试同一快照，返回 `202`             |
+| GET    | `/{version_id}/download`    | 就绪且对象可用时，返回 10 分钟 `url` 和包的 `sha256` |
+| POST   | `/{version_id}/storage-pin` | 显式核验并固定历史保留副本，成功返回原版本详情       |
+| DELETE | `/{version_id}`             | 删除无引用的终态版本，持久安排存储清理，返回 `204`   |
 
 列表可组合 `q`、`status`、`task`、`task_dataset_id`、`created_from` 和 `created_to` 筛选。`q` 最长 120 字符，去除首尾空白后按版本名称做不区分大小写的字面包含匹配，`%`、`_` 与反斜杠没有通配含义；空白查询不筛选名称。`status` 为 `pending|running|ready|failed|cancelled`。
 
 `created_from`、`created_to` 仅接受 `YYYY-MM-DD` 日历日期，按 UTC 日界处理；起止日期均包含整天，可单独传入，起始晚于结束时返回 `422`。所有条件先于 `total` 计数和分页生效，按创建时间、版本 ID 降序稳定排列。`limit` 默认 20、最大 100，`offset` 默认 0。
 
-版本与终态实验的删除均先在同一数据库事务内移除业务记录并保存独立存储清理意图，提交后才删除对象。提交失败时原记录与文件均保留；存储故障不撤销已提交的业务删除，接口仍返回 `204`，现有 `maintain_evaluations` 周期任务重试清理。意图固定原 bucket 与 prefix，不因配置变更或项目删除丢失。`204` 表示业务删除完成，存储清理可能稍后完成；后续读取或删除同一 ID 返回 `404`。既有引用保护继续在存储 I/O 前生效。
+版本与终态实验的删除均先在同一数据库事务内移除业务记录并保存独立存储清理意图，提交后才删除对象。提交失败时原记录与文件均保留；存储故障不撤销已提交的业务删除，接口仍返回 `204`，现有 `maintain_evaluations` 周期任务重试清理。两类意图均复制各自完整存储归属，固定端点身份、bucket 与 prefix；身份不符或旧意图尚无可核实归属时保留待核对，不按当前用途桶执行删除。意图不因项目删除丢失。`204` 表示业务删除完成，存储清理可能稍后完成；后续读取或删除同一 ID 返回 `404`。归属为空的旧版本或实验须先显式核验，既有引用保护继续在存储 I/O 前生效。
+
+### 托管图片预检与构建
+
+托管图片使用上述预检、创建与重试接口，请求字段及权限要求保持一致。预检沿任务已登记的 DatasetAsset 或独立 TaskOriginal 的保存位置完整读取，核对 SHA-256、字节数并解码图片；不按当前用途桶或文件名回退。单图上限为 256 MiB、1 亿像素，支持 JPEG、PNG、WebP、BMP、TIFF，按 EXIF 方向检查逻辑尺寸；每版本仍最多 20,000 张、20 GiB。缺少可用原件身份会记录逐任务问题并阻止预检通过，权限、维护或读取冲突不会被当作成功预检。
+
+新快照以 `managed_original_contract=1` 声明托管原件合同，托管样本的 `original` 固定 `schema=1`、`owner_kind`、`content_id`、`sha256`、`size_bytes` 与 `location_id`。该收据进入预检摘要，不包含端点、桶或凭据；`source_key` 不能单独证明原件身份。HTTP 预检与创建持续核对本次请求的凭证和项目管理权限，后台构建与重试继续核对创建者及原 API Key。预检与创建仍只要求 `datasets:read`、`annotations:read` 和项目管理权限，不额外要求 `tasks:read` 或 `datasets:write`。
+
+构建先从版本固定输出位置读取保留媒体，新合同同时核对冻结原件的 SHA 与大小；仅改写对象摘要元信息不能替换固定输入。保留副本缺失时，才按完整冻结身份核验当前原件并回源；副本命中不要求源任务或源文件仍存在。旧就绪包与合格历史副本保持可用，旧版本缺少原件身份且副本缺失时，以 `original_input_unrecorded` 拒绝回源，需登记原图后创建新版本，不能通过 `storage-pin` 补造原图身份。
+
+图片、原生掩码和 ZIP 写入后均完整读回核对大小与 SHA，失败以 `training_output_mismatch` 等构建错误保留，不能发布 `ready`。取消、超时与关闭异常等待实际文件操作收尾；存在未确认结束的版本存储操作时，重试与删除返回 `409 execution_stopping`。
+
+### 固定存储归属与历史版本核验
+
+新版本在排队构建前固定已登记平台位置、配置与绑定代次、端点身份、实际桶和整个版本前缀。ZIP、保留图片及掩码共用该归属；构建重试、包发布与未发布尝试的清理、下载、冻结样本读取、训练派发和增强预览的源 URL 均从版本解析。接口不接受任意桶或路径，内部归属不写入 snapshot、manifest 或训练配置。
+
+已有归属不因当前 `training_bucket` 变化而切换，但实际存储客户端的端点身份变化会返回 `409`，不会用新端点试读旧桶。training 新分配可经存储用途映射预览确认切换；[实验产物与模型权重](#实验产物归属与历史核验)通过来源实验解析，预览与逐样本评估等自身输出仍有独立存储合同。
+
+历史 `storage_ref` 为空的版本不会从环境变量静默补值。普通 GET 不执行接管；需要由有项目管理权限的调用者显式发起：
+
+```http
+POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin
+```
+
+该操作无请求体，只允许 `ready`、`failed`、`cancelled`；旧构建仍活跃时返回 `409`，须先取消并等待实际构建退出。API Key 需要 `annotations:read`、`datasets:read`、`datasets:write`。候选只来自已登记的 legacy A 平台位置、实际平台端点及部署 training 桶，不采用当前用途绑定猜测候选，也不在核验中自动登记绑定。成功返回 `200` 和原版本详情；已有可解析归属时幂等返回。
+
+核验只读整个固定前缀，检查列举前后的集合、条件完整读取和实际 SHA/字节数。就绪版本还核对发布 ZIP 的摘要、大小、安全唯一成员、内外清单与逐图/标签，以及独立保留图片和掩码。去重前的全部 snapshot 样本仍属于合法保留范围；未入包不代表可删除，也仍需独立输入摘要证明。失败或取消版本可缺少尚未复制的成员，但已有副本必须对应固定输入的独立 SHA；只有对象自己的摘要元信息不足以接管。空的已停止前缀可固定，但不证明源素材可读或重试必定成功。
+
+每次最多盘点 100000 个对象、实际读取 64 GiB，协作截止 600 秒；每个 API 进程同时只允许一个核验，容量占用返回 `429`。取消、超时或关闭异常须等待实际物理收尾；无法确认关闭时保留责任与占位。多进程预算需合计。版本、权限和 legacy 位置在读取后再次核对，变化时不保存归属。
+
+缺失、摘要冲突、未知对象、无法解释的旧 attempt 包、预算不足及证据缺失均保留原版本和所有对象，不覆盖、不删除、不重写快照或包。`legacy_content_identity_unproven` 表示没有独立内容证据；核验保存的是当前保留副本的观察，不证明历史创建位置、独占所有权或未来不可变。未知旧版本在固定前不能通过普通重试、下载或删除绕过此边界。
+
+### 冻结引用来源证据
+
+新含引用版本以独立 `source_lineage_contract={schema:1, scope:accepted-reference}` 保存安全来源事实，不改变 `asset_reference.schema=1` 或几何合同。每成员 `source_lineage` 含 `source_id/location_id/path_digest/scan_run_id`、可空 `accepted_revision_id/revision_number/previous_revision_id`、可空 `accepted_at/scan_completed_at/content_verified_at`，以及正整数 `source_config_revision/location_config_revision`。时间来自已有持久记录；不返回宿主路径、连接名称、凭据或节点信息。未知合同或额外字段拒绝消费。
+
+相同持久事实保持预检摘要稳定；创建前来源事实变化须重新预检。已创建版本重试保留旧证据，来源后续修改或停用不补写历史。来源字段进入原始快照/清单/包摘要；训练语义和规范化验证比较仍按内容、标签和切分解释。旧无合同版本不回填。
+
+冻结样本详情的 `source_lineage` 另用 `kind=accepted_reference|managed_original|unknown` 区分证据类型。引用证据仍在 `evidence`；托管证据在 `managed_evidence`，严格包含 `schema=1`、`owner_kind=dataset_asset|task_original`、`content_id`、`location_id`、`sha256` 和 `size_bytes`，其余分支为 null。托管证据来自已保存的快照原件合同，须匹配清单成员及快照摘要，不新增包字段或查询当前来源。未保存证据时 `status=unrecorded`；明确声明的无效证明返回 409。
+
+版本比较对同 SHA 的全部成员保留来源身份的多重集合，托管来源按原件类型、内容 ID 和位置 ID 判断关系变化。来源关系不改变标签／划分的训练语义判定，也不证明物理搬迁。`media_state/media_checked_at` 独立表示保留副本最近一次读取观测，不能据此判断当前原件来源在线。
+
+### 按数据集筛选定义冻结
+
+预检与创建均可传 `dataset_filter` 对象，字段沿用[数据集组合筛选](datasets.md#组合筛选与个人动态视图)，必须同时指定已关联当前项目的 `dataset_id`。Scene、来源、文件名、媒体类型、扩展名、尺寸和已存可用性观测可组合；未知字段或非法范围422，失效/跨数据集 Scene、来源或未关联数据集404。未传或显式 null 保留原行为；不传个人视图ID、分页或布局作为范围。
+
+筛选先限定当前项目的匹配任务，再应用批次、显式 task_ids 和原有标注资格；显式任务不在范围内返回404，不静默丢弃。与工作台和分页任务选择共用授权 SQL，所有任务、Item、类别与活跃标注在同一 PG 语句快照中读取。预检 `source.dataset_selection` 包含 schema、filters、matched_tasks 和成员证据 digest；snapshot 另保留 `dataset_selection` 的固定 task/item/version 成员。新过滤字段及证据仅写新版本，不回填历史摘要或包。
+
+创建重新计算预检摘要，匹配成员、条件或合格内容变化返回409并要求重新预检；新增尚未审核的匹配任务同样改变范围证据。创建后只使用固定 snapshot，视图条件、Scene或来源后续变化不会重算其成员。读取仍经过严格原图校验，可用性筛选不是读取许可。重放相同 request_id/body 返回原版本；篡改范围不能复用同一请求标识。
 
 ### 项目任务数据集与版本筛选
 
@@ -60,7 +132,11 @@ last_reviewed: 2026-10-22
 | `/{version_id}/insights/samples/{task_id}`       | 冻结归一化框；`limit=500`（最多 1,000）、`offset`                                       |
 | `/{version_id}/insights/samples/{task_id}/media` | 认证二进制读取；默认原始冻结图片，`preview=true` 返回最大边 1,600 px 的 PNG             |
 
-类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged` 或 `unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
+类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged`、`unknown`、`source_relation_changed`、`source_evidence_updated` 或 `source_unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
+
+样本详情的可空 `source_lineage={kind,status,reasons,evidence,managed_evidence}`，状态为 `recorded/partial/unrecorded`；两类证据沿上述冻结白名单或为 null。历史合同缺失、未记录原件来源、采纳修订/扫描/验证时间不足分别解释；未入包记录继续返回详情，来源原因 `not_in_package`。详情只读保留版本，不查询当前来源补历史。
+
+比较新增 `source_comparison_status=complete|partial|unavailable`，与既有训练语义 `status` 分离。仅共同SHA比较来源：完整关系多重集合不同列为 `source_relation_changed`，关系相同但证据不同列为 `source_evidence_updated`，任一侧部分/未记录列为 `source_unknown`。这些分类可与 `unchanged` 重叠，并参与现有分页前筛选；双方仍须属于当前授权项目。
 
 类别 `order_by=index|instances|images` 默认 `index`，频次排序在分页前完成，以类别索引稳定打破并列；可选 `split=train|val` 确定排序使用的分区频次，返回同名参数。类别索引属于各自冻结版本。样本 `content_sha256` 必须是 64 位小写十六进制，可与现有条件和分页组合；没有成员命中返回空页。使用该过滤分别读取当前／基线可找出相同内容的全部重复成员，不能以工作项 UUID 或标签行序配对。
 
@@ -138,6 +214,14 @@ last_reviewed: 2026-10-22
 
 预览选择体包含 UUID `model_version_id`、`deployment_id`、2–32 个不重复 `sample_task_ids`、整数 `seed`（0–2147483647）、`batch_size`（1–16）、`max_inference_dispatches`（1–96）与 `max_review_tasks`（2–32）。`confidence` 默认 0.1、`nms_iou` 默认 0.7，均大于零且不超过一。审核预算至少 `2 * batch_size`；推理预算至少覆盖去重／排除后的所有候选，独立候选至少 `2 * batch_size`。来源单图 16 MiB／1600 万像素，总原图 128 MiB；保留历史最多 256 项和 16 MiB JSON，超限明确拒绝，不静默省略。
 
+新轮次声明 `original_contract=1`，内部来源快照固定原件 `owner_kind`、内容 UUID、SHA、大小及逻辑位置 ID。预览／创建、Worker 缺失 PNG 的重建和接纳前整个组的复核，都从该原件的已保存位置完整读取；不使用现行用途桶，也不将同 SHA 的另一归属视为同一原件。桶、端点、凭据及后台 Key 指纹不加入公开来源快照。维护修订按本次物理操作固定，正常维护恢复不改写历史内容身份。
+
+HTTP 请求持续复核原 JWT／Key 和原三个 scope；新后台轮次保存原 Key proof 的指纹，Key 同 ID 轮换、scope 或期限变化均失效。后台沿创建者的持续授权执行，不保存 Bearer 或依赖请求 JWT 的短期寿命。物理复制、归一化、PNG 写回／读回及关闭等待真实线程收尾；未知关闭保留访问责任。读取期间原件或门禁变化返回 `409`，失权返回 `403`，正常内容无法解码仍明确失败，不能继续生成评分或批次。
+
+后台原 Key 复核遇到访问记录更新造成的短暂锁冲突时有限重试；仍忙则保留可恢复状态，不把锁占用视为撤权或损坏输入。真实撤权不重试，最终业务事务不会被重试中的辅助检查提前提交。
+
+旧规格保持原样，已有合格 PNG、报告和拒绝决策可继续使用；没有原件事实时，缺失 PNG 重建与新增接纳返回 `409 original_input_unrecorded`，不能用当前 owner 补造冻结记录。既有 PNG 沿自身输出归属核验，损坏时不静默回源修复。创建和接纳的末端复核位于原业务事务中，不提前提交 Job 或人工批次。
+
 创建、决策与反馈均使用 UUID `request_id` 加完整请求摘要幂等：同一内容返回原结果，改变内容返回 `409`。创建重复请求先读取既有轮次，无需重新访问已变化的候选。预览与创建变化返回 `preview_changed`；接纳前整个组变化或新增历史成员返回 `pool_stale`／`source_stale`。轮次状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`。仅完整成功报告允许决策；取消、封存与到期不得重建旧请求。
 
 决策体为 `request_id`、`action=accept|reject`、1–32 个不重复 `ordinals` 和可选 `batch_name`。接纳仅允许两组计划内候选，创建普通草稿批次并返回固定 `snapshot`、`snapshot_digest` 与可空 `accepted_batch_id`。批次删除不删除决策快照。读取决策或反馈的 `limit` 1–100、默认 20，`offset` 默认 0，返回 `items` 和同权限、同轮次范围的 `total`。
@@ -177,6 +261,10 @@ last_reviewed: 2026-10-22
 
 源解析返回 `source=found|deleted|unavailable`，图片和标签分别标记相同、变化或不可用，另含当前复核／负样本状态。当前标签可能标记 `unsupported`；不将无法读取解释为相同。任务硬删除后历史报告仍可读。原数据版本、模型部署及项目受保留引用保护，删除入口在存储破坏前拒绝；删除评估的存储失败返回 `503 cleanup_pending` 并由维护任务继续清理。上述接口尚未列为 Python SDK 已覆盖能力。
 
+`source` 的当前图片读取先固定 TaskOriginal 或 DatasetAsset 的已核验内容及保存位置，经维护许可完整核对当前登记的 SHA 与大小，再与冻结样本摘要比较。合法登记的新原件可返回 `media=changed`；同键覆盖、缺失、解码失败、未知归属、非图片或超过 16 MiB／1,600 万像素时不返回成功的 `current_sha256`，也不按现行用途桶回退。保留单帧、既有 Pillow 格式及 EXIF 逻辑尺寸检查；不使用通用下载的较大预算。
+
+该端点仍只要求项目管理权限及 `datasets:read`、`annotations:read`，不新增 `tasks:read`。原 JWT／API Key、当前账号与项目权限、完整原件关系和维护修订在读取与分类后复核，真实文件关闭后再核对任务及标注。凭证失效返回 `403`，读取期间原件关系或门禁变化返回 `409`；业务状态或标注变化返回不可用结果，须重新核对。断连、取消与超时等待在途线程和句柄收尾，关闭无法确认时保留未收尾责任。本合同只覆盖当前来源核对，冻结图片、报告及主动学习输入仍沿各自合同。
+
 ## 训练总览 API
 
 基路径 `/api/v1/training`。只允许活跃的项目管理员与超级管理员，API Key 需要 `annotations:read`、`datasets:read`。项目列表、实验列表及计数仅包含当前可管理项目；项目成员身份或历史任务创建者身份不扩大管理范围。
@@ -193,7 +281,7 @@ last_reviewed: 2026-10-22
 
 ## 训练实验 API
 
-基路径 `/api/v1/projects/{project_id}/training-runs`，读取要求项目负责人或超级管理员及 `annotations:read`、`datasets:read`；创建、停止、续训和删除另需 `datasets:write`。
+基路径 `/api/v1/projects/{project_id}/training-runs`，读取要求项目负责人或超级管理员及 `annotations:read`、`datasets:read`；创建、停止、续训、历史存储归属核验和删除另需 `datasets:write`。
 
 | 方法   | 路径后缀                                                     | 行为                                                                      |
 | ------ | ------------------------------------------------------------ | ------------------------------------------------------------------------- |
@@ -207,7 +295,9 @@ last_reviewed: 2026-10-22
 | GET    | `/{run_id}/attempts/{attempt_id}/evaluation`                 | 已验证最终评估、身份与分类别分页；`limit` 1–100，默认 50，`offset` 默认 0 |
 | POST   | `/{run_id}/cancel`                                           | 请求停止；排队实验立即取消，运行实验等待退出确认                          |
 | POST   | `/{run_id}/resume`                                           | 使用当前执行的已发布完整检查点创建下一次执行                              |
-| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download`  | 返回 10 分钟下载 URL、SHA-256 和大小                                      |
+| POST   | `/{run_id}/storage-pin`                                      | 显式核验并固定历史终态实验的保留产物，成功返回实验摘要                    |
+| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download`  | 普通产物返回10分钟签名；日志返回认证内容地址、脱敏后SHA-256和大小         |
+| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/content`   | 认证下载完整核验后的脱敏日志；不支持其他产物                              |
 | DELETE | `/{run_id}`                                                  | 删除终态实验并持久安排产物清理，返回 `204`                                |
 
 实验列表接受 `limit`（默认 20，最大 100）、`offset`（默认 0）及可组合的 `q`、`status`、`task=detect|segment`、`framework=ultralytics|libreyolo`、`created_from`、`created_to`。`q` 最长 120 字符，去除首尾空白后对实验名称或基础模型 ID 做不区分大小写的字面包含匹配；`%`、`_`、反斜杠没有通配含义。日期采用上述 UTC 日历日期规则，全部条件在 `total` 计数和分页前生效，按创建时间、实验 ID 降序稳定排列。`status` 接受实验的单个精确状态，筛选 `failed` 不包含 `lost`；不支持的状态、任务、框架或日期返回 `422`。未传筛选条件时保留原列表行为。
@@ -254,6 +344,28 @@ last_reviewed: 2026-10-22
 冻结的 `configuration` 保存 `identity`、`user_values`、`effective_values`、`origins` 与 `inactive_fields`。它与请求的 wire 结构不同，不能直接作为新请求回传。原生配置观测和核验结果通过 `native-config.json` 归档；扩展实验缺少该证据或配置不符时不能确认成功。
 
 独立执行器使用 `/api/v1/internal/training`，通过 `X-Training-Executor-Token` 认证，调用 `claim` 以及 `attempts/{id}/heartbeat`、`uploads`、`finish`、`recover`。这些接口不使用用户 JWT。回报同时校验当前执行、执行器、启动标识和租约凭据。执行器收到短期对象 URL，没有数据库或存储管理凭据；claim 发送前持久化请求标识，丢失响应后恢复同一个分配。
+
+### 实验产物归属与历史核验
+
+新实验在创建事务中固定整个 `projects/{project_id}/runs/{run_id}/` 的内部存储归属，覆盖普通创建、自动训练和参数搜索派生实验。各次执行仅使用其下 `attempts/{attempt_id}/`；续训复用实验归属，不重新采用当前桶。产物上传、完成核验、报告与日志读取、下载及续训检查点均核对来源实验和精确执行范围。输入数据包独立解析数据版本归属，初始化权重独立解析来源模型的实验归属，三者可以属于不同桶。
+
+日志的`download`描述包含`requires_authentication: true`，`url`为API相对内容地址；调用方须携带当前认证获取内容，不能直接按公开S3链接打开。其`sha256`、`size_bytes`对应脱敏后字节，另保留`source_sha256`与`redaction_revision`。`content`只接受终态执行中已发布的log，完整核验原日志的大小、SHA和执行元数据后脱敏交付，读取前后重核当前权限及原产物身份；不创建远端脱敏文件，也不返回原日志。已封存迁移映射可提供原日志的准确副本，没有映射仍遵循原位置门禁。
+
+模型通过同项目来源 `run_id`、`attempt_id` 外键和已发布权重清单解析该归属；注册、下载、安装、评估及项目权重初始化均沿来源读取，不采用目标实验或当前 training 桶。内部物理归属不写入冻结配置、初始化 pin、模型产物或来源摘要，也不改变执行器与 ML 服务协议。
+
+历史归属为空时，列表、实验详情及已有元数据仍可读取；产物读取、签名 URL、上传、派发、续训和模型注册拒绝，并返回归属未固定的明确原因。停止、失败回报和确认进程退出后的资源收尾仍保留，不能为绕过归属检查而提前释放活跃租约。显式核验入口为：
+
+```http
+POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin
+```
+
+该操作无请求体，只允许实验及其全部执行均为 `succeeded`、`failed`、`cancelled`，且所有执行都不再持有资源租约；`lost` 不满足条件。调用者须仍有当前项目管理权限，API Key 需 `annotations:read`、`datasets:read`、`datasets:write`。候选仅取已登记的 legacy A 平台位置、实际平台端点及部署 training 桶，不自动登记或接受任意桶。成功返回 `200` 与实验摘要；已有可解析归属时幂等返回并保留原核验证据。
+
+核验读取整个实验前缀，使用数据库中独立保存的上传清单与发布记录核对 SHA-256、字节数和执行 metadata。所有已发布产物必须存在；成功执行的清单须完整，失败或取消执行可缺少未上传项，但已有对象都须有独立凭据。只有对象自报摘要不足以接管。脱敏日志副本须由已核验原日志按当前脱敏规则重建并匹配内容与元信息；未知规则、未知额外对象、缺失或冲突均拒绝。过程只读保留副本，不反序列化权重，不修复或删除对象。
+
+每次最多核验 10000 次执行、100000 个对象、实际读取 64 GiB，协作截止 600 秒；与数据版本核验共用每个 API 进程的一个名额，忙时返回 `429`。条件读取后复核完整清单与对象观测；等待实际收尾后，最终再次比较当前权限与 API Key、实验配置与全部执行清单、legacy 候选和位置维护代次，一致才原子固定归属。任何变化、预算不足或关闭不确定都不保存归属；未确认收尾时保留责任与占位。
+
+固定的是当前保留副本的核验事实，不证明历史位置、独占所有权或未来不可变。新删除意图复制实验归属；旧空归属的实验清理意图拒绝物理删除，保持待核对。training 新分配切换沿用途映射确认流程；辅助输出使用下文的独立归属。
 
 ### 执行观测、日志与恢复
 
@@ -310,6 +422,7 @@ last_reviewed: 2026-10-22
 | GET    | `/capabilities`                | 当前 CPU 协议、镜像、在线／忙闲状态与固定资源策略              |
 | POST   | 空                             | 创建冻结预览，返回 `202`；相同主体、请求 UUID 和内容可精确重试 |
 | GET    | `/{preview_id}`                | 当前状态与经字节验证的完整报告                                 |
+| POST   | `/{preview_id}/storage-pin`    | 显式核验并固定历史终态预览的当前保留副本                       |
 | POST   | `/{preview_id}/cancel`         | 排队立即取消；运行中等待进程退出确认                           |
 | DELETE | `/{preview_id}`                | 立即过期并隐藏，保留上传窗口关闭前的清理墓碑                   |
 | GET    | `/{preview_id}/images/{index}` | 读取 0–3 号经完整校验的 PNG；认证私有流、禁止缓存              |
@@ -321,6 +434,38 @@ last_reviewed: 2026-10-22
 每次报告读取核验实际 JSON 大小、SHA 和预览／输入元数据，图片另核验完整字节、PNG 格式及尺寸。纯解析缓存不代替存储验证或授权。跨项目或不存在返回 `404`，未完成／能力不匹配返回 `409`，过期图片返回 `410`，损坏或不符证据返回 `422`。结果 24 小时过期；清理等待最后一次 60 秒 PUT 授权关闭，期间保留数据引用。
 
 执行器通过原有 `X-Training-Executor-Token` 调用 `/api/v1/internal/training/previews/claim`、`/{preview_id}/heartbeat`、`uploads` 和 `finish`。claim 的 `purpose` 固定为 `augmentation-preview`，资源为节点的 `augmentation-preview/cpu-0`；协议与策略摘要及镜像必须匹配。回报以原 claim 的执行器、boot 和 CPU 租约凭据 fencing；`finish.process_exited` 必须为 true。失联、取消和过期不直接释放未知进程的租约，撤权后允许有效 fence 确认停止，但禁止发布成功。
+
+### 实际训练成员回执
+
+新 Run 在版本 manifest 含完整 `samples` 时，将 `input_contract` 固定到 `config` 及其摘要：`schema: 1`、`policy_digest`、`members_digest` 与 `counts.train/val`。成员摘要包含任务、划分、图片／标签相对路径及 SHA、尺寸与大小；相同图片内容的不同任务保留为不同成员。明确存在但无效的清单返回 `422`；历史缺少清单的版本和已有 Run 保留原合同。
+
+训练 Executor 的 runtime 必须声明匹配的 `input_receipt_policy_digest`，否则不能领取新合同，即使镜像摘要相同也不例外。同 claim 重放同样核验能力。续训固定原 Run 合同，为新 Attempt 重新观察加载器；旧 Attempt 回执不能用于新执行。CPU 增强预览使用独立合同，不要求训练成员回执能力。
+
+成功执行的现有 `manifest.json`（role 为 `manifest`）包含 `input_membership`，绑定 `run_id/attempt_id/config_digest/dataset_id/dataset_sha256`，并包含合同策略、集合摘要、数量和按 train／val 分组的 `{task_id, member_digest}`。服务端在成功终态与释放租约前，从保存的产物位置完整核验 manifest 的字节、摘要、元数据、配置与集合；缺失或不符返回 `422`。失败、取消无需完整回执；完全相同的终态重放不重新读取存储。
+
+成员来自实际原生加载器，允许重排，拒绝遗漏、额外、重复、跨划分与根外路径。该清单说明加载器接纳的基础成员，不表示逐 epoch 抽样轨迹。通过现有执行产物下载接口读取，不新增接口或产物数量。
+
+### 辅助产物归属与历史核验
+
+新预览、逐样本评估和主动学习轮次分别在创建事务固定自己的输出根前缀；所有尝试及重试复用原归属。它们与输入训练版本、来源模型及原始候选各自独立。报告读取（包括解析缓存命中）、预览 PNG、主动学习 PNG 复用或重建及候选报告清理，都先检查保存端点、桶和准确的文件／attempt／ordinal。未知归属在物理 I/O 前返回 `409`；主动学习不会先读原图补造副本。归属不进入公开响应、冻结 spec 或执行器请求。
+
+历史归属为空时仍可读取元数据、取消并按准确 fence 确认失败或退出；成功预览的普通详情返回 `report=null`，显式图片和报告读取仍拒绝。主动学习的 DB 报告和人工决定不依赖图片归属。新执行、上传、成功发布、评估报告读取、图片读取及物理删除须先固定归属，普通 GET 和重试不自动接管。
+
+以下操作无请求体，成功返回 `200` 与现有资源摘要，要求当前项目管理权及 `annotations:read`、`datasets:read`、`datasets:write`：
+
+```text
+POST /api/v1/projects/{project_id}/training-previews/{preview_id}/storage-pin
+POST /api/v1/projects/{project_id}/sample-evaluations/{run_id}/storage-pin
+POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin
+```
+
+预览须为成功、失败、取消或过期，且没有任何 CPU 租约引用，最后签名 PUT 已到期。评估／轮次及当前尝试须终态；历史尝试只接受终态，或非当前、更旧 generation、claim 已清空且 completed_at 已保存的封存 `lost`。正常评估终态残留 claim 不算活动任务。这是 DB 发布围栏的证明，不证明旧线程或远程进程物理关闭，部署方仍须确认停写窗口。
+
+候选只取已登记的 legacy A 位置及部署 training 桶，不受当前新分配绑定影响。全前缀中的每个实际对象须由独立上传／发布回执或冻结派生 SHA 解释，核验完整条件读取、SHA、独立大小（存在时）、metadata、PNG 尺寸及语义。预览名称限于该次冻结 count；已发布对象缺失、未知额外对象或读中变化均拒绝。失败／取消的未发布对象可缺失，存在则核验；主动学习已保存 media、请求、证据或成功候选要求 PNG 存在，其余冻结成员的合法残留 PNG 也可核验。旧评估报告凭独立发布回执及冻结身份核对；当前报告另核对当前 Sample 证据，不把重试后共享行当作旧尝试的证据。
+
+沿用共享的每进程一个核验名额、100000 对象、64 GiB 实际读取和 600 秒协作截止；评估／选样最多 10000 次尝试。预览自身上限为 4 张各 24 MiB PNG 和 8 MiB 报告。取消等待真实收尾，关闭不确定则保留占位与耐久访问记录；发布前再次比较权限／Key、全部记录、legacy 位置和维护代次。已有可解析 pin 幂等返回原事实，不再次读取对象。
+
+预览原行保留至 CPU 与 PUT 窗口结束、保存前缀删除成功；评估的 `deletion_requested_at` 原行保留至保存前缀清理成功，并继续检查主动学习引用。未知归属不执行物理删除，单项失败保留待重试。主动学习没有新增删除入口。证据只说明当前保留副本，不代表历史位置、独占权限、真实框架执行资格或整个用途可切换。
 
 ## 项目训练配方与克隆
 
@@ -361,6 +506,8 @@ last_reviewed: 2026-10-22
 
 `config.initialization` 固定项目／模型／实验／尝试／数据身份，权重 key、SHA、大小，类别与绑定摘要，来源配置／数据／验证摘要，运行时与评估证据，以及资格策略摘要。权重不得超过 2 GiB。预检、创建和首次领取分别完整核验权重及评估对象；来源丢失或摘要变化明确失败，不回退目录权重。旧执行器未声明匹配初始化能力时不能领取。
 
+权重和评估对象的位置由同项目来源实验与精确执行解析，独立于新实验的输出位置和输入数据版本；旧来源实验归属为空时须先显式核验，不能用目标桶补齐。初始化 pin 及其摘要保持原合同。
+
 配方修订与自动策略保存完整 pin；克隆保留原初始化来源，不自动使用被克隆实验的产物。`origin` 仍单独记录配置来源；解除它不清除初始化。已接受 UUID 的幂等回放先于来源重新校验。三个接受记录的 `initialization_model_id` 与 pin 一致并保留模型引用。
 
 初次执行下载独立权重文件，从第 0 轮和新训练状态开始。`native-config.json` 的 `evidence.initialization` 记录来源 SHA／摘要、所有状态张量指纹与数量，以及优化器、调度器、scaler、EMA 和最佳成绩重置证据；服务端成功提交再次验证。后续恢复优先使用本实验 checkpoint，回执为 `checkpoint_resume` 并保留原 pin。模型谱系的 `weights_initialization`、`initialized_runs`、`initialization_recipes` 分别表达直接来源及反向记录，读取不访问权重。
@@ -382,6 +529,8 @@ last_reviewed: 2026-10-22
 模型列表的 `q`（最多 120 字符）按名称进行不区分大小写的字面子串搜索，`%`、`_` 和反斜线不会作为通配符。`framework` 可选 `ultralytics` 或 `libreyolo`；`created_from`、`created_to` 接受 `YYYY-MM-DD`，按 UTC 日期包含起止整天，反向范围返回 `422`。所有筛选与 `archive` 共同作用于总数和分页，按创建时间、ID 倒序稳定排序。
 
 注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。同项目同一次执行只能注册一个模型，使用新请求标识重复注册也返回 `409`；归档不解除限制，另一条成功执行可以独立注册。支持本平台已验证的 Ultralytics 图片检测产物及独立通过原生 CPU 资格检查的 LibreYOLO YOLO9 检测产物。
+
+模型下载与安装通过保留的同项目来源实验及执行外键解析固定存储归属，并核对权重仍属于该执行的已发布清单；旧来源实验须先完成 [storage-pin](#实验产物归属与历史核验)。模型本身不复制物理归属，原产物、来源及内容摘要保持不变；试用图片和逐样本评估的输入媒体仍解析独立数据版本归属。
 
 实验详情 `GET /training-runs/{run_id}` 的顶层 `registered_models` 返回该实验已回流模型的 `id`、`attempt_id` 和 `name`，包括已归档模型；没有回流时为空数组。客户端按所选执行匹配回流状态，服务端在注册事务中再次检查。模型引用的实验继续拒绝删除。
 
@@ -447,3 +596,15 @@ LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，�
 新冻结的 `model_ref` 和 backend 的 `frozen_model_ref` 携带这份 `inference_runtime`，参与引用及逐样本请求摘要。预测响应 `meta.trained_model` 仍为版本 ID、权重 SHA 和类别摘要三项，`meta.inference_runtime` 单独记录并与请求核对，预标来源保留两种版本。旧引用没有该字段时维持原摘要，只允许按原训练版本推理，不会自动改用新版环境。
 
 共享样本评估接受已登记的 profile 修订 1 和 2，并核对各自运行时版本。未知修订返回 `502 evaluation_protocol_unqualified`；部署已记录的推理版本与实际 profile 不同返回 `409 deployment_runtime_changed`，需重新加载试用。重新提交就绪部署时，若实际推理身份变化会重新试用，成功后才更新部署身份。
+
+数据集详情的冻结入口仍使用本接口。选择合同新增可选 `dataset_id`，必须已关联当前项目，服务端在同一快照查询中限定 DatasetItem；与 batch_id/task_ids 同时使用时取交集，显式选中范围外任务返回404。`GET /tasks` 同样支持 project_id 与 dataset_id 组合分页，避免浏览器为确认范围拉取全部任务。未提供 dataset_id 的旧快照合同保持原样；进入页面只预选范围，创建仍须通过既有预检摘要确认。
+
+## 训练文件的新分配位置
+
+training 新分配可通过[存储用途映射](./storage-locations#训练文件用途切换)切换到默认位置或已登记全局 S3。五类现有 owner 分别固定训练版本、实验、预览、逐样本评估和主动学习输出；Version／Run 删除后由既有 TrainingStorageDeletion 保存原前缀责任。attempt、模型登记与下载沿来源 owner，不增加独立存储或改变公开协议。输入版本、初始化来源实验和当前输出可以位于不同目标。
+
+新 schema2 沿原11字段增加 `key_prefix`，保存实际 Location、分配修订、绑定代次、endpoint、桶、完整物理 prefix、identity 与原 `origin/evidence` 语义；新分配为 `origin=new / evidence=null`。旧 schema1 与 verified-retained 证据保持，旧 NULL 不被普通 GET 或重试补值。切换后五个 storage-pin 仍只在明确 legacy A 核验保留副本，最终比较权限、内容、Location 和 Gate，不从当前 Binding 推断历史 B。
+
+实际读写、核验、签名和现有清理使用保存地址及当前位置当前凭据，实时 endpoint、桶和完整受控根必须匹配；普通密钥轮换不改旧引用、冻结快照／清单、SHA 或首次期限。原 PUT 窗口、inventory、发布围栏、取消及未知关闭责任保持，维护状态不能撤回已经签发的外部 URL。受控根在连接基前缀下使用 `_aap_managed/training/`，最多266个Unicode字符／707个UTF-8字节；逻辑 `projects/{project}/{family}/{owner}/` 与原 key／列宽限制保持。
+
+带根初始化权重仅交给 `runtime_identity.training_saved_prefix_schema>=2` 的 Executor，新领取、租约恢复和 resume 均复核；缺字段按1处理。此项不替代 executor_protocol、模型 policy 或 image digest，也不声明现有镜像已升级。预览输入不含初始化来源时，不附加这项能力门槛。该切换不要求执行训练／试用／评估模型或新增规模测量，九桶恢复范围见[部署说明](/ops/deploy/storage-recovery#训练文件用途切换的部署顺序)。

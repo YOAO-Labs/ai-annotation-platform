@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from app.services import training_storage_io as storage_io
+from app.services import storage_access
+
 from aap_task_contract import normalize_task, legacy_training_task
 from training_contract.catalog import definition_for_identity, instance_rle_capability
-import asyncio
 import hashlib
 import hmac
 import json
@@ -25,6 +27,11 @@ from training_contract.models import (
 )
 from training_contract.observability import failure_receipt, redact_text
 from training_contract.assets import AssetReference
+from training_contract.input_membership import (
+    contract_for as input_contract_for,
+    declared_contract as input_contract,
+    verify_receipt as verify_input_receipt,
+)
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -38,6 +45,8 @@ from app.schemas.training_run import ExecutorFence, TrainingRunCreate
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
+from app.services import training_dataset_storage
+from app.services import training_run_storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -314,7 +323,22 @@ def requires_prepared_asset(framework, version, base):
     )
 
 
+def input_runtime_compatible(config, runtime):
+    try:
+        from training_contract.initialization import saved_prefix_compatible
+
+        inputs = input_contract(config)
+        return saved_prefix_compatible(config, runtime) and (
+            inputs is None
+            or runtime.get("input_receipt_policy_digest") == inputs["policy_digest"]
+        )
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
 def runtime_compatible(config, runtime):
+    if not input_runtime_compatible(config, runtime):
+        return False
     framework = config["framework"]
     if requires_prepared_asset(
         framework, config["framework_version"], config.get("base_model", {})
@@ -420,7 +444,9 @@ async def authority(db, run):
         ) from exc
 
 
-async def frozen_config(db, project_id, body: TrainingRunCreate):
+async def frozen_config(
+    db, project_id, body: TrainingRunCreate, *, observe_members=True
+):
     options = catalog()
     if not options["enabled"]:
         raise HTTPException(status_code=409, detail="训练执行器尚未配置，请联系管理员")
@@ -551,10 +577,70 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
             verify_frozen(config)
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        inputs = input_contract_for(dataset.manifest) if observe_members else None
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="训练数据成员清单无效") from exc
+    if inputs is not None:
+        config["input_contract"] = inputs
     return config
 
 
+def storage_owner(run):
+    """Translate a pinned run locator at HTTP-oriented service boundaries."""
+    try:
+        return training_run_storage.resolve(run)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+def attempt_storage_owner(run, attempt, key=None):
+    owner = storage_owner(run)
+    try:
+        if attempt is None or attempt.run_id != run.id:
+            raise TrainingDatasetError(
+                "training_storage_attempt_mismatch",
+                "产物不属于该训练执行",
+                status_code=409,
+            )
+        if key is not None:
+            training_run_storage.expect_attempt(owner, attempt.id, key)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+    return owner
+
+
+def artifact_key(owner, attempt_id, relative_name):
+    try:
+        key = owner.key(f"attempts/{attempt_id}/{relative_name}")
+        training_run_storage.expect_attempt(owner, attempt_id, key)
+        return key
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+async def allocate_storage(db, run):
+    """Only explicit new-run creation calls this before its first attempt."""
+    try:
+        return await training_run_storage.allocate(db, run)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
 async def new_attempt(db, run, *, resume_from=None):
+    storage_owner(run)
     ordinal = (
         await db.scalar(
             select(func.max(TrainingAttempt.ordinal)).where(
@@ -718,11 +804,14 @@ async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
     return lease, run, attempt
 
 
-def internal_download(key):
-    return storage.client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": storage.training_bucket, "Key": key},
-        ExpiresIn=600,
+def internal_download(key, *, bucket=None, audience="internal", transport=None):
+    transport = storage if transport is None else transport
+    return transport.generate_download_url(
+        key,
+        bucket=transport.training_bucket if bucket is None else bucket,
+        expires_in=600,
+        align=False,
+        audience=audience,
     )
 
 
@@ -735,31 +824,100 @@ def claim_token(attempt, claim_id):
 
 
 async def assignment(db, run, attempt, token):
+    run_owner = attempt_storage_owner(run, attempt)
     dataset = await db.get(TrainingDatasetVersion, run.dataset_id)
+    try:
+        if dataset is None or dataset.project_id != run.project_id:
+            raise TrainingDatasetError(
+                "training_storage_dataset_mismatch",
+                "冻结训练版本不属于当前项目",
+                status_code=409,
+            )
+        owner = training_dataset_storage.resolve(dataset)
+        owner.contains(dataset.package_key)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
     result = {
         "run_id": str(run.id),
         "attempt_id": str(attempt.id),
         "lease_token": token,
         "config": run.config,
         "config_digest": run.config_digest,
-        "dataset_url": internal_download(dataset.package_key),
         "resume": None,
     }
     if attempt.native_budget:
         result["native_budget"] = attempt.native_budget
     if attempt.resume_from_id:
         parent = await db.get(TrainingAttempt, attempt.resume_from_id)
+        if parent is None or parent.run_id != run.id:
+            raise HTTPException(status_code=409, detail="恢复来源不属于该训练实验")
         checkpoint = next(
-            item for item in parent.artifacts.values() if item["role"] == "checkpoint"
+            (
+                item
+                for item in parent.artifacts.values()
+                if item["role"] == "checkpoint"
+            ),
+            None,
         )
-        result["resume"] = {**checkpoint, "url": internal_download(checkpoint["key"])}
+        if checkpoint is None:
+            raise HTTPException(status_code=409, detail="恢复来源缺少已核验检查点")
+        attempt_storage_owner(run, parent, checkpoint["key"])
+        result["resume"] = {**checkpoint}
     elif run.config.get("initialization"):
         pin = run.config["initialization"]
+        source_owner = await initialization.source_storage_owner(db, pin)
+        try:
+            training_run_storage.expect_attempt(
+                source_owner, pin["attempt_id"], pin["artifact"]["key"]
+            )
+        except TrainingDatasetError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": str(exc)},
+            ) from None
         result["initialization"] = {
             **pin["artifact"],
             "source_digest": pin["source_digest"],
-            "url": internal_download(pin["artifact"]["key"]),
         }
+    await db.commit()
+    result["dataset_url"] = await storage_io.read(
+        db,
+        owner,
+        "training_assignment",
+        lambda transport: internal_download(
+            dataset.package_key, bucket=owner.bucket, transport=transport
+        ),
+        object_key=dataset.package_key,
+        sha256=dataset.package_sha256,
+        size_bytes=dataset.size_bytes,
+    )
+    if result["resume"] is not None:
+        result["resume"]["url"] = await storage_io.read(
+            db,
+            run_owner,
+            "training_assignment",
+            lambda transport: internal_download(
+                checkpoint["key"], bucket=run_owner.bucket, transport=transport
+            ),
+            object_key=checkpoint["key"],
+            sha256=checkpoint.get("sha256"),
+            size_bytes=checkpoint.get("size_bytes"),
+        )
+    elif "initialization" in result:
+        result["initialization"]["url"] = await storage_io.read(
+            db,
+            source_owner,
+            "training_assignment",
+            lambda transport: internal_download(
+                pin["artifact"]["key"], bucket=source_owner.bucket, transport=transport
+            ),
+            object_key=pin["artifact"]["key"],
+            sha256=pin["artifact"]["sha256"],
+            size_bytes=pin["artifact"]["size_bytes"],
+        )
     return result
 
 
@@ -791,6 +949,10 @@ async def claim(db, body):
                     status_code=409, detail="执行器密钥已变更，请先协调旧租约"
                 )
             run = await db.get(TrainingRun, attempt.run_id)
+            if not input_runtime_compatible(run.config, body.runtime):
+                raise HTTPException(
+                    status_code=409, detail="执行器不支持冻结的训练输入合同"
+                )
             return await assignment(db, run, attempt, token)
         return None
     if body.recover_only:
@@ -811,6 +973,17 @@ async def claim(db, body):
         ):
             continue
         attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        if attempt is None or attempt.run_id != run.id:
+            raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
+        try:
+            attempt_storage_owner(run, attempt)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            await mark_terminal(
+                db, run, attempt, "failed", "训练产物存储归属不可用，请核验后重试"
+            )
+            continue
         try:
             await authority(db, run)
         except HTTPException as exc:
@@ -991,6 +1164,7 @@ async def heartbeat(db, attempt_id, body):
 
 async def authorize_upload(db, attempt_id, body):
     _, run, attempt = await fenced(db, attempt_id, body)
+    owner = attempt_storage_owner(run, attempt)
     if len({item.name for item in body.artifacts}) != len(body.artifacts):
         raise HTTPException(status_code=422, detail="产物名称不能重复")
     inventory = {item.name: item.model_dump() for item in body.artifacts}
@@ -1004,14 +1178,24 @@ async def authorize_upload(db, attempt_id, body):
         await jobs.update_progress(
             db, run.async_job_id, 95, extra_payload={"stage": "uploading"}
         )
+    await db.commit()
+    return await storage_io.run(
+        db,
+        owner,
+        "training_upload_urls",
+        lambda transport: _upload_urls(transport, owner, attempt, inventory),
+    )
+
+
+def _upload_urls(transport, owner, attempt, inventory):
     result = {}
     for name, spec in inventory.items():
-        key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+        key = artifact_key(owner, attempt.id, name)
         metadata = {"sha256": spec["sha256"], "attempt-id": str(attempt.id)}
-        url = storage.client.generate_presigned_url(
+        url = transport.client.generate_presigned_url(
             "put_object",
             Params={
-                "Bucket": storage.training_bucket,
+                "Bucket": owner.bucket,
                 "Key": key,
                 "ContentLength": spec["size_bytes"],
                 "Metadata": metadata,
@@ -1028,8 +1212,9 @@ async def authorize_upload(db, attempt_id, body):
     return result
 
 
-def verify_artifact(key, spec, attempt_id):
-    response = storage.client.get_object(Bucket=storage.training_bucket, Key=key)
+def verify_artifact(key, spec, attempt_id, *, bucket, transport=None):
+    transport = storage if transport is None else transport
+    response = transport.client.get_object(Bucket=bucket, Key=key)
     try:
         if response["ContentLength"] != spec["size_bytes"] or response.get(
             "Metadata", {}
@@ -1045,10 +1230,11 @@ def verify_artifact(key, spec, attempt_id):
         if total != spec["size_bytes"] or digest.hexdigest() != spec["sha256"]:
             raise ValueError("Artifact digest mismatch")
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
 
 
-def verify_native_artifact(run, attempt, artifacts):
+def verify_native_artifact(run, attempt, artifacts, *, transport=None):
+    transport = storage if transport is None else transport
     receipt = artifacts.get("native-config.json")
     if (
         not receipt
@@ -1058,13 +1244,12 @@ def verify_native_artifact(run, attempt, artifacts):
         raise ValueError(
             "v2 success requires a bounded native configuration observation"
         )
-    response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=receipt["key"]
-    )
+    owner = attempt_storage_owner(run, attempt, receipt["key"])
+    response = transport.client.get_object(Bucket=owner.bucket, Key=receipt["key"])
     try:
         blob = json.loads(response["Body"].read(1024 * 1024 + 1))
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
     if blob["config_digest"] != run.config_digest or bool(
         blob["runtime_options"]["resume"]
     ) != bool(attempt.resume_from_id):
@@ -1086,6 +1271,31 @@ def verify_native_artifact(run, attempt, artifacts):
             blob.get("evidence", {}).get("initialization"),
             resumed=bool(attempt.resume_from_id),
         )
+
+
+def verify_input_artifact(run, attempt, artifacts, *, transport=None):
+    """Verify actual native admission through the existing saved-owner manifest."""
+    if input_contract(run.config) is None:
+        return
+    spec = artifacts.get("manifest.json")
+    if not spec or spec["role"] != "manifest":
+        raise ValueError("Successful training requires its execution manifest")
+    from app.services.training_artifacts import read_json_artifact
+
+    owner = attempt_storage_owner(run, attempt, spec["key"])
+    manifest = read_json_artifact(
+        spec, attempt.id, bucket=owner.bucket, transport=transport
+    )
+    if (
+        manifest.get("run_id") != str(run.id)
+        or manifest.get("attempt_id") != str(attempt.id)
+        or manifest.get("config_digest") != run.config_digest
+        or content_digest(manifest.get("config")) != run.config_digest
+    ):
+        raise ValueError("Execution manifest differs from its frozen attempt")
+    verify_input_receipt(
+        manifest.get("input_membership"), run.config, run.id, attempt.id
+    )
 
 
 async def finish(db, attempt_id, body):
@@ -1120,11 +1330,38 @@ async def finish(db, attempt_id, body):
         await authority(db, run)
         # An exact fenced completion receipt can resolve a lost heartbeat after
         # an upload outage. No successor can start while this lease is retained.
-    artifacts = {}
-    for name, spec in attempt.upload_inventory.items():
-        key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+    if attempt.run_id != run.id:
+        raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
+    owner = None
+    if status == "succeeded" or getattr(run, "storage_ref", None) is not None:
         try:
-            await asyncio.to_thread(verify_artifact, key, spec, attempt.id)
+            owner = attempt_storage_owner(run, attempt)
+        except HTTPException as exc:
+            if status == "succeeded" or exc.status_code != 409:
+                raise
+            # An exact failed/stopped receipt settles the lease without guessing
+            # where an old execution wrote. Its upload inventory remains durable.
+    artifacts = {}
+    inventory = dict(attempt.upload_inventory) if owner else {}
+    saved_ref = owner.ref if owner else None
+    if owner and inventory:
+        await db.commit()
+    for name, spec in inventory.items():
+        try:
+            key = artifact_key(owner, attempt.id, name)
+        except HTTPException:
+            if status == "succeeded":
+                raise
+            continue
+        try:
+            await storage_io.run(
+                db,
+                owner,
+                "training_artifact_verify",
+                lambda transport: verify_artifact(
+                    key, spec, attempt.id, bucket=owner.bucket, transport=transport
+                ),
+            )
         except Exception as exc:
             if status == "succeeded":
                 raise HTTPException(
@@ -1136,7 +1373,14 @@ async def finish(db, attempt_id, body):
             from app.services.training_observability import verify_summary
 
             try:
-                await asyncio.to_thread(verify_summary, run, attempt, artifacts[name])
+                await storage_io.run(
+                    db,
+                    owner,
+                    "training_artifact_verify",
+                    lambda transport: verify_summary(
+                        run, attempt, artifacts[name], transport=transport
+                    ),
+                )
             except (ValueError, KeyError, TypeError) as exc:
                 if status == "succeeded":
                     raise HTTPException(
@@ -1153,11 +1397,49 @@ async def finish(db, attempt_id, body):
         raise HTTPException(status_code=422, detail="成功训练缺少必要产物")
     if status == "succeeded" and run.config.get("adapter_revision") == 2:
         try:
-            await asyncio.to_thread(verify_native_artifact, run, attempt, artifacts)
+            await storage_io.run(
+                db,
+                owner,
+                "training_artifact_verify",
+                lambda transport: verify_native_artifact(
+                    run, attempt, artifacts, transport=transport
+                ),
+            )
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(
                 status_code=422, detail="原生参数观测缺失或与冻结配置不符"
             ) from exc
+    if status == "succeeded":
+        try:
+            await storage_io.run(
+                db,
+                owner,
+                "training_artifact_verify",
+                lambda transport: verify_input_artifact(
+                    run, attempt, artifacts, transport=transport
+                ),
+            )
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            raise HTTPException(
+                status_code=422, detail="训练实际接纳成员回执缺失或与冻结清单不符"
+            ) from exc
+    lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
+    if attempt.status in TERMINAL:
+        if attempt.finish_request_digest != request_digest:
+            raise HTTPException(status_code=409, detail="已结束的执行不能改写终态")
+        return attempt
+    if (
+        lease.attempt_id != attempt.id
+        or (owner is not None and attempt.upload_inventory != inventory)
+        or (
+            saved_ref is not None
+            and attempt_storage_owner(run, attempt).ref != saved_ref
+        )
+    ):
+        raise HTTPException(status_code=409, detail="产物核验期间执行归属或清单已变化")
+    status = "cancelled" if run.status == "cancelling" else body.status
+    if status == "succeeded":
+        await authority(db, run)
     attempt.artifacts = artifacts
     attempt.native_accounting = body.native_accounting
     attempt.finish_request_digest = request_digest

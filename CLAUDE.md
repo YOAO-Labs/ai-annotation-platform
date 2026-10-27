@@ -24,6 +24,14 @@
 - Celery does not hot-reload mounted Python code. Worker changes require refreshing affected running workers in the intended development stack and checking the new task/signature inside them. Dependencies or baked source require rebuilding; migrations require applying. Determine actual mounts and services first.
 - Tests that seed or migrate databases must target a verified disposable test database. Follow the relevant test configuration; never assume the everyday development database is disposable.
 
+## UI conventions
+
+- Keep typography consistent by role: `text-sm` (13px) for body text, names, table rows and form controls; `text-xs` (11px) for secondary metadata, hints and table headers; `text-md` (15px) for section titles. Keep page titles at the existing `text-xl` scale. Use shared tokens instead of new pixel sizes.
+- Put select labels above the control and explanatory hints below it. Hints use `text-xs text-muted-foreground` with comfortable line height and `aria-describedby`; never use pure white or primary foreground for hints. Keep option labels concise. Do not embed explanations, defaults or instruction text inside selected values or option labels; empty native selects can use a blank disabled hidden option.
+- Management lists should use the available content width. Prefer the existing centered `Modal` for item details and creation forms instead of a permanently reserved, mostly empty detail column. Preserve deep links, pagination, return navigation, Escape dismissal and focus restoration. Keep long detail content scrollable inside the dialog.
+- Organize complex workflows around the current item, primary action and actionable results. Put infrequent configuration, history and detailed accounting behind clearly named disclosures; keep active work, errors and required confirmations visible. Auto-open initial setup when no item exists and relevant history when directly linked.
+- Before completing UI changes, inspect real browser screenshots in light and dark themes and at desktop and narrow widths; exercise the changed controls and check for horizontal overflow, console errors and failed requests. Preserve the manual acceptance environment and clean task-owned test artifacts.
+
 ## Documentation and releases
 
 Before committing, update documentation affected by the change in the same commit:

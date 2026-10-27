@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.deps import require_active_task_actor
+from app.services.reference_access import reference_task_guard
 
 from app.api.v1.tasks import (
     annotation_slices,
@@ -31,7 +32,9 @@ from app.api.v1.tasks._shared import (
 # 前缀必须在此层施加:list_tasks 的 `GET ""` 空路径若以空前缀做嵌套 include,
 # FastAPI 会报 "Prefix and path cannot be both empty";加上 /tasks 即合法,
 # 且对外路径与拆分前完全一致(/tasks 根列表端点)。
-router = APIRouter(dependencies=[Depends(require_active_task_actor)])
+router = APIRouter(
+    dependencies=[Depends(require_active_task_actor), Depends(reference_task_guard)]
+)
 router.include_router(task_list.router, prefix="/tasks")
 router.include_router(scene_timeline.router, prefix="/tasks")
 router.include_router(cross_frame_jobs.router, prefix="/tasks")

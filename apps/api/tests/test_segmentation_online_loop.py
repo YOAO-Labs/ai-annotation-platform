@@ -45,8 +45,11 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.schemas.training_run import TrainingRunCreate
 from app.services import (
     learning_policies,
+    managed_original_reader,
+    storage as storage_module,
     trained_models,
     training_datasets,
+    training_run_storage,
     training_runs,
 )
 from app.services.annotation import AnnotationService
@@ -58,6 +61,7 @@ from app.services.training_dataset_bridge import content_digest, semantic_partit
 from app.services.training_evaluations import SEMANTICS
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 from app.workers import training_dataset as dataset_worker
+from tests._owned_s3 import patch_owned_client
 from tests.conftest import create_registry_with_pool
 from tests.factory import (
     build_tool_bindings,
@@ -67,6 +71,7 @@ from tests.factory import (
 )
 from tests.test_training_runs import ready_dataset
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401, F811
+from tests.training_original_fixtures import register_original
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
 
@@ -90,24 +95,46 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
     values = {}
 
     def put(*, Bucket, Key, Body, Metadata=None, **kwargs):
+        if kwargs.get("IfNoneMatch") == "*" and (Bucket, Key) in values:
+            raise ClientError(
+                {
+                    "Error": {"Code": "PreconditionFailed"},
+                    "ResponseMetadata": {"HTTPStatusCode": 412},
+                },
+                "PutObject",
+            )
         raw = Body.read() if hasattr(Body, "read") else bytes(Body)
         values[Bucket, Key] = (raw, dict(Metadata or {}))
         return {"ETag": '"' + hashlib.sha256(raw).hexdigest() + '"'}
 
     def head(*, Bucket, Key, **kwargs):
         if (Bucket, Key) not in values:
-            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+            raise ClientError(
+                {
+                    "Error": {"Code": "NoSuchKey"},
+                    "ResponseMetadata": {"HTTPStatusCode": 404},
+                },
+                "HeadObject",
+            )
         raw, metadata = values[Bucket, Key]
         return {
+            "ResponseMetadata": {"HTTPStatusCode": 200},
             "ContentLength": len(raw),
             "Metadata": dict(metadata),
             "ETag": '"' + hashlib.sha256(raw).hexdigest() + '"',
+            "LastModified": datetime(2026, 1, 1, tzinfo=timezone.utc),
         }
 
     def get(*, Bucket, Key, IfMatch=None, **kwargs):
         result = head(Bucket=Bucket, Key=Key)
         if IfMatch is not None and IfMatch != result["ETag"]:
-            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "GetObject")
+            raise ClientError(
+                {
+                    "Error": {"Code": "PreconditionFailed"},
+                    "ResponseMetadata": {"HTTPStatusCode": 412},
+                },
+                "GetObject",
+            )
         raw = values[Bucket, Key][0]
         if kwargs.get("Range"):
             raw = raw[: 1024 * 1024]
@@ -146,6 +173,17 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
         storage.client,
         "delete_object",
         lambda *, Bucket, Key: values.pop((Bucket, Key), None),
+    )
+    # Owned mask writes build a per-call transport from the saved client config.
+    patch_owned_client(monkeypatch, storage.client)
+    monkeypatch.setattr(
+        managed_original_reader,
+        "create_client",
+        lambda **_: (
+            storage_module.StorageService(
+                client_config=storage.client.meta.config
+            ).client
+        ),
     )
     monkeypatch.setattr(training_datasets, "dispatch_dataset", AsyncMock())
     monkeypatch.setattr(dataset_worker, "notify_job_terminal", AsyncMock())
@@ -280,9 +318,10 @@ def report_for(run, weights):
 
 
 def artifact(objects, run, attempt, name, role, raw):
-    key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+    owner = training_run_storage.resolve(run)
+    key = owner.key(f"attempts/{attempt.id}/{name}")
     objects.put(
-        Bucket=storage.training_bucket,
+        Bucket=owner.bucket,
         Key=key,
         Body=raw,
         Metadata={"attempt-id": str(attempt.id)},
@@ -321,6 +360,7 @@ async def seed_run(db, owner, project, dataset, objects, *, segment=True):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     attempt = TrainingAttempt(
         run_id=run.id,
         ordinal=1,
@@ -383,7 +423,7 @@ async def loop_source(db_session, project_admin, httpx_client, memory_objects):
     await db_session.flush()
     pixels = [1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1]
     rle = encode_coco_rle(pixels, 5, 3)
-    reference = await store_coco_rle(rle)
+    reference = await store_coco_rle(rle, db=db_session)
     tasks, annotations = [], {}
     for index in range(3):
         task = await create_task(db_session, project_id=project.id)
@@ -403,6 +443,13 @@ async def loop_source(db_session, project_admin, httpx_client, memory_objects):
         db_session.add(item)
         await db_session.flush()
         task.dataset_item_id = item.id
+        await register_original(
+            db_session,
+            task,
+            owner,
+            raw=raw.getvalue(),
+            bucket=storage.datasets_bucket,
+        )
         annotation = await AnnotationService(db_session).create(
             task.id,
             owner.id,
@@ -709,7 +756,7 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
         f"projects/{s.project.id}/datasets/{second.id}/masks/{task.id}.json"
     )
     independent = json.loads(
-        s.objects.values[storage.training_bucket, independent_key][0]
+        s.objects.values[second.storage_ref["bucket"], independent_key][0]
     )
     assert independent["instances"][0]["annotation_id"] == accepted_id
     assert list(decode_coco_rle(independent["instances"][0]["rle"])) == changed_pixels

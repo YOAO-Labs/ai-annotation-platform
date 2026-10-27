@@ -11,6 +11,8 @@ export type AsyncJobKind =
   | "audit_archive"
   | "predictions_import"
   | "prediction_retry"
+  | "dataset_scan"
+  | "dataset_registration"
   | "dataset_import"
   | "create_tasks"
   | "point_cloud_cross_frame"
@@ -18,14 +20,44 @@ export type AsyncJobKind =
 
 /** 仅展示 worker 实际支持协作取消的作业。 */
 export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
+  "export",
   "training_dataset",
   "batch_predict",
   "dataset_import",
+  "dataset_scan",
+  "dataset_registration",
+  "storage_usage",
+  "managed_original_verification",
+  "storage_migration_inventory",
+  "storage_migration_copy",
+  "dataset_quality",
+  "dataset_quality_review",
   "mask_qc",
   "mask_repair",
   "mask_format_import",
   "point_cloud_cross_frame",
 ]);
+
+export interface StorageJobProgressObservation {
+  schema: 1;
+  execution_id: string;
+  stage:
+    | "scanning"
+    | "validating"
+    | "preflight"
+    | "registering"
+    | "enumerating"
+    | "preparing"
+    | "copying"
+    | "verifying"
+    | "publishing";
+  unit: "directories" | "pages" | "entries" | "records" | "objects";
+  completed: number;
+  sequence: number;
+  observed_at: string;
+  idle_seconds: number | null;
+  attention_after_seconds: 900;
+}
 
 export interface AsyncJob {
   id: string;
@@ -36,6 +68,8 @@ export interface AsyncJob {
   project_name: string | null;
   status: AsyncJobStatus;
   progress_pct: number;
+  last_progress_at?: string | null;
+  progress_observation?: StorageJobProgressObservation | null;
   payload: Record<string, unknown>;
   result: Record<string, unknown>;
   error_message: string | null;

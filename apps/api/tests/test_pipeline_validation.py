@@ -91,6 +91,7 @@ def test_normalize_geometry_outputs(raw, expected):
     [
         (["bbox"], False),  # 可裁
         (["polygon"], False),  # 可裁 (取外接框)
+        (["raster_mask"], False),  # 原生 RLE 的紧像素外接框
         (["bbox", "keypoint"], False),  # 至少一种可裁 → 放过, 部分交运行期兜底
         (["mask"], False),  # 别名 → polygon → 可裁
         (["both"], False),  # 展开含 bbox/polygon

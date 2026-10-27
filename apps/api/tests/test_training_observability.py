@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select, text
 from training_contract.observability import METRICS, encoded, measurement, utc_now
 
+from app.config import settings
 from app.db.models.training_observability import (
     TrainingLogChunk,
     TrainingTelemetrySample,
@@ -27,6 +28,9 @@ from app.schemas.training_observability import (
 from app.schemas.training_run import ExecutorFinish
 from app.services import training_observability as observations
 from app.services import training_runs as training
+from app.services import training_run_storage
+from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.managed_original_retirement import managed_storage_identity
 from app.services.training_dataset_bridge import content_digest
 from tests.factory import create_project
 from tests import test_training_runs as training_fixtures
@@ -402,7 +406,24 @@ def test_historical_log_is_verified_and_downloads_content_addressed_redacted_der
     monkeypatch,
 ):
     run = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
-    attempt = SimpleNamespace(id=uuid.uuid4())
+    endpoint = (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+    )
+    bucket = observations.storage.training_bucket
+    run.storage_ref = {
+        "schema": 1,
+        "purpose": "training-run",
+        "location_id": str(LEGACY_LOCATION_ID),
+        "config_revision": 1,
+        "binding_generation": 1,
+        "endpoint_url": endpoint,
+        "bucket": bucket,
+        "prefix": training_run_storage.prefix_for(run.project_id, run.id),
+        "storage_identity": managed_storage_identity(endpoint, bucket),
+        "origin": "new",
+        "evidence": None,
+    }
+    attempt = SimpleNamespace(id=uuid.uuid4(), run_id=run.id)
     raw = b'{"password": "secret-value"} https://storage.test/file?X-Amz-Signature=signed /host/private\n'
     original_sha = hashlib.sha256(raw).hexdigest()
     key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/train.log"
@@ -576,7 +597,9 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
             ("observability.json", "telemetry"),
         )
     }
-    monkeypatch.setattr(training, "verify_artifact", lambda *args: None)
+    monkeypatch.setattr(
+        training, "verify_artifact", lambda *args, bucket, transport=None: None
+    )
     summary = {
         "protocol": 1,
         "run_id": str(run.id),
@@ -602,11 +625,14 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
 
 
 @pytest.mark.parametrize("corrupt", [False, True])
-async def test_derived_log_download_serializes_deletion_and_observation_cascade(
+async def test_log_download_serializes_deletion_and_observation_cascade(
     test_engine, monkeypatch, corrupt
 ):
     import asyncio
     import threading
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     from sqlalchemy import delete
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.api.v1.training_runs import download_artifact, delete_run
@@ -636,6 +662,7 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
         )
         seed.add(run)
         await seed.flush()
+        await training_run_storage.allocate(seed, run)
         attempt = TrainingAttempt(run_id=run.id, ordinal=1, status="failed")
         seed.add(attempt)
         await seed.flush()
@@ -732,8 +759,9 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
             assert not writes and not signs
         else:
             assert result["source_sha256"] == artifact["sha256"]
-            assert signs == [writes[0]["Key"]] and "/redacted-logs/" in signs[0]
-            assert b"private" not in writes[0]["Body"]
+            assert result["requires_authentication"] is True
+            assert result["url"].endswith("/artifacts/train.log/content")
+            assert not writes and not signs
         assert deletions == [f"projects/{project.id}/runs/{run.id}/"]
         async with maker() as verify:
             for model, _ in observations.STREAMS.values():

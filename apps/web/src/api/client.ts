@@ -85,7 +85,14 @@ async function request<T>(
       const { useAuthStore } = await import("../stores/authStore");
       // A response belongs to the credentials captured before fetch. A late
       // rejection must not clear a session established in the meantime.
-      if (localStorage.getItem("token") === token) useAuthStore.getState().logout();
+      const current = useAuthStore.getState();
+      if (
+        localStorage.getItem("token") === token &&
+        current.token === owner.token &&
+        current.user?.id === owner.user?.id &&
+        current.sessionId === owner.sessionId
+      )
+        current.logout();
     } else if (!opts?.anonymous && !opts?.silent && (res.status === 403 || res.status >= 500)) {
       const { useToastStore } = await import("../components/ui/Toast");
       if (res.status === 403) {
@@ -123,6 +130,9 @@ export const apiClient = {
   get: <T>(path: string, init?: RequestInit) => request<T>(path, init),
   getBlob: (path: string, init?: RequestInit) =>
     request<Blob>(path, init, { responseType: "blob" }),
+  /** Binary requests whose caller owns scoped progress and error feedback. */
+  silentGetBlob: (path: string, init?: RequestInit) =>
+    request<Blob>(path, init, { responseType: "blob", silent: true }),
   /**
    * 探测式 GET：不弹全局 toast（调用方自带错误展示，例如能力目录的黄色降级提示）。
    * 5xx/403 仍正常抛 ApiError；只是不重复弹通知。用于按 backend 批量探测的端点
@@ -132,8 +142,12 @@ export const apiClient = {
   post: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}), ...extra }),
   /** 探测式 POST：不弹全局 toast（见 silentGet 说明）。 */
-  silentPost: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }, { silent: true }),
+  silentPost: <T>(path: string, body?: unknown, extra?: RequestInit) =>
+    request<T>(
+      path,
+      { method: "POST", body: JSON.stringify(body ?? {}), ...extra },
+      { silent: true },
+    ),
   put: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body ?? {}), ...extra }),
   patch: <T>(path: string, body?: unknown, extra?: RequestInit) =>
@@ -143,6 +157,9 @@ export const apiClient = {
       path,
       body !== undefined ? { method: "DELETE", body: JSON.stringify(body) } : { method: "DELETE" },
     ),
+  /** Scoped callers own cancellation and error feedback for authenticated deletes. */
+  silentDelete: <T>(path: string, init?: RequestInit) =>
+    request<T>(path, { method: "DELETE", ...init }, { silent: true }),
   /** 公开请求：不携带 Authorization；401 不触发全局 logout（用于 /auth/register 等公开端点）。 */
   publicGet: <T>(path: string) => request<T>(path, undefined, { anonymous: true }),
   publicPost: <T>(path: string, body?: unknown) =>

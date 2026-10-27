@@ -16,6 +16,8 @@ import { useIsMutating, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToastStore } from "@/components/ui/Toast";
 import { annotationSlicesApi, type PolygonSliceCommitRequest } from "@/api/annotationSlices";
 import { randomId } from "@/utils/id";
+import { captureOriginalOwner, isOriginalOwnerCurrent, originalOwnerKey } from "@/api/originals";
+import { readOriginalImage } from "@/utils/originalImageCache";
 import { useProject, useUpdateProject } from "@/hooks/useProjects";
 import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { useProjectPipelines } from "@/hooks/useProjectPipelines";
@@ -67,7 +69,11 @@ import { publishTaskBoxCount } from "@/components/PerfHud/useTaskBoxCount";
 import { useWorkbenchState, type VideoTool } from "./useWorkbenchState";
 import { usePendingGeom } from "./usePendingGeom";
 import { useToolBindings, classesForUnit, attributeSchemaForUnit } from "./useToolBindings";
-import { MANUAL_IMAGE_TOOLS, manualImageTool, continuousIntentError } from "./manualImageCreation";
+import {
+  MANUAL_IMAGE_TOOLS,
+  manualImageTool,
+  useContinuousCreationGuard,
+} from "./manualImageCreation";
 import { ManualCreationPopover } from "../shell/ManualCreationPopover";
 import { videoToolUnit, videoToolEnabled } from "../stage/videoToolUnits";
 import type { ToolUnitId } from "@/constants/toolUnits";
@@ -103,7 +109,10 @@ import {
 import type { VideoSamPrompt } from "../stage/videoStageTypes";
 import { isSamCandidateNavTool } from "../stage/videoKonvaInteraction";
 import { tightenBboxFromPolygon } from "../stage/shared/geometry/bbox";
-import { buildImageRasterMaskDescriptors } from "./imageRasterMaskDescriptors";
+import {
+  buildImageRasterMaskDescriptors,
+  buildImagePredictionMaskDescriptors,
+} from "./imageRasterMaskDescriptors";
 import { useRasterMaskRecords } from "../stage/shared/useRasterMaskRecords";
 import { useRasterMaskWorkerPool } from "../stage/shared/useRasterMaskWorkerPool";
 import { useRasterResourceCoordinator } from "../stage/shared/useRasterResourceCoordinator";
@@ -186,8 +195,8 @@ import {
   useWorkbenchImageSource,
   workbenchImagePreviewUrl,
 } from "../stage/useWorkbenchImageSource";
-import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { loadAbortableImage } from "../stage/useAbortableImage";
+import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { WorkbenchOverlays } from "../shell/WorkbenchOverlays";
 import type { ClassPickerAttrEditing } from "../shell/ClassPickerPopover";
 import { WorkbenchLayout } from "../shell/WorkbenchLayout";
@@ -493,6 +502,9 @@ export function useWorkbenchShellModel({
   );
 
   const meUserId = useAuthStore((s) => s.user?.id);
+  const continuousOwnerKey = useAuthStore((state) =>
+    state.user?.id && state.sessionId ? JSON.stringify([state.user.id, state.sessionId]) : null,
+  );
   const { hasPermission } = usePermissions();
   const s = useWorkbenchState();
   const pendingDiscussionTaskSwitch = Boolean(
@@ -807,8 +819,11 @@ export function useWorkbenchShellModel({
   const imageMediaKey = task?.dataset_item_id ?? task?.id ?? null;
   const blurhash = task?.blurhash ?? null;
   const thumbnailUrl = task?.thumbnail_url ?? null;
-  const { source: workbenchImageSource, retry: retryWorkbenchImagePyramid } =
-    useWorkbenchImageSource(task, imageMediaKey);
+  const {
+    source: workbenchImageSource,
+    retry: retryWorkbenchImagePyramid,
+    contentBlockedReason,
+  } = useWorkbenchImageSource(task, imageMediaKey, currentTaskId ?? requestedTaskId);
   const workbenchImagePreview = workbenchImagePreviewUrl(workbenchImageSource);
   const isVideoTask = task?.file_type === "video" || currentProject?.type_key === "video-track";
   const stageKind = currentProject?.type_key === "lidar" ? "3d" : isVideoTask ? "video" : "image";
@@ -870,7 +885,11 @@ export function useWorkbenchShellModel({
       null,
     [activeVideoSegmentId, videoSegmentsQuery.data?.segments],
   );
-  const videoFrameTimetable = useVideoFrameTimetable(taskId, isVideoTask && !!videoManifest.data);
+  const videoFrameTimetable = useVideoFrameTimetable(
+    taskId,
+    isVideoTask && !!videoManifest.data,
+    videoManifest.data?.metadata_generation_id,
+  );
   const videoDatasetItemId = videoManifest.data?.dataset_item_id ?? null;
   const videoChaptersQuery = useVideoChapters(isVideoTask ? videoDatasetItemId : null);
   const videoChaptersData = useMemo(() => videoChaptersQuery.data ?? [], [videoChaptersQuery.data]);
@@ -1069,13 +1088,13 @@ export function useWorkbenchShellModel({
           ? "讨论所在任务已删除、不可访问或暂时无法读取"
           : null;
   useEffect(() => {
-    if (
-      discussionRequest.status !== "valid" ||
-      !discussionTaskAvailable ||
-      currentTaskId === discussionRequest.taskId ||
-      !meUserId
-    )
-      return;
+    if (discussionRequest.status !== "valid" || !discussionTaskAvailable || !meUserId) return;
+    const localUrlSync = resolveLocalTaskUrlSync(
+      discussionRequest.taskId,
+      pendingLocalTaskIdRef.current,
+    );
+    if (localUrlSync.clearPendingTarget) pendingLocalTaskIdRef.current = null;
+    if (localUrlSync.holdRequestedTask || currentTaskId === discussionRequest.taskId) return;
     const controller = new AbortController();
     const previousTaskId = currentTaskId;
     const previousBatchId = selectedBatchId;
@@ -1520,23 +1539,6 @@ export function useWorkbenchShellModel({
   );
   const rasterResources = useRasterResourceCoordinator({ taskId });
   const rasterMaskWorkerPool = useRasterMaskWorkerPool(taskId, rasterResources);
-  const imageRasterMaskDescriptors = useMemo(() => {
-    if (isVideoTask || maskCapabilities.data?.read_enabled !== true) return [];
-    return buildImageRasterMaskDescriptors(visibleAnnotationsData, rasterMaskSelectedIds);
-  }, [
-    isVideoTask,
-    maskCapabilities.data?.read_enabled,
-    rasterMaskSelectedIds,
-    visibleAnnotationsData,
-  ]);
-  const imageRasterMasks = useRasterMaskRecords({
-    scopeKey:
-      !isVideoTask && maskCapabilities.data?.read_enabled === true ? (taskId ?? null) : null,
-    descriptors: imageRasterMaskDescriptors,
-    workerPool: rasterMaskWorkerPool,
-    resourceCoordinator: rasterResources,
-    resourceOwner: "mask-render:annotation",
-  });
 
   const taskAiMeta = useMemo(() => {
     if (predictionsData.length === 0)
@@ -2478,6 +2480,8 @@ export function useWorkbenchShellModel({
   useEffect(() => {
     const idx = tasks.findIndex((t) => t.id === taskId);
     const controller = new AbortController();
+    const imageOwner = captureOriginalOwner();
+    const imageCurrent = () => !controller.signal.aborted && isOriginalOwnerCurrent(imageOwner);
     const prefetch = (t: TaskResponse | undefined) => {
       if (!t) return;
       if (!videoCollaborationEnabled) {
@@ -2495,32 +2499,50 @@ export function useWorkbenchShellModel({
           }),
       });
       if (stageKind === "image" && t.image_pyramid && LARGE_IMAGE_TILES_ENABLED) {
+        if (!imageCurrent()) return;
         void queryClient
           .fetchQuery({
-            queryKey: ["image-pyramid", t.id, t.image_pyramid.generation],
-            queryFn: () => tasksApi.getImagePyramid(t.id, { signal: controller.signal }),
+            queryKey: ["image-pyramid", originalOwnerKey(), t.id, t.image_pyramid.generation],
+            queryFn: ({ signal }) => tasksApi.getImagePyramid(t.id, { signal }),
             staleTime: 30_000,
           })
           .then((pyramid) => {
-            if (!pyramid.overview?.url) return;
+            if (!imageCurrent() || !pyramid.overview?.url) return;
             return loadAbortableImage(pyramid.overview.url, controller.signal);
           })
           .catch(() => {});
-      } else if (stageKind === "image" && t.file_url && !t.image_pyramid?.required) {
-        const deviceMemory = (navigator as Navigator & { deviceMemory?: unknown }).deviceMemory;
+      } else if (
+        stageKind === "image" &&
+        t.thumbnail_url &&
+        !t.image_pyramid?.required &&
+        imageCurrent()
+      ) {
+        void loadAbortableImage(t.thumbnail_url, controller.signal).catch(() => {});
+      } else if (
+        stageKind === "image" &&
+        !t.image_pyramid &&
+        t.storage_mode !== "reference" &&
+        imageOwner &&
+        imageCurrent()
+      ) {
+        const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
         const budget = imageTileDeviceBudget(
-          typeof deviceMemory === "number" ? deviceMemory : null,
+          typeof memory === "number" ? memory : null,
         ).retainedBytes;
-        const width = t.image_pyramid?.width ?? t.image_width;
-        const height = t.image_pyramid?.height ?? t.image_height;
-        const originalAllowed = t.image_pyramid
-          ? singleImageFitsDecodedBudget(width, height, budget)
-          : width && height
-            ? singleImageFitsDecodedBudget(width, height, budget)
-            : true;
-        const url = t.thumbnail_url ?? (originalAllowed ? t.file_url : null);
-        if (!url) return;
-        void loadAbortableImage(url, controller.signal).catch(() => {});
+        if (
+          t.image_width &&
+          t.image_height &&
+          !singleImageFitsDecodedBudget(t.image_width, t.image_height, budget)
+        )
+          return;
+        void readOriginalImage(
+          { kind: "task", taskId: t.id },
+          {
+            owner: imageOwner,
+            signal: controller.signal,
+            priority: "prefetch",
+          },
+        ).catch(() => {});
       }
     };
     const timer = window.setTimeout(() => {
@@ -2758,7 +2780,7 @@ export function useWorkbenchShellModel({
     closeDrawer: closeOfflineDrawer,
   } = offlineQ;
 
-  const isLockedForActions =
+  const businessLockedForActions =
     projectWriteBlocked ||
     sceneWriteBlocked ||
     (mode === "review"
@@ -2772,6 +2794,25 @@ export function useWorkbenchShellModel({
             activeVideoSegment.status === "completed" ||
             activeVideoSegment.locked_by !== meUserId ||
             !!segmentLeaseError)));
+  const notifyInvalidContinuousBinding = useCallback(
+    (error: string) => {
+      setTool("select");
+      pushToast({ msg: "已退出连续创建", sub: error, kind: "warning" });
+    },
+    [pushToast, setTool],
+  );
+  const isLockedForActions = useContinuousCreationGuard({
+    intent: s.continuousCreation,
+    setIntent: s.setContinuousCreation,
+    ownerKey: continuousOwnerKey,
+    projectId,
+    contextAllowsIntent: stageKind === "image" && mode !== "review",
+    businessLocked: businessLockedForActions,
+    mediaBlocked: !!contentBlockedReason,
+    tool: s.tool,
+    bindings: currentProject?.id === projectId ? currentProject?.tool_bindings : undefined,
+    onInvalidBinding: notifyInvalidContinuousBinding,
+  });
   const pushSliceHistory = history.push;
   const sliceWriteOwner = useRef({ taskId, canWrite: false });
   useLayoutEffect(() => {
@@ -3109,50 +3150,6 @@ export function useWorkbenchShellModel({
     classes: classesForUnit(currentProject?.tool_bindings, item.unit),
   }));
   const { continuousCreation, setContinuousCreation } = s;
-  useEffect(() => {
-    if (!continuousCreation) return;
-    const error =
-      currentProject && currentProject.id === projectId
-        ? continuousIntentError(continuousCreation, currentProject.tool_bindings)
-        : null;
-    if (
-      stageKind !== "image" ||
-      mode === "review" ||
-      isLockedForActions ||
-      continuousCreation.projectId !== projectId ||
-      error
-    ) {
-      setContinuousCreation(null);
-      if (error) {
-        setTool("select");
-        pushToast({ msg: "已退出连续创建", sub: error, kind: "warning" });
-      }
-      return;
-    }
-    const next = manualImageTool(s.tool);
-    if (!next) {
-      setContinuousCreation(null);
-      return;
-    }
-    if (next.unit !== continuousCreation.toolUnitId)
-      setContinuousCreation({
-        projectId: projectId!,
-        tool: next.tool,
-        toolUnitId: next.unit,
-        className: "",
-      });
-  }, [
-    continuousCreation,
-    stageKind,
-    mode,
-    isLockedForActions,
-    currentProject,
-    projectId,
-    pushToast,
-    s.tool,
-    setTool,
-    setContinuousCreation,
-  ]);
   useEffect(() => {
     if (isLockedForActions && s.pendingDrawing?.creation) s.setPendingDrawing(null);
   }, [isLockedForActions, s]);
@@ -4257,6 +4254,7 @@ export function useWorkbenchShellModel({
     [currentProject?.tool_bindings, toolView.attributeSchema],
   );
   const submitBlockedReason = useMemo(() => {
+    if (contentBlockedReason) return contentBlockedReason;
     if (!queueReady) return "正在检查本机待同步记录，请稍候";
     return resolveSubmitBlockedReason({
       pendingWrites: pendingAnnotationWrites,
@@ -4267,6 +4265,7 @@ export function useWorkbenchShellModel({
       syncError,
     });
   }, [
+    contentBlockedReason,
     hasPendingMaskDraft,
     imageActions.hasManualDraft,
     maskEditor.phase,
@@ -4416,8 +4415,51 @@ export function useWorkbenchShellModel({
     resumeTaskLock,
   });
   const modeState = mode === "review" ? reviewModeState : annotateModeState;
+  const imageRasterMaskDescriptors = useMemo(() => {
+    if (isVideoTask || !taskId || maskCapabilities.data?.read_enabled !== true) return [];
+    return [
+      ...buildImageRasterMaskDescriptors(visibleAnnotationsData, rasterMaskSelectedIds),
+      ...buildImagePredictionMaskDescriptors(
+        taskId,
+        modeState.diffMode === "final" ? [] : aiBoxes,
+        rasterMaskSelectedIds,
+      ),
+    ];
+  }, [
+    aiBoxes,
+    isVideoTask,
+    maskCapabilities.data?.read_enabled,
+    modeState.diffMode,
+    rasterMaskSelectedIds,
+    taskId,
+    visibleAnnotationsData,
+  ]);
+  const imageRasterMasks = useRasterMaskRecords({
+    scopeKey:
+      !isVideoTask && maskCapabilities.data?.read_enabled === true ? (taskId ?? null) : null,
+    descriptors: imageRasterMaskDescriptors,
+    workerPool: rasterMaskWorkerPool,
+    resourceCoordinator: rasterResources,
+    resourceOwner: "mask-render:image",
+  });
+  const imageAnnotationMaskRecords = useMemo(
+    () =>
+      imageRasterMasks.records.filter(
+        (record): record is typeof record & { source: "annotation" } =>
+          record.source === "annotation",
+      ),
+    [imageRasterMasks.records],
+  );
+  const imagePredictionMaskRecords = useMemo(
+    () =>
+      imageRasterMasks.records.filter(
+        (record): record is typeof record & { source: "prediction" } =>
+          record.source === "prediction",
+      ),
+    [imageRasterMasks.records],
+  );
   const { topbarActions, bannerActions } = modeState;
-  const isLocked = modeState.isLocked || sceneWriteBlocked;
+  const isLocked = modeState.isLocked || sceneWriteBlocked || !!contentBlockedReason;
   // 章节 × 时间轴联动控制器 (状态/handler 声明在前, 此处 isLocked 就绪后组装并 gate 编辑)。
   const canEditChapters = !isLocked && isOwner;
   const videoTimelineChapterControls = useMemo<VideoTimelineChapterControls | undefined>(() => {
@@ -4904,8 +4946,8 @@ export function useWorkbenchShellModel({
         hiddenVideoTrackIds={hiddenVideoTrackIds}
         lockedVideoTrackIds={lockedVideoTrackIds}
         rasterMaskStatus={
-          selectedAnnotationForPanel
-            ? imageRasterMasks.statusById.get(selectedAnnotationForPanel.id)
+          selectedAnnotationForPanel || selectedAiBox
+            ? imageRasterMasks.statusById.get((selectedAnnotationForPanel ?? selectedAiBox)!.id)
             : undefined
         }
         rasterMaskRetry={imageRasterMasks.retry}
@@ -5598,6 +5640,8 @@ export function useWorkbenchShellModel({
     banners: {
       mode,
       task,
+      contentBlockedReason,
+      onRetryContent: retryWorkbenchImagePyramid,
       lockError,
       lockConflict,
       claimInfo: modeState.claimInfo,
@@ -6091,7 +6135,8 @@ export function useWorkbenchShellModel({
         bboxCreationMode: s.bboxCreationMode,
         continuousCreation: !!continuousCreation,
         resourceCoordinator: rasterResources,
-        rasterMaskRecords: imageRasterMasks.records,
+        rasterMaskRecords: imageAnnotationMaskRecords,
+        predictionRasterMaskRecords: imagePredictionMaskRecords,
         rasterMaskStatusById: imageRasterMasks.statusById,
         onRetryRasterMask: imageRasterMasks.retry,
         editingRasterMaskId: editingImageRasterMaskId,

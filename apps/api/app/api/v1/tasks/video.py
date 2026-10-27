@@ -1,7 +1,6 @@
 import time
 import uuid
 from typing import Literal
-from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +11,7 @@ from app.deps import (
     require_scopes,
 )
 from app.db.models.user import User
-from app.db.models.dataset import Dataset, DatasetItem, VideoFrameIndex
+from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.task import Task
 from app.schemas.annotation import AnnotationOut
 from app.schemas.task import (
@@ -20,8 +19,6 @@ from app.schemas.task import (
     TaskPointCloudManifestResponse,
     TaskVideoFrameTimetableResponse,
     TaskVideoManifestResponse,
-    VideoFrameTimetableEntry,
-    VideoMetadata,
 )
 from app.schemas.video_frame_service import (
     VideoChunkOut,
@@ -49,9 +46,11 @@ from app.schemas.video_tracker_job import (
 from app.services.audit import AuditAction, AuditService
 from app.services.task_dataset_link import get_linked_items
 from app.services.project_access import is_privileged_for_project
-from app.services.storage import storage_service
 from app.services.video_frame_service import (
     build_context_from_task,
+    authorize_context,
+    frame_timetable as build_frame_timetable,
+    legacy_manifest as build_legacy_manifest,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -93,12 +92,10 @@ from app.api.v1.tasks._shared import (
     _assert_task_editable,
     _load_task_or_404,
     _assert_task_visible,
-    _attach_dimensions,
     _capture_first_review_contributor_snapshot,
     _task_contributor_snapshot,
     require_task_annotation_write,
     require_task_review_write,
-    VIDEO_MANIFEST_URL_EXPIRES_IN,
     logger,
 )
 from app.services.project_access import ProjectAccess
@@ -143,6 +140,7 @@ async def get_active_video_tracker_jobs(
 @router.get("/{task_id}/video/manifest", response_model=TaskVideoManifestResponse)
 async def get_video_manifest(
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -150,115 +148,8 @@ async def get_video_manifest(
     await _assert_task_visible(db, task, current_user)
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
-
-    bucket = (
-        storage_service.datasets_bucket
-        if task.dataset_item_id
-        else storage_service.bucket
-    )
-    try:
-        _, _, thumb, _, video_metadata = await _attach_dimensions(db, task)
-    except Exception as exc:
-        logger.exception("Failed to load video metadata task_id=%s", task.id)
-        raise HTTPException(
-            status_code=503, detail="Video metadata unavailable"
-        ) from exc
-
-    metadata = VideoMetadata.model_validate(video_metadata or {})
-    if not metadata.fps or not metadata.frame_count:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-
-    video_path = metadata.playback_path or task.file_path
-    # v0.10.17 · playback/* 走 media-cache 桶,原始源文件走 datasets 桶
-    video_bucket = storage_service.bucket_for_cache_key(video_path, default=bucket)
-    try:
-        video_url = storage_service.generate_download_url(
-            video_path,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-            bucket=video_bucket,
-        )
-    except ClientError as exc:
-        code = (exc.response.get("Error") or {}).get("Code")
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(
-                status_code=404, detail="Video file not available"
-            ) from exc
-        logger.exception(
-            "Failed to generate video manifest URL task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-    except BotoCoreError as exc:
-        logger.exception(
-            "Failed to generate video manifest URL task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-    except Exception as exc:
-        logger.exception(
-            "Unexpected video manifest URL error task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-
-    poster_path = metadata.poster_frame_path or thumb
-    poster_url: str | None = None
-    poster_bucket: str | None = None
-    if poster_path:
-        # poster 可能是 thumbnails/* 或 videos/*/frames/* (media-cache) 或源 key (datasets)
-        poster_bucket = storage_service.bucket_for_cache_key(
-            poster_path, default=bucket
-        )
-        try:
-            poster_url = storage_service.generate_download_url(
-                poster_path,
-                expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-                bucket=poster_bucket,
-            )
-        except ClientError as exc:
-            code = (exc.response.get("Error") or {}).get("Code")
-            if code not in {"NoSuchKey", "404", "NotFound"}:
-                logger.exception(
-                    "Failed to generate video poster URL task_id=%s bucket=%s key=%s",
-                    task.id,
-                    poster_bucket,
-                    poster_path,
-                )
-        except BotoCoreError:
-            logger.exception(
-                "Failed to generate video poster URL task_id=%s bucket=%s key=%s",
-                task.id,
-                poster_bucket,
-                poster_path,
-            )
-        except Exception:
-            logger.exception(
-                "Unexpected video poster URL error task_id=%s bucket=%s key=%s",
-                task.id,
-                poster_bucket,
-                poster_path,
-            )
-
-    return TaskVideoManifestResponse(
-        task_id=task.id,
-        dataset_item_id=task.dataset_item_id,
-        video_url=video_url,
-        poster_url=poster_url,
-        metadata=metadata,
-        expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-    )
+    ctx = await authorize_context(db, task, current_user, request)
+    return await build_legacy_manifest(db, ctx)
 
 
 @router.get(
@@ -285,13 +176,6 @@ async def get_point_cloud_manifest(
 
     links = await get_linked_items(db, task_id)
 
-    def _presign(key: str) -> str:
-        return storage_service.generate_download_url(
-            key,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-            bucket=storage_service.datasets_bucket,
-        )
-
     # 一次性取出所有关联 DatasetItem，避免逐 link 往返 DB
     item_ids = [link.dataset_item_id for link in links]
     items_by_id: dict[uuid.UUID, DatasetItem] = {}
@@ -303,19 +187,7 @@ async def get_point_cloud_manifest(
         )
         items_by_id = {item.id: item for item in rows}
 
-    # 主点云 URL：优先 primary_lidar link，否则回退 task.file_path
-    point_cloud_url: str | None = None
     primary_link = next((link for link in links if link.role == "primary_lidar"), None)
-    if primary_link is not None:
-        primary_item = items_by_id.get(primary_link.dataset_item_id)
-        if primary_item is not None:
-            point_cloud_url = _presign(primary_item.file_path)
-    if point_cloud_url is None:
-        if not task.file_path:
-            raise HTTPException(
-                status_code=404, detail="Point cloud file not available"
-            )
-        point_cloud_url = _presign(task.file_path)
 
     cameras: list[PointCloudCameraOut] = []
     for link in links:
@@ -344,7 +216,10 @@ async def get_point_cloud_manifest(
                 name=link.role[len("camera_") :],
                 role=link.role,
                 dataset_item_id=item.id,
-                image_url=_presign(item.file_path),
+                link_id=link.id,
+                original_identity_path=(
+                    f"/api/v1/files/tasks/{task.id}/links/{link.id}/original-identity"
+                ),
                 width=item.width,
                 height=item.height,
                 calibration=calibration,
@@ -400,9 +275,9 @@ async def get_point_cloud_manifest(
 
     return TaskPointCloudManifestResponse(
         task_id=task.id,
-        point_cloud_url=point_cloud_url,
+        original_identity_path=f"/api/v1/files/tasks/{task.id}/original-identity",
         cameras=cameras,
-        expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
+        expires_in=0,
         axis_convention=axis_convention,
         scene_id=scene_id_out,
         scene_name=scene_name_out,
@@ -418,71 +293,27 @@ async def get_point_cloud_manifest(
 )
 async def get_video_frame_timetable(
     task_id: uuid.UUID,
+    request: Request,
     response: Response,
     from_frame: int | None = Query(default=None, ge=0, alias="from"),
     to_frame: int | None = Query(default=None, ge=0, alias="to"),
+    expected_metadata_generation_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    if task.file_type != "video":
-        raise HTTPException(status_code=400, detail="Task is not a video task")
+    ctx = await authorize_context(db, task, current_user, request)
+    body = await build_frame_timetable(
+        db,
+        ctx,
+        from_frame,
+        to_frame,
+        expected_metadata_generation_id=expected_metadata_generation_id,
+    )
     response.headers["Cache-Control"] = "private, max-age=3600"
-
-    _, _, _, _, video_metadata = await _attach_dimensions(db, task)
-    metadata = VideoMetadata.model_validate(video_metadata or {})
-    if not metadata.fps or not metadata.frame_count:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-
-    if not task.dataset_item_id:
-        return TaskVideoFrameTimetableResponse(
-            task_id=task.id,
-            fps=metadata.fps,
-            frame_count=metadata.frame_count,
-            source="estimated",
-            frames=[],
-        )
-
-    has_timetable = (
-        await db.execute(
-            select(func.count(VideoFrameIndex.id)).where(
-                VideoFrameIndex.dataset_item_id == task.dataset_item_id
-            )
-        )
-    ).scalar_one() > 0
-    stmt = select(VideoFrameIndex).where(
-        VideoFrameIndex.dataset_item_id == task.dataset_item_id
-    )
-    if from_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index >= from_frame)
-    if to_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index <= to_frame)
-    rows = (
-        (await db.execute(stmt.order_by(VideoFrameIndex.frame_index.asc())))
-        .scalars()
-        .all()
-    )
-
-    body = TaskVideoFrameTimetableResponse(
-        task_id=task.id,
-        fps=metadata.fps,
-        frame_count=metadata.frame_count,
-        source="ffprobe" if has_timetable else "estimated",
-        frames=[
-            VideoFrameTimetableEntry(
-                frame_index=row.frame_index,
-                pts_ms=row.pts_ms,
-                is_keyframe=row.is_keyframe,
-                pict_type=row.pict_type,
-                byte_offset=row.byte_offset,
-            )
-            for row in rows
-        ],
-    )
     response.headers["ETag"] = (
-        f'"video-timetable:{task.dataset_item_id}:{metadata.frame_count}:'
-        f'{len(body.frames)}:{from_frame or 0}:{to_frame or ""}"'
+        f'"video-timetable:{body.metadata_generation_id}:{from_frame}:{to_frame}"'
     )
     return body
 
@@ -496,7 +327,7 @@ async def get_video_manifest_v2(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await build_video_manifest_v2(db, ctx, str(request.base_url))
 
 
@@ -933,6 +764,7 @@ async def accept_video_track_quality(
 @router.get("/{task_id}/video/chunks", response_model=VideoChunksResponse)
 async def get_video_chunks(
     task_id: uuid.UUID,
+    request: Request,
     from_frame: int | None = Query(default=None, ge=0),
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -940,13 +772,14 @@ async def get_video_chunks(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await list_video_chunks(db, ctx, from_frame, to_frame)
 
 
 @router.get("/{task_id}/video/chunks/{chunk_id}", response_model=VideoChunkOut)
 async def get_video_chunk(
     task_id: uuid.UUID,
+    request: Request,
     chunk_id: int,
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -954,7 +787,7 @@ async def get_video_chunk(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await authorize_context(db, task, current_user, request)
     body = await get_video_chunk_asset(db, ctx, chunk_id)
     if body.status == "pending":
         response.status_code = 202
@@ -965,6 +798,7 @@ async def get_video_chunk(
 @router.get("/{task_id}/video/frames/{frame_index}", response_model=VideoFrameOut)
 async def get_video_frame(
     task_id: uuid.UUID,
+    request: Request,
     frame_index: int,
     response: Response,
     format: Literal["webp", "jpeg"] = Query(default="webp"),
@@ -974,7 +808,7 @@ async def get_video_frame(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await authorize_context(db, task, current_user, request)
     body = await get_video_frame_asset(db, ctx, frame_index, w, format)
     if body.status == "pending":
         response.status_code = 202
@@ -991,13 +825,14 @@ async def get_video_frame(
 )
 async def prefetch_video_frame_assets(
     task_id: uuid.UUID,
+    request: Request,
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await prefetch_video_frames(
         db, ctx, payload.frame_indices, payload.width, payload.format
     )
@@ -1009,6 +844,7 @@ async def prefetch_video_frame_assets(
 )
 async def retry_video_frame_assets(
     task_id: uuid.UUID,
+    request: Request,
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1016,7 +852,7 @@ async def retry_video_frame_assets(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    ctx = await build_context_from_task(db, task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await retry_video_frames(
         db,
         ctx,

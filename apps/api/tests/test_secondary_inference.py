@@ -21,12 +21,42 @@ import app.workers.tasks as tasks_mod
 from app.services.ml_client import PredictionResult
 from app.services.annotation import AnnotationService
 from app.services.secondary_inference import run_secondary_inference
+from app.workers.roi import crop_inputs_from_boxes
 from tests.factory import create_project, create_task
 
 
 class _FakeStorage:
     def upload_crop_bytes(self, jpeg_bytes: bytes, key: str) -> str:
         return f"http://fake-minio/{key}"
+
+
+class _UnitOriginalOperation:
+    """Explicit unit seam; real source/authority guards have endpoint coverage."""
+
+    def __init__(self, task, annotation):
+        self.task, self.annotation = task, annotation
+        self.dispatched = False
+
+    async def prepare_crop(self, ls_box, *, pad):
+        with Image.new("RGB", (200, 200)) as image:
+            return crop_inputs_from_boxes(
+                image,
+                [ls_box],
+                pad=pad,
+                delivery="presigned",
+                upload_fn=lambda index, raw: f"http://unit-input/{index}.jpg",
+                min_crop_side_px=32,
+            )
+
+    async def before_dispatch(self, client):
+        self.dispatched = True
+
+    async def final(self):
+        assert self.dispatched
+        return self.task, self.annotation
+
+    async def recheck_credentials(self):
+        pass
 
 
 def _fake_backend(models: list[dict] | None = None):
@@ -103,6 +133,7 @@ async def test_attributes_written_back_with_ai_origin(
         db_session,
         annotation=box,
         task=task,
+        original_operation=_UnitOriginalOperation(task, box),
         backend=_fake_backend(),
         write_target="attributes",
         write_keys=None,
@@ -148,6 +179,7 @@ async def test_label_prefix_on_written_keys(
         db_session,
         annotation=box,
         task=task,
+        original_operation=_UnitOriginalOperation(task, box),
         backend=_fake_backend(),
         write_target="attributes",
         write_keys=["color"],
@@ -207,6 +239,7 @@ async def test_attributes_respects_human_edits_and_reuses_ai_slots(
         db_session,
         annotation=box,
         task=task,
+        original_operation=_UnitOriginalOperation(task, box),
         backend=_fake_backend(),
         write_target="attributes",
         write_keys=None,
@@ -280,6 +313,7 @@ async def test_geometry_creates_child_boxes(
         db_session,
         annotation=box,
         task=task,
+        original_operation=_UnitOriginalOperation(task, box),
         backend=_fake_backend(),
         write_target="geometry",
         write_keys=None,
@@ -349,6 +383,7 @@ async def test_geometry_unknown_class_falls_back(
         db_session,
         annotation=box,
         task=task,
+        original_operation=_UnitOriginalOperation(task, box),
         backend=_fake_backend(),
         write_target="geometry",
         write_keys=None,
@@ -393,6 +428,7 @@ async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch
             db_session,
             annotation=box,
             task=task,
+            original_operation=_UnitOriginalOperation(task, box),
             backend=_fake_backend(),
             write_target="attributes",
             write_keys=None,
@@ -427,6 +463,9 @@ async def test_non_croppable_geometry_raises_400(db_session, super_admin, monkey
             db_session,
             annotation=fake_ann,
             task=types.SimpleNamespace(id="task-0001"),
+            original_operation=_UnitOriginalOperation(
+                types.SimpleNamespace(id="task-0001"), fake_ann
+            ),
             backend=_fake_backend(),
             write_target="attributes",
             write_keys=None,
@@ -505,6 +544,9 @@ async def test_non_croppable_geometry_variants_raise_400(
             db_session,
             annotation=fake_ann,
             task=types.SimpleNamespace(id="task-0001"),
+            original_operation=_UnitOriginalOperation(
+                types.SimpleNamespace(id="task-0001"), fake_ann
+            ),
             backend=_fake_backend(),
             write_target="attributes",
             write_keys=None,
@@ -592,6 +634,7 @@ async def test_prompt_path_sends_legal_output_in_context(
         db_session,
         annotation=box,
         task=task,
+        original_operation=_UnitOriginalOperation(task, box),
         backend=_fake_backend(
             [{"id": "detect-yoloe", "supported_text_outputs": ["box"]}]
         ),
@@ -644,6 +687,7 @@ async def test_backend_timeout_surfaces_as_504_not_500(
             db_session,
             annotation=box,
             task=task,
+            original_operation=_UnitOriginalOperation(task, box),
             backend=_fake_backend(),
             write_target="geometry",
             write_keys=None,
@@ -692,6 +736,7 @@ async def test_backend_5xx_surfaces_as_502_not_500(
             db_session,
             annotation=box,
             task=task,
+            original_operation=_UnitOriginalOperation(task, box),
             backend=_fake_backend(),
             write_target="geometry",
             write_keys=None,
@@ -722,6 +767,7 @@ async def test_task_model_conflict_rejected_before_image_or_storage(monkeypatch)
             None,
             annotation=None,
             task=None,
+            original_operation=_UnitOriginalOperation(None, None),
             backend=_fake_backend([{"id": "vehicle-attr", "task": "classify"}]),
             write_target="attributes",
             write_keys=None,
@@ -736,3 +782,38 @@ async def test_task_model_conflict_rejected_before_image_or_storage(monkeypatch)
             user_id=uuid.uuid4(),
         )
     assert error.value.status_code == 422
+
+
+async def test_managed_image_without_qualified_operation_fails_closed():
+    from app.services.content_snapshot import ContentError
+
+    task = types.SimpleNamespace(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        file_type="image",
+        file_path="managed/original.png",
+    )
+    annotation = types.SimpleNamespace(
+        id=uuid.uuid4(),
+        geometry={"type": "bbox", "x": 0.2, "y": 0.2, "w": 0.3, "h": 0.3},
+        class_name="car",
+        confidence=None,
+    )
+    with pytest.raises(ContentError, match="prediction_original_requires_new_request"):
+        await run_secondary_inference(
+            None,
+            task=task,
+            annotation=annotation,
+            backend=_fake_backend(),
+            write_target="attributes",
+            write_keys=None,
+            label=None,
+            model_id="cls",
+            model_variants=None,
+            params=None,
+            task_type="classification",
+            prompt=None,
+            class_filter=None,
+            pad=0.08,
+            user_id=uuid.uuid4(),
+        )

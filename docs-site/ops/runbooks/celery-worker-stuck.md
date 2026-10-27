@@ -2,9 +2,8 @@
 title: Runbook：Celery Worker 卡死
 audience: [ops]
 type: how-to
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-26
 ---
 
 # Runbook：Celery Worker 卡死 {#runbook-celery-worker-卡死}
@@ -57,6 +56,16 @@ docker compose exec <worker-service> celery -A app.workers.celery_app inspect re
 如果服务状态正常但队列持续增长，比较该队列长度和 `inspect active/reserved` 的结果：没有消费记录通常指向错误的 `-Q`、worker 未连接 Redis 或 worker 没有运行；有活动任务但没有完成记录则进入“容器运行但无进展”分支。
 
 :::
+
+## 存储任务的无进展提示
+
+扫描、预检／登记、容量盘点、迁移清单及复制任务的详情区分“已提交进展”和通用任务更新时间。只有实际接受的目录、页、条目或新结果才记录推进；心跳、续租和GET查询不会刷新。运行中有效记录超过900秒没有新推进时提示核实，首次观测前或历史未知不推断卡死。
+
+先查看阶段、单位和最后推进时间，再按上文核对准确队列的active／reserved及所属节点日志。长时间单页读取、资源等待和尚无中间结果的prepare都可能暂时没有新记录；平台管理员核实基础设施，数据集管理员结合来源和轮次核实处理范围。角色提示不是个人认领，任务发起者也不自动成为处置人。
+
+不要仅凭提示强杀任务或删除未收尾记录。迁移清单／复制仍须等待实际线程、Body、client与访问许可收尾，重派、恢复或关闭维护窗口沿各自既有协议执行。终态不再提示；它不证明源端已经停写或可以回收对象。
+
+应用迁移0259后刷新实际执行这些任务的API与Worker，再核对新代码和任务注册。迁移只增加nullable观测列、不回填历史；挂载源码无需重建镜像。受控应用回退保留schema和观测事实，不通过删除列清空证据。
 
 ## 恢复操作 {#处理步骤}
 

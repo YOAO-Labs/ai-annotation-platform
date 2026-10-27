@@ -21,6 +21,7 @@ from app.services.training_dataset_bridge import (
 )
 from app.services.training_dataset_analysis import derive, read_instance_mask
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
+from tests.training_original_fixtures import original_receipt, staged_image
 from training_contract.dataset import (
     INSTANCE_RLE_CONTRACT,
     SEGMENTATION_CONTRACT,
@@ -189,7 +190,29 @@ def test_frozen_mask_reader_uses_independent_training_object_and_digest(
     snapshot, media, masks = frozen
     payload = instance_rle_payload(snapshot["samples"][0], ["shape"], 4, 3)
     encoded = instance_rle_text(payload).encode()
-    project, version = uuid.uuid4(), SimpleNamespace(id=uuid.uuid4())
+    from app.config import settings
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.training_dataset_storage import prefix_for
+
+    project = uuid.uuid4()
+    version = SimpleNamespace(id=uuid.uuid4(), project_id=project)
+    endpoint = (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+    )
+    version.storage_ref = {
+        "schema": 1,
+        "purpose": "training-dataset",
+        "location_id": str(LEGACY_LOCATION_ID),
+        "config_revision": 1,
+        "binding_generation": 1,
+        "endpoint_url": endpoint,
+        "bucket": "retained-mask-bucket",
+        "prefix": prefix_for(project, version.id),
+        "storage_identity": managed_storage_identity(endpoint, "retained-mask-bucket"),
+        "origin": "new",
+        "evidence": None,
+    }
     source = snapshot["samples"][0]
     sample = SimpleNamespace(
         included=True,
@@ -210,6 +233,7 @@ def test_frozen_mask_reader_uses_independent_training_object_and_digest(
     )
     assert result["rle"] == masks[0]
     assert observed["Key"].endswith(f"/masks/{sample.task_id}.json")
+    assert observed["Bucket"] == "retained-mask-bucket"
     sample.label_sha256 = "0" * 64
     with pytest.raises(TrainingDatasetError, match="校验"):
         read_instance_mask(
@@ -231,39 +255,40 @@ def test_gc_roots_keep_retriable_snapshots_and_fixed_trials():
         assert "jsonb_path_query(trial," in text
 
 
-def test_unknown_direct_upload_dimensions_use_bounded_etag_pinned_header(monkeypatch):
-    from app.services import training_datasets
+def test_verified_original_dimensions_use_full_image_and_orientation():
+    from app.services import training_dataset_originals
 
     data = io.BytesIO()
-    image = Image.new("RGB", (4, 3))
-    exif = image.getexif()
-    exif[274] = 6
-    image.save(data, format="JPEG", exif=exif)
-    observed = {}
-    monkeypatch.setattr(
-        training_datasets.storage_service.client,
-        "head_object",
-        lambda **kwargs: {
-            "ETag": "immutable",
-            "ContentLength": len(data.getvalue()),
-            "VersionId": "frozen-version",
-        },
-    )
+    with Image.new("RGB", (4, 3)) as image:
+        exif = image.getexif()
+        exif[274] = 6
+        image.save(data, format="JPEG", exif=exif)
+    raw = data.getvalue()
+    stage = staged_image(raw)
+    try:
+        result = training_dataset_originals.inspect_image(stage, {})
+        assert (result["width"], result["height"]) == (3, 4)
+        assert result["sha256"] == hashlib.sha256(raw).hexdigest()
+        assert result["size_bytes"] == len(raw)
+        assert not stage.file.closed
+    finally:
+        stage.close()
 
-    def get_object(**kwargs):
-        observed.update(kwargs)
-        return {"Body": io.BytesIO(data.getvalue())}
 
-    monkeypatch.setattr(
-        training_datasets.storage_service.client, "get_object", get_object
-    )
-    result = training_datasets.capture_source_media(
-        {"raster_contract": True, "source_bucket": "private", "source_key": "image"}
-    )
-    assert (result["width"], result["height"]) == (3, 4)
-    assert observed["IfMatch"] == "immutable"
-    assert observed["VersionId"] == "frozen-version"
-    assert observed["Range"] == "bytes=0-1048575"
+def test_locator_only_capture_requires_registered_original(monkeypatch):
+    from app.services import training_datasets
+    from app.services.storage import storage_service
+
+    def unexpected_io(**kwargs):
+        pytest.fail("Locator-only inputs must be rejected before storage I/O")
+
+    monkeypatch.setattr(storage_service.client, "head_object", unexpected_io)
+    monkeypatch.setattr(storage_service.client, "get_object", unexpected_io)
+    with pytest.raises(TrainingDatasetError) as error:
+        training_datasets.capture_source_media(
+            {"raster_contract": True, "source_bucket": "private", "source_key": "image"}
+        )
+    assert error.value.code == "original_input_unrecorded"
 
 
 def test_worker_materializes_independent_bitmap_object_without_source_storage_path(
@@ -271,26 +296,37 @@ def test_worker_materializes_independent_bitmap_object_without_source_storage_pa
 ):
     from app.workers import training_dataset as worker
     from botocore.exceptions import ClientError
-    from botocore.response import StreamingBody
 
     snapshot, media, masks = frozen
     source, image = snapshot["samples"][0], media[0]
-    raw = open(image["path"], "rb").read()
-    uploaded = {}
+    from pathlib import Path
 
-    def missing(**kwargs):
-        raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+    raw = Path(image["path"]).read_bytes()
+    uploaded, metadata, bodies = {}, {}, []
 
-    monkeypatch.setattr(worker.storage_service.client, "head_object", missing)
-    monkeypatch.setattr(
-        worker.storage_service.client,
-        "get_object",
-        lambda **kwargs: {"Body": StreamingBody(io.BytesIO(raw), len(raw))},
-    )
+    def head(*, Bucket, Key, **kwargs):
+        if (Bucket, Key) not in uploaded:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+        body = uploaded[Bucket, Key]
+        return {
+            "ContentLength": len(body),
+            "ETag": '"' + hashlib.md5(body).hexdigest() + '"',
+            "Metadata": metadata.get((Bucket, Key), {}),
+        }
+
+    def get(*, Bucket, Key, IfMatch=None, **kwargs):
+        expected = head(Bucket=Bucket, Key=Key)
+        assert IfMatch == expected["ETag"]
+        body = io.BytesIO(uploaded[Bucket, Key])
+        bodies.append(body)
+        return {**expected, "Body": body}
 
     def put(path, bucket, key, **kwargs):
-        uploaded[key] = open(path, "rb").read()
+        uploaded[bucket, key] = Path(path).read_bytes()
+        metadata[bucket, key] = kwargs.get("ExtraArgs", {}).get("Metadata", {})
 
+    monkeypatch.setattr(worker.storage_service.client, "head_object", head)
+    monkeypatch.setattr(worker.storage_service.client, "get_object", get)
     monkeypatch.setattr(worker.storage_service.client, "upload_file", put)
     monkeypatch.setattr(
         worker.storage_service,
@@ -299,20 +335,31 @@ def test_worker_materializes_independent_bitmap_object_without_source_storage_pa
     )
     sample = {
         **source,
-        "source_bucket": "private-bucket",
         "source_key": "mutable-key",
-        "media": {"etag": "frozen", "size_bytes": len(raw)},
+        "original": original_receipt(raw),
+        "media": {"sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw)},
         "expected_width": 4,
         "expected_height": 3,
         "raster_contract": True,
         "classes": ["shape"],
     }
-    result = worker.materialize_image(
-        sample, "projects/frozen/datasets/version", "snapshot", tmp_path
-    )
+    stage = staged_image(raw)
+    try:
+        result = worker.materialize_image(
+            sample,
+            "projects/frozen/datasets/version",
+            "snapshot",
+            tmp_path,
+            bucket="retained-training",
+            verified_original=stage,
+        )
+        assert not stage.file.closed
+    finally:
+        stage.close()
     assert result["width"] == 4 and result["height"] == 3
     key = f"projects/frozen/datasets/version/masks/{source['task_id']}.json"
-    assert [item["rle"] for item in json.loads(uploaded[key])["instances"]] == masks
-    assert (
-        b"private-bucket" not in uploaded[key] and b"mutable-key" not in uploaded[key]
-    )
+    mask = uploaded["retained-training", key]
+    assert [item["rle"] for item in json.loads(mask)["instances"]] == masks
+    assert b"private-bucket" not in mask and b"mutable-key" not in mask
+    assert {bucket for bucket, _key in uploaded} == {"retained-training"}
+    assert all(body.closed for body in bodies)

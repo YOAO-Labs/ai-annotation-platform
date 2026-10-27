@@ -1,9 +1,10 @@
 ---
+title: 生产部署（Docker Compose）
 audience: [ops]
 type: how-to
 since: v0.1.0
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-26
 ---
 
 # 生产部署（Docker Compose）
@@ -86,7 +87,7 @@ last_reviewed: 2026-08-14
 | `MASK_FORMAT_MAX_ARCHIVE_FILES`     | `200000`         | 单个 Mask 格式包允许的最大文件数。                                                                                                                                                              |
 | `MASK_FORMAT_MAX_COMPRESSION_RATIO` | `100`            | 单 entry 允许的最大展开 / 压缩字节比；超限按可疑压缩炸弹拒绝。                                                                                                                                  |
 
-Mask 格式 staged object 使用 import bucket，导出产物使用 export bucket，两者均由 API 初始化为 7 天 lifecycle。
+Mask 格式 staged object 和预标临时输入使用 import bucket，导出产物使用 export bucket。应用移除自身创建的 import 整桶七天过期规则，已登记预标输入由耐久责任账本清理，未知旧对象保留待盘点；export 保留现有七天 lifecycle。运维自设规则需独立核对。
 调小配额时应同时观察 `media` / `export` 队列的失败率；只需修改 `.env` 并重建容器，不需要重建镜像。
 
 ### 2.4 认证 / 安全
@@ -98,7 +99,7 @@ Mask 格式 staged object 使用 import bucket，导出产物使用 export bucke
 | `REQUIRE_EMAIL_VERIFICATION`                  | 空（按环境派生）  | 开放注册是否强制邮箱验证。留空时 production 默认开、dev/staging 默认关；显式 `true`/`false` 覆盖。开启后注册需点邮件链接验证才能登录，邀请注册恒视为已验证。依赖 SMTP 配置（未配时验证链接仅写日志）。 |
 | `TURNSTILE_ENABLED`                           | `false`           | Cloudflare Turnstile CAPTCHA。开启后 `/auth/register-open` `/auth/forgot-password` 必须带 `captcha_token`。                                                                                            |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 空                | 启用 Turnstile 时配套；secret 绝不暴露给前端。                                                                                                                                                         |
-| `AUDIT_RETENTION_MONTHS`                      | `12`              | 冷数据保留月数。Celery beat 每月 2 日把超期 partition 归档为 `audit-archive/{YYYY}/{MM}.jsonl.gz` 上 MinIO 后 DROP。                                                                                   |
+| `AUDIT_RETENTION_MONTHS`                      | `12`              | 正整数保留月数。Celery beat 每月 2 日归档完整超期月分区，以独立UUID对象键保存；完整读回与源分区复核后，同事务发布并DROP。失败保留源分区和待确认候选。                                                  |
 | `ACCESS_TOKEN_EXPIRE_MINUTES`                 | `1440`（24h）     | 未列入 `.env.example`；高敏环境调到 `480`（8h）。                                                                                                                                                      |
 | `CONNECTOR_ENCRYPTION_KEY`                    | 空                | 存储连接器凭据的 Fernet key；留空时连接器加解密拒绝。                                                                                                                                                  |
 | `CONNECTOR_HOST_ALLOWLIST`                    | 空                | 连接器主机白名单的部署默认值；数据库覆盖可由超级管理员在系统设置中管理和恢复。                                                                                                                         |
@@ -316,6 +317,8 @@ worker/beat 容器已在 `docker-compose.yml` 定义、由 §4.1 一并拉起，
 
 **Celery beat（`celery-beat`，必须单实例）**：定时任务调度（审计 partition 月度归档、PerfHud 推送、ml health 巡检等）。worker 可水平扩多副本（`docker compose up -d --scale celery-worker=N`），但 **beat 多实例会重复触发，绝不能扩副本**。漏了 beat 不报错，但所有定时任务静默不跑。
 
+多阶段 ROI 临时输入需要应用 0239，先由部署者启用并核对准确 import 桶的版本控制，再刷新平台 API、worker 和 beat。应用不会自动启用版本控制；签名读取和清理都固定非 null 的不可变 VersionId。启动后独立确认 import 桶不再有 `import-artifacts-7d`，运维自设规则不能覆盖仍受保护的预测输入。`app.workers.prediction_input_cleanup.recover_prediction_inputs` 每分钟派发到 `cleanup`；正常处理结束尝试回收，源许可尚未结算、删除失败及过期尝试由该任务后续重扫。清理按保存位置、精确清单、完整内容及写入标记执行，成功保留 `deleted` 墓碑；`legacy_unpinned` 表示历史记录缺少固定位置，不能按当前配置删除，`storage_operation_unsettled` 表示仍有未收尾物理责任。回收记录独立于业务记录；有记录时降级迁移会拒绝，不能通过删账本绕过。预算和恢复观察期见[预测流水线](/dev/concepts/prediction-pipeline#crop-投递通用化)。挂载源码只需刷新对应进程，无需因此重建后端或 ML 镜像。
+
 ### 4.3 首个 super_admin（bootstrap_admin）
 
 平台没有「第一个用户自动当管理员」的逻辑。第一次部署后在 api 容器内跑一次（依赖已装到 `/opt/venv`，容器 `PATH` 已包含该环境，可直接 `python -m`）：
@@ -378,6 +381,8 @@ pnpm --filter @anno/web build
 
 ## 5. 备份与恢复
 
+数据库、九用途对象及独立密钥材料须属于同一备份代次。以下命令是操作示例；生产需先完成覆盖 API、Worker/Beat、清理及外部写入的停写门禁，再核对数据库恢复点、逐对象清单与摘要。分步任务各自成功不能证明一致恢复。本地可先运行[一致备份与隔离恢复演练](./storage-recovery)，验证源销毁后的独立恢复；该试点不替代生产备份目标、保留和上线验收。
+
 ### 5.1 Postgres
 
 按业务重要度分级：
@@ -408,9 +413,9 @@ mc mirror anno/datasets    s3-backup/anno/datasets
 mc mirror anno/avatars     s3-backup/anno/avatars
 ```
 
-桶名见 `MINIO_BUCKET` / `MINIO_DATASETS_BUCKET` / `MINIO_AVATARS_BUCKET`（默认 `annotations` / `datasets` / `avatars`）。恢复时先恢复数据库再回灌这三个桶，确保 `users.avatar_ref` 指向的对象已就位。
+上述镜像示例只列出部分桶。完整范围应按当前九用途配置逐项登记，按相同物理桶去重：annotations、datasets、bug-reports、media-cache、audit-archive、import、export、avatars、training。空桶、主动排除的可重建内容和未完成任务也要明确记录，不能从清单中消失。头像、托管原件及训练冻结内容是持久业务数据；数据库引用不能替代文件。连接加密密钥和生产配置独立受控保存。
 
-启用在线学习数据版本后，另需备份并恢复 `MINIO_TRAINING_BUCKET`（默认 `training`）；数据库中的版本引用不能替代冻结原图和训练包。
+恢复时先验证完整代次、密钥及空目标归属，恢复数据库和匹配对象，再核对持久桶绑定、Asset/缓存/清理账本的物理身份。修改环境变量不会自动改写这些记录；原冻结清单和摘要保持不变。外部原件由其责任方恢复；旧队列和未完成任务先隔离核对，确认前不启动调度或开放流量。详细顺序见[恢复演练](./storage-recovery#恢复顺序与物理映射)。
 
 ### 5.3 Redis
 
@@ -459,7 +464,7 @@ docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d
    curl -fsS https://app.example.com/api/v1/health/minio | jq
    curl -fsS https://app.example.com/api/v1/health/celery | jq
    ```
-5. **回滚预案**：`git checkout <旧 commit>` 后 `up -d --build` 重新构建旧镜像；含迁移时先 `docker compose ... exec api alembic downgrade -1`。MinIO 数据通常向前兼容；audit_logs 触发器 downgrade 已写在 0032 迁移里。
+5. **回退预案**：先停止写入并按具体迁移说明选择兼容的应用版本，保留已使用的内容身份、来源、用途绑定和归属账本；不能对含迁移的升级统一执行 `alembic downgrade -1`。已有映射或不可逆屏障时保留当前 schema，采用应用回退或向前修复。旧应用不理解外部引用时，不得让它接管这些记录的写入、删除或后台清理，必要时保持受控只读。只有明确允许降级、数据条件满足且已在一次性环境演练的迁移，才按指定目标执行降级；不要用 `stamp` 绕过屏障。回退前的数据库与对象存储备份必须保留，详见[内容身份决策](/dev/adr/archive/0091-dataset-content-and-location-identity)与[升级指南](/ops/upgrade-guide)。
 
 ---
 
@@ -645,16 +650,32 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-rapi
 - 显存 / 变体相关 env 见 §2.8（grounded-sam2）与 §2.8.1（sam3）；两者 `IDLE_*` / `MODEL_POOL_*` 前缀解耦，可独立调
 - 五个 Backend 的受管生命周期能力都采用部署级验收开关，且默认关闭。只有当前镜像、权重与物理 GPU 完成对应的真实加载、全池卸载和显存回落验收后，才把 `GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED`、`SAM3_MANAGED_LIFECYCLE_VERIFIED`、`YOLO_MANAGED_LIFECYCLE_VERIFIED`、`ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 或 `RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED` 设为字面量 `1`；值只能是 `0` 或 `1`，非法值会使对应 Backend 拒绝启动。复制其他机器的结论不能替代当前部署证据。
 
+### 对象存储访问与签名契约
+
+SigV4 将 Host 纳入签名，不能取得已签链接后再替换主机名。平台在签名前为调用用途选择端点，API／worker 的实际对象读写仍使用 `MINIO_ENDPOINT`。
+
+| 配置方式                             | 签名及代理要求                                                                                                       |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `MINIO_PUBLIC_URL` 为空              | 浏览器直接使用内部端点；只适合客户端确实可达的部署                                                                   |
+| 相对 `/minio`                        | 签内部端点；代理去掉 `/minio` 并将 Host 恢复为该内部端点，含端口。仓库 nginx 和 worktree Vite 使用此合同             |
+| 绝对 `https://objects.example.com`   | 直接签公共 origin；代理／负载均衡保留原 Host，含非标准端口                                                           |
+| 绝对 `https://app.example.com/files` | 签公共 origin；`/files` 仅为传输路由，代理去前缀但保留公共 Host。不能直接套用仓库相对 `/minio` 的 `$proxy_host` 配置 |
+| `ML_BACKEND_STORAGE_HOST`            | 只填模型可达的 `host:port`，协议沿用内部端点；为空时直接使用内部端点，与公共浏览器地址无关                           |
+
+优先使用独立对象存储域名或仓库已有的相对代理。签名不包含传输前缀，代理必须保持原对象路径编码、查询串及上传 Content-Type；内部 Host 与代理目标必须完全一致，`localhost:9000` 与 `127.0.0.1:9000` 不能混用。普通 Vite 默认为 `localhost:9000`；自定义内部端点时同步设置 `MINIO_PROXY_TARGET`。worktree 启动器自动对齐两者。
+
+部署验收应从实际浏览器、API、worker 和 ML 网络分别读取同一测试对象，并验证版本绑定、中文及保留字符、上传和签名过期。已工作相对路由不需要改 Docker 挂载或重建后端镜像。这里的两种代理合同不能由“连通性正常”互相替代。签名规则见 [AWS 官方说明](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html)。
+
 ### dev 跨容器存储访问（`ML_BACKEND_STORAGE_HOST`）
 
-平台 api 跑 host 进程、SAM 容器跑 docker 网内时，SAM 无法访问 host `localhost:9000` MinIO，platform api 端 `_resolve_task_url` 会按 env 把 host 重写：
+平台 api 跑 host 进程、SAM 容器跑 docker 网内时，SAM 无法访问 host `localhost:9000` MinIO，平台在签名前按配置选择模型可达的对象存储 Host：
 
 ```bash
 # .env
 ML_BACKEND_STORAGE_HOST=172.17.0.1:9000   # docker bridge gateway
 ```
 
-K8s 同 namespace 部署时一般留空（直接走 service DNS）；跨 namespace / 跨集群时按需配。详见 ADR-0012。
+K8s 同 namespace 且内部端点对模型可达时可留空；跨 namespace／集群时配置模型实际可达的 Host。
 
 ### `/health` 显存监控
 
@@ -772,6 +793,18 @@ docker compose -f docker-compose.training.yml --profile training up -d training-
 
 保留历史冻结配置和旧镜像。仅在完成原生及恢复资格后，可为当前受控框架目录增加 `legacy_images: ["sha256:旧镜像身份"]`；它只允许新镜像执行已冻结的修订 1 实验，不能扩展参数或跨版本、跨资源领取。未配置时仍要求精确镜像。镜像目录改变后自动策略暂停，负责人重新保存后才采用新环境；不要改写历史配置摘要或强行释放 GPU 租约。
 
+#### 5. 实际训练成员回执的部署验收
+
+执行器健康、源码更新或镜像构建成功都不能替代实际领取与发布验收。新增成员合同要求 runtime 上报匹配的 `input_receipt_policy_digest`；即使镜像摘要相同，缺少能力也不能领取。
+
+1. **核对环境与空闲状态。** 检查容器的 Compose 项目、配置文件、API 地址、节点 ID、GPU UUID 和 `/state` 挂载。确认没有排队、执行或上传中的实验，再升级对应服务。工作树使用自己的 API、凭据和部署配置，不修改共享 `.env` 或借用主工作区的执行器。不同 GPU 可以使用独立状态目录；同一物理 GPU 上的执行器必须沿用同一节点 ID 和同一个持久 `/state`，不能靠更换 Compose 项目名绕过资源锁。
+2. **同步不可变镜像身份。** 构建并发布包含执行器和共享合同的镜像，将 registry manifest digest 同步到目标 API 的训练目录和 Executor 配置。刷新使用该目录的 API、策略 worker 与 scheduler，再按固定摘要重建对应 Executor 容器。保留状态目录、模型文件及历史镜像；不挂载宿主源码冒充镜像升级。
+3. **检查实际能力。** 从运行容器调用 `training_executor.worker.runtime_identity()`，核对 `image_digest`、`gpu_uuid`、框架版本、`supported_configs` 和 `input_receipt_policy_digest`。项目训练目录应显示节点在线，所选基础权重已准备且兼容。API、目录与容器必须指向同一个节点和同一个镜像摘要。
+4. **执行真实小实验。** 使用含完整成员清单、训练和验证分区都非空的就绪数据版本，检查预检返回的 `config.input_contract`，再通过正常实验入口提交有界训练。至少覆盖本次部署启用的框架与数据桥接；不要通过直接调用训练子进程、替换 loader、手写回执或补写数据库终态获得成功。
+5. **独立核对发布结果。** 实验成功后，从产物下载 `manifest.json`，核验文件 SHA、`run_id`、`attempt_id`、配置摘要及 `input_membership`。成员回执的数据版本、包摘要、策略、train／val 数量和完整成员集合须与冻结清单一致；终态后确认该执行已释放资源。下载地址与凭据不写入公共日志。
+
+原生加载器接纳集合的回执不是节点缓存命中证明，也不记录每轮抽样轨迹。旧实验保留原镜像、资源和配置身份；部署新镜像不会自动授权跨镜像续训，不为验收添加未经核验的兼容映射。协议字段见[实际训练成员回执](/api/guides/training-datasets#实际训练成员回执)。
+
 ### 进一步阅读
 
 - [在线学习与训练体系](/dev/concepts/training-datasets) — 架构、状态机、参数契约与数据版本
@@ -779,6 +812,91 @@ docker compose -f docker-compose.training.yml --profile training up -d training-
 - [ADR-0013](/dev/adr/archive/0013-mask-to-polygon-server-side) — mask→polygon 后端化决策
 
 ---
+
+## 受控存储根目录
+
+对 CephFS、NFS 或本地数据目录，推荐统一挂载少量受控根，再通过[存储位置 API](/api/guides/storage-locations)动态登记根内目录。下面是额外 Compose override 示例，部署者按实际节点填写；仓库默认不挂载业务数据根：
+
+```yaml
+services:
+  api:
+    environment:
+      STORAGE_FILESYSTEM_ROOTS: '{"ceph":"/mnt/cephfs"}'
+    volumes:
+      - type: bind
+        source: /cephfsdata
+        target: /mnt/cephfs
+        read_only: true
+        bind:
+          create_host_path: false
+  celery-worker:
+    environment:
+      STORAGE_FILESYSTEM_ROOTS: '{"ceph":"/mnt/cephfs"}'
+    volumes:
+      - type: bind
+        source: /cephfsdata
+        target: /mnt/cephfs
+        read_only: true
+        bind:
+          create_host_path: false
+```
+
+只给需要访问数据的 API 和指定 worker 挂载，保留其原有 volumes；其他服务器需独立配置同名根并探测。以宿主机进程运行的 API 应填写它实际可见的路径。根路径必须是非 `/` 的绝对目录，路径中不得包含符号链接；根内子挂载不允许跨越，需要分别配置成根。
+
+| 操作                          | 重建镜像 | 重建容器 |
+| ----------------------------- | -------- | -------- |
+| 已挂载根内新增子目录          | 不需要   | 不需要   |
+| 通过平台 API 注册已有挂载路径 | 不需要   | 不需要   |
+| 修改 Compose volumes          | 不需要   | 通常需要 |
+| 挂载全新的宿主机目录          | 不需要   | 通常需要 |
+
+改变容器环境变量也需重建受影响容器，宿主机进程需重启以加载映射。根内动态登记不改环境变量。此机制不会自动挂载宿主机目录，也不会赋予容器访问整个宿主机的权限。部署需 Linux5.6+、x86_64/aarch64 及 openat2 支持；不满足时接口返回不可用，不退回不安全路径打开。
+
+挂载完成后分别验证 API 与指定 Celery hostname 的 list/read/range；只测 API 或普通共享队列不能证明扫描节点可读。能力证据5分钟过期，修改配置后重新探测。节点路径或目录身份变化会拒绝访问，应由运维核查映射和数据后重新登记位置，不能用重试掩盖替换。
+
+### 严格目录图片读取
+
+需要在实际 API 实例挂载受控只读根，并为每个 API 节点完成带 sample_file 的 read 探测。只有扫描 worker 挂载时，目录观测仍可执行，API 严格读取会返回不可用；平台不会凭数据库注册获得未挂载目录。根内新增目录/动态登记不需重建容器；变更 volumes 通常重建相关容器，均无需因此重建镜像。
+
+严格图片读取使用请求内临时文件，每个 API 进程最多4份、每份64MiB，临时字节上限256MiB并另有图片解码内存。给系统临时目录预留空间，多进程按进程数累加；不将临时目录放进只读业务源。异常或断连清理快照，源原图保持只读。完整合同见[内容核验与严格读取](/api/guides/verified-content)。
+
+完整原图缓存已开放位置与来源级 `cache_policy=none|preview|on_demand`、位置配额（`original_cache_quota_bytes`）、TTL（`original_cache_ttl_seconds`）及基于独立归属账本的受控清理（`GET /api/v1/storage-locations/{id}/original-cache`、`POST /api/v1/storage-locations/{id}/original-cache/cleanup`）。部署迁移后，保持 beat 和消费 `cleanup` 队列的 worker 运行，确认注册 `app.workers.original_cache.maintain_original_cache`；每分钟最多核对五十条记录。`original_cache_entries` 不随来源或业务样本删除而消失，需随数据库备份，不能仅因业务对象不存在就手动删账本。`storage_cleanup_failed` 保留占用等待重试；`storage_identity_changed` 表示当前 endpoint/桶和记录不同，应恢复原目的配置后再核对，不能把清理请求转发给新服务器。缓存对象不需备份为原件；完整迁移或回退须保留清理记录。资源层参数与边界见[存储架构](/dev/concepts/storage-connections#完整原图缓存的资源归属)与[完整原图缓存 API](/api/guides/storage-locations#完整原图缓存)。
+
+## 只读 SFTP 引用
+
+持续引用只接受部署者实际核验的专用只读 jail。整个账号可读命名空间都是平台位置的授权范围；平台来源的子目录只是筛选，不能拿 base_path 或前后 lstat 当作服务器隔离。普通协议探测无法证明 jail。先在测试目录验证以下部署，再给业务位置声明资格。
+
+以 OpenSSH 专用账号 `aap-reader` 为例，在服务端创建 `/srv/aap-jail`；该目录及所有上级目录须由 root 拥有、不可被其他用户写入。把允许公开的数据只读挂载到 `/srv/aap-jail/data`，账号须能遍历目录和读取文件。使用独立的、经过审阅的 sshd 配置或 Match 段，按实际环境维护认证公钥：
+
+```text
+Match User aap-reader
+    ChrootDirectory /srv/aap-jail
+    ForceCommand internal-sftp -R -d /
+    DisableForwarding yes
+    PermitTTY no
+    PermitUserRC no
+    PasswordAuthentication no
+```
+
+确认配置生效，实际验证 jail 外文件及越界链接不可读，创建、写入、删除、改名、终端和转发均被拒绝。不要复用 root 或日常部署账号。通过可信渠道核验服务器完整公钥，再在所有参与的 API/worker 配置 `STORAGE_SFTP_ROOTS`；示例中的公钥内容须替换为真实值：
+
+```dotenv
+STORAGE_SFTP_ROOTS={"company-sftp":{"host":"sftp.example.internal","port":22,"username":"aap-reader","host_key":"ssh-ed25519 <实际公钥的base64内容>"}}
+```
+
+配置只包含公开主机身份，不包含密码或私钥；客户端凭据仍在平台连接器加密保存。默认 `{}` 不授予任何 SFTP 引用资格。目标须另行加入连接器主机白名单。连接器必须精确匹配 host/port/username，Base path 填 `/`；来源选择 `data/...` 等相对目录。严格客户端只信任上述公钥，在认证前校验；此链路不读取 known_hosts。连接器的“测试连接”和复制导入仍使用前述系统 known_hosts，不能用它们的成功结果替代引用节点探测。
+
+生产 API/worker 从 `.env.production` 加载配置，开发宿主 API 读取根 `.env`，通用 Compose worker 显式透传。其他定向扫描节点须独立配置。环境变更重启宿主进程或重建受影响容器，无需因此重建镜像。分别验证 API 和实际 Celery hostname 的 list/read；资格存在只表示准入，不能保证当前可达。浏览/扫描每目录最多5000项；原图读取仍有完整摘要和临时快照预算。
+
+已有资格需要轮换或撤回时：先在平台禁用对应位置并确认修订已提交，使旧扫描和登记失效；再协调全部 API/worker 更新或移除配置、刷新进程，并检查节点探测结果。只改一个节点的环境不等于集群撤权。更换服务器、公钥或隔离根时新建连接与位置，历史引用不自动重绑；恢复旧来源前须重新核验原资格与内容。原图离线不删除索引和标注，独立预览也不能用于继续原图标注。
+
+## 周期来源扫描部署
+
+应用迁移0202后，刷新 API、处理 default 队列的 worker、来源绑定的指定 worker 与现有 beat。beat 每60秒检查周期计划；它必须是当前环境唯一的调度实例。无需新增服务、环境变量或重建后端镜像；挂载 Python 源码的 worker 和 beat 仍需重启才能加载新任务。原有固定根、只读挂载及节点资格要求不变。
+
+确认 default worker 注册 `app.workers.dataset_source_sync.tick_source_syncs`，来源节点注册 `app.workers.dataset_source_sync.advance_source_sync` 并消费自己的 worker_direct 队列。实际节点会刷新自身探测，人工确认仍需 API 当前节点可读。节点离线时计划延后，不补跑历史周期。观察来源计划的最近检查/错误和既有任务中心；等待核对差异不是调度故障。
+
+工作树 `dev:worktree up --with-worker` 启动普通和 maintenance worker，不包含 beat；本地周期验收需要同一隔离环境的 beat，不应借用主 checkout 的调度器。回退应用前先暂停周期、等待或单独取消活动任务，保留计划及扫描/登记证据；存在计划记录时不得直接降级0202。
 
 ## 9. 待补（roadmap）
 

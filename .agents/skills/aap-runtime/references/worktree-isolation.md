@@ -14,6 +14,8 @@ Use `pnpm dev:worktree` for API/Web and add `up --with-worker` for two current-c
 
 The Node supervisor reserves API/Web ports and verifies HTTP readiness. The Python owner validates resource ownership and migration history before the supervisor runs. Unknown revisions, duplicate IDs or multiple heads are blockers, not reasons to stamp or downgrade a shared database. `--skip-migrations` requires the database already to be at this checkout's head.
 
+Refresh supervised worktree workers through their owning environment after confirming idle jobs. Do not rely on an individual solo worker's SIGHUP re-exec: its exit can trigger the lifecycle supervisor to stop API/Web. Preserve resources, restore the same owning service and ports, then verify worker registrations, queue dispatch and any separately supervised beat. Unchanged beat code does not require restarting that process.
+
 Source manifests matching the primary checkout are insufficient to share Node dependencies: the installed pnpm lockfile must match too. If sharing is rejected, inspect and detach only the current checkout's links, then install its frozen lockfile. Never install through a shared link.
 
 ## Tests and rebuilds

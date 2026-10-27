@@ -22,7 +22,9 @@ from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs, project_task_dataset, training_datasets
+from app.services import training_dataset_storage
 from app.services.annotation_evidence import freeze_review_contributor_evidence
+from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -158,6 +160,7 @@ async def seed_online_training(
         return project, False
 
     samples = _read_samples(fixture)
+    binding = await ensure_legacy_bindings(db)
     project = Project(
         id=PROJECT_ID,
         display_id=PROJECT_DISPLAY_ID,
@@ -196,7 +199,7 @@ async def seed_online_training(
         key = f"{SEED_MARKER}/{dataset.id}/{sample['split']}/{sample['path'].name}"
         await asyncio.to_thread(
             storage_service.client.put_object,
-            Bucket=storage_service.datasets_bucket,
+            Bucket=binding.bucket,
             Key=key,
             Body=sample["payload"],
             ContentType="image/jpeg",
@@ -214,6 +217,15 @@ async def seed_online_training(
         )
         db.add(item)
         await db.flush()
+        # Only this successful write's bytes establish a new managed identity;
+        # existing fixtures and arbitrary legacy paths are never adopted here.
+        await register_item_asset(
+            db,
+            item,
+            sha256=sample["sha256"],
+            size_bytes=len(sample["payload"]),
+            binding=binding,
+        )
         task = Task(
             id=uuid.uuid5(PROJECT_ID, sample["task_id"]),
             project_id=project.id,
@@ -252,15 +264,24 @@ async def seed_online_training(
             )
     await db.flush()
     if segmentation_fixture is not None:
-        await _add_segmentation(
-            db,
-            project,
-            dataset,
-            samples,
-            segmentation_fixture,
-            annotator_id=annotator_id,
-            reviewer_id=reviewer_id,
+        # Raster owners bootstrap storage in an independent transaction. Publish
+        # the complete source phase before that transaction reads its bindings.
+        await db.commit()
+        await db.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(SEED_MARKER, 0)))
         )
+        await db.refresh(project)
+        await db.refresh(dataset)
+        if not (dataset.metadata_ or {}).get(SEGMENTATION_MARKER):
+            await _add_segmentation(
+                db,
+                project,
+                dataset,
+                samples,
+                segmentation_fixture,
+                annotator_id=annotator_id,
+                reviewer_id=reviewer_id,
+            )
     return project, True
 
 
@@ -487,37 +508,41 @@ async def prepare_baseline(
         )
     )
     if existing is not None:
-        if existing.status in {"failed", "cancelled", "running"}:
-            try:
-                await training_datasets.lock_dataset_execution(db, existing.id)
-            except TrainingDatasetError as exc:
-                raise SeedAssetError(str(exc)) from exc
-            await db.refresh(existing, with_for_update=True)
-            # A live builder holds this execution lock until its writes finish.
-            # A running version without the lock belongs to an interrupted build.
-            if existing.status == "running":
-                await jobs.mark_failed(
-                    db, existing.async_job_id, error="种子构建已中断，重新构建同一快照"
-                )
-            if existing.status in {"failed", "cancelled", "running"}:
-                await training_datasets.enqueue_dataset(db, existing)
-        return existing
+        return await _reuse_baseline(db, existing)
     selection = TrainingDatasetSelection(
         seed=SPLIT_SEED,
         validation_fraction=0.5,
         task=task,
         **({"bridge": "ultralytics-instance-rle-1"} if task == "segment" else {}),
     )
-    snapshot, report = await training_datasets.freeze_selection(
-        db, project, selection, actor_id=project.owner_id
+    # The owned preparation session must observe all newly seeded source rows,
+    # and physical reads must not retain the seed transaction's locks.
+    project_id, actor_id = project.id, project.owner_id
+    await db.flush()
+    await db.commit()
+    prepared = await training_datasets.prepare_selection(
+        db, project, selection, actor_id=actor_id, trusted_actor=True
     )
+    await db.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project_id), 0)))
+    )
+    # A concurrent seed may have published the fixed request while preparing.
+    existing = await db.scalar(
+        select(TrainingDatasetVersion).where(
+            TrainingDatasetVersion.project_id == project_id,
+            TrainingDatasetVersion.request_id == request_id,
+        )
+    )
+    if existing is not None:
+        return await _reuse_baseline(db, existing)
+    snapshot, report = await training_datasets.finalize_selection(db, prepared)
     if not report["ready"]:
         raise SeedAssetError(
             f"Online training fixture preflight failed: {report['issues']}"
         )
     version = TrainingDatasetVersion(
-        project_id=project.id,
-        creator_id=project.owner_id,
+        project_id=project_id,
+        creator_id=actor_id,
         request_id=request_id,
         request_digest=content_digest(selection.canonical_payload()),
         name=(
@@ -533,6 +558,26 @@ async def prepare_baseline(
     )
     db.add(version)
     await db.flush()
-    await project_task_dataset.ensure_membership(db, version)
+    await training_dataset_storage.allocate(db, version)
+    await project_task_dataset.ensure_membership(db, version, project_locked=True)
     await training_datasets.enqueue_dataset(db, version)
+    training_datasets.check_prepared_clock(prepared)
     return version
+
+
+async def _reuse_baseline(db, existing):
+    if existing.status in {"failed", "cancelled", "running"}:
+        try:
+            await training_datasets.lock_dataset_execution(db, existing.id)
+        except TrainingDatasetError as exc:
+            raise SeedAssetError(str(exc)) from exc
+        await db.refresh(existing, with_for_update=True)
+        # A live builder holds this execution lock until its writes finish.
+        # A running version without the lock belongs to an interrupted build.
+        if existing.status == "running":
+            await jobs.mark_failed(
+                db, existing.async_job_id, error="种子构建已中断，重新构建同一快照"
+            )
+        if existing.status in {"failed", "cancelled", "running"}:
+            await training_datasets.enqueue_dataset(db, existing)
+    return existing

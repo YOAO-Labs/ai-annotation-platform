@@ -10,6 +10,7 @@ export const opsSidebar: DefaultTheme.SidebarItem[] = [
       { text: "生产部署（Docker Compose）", link: "/ops/deploy/docker-compose" },
       { text: "局域网生产部署", link: "/ops/deploy/lan-production" },
       { text: "端口暴露与网络安全", link: "/ops/deploy/network-security" },
+      { text: "只读站点 Agent", link: "/ops/deploy/site-agents" },
     ],
   },
   {
@@ -17,6 +18,9 @@ export const opsSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "升级指南", link: "/ops/upgrade-guide" },
+      { text: "一致备份与隔离恢复", link: "/ops/deploy/storage-recovery" },
+      { text: "对象存储迁移与切换", link: "/ops/deploy/storage-migration-inventory" },
+      { text: "对象存储候选本地验证", link: "/ops/deploy/storage-candidate-poc" },
       { text: "本机 ML 服务维护", link: "/ops/deploy/ml-backend-maintenance" },
     ],
   },

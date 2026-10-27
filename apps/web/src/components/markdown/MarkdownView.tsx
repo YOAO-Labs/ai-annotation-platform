@@ -36,7 +36,7 @@ export interface MarkdownViewProps {
 }
 
 type ImageStatus = "loading" | "ready" | "unavailable";
-type ImageFailureKind = "forbidden" | "missing" | "unavailable";
+type ImageFailureKind = "forbidden" | "missing" | "unverified" | "unavailable";
 
 interface ImageFailure {
   kind: ImageFailureKind;
@@ -140,12 +140,24 @@ function classifyImageFailure(error: unknown): ImageFailure {
       : undefined;
   if (status === 403) return { kind: "forbidden", status };
   if (status === 404) return { kind: "missing", status };
+  const detail =
+    error && typeof error === "object" && "detailRaw" in error ? error.detailRaw : undefined;
+  if (
+    status === 409 &&
+    detail &&
+    typeof detail === "object" &&
+    "code" in detail &&
+    detail.code === "guide_asset_storage_unpinned"
+  ) {
+    return { kind: "unverified", status };
+  }
   return { kind: "unavailable", status: Number.isFinite(status) ? status : undefined };
 }
 
 function imageFailureLabel(failure: ImageFailure): string {
   if (failure.kind === "forbidden") return "图片无权访问";
   if (failure.kind === "missing") return "图片已不存在";
+  if (failure.kind === "unverified") return "图片无法核验，请重新上传";
   return "图片暂时不可用";
 }
 
@@ -252,14 +264,18 @@ function MarkdownImage({
   const insideLink = useContext(MarkdownLinkContext);
   const source = typeof src === "string" ? src : "";
   const isGuideAsset = isGuideAssetSource(source);
+  const imageOwner = useMemo(
+    () => ({ source, imageScope, resolveImage }),
+    [imageScope, resolveImage, source],
+  );
   const [status, setStatus] = useState<ImageStatus>("loading");
   const [displayState, setDisplayState] = useState(() => ({
-    source,
+    owner: imageOwner,
     url: isGuideAsset ? "" : source,
   }));
   // Keep a stale URL out of the first render after a Markdown source changes;
   // the effect below will populate a new scoped URL asynchronously.
-  const isDisplayCurrent = displayState.source === source;
+  const isDisplayCurrent = displayState.owner === imageOwner;
   const displaySrc = isDisplayCurrent ? displayState.url : "";
   const [expiresAt, setExpiresAt] = useState<number | undefined>();
   const [failure, setFailure] = useState<ImageFailure>({ kind: "unavailable" });
@@ -289,7 +305,7 @@ function MarkdownImage({
         if (isExpired(result.expiresAt)) throw new Error("resolved image URL is expired");
         if (generation !== generationRef.current) return;
         if (refresh) setRetryCount((count) => count + 1);
-        setDisplayState({ source, url: result.url });
+        setDisplayState({ owner: imageOwner, url: result.url });
         setExpiresAt(result.expiresAt);
         setFailure({ kind: "unavailable" });
         setStatus("loading");
@@ -299,7 +315,7 @@ function MarkdownImage({
         setStatus("unavailable");
       }
     },
-    [resolve, source],
+    [imageOwner, resolve],
   );
 
   useEffect(() => {
@@ -310,33 +326,33 @@ function MarkdownImage({
     setExpiresAt(undefined);
     setFailure({ kind: "unavailable" });
     if (!source) {
-      setDisplayState({ source, url: "" });
+      setDisplayState({ owner: imageOwner, url: "" });
       setStatus("unavailable");
       return () => {
         if (generationRef.current === generation) generationRef.current += 1;
       };
     }
     if (!isGuideAsset) {
-      setDisplayState({ source, url: source });
+      setDisplayState({ owner: imageOwner, url: source });
       setStatus("loading");
       return () => {
         if (generationRef.current === generation) generationRef.current += 1;
       };
     }
     if (!resolveImage) {
-      setDisplayState({ source, url: "" });
+      setDisplayState({ owner: imageOwner, url: "" });
       setStatus("unavailable");
       return () => {
         if (generationRef.current === generation) generationRef.current += 1;
       };
     }
-    setDisplayState({ source, url: "" });
+    setDisplayState({ owner: imageOwner, url: "" });
     setStatus("loading");
     void loadGuideImage(false, generation);
     return () => {
       if (generationRef.current === generation) generationRef.current += 1;
     };
-  }, [imageScope, isGuideAsset, loadGuideImage, resolveImage, source]);
+  }, [imageOwner, imageScope, isGuideAsset, loadGuideImage, resolveImage, source]);
 
   useEffect(() => {
     if (!isGuideAsset || !resolveImage) return;
@@ -386,7 +402,7 @@ function MarkdownImage({
     }
     // Remounting is enough to ask the browser to retry while preserving the
     // exact ordinary URL (including query signatures and fragments).
-    setDisplayState({ source, url: source });
+    setDisplayState({ owner: imageOwner, url: source });
   };
 
   if (source && (!isDisplayCurrent || (!displaySrc && status === "loading"))) {
@@ -484,6 +500,17 @@ export function MarkdownView({
   const [enlargedImage, setEnlargedImage] = useState<EnlargedImage | null>(null);
   const imageCacheRef = useRef<Map<string, ResolvedImage>>(new Map());
   const imageInFlightRef = useRef<Map<string, Promise<ResolvedImage>>>(new Map());
+  const imageCacheEpochRef = useRef(0);
+  useEffect(
+    () => () => {
+      // StrictMode replays child image effects without discarding these refs.
+      // Never let that second load inherit the hook owner's cancelled first request.
+      imageCacheEpochRef.current += 1;
+      imageCacheRef.current.clear();
+      imageInFlightRef.current.clear();
+    },
+    [],
+  );
   const imageCacheOwnerRef = useRef<{
     scope?: string;
     resolver?: MarkdownImageResolver;
@@ -508,9 +535,11 @@ export function MarkdownView({
 
       const ownerResolver = resolveImage;
       const ownerScope = imageScope;
+      const epoch = imageCacheEpochRef.current;
       const request = (options ? resolveImage(src, options) : resolveImage(src)).then((result) => {
         if (
           result?.url &&
+          epoch === imageCacheEpochRef.current &&
           imageCacheOwnerRef.current.resolver === ownerResolver &&
           imageCacheOwnerRef.current.scope === ownerScope
         ) {

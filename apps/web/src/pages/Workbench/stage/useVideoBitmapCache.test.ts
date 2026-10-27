@@ -141,6 +141,38 @@ describe("useVideoBitmapCache · capture 去重", () => {
     expect(currentBitmap.close).not.toHaveBeenCalled();
   });
 
+  it("retires a ready native bitmap when the same original's metadata or PTS ownership changes", async () => {
+    const sourceKey = (generation: string, mode: string) =>
+      JSON.stringify(["same-original.mp4", generation, mode]);
+    const { result, rerender, unmount } = renderHook(
+      ({ sourceKey }) => useVideoBitmapCache({ taskId: "A", sourceKey }),
+      { initialProps: { sourceKey: sourceKey("G1", "pts") } },
+    );
+    await act(async () => {
+      await result.current.capture(video, 5, { isCurrent: () => true });
+    });
+    const oldBitmap = result.current.activeBitmap?.bitmap;
+    expect(oldBitmap).toBeTruthy();
+    rerender({ sourceKey: sourceKey("G2", "fps") });
+    expect(result.current.activeBitmap).toBeNull();
+    expect(oldBitmap?.close).toHaveBeenCalledOnce();
+    await act(async () => {
+      await result.current.capture(video, 5, { isCurrent: () => true });
+    });
+    const estimatedBitmap = result.current.activeBitmap?.bitmap;
+    rerender({ sourceKey: sourceKey("G2", "pts") });
+    expect(result.current.activeBitmap).toBeNull();
+    expect(estimatedBitmap?.close).toHaveBeenCalledOnce();
+    await act(async () => {
+      await result.current.capture(video, 5, { isCurrent: () => true });
+    });
+    const current = result.current.activeBitmap?.bitmap;
+    expect(current).not.toBe(oldBitmap);
+    expect(current).not.toBe(estimatedBitmap);
+    unmount();
+    expect(current?.close).toHaveBeenCalledOnce();
+  });
+
   it.each(["source", "clear", "unmount"])("retires a pending capture on %s", async (action) => {
     const gate = deferred<ImageBitmap>();
     vi.mocked(window.createImageBitmap).mockReturnValueOnce(gate.promise);

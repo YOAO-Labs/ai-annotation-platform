@@ -1,7 +1,13 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning"]
+watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files", "originals", "media-cache", "site-agents"]
 
 [operations]
+"DELETE /api/v1/projects/{project_id}/guide-assets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/guide-assets/content" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/guide-assets/sign-url" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/guide-assets/upload" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/guide-assets/upload-complete" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/guide-assets/upload-init" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/training/projects" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/training/runs" = { status = "excluded", reason = "web-only" }
@@ -42,6 +48,11 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/datasets" = { status = "covered" }
 "GET /api/v1/datasets/{dataset_id}" = { status = "covered" }
 "GET /api/v1/datasets/{dataset_id}/items" = { status = "covered" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/preview" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/scene-options" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/workbench" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/training-versions" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/datasets/{dataset_id}/link/{project_id}/preview-unlink" = { status = "covered" }
 "GET /api/v1/datasets/{dataset_id}/projects" = { status = "covered" }
 "GET /api/v1/projects" = { status = "covered" }
@@ -80,6 +91,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/tasks/{task_id}/point-cloud/manifest" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/predictions" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/scene-timeline" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/scene-track-commands" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/scene-track-diagnostics" = { status = "excluded", reason = "workbench-internal" }
@@ -126,6 +138,8 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/datasets/{dataset_id}/items/upload-init" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/items/upload-zip" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/link" = { status = "covered" }
+"POST /api/v1/datasets/{dataset_id}/lifecycle" = { status = "covered" }
+"POST /api/v1/datasets/{dataset_id}/lifecycle-preview" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/scenes/backfill" = { status = "excluded", reason = "maintenance-risk" }
 "POST /api/v1/datasets/{dataset_id}/sniff-axis-convention" = { status = "excluded", reason = "maintenance-risk" }
 "POST /api/v1/projects" = { status = "covered" }
@@ -237,6 +251,11 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/training-datasets" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-datasets/{version_id}/retry" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/training-previews/{preview_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{run_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}/download" = { status = "excluded", reason = "web-only" }
 "DELETE /api/v1/projects/{project_id}/training-datasets/{version_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights" = { status = "excluded", reason = "web-only" }
@@ -270,6 +289,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "DELETE /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/download" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/content" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/evaluation" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs/{run_id}/cancel" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/events" = { status = "excluded", reason = "web-only" }
@@ -343,3 +363,213 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}" = { status = "excluded", reason = "web-only" }
 
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/masks/{annotation_id}" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/storage-locations" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/roots" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/bindings" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/storage-locations/bindings/avatars/candidates" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/bindings/avatars/change-preview" = { status = "excluded", reason = "separate-connector-epic" }
+"PATCH /api/v1/storage-locations/bindings/avatars" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/storage-locations/bindings/bug-reports/candidates" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/bindings/bug-reports/change-preview" = { status = "excluded", reason = "separate-connector-epic" }
+"PATCH /api/v1/storage-locations/bindings/bug-reports" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/{location_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"PATCH /api/v1/storage-locations/{location_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/{location_id}/original-cache" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/storage-locations/{location_id}/original-cache/cleanup" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/{location_id}/directories" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/storage-locations/{location_id}/probe" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/{location_id}/probes" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"PATCH /api/v1/dataset-sources/{source_id}" = { status = "excluded", reason = "separate-connector-epic" }
+"PUT /api/v1/dataset-sources/{source_id}/external-protection" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources/{source_id}/scans" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}/scans" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-scans/{run_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-scans/{run_id}/entries" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-scans/{run_id}/resume" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-scans/{run_id}/entries/{path_digest}/verify" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-scans/{run_id}/entries/{path_digest}/content" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/files/tasks/{task_id}/content" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/content-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/original" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/links/{link_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/links/{link_id}/original" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/original" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/files/tasks/{task_id}/original-playback" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/datasets/{dataset_id}/items/{item_id}/original-playback" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/media/original-playback/{lease_id}" = { status = "excluded", reason = "workbench-internal" }
+"DELETE /api/v1/files/tasks/{task_id}/original-playback/{lease_id}" = { status = "excluded", reason = "workbench-internal" }
+"DELETE /api/v1/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/file-url" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/files/upload-init" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/files/upload-complete/{task_id}" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/files/projects/{project_id}/backfill-thumbnails" = { status = "excluded", reason = "maintenance-risk" }
+
+"POST /api/v1/dataset-scans/{run_id}/entries/{path_digest}/register" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-items/{item_id}/content" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-scans/{scan_id}/registration" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-scans/{scan_id}/registration" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/confirm" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/resume" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/entries/{path_digest}/retry" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-registrations/{registration_id}/entries" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-registrations/{registration_id}/changes" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}/lifecycle-impact" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-sources/{source_id}/lifecycle" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-sources/{source_id}/entries/{path_digest}/preview" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "excluded", reason = "separate-connector-epic" }
+
+"PUT /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources/{source_id}/sync-schedule/continue" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-sources/{source_id}/revisions" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/revalidate" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/relocate" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/move-candidates" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources/{source_id}/rules/preview" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-sources/{source_id}/rules" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/storage-locations/{location_id}/source-summary" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/{location_id}/change-preview" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/storage-locations/{location_id}/maintenance-impact" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-sources/{source_id}/active-registration" = { status = "excluded", reason = "separate-connector-epic" }
+
+# Personal dataset browsing preferences; application UI only.
+"GET /api/v1/datasets/{dataset_id}/saved-views" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/saved-views" = { status = "excluded", reason = "web-only" }
+"PUT /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "excluded", reason = "web-only" }
+"DELETE /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "excluded", reason = "web-only" }
+
+# Dataset quality review currently belongs to the web workbench.
+"GET /api/v1/datasets/{dataset_id}/quality-runs" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results/{result_id}/review" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/resume" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/preview" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/members" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/execute" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/resume" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage/health" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/buckets" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/usage-inventory" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-inventories" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-windows" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-windows" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-windows/{window_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-windows/{window_id}/transitions" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-inventories" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-inventories/{job_id}/dispatch" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-inventories/{job_id}/report" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copy-targets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies/{parent_id}/generations" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies/{copy_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies/{copy_id}/failed-objects" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies/{copy_id}/attempts" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies/{copy_id}/dispatch" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies/{copy_id}/checkpoint" = { status = "excluded", reason = "web-only" }
+"PUT /api/v1/storage/usage-schedule" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/video-assets/failures" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/video-assets/retry" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/{location_id}/maintenance" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/storage-locations/{location_id}/faults" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/{location_id}/maintenance-preview" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/{location_id}/maintenance" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/storage/managed-original-reclamation" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention-preview" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/reclaims" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/reclaim-preview" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/reclaims" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-reclaims/{attempt_id}/redispatch" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-reference-reconciliation" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-reference-reconciliation" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/bindings/audit-archive/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/audit-archive/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/audit-archive" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage-locations/bindings/export/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/export/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/export" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage-locations/bindings/datasets/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/datasets/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/datasets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage-locations/bindings/import/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/import/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/import" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/bindings/media-cache/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/media-cache/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/media-cache" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/media-cache/{kind}/{output_id}/{relative}" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/bindings/annotations/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/annotations/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/annotations" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/bindings/training/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/training/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/training" = { status = "excluded", reason = "web-only" }
+
+# Independent Agent protocol and administrator registry; no SDK consumer yet.
+"GET /api/v1/site-agents/agents" = { status = "excluded", reason = "no-external-demand" }
+"GET /api/v1/site-agents/sites" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/agents/{agent_id}/drain" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/agents/{agent_id}/revoke" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/agents/{agent_id}/rotate" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/commands/poll" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/commands/{command_id}/chunks" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/commands/{command_id}/result" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/pair" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/sites" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/sites/{site_id}/agents" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/storage-locations/agent" = { status = "excluded", reason = "no-external-demand" }
+
+# Reference replica administration remains available through the platform API/UI.
+"GET /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "excluded", reason = "no-external-demand" }
+"GET /api/v1/dataset-items/{item_id}/reference-replica-candidates" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "excluded", reason = "no-external-demand" }
+"PATCH /api/v1/dataset-items/{item_id}/reference-replicas/{replica_id}" = { status = "excluded", reason = "no-external-demand" }
+"DELETE /api/v1/dataset-items/{item_id}/reference-replicas/{replica_id}" = { status = "excluded", reason = "no-external-demand" }

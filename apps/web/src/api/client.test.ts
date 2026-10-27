@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { apiClient, apiErrorDetailMessage } from "./client";
 import { useAuthStore } from "../stores/authStore";
 import type { MeResponse } from "./auth";
+import { useToastStore } from "@/components/ui/Toast";
 
 describe("apiErrorDetailMessage", () => {
   it("提取 FastAPI 请求体校验错误的字段路径", () => {
@@ -58,6 +59,55 @@ it("a late 401 does not clear newer credentials", async () => {
   useAuthStore.getState().logout();
 });
 
+it.each(["alice", "bob"])(
+  "a late 401 cannot log out a new %s session reusing the token",
+  async (userId) => {
+    let resolve!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((done) => {
+            resolve = done;
+          }),
+      ),
+    );
+    useAuthStore.getState().setAuth("reused-token", { id: "alice" } as MeResponse);
+    const oldSession = useAuthStore.getState().sessionId;
+    const request = apiClient.get("/auth/me").catch((error: unknown) => error);
+    useAuthStore.getState().logout();
+    useAuthStore.getState().setAuth("reused-token", { id: userId } as MeResponse);
+    const newSession = useAuthStore.getState().sessionId;
+    expect(newSession).not.toBe(oldSession);
+    try {
+      resolve(new Response(JSON.stringify({ detail: "expired" }), { status: 401 }));
+      expect(await request).toMatchObject({ status: 401 });
+      expect(useAuthStore.getState().sessionId).toBe(newSession);
+      expect(useAuthStore.getState().user?.id).toBe(userId);
+      expect(localStorage.getItem("token")).toBe("reused-token");
+    } finally {
+      vi.unstubAllGlobals();
+      useAuthStore.getState().logout();
+    }
+  },
+);
+
+it("a current session's 401 still logs out its expired credentials", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("{}", { status: 401 })),
+  );
+  useAuthStore.getState().setAuth("expired-token", { id: "alice" } as MeResponse);
+  try {
+    await expect(apiClient.get("/auth/me")).rejects.toMatchObject({ status: 401 });
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(localStorage.getItem("token")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});
+
 it("reads authenticated binary responses with abort support and preserves structured errors", async () => {
   const controller = new AbortController();
   const blob = new Blob(["snapshot bytes"], { type: "image/png" });
@@ -82,6 +132,140 @@ it("reads authenticated binary responses with abort support and preserves struct
       message: "Frozen media digest mismatch",
     });
   } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});
+
+it.each([403, 500])(
+  "keeps silent binary and raw POST %s failures in the caller",
+  async (status) => {
+    const push = vi.spyOn(useToastStore.getState(), "push").mockImplementation(() => {});
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ detail: "Attachment unavailable" }), { status }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    useAuthStore.getState().setAuth("scoped-token", { id: "owner" } as MeResponse);
+    const controller = new AbortController();
+    const image = new Blob(["raw image bytes"], { type: "image/png" });
+    try {
+      await expect(
+        apiClient.silentGetBlob("/attachment", { signal: controller.signal }),
+      ).rejects.toMatchObject({
+        status,
+        message: "Attachment unavailable",
+      });
+      await expect(
+        apiClient.silentPost("/upload", undefined, {
+          signal: controller.signal,
+          body: image,
+          headers: { "Content-Type": "image/png" },
+        }),
+      ).rejects.toMatchObject({ status, message: "Attachment unavailable" });
+      expect(push).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        "/api/v1/attachment",
+        expect.objectContaining({
+          signal: controller.signal,
+          headers: expect.objectContaining({ Authorization: "Bearer scoped-token" }),
+        }),
+      );
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        "/api/v1/upload",
+        expect.objectContaining({
+          method: "POST",
+          body: image,
+          signal: controller.signal,
+          headers: { Authorization: "Bearer scoped-token", "Content-Type": "image/png" },
+        }),
+      );
+      await expect(apiClient.getBlob("/unscoped")).rejects.toMatchObject({ status });
+      expect(push).toHaveBeenCalledTimes(1);
+    } finally {
+      push.mockRestore();
+      vi.unstubAllGlobals();
+      useAuthStore.getState().logout();
+    }
+  },
+);
+
+it("keeps silent helpers authenticated for successful blobs, raw bodies and JSON writes", async () => {
+  const image = new Blob(["image bytes"], { type: "image/webp" });
+  const controller = new AbortController();
+  const receipt = { storageKey: "owned-key" };
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => image })
+    .mockResolvedValueOnce({ ok: true, status: 200, json: async () => receipt })
+    .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: "report" }) });
+  vi.stubGlobal("fetch", fetch);
+  useAuthStore.getState().setAuth("scoped-token", { id: "owner" } as MeResponse);
+  try {
+    expect(await apiClient.silentGetBlob("/attachment", { signal: controller.signal })).toBe(image);
+    expect(
+      await apiClient.silentPost("/upload", undefined, {
+        body: image,
+        signal: controller.signal,
+        headers: { "Content-Type": "image/webp" },
+      }),
+    ).toBe(receipt);
+    expect(await apiClient.silentPost("/report", { title: "Issue" })).toEqual({ id: "report" });
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/upload",
+      expect.objectContaining({
+        method: "POST",
+        body: image,
+        signal: controller.signal,
+        headers: { Authorization: "Bearer scoped-token", "Content-Type": "image/webp" },
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/report",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ title: "Issue" }),
+        headers: { Authorization: "Bearer scoped-token", "Content-Type": "application/json" },
+      }),
+    );
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});
+
+it("keeps authenticated delete cancellation and errors scoped to its caller", async () => {
+  const signal = new AbortController().signal;
+  const fetch = vi
+    .fn()
+    .mockResolvedValue({ ok: true, status: 200, json: async () => ({ deleted: "key" }) });
+  vi.stubGlobal("fetch", fetch);
+  const toast = vi.spyOn(useToastStore.getState(), "push");
+  useAuthStore.getState().setAuth("delete-token", { id: "delete-user" } as MeResponse);
+  try {
+    await expect(apiClient.silentDelete("/guide", { signal })).resolves.toEqual({ deleted: "key" });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/guide",
+      expect.objectContaining({
+        method: "DELETE",
+        signal,
+        headers: expect.objectContaining({ Authorization: "Bearer delete-token" }),
+      }),
+    );
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "retired" }), { status: 403 }),
+    );
+    await expect(apiClient.silentDelete("/guide", { signal })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(toast).not.toHaveBeenCalled();
+  } finally {
+    toast.mockRestore();
     vi.unstubAllGlobals();
     useAuthStore.getState().logout();
   }

@@ -140,6 +140,7 @@ def _normalize_points(geometry: dict) -> list[list[float]]:
 
 
 async def _materialize_tracker_mask_result(
+    db: AsyncSession,
     result: TrackerFrameResult,
 ) -> TrackerFrameResult:
     geometry = result.geometry or {}
@@ -148,7 +149,7 @@ async def _materialize_tracker_mask_result(
     rle = geometry.get("rle")
     if not isinstance(rle, dict):
         raise ValueError("tracker mask result requires geometry.rle")
-    reference = await store_coco_rle(rle)
+    reference = await store_coco_rle(rle, db=db)
     bbox = coco_rle_bbox_norm(rle)
     return replace(
         result,
@@ -1638,7 +1639,7 @@ async def _decide_tracker_issue_region(
                 primary=bool(selected_row.get("primary", False)),
             )
         else:
-            result_reference = await store_coco_rle(after_rle)
+            result_reference = await store_coco_rle(after_rle, db=db)
             result = TrackerFrameResult(
                 frame_index=frame_index,
                 geometry={
@@ -1681,7 +1682,7 @@ async def _decide_tracker_issue_region(
         if decision == "accept":
             remaining.append(row)
             continue
-        residual_reference = await store_coco_rle(residual_rle)
+        residual_reference = await store_coco_rle(residual_rle, db=db)
         residual_geometry = {
             **(row.get("geometry") or {}),
             "mask": residual_reference,
@@ -2800,7 +2801,7 @@ async def run_tracker_job(
             discovery_adapter = get_tracker_adapter("sam3_video")
             discovery_results: list[TrackerFrameResult] = []
             async for r in discovery_adapter.propagate(discovery_ctx):
-                discovery_results.append(await _materialize_tracker_mask_result(r))
+                discovery_results.append(await _materialize_tracker_mask_result(db, r))
             prompt_seeds = _combo_seeds_from_discovery(
                 discovery_results, seed_frame=job.from_frame
             )
@@ -2888,7 +2889,7 @@ async def run_tracker_job(
                     raise RuntimeError("tracker route lease heartbeat failed")
                 if is_correction and result.frame_index == job.correction_frame:
                     continue
-                result = await _materialize_tracker_mask_result(result)
+                result = await _materialize_tracker_mask_result(db, result)
                 staged_bytes += _tracker_result_json_bytes(result)
                 if staged_bytes > MAX_TRACKER_STAGED_BYTES:
                     raise ValueError(

@@ -321,6 +321,12 @@ async def seed(
                 if info is None:
                     print("  skip  video P-VIDEO-DEV (已存在)")
                 else:
+                    if not strict:
+                        from app.workers.media import generate_video_metadata
+
+                        generate_video_metadata.delay(
+                            info["item_id"], delegation=info["video_delegation"]
+                        )
                     m = info["video_meta"]
                     print(
                         f"  add   video {info['project']}  "
@@ -464,7 +470,9 @@ async def seed(
     if not strict:
         # Demo keeps asynchronous backfill for all image/video datasets. The
         # screenshots profile has already verified its owned media synchronously.
-        from app.db.models.dataset import Dataset
+        from app.db.models.dataset import Dataset, DatasetItem
+        from app.services import video_derivative_originals as originals
+        from app.services.content_snapshot import ContentError
         from app.workers.media import backfill_media
 
         async with Session() as db:
@@ -474,7 +482,34 @@ async def seed(
                 )
             )
             for ds_id, disp in ds_rows.all():
-                backfill_media.delay(str(ds_id))
+                video_delegations = {}
+                video_ids = await db.scalars(
+                    select(DatasetItem.id).where(
+                        DatasetItem.dataset_id == ds_id,
+                        DatasetItem.file_type == "video",
+                    )
+                )
+                for item_id in video_ids:
+                    try:
+                        source = await originals.pin(db, "dataset_item", item_id)
+                    except ContentError as exc:
+                        if exc.code not in {
+                            "no_readable_original",
+                            "content_unverified",
+                            "video_derivative_input_unsupported",
+                            "directory_cache_not_supported",
+                            "reference_operation_not_supported",
+                        }:
+                            raise
+                        print(
+                            f"  media  skip video {item_id}: {exc.code}; register/verify the canonical original first"
+                        )
+                        continue
+                    video_delegations[str(item_id)] = originals.system_authorization(
+                        "dataset_item", item_id, source
+                    )
+                await db.commit()
+                backfill_media.delay(str(ds_id), video_delegations=video_delegations)
                 print(f"  media  enqueue 缩略图回填 → {disp}")
 
     await engine.dispose()

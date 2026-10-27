@@ -1,8 +1,9 @@
 ---
+title: AI 预标注接管
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-26
 ---
 
 # AI 预标注接管
@@ -126,7 +127,13 @@ worker 会按三种模式选任务：
 
 受控实例分割整图源阶段使用原图 `raster_mask` 内容引用，保留孔洞与断连；`PredictionMeta.extra` 只记录冻结身份和血缘，不重复保存掩码正文。人工采纳及下一轮训练见[实例分割闭环](./instance-segmentation-learning)。
 
-失败时写：
+### 原件验证读取与临时预测输入租约
+
+Worker 在向物理 ML Backend 投递媒体前，不再直接对当前用途桶拼装无验证 URL，而是通过 `prediction_originals` 与 `video_prediction_originals` 沿 `original_sources` 捕获严格验证的原件快照（核对完整 SHA-256、大小、位置维护 Gate 修订与入队时冻结的调用者/API Key 权限证明）：
+
+- **临时输入租约（`PredictionInputLease`）**：需要向 `import` 用途写入临时原图副本、视频帧或二阶段 ROI crop 时，Worker 在条件 PUT 前先持久化 `prediction_input_leases` 归属记录（前缀固定为 `prediction-inputs/<attempt_uuid>/`，绑定确切 `VersionId`）。推理完成后主动清理，异常或中断由 `cleanup` 队列按保存位置与准确版本回收（详见[原件验证读取、缓存与保留回收架构](./original-access-and-retention#导入暂存与预测临时输入回收（迁移-0212、0238–0241、0250）)）。
+- **结果落库复核**：单题推理返回后，Worker 在最终短事务内重新核验任务、原件内容身份与维护代次，携带专有 receipt 写入 `Prediction`候选。
+  失败时写：
 
 - `FailedPrediction`
 - GPU 仲裁拒绝时，`error_type` 为稳定仲裁错误码，`extra.gpu_arbiter_error` 保留 `status_code` / `retry_after_s` / 干净消息；普通 Backend 异常保持原有字段语义

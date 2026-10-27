@@ -10,7 +10,7 @@ import { releaseNotesPlugin } from "./vite-plugins/release-notes";
 // different ports, overridden with API_PROXY_TARGET; defaults to 8000.
 const apiTarget = process.env.API_PROXY_TARGET || "http://127.0.0.1:8000";
 const wsTarget = apiTarget.replace(/^http/, "ws");
-const minioTarget = process.env.MINIO_PROXY_TARGET || "http://127.0.0.1:9000";
+const minioTarget = process.env.MINIO_PROXY_TARGET || "http://localhost:9000";
 
 // vitest 字段在 vite 6 的 UserConfig 类型里未直接合并，用类型断言放过。
 // `/// <reference types="vitest" />` 已注入运行时 schema。

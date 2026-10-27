@@ -38,6 +38,9 @@ const changes: Record<DatasetSampleChange, string> = {
   reintroduced: "祖先内容重新纳入",
   unchanged: "训练语义未变化",
   unknown: "训练语义变化无法确认",
+  source_relation_changed: "来源关系变化",
+  source_evidence_updated: "来源证据更新",
+  source_unknown: "来源证据不足",
 };
 const exclusionReasons: Record<string, string> = {
   unsupported_media: "不是图片任务",
@@ -873,7 +876,7 @@ function InsightsContent({
           {compared.data && (
             <>
               <p className="text-xs text-muted-foreground">
-                按已知 SHA 的唯一图片内容集合比较，忽略路径及任务 ID 噪声；变化类别可重叠。
+                按已知 SHA 的唯一图片内容集合比较，训练语义和冻结来源分别列出；变化类别可重叠。
                 基线实际成员 {compared.data.baseline_members} 项 → 当前{" "}
                 {compared.data.target_members} 项，下面各类变化不能相加。
                 {compared.data.status !== "complete" &&
@@ -888,7 +891,7 @@ function InsightsContent({
               )}
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 {Object.entries(changes)
-                  .filter(([key]) => key !== "all")
+                  .filter(([key]) => key !== "all" && !key.startsWith("source_"))
                   .map(([key, label]) => (
                     <button
                       key={key}
@@ -908,6 +911,26 @@ function InsightsContent({
                     </button>
                   ))}
               </div>
+              <section aria-label="冻结来源比较" className="rounded-lg border border-border p-4">
+                <h3 className="text-md font-semibold">冻结来源</h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {compared.data.source_comparison_status === "complete"
+                    ? "共同内容的来源证据完整。"
+                    : compared.data.source_comparison_status === "partial"
+                      ? "部分共同内容缺少完整来源证据，无法确认其来源关系。"
+                      : "没有可比较的共同内容来源证据。"}
+                  来源变化可以与训练语义未变化同时成立；记录来自各版本已保存的冻结事实。来源身份变化不能单独证明文件发生了物理搬迁，也不表示当前来源在线。
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {Object.entries(changes)
+                    .filter(([key]) => key.startsWith("source_"))
+                    .map(([key, label]) => (
+                      <Button key={key} size="sm" onClick={() => showSamples({ data_change: key })}>
+                        {label} · {compared.data!.counts[key] ?? 0}
+                      </Button>
+                    ))}
+                </div>
+              </section>
               <p className="text-xs text-muted-foreground">
                 类别名称新增 {compared.data.classes_added} · 移除 {compared.data.classes_removed} ·{" "}
                 {compared.data.class_order_changed

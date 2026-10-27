@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from aap_task_contract import normalize_task
+from copy import deepcopy
 import logging
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
@@ -353,6 +355,7 @@ async def reconcile(db, policy, trigger):
     )
     db.add(run)
     await db.flush()
+    await runs.allocate_storage(db, run)
     await runs.new_attempt(db, run)
     trigger.status, policy.state = "queued", "active"
     policy.last_started_at, policy.message = (
@@ -421,7 +424,10 @@ async def check_policy(db, policy_id, *, force=False):
             "项目另一个任务正在构建或运行自动候选，当前任务等待",
         )
         return
-    policy.last_checked_at = runs.now()
+    checked_at = runs.now()
+    if policy.last_checked_at and checked_at <= policy.last_checked_at:
+        checked_at = policy.last_checked_at + timedelta(microseconds=1)
+    policy.last_checked_at = checked_at
     policy.next_check_at = runs.now() + timedelta(
         minutes=policy.config["check_interval_minutes"]
     )
@@ -467,13 +473,97 @@ async def check_policy(db, policy_id, *, force=False):
             "自动学习策略的父数据版本任务或桥接不匹配，请重新保存策略",
         )
         return
-    snapshot, report = await datasets.freeze_selection(
-        db,
-        project,
-        selection,
-        actor_id=policy.creator_id,
-        api_key_id=policy.authorization.get("api_key_id"),
+    # This durable scheduling claim releases all business locks before physical
+    # reads. Compare every persisted field on return so an editor or a newer
+    # checker, including one that found unchanged input, always wins.
+    await db.flush()
+    context = _policy_context(policy)
+    await db.commit()
+    preparation_error = None
+    try:
+        prepared = await datasets.prepare_selection(
+            db,
+            project,
+            selection,
+            actor_id=context["creator_id"],
+            api_key_id=context["authorization"].get("api_key_id"),
+            trusted_actor=True,
+        )
+    except TrainingDatasetError as exc:
+        if exc.status_code != 403:
+            raise
+        preparation_error = exc
+
+    if not await project_lock(db, context["project_id"], wait=False):
+        return
+    authorization_error = None
+    try:
+        await eligible(db, SimpleNamespace(**context))
+    except TrainingDatasetError as exc:
+        authorization_error = str(exc)
+    policy = await db.scalar(
+        select(LearningPolicy)
+        .where(LearningPolicy.id == policy_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
+    if policy is None or _policy_context(policy) != context:
+        return
+    trigger = await db.scalar(
+        select(LearningTrigger)
+        .where(
+            LearningTrigger.policy_id == policy.id,
+            LearningTrigger.status.in_(ACTIVE_TRIGGERS),
+        )
+        .with_for_update()
+    )
+    if trigger is not None:
+        return
+    if authorization_error or preparation_error:
+        policy.enabled, policy.state, policy.message = (
+            False,
+            "suspended",
+            authorization_error or str(preparation_error),
+        )
+        return
+    if not policy.enabled:
+        return
+    if await active_run(db, policy.project_id):
+        policy.state, policy.message = "active", "已有自动实验运行，请继续或取消该实验"
+        return
+    if await db.scalar(
+        select(LearningTrigger.id)
+        .where(
+            LearningTrigger.project_id == policy.project_id,
+            LearningTrigger.policy_id != policy.id,
+            LearningTrigger.status.in_(ACTIVE_TRIGGERS),
+        )
+        .limit(1)
+    ):
+        policy.state, policy.message = (
+            "active",
+            "项目另一个任务正在构建或运行自动候选，当前任务等待",
+        )
+        return
+    if not template_current(policy):
+        policy.enabled, policy.state, policy.message = (
+            False,
+            "suspended",
+            "训练目录已变化，请检查并重新保存策略",
+        )
+        return
+    if (
+        policy.last_started_at
+        and policy.last_started_at
+        + timedelta(minutes=policy.config["cooldown_minutes"])
+        > runs.now()
+    ):
+        policy.state, policy.message = (
+            "cooldown",
+            "冷却时间尚未结束，变化将保留到下一轮",
+        )
+        return
+    snapshot, report = await datasets.finalize_selection(db, prepared)
     if not report["ready"]:
         policy.state, policy.message = (
             "invalid_data",
@@ -501,6 +591,9 @@ async def check_policy(db, policy_id, *, force=False):
     )
     db.add(version)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    await allocate(db, version)
     await task_datasets.ensure_membership(db, version, project_locked=True)
     await datasets.enqueue_dataset(db, version)
     db.add(
@@ -516,6 +609,17 @@ async def check_policy(db, policy_id, *, force=False):
         digest,
         "building",
         "正在冻结自动候选数据",
+    )
+    await db.flush()
+    datasets.check_prepared_clock(prepared)
+
+
+def _policy_context(policy):
+    return deepcopy(
+        {
+            column.key: getattr(policy, column.key)
+            for column in LearningPolicy.__table__.columns
+        }
     )
 
 

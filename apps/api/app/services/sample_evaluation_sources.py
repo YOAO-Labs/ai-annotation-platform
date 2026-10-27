@@ -1,11 +1,8 @@
 """Resolve current source identity without mutating frozen evaluation truth."""
 
-import asyncio
 import hashlib
-import io
 import uuid
 
-from PIL import Image
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import String, cast, func, select
 
@@ -14,7 +11,6 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.services import sample_evaluations as service
 from app.services.training_dataset_bridge import detection_labels
-from app.services.training_datasets import assert_training_authority
 
 
 async def current_snapshot(db, project_id, task_id, *, task="detect"):
@@ -82,9 +78,6 @@ async def current_snapshot(db, project_id, task_id, *, task="detect"):
         "project_id": str(task.project_id),
         "batch_id": str(task.batch_id) if task.batch_id else None,
         "dataset_item_id": str(task.dataset_item_id) if task.dataset_item_id else None,
-        "source_bucket": service.storage.datasets_bucket
-        if task.dataset_item_id
-        else service.storage.bucket,
         "source_key": task.file_path,
         "file_type": task.file_type,
         "version": task.version,
@@ -99,57 +92,7 @@ async def current_snapshot(db, project_id, task_id, *, task="detect"):
     }
 
 
-def read_current_media(snapshot, *, include_raw=False):
-    if snapshot["file_type"] != "image":
-        raise ValueError("Current task is no longer an image")
-    client = service.storage.client
-    params = {"Bucket": snapshot["source_bucket"], "Key": snapshot["source_key"]}
-    head = client.head_object(**params)
-    size = head.get("ContentLength")
-    if type(size) is not int or not 0 < size <= service.engine.MAX_RAW_BYTES:
-        raise ValueError("Current source exceeds byte budget")
-    response = client.get_object(**params, IfMatch=head["ETag"])
-    try:
-        raw = response["Body"].read(size + 1)
-    finally:
-        response["Body"].close()
-    if len(raw) != size or response.get("ETag") != head["ETag"]:
-        raise ValueError("Current source changed during read")
-    with Image.open(io.BytesIO(raw)) as image:
-        if (
-            image.width * image.height > service.engine.MAX_PIXELS
-            or getattr(image, "n_frames", 1) != 1
-        ):
-            raise ValueError("Current source exceeds pixel/frame budget")
-        image.load()
-        orientation = image.getexif().get(274, 1)
-        if type(orientation) is not int or not 1 <= orientation <= 8:
-            raise ValueError("Current source orientation is invalid")
-        width, height = (
-            (image.height, image.width) if orientation in {5, 6, 7, 8} else image.size
-        )
-    if (
-        snapshot["expected_width"]
-        and snapshot["expected_height"]
-        and (width, height) != (snapshot["expected_width"], snapshot["expected_height"])
-    ):
-        raise ValueError("Current source logical dimensions differ from its item")
-    after = client.head_object(**params)
-    if (
-        after.get("ETag") != head["ETag"]
-        or after.get("ContentLength") != size
-        or after.get("VersionId") != head.get("VersionId")
-    ):
-        raise ValueError("Current source changed during verification")
-    return {
-        "sha256": hashlib.sha256(raw).hexdigest(),
-        "width": width,
-        "height": height,
-        **({"raw": raw, "size_bytes": size} if include_raw else {}),
-    }
-
-
-def classify_labels(snapshot, classes, *, task="detect"):
+def classify_labels(snapshot, classes, *, task="detect", preserve_unsettled=False):
     if len(snapshot["annotations"]) > service.engine.MAX_TRUTH_PER_IMAGE:
         return None
     try:
@@ -199,11 +142,24 @@ def classify_labels(snapshot, classes, *, task="detect"):
         return hashlib.sha256(
             detection_labels(snapshot["annotations"], classes).encode()
         ).hexdigest()
-    except (KeyError, TypeError, ValueError, OverflowError, BotoCoreError, ClientError):
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        OverflowError,
+        BotoCoreError,
+        ClientError,
+    ) as exc:
+        if preserve_unsettled and getattr(exc, "storage_operation_unsettled", False):
+            raise
         return None
 
 
-async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
+async def resolve_source(
+    db, run, attempt_id, ordinal, user, api_key_id=None, *, request
+):
+    from app.services import sample_evaluation_originals as originals
+
     frozen = run.spec["samples"][ordinal]
     task_id = uuid.UUID(frozen["task_id"])
     result = {
@@ -226,27 +182,51 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
         "negative_confirmed": None,
         "reason": None,
     }
-    await assert_training_authority(
-        db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
-    )
+    authority = await originals.authorize(db, run.project_id, user, request, api_key_id)
     kwargs = {"task": "segment"} if run.spec.get("schema") == 2 else {}
     before = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
+    await originals.recheck_authority(db, authority)
     if before is None:
         return {
             **result,
             "source": "deleted",
             "reason": "当前源任务已删除或移出此项目；冻结样本仍保留",
         }
-    media, media_error = None, False
-    try:
-        media = await asyncio.to_thread(read_current_media, before)
-    except Exception:
-        media_error = True
-    # Recheck authority and a new statement snapshot after object IO.
-    await assert_training_authority(
-        db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
-    )
+    async with originals.current_media(db, authority, before) as (source, media):
+        # The raw stage/permit remains owned through label work and its final
+        # checks. Its context closes every real handle before publishing JSON.
+        candidate = await _compare_current(
+            db, run, task_id, frozen, result, before, source, media, authority, kwargs
+        )
+    # A slow physical close can outlive the label comparison. Do not publish a
+    # receipt for annotations or task state that changed while it was closing.
+    final = await current_snapshot(db, run.project_id, task_id, **kwargs)
+    await db.commit()
+    await originals.recheck_authority(db, authority)
+    if final is None:
+        return {
+            **result,
+            "source": "deleted",
+            "reason": "核验期间源任务已删除或移出此项目",
+        }
+    if final != before:
+        return {
+            **result,
+            "reason": "核验期间源任务引用、状态或标注发生变化，请重新核验",
+        }
+    if source is not None:
+        await originals.recheck_source(db, authority, source)
+    return candidate
+
+
+async def _compare_current(
+    db, run, task_id, frozen, result, before, source, media, authority, kwargs
+):
+    from app.services import sample_evaluation_originals as originals
+
+    result = {**result}
+    await originals.recheck_authority(db, authority)
     after = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
     if after is None:
@@ -260,6 +240,8 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
             **result,
             "reason": "核验期间源任务引用、状态或标注发生变化，请重新核验",
         }
+    if source is not None:
+        await originals.recheck_source(db, authority, source)
     label_snapshot = after
     if kwargs and media:
         label_snapshot = {
@@ -267,9 +249,16 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
             "expected_width": media["width"],
             "expected_height": media["height"],
         }
-    label_sha = await asyncio.to_thread(
-        classify_labels, label_snapshot, run.spec["classes"], **kwargs
+    label_sha = await originals.bounded_thread(
+        classify_labels,
+        label_snapshot,
+        run.spec["classes"],
+        preserve_unsettled=True,
+        **kwargs,
     )
+    await originals.recheck_authority(db, authority)
+    if source is not None:
+        await originals.recheck_source(db, authority, source)
     reviewed = after["status"] == "completed" and after["reviewed_at"] is not None
     negative = (
         not after["annotations"]
@@ -292,8 +281,8 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
         if label_sha == frozen["label_sha256"]
         else "changed",
         current_label_sha256=label_sha,
-        reason="当前图片未通过读取、尺寸或解码检查"
-        if media_error
+        reason="当前图片未通过原件归属、内容、尺寸或解码检查"
+        if media is None
         else "当前标注超出冻结类别或支持范围"
         if label_sha is None
         else None,

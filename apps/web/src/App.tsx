@@ -10,12 +10,7 @@ import { SidebarDrawer } from "@/components/shell/SidebarDrawer";
 import { ToastRack, useToastStore } from "@/components/ui/Toast";
 import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
-// 仪表盘 / 登录 类首屏关键路径：保持同步加载（避免 Suspense 闪烁）
-import { DashboardPage } from "@/pages/Dashboard/DashboardPage";
-import { AdminDashboard } from "@/pages/Dashboard/AdminDashboard";
-import { AdminProjectsDashboard } from "@/pages/Dashboard/AdminProjectsDashboard";
-import { ViewerDashboard } from "@/pages/Dashboard/ViewerDashboard";
-import { EmployeeDashboard } from "@/pages/Dashboard/EmployeeDashboard";
+// 登录保持同步加载；仪表盘按角色加载，避免首屏下载其他角色的管理与导入流程。
 import { LoginPage } from "@/pages/Login/LoginPage";
 import { ForgotPasswordPage } from "@/pages/Login/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/Login/ResetPasswordPage";
@@ -23,7 +18,25 @@ import { VerifyEmailPage } from "@/pages/Login/VerifyEmailPage";
 import { RegisterPage } from "@/pages/Register/RegisterPage";
 import { UnauthorizedPage } from "@/pages/Unauthorized/UnauthorizedPage";
 
-// v0.6.6 · 重型 / 非首屏页面 lazy-load，让登录 / 仪表盘不下载 konva 等
+const DashboardPage = lazy(() =>
+  import("@/pages/Dashboard/DashboardPage").then((m) => ({ default: m.DashboardPage })),
+);
+const AdminDashboard = lazy(() =>
+  import("@/pages/Dashboard/AdminDashboard").then((m) => ({ default: m.AdminDashboard })),
+);
+const AdminProjectsDashboard = lazy(() =>
+  import("@/pages/Dashboard/AdminProjectsDashboard").then((m) => ({
+    default: m.AdminProjectsDashboard,
+  })),
+);
+const ViewerDashboard = lazy(() =>
+  import("@/pages/Dashboard/ViewerDashboard").then((m) => ({ default: m.ViewerDashboard })),
+);
+const EmployeeDashboard = lazy(() =>
+  import("@/pages/Dashboard/EmployeeDashboard").then((m) => ({ default: m.EmployeeDashboard })),
+);
+
+// 重型 / 非首屏页面 lazy-load，让登录 / 仪表盘不下载 konva 等。
 const WorkbenchPage = lazy(() =>
   import("@/pages/Workbench/WorkbenchPage").then((m) => ({ default: m.WorkbenchPage })),
 );
@@ -35,6 +48,9 @@ const ReviewPage = lazy(() =>
 );
 const AnnotatePage = lazy(() =>
   import("@/pages/Annotate/AnnotatePage").then((m) => ({ default: m.AnnotatePage })),
+);
+const DatasetDetailPage = lazy(() =>
+  import("@/pages/Datasets/DatasetDetailPage").then((m) => ({ default: m.DatasetDetailPage })),
 );
 const DatasetsPage = lazy(() =>
   import("@/pages/Datasets/DatasetsPage").then((m) => ({ default: m.DatasetsPage })),
@@ -453,6 +469,14 @@ export function App() {
             element={
               <RequirePagePermission pageKey="users">
                 <UsersPage />
+              </RequirePagePermission>
+            }
+          />
+          <Route
+            path="/datasets/:datasetId"
+            element={
+              <RequirePagePermission pageKey="datasets">
+                <DatasetDetailPage />
               </RequirePagePermission>
             }
           />

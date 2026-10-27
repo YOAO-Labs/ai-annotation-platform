@@ -35,6 +35,7 @@ from app.db.models.dataset import Dataset, DatasetItem
 from app.schemas.scene import InferenceResult
 from app.services import scene as scene_svc
 from app.services.pointcloud_import import group_frames
+from app.services.dataset_storage_keys import dataset_item_relative_path
 from app.services.role_patterns import (
     DEFAULT_ROLE_PATTERNS,
     matches_any_role_dir,
@@ -77,7 +78,7 @@ def _natural_sort_key(s: str) -> list:
 def _split_into_scene_groups(
     items: list[DatasetItem], dataset_name: str
 ) -> dict[str, list[DatasetItem]]:
-    """把 items 按"file_path 中 dataset_name 之后第一段"分组。
+    """把 items 按逻辑相对路径的第一段分组。
 
     跳过开头 dataset_name 段;若第一段是已知角色名 → 单 scene("_single");
     否则该段就是 scene 名(典型:nuScenes scene_token / SUSTech 多 scene zip 顶层目录)。
@@ -85,10 +86,7 @@ def _split_into_scene_groups(
     """
     by_scene: dict[str, list[DatasetItem]] = {}
     for item in items:
-        parts = PurePosixPath(item.file_path).parts
-        # 跳过开头的 dataset_name 前缀(若存在)
-        start = 1 if parts and parts[0] == dataset_name else 0
-        rest = parts[start:]
+        rest = PurePosixPath(dataset_item_relative_path(item, dataset_name)).parts
         if len(rest) < 2:
             by_scene.setdefault(_ROOT_GROUP_KEY, []).append(item)
             continue
@@ -101,10 +99,13 @@ def _split_into_scene_groups(
 def _is_pointcloud_like(items: list[DatasetItem]) -> bool:
     """是否含点云 / 多模态布局(有 lidar/ camera/ calib 角色目录)。"""
     for item in items:
-        parts = PurePosixPath(item.file_path).parts
+        parts = PurePosixPath(dataset_item_relative_path(item)).parts
         if any(_is_role_dir_name(p) for p in parts):
             return True
-        if PurePosixPath(item.file_path).suffix.lower() in _POINT_CLOUD_EXTS:
+        if (
+            PurePosixPath(dataset_item_relative_path(item)).suffix.lower()
+            in _POINT_CLOUD_EXTS
+        ):
             return True
     return False
 

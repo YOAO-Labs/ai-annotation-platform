@@ -1,3 +1,5 @@
+/// <reference lib="es2021.promise" />
+
 /**
  * E2E 共享 fixtures：调用后端 _test_seed router 造数与跳登录。
  *
@@ -349,6 +351,8 @@ export function ownedNamespaceFor(testInfo?: TestInfo): string {
 export class SeedAPI {
   /** Namespaces built by this test via `owned()`; cleaned up in teardown. */
   private ownedNamespaces: string[] = [];
+  /** Pages this test bound through `injectToken`; retired before cleanup. */
+  private boundPages = new Set<Page>();
 
   constructor(
     private request: APIRequestContext,
@@ -584,6 +588,21 @@ export class SeedAPI {
     this.ownedNamespaces.length = 0;
   }
 
+  /** Stop only bound pages from admitting media work before final fixture cleanup. */
+  async retireOwnedPages(): Promise<void> {
+    const errors: unknown[] = [];
+    for (const page of this.boundPages) {
+      if (page.isClosed()) continue;
+      try {
+        await page.close();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    this.boundPages.clear();
+    if (errors.length) throw new AggregateError(errors, "Owned page retirement failed");
+  }
+
   /** Build the multi-project employee-role acceptance fixture for this test's namespace. */
   async projectRoles(namespace?: string): Promise<ProjectRolesSeedData> {
     const token = this.ownedNamespace(namespace);
@@ -598,10 +617,12 @@ export class SeedAPI {
   }
 
   /** Build the filtering fixture inside this test's own owned namespace. */
-  async filtering(namespace?: string): Promise<FilteringSeedManifest> {
-    const token = this.ownedNamespace(namespace);
+  async filtering(
+    options: { namespace?: string; videoReady?: boolean } = {},
+  ): Promise<FilteringSeedManifest> {
+    const token = this.ownedNamespace(options.namespace);
     const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/filtering`, {
-      data: { namespace: token },
+      data: { namespace: token, video_ready: options.videoReady === true },
       timeout: 120_000,
     });
     if (!res.ok()) {
@@ -885,6 +906,11 @@ export class SeedAPI {
 
   /** 直接拿 JWT 注入 localStorage（跳过 UI 登录，加快非 auth spec）。 */
   async injectToken(page: Page, email: string, baseURL?: string): Promise<void> {
+    // Binding point for this fixture's own browser work: an attached workbench
+    // keeps issuing video reads (chunk uploads, frame prefetch), so teardown
+    // has to retire exactly this page before deleting its namespaces. Record it
+    // first so a half-injected page is retired too.
+    this.boundPages.add(page);
     const res = await this.seedLogin(email);
     if (!res.ok()) throw new Error(`seed/login failed: ${res.status()} ${await res.text()}`);
     const body = (await res.json()) as { access_token: string; user: unknown };
@@ -1008,6 +1034,18 @@ export const test = base.extend<Fixtures>({
     // playwright fixture 的 use 不是 React Hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(api);
+    // Finish-time screenshots already exist; the context trace remains open.
+    // Retire exact page owners before deleting their media, even after failure.
+    try {
+      await api.retireOwnedPages();
+    } catch (error) {
+      try {
+        await api.cleanupOwnedFixtures();
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Seed fixture teardown failed");
+      }
+      throw error;
+    }
     // Deterministic per-test cleanup for every owned namespace the test built.
     await api.cleanupOwnedFixtures();
   },

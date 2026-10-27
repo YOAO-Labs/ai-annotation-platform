@@ -13,8 +13,7 @@ import binascii
 import uuid
 from datetime import datetime
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +36,7 @@ from app.schemas.annotation_comment import (
     AnnotationCommentUpdate,
     CommentAttachmentUploadInitRequest,
     CommentAttachmentUploadInitResponse,
+    Attachment,
     TaskDiscussionPage,
 )
 from app.services.audit import AuditAction, AuditService
@@ -45,7 +45,8 @@ from app.services.discussion_notifications import (
 )
 from app.services.discussion_actions import discussion_actions
 from app.services.notification import NotificationService
-from app.services.storage import storage_service
+from app.services import comment_attachment_uploads as attachment_uploads
+from app.services import comment_attachment_storage as attachment_storage
 from app.services.task_discussion import (
     list_task_discussion,
     require_visible_annotation,
@@ -375,12 +376,24 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    _ann, task = await require_visible_annotation(
-        db,
-        annotation_id,
-        current_user,
-        require_active=True,
-    )
+    authority = None
+    rows = []
+    normalized = []
+    if data.attachments:
+        current_user, authority = await attachment_uploads.lock_authority(
+            db, current_user, request
+        )
+        ctx = await attachment_uploads.context(
+            db, current_user, annotation_id, active=True
+        )
+        task = ctx.task
+        rows, normalized = await attachment_uploads.normalize_for_comment(
+            db, current_user.id, ctx, data.attachments
+        )
+    else:
+        _ann, task = await require_visible_annotation(
+            db, annotation_id, current_user, require_active=True
+        )
 
     # mentions 必须是项目成员
     if data.mentions:
@@ -395,9 +408,7 @@ async def create_comment(
         author_id=current_user.id,
         body=data.body,
         mentions=[m.model_dump(by_alias=True, mode="json") for m in data.mentions],
-        attachments=[
-            a.model_dump(by_alias=True, mode="json") for a in data.attachments
-        ],
+        attachments=normalized,
         canvas_drawing=data.canvas_drawing.model_dump(by_alias=True, mode="json")
         if data.canvas_drawing
         else None,
@@ -437,9 +448,18 @@ async def create_comment(
         actor=current_user,
         mentioned_user_ids=[mention.user_id for mention in data.mentions],
     )
+    if authority is not None:
+        await attachment_uploads.bind(db, rows, comment.id)
+        await attachment_uploads.reauthorize(db, authority)
+        attachment_uploads.validate_bound(rows, comment.id)
+        attachment_expiries = tuple(row.expires_at for row in rows)
     await db.commit()
+    if authority is not None:
+        attachment_uploads.check_deadlines(authority, attachment_expiries)
     await NotificationService(db).publish_committed(pending_notifications)
     await db.refresh(comment)
+    if authority is not None:
+        attachment_uploads.check_deadlines(authority, attachment_expiries)
     return _to_out(comment, current_user.name)
 
 
@@ -494,11 +514,24 @@ async def delete_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    c = await db.get(AnnotationComment, comment_id)
-    if not c or not c.is_active:
+    current_user, authority = await attachment_uploads.lock_authority(
+        db, current_user, request
+    )
+    with db.no_autoflush:
+        annotation_id = await db.scalar(
+            select(AnnotationComment.annotation_id).where(
+                AnnotationComment.id == comment_id
+            )
+        )
+    if annotation_id is None:
         raise HTTPException(status_code=404, detail="Comment not found")
-    _ann, task = await require_visible_annotation(db, c.annotation_id, current_user)
-    access = await _resolve_task_access(db, task, current_user)
+    ctx = await attachment_uploads.context(db, current_user, annotation_id)
+    c = await attachment_uploads.locked_comment(db, comment_id)
+    if c is None or not c.is_active:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if c.annotation_id != annotation_id:
+        attachment_uploads.reject("comment_attachment_context_changed")
+    access = ctx.access
     actions = discussion_actions(
         "annotation_comment",
         "comment",
@@ -512,6 +545,7 @@ async def delete_comment(
         raise HTTPException(
             status_code=403, detail="Only the author can delete this comment"
         )
+    await attachment_uploads.retire_for_comments(db, [comment_id])
     c.is_active = False
     # v0.7.2 · annotation 编辑历史可追溯
     await AuditService.log(
@@ -524,6 +558,7 @@ async def delete_comment(
         status_code=204,
         detail={"comment_id": str(comment_id), "preview": (c.body or "")[:120]},
     )
+    await attachment_uploads.reauthorize(db, authority)
     await db.commit()
     return
 
@@ -531,6 +566,7 @@ async def delete_comment(
 @router.post(
     "/annotations/{annotation_id}/comment-attachments/upload-init",
     response_model=CommentAttachmentUploadInitResponse,
+    deprecated=True,
 )
 async def comment_attachment_upload_init(
     annotation_id: uuid.UUID,
@@ -538,48 +574,93 @@ async def comment_attachment_upload_init(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    """v0.6.2：评论附件签发预签名 PUT URL。
-
-    storage_key 形如 `comment-attachments/{aid}/{uuid}-{filename}`，固定前缀使得后端可
-    校验 attachments[].storageKey；同时让 MinIO 桶层级清晰。"""
-    _ann, _task = await require_visible_annotation(
-        db,
-        annotation_id,
-        current_user,
-        require_active=True,
+    """旧上传初始化已停用，请改用认证文件上传。"""
+    await require_visible_annotation(
+        db, annotation_id, current_user, require_active=True
     )
-    safe_name = data.file_name.replace("/", "_").replace("\\", "_")
-    storage_key = f"{ATTACHMENT_KEY_PREFIX}{annotation_id}/{uuid.uuid4()}-{safe_name}"
-    upload_url = storage_service.generate_upload_url(storage_key, data.content_type)
-    return CommentAttachmentUploadInitResponse(
-        storage_key=storage_key,
-        upload_url=upload_url,
-        expires_in=900,
+    raise HTTPException(
+        409,
+        {
+            "code": "comment_attachment_upload_init_retired",
+            "upload_path": f"/api/v1/annotations/{annotation_id}/comment-attachments/upload",
+        },
     )
 
 
-@router.get("/annotations/{annotation_id}/comment-attachments/download")
+@router.post(
+    "/annotations/{annotation_id}/comment-attachments/upload",
+    response_model=Attachment,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/octet-stream": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            },
+        }
+    },
+)
+async def upload_comment_attachment(
+    annotation_id: uuid.UUID,
+    request: Request,
+    file_name: str = Query(..., min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
+):
+    """上传最多20MiB的原文件字节并返回经核验的附件回执，允许空文件。"""
+    if request.headers.get("content-encoding", "identity").lower() not in {
+        "",
+        "identity",
+    }:
+        raise HTTPException(415, {"code": "comment_attachment_content_encoding"})
+    try:
+        file_name = attachment_storage.safe_file_name(file_name)
+        mime_type = attachment_storage.normalize_mime_type(
+            request.headers.get("content-type")
+        )
+    except attachment_storage.CommentAttachmentStorageError as exc:
+        raise attachment_uploads.http_error(exc) from None
+    proof, ctx = await attachment_uploads.capture_upload(
+        db, current_user, request, annotation_id
+    )
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > attachment_storage.MAX_BYTES:
+            raise HTTPException(413, {"code": "comment_attachment_too_large"})
+        data.extend(chunk)
+    return await attachment_uploads.upload(
+        db, proof, ctx, bytes(data), mime_type, file_name
+    )
+
+
+@router.get(
+    "/annotations/{annotation_id}/comment-attachments/download", response_class=Response
+)
 async def comment_attachment_download(
     annotation_id: uuid.UUID,
     key: str,
+    request: Request,
     as_json: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_ALL_ANNOTATORS)),
 ):
-    """Authorize the original annotation before issuing a short-lived download URL.
+    """返回原评论已绑定且完整核验的文件字节；as_json仅保留参数兼容。"""
+    from urllib.parse import quote
 
-    Legacy clients retain the redirect. Bearer-authenticated browser callers
-    request JSON first so a normal link does not omit the authorization header
-    or forward it to the object-storage redirect target.
-    """
-    expected_prefix = f"{ATTACHMENT_KEY_PREFIX}{annotation_id}/"
-    if not key.startswith(expected_prefix):
-        raise HTTPException(status_code=400, detail="invalid attachment key")
-    # Resolve the annotation's actual task/project.  The path parameter is only an
-    # identifier; access must not be granted from a stale denormalized project_id.
-    await require_visible_annotation(db, annotation_id, current_user)
-    # 评论附件私链要求严格 5 分钟有效期, 不走缓存对齐 (否则可能被拉长到 ~15 分钟)。
-    url = storage_service.generate_download_url(key, expires_in=300, align=False)
-    if as_json:
-        return JSONResponse({"download_url": url})
-    return RedirectResponse(url, status_code=302)
+    # Keep the existing wrong-annotation-prefix rejection before any storage I/O.
+    if not key.startswith(f"{ATTACHMENT_KEY_PREFIX}{annotation_id}/"):
+        raise HTTPException(400, detail="invalid attachment key")
+    receipt, data = await attachment_uploads.read(
+        db, current_user, request, annotation_id, key
+    )
+    return Response(
+        data,
+        media_type=receipt.mime_type,
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(receipt.file_name, safe=""),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

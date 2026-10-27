@@ -250,7 +250,7 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
         : stringValue(payload.reject_reason) || stringValue(payload.snippet);
 
   const verb =
-    jobNotificationVerb(item.type, payload.kind) ??
+    jobNotificationVerb(item.type, payload.kind, payload) ??
     (reopen
       ? "重新打开了反馈"
       : item.type === "bug_report.status_changed" || item.type === "feedback.status_changed"

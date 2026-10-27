@@ -21,11 +21,20 @@ from app.db.models.training_run import TrainingRun
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.db.models.user import User
 from app.deps import get_db
-from app.services import training_storage_cleanup as cleanup
+from app.services import training_storage_cleanup as cleanup, training_run_storage
 from app.services.storage import storage_service
 from app.workers import sample_evaluations as worker
 from tests.factory import create_user
 from tests.test_training_runs import ready_dataset
+
+
+@pytest.fixture(autouse=True)
+def isolated_cleanup_transport(monkeypatch):
+    # Durable intent/commit ordering is under test; physical transport routing
+    # and its credentials have dedicated storage suites.
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
 
 
 async def terminal_record(db, owner, kind):
@@ -45,6 +54,7 @@ async def terminal_record(db, owner, kind):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     return project, run
 
 
@@ -113,7 +123,7 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
     committed_record, test_engine, app_module, monkeypatch
 ):
     world = committed_record
-    original_bucket = storage_service.training_bucket
+    original_bucket = world.record.storage_ref["bucket"]
     purge = Mock(side_effect=RuntimeError("storage unavailable"))
     warning = Mock()
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
@@ -136,6 +146,7 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
         assert await db.get(type(world.record), world.record.id) is None
         intent = await db.scalar(select(TrainingStorageDeletion))
         assert (intent.prefix, intent.bucket) == (world.prefix, original_bucket)
+        assert intent.storage_ref == world.record.storage_ref
         assert intent.last_attempted_at is not None
         intent_id = intent.id
     warning.assert_called_once_with(
@@ -201,3 +212,34 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
     assert purge.call_count == (1 if failed_commit == 2 else 2)
     async with world.factory() as db:
         assert not await db.scalar(select(TrainingStorageDeletion.id))
+
+
+@pytest.mark.parametrize(
+    "unresolved", [False, True], ids=["endpoint-changed", "legacy"]
+)
+@pytest.mark.parametrize("kind", ["datasets", "runs"])
+async def test_unknown_training_owner_retains_intent_without_physical_delete(
+    db_session, super_admin, monkeypatch, unresolved, kind
+):
+    from copy import deepcopy
+    from app.services.training_dataset_bridge import TrainingDatasetError
+
+    owner, _ = super_admin
+    _, version = await terminal_record(db_session, owner, kind)
+    ref = deepcopy(version.storage_ref)
+    if not unresolved:
+        ref["endpoint_url"] = "http://unverified.invalid:9000"
+    intent = TrainingStorageDeletion(
+        bucket=ref["bucket"],
+        prefix=ref["prefix"],
+        storage_ref=None if unresolved else ref,
+    )
+    db_session.add(intent)
+    await db_session.flush()
+    purge = Mock()
+    monkeypatch.setattr(storage_service, "delete_prefix", purge)
+    with pytest.raises(TrainingDatasetError):
+        await cleanup.purge_requested(db_session, intent.id)
+    purge.assert_not_called()
+    assert await db_session.get(TrainingStorageDeletion, intent.id) is intent
+    assert intent.last_attempted_at is not None

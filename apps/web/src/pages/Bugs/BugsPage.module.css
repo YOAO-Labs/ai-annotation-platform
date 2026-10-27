@@ -205,6 +205,22 @@
   background: var(--sc-card);
   color: var(--sc-muted-foreground);
   text-decoration: none;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attachmentLink:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.attachmentError {
+  margin-top: 4px;
+  color: var(--sc-status-danger);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .attachmentName {

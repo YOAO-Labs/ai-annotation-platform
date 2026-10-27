@@ -1,3 +1,5 @@
+import { pointCloudManifestQueryKey } from "@/api/pointCloudOriginals";
+import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 import { useQuery } from "@tanstack/react-query";
 
 import { tasksApi } from "@/api/tasks";
@@ -7,13 +9,11 @@ import {
   registerPointCloudNavigationResource,
 } from "@/utils/pointCloudNavigationDiagnostics";
 
-/**
- * v0.13.2 · 拉取点云任务的 manifest(主点云 URL + 各相机图 + 标定)。
- * 仅在 stageKind === "3d" 且有 taskId 时启用。
- */
+/** Load metadata and versioned original identities for the active 3D task. */
 export function usePointCloudManifest(taskId: string | null, enabled: boolean) {
+  useOriginalAssetOwner();
   return useQuery({
-    queryKey: ["task-point-cloud-manifest", taskId],
+    queryKey: pointCloudManifestQueryKey(taskId),
     queryFn: async ({ signal }) => {
       const requestedTaskId = taskId!;
       const generation = ensurePointCloudNavigationGeneration(requestedTaskId, "manifest");
@@ -45,14 +45,14 @@ export function usePointCloudManifest(taskId: string | null, enabled: boolean) {
         const resourceKey = registerPointCloudNavigationResource({
           taskId: manifest.task_id,
           frameIndex: manifest.frame_index,
-          url: manifest.point_cloud_url,
+          url: manifest.point_cloud_url ?? "",
           kind: "point-cloud",
         });
         for (const camera of manifest.cameras) {
           registerPointCloudNavigationResource({
             taskId: manifest.task_id,
             frameIndex: manifest.frame_index,
-            url: camera.image_url,
+            url: camera.image_url ?? "",
             kind: "camera",
             cameraRole: camera.role || camera.name,
           });
@@ -91,7 +91,7 @@ export function usePointCloudManifest(taskId: string | null, enabled: boolean) {
       }
     },
     enabled: enabled && !!taskId,
-    // presigned URL 有有效期(后端 expires_in),不频繁重取。
+    // Reuse metadata briefly; each uncached binary read still checks its version.
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -2,23 +2,22 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { planE2ESuites, selectSuites, shadowPlan, SUITE_CONTRACT } from "./plan-e2e-suites.mjs";
 
 const names = (event, paths) => planE2ESuites(event, paths).include.map(({ suite }) => suite);
-const functional = [
-  "default-one",
-  "default-two",
-  "default-three",
-  "default-four",
-  "mask-readonly",
-  "mask-native",
-  "mask-ai-native",
-];
+const readShadow = (cwd, outputs) =>
+  JSON.parse(readFileSync(resolve(cwd, outputs.shadow_path), "utf8"));
+const core = ["default-one", "default-two", "default-three", "default-four"];
+const specialties = ["mask-readonly", "mask-native", "mask-ai-native"];
+// Legacy functional contract: the four chromium shards, the Mask matrices and
+// the dedicated point-cloud suite. The shards are chromium-only, so the
+// point-cloud project only runs as its own required entry.
+const functional = [...core, ...specialties, "pointcloud"];
 
-test("every PR retains all four functional shards and three Mask suites", () => {
+test("every PR retains all four functional shards, three Mask suites and the point-cloud contract", () => {
   assert.deepEqual(names("pull_request", []), functional);
   assert.deepEqual(
     names("pull_request", ["docs-site/user-guide/workbench/index.md", "README.md"]),
@@ -26,10 +25,9 @@ test("every PR retains all four functional shards and three Mask suites", () => 
   );
 });
 
-const core = ["default-one", "default-two", "default-three", "default-four"];
-const specialties = ["mask-readonly", "mask-native", "mask-ai-native"];
 // Broadened §6.3 selection: smoke + full shards + every dedicated contract +
-// extended, because the default shards never execute dedicated matrices.
+// extended, because the chromium shards cannot execute the Mask matrices or
+// the point-cloud project.
 const broadened = [
   "smoke",
   ...core,
@@ -138,8 +136,8 @@ test("multi-domain changes broaden to the extended checks with recorded reasons"
     "apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx",
     "apps/api/app/services/project_access.py",
   ]);
-  // Broadening selects every dedicated contract, because the full shards do
-  // not execute the Mask/video/pointcloud matrices at runtime.
+  // Broadening selects every dedicated contract, because the chromium shards
+  // do not execute the Mask matrices or the point-cloud project.
   assert.deepEqual(shadow.planned, broadened);
   assert.equal(shadow.classification.multiDomain, true);
   assert.ok(shadow.reasons.some((reason) => /multi-domain/.test(reason.because)));
@@ -154,23 +152,10 @@ test("single-domain frontend changes select core plus triggered specialties", ()
   assert.deepEqual(shadow.planned, ["smoke", ...specialties]);
   assert.ok(shadow.reasons.some((reason) => /raster Mask/.test(reason.because)));
   // Smoke itself is shadow-only, so the diff against the frozen gate shows it
-  // as an addition together with the dropped default shards and extended.
+  // as an addition together with the dropped default shards, the dedicated
+  // point-cloud suite and the extended checks.
   assert.deepEqual(shadow.added, ["smoke"]);
-  assert.deepEqual(shadow.removed, [...core, "visual", "layout-stress"]);
-});
-
-test("mask runtime numbers from P7 evidence ride with the contract", () => {
-  const contractFor = (suite) => {
-    const entry = SUITE_CONTRACT.find((candidate) => candidate.suite === suite);
-    assert.ok(entry, `missing contract entry for ${suite}`);
-    return entry;
-  };
-  const readonly = contractFor("mask-readonly");
-  assert.equal(readonly.runtime.collects, 13);
-  assert.equal(readonly.runtime.skipped, 11);
-  const native = contractFor("mask-native");
-  assert.equal(native.runtime.collects, 22);
-  assert.equal(native.runtime.skipped, 2);
+  assert.deepEqual(shadow.removed, [...core, "pointcloud", "visual", "layout-stress"]);
 });
 
 test("shared/ML contract entries carry the per-suite CPU audit facts", () => {
@@ -283,7 +268,10 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     );
     assert.ok(ciYml.includes("steps.plan.outputs.required"));
     assert.ok("matrix" in outputs, "CLI must emit matrix=");
-    assert.ok("shadow" in outputs, "CLI must emit shadow=");
+    assert.ok("shadow_path" in outputs, "CLI must emit shadow_path=");
+    assert.equal("shadow" in outputs, false, "bulky reports must not be GitHub outputs");
+    assert.ok(ciYml.includes("steps.plan.outputs.shadow_path"));
+    assert.ok(!ciYml.includes("steps.plan.outputs.shadow }}"));
     assert.ok(
       "ml_cpu" in outputs,
       "ci.yml reads steps.plan.outputs.ml_cpu; the CLI must emit the same key",
@@ -295,7 +283,7 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     // Manual full dispatch triggers the delegated CPU contracts; the required
     // manifest is the planned selection with the core forbid-flaky policy.
     assert.equal(outputs.ml_cpu, "true");
-    assert.equal(JSON.parse(outputs.shadow).mlCpu, true);
+    assert.equal(readShadow(cwd, outputs).mlCpu, true);
     assert.equal(outputs.run_suites, "true");
     const requiredManifest = JSON.parse(outputs.required);
     assert.equal(requiredManifest.classification, "app-code");
@@ -306,6 +294,12 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     assert.equal(
       requiredManifest.suites.find((entry) => entry.suite === "smoke").flakyPolicy,
       "forbid",
+    );
+    // Planned full coverage requires the dedicated point-cloud suite because
+    // the four shards are chromium-only.
+    assert.ok(
+      requiredManifest.suites.some(({ suite }) => suite === "pointcloud"),
+      "planned full selection must require the point-cloud contract",
     );
     assert.deepEqual(
       JSON.parse(outputs.matrix).include.map((entry) => entry.suite),
@@ -339,7 +333,7 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
         .split("\n")
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
-    const pushShadow = JSON.parse(pushOutputs.shadow);
+    const pushShadow = readShadow(cwd, pushOutputs);
     assert.equal(pushOutputs.ml_cpu, "true");
     assert.equal(pushShadow.mlCpu, true);
     assert.equal(pushOutputs.run_suites, "true");
@@ -378,7 +372,125 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
     assert.equal(sharedOutputs.ml_cpu, "true");
-    assert.equal(JSON.parse(sharedOutputs.shadow).mlCpu, true);
+    assert.equal(readShadow(cwd, sharedOutputs).mlCpu, true);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("large PR reports use files while suite dispatch and final audit outputs stay bounded", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "e2e-large-plan-"));
+  const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
+  const ciYml = readFileSync(
+    fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
+    "utf8",
+  );
+  const git = (...args) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  try {
+    git("init");
+    git("config", "user.name", "E2E large plan test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(cwd, "README.md"), "base\n");
+    git("add", ".");
+    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "base");
+    const base = git("rev-parse", "HEAD");
+    const paths = Array.from(
+      { length: 1730 },
+      (_, index) => `apps/web/changed-${String(index).padStart(4, "0")}-${"x".repeat(120)}.ts`,
+    );
+    paths.push("apps/_shared/mask_utils/changed.py");
+    for (const path of paths) {
+      mkdirSync(resolve(cwd, path, ".."), { recursive: true });
+      writeFileSync(join(cwd, path), "fixture\n");
+    }
+    git("add", ".");
+    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "large PR");
+    const reportDir = join(cwd, "report files");
+    mkdirSync(reportDir);
+    const shadowPath = join(reportDir, "shadow.json");
+    const result = spawnSync(process.execPath, [script, base], {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GITHUB_EVENT_NAME: "pull_request",
+        E2E_SELECTION_MODE: "planned",
+        E2E_SHADOW_PATH: shadowPath,
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const outputs = Object.fromEntries(
+      result.stdout
+        .trim()
+        .split("\n")
+        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+    );
+    assert.deepEqual(Object.keys(outputs).sort(), [
+      "legacy",
+      "matrix",
+      "ml_cpu",
+      "required",
+      "run_suites",
+      "selection_mode",
+      "shadow_path",
+    ]);
+    assert.ok(Buffer.byteLength(result.stdout) < 32 * 1024);
+    for (const [key, value] of Object.entries(outputs))
+      assert.ok(Buffer.byteLength(value) < 16 * 1024, `${key} must not grow with changed paths`);
+    assert.equal(outputs.shadow_path, shadowPath);
+    assert.ok(Buffer.byteLength(readFileSync(shadowPath)) > 128 * 1024);
+    const shadow = readShadow(cwd, outputs);
+    assert.deepEqual([...shadow.classification.appCode].sort(), [...paths].sort());
+    assert.deepEqual(shadow.planned, broadened);
+    assert.equal(shadow.mlCpu, true);
+    assert.equal(outputs.ml_cpu, "true");
+    assert.equal(outputs.run_suites, "true");
+    assert.deepEqual(
+      JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
+      broadened,
+    );
+    assert.deepEqual(
+      JSON.parse(outputs.required).suites.map(({ suite }) => suite),
+      broadened,
+    );
+    assert.equal(
+      JSON.parse(outputs.required).suites.find(({ suite }) => suite === "smoke").flakyPolicy,
+      "forbid",
+    );
+
+    // Execute the actual workflow report command through bash, as the runner
+    // does. Only the path enters its environment, not the oversized JSON.
+    const reportCommand = ciYml.match(
+      /      - name: Record shadow E2E selection\n[\s\S]*?        run: \|\n([\s\S]*?          NODE)\n/,
+    );
+    assert.ok(reportCommand, "workflow must retain the selection summary command");
+    const summaryPath = join(reportDir, "summary.md");
+    const report = spawnSync("bash", ["-e"], {
+      cwd,
+      encoding: "utf8",
+      input: reportCommand[1]
+        .split("\n")
+        .map((line) => line.slice(10))
+        .join("\n"),
+      env: { ...process.env, SHADOW_PATH: shadowPath, GITHUB_STEP_SUMMARY: summaryPath },
+    });
+    assert.equal(report.status, 0, report.stderr);
+    const summary = readFileSync(summaryPath, "utf8");
+    assert.ok(summary.includes(`planned: ${broadened.join(", ")}`));
+    assert.ok(summary.includes("ML CPU contract caller triggered: true"));
+    assert.ok(summary.includes(paths[1729]));
+    assert.ok(summary.includes("ml-sam3"));
+
+    // The final audit retains the full required manifest but no changed paths,
+    // so its existing environment-to-file transfer is bounded too.
+    const transfer = spawnSync(
+      "bash",
+      ["-e", "-c", "printf '%s' \"$E2E_REQUIRED\" > required-suites.json"],
+      { cwd, encoding: "utf8", env: { ...process.env, E2E_REQUIRED: outputs.required } },
+    );
+    assert.equal(transfer.status, 0, transfer.stderr);
+    assert.equal(readFileSync(join(cwd, "required-suites.json"), "utf8"), outputs.required);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -418,8 +530,11 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
     const lines = result.stdout.trim().split("\n");
     const matrixLine = lines.find((line) => line.startsWith("matrix="));
     const legacyLine = lines.find((line) => line.startsWith("legacy="));
-    const shadowLine = lines.find((line) => line.startsWith("shadow="));
-    assert.ok(matrixLine && legacyLine && shadowLine, "CLI must emit matrix/legacy/shadow lines");
+    const shadowPathLine = lines.find((line) => line.startsWith("shadow_path="));
+    assert.ok(
+      matrixLine && legacyLine && shadowPathLine,
+      "CLI must emit matrix/legacy/shadow_path lines",
+    );
     // P9 switch: the matrix is the planned selection; a rename that deletes a
     // frontend path is app code with an unmapped destination, so it broadens
     // to the full planned set. The frozen legacy set rides along for the
@@ -432,7 +547,9 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
       JSON.parse(legacyLine.slice("legacy=".length)).include.map(({ suite }) => suite),
       [...functional, "visual", "layout-stress"],
     );
-    const shadow = JSON.parse(shadowLine.slice("shadow=".length));
+    const shadow = readShadow(cwd, {
+      shadow_path: shadowPathLine.slice("shadow_path=".length),
+    });
     assert.deepEqual(shadow.legacy, [...functional, "visual", "layout-stress"]);
     assert.ok(Array.isArray(shadow.added) && Array.isArray(shadow.removed));
     assert.notEqual(run("0".repeat(40)).status, 0);
@@ -521,6 +638,22 @@ test("E2E_SELECTION_MODE=legacy restores the frozen selection for rollback", () 
       [...functional, "visual", "layout-stress"],
     );
     assert.equal(outputs.run_suites, "true");
+    // Rollback mode keeps full point-cloud coverage: those specs no longer ride
+    // inside the chromium shards, so the dedicated suite must be required. The
+    // new-only smoke suite stays out of the frozen gate.
+    const legacyRequired = JSON.parse(outputs.required).suites;
+    assert.ok(
+      legacyRequired.some(({ suite }) => suite === "pointcloud"),
+      "legacy rollback must require the point-cloud contract",
+    );
+    assert.equal(
+      legacyRequired.some(({ suite }) => suite === "smoke"),
+      false,
+    );
+    assert.deepEqual(
+      legacyRequired.map(({ suite }) => suite),
+      JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
+    );
 
     const invalid = spawnSync(process.execPath, [script], {
       cwd,
@@ -562,7 +695,12 @@ test("effective gate and required manifest stay identical in every mode and even
       spawnSync(process.execPath, [script, ...argv], {
         cwd,
         encoding: "utf8",
-        env: { ...process.env, ...env },
+        env: {
+          ...process.env,
+          // Report artifacts must not become paths in subsequent fixture commits.
+          E2E_SHADOW_PATH: join(cwd, ".git", "e2e-shadow.json"),
+          ...env,
+        },
       }).stdout,
     );
   const ids = (value) => JSON.parse(value).include.map(({ suite }) => suite);

@@ -101,6 +101,29 @@ class GPUArbiterResource(BaseModel):
         return f"{self.node_id}/{self.physical_device_token}"
 
 
+class SftpReferenceRoot(BaseModel):
+    """Deployment attestation: this account's entire namespace is a read-only jail."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    host: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    port: int = Field(default=22, strict=True, ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_.-]+$")
+    host_key: str = Field(min_length=20, max_length=4096)
+
+    @field_validator("host_key")
+    @classmethod
+    def _validate_host_key(cls, value):
+        import paramiko
+
+        try:
+            entry = paramiko.hostkeys.HostKeyEntry.from_line("qualified " + value)
+            if entry is None or entry.key is None or len(value.split()) != 2:
+                raise ValueError()
+        except Exception:
+            raise ValueError("Invalid pinned SFTP public host key") from None
+        return value
+
+
 class Settings(BaseSettings):
     app_name: str = "AI 标注平台 API"
     # v0.10.24 · 版本号单源真值。FastAPI title version 与 /health version 都读它，
@@ -157,6 +180,39 @@ class Settings(BaseSettings):
     connector_host_allowlist: Annotated[list[str], NoDecode] = []
     # 部署主机 SFTP 快捷项。只存 API 与 worker 共同可达的非敏感 hostname/IP；空值关闭。
     connector_deployment_sftp_host: str = ""
+    # Enable controls only after every consumer in the namespace uses admission.
+    storage_maintenance_protocol_enabled: bool = False
+    # Deployment roots only. Runtime registrations store handles and subpaths.
+    storage_filesystem_roots: dict[str, str] = Field(default_factory=dict)
+    storage_sftp_roots: dict[str, SftpReferenceRoot] = Field(default_factory=dict)
+
+    @field_validator("storage_sftp_roots")
+    @classmethod
+    def _validate_sftp_roots(cls, value):
+        import re
+
+        targets = [(root.host, root.port, root.username) for root in value.values()]
+        if len(targets) != len(set(targets)) or any(
+            not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", handle) for handle in value
+        ):
+            raise ValueError("Invalid or ambiguous SFTP reference roots")
+        return value
+
+    @field_validator("storage_filesystem_roots")
+    @classmethod
+    def _validate_filesystem_roots(cls, value):
+        import re
+
+        for handle, path in value.items():
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", handle)
+                or not path.startswith("/")
+                or path == "/"
+                or "\x00" in path
+                or any(part in {".", "..", ""} for part in path[1:].split("/"))
+            ):
+                raise ValueError("Invalid controlled storage root")
+        return value
 
     @field_validator("connector_host_allowlist", mode="before")
     @classmethod

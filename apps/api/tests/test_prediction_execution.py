@@ -1,13 +1,16 @@
 """Published detectors freeze per stage and replay a failed task's whole pipeline."""
 
 import copy
+import hashlib
+import io
 import uuid
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 from unittest.mock import Mock
 
 import pytest
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
@@ -16,7 +19,12 @@ from app.db.models.trained_model import TrainedModelVersion, ModelDeployment
 from app.services import trained_models
 from app.services.ml_client import PredictionResult
 from tests.factory import create_task, create_membership
-from tests.test_failed_predictions import _passthrough_session_factory
+from tests.managed_prediction_worker_fixtures import (
+    freeze_job,
+    input_world as input_world,
+    managed_worker_world as managed_worker_world,
+)
+from tests.test_managed_prediction_requests import managed_task
 from tests.test_trained_models import (
     controlled_artifacts as controlled_artifacts,
     seed_source,
@@ -25,6 +33,7 @@ from tests.test_trained_models import (
     publish,
     headers,
     mock_live_receipts,
+    next_successful_attempt,
 )
 
 
@@ -37,6 +46,68 @@ async def seed_published(db, client, admin, monkeypatch):
     mock_live_receipts(monkeypatch, db)
     await publish(client, token, project, version, deployment, 0)
     return project, backend, version, deployment, run, attempt
+
+
+@pytest.fixture
+async def trained_retry_world(managed_worker_world, app_module):
+    """Commit only these retry cases while preserving the ordinary test fixtures."""
+    import httpx
+
+    from app.deps import get_db
+    from app.db.models.trained_model import ModelRelease, ProjectModelSelection
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.db.models.training_run import TrainingRun
+    from tests.conftest import _create_user
+
+    world = managed_worker_world
+    missing = object()
+    previous = app_module.dependency_overrides.get(get_db, missing)
+    try:
+        async with world.factory() as db:
+            admin = await _create_user(
+                db,
+                "super_admin",
+                f"trained-retry-{uuid.uuid4().hex}@test.local",
+                "Trained retry owner",
+            )
+
+            async def override():
+                yield db
+
+            app_module.dependency_overrides[get_db] = override
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app_module),
+                    base_url="http://test",
+                ) as client:
+                    yield SimpleNamespace(db=db, client=client, admin=admin)
+            finally:
+                if previous is missing:
+                    app_module.dependency_overrides.pop(get_db, None)
+                else:
+                    app_module.dependency_overrides[get_db] = previous
+                await db.rollback()
+    finally:
+        # Model owners RESTRICT project deletion. Remove only this world's
+        # training fixtures before its general business-row cleanup runs.
+        async with world.factory() as db:
+            versions = select(TrainedModelVersion.id).where(
+                TrainedModelVersion.project_id.in_(world.projects)
+            )
+            for model in (ProjectModelSelection, ModelRelease):
+                await db.execute(
+                    delete(model).where(model.project_id.in_(world.projects))
+                )
+            await db.execute(
+                delete(ModelDeployment).where(
+                    ModelDeployment.model_version_id.in_(versions)
+                )
+            )
+            for model in (TrainedModelVersion, TrainingRun, TrainingDatasetVersion):
+                await db.execute(
+                    delete(model).where(model.project_id.in_(world.projects))
+                )
+            await db.commit()
 
 
 def pipeline_body(backend, task):
@@ -89,6 +160,7 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
     )
     _, token = super_admin
     task = await create_task(db_session, project_id=project.id)
+    await managed_task(db_session, project, super_admin[0], task=task)
     dispatch = Mock(side_effect=lambda **kw: SimpleNamespace(id=kw["task_id"]))
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
     endpoint = f"/api/v1/projects/{project.id}/preannotate"
@@ -115,16 +187,7 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
         for stage in original["stages"]
     )
     assert original["stages"][1]["class_filter"] == [1]
-    from app.db.models.training_run import TrainingAttempt
-
-    next_attempt = TrainingAttempt(
-        run_id=run.id,
-        ordinal=2,
-        status="succeeded",
-        artifacts=copy.deepcopy(attempt.artifacts),
-    )
-    db_session.add(next_attempt)
-    await db_session.flush()
+    next_attempt = await next_successful_attempt(db_session, run, attempt)
     second, _ = await register(
         httpx_client, token, project, run, next_attempt, name="new release"
     )
@@ -148,46 +211,62 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
 @pytest.mark.usefixtures("controlled_artifacts")
 @pytest.mark.parametrize("child_fails", [False, True])
 async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_deleted(
-    db_session,
-    httpx_client,
-    super_admin,
+    trained_retry_world,
     monkeypatch,
     child_fails,
+    input_world,
+    managed_worker_world,
 ):
-    from app.workers.predictions_retry import _run_snapshot_retry
-    from app.services.prediction_execution import create_snapshot
+    from datetime import timedelta
+
+    from app.config import settings
+    from app.db.models.prediction_input import PredictionInputLease
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services import async_job as jobs, prediction_inputs, prediction_originals
+    from app.services.prediction_execution import load_snapshot
+    from app.workers import predictions_retry
+
+    db_session = trained_retry_world.db
+    httpx_client = trained_retry_world.client
+    owner, token = trained_retry_world.admin
 
     project, backend, version, deployment, *_ = await seed_published(
-        db_session, httpx_client, super_admin, monkeypatch
+        db_session, httpx_client, (owner, token), monkeypatch
     )
-    owner, _ = super_admin
     task = await create_task(db_session, project_id=project.id)
+    member = await managed_task(
+        db_session, project, owner, task=task, size=(1000, 1000)
+    )
+    source = await prediction_originals.resolve(db_session, task.id)
+    managed_worker_world.source_bytes[source.bucket, source.object_key] = member.raw
     stages = pipeline_body(backend, task)["pipeline_stages"]
     ref = trained_models.frozen_reference(version, deployment)
     for stage in stages:
         stage["model_id"] = f"trained:{version.id}"
-        stage["frozen_model_ref"] = ref
-    snapshot = await create_snapshot(
+        stage["frozen_model_ref"] = copy.deepcopy(ref)
+    config = {
+        "stages": stages,
+        "prompt": None,
+        "output_mode": "box",
+        "execution_scope": "bulk",
+        "execution_unit": None,
+        "box_threshold": 0.3,
+        "text_threshold": 0.25,
+    }
+    job = await freeze_job(
         db_session,
-        project.id,
-        {
-            "stages": stages,
-            "prompt": None,
-            "output_mode": "box",
-            "execution_scope": "bulk",
-            "execution_unit": None,
-            "box_threshold": 0.3,
-            "text_threshold": 0.25,
-        },
+        project=project,
+        actor=owner,
+        backend=backend,
+        tasks=[task],
+        config=config,
     )
-    job = AsyncJob(
-        kind="batch_predict",
-        project_id=project.id,
-        user_id=owner.id,
-        status="failed",
-        execution_snapshot_id=snapshot.id,
+    original_binding = copy.deepcopy(job.payload["prediction_authority"]["tasks"][0])
+    snapshot = await db_session.get(
+        PredictionExecutionSnapshot, job.execution_snapshot_id
     )
-    db_session.add(job)
+    original_config, digest = await load_snapshot(db_session, snapshot.id, project.id)
+    assert original_config == {**config, "predict_mode": "overwrite"}
     failed = FailedPrediction(
         project_id=project.id,
         task_id=task.id,
@@ -195,11 +274,56 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
         execution_snapshot_id=snapshot.id,
         error_type="TimeoutError",
         message="transient",
+        extra={
+            "original_input": original_binding,
+            "execution_snapshot": {"id": str(snapshot.id), "digest": digest},
+        },
     )
     db_session.add(failed)
     await db_session.flush()
     fid = failed.id
+    original_job_id = job.id
+    await jobs.mark_failed(
+        db_session,
+        job.id,
+        error="transient",
+        result={"failed_prediction_ids": [str(fid)]},
+    )
     await db_session.delete(job)
+    await db_session.commit()
+    assert await db_session.get(AsyncJob, original_job_id) is None
+    assert (await load_snapshot(db_session, snapshot.id, project.id)) == (
+        original_config,
+        digest,
+    )
+
+    dispatch = Mock(side_effect=lambda **kw: SimpleNamespace(id=kw["task_id"]))
+    monkeypatch.setattr(
+        predictions_retry.retry_failed_prediction, "apply_async", dispatch
+    )
+    response = await httpx_client.post(
+        f"/api/v1/admin/failed-predictions/{fid}/retry", headers=headers(token)
+    )
+    assert response.status_code == 202, response.text
+    dispatch.assert_called_once()
+    dispatched = dispatch.call_args.kwargs
+    retry_id = uuid.UUID(dispatched["task_id"])
+    assert dispatched == {
+        "args": [str(fid), str(owner.id)],
+        "queue": settings.preannotate_cpu_queue,
+        "task_id": str(retry_id),
+        "kwargs": {"async_job_id": str(retry_id)},
+    }
+    retry_job = await db_session.get(AsyncJob, retry_id, populate_existing=True)
+    assert retry_id != original_job_id
+    assert retry_job.execution_snapshot_id == snapshot.id
+    proof = retry_job.payload["prediction_authority"]
+    assert proof["schema"] == 2
+    assert proof["tasks"][0]["original"] == original_binding["original"]
+    assert (await db_session.get(FailedPrediction, fid)).extra["retry_job_id"] == str(
+        retry_id
+    )
+    # Close the observer transaction before independent worker guard sessions.
     await db_session.commit()
     calls = []
 
@@ -209,6 +333,21 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
 
         async def predict(self, inputs, context=None):
             calls.append((copy.deepcopy(inputs), copy.deepcopy(context)))
+            assert context["frozen_model_ref"] == ref
+            assert context["model_id"] == f"trained:{version.id}"
+            for item in inputs:
+                bucket, key = urlsplit(item["file_path"]).path.lstrip("/").split("/", 1)
+                assert bucket == input_world.bucket
+                assert key.startswith("prediction-inputs/")
+                raw = input_world.objects[bucket, key]
+                if len(calls) == 1:
+                    assert "/original/" in key and raw == member.raw
+                    assert hashlib.sha256(raw).hexdigest() == source.sha256
+                else:
+                    assert "/crops/" in key
+                    with Image.open(io.BytesIO(raw)) as crop:
+                        assert crop.size == (500, 500)
+                        assert crop.getpixel((250, 250))[0] > 240
             if child_fails and len(calls) == 2:
                 raise TimeoutError("crop detector transient timeout")
             value = (
@@ -244,32 +383,72 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
             ]
 
     monkeypatch.setattr("app.services.ml_routing.client.RoutedMLBackendClient", Client)
-    monkeypatch.setattr(
-        "app.workers.tasks._load_task_image",
-        lambda _task: Image.new("RGB", (1000, 1000)),
+    result = await predictions_retry._do_retry_with_factory(
+        managed_worker_world.factory,
+        str(fid),
+        str(owner.id),
+        async_job_id=str(retry_id),
+        celery_task_id=str(retry_id),
+        worker_node_id="worker:trained-snapshot-retry@test",
     )
-    monkeypatch.setattr("app.workers.tasks._make_crop_uploader", lambda *_: None)
-    result = await _run_snapshot_retry(
-        _passthrough_session_factory(db_session), fid, owner.id
+    retry_job = await db_session.get(AsyncJob, retry_id, populate_existing=True)
+    assert retry_job.status == ("failed" if child_fails else "completed")
+    assert await db_session.get(AsyncJob, original_job_id) is None
+    assert (await load_snapshot(db_session, snapshot.id, project.id)) == (
+        original_config,
+        digest,
     )
+    assert len(calls) == 2
+    assert calls[0][0][0]["id"] == str(task.id)
+    assert calls[1][1]["classes"] == [1]
+    assert calls[1][1]["params"] == {"conf": 0.37}
+    assert managed_worker_world.captured
+
+    # close_inputs retains cleanup responsibility until the source permit closes.
+    # Exercise the next due purge only after all physical permits have settled.
+    async with managed_worker_world.factory() as db:
+        assert not (await db.scalars(select(StorageOperation.id))).all()
+        leases = (
+            await db.scalars(
+                select(PredictionInputLease).where(
+                    PredictionInputLease.owner_id == retry_id
+                )
+            )
+        ).all()
+        assert len(leases) == 1
+        lease = leases[0]
+        assert lease.state == "cleanup_pending" and not lease.uncertain_write
+        assert len(lease.inventory["objects"]) == 2
+        next_purge = lease.next_cleanup_at + timedelta(seconds=1)
+    with monkeypatch.context() as clock:
+        clock.setattr(prediction_inputs, "now", lambda: next_purge)
+        assert (
+            await prediction_inputs.purge_input(managed_worker_world.factory, lease.id)
+            == "removed"
+        )
+    async with managed_worker_world.factory() as db:
+        tombstone = await db.get(PredictionInputLease, lease.id)
+        assert tombstone.state == "deleted"
+        assert tombstone.inventory == lease.inventory
+        assert not (await db.scalars(select(StorageOperation.id))).all()
+    assert not input_world.objects
+    assert all(body.closed for body in input_world.bodies)
+
     if child_fails:
         assert result["status"] == "failed", result
         await db_session.refresh(failed)
         assert failed.retry_count == 1
         assert failed.execution_snapshot_id == snapshot.id
+        assert failed.extra["original_input"] == original_binding
         assert failed.extra["last_pipeline_errors"]
         assert not (
             await db_session.scalars(
                 select(Prediction).where(Prediction.task_id == task.id)
             )
         ).all()
-        assert len(calls) == 2
         return
     assert result["status"] == "succeeded", result
-    assert len(calls) == 2
-    assert calls[0][0][0]["id"] == str(task.id)
-    assert calls[1][0][0]["file_path"].startswith("data:image/jpeg;base64,")
-    assert calls[1][1]["frozen_model_ref"] == ref and calls[1][1]["classes"] == [1]
+    assert "/prediction-inputs/" in calls[1][0][0]["file_path"]
     pred = await db_session.scalar(
         select(Prediction).where(Prediction.task_id == task.id)
     )
@@ -281,10 +460,14 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
         select(PredictionMeta).where(PredictionMeta.prediction_id == pred.id)
     )
     assert meta.extra["execution_snapshot"]["id"] == str(snapshot.id)
+    assert meta.extra["execution_snapshot"]["digest"] == digest
+    assert meta.extra["trained_model"] == ref
+    assert meta.extra["original_input"]["job_id"] == str(retry_id)
+    assert meta.extra["original_input"]["original"]["sha256"] == source.sha256
     lineage = meta.extra["pipeline"]["shape_lineage"]
     assert lineage[1]["parent_shape_id"] == lineage[0]["shape_id"]
     assert lineage[1]["parent_stage"] == 7
-    assert await db_session.get(FailedPrediction, fid) is None
+    assert await db_session.get(FailedPrediction, fid, populate_existing=True) is None
 
 
 async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_run(
@@ -395,6 +578,7 @@ def test_freezing_preserves_project_thresholds_and_legacy_flat_parameters():
 async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
     db_session, super_admin, monkeypatch
 ):
+    from contextlib import asynccontextmanager
     from datetime import datetime, timedelta, timezone
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
@@ -441,9 +625,12 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
                     {"id": snapshot.id},
                 )
     sid, oid, jid = snapshot.id, orphan.id, job.id
-    monkeypatch.setattr(
-        async_jobs_cleanup, "task_session", _passthrough_session_factory(db_session)
-    )
+
+    @asynccontextmanager
+    async def task_session():
+        yield db_session
+
+    monkeypatch.setattr(async_jobs_cleanup, "task_session", task_session)
     await async_jobs_cleanup._purge_async()
     assert (
         await db_session.scalar(select(AsyncJob.id).where(AsyncJob.id == jid)) is None

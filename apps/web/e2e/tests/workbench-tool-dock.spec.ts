@@ -171,6 +171,11 @@ test("图片与视频在三种高度和原生页面缩放下保留全部工具�
       }
       expect(pageErrors).toEqual([]);
     } finally {
+      // Closing the profile alone never fires pagehide, so the video document's
+      // original-playback lease would keep its server stage and the next height
+      // could not prepare another one. Close the tab first: its pagehide release
+      // is delivered before the profile goes away.
+      await browser.page.close().catch(() => undefined);
       await browser.close();
     }
   }

@@ -95,6 +95,12 @@ async def preview(db, client, owner, *, boxes=1, create=True):
 
 class Objects:
     def __init__(self):
+        from app.config import settings
+
+        scheme = "https" if settings.minio_use_ssl else "http"
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{scheme}://{settings.minio_endpoint}"
+        )
         self.objects = {}
         self.reads = 0
 
@@ -318,7 +324,7 @@ async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
     assert await service.claim(db_session, claim_body()) is None
     row.heartbeat_at = service.now() - timedelta(hours=1)
     await db_session.flush()
-    assert (await service.output(row)).status == "lost"
+    assert (await service.output(row, db=db_session)).status == "lost"
     lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
     assert lease.preview_id == row.id
     with pytest.raises(HTTPException) as stale:
@@ -516,15 +522,15 @@ def test_pool_bounds_and_missing_labels_are_explicit():
         classes=["car"],
     )
     snapshot["samples"][1].pop("annotations")
-    selected, summary = service.select_sources(
-        SimpleNamespace(
-            snapshot=snapshot,
-            manifest=manifest,
-            project_id=uuid.uuid4(),
-            id=uuid.uuid4(),
-        ),
-        42,
+    from tests.test_training_preview_storage_flow import reference
+
+    version = SimpleNamespace(
+        snapshot=snapshot, manifest=manifest, project_id=uuid.uuid4(), id=uuid.uuid4()
     )
+    version.storage_ref = reference(
+        version.project_id, version.id, purpose="training-dataset"
+    )
+    selected, summary = service.select_sources(version, 42)
     assert len(selected) == 1 and selected[0]["labels"] == ""
     assert summary["selected"] == 1 and sum(summary["skipped"].values()) == 2
 

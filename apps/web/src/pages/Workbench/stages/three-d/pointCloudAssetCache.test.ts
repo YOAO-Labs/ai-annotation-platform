@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TaskPointCloudManifestResponse } from "@/api/generated";
+import * as imageDisplay from "@/utils/originalImageDisplay";
+import * as originals from "@/api/originals";
+import { useAuthStore } from "@/stores/authStore";
 import type { SensorCalibration } from "@/types";
+
+vi.mock("@/utils/originalImageDisplay", () => ({
+  typedOriginalImageBlob: async (blob: Blob) => blob,
+  createOriginalImageAddress: vi.fn(),
+}));
 
 const buildDepthRastersMock = vi.hoisted(() => vi.fn());
 const decodePointCloudFrameAsyncMock = vi.hoisted(() => vi.fn());
@@ -17,6 +25,8 @@ vi.mock("./geometry/pointCloudComputeSession", async (importOriginal) => {
 
 import {
   acquireCameraBitmap,
+  cancelPointCloudFramePrefetch,
+  getPointCloudAssetCacheDiagnostics,
   loadPointCloudDepthRasters,
   loadPointCloudBuffer,
   loadTimedDecodedPointCloudFrame,
@@ -36,12 +46,15 @@ function depthResult(length = 4) {
 
 describe("pointCloudAssetCache", () => {
   beforeEach(() => {
+    useAuthStore.setState({ user: null, token: null, sessionId: `test-${Math.random()}` });
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockReset();
     buildDepthRastersMock.mockReset().mockResolvedValue(depthResult());
     decodePointCloudFrameAsyncMock.mockReset();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("terminates an interruptible decode worker when its frame becomes obsolete", async () => {
@@ -146,7 +159,7 @@ describe("pointCloudAssetCache", () => {
     pending.get("latest")?.resolve({ positions: new Float32Array([0, 0, 1]) });
     await expect(latest).resolves.toMatchObject({ positions: expect.any(Float32Array) });
     expect(decodePointCloudFrameAsyncMock).toHaveBeenLastCalledWith(
-      expect.any(ArrayBuffer),
+      expect.objectContaining({ byteLength: 1 }),
       "iso_8855",
       500_000,
       expect.objectContaining({ lane: "active", signal: expect.any(AbortSignal) }),
@@ -241,15 +254,14 @@ describe("pointCloudAssetCache", () => {
 
     const neighbor = loadPointCloudBuffer(url, neighborController.signal).catch((error) => error);
     const active = loadTimedDecodedPointCloudFrame(url, "iso_8855", 500_000);
-    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
 
     neighborController.abort();
-    requests[1].resolve(new Response(new Uint8Array([1]), { status: 200 }));
+    requests[0].resolve(new Response(new Uint8Array([1]), { status: 200 }));
 
     await expect(active).resolves.toMatchObject({ positions: expect.any(Float32Array) });
     await neighbor;
-    expect(requests[0].signal?.aborted).toBe(true);
-    expect(requests[1].signal?.aborted).toBe(false);
+    expect(requests[0].signal?.aborted).toBe(false);
   });
 
   it("keeps rapid prefetches latest-only without cancelling the active-frame lane", async () => {
@@ -287,7 +299,7 @@ describe("pointCloudAssetCache", () => {
     await expect(first).resolves.toBeUndefined();
     await expect(latest).resolves.toBeUndefined();
     expect(decodePointCloudFrameAsyncMock).toHaveBeenLastCalledWith(
-      expect.any(ArrayBuffer),
+      expect.objectContaining({ byteLength: 1 }),
       "iso_8855",
       500_000,
       expect.objectContaining({ lane: "prefetch", signal: expect.any(AbortSignal) }),
@@ -380,12 +392,11 @@ describe("pointCloudAssetCache", () => {
 
     const prefetch = prefetchPointCloudFrameAssets(manifest);
     await vi.waitFor(() => expect(pending).toHaveLength(1));
-    const active = loadTimedDecodedPointCloudFrame(manifest.point_cloud_url, "iso_8855", 500_000);
-    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    const active = loadTimedDecodedPointCloudFrame(manifest.point_cloud_url!, "iso_8855", 500_000);
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
 
-    expect(pending.map((request) => request.lane)).toEqual(["prefetch", "active"]);
-    expect(pending[0].signal?.aborted).toBe(true);
-    pending[1].resolve({ positions: new Float32Array([0, 0, 1]) });
+    expect(pending[0].signal?.aborted).toBe(false);
+    pending[0].resolve({ positions: new Float32Array([0, 0, 1]) });
     await expect(active).resolves.toMatchObject({ positions: expect.any(Float32Array) });
     await expect(prefetch).resolves.toBeUndefined();
   });
@@ -449,6 +460,7 @@ describe("pointCloudAssetCache", () => {
       positions,
       cameras,
     );
+    await vi.waitFor(() => expect(buildDepthRastersMock).toHaveBeenCalledTimes(1));
     resolveDepth(depthResult());
 
     await expect(first).resolves.toMatchObject({ cacheHit: false });
@@ -539,5 +551,344 @@ describe("pointCloudAssetCache", () => {
     await prefetch;
 
     expect(completedBeforeDepth).toBe(false);
+  });
+  it("isolates account/session caches while preserving same-session token refresh", async () => {
+    useAuthStore.getState().setAuth("token-a", { id: "account-a" } as never);
+    const fetcher = vi.fn().mockImplementation(async () => new Response(new Uint8Array([1])));
+    vi.stubGlobal("fetch", fetcher);
+    const url = "https://assets.test/owner-cache.pcd";
+    await loadPointCloudBuffer(url);
+    useAuthStore.getState().setToken("token-refreshed");
+    await loadPointCloudBuffer(url);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    useAuthStore.getState().setAuth("new-login", { id: "account-a" } as never);
+    await loadPointCloudBuffer(url);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenLastCalledWith(url, expect.objectContaining({ credentials: "omit" }));
+  });
+
+  it("rejects old-owner waiters immediately and discards a transport that ignores abort", async () => {
+    let finish!: (response: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockImplementation(async () => new Response(new Uint8Array([2])));
+    vi.stubGlobal("fetch", fetcher);
+    const url = "https://assets.test/late-owner.pcd";
+    const old = loadPointCloudBuffer(url);
+    const rejected = expect(old).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    useAuthStore.setState({ sessionId: "replacement" });
+    await rejected;
+    finish(new Response(new Uint8Array([1])));
+    await expect(loadPointCloudBuffer(url)).resolves.toEqual(new Uint8Array([2]).buffer);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a retired bitmap alive until every renderer lease releases", async () => {
+    const close = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => new Response(new Uint8Array([1]))),
+    );
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue({ width: 8, height: 4, close }));
+    const first = await acquireCameraBitmap("https://assets.test/pinned-owner.jpg");
+    const second = await acquireCameraBitmap("https://assets.test/pinned-owner.jpg");
+    useAuthStore.setState({ sessionId: "retired-owner" });
+    expect(close).not.toHaveBeenCalled();
+    first.release();
+    first.release();
+    expect(close).not.toHaveBeenCalled();
+    second.release();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a late bitmap after its login owner has been retired", async () => {
+    let finish!: (bitmap: ImageBitmap) => void;
+    const close = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => new Response(new Uint8Array([1]))),
+    );
+    const decode = vi.fn().mockImplementation(
+      () =>
+        new Promise<ImageBitmap>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("createImageBitmap", decode);
+    const old = acquireCameraBitmap("https://assets.test/late-bitmap.jpg");
+    const rejected = expect(old).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1));
+    useAuthStore.setState({ sessionId: "bitmap-owner-replaced" });
+    await rejected;
+    finish({ width: 8, height: 4, close } as unknown as ImageBitmap);
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  });
+
+  it("pins prefetch bitmaps through depth work and releases them after completion", async () => {
+    let finish!: (value: ReturnType<typeof depthResult>) => void;
+    buildDepthRastersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    decodePointCloudFrameAsyncMock.mockResolvedValue({ positions: new Float32Array([0, 0, 1]) });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => new Response(new Uint8Array([1]))),
+    );
+    const closes: ReturnType<typeof vi.fn>[] = [];
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockImplementation(async () => {
+        const close = vi.fn();
+        closes.push(close);
+        return { width: 8, height: 4, close };
+      }),
+    );
+    const prefetch = prefetchPointCloudFrameAssets(
+      {
+        point_cloud_url: "https://assets.test/pinned-depth.pcd",
+        cameras: [{ image_url: "https://assets.test/pinned-depth.jpg", calibration: CALIBRATION }],
+      } as TaskPointCloudManifestResponse,
+      { depthRasters: true },
+    );
+    await vi.waitFor(() => expect(buildDepthRastersMock).toHaveBeenCalledTimes(1));
+    const leases = await Promise.all(
+      Array.from({ length: 19 }, (_, i) =>
+        acquireCameraBitmap(`https://assets.test/depth-pressure-${i}.jpg`),
+      ),
+    );
+    expect(closes[0]).not.toHaveBeenCalled();
+    finish(depthResult());
+    await prefetch;
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+    leases.forEach((lease) => lease.release());
+  });
+
+  it("shares a private authenticated read and promotes it without handing credentials to image URLs", async () => {
+    useAuthStore.getState().setAuth("secret-bearer", { id: "account" } as never);
+    let finish!: (blob: Blob) => void;
+    const read = vi.spyOn(originals, "readOriginalBytes").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const promote = vi.spyOn(originals, "promoteOriginalRead");
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const url = `/api/v1/files/tasks/11111111-1111-4111-8111-111111111111/original?content_id=22222222-2222-4222-8222-222222222222&sha256=${"a".repeat(64)}`;
+    const cancel = new AbortController();
+    const first = loadPointCloudBuffer(url, cancel.signal);
+    const rejected = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const active = loadPointCloudBuffer(url);
+    const options = read.mock.calls[0][1]!;
+    expect(options.owner).toEqual(originals.captureOriginalOwner());
+    expect(options.signal).not.toBe(cancel.signal);
+    cancel.abort();
+    await rejected;
+    expect(options.signal?.aborted).toBe(false);
+    expect(promote).toHaveBeenCalledWith(options.signal);
+    finish(await new Response(new Uint8Array([3])).blob());
+    await expect(active).resolves.toEqual(new Uint8Array([3]).buffer);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("recovers a cache first observed during an incomplete cross-tab credential pair", async () => {
+    useAuthStore.getState().setAuth("before-refresh", { id: "account" } as never);
+    const key = originals.originalOwnerKey();
+    localStorage.setItem("token", "after-refresh");
+    expect(originals.captureOriginalOwner()).toBeNull();
+    getPointCloudAssetCacheDiagnostics();
+    useAuthStore.getState().setToken("after-refresh");
+    expect(originals.originalOwnerKey()).toBe(key);
+    const read = vi
+      .spyOn(originals, "readOriginalBytes")
+      .mockResolvedValue(await new Response(new Uint8Array([7])).blob());
+    const url = `/api/v1/files/tasks/11111111-1111-4111-8111-111111111111/original?content_id=22222222-2222-4222-8222-222222222222&sha256=${"b".repeat(64)}`;
+    await expect(loadPointCloudBuffer(url)).resolves.toEqual(new Uint8Array([7]).buffer);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels speculative consumers on workbench disposal without cancelling a joined foreground read", async () => {
+    let finish!: (response: Response) => void;
+    let transportSignal: AbortSignal | undefined;
+    const fetcher = vi.fn().mockImplementation(
+      (_url, init: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+          transportSignal = init.signal ?? undefined;
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const url = "https://assets.test/disposed-prefetch.pcd";
+    const prefetch = prefetchPointCloudFrameAssets({
+      point_cloud_url: url,
+      cameras: [],
+    } as unknown as TaskPointCloudManifestResponse);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    const active = loadPointCloudBuffer(url);
+    cancelPointCloudFramePrefetch();
+    await expect(prefetch).resolves.toBeUndefined();
+    expect(transportSignal?.aborted).toBe(false);
+    finish(new Response(new Uint8Array([8])));
+    await expect(active).resolves.toEqual(new Uint8Array([8]).buffer);
+  });
+
+  it("aborts an unshared speculative transport when its workbench is disposed", async () => {
+    let transportSignal: AbortSignal | undefined;
+    const fetcher = vi.fn().mockImplementation(
+      (_url, init: RequestInit) =>
+        new Promise<Response>(() => {
+          transportSignal = init.signal ?? undefined;
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const prefetch = prefetchPointCloudFrameAssets({
+      point_cloud_url: "https://assets.test/disposed-unshared.pcd",
+      cameras: [],
+    } as unknown as TaskPointCloudManifestResponse);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    cancelPointCloudFramePrefetch();
+    await expect(prefetch).resolves.toBeUndefined();
+    expect(transportSignal?.aborted).toBe(true);
+  });
+  it("decodes SVG through an opaque Image address before creating the GPU bitmap", async () => {
+    const release = vi.fn();
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockResolvedValue({
+      url: "data:image/svg+xml;base64,PHN2Zy8+",
+      release,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response("<svg/>", { headers: { "Content-Type": "image/svg+xml" } }),
+        ),
+    );
+    const decode = vi.fn().mockResolvedValue(undefined);
+    const images: Array<{ src: string; decoding: string; decode: typeof decode }> = [];
+    class DecodedImage {
+      src = "";
+      decoding = "";
+      decode = decode;
+      constructor() {
+        images.push(this);
+      }
+    }
+    vi.stubGlobal("Image", DecodedImage);
+    const close = vi.fn();
+    const bitmap = { width: 640, height: 480, close };
+    const convert = vi.fn().mockImplementation(async (source) => {
+      expect(source).toBe(images[0]);
+      expect(source.src).toBe("data:image/svg+xml;base64,PHN2Zy8+");
+      expect(decode).toHaveBeenCalledTimes(1);
+      return bitmap;
+    });
+    vi.stubGlobal("createImageBitmap", convert);
+    const lease = await acquireCameraBitmap("https://assets.test/gpu-svg.svg");
+    expect(lease.bitmap).toBe(bitmap);
+    expect(convert).toHaveBeenCalledTimes(1);
+    expect(images[0].src).toBe("");
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+    lease.release();
+  });
+
+  it("aborts SVG image decoding and releases its address after the real decode settles", async () => {
+    const release = vi.fn();
+    let finish!: () => void;
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockResolvedValue({
+      url: "data:image/svg+xml;base64,PHN2Zy8+",
+      release,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response("<svg/>", { headers: { "Content-Type": "image/svg+xml" } }),
+        ),
+    );
+    const decode = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const images: Array<{ src: string }> = [];
+    class PendingImage {
+      src = "";
+      decode = decode;
+      constructor() {
+        images.push(this);
+      }
+    }
+    vi.stubGlobal("Image", PendingImage);
+    const convert = vi.fn();
+    vi.stubGlobal("createImageBitmap", convert);
+    const controller = new AbortController();
+    const pending = acquireCameraBitmap(
+      "https://assets.test/gpu-svg-cancel.svg",
+      controller.signal,
+    );
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await rejected;
+    expect(images[0].src).toBe("");
+    expect(release).not.toHaveBeenCalled();
+    finish();
+    await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  it("closes a late SVG GPU bitmap after owner retirement before releasing its opaque address", async () => {
+    const release = vi.fn(),
+      close = vi.fn();
+    let finish!: (bitmap: ImageBitmap) => void;
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockResolvedValue({
+      url: "data:image/svg+xml;base64,PHN2Zy8+",
+      release,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response("<svg/>", { headers: { "Content-Type": "image/svg+xml" } }),
+        ),
+    );
+    class DecodedImage {
+      src = "";
+      decode = vi.fn().mockResolvedValue(undefined);
+    }
+    vi.stubGlobal("Image", DecodedImage);
+    const convert = vi.fn().mockImplementation(
+      () =>
+        new Promise<ImageBitmap>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("createImageBitmap", convert);
+    const pending = acquireCameraBitmap("https://assets.test/gpu-svg-late.svg");
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(convert).toHaveBeenCalledTimes(1));
+    useAuthStore.setState({ sessionId: "svg-owner-retired" });
+    await rejected;
+    expect(release).not.toHaveBeenCalled();
+    finish({ width: 640, height: 480, close } as unknown as ImageBitmap);
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(close.mock.invocationCallOrder[0]).toBeLessThan(release.mock.invocationCallOrder[0]);
   });
 });

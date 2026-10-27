@@ -17,29 +17,36 @@ from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import training_datasets as service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from tests.factory import create_membership, create_project, create_task
+from tests.sample_evaluation_original_fixtures import Objects
+from tests.training_original_fixtures import (
+    image_bytes,
+    original_receipt,
+    register_original,
+    staged_image,
+)
 
 dispatch_dataset = service.dispatch_dataset
 
 
 @pytest.fixture
 def source_headers(monkeypatch):
-    monkeypatch.setattr(
-        service,
-        "capture_source_media",
-        lambda sample: {"etag": '"original"', "size_bytes": 128, "version_id": None},
-    )
+    provider = Objects().install(monkeypatch)
     monkeypatch.setattr(service, "dispatch_dataset", _no_dispatch)
+    yield provider
+    assert all(body.closed for body in provider.bodies)
 
 
 async def _no_dispatch(*args):
     pass
 
 
-async def reviewed_project(db, owner):
+async def reviewed_project(db, owner, *, original_objects=None):
     project = await create_project(db, owner_id=owner.id)
     tasks = []
     for _ in range(3):
         task = await create_task(db, project_id=project.id, status="completed")
+        if original_objects is not None:
+            await register_original(db, task, owner, provider=original_objects)
         task.reviewed_at = datetime.now(timezone.utc)
         task.is_labeled = True
         db.add(
@@ -71,6 +78,7 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
     annotations = []
     for i in range(3):
         task = await create_task(db_session, project_id=project.id, status="completed")
+        await register_original(db_session, task, owner, provider=source_headers)
         task.reviewed_at = datetime.now(timezone.utc)
         annotation = Annotation(
             task_id=task.id,
@@ -86,6 +94,7 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
         db_session.add(annotation)
         annotations.append(annotation)
     negative = await create_task(db_session, project_id=project.id, status="completed")
+    await register_original(db_session, negative, owner, provider=source_headers)
     negative.reviewed_at = datetime.now(timezone.utc)
     negative.submitted_at = negative.skipped_at = datetime.now(timezone.utc)
     negative.skip_reason = "no_target"
@@ -165,7 +174,9 @@ async def test_snapshot_is_fixed_after_task_edits_and_creation_is_idempotent(
     db_session, super_admin, httpx_client, source_headers
 ):
     owner, token = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
+    project, tasks = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     headers = {"Authorization": f"Bearer {token}"}
     path = f"/api/v1/projects/{project.id}/training-datasets"
     preflight = await httpx_client.post(f"{path}:preflight", headers=headers, json={})
@@ -203,15 +214,22 @@ async def test_only_current_review_round_can_imply_negative(
     db_session, super_admin, source_headers
 ):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     task = await create_task(db_session, project_id=project.id, status="completed")
+    await register_original(db_session, task, owner, provider=source_headers)
     task.reviewed_at = datetime.now(timezone.utc)
     task.skip_reason = "no_target"
     task.skipped_at = datetime.now(timezone.utc) - timedelta(days=1)
     task.submitted_at = datetime.now(timezone.utc)
     await db_session.flush()
     snapshot, report = await service.freeze_selection(
-        db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+        db_session,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert {"task_id": str(task.id), "code": "unconfirmed_negative"} in report[
         "excluded"
@@ -219,7 +237,11 @@ async def test_only_current_review_round_can_imply_negative(
     task.skipped_at = task.submitted_at
     await db_session.flush()
     snapshot, report = await service.freeze_selection(
-        db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+        db_session,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["summary"]["negatives"] == 1
     assert any(s["task_id"] == str(task.id) for s in snapshot["samples"])
@@ -229,7 +251,9 @@ async def test_manager_confirmation_does_not_turn_unselected_empty_tasks_into_ne
     db_session, super_admin, source_headers
 ):
     owner, _ = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
+    project, tasks = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     blank = await create_task(db_session, project_id=project.id)
     snapshot, report = await service.freeze_selection(
         db_session,
@@ -238,6 +262,7 @@ async def test_manager_confirmation_does_not_turn_unselected_empty_tasks_into_ne
             mode="manager_confirmed", task_ids=[t.id for t in tasks] + [blank.id]
         ),
         actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["summary"]["negatives"] == 0
     assert report["excluded"] == [
@@ -249,7 +274,9 @@ async def test_member_cannot_access_versions_and_project_deletion_is_atomic(
     db_session, super_admin, annotator, httpx_client, source_headers
 ):
     owner, token = super_admin
-    project, tasks = await reviewed_project(db_session, owner)
+    project, tasks = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     employee, employee_token = annotator
     await create_membership(
         db_session,
@@ -290,22 +317,31 @@ async def test_foreign_parent_and_unknown_tasks_rejected(
     db_session, super_admin, source_headers
 ):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     with pytest.raises(TrainingDatasetError) as error:
         await service.freeze_selection(
             db_session,
             project,
             TrainingDatasetSelection(task_ids=[uuid.uuid4()]),
             actor_id=owner.id,
+            trusted_actor=True,
         )
     assert error.value.status_code == 404
 
 
 async def test_revoked_creator_cannot_publish(db_session, super_admin, source_headers):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     snapshot, report = await service.freeze_selection(
-        db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+        db_session,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     version = TrainingDatasetVersion(
         project_id=project.id,
@@ -327,7 +363,7 @@ async def test_revoked_creator_cannot_publish(db_session, super_admin, source_he
 
 async def make_version(db, owner, project):
     snapshot, report = await service.freeze_selection(
-        db, project, TrainingDatasetSelection(), actor_id=owner.id
+        db, project, TrainingDatasetSelection(), actor_id=owner.id, trusted_actor=True
     )
     version = TrainingDatasetVersion(
         project_id=project.id,
@@ -340,6 +376,9 @@ async def make_version(db, owner, project):
     )
     db.add(version)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    await allocate(db, version)
     await service.enqueue_dataset(db, version)
     await db.commit()
     return version
@@ -354,7 +393,9 @@ async def test_cancel_reconciles_domain_and_execution_fences_deletion(
 
     monkeypatch.setattr(celery_app.control, "revoke", lambda *args, **kwargs: None)
     owner, token = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     version = await make_version(db_session, owner, project)
     headers = {"Authorization": f"Bearer {token}"}
     response = await httpx_client.post(
@@ -390,7 +431,9 @@ async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
     db_session, super_admin, source_headers, monkeypatch, accepted_status
 ):
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     version = await make_version(db_session, owner, project)
 
     async def broker_response_lost(*args, **kwargs):
@@ -412,7 +455,9 @@ async def test_api_key_scopes_and_post_queue_revocation(
     from app.services.api_key_service import create_key
 
     owner, _ = super_admin
-    project, _ = await reviewed_project(db_session, owner)
+    project, _ = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     key, token = await create_key(db_session, owner, "training", [])
     path = f"/api/v1/projects/{project.id}/training-datasets"
     denied = await httpx_client.get(path, headers={"Authorization": f"Bearer {token}"})
@@ -429,6 +474,7 @@ async def test_api_key_scopes_and_post_queue_revocation(
         TrainingDatasetSelection(),
         actor_id=owner.id,
         api_key_id=str(key.id),
+        trusted_actor=True,
     )
     version = TrainingDatasetVersion(
         project_id=project.id,
@@ -466,9 +512,20 @@ async def test_real_storage_materialization_retry_preserves_originals(
             storage_service.put_bytes(
                 task.file_path, buffer.getvalue(), content_type="image/png"
             )
+            await register_original(
+                db_session,
+                task,
+                owner,
+                raw=buffer.getvalue(),
+                bucket=storage_service.bucket,
+            )
         await db_session.flush()
         snapshot, report = await service.freeze_selection(
-            db_session, project, TrainingDatasetSelection(), actor_id=owner.id
+            db_session,
+            project,
+            TrainingDatasetSelection(),
+            actor_id=owner.id,
+            trusted_actor=True,
         )
         assert report["ready"]
         version = TrainingDatasetVersion(
@@ -482,6 +539,9 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         db_session.add(version)
         await db_session.flush()
+        from app.services.training_dataset_storage import allocate
+
+        await allocate(db_session, version)
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
 
@@ -576,31 +636,45 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
 
 
-def test_changed_source_is_rejected_before_preserving_media(tmp_path):
+def test_changed_verified_original_is_rejected_before_preserving_media(
+    tmp_path, monkeypatch
+):
+    from botocore.exceptions import ClientError
     from app.services.storage import storage_service
     from app.workers.training_dataset import materialize_image
 
-    prefix = f"test-training-source/{uuid.uuid4()}/"
-    key = prefix + "image.png"
+    def missing_retained(**kwargs):
+        raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+
+    def unexpected_io(*args, **kwargs):
+        pytest.fail("Changed staged bytes must not trigger raw GETs or retained PUTs")
+
+    monkeypatch.setattr(storage_service.client, "head_object", missing_retained)
+    monkeypatch.setattr(storage_service.client, "get_object", unexpected_io)
+    monkeypatch.setattr(storage_service.client, "upload_file", unexpected_io)
+    original, changed = image_bytes(color="red"), image_bytes(color="blue")
+    receipt = original_receipt(original)
+    sample = {
+        "task_id": str(uuid.uuid4()),
+        "source_key": "test-training-source/image.png",
+        "original": receipt,
+        "media": {"sha256": receipt["sha256"], "size_bytes": len(original)},
+    }
+    stage = staged_image(changed)
     try:
-        storage_service.put_bytes(key, b"original", content_type="image/png")
-        sample = {
-            "task_id": str(uuid.uuid4()),
-            "source_bucket": storage_service.bucket,
-            "source_key": key,
-        }
-        sample["media"] = service.capture_source_media(sample)
-        storage_service.put_bytes(key, b"changed", content_type="image/png")
         with pytest.raises(TrainingDatasetError) as error:
-            materialize_image(sample, prefix.rstrip("/"), "frozen", tmp_path)
+            materialize_image(
+                sample,
+                "test-training-source",
+                "frozen",
+                tmp_path,
+                bucket="retained-training",
+                verified_original=stage,
+            )
         assert error.value.code == "source_media_changed"
-        assert (
-            storage_service.list_objects(prefix, bucket=storage_service.training_bucket)
-            == []
-        )
+        assert not stage.file.closed
     finally:
-        storage_service.delete_prefix(prefix)
-        storage_service.delete_prefix(prefix, bucket=storage_service.training_bucket)
+        stage.close()
 
 
 async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_other_task_negatives(
@@ -609,7 +683,9 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
     source_headers,
 ):
     owner, _ = super_admin
-    project, boxes = await reviewed_project(db_session, owner)
+    project, boxes = await reviewed_project(
+        db_session, owner, original_objects=source_headers
+    )
     project.tool_bindings = {
         **project.tool_bindings,
         "region": {"enabled": True, "classes": ["shape"]},
@@ -617,6 +693,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
     region_only = await create_task(
         db_session, project_id=project.id, status="completed"
     )
+    await register_original(db_session, region_only, owner, provider=source_headers)
     region_only.reviewed_at = datetime.now(timezone.utc)
     polygons = []
     for task in [*boxes, region_only]:
@@ -635,7 +712,11 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         db_session.add(ann)
     await db_session.flush()
     detect, report = await service.freeze_selection(
-        db_session, project, TrainingDatasetSelection(task="detect"), actor_id=owner.id
+        db_session,
+        project,
+        TrainingDatasetSelection(task="detect"),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["ready"]
     assert report["summary"]["eligible"] == 3 and report["summary"]["objects"] == 3
@@ -654,6 +735,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         project,
         TrainingDatasetSelection(task="segmentation"),
         actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["ready"] and report["summary"]["eligible"] == 4
     assert (
@@ -675,7 +757,11 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
     }
     await db_session.flush()
     _, report = await service.freeze_selection(
-        db_session, project, TrainingDatasetSelection(task="segment"), actor_id=owner.id
+        db_session,
+        project,
+        TrainingDatasetSelection(task="segment"),
+        actor_id=owner.id,
+        trusted_actor=True,
     )
     assert (
         not report["ready"] and report["issues"][0]["code"] == "unsupported_annotation"
@@ -691,6 +777,7 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
             confirmed_negative_ids=[region_only.id],
         ),
         actor_id=owner.id,
+        trusted_actor=True,
     )
     assert report["ready"] and report["summary"]["negatives"] == 1
     assert (

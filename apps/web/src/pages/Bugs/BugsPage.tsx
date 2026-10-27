@@ -11,6 +11,7 @@ import { MarkdownBlock } from "@/components/bugreport/MarkdownBlock";
 import type { MarkdownEditorProps } from "@/components/markdown/MarkdownEditor";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { useBugReports } from "@/hooks/useBugReports";
+import { useBugAttachmentDownload } from "@/hooks/useBugAttachmentDownload";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { BUGS_URL_DEFAULTS, BUGS_URL_KEYS, bugsUrlCodec } from "./bugsUrlState";
 import styles from "./BugsPage.module.css";
@@ -113,6 +114,7 @@ export function BugsPage() {
   }, [listQuery.data, listQuery.isFetching, total, pagination]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BugReportDetail | null>(null);
+  const downloads = useBugAttachmentDownload(detail?.id ?? null);
   const comments = useListPagination(detail?.comments ?? [], detailId ?? "");
   const [commentText, setCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
@@ -228,6 +230,7 @@ export function BugsPage() {
   };
 
   const invalidateDetailScope = () => {
+    downloads.invalidate();
     detailRequestRef.current += 1;
     commentRequestRef.current += 1;
     activeDetailIdRef.current = null;
@@ -389,19 +392,27 @@ export function BugsPage() {
                 <div className={styles.sectionTitle}>截图附件 ({detail.attachments.length})</div>
                 <div className={styles.attachments}>
                   {detail.attachments.map((att) => (
-                    <a
-                      key={att.storageKey}
-                      href={bugReportsApi.attachmentDownloadUrl(detail.id, att.storageKey)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.attachmentLink}
-                    >
-                      <Icon name="image" size={13} />
-                      <span className={styles.attachmentName}>{att.fileName}</span>
-                      <span className={styles.attachmentSize}>
-                        {Math.round(att.size / 1024)} KB
-                      </span>
-                    </a>
+                    <div key={att.storageKey}>
+                      <button
+                        type="button"
+                        onClick={() => void downloads.download(att)}
+                        disabled={downloads.pendingKeys.has(att.storageKey)}
+                        className={styles.attachmentLink}
+                      >
+                        <Icon name="image" size={13} />
+                        <span className={styles.attachmentName}>{att.fileName}</span>
+                        <span className={styles.attachmentSize}>
+                          {downloads.pendingKeys.has(att.storageKey)
+                            ? "下载中…"
+                            : `${Math.round(att.size / 1024)} KB`}
+                        </span>
+                      </button>
+                      {downloads.errors[att.storageKey] && (
+                        <div role="alert" className={styles.attachmentError}>
+                          {downloads.errors[att.storageKey]}，可点击附件重试。
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

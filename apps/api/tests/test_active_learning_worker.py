@@ -18,6 +18,7 @@ from app.db.models.active_learning import (
 )
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset import Dataset
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.notification import Notification
@@ -29,6 +30,8 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.db.models.user import User
 from app.services import active_learning as service, managed_inference as managed
+from app.services import active_learning_originals as originals
+from app.services.api_key_service import create_key
 from app.services.training_dataset_bridge import content_digest
 from app.workers import active_learning as worker
 from tests.active_learning_fixtures import create, seed
@@ -63,6 +66,7 @@ async def world(test_engine, monkeypatch):
                 (Notification, Notification.user_id == uid),
                 (Round, Round.project_id == pid),
                 (Task, Task.project_id == pid),
+                (Dataset, Dataset.id.in_(fixture.dataset_ids)),
                 (TaskBatch, TaskBatch.project_id == pid),
                 (AsyncJob, AsyncJob.project_id == pid),
                 (ModelDeployment, ModelDeployment.registry_id == registry),
@@ -86,6 +90,8 @@ async def world(test_engine, monkeypatch):
                 await db.execute(delete(model).where(condition))
             await db.commit()
         fixture.objects.objects.clear()
+        assert all(body.closed for body in fixture.originals.bodies)
+        fixture.originals.objects.clear()
 
 
 def receipt(row, state, result=None):
@@ -105,7 +111,7 @@ async def prepared(world, claim_id, ordinal=0):
         round, _ = await worker.fenced(db, world.attempt.id, claim_id)
         row = await db.get(Candidate, (round.id, ordinal))
         sample = round.spec["samples"][ordinal]
-        png = service.prepare_image(round, sample)
+        png = await service.prepare_image(db, round, sample)
         row.request = managed.request_identity(round.spec, row, sample["preprocessing"])
         row.status, row.media = "inflight", service.media_descriptor(round, sample)
         await db.commit()
@@ -130,6 +136,70 @@ async def test_duplicate_claim_and_late_checkpoint_are_fenced(world):
         await worker.checkpoint(world.factory, world.attempt.id, claim_id, 0, result)
     async with world.factory() as db:
         assert (await db.get(Candidate, (round.id, 0))).evidence is None
+
+
+@pytest.mark.parametrize("change", ["last_used", "revoked", "still_busy"])
+async def test_delegated_key_lock_conflict_is_bounded_without_false_revocation(
+    world, monkeypatch, change
+):
+    async with world.factory() as db:
+        owner = await db.get(User, world.owner.id)
+        key, _ = await create_key(
+            db, owner, "Concurrent polling", sorted(originals.SCOPES)
+        )
+        round = await db.get(Round, world.round.id)
+        round.authorization = {
+            "api_key_id": str(key.id),
+            "original_contract": 1,
+            "api_key_fingerprint": originals.key_fingerprint(
+                (key.key_hash, tuple(key.scopes), key.expires_at)
+            ),
+        }
+        await db.commit()
+        key_id, original_name = key.id, round.name
+    observed = asyncio.Event()
+    read, conflicts = originals.access.actor_and_key, []
+
+    async def watched(*args, **kwargs):
+        try:
+            return await read(*args, **kwargs)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                conflicts.append(exc.detail)
+                observed.set()
+            raise
+
+    monkeypatch.setattr(originals.access, "actor_and_key", watched)
+    async with world.factory() as blocker, world.factory() as checking:
+        key = await blocker.get(ApiKey, key_id)
+        key.last_used_at = service.now()
+        await blocker.flush()
+        round = await checking.get(Round, world.round.id)
+        round.name = "Uncommitted worker transaction"
+        pending = asyncio.create_task(service.authority(checking, round))
+        await asyncio.wait_for(observed.wait(), 2)
+        if change != "still_busy":
+            if change == "revoked":
+                key.revoked_at = service.now()
+            await blocker.commit()
+        if change == "last_used":
+            await pending
+        else:
+            with pytest.raises(Exception) as caught:
+                await pending
+            if change == "revoked":
+                assert isinstance(caught.value, service.TrainingDatasetError)
+                assert caught.value.status_code == 403
+            else:
+                assert isinstance(caught.value, HTTPException)
+                assert caught.value.status_code == 409
+                assert caught.value.detail == {"code": "content_busy"}
+                assert len(conflicts) == 4
+        assert checking.in_transaction()
+        async with world.factory() as observer:
+            assert (await observer.get(Round, round.id)).name == original_name
+        await checking.rollback()
+    assert conflicts
 
 
 async def test_timeout_debit_is_retained_on_retry_and_original_identity_never_refreshes(
@@ -274,3 +344,16 @@ async def test_execute_publishes_only_verified_complete_evidence(world, monkeypa
         assert report["missing_signal_count"] == 6
         assert sum(item["recommended"] for item in report["ranking"]) == 4
         assert (await db.get(AsyncJob, current.async_job_id)).status == "completed"
+
+
+async def test_input_authority_still_busy_keeps_round_recoverable(world, monkeypatch):
+    prepare = AsyncMock(side_effect=HTTPException(409, {"code": "content_busy"}))
+    monkeypatch.setattr(service, "prepare_image", prepare)
+    await worker.execute(world.factory, world.attempt.id, "busy")
+    async with world.factory() as db:
+        round = await db.get(Round, world.round.id)
+        attempt = await db.get(Attempt, world.attempt.id)
+        assert round.status == attempt.status == "lost"
+        assert round.inference_dispatches == 0 and attempt.claim_id is None
+        assert all(not row.request for row in await service.candidate_rows(db, round))
+    prepare.assert_awaited_once()

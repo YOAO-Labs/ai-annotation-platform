@@ -82,8 +82,9 @@ jobs:
     # Fail-closed via the needs dependency: a failed shared build skips every
     # suite (the aggregate Frontend E2E then fails on the skipped result);
     # `skipped` is only legitimate when no built suite was selected at all.
+    # Unlike always(), !cancelled() lets superseded PRs release workflow concurrency.
     needs: [build]
-    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     # Each runner owns its services; never parallelize workers against shared fixtures.
     strategy:
       fail-fast: false
@@ -136,7 +137,17 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install video fixture tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          # Avoid the regional HTTP mirror that consumed the suite's entire deadline.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
       - name: Install uv
         run: pip install uv
       - name: Sync API deps
@@ -165,6 +176,20 @@ jobs:
           done
           docker logs minio
           exit 1
+      - name: Initialize versioned inference storage
+        working-directory: apps/api
+        run: |
+          uv run python - <<'PY'
+          from app.services.storage import storage_service
+
+          bucket = storage_service.import_bucket
+          storage_service.ensure_bucket(bucket)
+          storage_service.client.put_bucket_versioning(
+              Bucket=bucket,
+              VersioningConfiguration={"Status": "Enabled"},
+          )
+          assert storage_service.client.get_bucket_versioning(Bucket=bucket)["Status"] == "Enabled"
+          PY
       - name: alembic upgrade head
         working-directory: apps/api
         run: uv run alembic upgrade head

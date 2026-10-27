@@ -1,11 +1,8 @@
-"""v0.18.1 · 多阶段预标注 ROI 裁剪 (路径 B M1).
+"""Route vector and native-mask parents through bounded image ROI stages.
 
-平台按上游检测框 bbox 裁 crop, 以 data URI (base64) 内联喂下游分类 backend——backend
-无感, 只收到一张小图跑它本就支持的分类, 把结果塞 attributes 返回 (协议 §3 已有能力)。
-这样任意现成 classify backend 零改造即可作下游 (ROADMAP §3.4 决议)。
-
-本期 (M1) 只处理 rectanglelabels (轴对齐 bbox); 旋转框 / 多边形等几何留 M2。
-crop 经 data URI 内存传递, 不落临时对象 (依赖下游 load_image_bgr 支持 ``data:`` 前缀)。
+Native parents keep their exact RLE geometry; verified foreground bounds only
+define the crop or full-image box prompt. Production crops use owned temporary
+objects, while pure callers can use inline data URIs.
 """
 
 from __future__ import annotations
@@ -16,6 +13,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from PIL import Image
+
+from app.services.content_snapshot import ContentError, MAX_BYTES
+from app.services.raster_mask_storage import validate_reference_for_rle
+from app.utils.raster_mask_rle import coco_rle_bbox_pixels
+
+
+class NativeMaskChildOutputUnsupported(ValueError):
+    """Child masks require an explicit object ownership and pixel remap contract."""
 
 
 @dataclass
@@ -33,13 +38,22 @@ class CropBatch:
     inputs: list[dict] = field(default_factory=list)
     skipped_geometry: int = 0
     transforms: dict[str, dict] = field(default_factory=dict)
+    contents: dict[str, bytes] = field(default_factory=dict, repr=False)
+
+
+class _CropBuffer(io.BytesIO):
+    """Reject an oversized pending crop before buffering more encoded bytes."""
+
+    def write(self, content):
+        if self.tell() + len(content) > MAX_BYTES:
+            raise ContentError("prediction_input_too_large", 413)
+        return super().write(content)
 
 
 def box_class_name(box: dict) -> str | None:
-    """从 LS 标准 shape 提取 class_name (rectanglelabels / polygonlabels / labels[0])。
-
-    v0.18.2 · parent_class_filter 类别路由用。v0.18.15 · 兼容 polygon 父框。取不到返回 None。
-    """
+    """Read the mapped class from a native parent or a Label Studio label list."""
+    if (box.get("geometry") or {}).get("type") == "raster_mask":
+        return box.get("class_name")
     value = box.get("value") or {}
     labels = (
         value.get("rectanglelabels")
@@ -69,12 +83,31 @@ def _polygon_bbox_pct(value: dict) -> tuple[float, float, float, float] | None:
     return x0, y0, x1 - x0, y1 - y0
 
 
-def _box_bbox_pct(box: dict) -> tuple[float, float, float, float] | None:
-    """父框 → 外接框 (x, y, w, h) 百分比 (0-100)。
+def _raster_bounds(box: dict, mask_objects: dict | None):
+    """Use the exact verified RLE, never a response-provided approximate box."""
+    reference = (box.get("geometry") or {}).get("mask") or {}
+    rle = (mask_objects or {}).get(reference.get("sha256"))
+    if rle is None:
+        raise ValueError("Native ROI requires the portable mask object")
+    validate_reference_for_rle(reference, rle)
+    bounds = coco_rle_bbox_pixels(rle)
+    if bounds is None:
+        raise ValueError("Native ROI requires foreground pixels")
+    return rle["size"], bounds
 
-    v0.18.15 · 统一 rectanglelabels (轴对齐 bbox, 旋转框跳过) 与 polygonlabels (取外接框)。
-    其余几何 / 非法返回 None (调用方计入 skipped_geometry)。
-    """
+
+def _box_bbox_pct(
+    box: dict, mask_objects: dict | None = None
+) -> tuple[float, float, float, float] | None:
+    """Return percentage bounds for supported vector or verified RLE parents."""
+    if (box.get("geometry") or {}).get("type") == "raster_mask":
+        (height, width), (left, top, right, bottom) = _raster_bounds(box, mask_objects)
+        return (
+            left / width * 100,
+            top / height * 100,
+            (right - left) / width * 100,
+            (bottom - top) / height * 100,
+        )
     btype = box.get("type")
     value = box.get("value") or {}
     if btype == "rectanglelabels":
@@ -94,9 +127,14 @@ def _box_bbox_pct(box: dict) -> tuple[float, float, float, float] | None:
 
 
 def _box_bbox_pixels(
-    box: dict, img_w: int, img_h: int
+    box: dict, img_w: int, img_h: int, mask_objects: dict | None = None
 ) -> tuple[float, float, float, float] | None:
-    """父框 → 像素外接框 (left, top, right, bottom); 委托 :func:`_box_bbox_pct`。"""
+    """Return pixel bounds, preserving exact integer native-mask coordinates."""
+    if (box.get("geometry") or {}).get("type") == "raster_mask":
+        size, bounds = _raster_bounds(box, mask_objects)
+        if size != [img_h, img_w]:
+            raise ValueError("Native ROI mask size differs from the source image")
+        return bounds
     pct = _box_bbox_pct(box)
     if pct is None:
         return None
@@ -120,12 +158,15 @@ def crop_inputs_from_boxes(
     upload_fn: Callable[[int, bytes], str] | None = None,
     cache: dict | None = None,
     min_crop_side_px: int = 0,
+    mask_objects: dict | None = None,
 ) -> CropBatch:
     """对 boxes 里的 bbox 框逐个裁 ROI crop, 返回喂下游 /predict 的 inputs + 几何跳过统计。
 
     Args:
         image: 任务原图 (PIL Image)。
         boxes: 上游 stage 返回的 LS 标准 result 列表 (每项 ``{type, value, ...}``)。
+            Native parents retain their internal geometry and mapped class name.
+        mask_objects: Verified portable RLE objects for native parents, keyed by SHA.
         pad: 按框宽高比例外扩的边界 padding (0.05 = 各边外扩 5%)。
         jpeg_quality: crop 重编码 JPEG 质量。
         parent_class_filter: v0.18.2 · 只对 class_name 在此集合的父框裁 crop (空/None=全部)。
@@ -133,6 +174,8 @@ def crop_inputs_from_boxes(
         delivery: v0.18.4 · crop 投递方式。``"data_uri"`` (默认, 纯函数自足, 单测/已知支持
             ``data:`` 的后端) 内联 base64; ``"presigned"`` (worker 生产默认) 经 ``upload_fn``
             上传对象存储回 URL——对所有走 ``httpx.get`` 的下游后端 (gsam2/sam3) 通用。
+            ``"deferred"`` returns bounded JPEG bytes in ``contents`` without I/O;
+            the async caller owns sequential upload and its URL-only cache.
         upload_fn: v0.18.4 · ``delivery="presigned"`` 时必传, ``(box_idx, jpeg_bytes) -> url``。
         cache: v0.18.4 · 可选 ``{cache_key: input}``。并行兄弟阶段 target 同一批父框时复用
             已裁/已上传 crop, 不重复裁剪 + 重编码 + 重上传。**调用方需为每个父阶段传独立 cache**
@@ -144,11 +187,14 @@ def crop_inputs_from_boxes(
         ``id`` 即 boxes 中的下标 (字符串, **保留原下标**即使被类别过滤), 供下游结果回写到对应父框;
         ``skipped_geometry`` 为命中路由但几何不支持被跳过的父框数。类别不匹配的父框是路由跳过, 不计入。
     """
+    if delivery == "deferred" and cache is not None:
+        raise ValueError("Deferred crops use the async caller's URL cache")
     img_w, img_h = image.size
     filter_set = set(parent_class_filter) if parent_class_filter else None
     inputs: list[dict] = []
     skipped_geometry = 0
     transforms: dict[str, dict] = {}
+    contents: dict[str, bytes] = {}
     for idx, box in enumerate(boxes):
         if not isinstance(box, dict):
             continue
@@ -162,7 +208,7 @@ def crop_inputs_from_boxes(
             transforms[str(idx)] = cached["transform"]
             continue
         # 几何门控: 非 bbox/polygon / 旋转框 / 退化框 → 无法裁 crop, 计入 skipped_geometry。
-        px = _box_bbox_pixels(box, img_w, img_h)
+        px = _box_bbox_pixels(box, img_w, img_h, mask_objects)
         if px is None:
             skipped_geometry += 1
             continue
@@ -178,21 +224,24 @@ def crop_inputs_from_boxes(
         bottom = min(float(img_h), bottom + bh * pad)
         left_int, top_int = int(left), int(top)
         right_int, bottom_int = int(round(right)), int(round(bottom))
-        crop = image.crop((left_int, top_int, right_int, bottom_int))
-        if crop.width <= 0 or crop.height <= 0:
-            skipped_geometry += 1
-            continue
-        # v0.18.14 · 嵌套裁剪越深裁得越小, 短边过小的 crop 上采样后画质崩坏; 低于阈值跳过
-        # (计 skipped_geometry), 父框靠 on_failure=keep_parent 保留。0=不守卫 (向后兼容)。
-        if min_crop_side_px and (
-            crop.width < min_crop_side_px or crop.height < min_crop_side_px
-        ):
-            skipped_geometry += 1
-            continue
-        buf = io.BytesIO()
-        crop.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality)
-        jpeg_bytes = buf.getvalue()
-        if delivery == "presigned":
+        with image.crop((left_int, top_int, right_int, bottom_int)) as crop:
+            if crop.width <= 0 or crop.height <= 0:
+                skipped_geometry += 1
+                continue
+            # Small ROIs retain the existing geometry-skip and parent policy.
+            if min_crop_side_px and (
+                crop.width < min_crop_side_px or crop.height < min_crop_side_px
+            ):
+                skipped_geometry += 1
+                continue
+            buffer = _CropBuffer if delivery == "deferred" else io.BytesIO
+            with buffer() as buf, crop.convert("RGB") as rgb:
+                rgb.save(buf, format="JPEG", quality=jpeg_quality)
+                jpeg_bytes = buf.getvalue()
+        if delivery == "deferred":
+            contents[str(idx)] = jpeg_bytes
+            file_path = None
+        elif delivery == "presigned":
             if upload_fn is None:
                 raise ValueError("delivery='presigned' 需要 upload_fn")
             file_path = upload_fn(idx, jpeg_bytes)
@@ -213,7 +262,10 @@ def crop_inputs_from_boxes(
             cache[cache_key] = {"input": inp, "transform": transform}
         inputs.append(inp)
     return CropBatch(
-        inputs=inputs, skipped_geometry=skipped_geometry, transforms=transforms
+        inputs=inputs,
+        skipped_geometry=skipped_geometry,
+        transforms=transforms,
+        contents=contents,
     )
 
 
@@ -233,12 +285,13 @@ def geometry_prompts_from_boxes(
     boxes: list[dict],
     *,
     parent_class_filter: list[str] | None = None,
+    mask_objects: dict | None = None,
 ) -> GeometryPromptBatch:
     """把上游父框转成 geometry-prompt 列表 (全图 + 归一化框), 喂下游 box-seg 原子。
 
     与 :func:`crop_inputs_from_boxes` 的区别: **不裁图、不上传**——下游收全图 URL + 框列表,
-    backend 对一张图只 set_image 一次、N 框共享 embedding (协议 §2.1.1)。坐标纯由 LS
-    百分比换算, 无需加载原图。几何门控与 crop 路径一致 (仅轴对齐 bbox; 旋转/退化框跳过)。
+    backend 对一张图只 set_image 一次、N 框共享 embedding (协议 §2.1.1)。矢量几何取
+    百分比外接框，原生父对象按经核验 RLE 的紧像素外接框换算；Worker 负责核对原图尺寸。
 
     Args:
         boxes: 上游 stage 的 LS 标准 result 列表。
@@ -257,7 +310,7 @@ def geometry_prompts_from_boxes(
         if filter_set is not None and box_class_name(box) not in filter_set:
             continue
         # v0.18.15 · 统一支持 rectanglelabels (旋转框跳过) 与 polygonlabels (取外接框)。
-        pct = _box_bbox_pct(box)
+        pct = _box_bbox_pct(box, mask_objects)
         if pct is None:
             skipped_geometry += 1
             continue

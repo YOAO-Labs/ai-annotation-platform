@@ -12,15 +12,38 @@ export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
     ],
   },
   {
-    text: "数据准备",
-    collapsed: true,
+    text: "数据集与存储",
+    collapsed: false,
     items: [
-      { text: "数据集总览", link: "/user-guide/datasets/" },
-      { text: "导入图像数据集", link: "/user-guide/datasets/import-images" },
-      { text: "导入点云 / 多模态", link: "/user-guide/datasets/import-formats" },
-      { text: "存储连接器导入", link: "/user-guide/datasets/storage-connections" },
-      { text: "点云坐标系约定", link: "/user-guide/datasets/lidar-axis-convention" },
-      { text: "导入 / 导出外部预测", link: "/user-guide/datasets/prediction-import-export" },
+      { text: "数据集与存储总览", link: "/user-guide/datasets/" },
+      {
+        text: "数据集与来源管理",
+        collapsed: false,
+        items: [
+          { text: "导入图像与托管数据", link: "/user-guide/datasets/import-images" },
+          { text: "数据来源与增量同步", link: "/user-guide/datasets/sources" },
+          { text: "数据集工作台与视图", link: "/user-guide/datasets/workbench" },
+          { text: "图片质量检测与复核", link: "/user-guide/datasets/quality" },
+          { text: "导入点云 / 多模态", link: "/user-guide/datasets/import-formats" },
+          { text: "点云坐标系约定", link: "/user-guide/datasets/lidar-axis-convention" },
+          { text: "导入 / 导出外部预测", link: "/user-guide/datasets/prediction-import-export" },
+        ],
+      },
+      {
+        text: "存储管理与运维",
+        collapsed: false,
+        items: [
+          { text: "存储位置与连接器", link: "/user-guide/datasets/storage-connections" },
+          { text: "跨网络站点与 Agent", link: "/user-guide/datasets/site-agents" },
+          { text: "九用途映射与受控切换", link: "/user-guide/datasets/purpose-bindings" },
+          {
+            text: "原件访问、归档与保留回收",
+            link: "/user-guide/datasets/lifecycle-and-retention",
+          },
+          { text: "对象存储迁移准备", link: "/user-guide/datasets/storage-migration" },
+          { text: "存储诊断与容量账目", link: "/user-guide/datasets/storage-operations" },
+        ],
+      },
     ],
   },
   {

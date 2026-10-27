@@ -31,6 +31,7 @@ from app.services.exporting.lidar import (
     build_pointmask_label_bytes,
 )
 from app.services.exporting.lidar_preflight import (
+    _preflight_lidar_export,
     calibration_is_valid,
     preflight_lidar_export,
 )
@@ -41,6 +42,19 @@ from app.services.exporting.packaging import (
 )
 from app.services.task_dataset_link import link_items
 from tests.factory import create_project
+
+
+async def _register_metadata_sources(db, *items):
+    # These preflight fixtures exercise DB facts only, with no physical reads.
+    from app.services.dataset_assets import register_item_asset
+
+    for item in items:
+        await register_item_asset(
+            db,
+            item,
+            sha256=hashlib.sha256(item.file_path.encode()).hexdigest(),
+            size_bytes=item.file_size or 37,
+        )
 
 
 def _ann(
@@ -95,91 +109,12 @@ def _camera() -> LidarCameraExportCtx:
     )
 
 
-def test_nuscenes_fetch_script_rejects_unsafe_paths_and_verifies_downloads(
-    tmp_path,
-):
-    namespace = {
-        "__file__": str(tmp_path / "fetch_nuscenes_media.py"),
-        "__name__": "test",
-    }
-    exec(
-        compile(_FETCH_NUSCENES_MEDIA_TEMPLATE, "fetch_nuscenes_media.py", "exec"),
-        namespace,
-    )
-    namespace["HERE"] = str(tmp_path)
+def test_nuscenes_fetch_script_uses_shared_strict_public_receipt_contract():
+    from app.services.exporting.lidar_fetch import FETCH_TRUSTED_MEDIA_TEMPLATE
 
-    for unsafe_path in (
-        "../escape.bin",
-        r"..\escape.bin",
-        r"C:\escape.bin",
-        "//server/share.bin",
-        "samples//file.bin",
-        "samples/\0file.bin",
-    ):
-        with pytest.raises(ValueError, match="unsafe media path"):
-            namespace["safe_destination"](unsafe_path)
-
-    source = tmp_path / "source.bin"
-    source.write_bytes(b"trusted-source")
-    manifest_path = tmp_path / "media_manifest.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "media": [
-                    {
-                        "rel_path": "samples/LIDAR_TOP/source.bin",
-                        "presigned_url": source.as_uri(),
-                        "source_file_size": source.stat().st_size,
-                        "source_sha256": hashlib.sha256(
-                            source.read_bytes()
-                        ).hexdigest(),
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert namespace["main"]() == 0
-    destination = tmp_path / "samples" / "LIDAR_TOP" / "source.bin"
-    assert destination.read_bytes() == b"trusted-source"
-
-    destination.write_bytes(b"corrupt")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["media"][0]["source_sha256"] = "0" * 64
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    assert namespace["main"]() == 1
-    assert destination.read_bytes() == b"corrupt"
-    assert list(destination.parent.glob(".aap-download-*")) == []
-
-    fingerprint = hashlib.sha256(source.read_bytes()).hexdigest()
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "media": [
-                    {
-                        "rel_path": "samples/LIDAR_TOP/source.bin",
-                        "presigned_url": source.as_uri(),
-                        "source_file_size": source.stat().st_size,
-                        "source_sha256": fingerprint,
-                    },
-                    {
-                        "rel_path": "samples/LIDAR_TOP/source.bin",
-                        "presigned_url": source.as_uri(),
-                        "source_file_size": source.stat().st_size,
-                        "source_sha256": fingerprint,
-                    },
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert namespace["main"]() == 1
-
-    manifest_path.write_text(
-        json.dumps({"media": [{"rel_path": "samples/missing-url.bin"}]}),
-        encoding="utf-8",
-    )
-    assert namespace["main"]() == 1
+    # Actual HTTP, full-body verification and base-origin handling are exercised
+    # by test_lidar_fetch_receipts for this exact media template.
+    assert _FETCH_NUSCENES_MEDIA_TEMPLATE == FETCH_TRUSTED_MEDIA_TEMPLATE
 
 
 def test_multicamera_coco_is_deterministic_and_pycocotools_compatible():
@@ -420,7 +355,7 @@ def test_pointmask_builds_uint32_labels_with_one_based_category_ids():
                 },
             )
         ],
-        source_point_count=None,
+        source_point_count=5,
         category_map={"car": 1},
     )
 
@@ -624,6 +559,21 @@ async def test_lidar_preflight_reports_axis_size_and_calibration_issues(
             (camera_item.id, "camera_front", "front"),
         ],
     )
+
+    await _register_metadata_sources(db_session, lidar_item, camera_item)
+
+    pending = await preflight_lidar_export(
+        db_session,
+        project_id=project.id,
+        batch_id=None,
+        targets=["kitti"],
+        options=None,
+    )
+    assert pending.ready is False
+    assert pending.camera_roles == ["camera_front"]
+    assert pending.selected_camera_role is None
+    assert pending.checked_tasks == 1
+    assert "kitti_camera_required" in {issue.code for issue in pending.issues}
 
     report = await preflight_lidar_export(
         db_session,
@@ -832,12 +782,14 @@ async def test_lidar_export_zip_writes_standard_targets(
     )
     await db_session.flush()
 
+    await _register_metadata_sources(db_session, lidar_item, cam_item, cam_back_item)
+
     with monkeypatch.context() as scope_patch:
         scope_patch.setattr(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_EXPORT_FRAMES",
             0,
         )
-        oversized_frames = await preflight_lidar_export(
+        oversized_frames = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -854,7 +806,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_EXPORT_BOXES",
             0,
         )
-        oversized_boxes = await preflight_lidar_export(
+        oversized_boxes = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -871,7 +823,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_POINT_BOX_TESTS",
             0,
         )
-        oversized_point_work = await preflight_lidar_export(
+        oversized_point_work = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -887,7 +839,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_PCD_BYTES_TOTAL",
             0,
         )
-        oversized_pcd_bytes = await preflight_lidar_export(
+        oversized_pcd_bytes = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -937,7 +889,7 @@ async def test_lidar_export_zip_writes_standard_targets(
     finally:
         os.unlink(zip_path)
 
-    with pytest.raises(ValueError, match="nuscenes_scene_frame_missing"):
+    with pytest.raises(ValueError, match="lidar_export_contract_missing"):
         await build_export_zip(
             db_session,
             project.id,
@@ -981,6 +933,106 @@ async def test_lidar_export_zip_writes_standard_targets(
     assert batch_preflight_response.json()["ready"] is True
     assert export_response.status_code == 202
     assert dispatched["opts"]["lidar"] == {"kitti_camera_role": "camera_front"}
+
+
+@pytest.mark.asyncio
+async def test_scanned_logical_aliases_survive_actual_lidar_export(
+    db_session, super_admin, monkeypatch
+):
+    from app.services.dataset_storage_keys import managed_dataset_key
+    from app.services.exporting.lidar_preflight import _frame_key
+
+    monkeypatch.setattr(
+        "app.services.exporting.packaging.storage_service.generate_download_url",
+        lambda key, **_kwargs: f"signed://{key}",
+    )
+    user, _ = super_admin
+    project = await create_project(
+        db_session,
+        owner_id=user.id,
+        type_key="lidar",
+        type_label="点云检测",
+        classes=["car"],
+    )
+    project.data_type = "lidar"
+    project.tool_bindings = {
+        "point_mask_3d": {
+            "enabled": True,
+            "classes": [{"name": "car", "order": 0}],
+            "attribute_schema": {"fields": []},
+        }
+    }
+    dataset = Dataset(
+        name="aliased",
+        display_id="DS-LEX-ALIAS",
+        created_by=user.id,
+        data_type="point_cloud",
+    )
+    db_session.add(dataset)
+    await db_session.flush()
+    expected_lidar, expected_camera = set(), set()
+    for index, suffix in enumerate(["", "-1"]):
+        lidar_path = f"scene_a/lidar/000001{suffix}.pcd"
+        camera_path = f"scene_a/camera/front/000001{suffix}.jpg"
+        lidar = DatasetItem(
+            dataset_id=dataset.id,
+            file_name=f"000001{suffix}.pcd",
+            file_path=managed_dataset_key(dataset.id, "scene_a/lidar/000001.pcd"),
+            file_type="point_cloud",
+            file_size=48,
+            metadata_={"point_count": 4, "storage_relative_path": lidar_path},
+        )
+        camera = DatasetItem(
+            dataset_id=dataset.id,
+            file_name=f"000001{suffix}.jpg",
+            file_path=managed_dataset_key(
+                dataset.id, "scene_a/camera/front/000001.jpg"
+            ),
+            file_type="image",
+            width=200,
+            height=120,
+            metadata_={"storage_relative_path": camera_path},
+        )
+        db_session.add_all([lidar, camera])
+        await db_session.flush()
+        task = Task(
+            project_id=project.id,
+            dataset_item_id=lidar.id,
+            display_id=f"T-LEX-ALIAS-{index}",
+            file_name=lidar.file_name,
+            file_path=lidar.file_path,
+            file_type="point_cloud",
+        )
+        db_session.add(task)
+        await db_session.flush()
+        await link_items(
+            db_session,
+            task.id,
+            [(lidar.id, "primary_lidar", None), (camera.id, "camera_front", "front")],
+        )
+        assert _frame_key(task, lidar) == lidar_path.rsplit(".", 1)[0]
+        expected_lidar.add(lidar_path)
+        expected_camera.add(f"front/{camera_path}")
+    zip_path, _, _ = await build_export_zip(
+        db_session,
+        project.id,
+        batch_id=None,
+        targets=["pointmask"],
+        include_attributes=True,
+        video_frame_mode="keyframes",
+    )
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            clouds = json.loads(archive.read("pointclouds_manifest.json"))[
+                "pointclouds"
+            ]
+            images = json.loads(archive.read("images_manifest.json"))["images"]
+            assert len(clouds) == len(images) == 2
+            assert {row["rel_path"] for row in clouds} == expected_lidar
+            assert {row["rel_path"] for row in images} == expected_camera
+            assert all("/_objects/" in row["presigned_url"] for row in clouds + images)
+    finally:
+        os.unlink(zip_path)
 
 
 def test_clean_export_targets_filters_lidar_targets():

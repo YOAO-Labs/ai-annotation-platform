@@ -133,6 +133,12 @@ def _sync_attributes_meta(
     old_attrs = old_attrs or {}
     old_meta = old_meta or {}
     new_meta: dict = {}
+    # This server-owned source lineage is independent of editable attributes.
+    # Annotation request schemas do not accept attributes_meta.
+    from app.services.video_prediction_reads import LINEAGE_KEY
+
+    if LINEAGE_KEY in old_meta:
+        new_meta[LINEAGE_KEY] = copy.deepcopy(old_meta[LINEAGE_KEY])
     for key, val in (new_attrs or {}).items():
         if key.startswith("_"):
             continue
@@ -255,8 +261,20 @@ class AnnotationService:
         attributes: dict | None = None,
         tool_unit_id: str = "bbox",
         video_segment_id: uuid.UUID | None = None,
+        native_original_receipt=None,
     ) -> Annotation:
         task = await self.db.get(Task, task_id)
+        if native_original_receipt is not None:
+            from app.services.managed_native_inference import validate_native_receipt
+
+            await validate_native_receipt(
+                self.db,
+                task_id,
+                task.project_id if task else None,
+                native_original_receipt,
+                actor_id=user_id,
+                result=[{"geometry": geometry}],
+            )
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
         # back with the mutation if the mutation fails.
@@ -272,7 +290,9 @@ class AnnotationService:
                 task_id, parent_annotation_id, video_segment_id
             )
 
-        await prepare_mask_geometry_for_annotation_write(self.db, task, geometry)
+        await prepare_mask_geometry_for_annotation_write(
+            self.db, task, geometry, native_original_receipt=native_original_receipt
+        )
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
             track_id = _new_track_id()
@@ -321,6 +341,9 @@ class AnnotationService:
         override_class_name: str | None = None,
         attribute_overrides: dict | None = None,
         video_segment_id: uuid.UUID | None = None,
+        reference_receipt=None,
+        repair_original_receipt=None,
+        video_acceptance_receipt=None,
     ) -> list[Annotation] | None:
         """采纳预测 → 转 annotation。
 
@@ -343,6 +366,53 @@ class AnnotationService:
         ).scalar_one_or_none()
         if not prediction:
             return None
+        from app.services.reference_access import reject_reference_scope
+
+        selection = None
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import (
+                selection_value,
+                validate_acceptance as validate_video_acceptance,
+            )
+            from app.services.content_snapshot import ContentError
+
+            if reference_receipt is not None or repair_original_receipt is not None:
+                raise ContentError("prediction_video_acceptance_receipt_invalid")
+            selection = selection_value(
+                shape_index, override_class_name, attribute_overrides, video_segment_id
+            )
+            await validate_video_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                video_acceptance_receipt,
+                selection=selection,
+            )
+        elif repair_original_receipt is not None:
+            from app.services.managed_repair_acceptance import (
+                selection_value,
+                validate_acceptance,
+            )
+            from app.services.content_snapshot import ContentError
+
+            if reference_receipt is not None:
+                raise ContentError("repair_original_receipt_invalid")
+            selection = selection_value(
+                shape_index, override_class_name, attribute_overrides, video_segment_id
+            )
+            await validate_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                repair_original_receipt,
+                selection=selection,
+            )
+        elif reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[prediction.task_id])
+        else:
+            from app.services.prediction_acceptance import validate_acceptance
+
+            await validate_acceptance(self.db, prediction, user_id, reference_receipt)
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
 
@@ -352,16 +422,52 @@ class AnnotationService:
         from app.services.prediction import to_internal_shape
 
         raw_shapes = list(prediction.result or [])
+        rejected = set(prediction.rejected_shape_indexes or [])
         if shape_index is not None:
             if not (0 <= shape_index < len(raw_shapes)):
                 return None
+            if shape_index in rejected:
+                raise HTTPException(409, detail="Prediction shape was rejected")
             indexed = [(shape_index, to_internal_shape(raw_shapes[shape_index]))]
         else:
             indexed = [
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
+                if index not in rejected
             ]
+            if raw_shapes and not indexed:
+                raise HTTPException(409, detail="Prediction has no available shapes")
         task = await self.db.get(Task, prediction.task_id)
+        if task is not None and task.file_type == "video":
+            from app.db.models.prediction import PredictionMeta as VideoPredictionMeta
+            from app.services.video_prediction_acceptance import (
+                requires_qualification,
+                selected_shape_indexes,
+            )
+            from app.services.content_snapshot import ContentError
+
+            video_metadata = await self.db.scalar(
+                select(VideoPredictionMeta).where(
+                    VideoPredictionMeta.prediction_id == prediction.id
+                )
+            )
+            if requires_qualification(prediction, video_metadata):
+                if video_acceptance_receipt is None:
+                    raise ContentError("prediction_video_requires_new_request")
+                selected = set(selected_shape_indexes(video_acceptance_receipt))
+                indexed = [
+                    (index, shape) for index, shape in indexed if index in selected
+                ]
+        if (
+            task is not None
+            and task.file_type == "image"
+            and prediction.source == "mask_repair"
+        ):
+            from app.services.reference_keys import is_reference
+            from app.services.content_snapshot import ContentError
+
+            if not is_reference(task.file_path) and repair_original_receipt is None:
+                raise ContentError("repair_original_requires_new_plan")
         if task is not None:
             # A2 · task row lock before the accepted annotations are written.
             await record_annotation_actor(self.db, task, user_id)
@@ -369,7 +475,19 @@ class AnnotationService:
             self.db,
             task,
             [shape.get("geometry", {}) for _, shape in indexed],
+            repair_original_receipt=repair_original_receipt,
+            video_acceptance_receipt=video_acceptance_receipt,
         )
+        if repair_original_receipt is not None:
+            # Owned RLE I/O may outlive credentials; recheck before constructing
+            # any accepted rows so our own writes never look like a prior adopt.
+            await validate_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                repair_original_receipt,
+                selection=selection,
+            )
 
         # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
         # 映射。pipeline 是 stage 级 (非 per-key), 但 enriched key = f"{label}_{k}" if label else k
@@ -405,17 +523,29 @@ class AnnotationService:
         # v0.9.7 fix · prediction.result 是 LabelStudio 标准, 转内部 schema 后入 annotation
         from app.db.models.project import Project
 
-        # B-11 · DINO 写入的 class_name 是项目类别的英文 alias; 采纳时反查
-        # 对应 tool_unit 的 classes 把 alias 映射回原类别名 (中文 / 业务名).
-        # v0.10.17 · 强隔离: 只查 prediction.tool_unit_id 对应 unit 的 classes,
-        # 不再跨 unit 走派生 classes_config (不同 unit 同名类可有不同 alias).
+        # Resolve aliases within the originating shape's tool binding. Different
+        # units may reuse a class name or alias with different meanings.
         project = await self.db.get(Project, prediction.project_id)
         prediction_unit = getattr(prediction, "tool_unit_id", None) or "bbox"
-        alias_to_name: dict[str, str] = {}
-        # v0.18.0 · select/multiselect 属性的合法取值集合, 采纳时软校验 (不阻断, 仅 warning).
-        attr_select_options: dict[str, set[str]] = {}
-        if project is not None:
-            binding = (project.tool_bindings or {}).get(prediction_unit) or {}
+        lineage_meta = pipeline_meta if isinstance(pipeline_meta, dict) else {}
+        shape_stages = {
+            record["shape_id"]: record.get("stage")
+            for record in lineage_meta.get("shape_lineage") or []
+            if isinstance(record, dict) and isinstance(record.get("shape_id"), str)
+        }
+        stage_selections = {
+            selection.get("stage"): selection
+            for selection in lineage_meta.get("selections") or []
+            if isinstance(selection, dict)
+        }
+        unit_contracts = {}
+
+        def unit_contract(unit):
+            if unit in unit_contracts:
+                return unit_contracts[unit]
+            alias_to_name: dict[str, str] = {}
+            attr_select_options: dict[str, set[str]] = {}
+            binding = ((project.tool_bindings or {}).get(unit) or {}) if project else {}
             for cls in binding.get("classes") or []:
                 if not isinstance(cls, dict):
                     continue
@@ -437,9 +567,27 @@ class AnnotationService:
                 }
                 if isinstance(fkey, str) and opts:
                     attr_select_options[fkey] = opts
+            unit_contracts[unit] = alias_to_name, attr_select_options
+            return unit_contracts[unit]
 
         anns: list[Annotation] = []
         for idx, shape in indexed:
+            # Snapshot pipelines can contain shapes from different tool units
+            # and model families. Resolve each through its recorded origin;
+            # legacy predictions retain their historical row-level contract.
+            origin_stage = shape_stages.get(raw_shapes[idx].get("pipeline_shape_id"))
+            selection = stage_selections.get(origin_stage)
+            shape_unit = (
+                shape.get("tool_unit_id") or prediction_unit
+                if selection is not None
+                else prediction_unit
+            )
+            shape_controlled = (
+                bool(selection.get("model_ref"))
+                if selection is not None
+                else controlled_binding
+            )
+            alias_to_name, attr_select_options = unit_contract(shape_unit)
             raw_class = shape.get("class_name", "") or ""
             # v0.14.17 · 采纳时选类: override_class_name 非空时直接用它 (人工指定项目标签),
             # 跳过 alias 反查 — 用于"预测类名既不在标签集、又无 alias 命中"时让人当场选类落库,
@@ -448,13 +596,13 @@ class AnnotationService:
                 override_class_name
                 if override_class_name
                 else raw_class
-                if controlled_binding
+                if shape_controlled
                 else alias_to_name.get(raw_class.strip().lower(), raw_class)
             )
             # v0.10.17 · 走与 create 同一段 class_name 软校验, 避免 accept_prediction 写入
             # 不在 unit allowed 集合内的"幽灵类别"导致 UI 看不见 DB 仍有的记录.
             await self._validate_class_name(
-                prediction.project_id, prediction_unit, mapped_class
+                prediction.project_id, shape_unit, mapped_class
             )
             # v0.14.9 · 协议 v2 OCR / doc_layout: 把 prediction shape 的富属性 (text /
             # language / orientation) 透传到 annotation.attributes。tool_binding 的
@@ -523,9 +671,7 @@ class AnnotationService:
                 user_id=user_id,
                 source="prediction_based",
                 annotation_type=shape.get("type", "bbox"),
-                # v0.10.17 · 沿用 prediction 的 tool_unit_id; to_internal_shape 输出的
-                # shape.type 也可派生 unit (polygon → region), 但优先 prediction 行已落实.
-                tool_unit_id=prediction_unit,
+                tool_unit_id=shape_unit,
                 class_name=mapped_class,
                 geometry=geometry,
                 track_id=track_id,
@@ -537,6 +683,18 @@ class AnnotationService:
                     "keyframe" if geometry.get("type") == "box_3d" else "sample"
                 ),
             )
+            if video_acceptance_receipt is not None:
+                from app.services.video_prediction_reads import (
+                    LINEAGE_KEY,
+                    annotation_lineage,
+                )
+
+                annotation.attributes_meta = {
+                    **annotation.attributes_meta,
+                    LINEAGE_KEY: annotation_lineage(
+                        self.db, annotation, prediction, video_acceptance_receipt, idx
+                    ),
+                }
             self.db.add(annotation)
             if task is not None:
                 try:
@@ -554,6 +712,14 @@ class AnnotationService:
 
         await self.db.flush()
         await self._update_task_stats(prediction.task_id)
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import recheck_credentials
+
+            await recheck_credentials(self.db, video_acceptance_receipt)
         return anns
 
     async def list_by_task(
@@ -951,6 +1117,10 @@ class AnnotationService:
         """
         from fastapi import HTTPException
 
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, task_ids=[src_task.id, target_task.id])
+
         if target_task.id == src_task.id:
             raise HTTPException(
                 status_code=422, detail="propagate 目标不能是源 task 自身"
@@ -1329,6 +1499,9 @@ class AnnotationService:
             t = await self.db.get(Task, frame_to_task[f])
             if t is None:
                 continue
+            from app.services.reference_access import reject_reference_scope
+
+            await reject_reference_scope(self.db, task_ids=[t.id])
             if assert_task_visible is not None:
                 await assert_task_visible(t)
             if assert_task_editable is not None:

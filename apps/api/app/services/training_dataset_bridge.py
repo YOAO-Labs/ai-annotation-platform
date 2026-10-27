@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import tempfile
 import zipfile
+from copy import deepcopy
 from pathlib import Path
 from aap_task_contract import normalize_task
+from app.services import storage_access
 from training_contract.dataset import (
     DETECTION_CONTRACT,
     DatasetContractError,
@@ -24,6 +25,7 @@ from training_contract.dataset import (
     instance_rle_evidence,
     polygon_area,
 )
+from training_contract.lineage import validate_source_lineage
 
 
 class TrainingDatasetError(ValueError):
@@ -35,6 +37,7 @@ class TrainingDatasetError(ValueError):
 
 def contract_of(record):
     try:
+        validate_source_lineage(record)
         return data_contract(record)
     except DatasetContractError as exc:
         raise TrainingDatasetError(exc.code, str(exc)) from exc
@@ -191,6 +194,25 @@ def assign_splits(
     return {s["task_id"]: assignments[root(s["task_id"])] for s in samples}
 
 
+def attach_asset_sources(snapshot: dict, manifest: dict) -> None:
+    """Add an explicit source contract only for newly frozen reference inputs."""
+    if not any(
+        key in snapshot for key in ("asset_source_contract", "source_lineage_contract")
+    ):
+        return
+    for key in ("asset_source_contract", "source_lineage_contract"):
+        if key in snapshot:
+            manifest[key] = deepcopy(snapshot[key])
+    sources = {s["task_id"]: s for s in snapshot["samples"]}
+    for member in manifest["samples"]:
+        source = sources[member["task_id"]]
+        if source.get("asset_reference"):
+            member["asset_reference"] = deepcopy(source["asset_reference"])
+        if "source_lineage" in source:
+            member["source_lineage"] = deepcopy(source["source_lineage"])
+    validate_source_lineage(manifest)
+
+
 def build_training_package(
     snapshot: dict,
     media: list[dict],
@@ -249,8 +271,8 @@ def build_training_package(
             representatives.setdefault(sample["sha256"], sample)
         samples = list(representatives.values())
     manifest_samples = []
-    with zipfile.ZipFile(
-        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1
+    with storage_access.closing_registered(
+        zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1)
     ) as package:
         for sample in sorted(samples, key=lambda s: s["task_id"]):
             task_id = sample["task_id"]
@@ -308,6 +330,7 @@ def build_training_package(
             manifest["summary"]["classes"] = len(classes)
         elif segmentation:
             manifest.update(**contract, format="ultralytics-segmentation")
+        attach_asset_sources(snapshot, manifest)
         manifest["split_history"] = split_history(manifest)
         manifest["semantic_partitions"] = semantic_partitions(manifest)
         manifest["validation_digest"] = content_digest(
@@ -450,7 +473,9 @@ def instance_rle_semantic(instances):
 
 def build_instance_rle_package(snapshot, media, output, *, parent_manifest=None):
     """Spool encoded labels instead of retaining the whole dataset in RAM."""
-    with tempfile.TemporaryDirectory(prefix="aap-training-rle-") as temporary:
+    from app.services.training_dataset_originals import temporary_directory
+
+    with temporary_directory(prefix="aap-training-rle-") as temporary:
         return _build_instance_rle_package(
             snapshot, media, output, Path(temporary), parent_manifest=parent_manifest
         )
@@ -489,7 +514,8 @@ def _build_instance_rle_package(
             for instance in payload["instances"]
         ]
         label_file = labels_directory / f"{item['task_id']}.json"
-        label_file.write_text(text)
+        with storage_access.closing_registered(label_file.open("w")) as target:
+            target.write(text)
         label_size = len(text.encode())
         label_sha256 = hashlib.sha256(text.encode()).hexdigest()
         del text, payload
@@ -529,8 +555,8 @@ def _build_instance_rle_package(
             representatives.setdefault(item["sha256"], item)
         samples = list(representatives.values())
     members = []
-    with zipfile.ZipFile(
-        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1
+    with storage_access.closing_registered(
+        zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1)
     ) as package:
         for item in sorted(samples, key=lambda item: item["task_id"]):
             task_id, split = item["task_id"], splits[item["task_id"]]
@@ -579,6 +605,7 @@ def _build_instance_rle_package(
                 "classes": len(classes),
             },
         }
+        attach_asset_sources(snapshot, manifest)
         manifest["semantic_partitions"] = semantic_partitions(manifest)
         manifest["validation_digest"] = content_digest(
             {

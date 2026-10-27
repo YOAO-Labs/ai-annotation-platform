@@ -35,6 +35,7 @@ from app.services.sensor_calibration import (
     SensorCalibrationError,
     resolve_calibration_states,
 )
+from app.services.point_cloud_quality import originals
 
 
 MAX_QUALITY_TASKS = 5_000
@@ -58,11 +59,15 @@ async def build_source_snapshot(
     project: Project,
     request: PointCloudQualityRunRequest,
     validate_expected: bool = True,
+    original_contract: bool = False,
 ) -> tuple[list[dict], dict]:
     tasks = list(
         (
             await db.execute(
-                select(Task).where(Task.project_id == project.id).order_by(Task.id)
+                select(Task)
+                .execution_options(populate_existing=True)
+                .where(Task.project_id == project.id)
+                .order_by(Task.id)
             )
         )
         .scalars()
@@ -121,11 +126,15 @@ async def build_source_snapshot(
         selected_task_ids = set()
         selected_scene_ids = set()
 
-    annotation_stmt = select(Annotation).where(
-        Annotation.project_id == project.id,
-        Annotation.annotation_type == "box_3d",
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
+    annotation_stmt = (
+        select(Annotation)
+        .execution_options(populate_existing=True)
+        .where(
+            Annotation.project_id == project.id,
+            Annotation.annotation_type == "box_3d",
+            Annotation.is_active.is_(True),
+            Annotation.was_cancelled.is_(False),
+        )
     )
     if request.scope == "annotation_ids":
         annotation_stmt = annotation_stmt.where(
@@ -192,12 +201,16 @@ async def build_source_snapshot(
     selected_track_ids = {
         row.scene_track_id for row in annotations if row.scene_track_id
     }
-    camera_annotation_stmt = select(Annotation).where(
-        Annotation.project_id == project.id,
-        Annotation.sensor_role.is_not(None),
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-        Annotation.task_id.in_(selected_task_ids),
+    camera_annotation_stmt = (
+        select(Annotation)
+        .execution_options(populate_existing=True)
+        .where(
+            Annotation.project_id == project.id,
+            Annotation.sensor_role.is_not(None),
+            Annotation.is_active.is_(True),
+            Annotation.was_cancelled.is_(False),
+            Annotation.task_id.in_(selected_task_ids),
+        )
     )
     if request.scope in {"task_ids", "annotation_ids"}:
         camera_annotation_stmt = camera_annotation_stmt.where(
@@ -212,10 +225,14 @@ async def build_source_snapshot(
             "point_cloud_quality_annotation_budget_exceeded",
             limit=MAX_QUALITY_ANNOTATIONS,
         )
-    track_stmt = select(SceneTrack).where(
-        SceneTrack.project_id == project.id,
-        SceneTrack.scene_id.in_(selected_scene_ids),
-        SceneTrack.retired_at.is_(None),
+    track_stmt = (
+        select(SceneTrack)
+        .execution_options(populate_existing=True)
+        .where(
+            SceneTrack.project_id == project.id,
+            SceneTrack.scene_id.in_(selected_scene_ids),
+            SceneTrack.retired_at.is_(None),
+        )
     )
     if request.scope in {"task_ids", "annotation_ids"}:
         track_stmt = track_stmt.where(SceneTrack.id.in_(selected_track_ids))
@@ -224,6 +241,7 @@ async def build_source_snapshot(
         (
             await db.execute(
                 select(SceneTrackInterval)
+                .execution_options(populate_existing=True)
                 .where(
                     SceneTrackInterval.scene_track_id.in_([row.id for row in tracks])
                 )
@@ -238,6 +256,7 @@ async def build_source_snapshot(
         (
             await db.execute(
                 select(SceneFramePose)
+                .execution_options(populate_existing=True)
                 .where(SceneFramePose.scene_id.in_(selected_scene_ids))
                 .order_by(SceneFramePose.scene_id, SceneFramePose.frame_index)
             )
@@ -269,14 +288,20 @@ async def build_source_snapshot(
     item_ids = direct_item_ids | {item_id for _, item_id, _ in all_link_rows}
     items = list(
         (
-            await db.execute(select(DatasetItem).where(DatasetItem.id.in_(item_ids)))
+            await db.execute(
+                select(DatasetItem)
+                .execution_options(populate_existing=True)
+                .where(DatasetItem.id.in_(item_ids))
+            )
         ).scalars()
     )
     item_by_id = {row.id: row for row in items}
     datasets = list(
         (
             await db.execute(
-                select(Dataset).where(Dataset.id.in_({row.dataset_id for row in items}))
+                select(Dataset)
+                .execution_options(populate_existing=True)
+                .where(Dataset.id.in_({row.dataset_id for row in items}))
             )
         ).scalars()
     )
@@ -428,6 +453,11 @@ async def build_source_snapshot(
                 "ego_rotation": row.ego_rotation,
             }
         )
+    if original_contract:
+        records = [
+            await originals.pin(db, record) if record["kind"] == "task" else record
+            for record in records
+        ]
     records.sort(key=lambda value: canonical_digest(value))
     scope_json = {
         "scope": request.scope,
@@ -455,6 +485,7 @@ async def current_source_digest(
         project=project,
         request=_request_from_scope(run.scope_json),
         validate_expected=False,
+        original_contract=run.scope_json.get("original_contract") == 1,
     )
     return canonical_digest(snapshot)
 
@@ -465,14 +496,20 @@ async def create_quality_run(
     project: Project,
     actor_id: uuid.UUID,
     request: PointCloudQualityRunRequest,
+    http_request,
 ) -> tuple[PointCloudQualityRun, AsyncJob | None, bool]:
     if project.data_type != "lidar":
         raise PointCloudQualityError(422, "point_cloud_quality_lidar_project_required")
+    authority = await originals.capture_authority(db, actor_id, http_request)
     config = load_point_cloud_quality_config(project.point_cloud_quality_config)
     if not config.enabled:
         raise PointCloudQualityError(409, "point_cloud_quality_disabled")
     snapshot, scope_json = await build_source_snapshot(
-        db, project=project, request=request
+        db, project=project, request=request, original_contract=True
+    )
+    scope_json = {**scope_json, "original_contract": 1}
+    await originals.check_authority(
+        db, authority, project.id, scope_json, all_tasks=True
     )
     source_digest = canonical_digest(snapshot)
     config_digest = point_cloud_quality_config_digest(config)
@@ -481,6 +518,7 @@ async def create_quality_run(
             "scope": scope_json,
             "source_snapshot_digest": source_digest,
             "config_digest": config_digest,
+            "authority": originals.authorization(authority),
         }
     )
     existing = (
@@ -509,6 +547,7 @@ async def create_quality_run(
                 payload={
                     "scope": scope_json,
                     "source_snapshot_digest": source_digest,
+                    originals.AUTHORITY: originals.authorization(authority),
                 },
                 celery_task_id=celery_task_id,
             )
@@ -542,6 +581,9 @@ async def create_quality_run(
             )
         ).scalar_one()
         return existing, None, False
+    await originals.check_authority(
+        db, authority, project.id, scope_json, all_tasks=True
+    )
     return run, job, True
 
 
@@ -604,7 +646,9 @@ async def refresh_issue_staleness_bulk(
         row.id: row
         for row in (
             await db.execute(
-                select(Annotation).where(Annotation.id.in_(annotation_ids))
+                select(Annotation)
+                .execution_options(populate_existing=True)
+                .where(Annotation.id.in_(annotation_ids))
             )
         ).scalars()
     }
@@ -612,7 +656,11 @@ async def refresh_issue_staleness_bulk(
     tasks = {
         row.id: row
         for row in (
-            await db.execute(select(Task).where(Task.id.in_(task_ids)))
+            await db.execute(
+                select(Task)
+                .execution_options(populate_existing=True)
+                .where(Task.id.in_(task_ids))
+            )
         ).scalars()
     }
     missing_direct_task_ids = {
@@ -645,16 +693,37 @@ async def refresh_issue_staleness_bulk(
     items = {
         row.id: row
         for row in (
-            await db.execute(select(DatasetItem).where(DatasetItem.id.in_(item_ids)))
+            await db.execute(
+                select(DatasetItem)
+                .execution_options(populate_existing=True)
+                .where(DatasetItem.id.in_(item_ids))
+            )
         ).scalars()
     }
+    pointcloud_datasets = (
+        {
+            row.id: row
+            for row in await db.scalars(
+                select(Dataset)
+                .where(Dataset.id.in_({item.dataset_id for item in items.values()}))
+                .execution_options(populate_existing=True)
+            )
+        }
+        if pointcloud_item_ids
+        else {}
+    )
+    current_originals = {}
     track_ids = {
         issue.scene_track_id for issue in issues if issue.scene_track_id is not None
     }
     tracks = {
         row.id: row
         for row in (
-            await db.execute(select(SceneTrack).where(SceneTrack.id.in_(track_ids)))
+            await db.execute(
+                select(SceneTrack)
+                .execution_options(populate_existing=True)
+                .where(SceneTrack.id.in_(track_ids))
+            )
         ).scalars()
     }
     camera_link_by_task_role: dict[tuple[uuid.UUID, str], uuid.UUID] = {}
@@ -741,6 +810,40 @@ async def refresh_issue_staleness_bulk(
                 != (issue.evidence or {}).get("pointcloud_content_hash")
                 or item.file_path != (issue.evidence or {}).get("pointcloud_file_path")
             )
+            if not stale:
+                evidence = issue.evidence or {}
+                dataset = pointcloud_datasets.get(item.dataset_id)
+                convention = (
+                    ((dataset.metadata_ or {}).get("axis_convention") or "iso_8855")
+                    if dataset
+                    else None
+                )
+                stale = evidence.get(
+                    "pointcloud_contract"
+                ) != 1 or convention != evidence.get("axis_convention")
+                if not stale:
+                    if issue.task_id not in current_originals:
+                        try:
+                            current_originals[issue.task_id] = await originals.pin(
+                                db,
+                                {
+                                    "task_id": str(issue.task_id),
+                                    "pointcloud": {
+                                        "item_id": str(item.id),
+                                        "file_path": item.file_path,
+                                    },
+                                },
+                                lock=False,
+                            )
+                        except originals.ContentError:
+                            current_originals[issue.task_id] = None
+                    current = current_originals[issue.task_id]
+                    stale = current is None or (
+                        current["pointcloud"].get("original")
+                        != evidence.get("pointcloud_original")
+                        or current["pointcloud"].get("original_error")
+                        != evidence.get("pointcloud_original_error")
+                    )
         camera_item_id = (issue.evidence or {}).get("camera_item_id")
         camera_role = (issue.evidence or {}).get("camera_role")
         if not stale and camera_item_id is not None and camera_role is not None:

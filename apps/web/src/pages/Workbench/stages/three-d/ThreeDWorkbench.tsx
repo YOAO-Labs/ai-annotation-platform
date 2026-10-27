@@ -1,3 +1,6 @@
+import { cancelPointCloudFramePrefetch } from "./pointCloudAssetCache";
+import { originalOwnerKey } from "@/api/originals";
+import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.13.2 · 点云查看器(只读 MVP)。
@@ -379,12 +382,21 @@ export function ThreeDWorkbench({
   }, [onPlaybackActiveChange, playbackActive, readOnly]);
   const dockLayout = useWorkbench3DLayout();
   const [cameraResetKey, setCameraResetKey] = useState(0);
-  useEffect(() => retainPointCloudComputeSession(), []);
+  const originalOwner = useOriginalAssetOwner();
+  useEffect(() => {
+    const release = retainPointCloudComputeSession();
+    return () => {
+      cancelPointCloudFramePrefetch();
+      release();
+    };
+  }, [originalOwner]);
   const manifestQuery = usePointCloudManifest(taskId, true);
   const { data: manifest, isLoading, error } = manifestQuery;
-  const retainedManifestRef = useRef(manifest);
-  if (manifest) retainedManifestRef.current = manifest;
-  const displayManifest = manifest ?? retainedManifestRef.current;
+  const retainedManifestRef = useRef({ owner: originalOwner, manifest });
+  if (retainedManifestRef.current.owner !== originalOwner)
+    retainedManifestRef.current = { owner: originalOwner, manifest: undefined };
+  if (manifest) retainedManifestRef.current = { owner: originalOwner, manifest };
+  const displayManifest = manifest ?? retainedManifestRef.current.manifest;
   const pushToast = useToastStore((st) => st.push);
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const userRole = useAuthStore((s) => s.user?.role ?? null);
@@ -983,7 +995,7 @@ export function ThreeDWorkbench({
     showAxisGizmo: workbenchPointcloud.showAxisGizmo,
     cameraDamping: workbenchPointcloud.cameraDamping,
     persistCameraView: workbenchPointcloud.persistCameraView,
-    pointCloudUrl: displayManifest?.point_cloud_url,
+    pointCloudUrl: displayManifest?.point_cloud_url ?? undefined,
     deferPointCloudDisplay: false,
     continuityKey: displayManifest?.scene_id ?? displayManifest?.task_id ?? taskId,
     axisConvention: displayManifest?.axis_convention ?? axisConvention,
@@ -2291,7 +2303,11 @@ export function ThreeDWorkbench({
             })),
             controller.signal,
           );
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || originalOwner !== originalOwnerKey()) {
+            textureResources.dispose();
+            textureResources = null;
+            return;
+          }
           scene.setCameraTextureColorAdjust(colorAdjust);
           scene.setCameraTextureColorization(textureResources.samples);
           setCameraTextureResources(textureResources);
@@ -2302,11 +2318,16 @@ export function ThreeDWorkbench({
             calibCams.map((c) => loadCameraSample(c.image_url, c.calibration!, controller.signal)),
           )
         ).filter((s): s is CameraSample => s !== null);
-        if (controller.signal.aborted || samples.length === 0) return;
+        if (
+          controller.signal.aborted ||
+          originalOwner !== originalOwnerKey() ||
+          samples.length === 0
+        )
+          return;
         const colors = await colorizePointsAsync(positions, scene.getBaseColors(), samples, {
           signal: controller.signal,
         });
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && originalOwner === originalOwnerKey()) {
           colorizedRawRef.current = colors;
           adjustedColorBufferRef.current = null;
           scene.setPointColors(
@@ -2314,19 +2335,19 @@ export function ThreeDWorkbench({
           );
         }
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && originalOwner === originalOwnerKey()) {
           console.warn("[pointcloud-colorize] failed; showing height colors", error);
           scene.setCameraTextureColorization(null);
           scene.setPointColors(null);
         }
       } finally {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && originalOwner === originalOwnerKey()) {
           scene.setPointCloudVisible(true);
           setColorizing(false);
           markPointCloudPaint(
             "camera-color-ready",
             pointCloudUrl,
-            () => !controller.signal.aborted,
+            () => !controller.signal.aborted && originalOwner === originalOwnerKey(),
           );
         }
       }
@@ -2341,6 +2362,7 @@ export function ThreeDWorkbench({
     // colorAdjust changes are handled by the lightweight remap effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    originalOwner,
     colorizeOn,
     cameras,
     loadedPointCloudUrl,
@@ -2832,7 +2854,10 @@ export function ThreeDWorkbench({
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [dockLayout]);
-  const frameError = error || annotationsQuery.error || loadError || rendererError;
+  const originalError = manifest?.original_error
+    ? "点云原件不可用，请检查原件归属、存储位置和访问权限"
+    : null;
+  const frameError = error || originalError || annotationsQuery.error || loadError || rendererError;
   const frameState = {
     taskId,
     status: frameError
@@ -3050,6 +3075,7 @@ export function ThreeDWorkbench({
           {isLoading && <span>加载 manifest…</span>}
           {pointCloudLoading && <span data-testid="pointcloud-loading">加载点云…</span>}
           {error && <span className={ERR}>manifest 加载失败</span>}
+          {originalError && <span className={ERR}>{originalError}</span>}
           {loadError && (
             <span className={ERR}>
               点云加载失败: <CopyableError message={loadError} />

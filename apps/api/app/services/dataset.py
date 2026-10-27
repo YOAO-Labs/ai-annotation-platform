@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import logging
 import mimetypes
 import os
@@ -19,6 +18,14 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services import async_job as async_job_svc
 from app.services.display_id import next_display_id
+from app.services.dataset_assets import find_verified_content, register_item_asset
+from app.services.dataset_storage_keys import (
+    MANAGED_DATASET_PREFIX,
+    managed_dataset_prefix,
+    normalize_dataset_relative_path,
+    dataset_relative_path,
+    dataset_item_relative_path,
+)
 from app.services.project_kind import (
     dataset_has_scenes,
     dataset_kind,
@@ -28,9 +35,9 @@ from app.services.project_kind import (
 )
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.system_settings_service import SystemSettingsService
-
-_STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
-_IMAGE_HEAD_BYTES = 256 * 1024
+from app.services.reference_keys import is_reference, PREFIX
+from app.services.dataset_source_access import validate_dataset_write
+from app.services.dataset_lifecycle import require_writable
 
 # v0.13.11 · 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
 # metadata_["axis_convention"]，回退到默认 iso_8855)。
@@ -40,7 +47,15 @@ log = logging.getLogger(__name__)
 
 def ensure_dataset_storage_name_is_writable(name: str) -> None:
     first_part = name.strip("/").split("/", 1)[0]
-    if first_part.startswith(TRUSTED_NUSCENES_PREFIX):
+    if first_part.startswith(
+        (
+            TRUSTED_NUSCENES_PREFIX,
+            MANAGED_DATASET_PREFIX,
+            "__aap_upload_staging__",
+            "__aap_auxiliary_originals__",
+            PREFIX.rstrip("/"),
+        )
+    ):
         raise HTTPException(
             status_code=422,
             detail="Dataset name uses a reserved storage namespace",
@@ -76,7 +91,17 @@ class LinkProjectResult:
 
 @dataclass(frozen=True)
 class DatasetDeleteCleanup:
-    pyramid_asset_ids: tuple[uuid.UUID, ...]
+    directory_objects: tuple[tuple[str, str], ...] = ()
+
+
+async def writable_dataset(db, dataset_id):
+    """Preserve managed-writer serialization before validating lifecycle state."""
+    await db.scalar(
+        select(Dataset.id)
+        .where(Dataset.id == dataset_id)
+        .with_for_update(key_share=True)
+    )
+    return await require_writable(db, dataset_id)
 
 
 async def build_tasks_for_link(
@@ -86,6 +111,7 @@ async def build_tasks_for_link(
     project_id: uuid.UUID,
     job_id: uuid.UUID | None = None,
     chunk_size: int = 5000,
+    directory_authority=None,
 ) -> dict:
     """v0.12.0 · 为 dataset link 分块建 task（worker / 同步快路径共用）。
 
@@ -96,7 +122,25 @@ async def build_tasks_for_link(
     v0.13.1 · 点云项目（project.data_type == "lidar"）分流到 scene 感知建任务器：
     先写各相机标定，再按帧建 Task + 多文件 link（见 services/pointcloud_import.py）。
     """
+    await validate_dataset_write(
+        db, dataset_id, directory_authority, project_id=project_id, lock=True
+    )
+    await db.execute(
+        select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
+    )
     project = await db.get(Project, project_id)
+    if project and (project.data_type != "image" or project.scene_mode):
+        if await db.scalar(
+            select(DatasetItem.id)
+            .where(
+                DatasetItem.dataset_id == dataset_id,
+                DatasetItem.file_path.startswith(PREFIX, autoescape=True),
+            )
+            .limit(1)
+        ):
+            raise HTTPException(
+                409, detail={"code": "reference_requires_image_project"}
+            )
     if project and project.data_type == "lidar":
         from app.services.pointcloud_import import (
             attach_calibration,
@@ -107,6 +151,9 @@ async def build_tasks_for_link(
         # 标定独立落库：build_pointcloud 在「帧全已建过 task」时 total==0 早退且不 commit，
         # 若不在此 commit，attach_calibration 的 flush 会在 session 关闭时回滚 —— 重导入
         # （如修正 calib 文件后重跑）将刷不掉旧标定。commit 在这让标定持久化与建任务解耦。
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
+        )
         await db.commit()
         return await build_pointcloud_tasks_for_link(
             db,
@@ -114,6 +161,7 @@ async def build_tasks_for_link(
             project_id=project_id,
             job_id=job_id,
             chunk_size=chunk_size,
+            directory_authority=directory_authority,
         )
 
     item_q = (
@@ -143,6 +191,23 @@ async def build_tasks_for_link(
     last_pct = 0
     for start in range(0, total, chunk_size):
         chunk = items[start : start + chunk_size]
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
+        )
+        await db.execute(
+            select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
+        )
+        present = set(
+            await db.scalars(
+                select(Task.dataset_item_id).where(
+                    Task.project_id == project_id,
+                    Task.dataset_item_id.in_([i.id for i in chunk]),
+                )
+            )
+        )
+        chunk = [i for i in chunk if i.id not in present]
+        if not chunk:
+            continue
         seq_result = await db.execute(
             text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
             {"n": len(chunk)},
@@ -178,6 +243,9 @@ async def build_tasks_for_link(
                 await async_job_svc.update_progress(db, job_id, pct)
                 last_pct = pct
 
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
+        )
         await db.commit()
 
     return {"created": created, "total": total}
@@ -194,9 +262,27 @@ class DatasetService:
         has_scenes: bool | None = None,
         limit: int = 50,
         offset: int = 0,
+        location_id: uuid.UUID | None = None,
+        actor=None,
+        state: str = "active",
     ) -> tuple[list[dict], int]:
         q = select(Dataset)
         count_q = select(func.count()).select_from(Dataset)
+        if state != "all":
+            clause = (
+                Dataset.archived_at.is_not(None)
+                if state == "archived"
+                else Dataset.archived_at.is_(None)
+            )
+            q, count_q = q.where(clause), count_q.where(clause)
+        if location_id is not None:
+            from app.services.dataset_workbench import location_dataset_scope
+
+            if actor is None:
+                raise HTTPException(403, "Location filtering requires an actor")
+            clause = location_dataset_scope(location_id, actor)
+            q = q.where(clause)
+            count_q = count_q.where(clause)
 
         if search:
             q = q.where(Dataset.name.ilike(f"%{search}%"))
@@ -314,6 +400,7 @@ class DatasetService:
             "name": name,
             "description": description,
             "data_type": data_type,
+            "storage_scan_prefix": managed_dataset_prefix(ds_id),
             "is_temporal": is_temporal,
             "created_by": user_id,
         }
@@ -323,8 +410,6 @@ class DatasetService:
         ds = Dataset(**kwargs)
         self.db.add(ds)
         await self.db.flush()
-        storage_service.ensure_bucket(storage_service.datasets_bucket)
-        storage_service.create_folder(name, bucket=storage_service.datasets_bucket)
         return ds
 
     async def update(
@@ -338,8 +423,11 @@ class DatasetService:
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return None
+        ds = await writable_dataset(self.db, dataset_id)
         if name is not None:
             ensure_dataset_storage_name_is_writable(name)
+            if ds.storage_scan_prefix is None:
+                ds.storage_scan_prefix = f"{ds.name}/"
             ds.name = name
         if description is not None:
             ds.description = description
@@ -356,44 +444,69 @@ class DatasetService:
         return ds
 
     async def delete(self, dataset_id: uuid.UUID) -> DatasetDeleteCleanup | None:
-        ds = await self.db.get(Dataset, dataset_id)
+        ds = await self.db.get(
+            Dataset, dataset_id, with_for_update=True, populate_existing=True
+        )
         if not ds:
             return None
+        await writable_dataset(self.db, dataset_id)
         from app.services.active_learning_pool import guard_source
 
         await guard_source(self.db, dataset_id=dataset_id)
-        from app.db.models.image_pyramid import ImagePyramidAsset
+        from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 
-        asset_ids = list(
-            (
-                await self.db.execute(
-                    select(ImagePyramidAsset.id)
-                    .join(
-                        DatasetItem,
-                        DatasetItem.id == ImagePyramidAsset.dataset_item_id,
-                    )
-                    .where(DatasetItem.dataset_id == dataset_id)
+        preview_rows = list(
+            await self.db.scalars(
+                select(DatasetSourcePreview)
+                .join(
+                    DatasetSourceItem,
+                    (DatasetSourceItem.source_id == DatasetSourcePreview.source_id)
+                    & (
+                        DatasetSourceItem.path_digest
+                        == DatasetSourcePreview.path_digest
+                    ),
+                )
+                .where(
+                    DatasetSourceItem.dataset_item_id.in_(
+                        select(DatasetItem.id).where(
+                            DatasetItem.dataset_id == dataset_id
+                        )
+                    ),
+                    DatasetSourcePreview.object_key.is_not(None),
                 )
             )
-            .scalars()
-            .all()
         )
+        from app.services.directory_previews import retire_output
+
+        for row in preview_rows:
+            await retire_output(self.db, row.thumbnail_output_id)
+        directory_objects = tuple(
+            (row.bucket, row.object_key)
+            for row in preview_rows
+            if row.thumbnail_output_id is None
+        )
+        from app.services.managed_original_retirement import (
+            capture_managed_original_retirements,
+        )
+
+        await capture_managed_original_retirements(self.db, dataset_id=dataset_id)
         await self.db.delete(ds)
         await self.db.flush()
-        return DatasetDeleteCleanup(pyramid_asset_ids=tuple(asset_ids))
+        return DatasetDeleteCleanup(directory_objects=directory_objects)
 
     @staticmethod
     def cleanup_deleted_storage(cleanup: DatasetDeleteCleanup) -> None:
-        from app.services.image_pyramid import PYRAMID_PREFIX
-
-        for asset_id in cleanup.pyramid_asset_ids:
+        for bucket, key in cleanup.directory_objects:
+            if bucket != storage_service.media_cache_bucket or not key.startswith(
+                "directory-previews/"
+            ):
+                continue
             try:
-                storage_service.delete_prefix(
-                    f"{PYRAMID_PREFIX}/{asset_id}",
-                    bucket=storage_service.media_cache_bucket,
-                )
-            except Exception:  # noqa: BLE001
-                log.exception("failed to clean image pyramid asset %s", asset_id)
+                storage_service.delete_object(key, bucket=bucket)
+            except Exception:
+                log.exception("failed to clean directory preview %s", key)
+
+        # Independent pyramid owners survive the Dataset cascade for durable GC.
 
     # ── Items ───────────────────────────────────────────────────────────────
 
@@ -402,6 +515,7 @@ class DatasetService:
         dataset_id: uuid.UUID,
         limit: int = 50,
         offset: int = 0,
+        item_ids: list[uuid.UUID] | None = None,
     ) -> tuple[list[dict], int]:
         count_q = (
             select(func.count())
@@ -417,31 +531,46 @@ class DatasetService:
             .limit(limit)
             .offset(offset)
         )
+        if item_ids is not None:
+            q = q.where(DatasetItem.id.in_(item_ids))
         result = await self.db.execute(q)
         items = result.scalars().all()
 
         out = []
         for item in items:
             d = _item_dict(item)
-            try:
-                d["file_url"] = storage_service.generate_download_url(
-                    item.file_path,
-                    bucket=storage_service.datasets_bucket,
-                )
-            except Exception:
+            from app.services.directory_policy import owns_media
+
+            directory_owned = await owns_media(self.db, item.id)
+            if directory_owned:
+                d["blurhash"] = None
+                d["thumbnail_url"] = None
+            if is_reference(item.file_path):
                 d["file_url"] = None
-            if item.thumbnail_path:
-                try:
-                    thumbnail_bucket = storage_service.bucket_for_cache_key(
-                        item.thumbnail_path,
-                        default=storage_service.datasets_bucket,
+                out.append(d)
+                continue
+            d["file_url"] = None
+            if item.file_type == "video":
+                from app.services import video_derivatives
+
+                d["thumbnail_url"] = None
+                d["blurhash"] = None
+                if not directory_owned:
+                    checked = await video_derivatives.thumbnail(
+                        self.db, item_id=item.id
                     )
-                    d["thumbnail_url"] = storage_service.generate_download_url(
-                        item.thumbnail_path,
-                        bucket=thumbnail_bucket,
+                    if checked is not None and checked[0] == item.thumbnail_path:
+                        d["thumbnail_url"] = checked[1]
+            elif item.thumbnail_path and not directory_owned:
+                from app.services import image_pyramid_objects, thumbnail_outputs
+
+                d["thumbnail_url"] = await image_pyramid_objects.thumbnail_url(
+                    self.db, "dataset_item", item.id, item.thumbnail_path
+                )
+                if d["thumbnail_url"] is None:
+                    d["thumbnail_url"] = await thumbnail_outputs.thumbnail_url(
+                        self.db, "dataset_item", item.id, item.thumbnail_path
                     )
-                except Exception:
-                    d["thumbnail_url"] = None
             out.append(d)
         return out, total
 
@@ -466,7 +595,13 @@ class DatasetService:
         content_hash: str | None = None,
         width: int | None = None,
         height: int | None = None,
+        sha256: str | None = None,
+        object_etag: str | None = None,
+        storage_binding=None,
+        storage_ref=None,
+        logical_path: str | None = None,
     ) -> DatasetItem:
+        ds = await writable_dataset(self.db, dataset_id)
         item = DatasetItem(
             dataset_id=dataset_id,
             file_name=file_name,
@@ -476,19 +611,43 @@ class DatasetService:
             content_hash=content_hash,
             width=width,
             height=height,
+            metadata_=(
+                {"storage_relative_path": normalize_dataset_relative_path(logical_path)}
+                if logical_path is not None
+                else {}
+            ),
         )
         self.db.add(item)
 
-        ds = await self.db.get(Dataset, dataset_id)
         if ds:
             ds.file_count = (ds.file_count or 0) + 1
 
         await self.db.flush()
+        await register_item_asset(
+            self.db,
+            item,
+            sha256=sha256,
+            size_bytes=file_size,
+            etag=object_etag,
+            binding=storage_binding,
+            storage_ref=storage_ref,
+        )
         return item
 
     async def delete_item(
         self, item_id: uuid.UUID, *, dataset_id: uuid.UUID | None = None
     ) -> bool:
+        candidate = await self.db.get(DatasetItem, item_id)
+        if not candidate or (
+            dataset_id is not None and candidate.dataset_id != dataset_id
+        ):
+            return False
+        await writable_dataset(self.db, candidate.dataset_id)
+        # Writers acquire the dataset before its items. NO KEY UPDATE also
+        # remains compatible with existing FK references from other writers.
+        await self.db.get(
+            Dataset, candidate.dataset_id, with_for_update={"key_share": True}
+        )
         item = await self.db.scalar(
             select(DatasetItem).where(DatasetItem.id == item_id).with_for_update()
         )
@@ -500,28 +659,51 @@ class DatasetService:
         ds = await self.db.get(Dataset, item.dataset_id)
         if ds:
             ds.file_count = max((ds.file_count or 0) - 1, 0)
-        from app.db.models.image_pyramid import ImagePyramidAsset
-        from app.services.image_pyramid import PYRAMID_PREFIX
+        from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 
-        asset_ids = list(
-            (
-                await self.db.execute(
-                    select(ImagePyramidAsset.id).where(
-                        ImagePyramidAsset.dataset_item_id == item.id
-                    )
+        previews = list(
+            await self.db.scalars(
+                select(DatasetSourcePreview)
+                .join(
+                    DatasetSourceItem,
+                    (DatasetSourceItem.source_id == DatasetSourcePreview.source_id)
+                    & (
+                        DatasetSourceItem.path_digest
+                        == DatasetSourcePreview.path_digest
+                    ),
+                )
+                .where(
+                    DatasetSourceItem.dataset_item_id == item.id,
+                    DatasetSourcePreview.object_key.is_not(None),
                 )
             )
-            .scalars()
-            .all()
         )
-        for asset_id in asset_ids:
-            storage_service.delete_prefix(
-                f"{PYRAMID_PREFIX}/{asset_id}",
-                bucket=storage_service.media_cache_bucket,
-            )
+        from app.services.directory_previews import retire_output
+
+        for row in previews:
+            await retire_output(self.db, row.thumbnail_output_id)
+        self._directory_delete_keys = getattr(self, "_directory_delete_keys", []) + [
+            (row.bucket, row.object_key)
+            for row in previews
+            if row.thumbnail_output_id is None
+        ]
+
+        from app.services.managed_original_retirement import (
+            capture_managed_original_retirements,
+        )
+
+        await capture_managed_original_retirements(
+            self.db, dataset_id=item.dataset_id, item_id=item.id
+        )
         await self.db.delete(item)
         await self.db.flush()
         return True
+
+    async def cleanup_directory_previews(self):
+        from app.services.directory_previews import delete_owned
+
+        await delete_owned(getattr(self, "_directory_delete_keys", []))
+        self._directory_delete_keys = []
 
     async def ingest_one(
         self,
@@ -531,8 +713,12 @@ class DatasetService:
         *,
         size: int | None = None,
         storage_key: str | None = None,
-        content_hash_hint: str | None = None,
+        object_etag: str | None = None,
         dest_relpath: str | None = None,
+        directory_authority=None,
+        max_bytes: int | None = None,
+        creation_requested_by: uuid.UUID | None = None,
+        creation_authority: dict | None = None,
     ) -> IngestOutcome:
         """Ingest one source object into a dataset.
 
@@ -542,6 +728,7 @@ class DatasetService:
         `dest_relpath` 给定时（连接器/扫描导入）保留源子目录结构作为 file_name 与
         storage_key 后缀（如 `a/img.jpg`）；不给时退回纯文件名（basename），其它调用零影响。
         """
+        await validate_dataset_write(self.db, dataset_id, directory_authority)
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return IngestOutcome(
@@ -563,7 +750,12 @@ class DatasetService:
         base_for_ext = os.path.basename(final_name)
         ext = base_for_ext.rsplit(".", 1)[-1].lower() if "." in base_for_ext else ""
         file_type = _infer_file_type_from_ext(ext)
-        uploaded_storage = False
+        creation = None
+
+        if storage_key and storage_key.lstrip("/").startswith(
+            "__aap_auxiliary_originals__/"
+        ):
+            raise HTTPException(422, "Auxiliary originals cannot become dataset items")
 
         if storage_key:
             duplicate_path = await self._find_by_file_path(dataset_id, storage_key)
@@ -574,7 +766,8 @@ class DatasetService:
                     reason="file_path_exists",
                     item_id=duplicate_path.id,
                 )
-            content_hash = content_hash_hint if _is_md5(content_hash_hint) else None
+            content_hash = None
+            sha256 = None
             file_size = size
             head_bytes = b""
         else:
@@ -582,27 +775,52 @@ class DatasetService:
                 return IngestOutcome(
                     status="error", relpath=relpath, error="stream missing"
                 )
-            storage_key = f"{ds.name}/{final_name}"
+            from app.services import managed_original_creation as originals
+
+            if max_bytes is None:
+                limits = await SystemSettingsService.get_import_limits_snapshot(self.db)
+                max_bytes = limits["dataset_import_max_total_bytes"]
             content_type = (
                 mimetypes.guess_type(final_name)[0] or "application/octet-stream"
             )
-            content_hash, file_size, head_bytes = self._upload_stream_to_dataset_bucket(
-                storage_key,
-                stream,
+            allocation = await originals.allocate(
+                self.db,
+                dataset_id=dataset_id,
+                logical_path=final_name,
+                origin="connector",
+                max_bytes=max_bytes,
                 content_type=content_type,
+                requested_by=creation_requested_by,
+                authority=(
+                    creation_authority
+                    if creation_authority is not None
+                    else directory_authority
+                ),
             )
-            uploaded_storage = True
+            storage_key = allocation["object_key"]
+            await self.db.commit()
+            creation = await originals.create_stream(
+                self.db, allocation, stream, content_type=content_type
+            )
+            content_hash, sha256, file_size, head_bytes = (
+                creation.md5,
+                creation.sha256,
+                creation.size_bytes,
+                creation.head_bytes,
+            )
+            object_etag = creation.etag
 
-        if content_hash:
-            existing = await self.find_by_hash(dataset_id, content_hash)
+        async def check_authority(*, lock=False):
+            await validate_dataset_write(
+                self.db, dataset_id, directory_authority, lock=lock
+            )
+
+        await check_authority()
+        if sha256:
+            existing = await find_verified_content(
+                self.db, dataset_id, sha256, legacy_md5=content_hash
+            )
             if existing is not None:
-                if uploaded_storage:
-                    try:
-                        storage_service.delete_object(
-                            storage_key, bucket=storage_service.datasets_bucket
-                        )
-                    except Exception:
-                        pass
                 return IngestOutcome(
                     status="skipped",
                     relpath=relpath,
@@ -621,7 +839,9 @@ class DatasetService:
                 if head_bytes
                 else None
             )
-            if dims is None:
+            if dims is None and creation is not None:
+                dims = await originals.image_dimensions(self.db, allocation, creation)
+            elif dims is None:
                 dims = storage_service.read_image_dimensions(
                     storage_key,
                     bucket=storage_service.datasets_bucket,
@@ -629,6 +849,13 @@ class DatasetService:
             if dims:
                 width, height = dims
 
+        await check_authority(lock=True)
+        if creation is not None and final_name in await self._existing_file_names(
+            dataset_id
+        ):
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("managed_original_creation_input_changed")
         item = await self.add_item(
             dataset_id=dataset_id,
             file_name=final_name,
@@ -638,8 +865,20 @@ class DatasetService:
             content_hash=content_hash,
             width=width,
             height=height,
+            sha256=sha256,
+            object_etag=object_etag,
+            storage_binding=originals.original_locator(allocation)
+            if creation is not None
+            else None,
+            storage_ref=originals.original_ref(allocation)
+            if creation is not None
+            else None,
+            logical_path=final_name,
         )
+        if creation is not None:
+            await originals.attach(self.db, item, creation.creation_id)
         linked_tasks = await self.create_tasks_for_items(dataset_id, [item.id])
+        await check_authority()
         return IngestOutcome(
             status="added",
             relpath=relpath,
@@ -651,6 +890,9 @@ class DatasetService:
         )
 
     async def enqueue_media_for_items(self, item_ids: list[uuid.UUID]) -> None:
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, item_ids=item_ids)
         unique_item_ids = list(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return
@@ -667,7 +909,13 @@ class DatasetService:
             elif file_type == "video":
                 from app.workers.media import generate_video_metadata
 
-                generate_video_metadata.delay(str(item_id))
+                from app.services import video_derivative_originals as originals
+
+                source = await originals.pin(self.db, "dataset_item", item_id)
+                delegation = originals.system_authorization(
+                    "dataset_item", item_id, source
+                )
+                generate_video_metadata.delay(str(item_id), delegation=delegation)
 
     async def _find_by_file_path(
         self, dataset_id: uuid.UUID, file_path: str
@@ -680,11 +928,47 @@ class DatasetService:
         )
         return result.scalar_one_or_none()
 
-    async def _unique_file_name(self, dataset_id: uuid.UUID, file_name: str) -> str:
-        existing_rows = await self.db.execute(
-            select(DatasetItem.file_name).where(DatasetItem.dataset_id == dataset_id)
+    async def _existing_file_names(self, dataset_id: uuid.UUID) -> set[str]:
+        ds = await self.db.get(
+            Dataset,
+            dataset_id,
+            with_for_update={"key_share": True},
+            populate_existing=True,
         )
-        existing = {row[0] for row in existing_rows.all() if row[0]}
+        existing_rows = await self.db.execute(
+            select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+        )
+        existing = set()
+        for item in existing_rows.scalars():
+            name, path = item.file_name, item.file_path
+            existing.add(name)
+            if (item.metadata_ or {}).get("storage_relative_path"):
+                existing.add(dataset_item_relative_path(item, ds.name if ds else ""))
+                continue
+            if (
+                ds
+                and ds.storage_scan_prefix
+                and path.startswith(ds.storage_scan_prefix)
+                and not path.startswith(managed_dataset_prefix(dataset_id))
+            ):
+                existing.add(path[len(ds.storage_scan_prefix) :])
+            else:
+                existing.add(dataset_relative_path(path, ds.name if ds else ""))
+        return existing
+
+    async def _unique_file_name(
+        self,
+        dataset_id: uuid.UUID,
+        file_name: str,
+        *,
+        existing_names: set[str] | None = None,
+    ) -> str:
+        file_name = normalize_dataset_relative_path(file_name)
+        existing = (
+            existing_names
+            if existing_names is not None
+            else await self._existing_file_names(dataset_id)
+        )
         if file_name not in existing:
             return file_name
         stem, ext = os.path.splitext(file_name)
@@ -693,122 +977,51 @@ class DatasetService:
             i += 1
         return f"{stem}-{i}{ext}"
 
-    def _upload_stream_to_dataset_bucket(
-        self,
-        storage_key: str,
-        stream: BinaryIO,
-        *,
-        content_type: str,
-    ) -> tuple[str, int, bytes]:
-        client = storage_service.client
-        bucket = storage_service.datasets_bucket
-        md5 = hashlib.md5()
-        head = bytearray()
-        total = 0
-        part_number = 1
-        parts: list[dict] = []
-        upload_id: str | None = None
-
-        resp = client.create_multipart_upload(
-            Bucket=bucket,
-            Key=storage_key,
-            ContentType=content_type,
-        )
-        upload_id = resp["UploadId"]
-        try:
-            while True:
-                chunk = stream.read(_STREAM_UPLOAD_CHUNK_BYTES)
-                if not chunk:
-                    break
-                if isinstance(chunk, str):
-                    chunk = chunk.encode()
-                elif not isinstance(chunk, bytes):
-                    chunk = bytes(chunk)
-                total += len(chunk)
-                md5.update(chunk)
-                if len(head) < _IMAGE_HEAD_BYTES:
-                    remaining = _IMAGE_HEAD_BYTES - len(head)
-                    head.extend(chunk[:remaining])
-                part = client.upload_part(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    PartNumber=part_number,
-                    UploadId=upload_id,
-                    Body=chunk,
-                )
-                parts.append({"ETag": part["ETag"], "PartNumber": part_number})
-                part_number += 1
-
-            if parts:
-                client.complete_multipart_upload(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    UploadId=upload_id,
-                    MultipartUpload={"Parts": parts},
-                )
-            else:
-                client.abort_multipart_upload(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    UploadId=upload_id,
-                )
-                upload_id = None
-                client.put_object(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    Body=b"",
-                    ContentType=content_type,
-                )
-        except Exception:
-            if upload_id is not None:
-                try:
-                    client.abort_multipart_upload(
-                        Bucket=bucket,
-                        Key=storage_key,
-                        UploadId=upload_id,
-                    )
-                except Exception:
-                    pass
-            raise
-
-        return md5.hexdigest(), total, bytes(head)
-
     # ── Scan & import from bucket ─────────────────────────────────────────
 
-    async def scan_and_import(self, dataset_id: uuid.UUID) -> list[IngestOutcome]:
+    async def scan_and_import(
+        self, dataset_id: uuid.UUID, *, directory_authority=None
+    ) -> list[IngestOutcome]:
+        await validate_dataset_write(self.db, dataset_id, directory_authority)
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return []
         ensure_dataset_storage_name_is_writable(ds.name)
 
-        prefix = f"{ds.name}/"
-        objects = storage_service.list_objects(
-            prefix, bucket=storage_service.datasets_bucket
-        )
         outcomes: list[IngestOutcome] = []
-        for obj in objects:
-            key: str = obj["key"]
-            if key.endswith("/"):
-                continue
-            etag = obj.get("etag") or ""
-            # 保留数据集前缀下的子目录层级作为 file_name（如 a/img.jpg）
-            rel_under_ds = key[len(prefix) :] if key.startswith(prefix) else key
-            outcomes.append(
-                await self.ingest_one(
-                    dataset_id,
-                    key,
-                    size=obj.get("size"),
-                    storage_key=key,
-                    content_hash_hint=etag if _is_md5(etag) else None,
-                    dest_relpath=rel_under_ds,
-                )
+        prefixes = dict.fromkeys(
+            [ds.storage_scan_prefix or f"{ds.name}/", managed_dataset_prefix(ds.id)]
+        )
+        for prefix in prefixes:
+            objects = storage_service.list_objects(
+                prefix, bucket=storage_service.datasets_bucket
             )
+            for obj in objects:
+                key: str = obj["key"]
+                if key.endswith("/") or not key.startswith(prefix):
+                    continue
+                rel_under_ds = (
+                    dataset_relative_path(key)
+                    if key.startswith(managed_dataset_prefix(ds.id))
+                    else key[len(prefix) :]
+                )
+                outcomes.append(
+                    await self.ingest_one(
+                        dataset_id,
+                        key,
+                        size=obj.get("size"),
+                        storage_key=key,
+                        object_etag=obj.get("etag"),
+                        dest_relpath=rel_under_ds,
+                        directory_authority=directory_authority,
+                    )
+                )
         return outcomes
 
     # ── Project linking ─────────────────────────────────────────────────────
 
     async def link_project(
-        self, dataset_id: uuid.UUID, project_id: uuid.UUID
+        self, dataset_id: uuid.UUID, project_id: uuid.UUID, *, directory_authority=None
     ) -> LinkProjectResult:
         """v0.12.0 · 建 ProjectDataset link，并按 item 数决定同步 / 异步建 task。
 
@@ -816,6 +1029,15 @@ class DatasetService:
         > 阈值：不在本请求里建 task，改为创建 CREATE_TASKS async_job 并由 endpoint
         在 db.commit() 之后 enqueue。返回 LinkProjectResult 让 endpoint 决策。
         """
+        await validate_dataset_write(
+            self.db, dataset_id, directory_authority, project_id=project_id, lock=True
+        )
+        dataset = await self.db.scalar(
+            select(Dataset).where(Dataset.id == dataset_id).with_for_update()
+        )
+        await validate_dataset_write(
+            self.db, dataset_id, directory_authority, project_id=project_id, lock=True
+        )
         existing = (
             await self.db.execute(
                 select(ProjectDataset).where(
@@ -827,7 +1049,6 @@ class DatasetService:
         if existing:
             return LinkProjectResult(link=existing)
 
-        dataset = await self.db.get(Dataset, dataset_id)
         project = await self.db.get(Project, project_id)
         if dataset is None or project is None:
             raise HTTPException(status_code=404, detail="Dataset or project not found")
@@ -868,13 +1089,17 @@ class DatasetService:
                     "dataset_id": str(dataset_id),
                     "project_id": str(project_id),
                     "mode": "link",
+                    "directory_authority": directory_authority,
                 },
             )
             return LinkProjectResult(link=link, async_job_id=job.id)
 
         # 同步快路径：build_tasks_for_link 内部分块 commit（job_id=None 不上报进度）。
         result = await build_tasks_for_link(
-            self.db, dataset_id=dataset_id, project_id=project_id
+            self.db,
+            dataset_id=dataset_id,
+            project_id=project_id,
+            directory_authority=directory_authority,
         )
         return LinkProjectResult(link=link, created_tasks=result["created"])
 
@@ -893,6 +1118,10 @@ class DatasetService:
         `link_project` handles the initial backfill. This method covers the append path:
         upload / zip / scan can add new DatasetItem rows after a dataset is already linked.
         """
+        await writable_dataset(self.db, dataset_id)
+        await self.db.execute(
+            select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
+        )
         unique_item_ids = list(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return 0
@@ -920,6 +1149,18 @@ class DatasetService:
         items = items_result.all()
         if not items:
             return 0
+        if any(is_reference(item.file_path) for item in items):
+            if await self.db.scalar(
+                select(Project.id)
+                .where(
+                    Project.id.in_(project_ids),
+                    (Project.data_type != "image") | Project.scene_mode.is_(True),
+                )
+                .limit(1)
+            ):
+                raise HTTPException(
+                    409, detail={"code": "reference_requires_image_project"}
+                )
 
         existing_rows = await self.db.execute(
             select(Task.project_id, Task.dataset_item_id).where(
@@ -1003,8 +1244,10 @@ class DatasetService:
             {"deleted_tasks": N, "deleted_annotations": M, "deleted_batches": K,
              "deleted_batch_ids": [...], "soft": false}
         """
+        await writable_dataset(self.db, dataset_id)
         from app.db.models.annotation import Annotation
         from app.db.models.annotation_comment import AnnotationComment
+        from app.db.models.annotation_feedback import AnnotationFeedback
         from app.db.models.task_lock import TaskLock
 
         # 1. 找出本次要删的 task ids 与所属 batch ids
@@ -1047,12 +1290,25 @@ class DatasetService:
 
         # 3. 级联删除（顺序关键：先 child 后 parent）
         if ann_ids:
+            from app.services.comment_attachment_uploads import retire_for_comments
+
+            await retire_for_comments(
+                self.db,
+                select(AnnotationComment.id).where(
+                    AnnotationComment.annotation_id.in_(ann_ids)
+                ),
+            )
             await self.db.execute(
                 delete(AnnotationComment).where(
                     AnnotationComment.annotation_id.in_(ann_ids)
                 )
             )
         if target_task_ids:
+            await self.db.execute(
+                delete(AnnotationFeedback).where(
+                    AnnotationFeedback.task_id.in_(target_task_ids)
+                )
+            )
             await self.db.execute(
                 delete(Annotation).where(Annotation.task_id.in_(target_task_ids))
             )
@@ -1166,10 +1422,6 @@ def _safe_relpath(relpath: str) -> str:
     return "/".join(parts)
 
 
-def _is_md5(value: str | None) -> bool:
-    return bool(value and len(value) == 32)
-
-
 def _infer_file_type_from_ext(ext: str) -> str:
     if ext in _IMAGE_EXTS:
         return "image"
@@ -1192,6 +1444,9 @@ def _dataset_dict(ds: Dataset) -> dict:
         "file_count": ds.file_count,
         "total_size": 0,  # 调用方会覆盖
         "created_by": ds.created_by,
+        "archived_at": ds.archived_at,
+        "archived_by": ds.archived_by,
+        "lifecycle_revision": ds.lifecycle_revision,
         # v0.13.11 · 派生自 metadata_["axis_convention"], None = 视作 iso_8855。
         "axis_convention": (ds.metadata_ or {}).get("axis_convention"),
         "created_at": ds.created_at,
@@ -1206,6 +1461,11 @@ def _item_dict(item: DatasetItem) -> dict:
         "file_name": item.file_name,
         "file_path": item.file_path,
         "file_type": item.file_type,
+        "original_identity_path": (
+            f"/api/v1/datasets/{item.dataset_id}/items/{item.id}/original-identity"
+            if not is_reference(item.file_path)
+            else None
+        ),
         "file_size": item.file_size,
         "content_hash": item.content_hash,
         "width": item.width,

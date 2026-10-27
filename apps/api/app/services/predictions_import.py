@@ -43,6 +43,7 @@ from app.schemas.aap_json import (
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
+from app.services.annotation_evidence import lock_tasks_for_evidence
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
 from app.services.project import derive_classes_list
 from app.services.task_matcher import (
@@ -388,6 +389,9 @@ async def import_aap_json(
                 )
                 result.skipped += 1
             continue
+
+        if not dry_run:
+            await lock_tasks_for_evidence(db, [task.id], nowait=True)
 
         # AAP JSON 每个 prediction entry 对应一条平台 Prediction 行; entry.shapes
         # 可把多个 shape 合并进同一 Prediction.result.
@@ -827,6 +831,9 @@ async def import_coco(
             result.skipped += 1
             continue
 
+        if not dry_run:
+            await lock_tasks_for_evidence(db, [task.id], nowait=True)
+
         score = ann.get("score")
         # 预标注导入缺省满分: COCO GT 标注通常无 score, 缺省视作 100% 置信(确定标签)。
         # 否则 score=null 经 to_internal_shape 落为 confidence=0.0, 被工作台默认 50% 阈值
@@ -900,7 +907,7 @@ async def import_coco(
             object_key = str(geometry["mask"]["object_key"])
             stored = stored_rle_references.get(object_key)
             if stored is None:
-                stored = await store_coco_rle(rle)
+                stored = await store_coco_rle(rle, db=db)
                 if stored["object_key"] != object_key:
                     raise ValueError("stored COCO RLE does not match content reference")
                 stored_rle_references[object_key] = stored

@@ -26,7 +26,9 @@ async def create_snapshot(db, project_id, payload):
 
 
 async def load_snapshot(db, snapshot_id, project_id):
-    snapshot = await db.get(PredictionExecutionSnapshot, UUID(str(snapshot_id)))
+    snapshot = await db.get(
+        PredictionExecutionSnapshot, UUID(str(snapshot_id)), populate_existing=True
+    )
     if (
         not snapshot
         or snapshot.project_id != project_id

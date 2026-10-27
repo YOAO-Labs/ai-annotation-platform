@@ -43,20 +43,11 @@ export type {
   ServicePoolMemberPutRequest,
 } from "./generated/types.gen";
 
-export interface BucketSummary {
-  name: string;
-  status: "ok" | "error";
-  object_count: number;
-  total_size_bytes: number;
-  error: string | null;
-  role: "annotations" | "datasets" | "bug-reports" | "media-cache" | "audit-archive";
-}
-
-export interface StorageOverview {
-  items: BucketSummary[];
-  total_object_count: number;
-  total_size_bytes: number;
-}
+export type { BucketSummary } from "./storage";
+export type StorageOverview = Pick<
+  import("./storage").BucketsResponse,
+  "items" | "total_object_count" | "total_size_bytes"
+>;
 
 // v0.10.26 · 单变体 cache 桶 (来自 backend /cache/stats，key="sam/dino")。
 export interface CacheBucketStat {

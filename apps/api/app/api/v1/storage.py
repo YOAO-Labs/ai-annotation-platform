@@ -2,20 +2,27 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.deps import get_current_user, get_db, require_roles
+from app.deps import get_current_user, get_db, require_roles, assert_request_scopes
 from app.db.enums import PlatformRole
 from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
+from app.db.models.video_derivative import VideoDerivativeOutput
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.storage import storage_service
-from app.schemas.storage import BucketSummary, BucketsResponse
+from app.schemas.storage import (
+    BucketsResponse,
+    UsageInventoryResponse,
+    UsageScheduleRequest,
+    UsageScheduleSummary,
+)
+from app.services import storage_usage
 
 router = APIRouter()
 
@@ -87,25 +94,53 @@ async def storage_health(_: User = Depends(get_current_user)):
 
 
 @router.get("/buckets", response_model=BucketsResponse)
-async def storage_buckets(_: User = Depends(get_current_user)):
-    bucket_roles = {
-        storage_service.bucket: "annotations",
-        storage_service.datasets_bucket: "datasets",
-        storage_service.bug_reports_bucket: "bug-reports",
-        storage_service.media_cache_bucket: "media-cache",
-        storage_service.audit_archive_bucket: "audit-archive",
-        storage_service.avatars_bucket: "avatars",
-    }
-    items: list[BucketSummary] = []
-    for b, role in bucket_roles.items():
-        summary = await run_in_threadpool(storage_service.summarize_bucket, b)
-        items.append(BucketSummary(role=role, **summary))
+async def storage_buckets(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    await storage_usage.require_admin(db, current_user.id)
+    return await storage_usage.read_usage(db)
 
-    return BucketsResponse(
-        items=items,
-        total_object_count=sum(i.object_count for i in items),
-        total_size_bytes=sum(i.total_size_bytes for i in items),
+
+@router.post("/usage-inventory", response_model=UsageInventoryResponse, status_code=202)
+async def start_usage_inventory(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    from app.workers.storage_usage import dispatch
+
+    job, reused = await storage_usage.start(
+        db, current_user, getattr(request.state, "api_key_id", None)
     )
+    job_id = job.id
+    if reused:
+        await db.commit()
+    else:
+        await dispatch(db, job)
+    return UsageInventoryResponse(job_id=job_id, reused=reused)
+
+
+@router.put("/usage-schedule", response_model=UsageScheduleSummary)
+async def update_usage_schedule(
+    body: UsageScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    result = await storage_usage.configure_schedule(
+        db,
+        current_user,
+        body.enabled,
+        body.interval_hours,
+        getattr(request.state, "api_key_id", None),
+    )
+    await db.commit()
+    return result
 
 
 class VideoAssetFailureItem(BaseModel):
@@ -142,9 +177,10 @@ class VideoAssetRetryRequest(BaseModel):
 
 
 class VideoAssetRetryResponse(BaseModel):
-    status: Literal["queued"]
+    status: Literal["queued", "dispatch_pending"]
     asset_type: VideoAssetKind
     dataset_item_id: uuid.UUID
+    job_id: uuid.UUID
 
 
 def _task_context(
@@ -159,7 +195,10 @@ def _task_context(
 
 
 def _metadata_error_items(
-    item: DatasetItem, task: Task | None, project: Project | None
+    item: DatasetItem,
+    task: Task | None,
+    project: Project | None,
+    ownership_error: str | None = None,
 ) -> list[VideoAssetFailureItem]:
     video_meta = (item.metadata_ or {}).get("video") or {}
     mapping: list[tuple[VideoAssetKind, str]] = [
@@ -168,6 +207,8 @@ def _metadata_error_items(
         ("frame_timetable", "frame_timetable_error"),
     ]
     out: list[VideoAssetFailureItem] = []
+    if ownership_error and not video_meta.get("probe_error"):
+        video_meta = {**video_meta, "probe_error": ownership_error}
     for asset_type, field_name in mapping:
         raw_error = video_meta.get(field_name)
         if not raw_error:
@@ -184,6 +225,56 @@ def _metadata_error_items(
             )
         )
     return out
+
+
+async def _metadata_ownership_error(db, item):
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives as derivatives
+    from app.services import video_derivative_storage as physical
+    from app.services.content_snapshot import ContentError
+
+    if item.video_output_id is None and item.video_building_output_id is not None:
+        active = await db.get(VideoDerivativeOutput, item.video_building_output_id)
+        if (
+            active is not None
+            and active.state == "building"
+            and (
+                active.lease_token is None
+                or active.lease_expires_at > derivatives.now()
+            )
+        ):
+            return None
+    try:
+        source = await originals.pin(db, "dataset_item", item.id)
+        await derivatives.metadata(db, item, source)
+    except ContentError as exc:
+        return exc.code
+    except (physical.VideoDerivativeStorageError, ValueError):
+        return "video_metadata_unpinned"
+    return None
+
+
+async def _retry_metadata(db, item, source, authority):
+    from app.services import video_derivatives as derivatives
+    from app.services.content_snapshot import ContentError
+
+    try:
+        return await derivatives.metadata(db, item, source)
+    except ContentError as exc:
+        if exc.code not in {
+            "video_metadata_unpinned",
+            "video_metadata_changed",
+            "video_metadata_invalid",
+        }:
+            raise
+    output, needed = await derivatives.prepare(db, item.id, authority, "metadata")
+    output_id = output.id
+    await db.commit()
+    if needed:
+        derivatives.dispatch([output_id])
+    raise HTTPException(
+        503, detail={"code": "video_metadata_preparing"}, headers={"Retry-After": "2"}
+    )
 
 
 @router.get("/video-assets/failures", response_model=VideoAssetFailuresResponse)
@@ -204,8 +295,13 @@ async def list_video_asset_failures(
     ).all()
 
     items_by_key: dict[str, VideoAssetFailureItem] = {}
+    ownership_errors = {}
     for item, task, project in rows:
-        for failure in _metadata_error_items(item, task, project):
+        if item.id not in ownership_errors:
+            ownership_errors[item.id] = await _metadata_ownership_error(db, item)
+        for failure in _metadata_error_items(
+            item, task, project, ownership_errors[item.id]
+        ):
             items_by_key.setdefault(failure.asset_key, failure)
 
     chunk_rows = (
@@ -214,7 +310,23 @@ async def list_video_asset_failures(
             .join(DatasetItem, DatasetItem.id == VideoChunk.dataset_item_id)
             .outerjoin(Task, Task.dataset_item_id == DatasetItem.id)
             .outerjoin(Project, Project.id == Task.project_id)
-            .where(VideoChunk.status == "failed", *project_scope)
+            .outerjoin(
+                VideoDerivativeOutput, VideoDerivativeOutput.id == VideoChunk.output_id
+            )
+            .where(
+                or_(
+                    VideoChunk.status == "failed",
+                    VideoChunk.output_id.is_(None),
+                    VideoDerivativeOutput.id.is_(None),
+                    VideoDerivativeOutput.state.in_(["retiring", "deleted"]),
+                    VideoDerivativeOutput.kind != "chunk",
+                    VideoDerivativeOutput.dataset_item_id != DatasetItem.id,
+                    DatasetItem.video_output_id.is_(None),
+                    VideoDerivativeOutput.metadata_output_id
+                    != DatasetItem.video_output_id,
+                ),
+                *project_scope,
+            )
         )
     ).all()
     for chunk, item, task, project in chunk_rows:
@@ -226,7 +338,7 @@ async def list_video_asset_failures(
                 asset_type="chunk",
                 dataset_item_id=item.id,
                 file_name=item.file_name,
-                error=chunk.error or "Chunk generation failed",
+                error=chunk.error or "video_derivative_unrecorded_or_stale",
                 updated_at=chunk.updated_at,
                 chunk_id=chunk.chunk_id,
                 **_task_context(task, project),
@@ -239,7 +351,24 @@ async def list_video_asset_failures(
             .join(DatasetItem, DatasetItem.id == VideoFrameCache.dataset_item_id)
             .outerjoin(Task, Task.dataset_item_id == DatasetItem.id)
             .outerjoin(Project, Project.id == Task.project_id)
-            .where(VideoFrameCache.status == "failed", *project_scope)
+            .outerjoin(
+                VideoDerivativeOutput,
+                VideoDerivativeOutput.id == VideoFrameCache.output_id,
+            )
+            .where(
+                or_(
+                    VideoFrameCache.status == "failed",
+                    VideoFrameCache.output_id.is_(None),
+                    VideoDerivativeOutput.id.is_(None),
+                    VideoDerivativeOutput.state.in_(["retiring", "deleted"]),
+                    VideoDerivativeOutput.kind != "frame",
+                    VideoDerivativeOutput.dataset_item_id != DatasetItem.id,
+                    DatasetItem.video_output_id.is_(None),
+                    VideoDerivativeOutput.metadata_output_id
+                    != DatasetItem.video_output_id,
+                ),
+                *project_scope,
+            )
         )
     ).all()
     for frame, item, task, project in frame_rows:
@@ -251,7 +380,7 @@ async def list_video_asset_failures(
                 asset_type="frame",
                 dataset_item_id=item.id,
                 file_name=item.file_name,
-                error=frame.error or "Frame extraction failed",
+                error=frame.error or "video_derivative_unrecorded_or_stale",
                 updated_at=frame.updated_at,
                 frame_index=frame.frame_index,
                 width=frame.width,
@@ -280,81 +409,96 @@ async def list_video_asset_failures(
 )
 async def retry_video_asset(
     payload: VideoAssetRetryRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MEDIA_MANAGERS)),
 ):
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives as derivatives
+    from app.services import video_asset_retry_jobs as retry_jobs
+    from app.services.content_snapshot import ContentError
+
     item = await db.get(DatasetItem, payload.dataset_item_id)
     if not item or item.file_type != "video":
         raise HTTPException(status_code=404, detail="Video item not found")
-    # A project-owned asset may only be retried by its legitimate manager;
-    # dataset-only media keeps the platform-manager policy.
     await _assert_media_asset_manager(db, item, current_user)
-
-    if payload.asset_type in {"probe", "poster", "frame_timetable"}:
-        from app.workers.media import generate_video_metadata
-
-        generate_video_metadata.delay(str(item.id))
-        return VideoAssetRetryResponse(
-            status="queued", asset_type=payload.asset_type, dataset_item_id=item.id
+    try:
+        authority = await originals.authorize_policy(
+            db, "storage", item.id, current_user, request
         )
-
-    if payload.asset_type == "chunk":
-        if payload.chunk_id is None:
-            raise HTTPException(status_code=400, detail="chunk_id is required")
-        row = (
-            await db.execute(
+        source = await originals.check(db, authority)
+        kind, spec, slot = "metadata", None, None
+        if payload.asset_type == "chunk":
+            if payload.chunk_id is None:
+                raise HTTPException(status_code=400, detail="chunk_id is required")
+            slot = await db.scalar(
                 select(VideoChunk).where(
                     VideoChunk.dataset_item_id == item.id,
                     VideoChunk.chunk_id == payload.chunk_id,
                 )
             )
-        ).scalar_one_or_none()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Video chunk not found")
-        row.status = "pending"
-        row.error = None
-        row.generation_mode = None
-        row.diagnostics = {}
-        await db.commit()
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(item.id), [payload.chunk_id])
-        return VideoAssetRetryResponse(
-            status="queued", asset_type=payload.asset_type, dataset_item_id=item.id
-        )
-
-    if payload.frame_index is None or payload.width is None or payload.format is None:
-        raise HTTPException(
-            status_code=400,
-            detail="frame_index, width and format are required for frame retry",
-        )
-    row = (
-        await db.execute(
-            select(VideoFrameCache).where(
-                VideoFrameCache.dataset_item_id == item.id,
-                VideoFrameCache.frame_index == payload.frame_index,
-                VideoFrameCache.width == payload.width,
-                VideoFrameCache.format == payload.format,
+            if slot is None:
+                raise HTTPException(status_code=404, detail="Video chunk not found")
+            generation = await _retry_metadata(db, item, source, authority)
+            kind, spec = "chunk", derivatives.chunk_spec(generation, payload.chunk_id)
+        elif payload.asset_type == "frame":
+            if (
+                payload.frame_index is None
+                or payload.width is None
+                or payload.format is None
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="frame_index, width and format are required for frame retry",
+                )
+            slot = await db.scalar(
+                select(VideoFrameCache).where(
+                    VideoFrameCache.dataset_item_id == item.id,
+                    VideoFrameCache.frame_index == payload.frame_index,
+                    VideoFrameCache.width == payload.width,
+                    VideoFrameCache.format == payload.format,
+                )
             )
+            if slot is None:
+                raise HTTPException(
+                    status_code=404, detail="Video frame cache row not found"
+                )
+            generation = await _retry_metadata(db, item, source, authority)
+            kind, spec = (
+                "frame",
+                derivatives.frame_spec(
+                    generation, payload.frame_index, payload.width, payload.format
+                ),
+            )
+        active_id = (
+            item.video_building_output_id if kind == "metadata" else slot.output_id
         )
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Video frame cache row not found")
-    row.status = "pending"
-    row.error = None
-    await db.commit()
-    from app.workers.media import extract_video_frames
-
-    extract_video_frames.delay(
-        str(item.id),
-        [
-            {
-                "frame_index": payload.frame_index,
-                "width": payload.width,
-                "format": payload.format,
-            }
-        ],
-    )
+        active = await db.get(VideoDerivativeOutput, active_id) if active_id else None
+        output, needed = await derivatives.prepare(
+            db,
+            item.id,
+            authority,
+            kind,
+            spec=spec,
+            force=not (active is not None and active.state == "building"),
+        )
+        output_id = output.id
+        job = await retry_jobs.observe(db, output, current_user.id, payload.asset_type)
+        job_id = job.id
+        await db.commit()
+        dispatch_status = "queued"
+        if needed:
+            try:
+                derivatives.dispatch([output_id])
+            except Exception:
+                await retry_jobs.dispatch_pending(db, job_id)
+                await db.commit()
+                dispatch_status = "dispatch_pending"
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     return VideoAssetRetryResponse(
-        status="queued", asset_type=payload.asset_type, dataset_item_id=item.id
+        status=dispatch_status,
+        asset_type=payload.asset_type,
+        dataset_item_id=item.id,
+        job_id=job_id,
     )

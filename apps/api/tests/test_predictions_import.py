@@ -1973,7 +1973,7 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
 
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
-    async def _store(rle):
+    async def _store(rle, *, db):
         return build_rle_reference(rle)
 
     store = AsyncMock(side_effect=_store)

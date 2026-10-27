@@ -89,6 +89,8 @@ export interface VideoChunkDecoderDiagnostics {
 
 interface UseVideoChunkDecoderArgs {
   taskId: string | null | undefined;
+  /** Immutable server output identity; never a signed URL. */
+  resourceKey?: string | null;
   /** feature flag 的解析结果由调用方传入(或缺省时本 hook 自行从环境探测)。 */
   enabled?: boolean;
   /** 已解码 bitmap 的字节预算上限(性能档位 videoDecoderBitmapCacheBytes)。 */
@@ -108,8 +110,14 @@ export function detectWebCodecsSupport(): boolean {
 }
 
 /** 缓存键:与 useVideoBitmapCache 同构(`${taskId}:${frameIndex}`)。 */
-export function chunkDecoderCacheKey(taskId: string, frameIndex: number): string {
-  return `${taskId}:${frameIndex}`;
+export function chunkDecoderCacheKey(
+  taskId: string,
+  frameIndex: number,
+  resourceKey?: string | null,
+): string {
+  return resourceKey
+    ? JSON.stringify([taskId, resourceKey, frameIndex])
+    : `${taskId}:${frameIndex}`;
 }
 
 /** session identity 逐字段相等性比较(任一字段变化都必须重建 decoder)。 */
@@ -154,7 +162,7 @@ export function isWebCodecsExperimentEnabled(
 }
 
 /** 从当前浏览器环境读取 flag（window.location.search + localStorage）。 */
-function resolveEnabledFromEnv(): boolean {
+export function resolveVideoChunkDecoderEnabled(): boolean {
   if (typeof window === "undefined") return false;
   return isWebCodecsExperimentEnabled(window.location.search, window.localStorage);
 }
@@ -292,11 +300,12 @@ export async function decodePlanToBitmap(
 
 export function useVideoChunkDecoder({
   taskId,
+  resourceKey,
   enabled,
   bitmapBudgetBytes = DEFAULT_BITMAP_BUDGET_BYTES,
 }: UseVideoChunkDecoderArgs) {
   const supported = detectWebCodecsSupport();
-  const resolvedEnabled = enabled ?? resolveEnabledFromEnv();
+  const resolvedEnabled = enabled ?? resolveVideoChunkDecoderEnabled();
   const secureContext = typeof window !== "undefined" ? window.isSecureContext : false;
   const active = supported && resolvedEnabled;
 
@@ -320,6 +329,8 @@ export function useVideoChunkDecoder({
   const inFlightRef = useRef(new Map<string, Promise<VideoChunkDecodeResult>>());
   const taskIdRef = useRef(taskId);
   taskIdRef.current = taskId;
+  const resourceKeyRef = useRef(resourceKey);
+  resourceKeyRef.current = resourceKey;
   const mountedRef = useRef(true);
   const lifecycleGenerationRef = useRef(0);
 
@@ -493,8 +504,15 @@ export function useVideoChunkDecoder({
       if (!taskId || !active) {
         return { bitmap: null, fallbackReason: "flag_disabled" };
       }
+      if (
+        !mountedRef.current ||
+        taskIdRef.current !== taskId ||
+        resourceKeyRef.current !== resourceKey
+      ) {
+        return { bitmap: null, fallbackReason: "stale_request" };
+      }
       const normalizedFrame = Math.max(0, Math.round(args.targetFrameIndex));
-      const key = chunkDecoderCacheKey(taskId, normalizedFrame);
+      const key = chunkDecoderCacheKey(taskId, normalizedFrame, resourceKey);
       const cached =
         activeBitmapRef.current?.key === key
           ? activeBitmapRef.current.entry
@@ -520,7 +538,8 @@ export function useVideoChunkDecoder({
         const isStillCurrent = () =>
           mountedRef.current &&
           lifecycleGenerationRef.current === lifecycleGeneration &&
-          taskIdRef.current === taskId;
+          taskIdRef.current === taskId &&
+          resourceKeyRef.current === resourceKey;
         const rememberSupplementalFrame = async (
           frame: VideoFrame,
           frameIndex: number,
@@ -564,7 +583,12 @@ export function useVideoChunkDecoder({
             typeof performance !== "undefined"
               ? Math.round(performance.now() - supplementalStartedAt)
               : 0;
-          return remember(chunkDecoderCacheKey(taskId, frameIndex), entry, decodeMs, false);
+          return remember(
+            chunkDecoderCacheKey(taskId, frameIndex, resourceKey),
+            entry,
+            decodeMs,
+            false,
+          );
         };
         // session 复用:identity 匹配且处于可用状态才复用；failed/closed 必须销毁重建。
         const slot = sessionRef.current;
@@ -728,7 +752,7 @@ export function useVideoChunkDecoder({
         if (inFlightRef.current.get(key) === promise) inFlightRef.current.delete(key);
       }
     },
-    [active, remember, taskId],
+    [active, remember, taskId, resourceKey],
   );
 
   /**
@@ -739,7 +763,7 @@ export function useVideoChunkDecoder({
     (frameIndex: number): DecodedVideoFrameBitmap | null => {
       if (!taskId || !active) return null;
       const normalizedFrame = Math.max(0, Math.round(frameIndex));
-      const key = chunkDecoderCacheKey(taskId, normalizedFrame);
+      const key = chunkDecoderCacheKey(taskId, normalizedFrame, resourceKey);
       const cache = cacheRef.current;
       let owned: OwnedDecodedVideoFrameBitmap | null = null;
       if (activeBitmapRef.current?.key === key) {
@@ -771,7 +795,7 @@ export function useVideoChunkDecoder({
       setDiagnostics((cur) => ({ ...cur, misses: cur.misses + 1 }));
       return null;
     },
-    [active, bumpVersion, ownedBitmapCount, rebalanceBitmapCache, taskId],
+    [active, bumpVersion, ownedBitmapCount, rebalanceBitmapCache, taskId, resourceKey],
   );
 
   // showFrame 已触发新 render 后，旧活动帧才可重新交给 LRU；若其本身超预算则在此关闭。
@@ -825,7 +849,7 @@ export function useVideoChunkDecoder({
     mountedRef.current = true;
     const cache = cacheRef.current;
     const inFlight = inFlightRef.current;
-    const sessionSlot = sessionRef.current;
+    const sessions = sessionRef;
     const activeBitmap = activeBitmapRef;
     const uncachedBitmaps = uncachedBitmapRef;
     const retiredBitmaps = retiredBitmapRef;
@@ -840,9 +864,16 @@ export function useVideoChunkDecoder({
       for (const owned of retiredBitmaps.current) closeBitmap(owned.entry.bitmap);
       retiredBitmaps.current = [];
       inFlight.clear();
-      sessionSlot.session?.dispose();
+      const session = sessions.current.session;
+      sessions.current = { session: null, identity: null };
+      session?.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    sessionRef.current.session?.dispose();
+    sessionRef.current = { session: null, identity: null };
+  }, [resourceKey]);
 
   // taskId 切换时清空缓存。
   useEffect(() => {
@@ -853,10 +884,10 @@ export function useVideoChunkDecoder({
     void version;
     if (!taskId || activeFrameIndex === null) return null;
     const activeOwned = activeBitmapRef.current;
-    return activeOwned?.key === chunkDecoderCacheKey(taskId, activeFrameIndex)
+    return activeOwned?.key === chunkDecoderCacheKey(taskId, activeFrameIndex, resourceKey)
       ? activeOwned.entry
       : null;
-  }, [activeFrameIndex, taskId, version]);
+  }, [activeFrameIndex, taskId, resourceKey, version]);
 
   return {
     supported,

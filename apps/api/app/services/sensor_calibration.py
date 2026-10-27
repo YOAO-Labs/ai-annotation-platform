@@ -176,6 +176,13 @@ async def update_calibration(
     expected_digest: str,
     actor_id: uuid.UUID | None,
 ) -> SensorCalibrationState:
+    from app.services.dataset_lifecycle import require_writable
+
+    dataset_id = await db.scalar(
+        select(DatasetItem.dataset_id).where(DatasetItem.id == dataset_item_id)
+    )
+    if dataset_id is not None:
+        await require_writable(db, dataset_id, lock=True)
     item = (
         await db.execute(
             select(DatasetItem)

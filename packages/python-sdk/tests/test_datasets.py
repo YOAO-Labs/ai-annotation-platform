@@ -1,10 +1,16 @@
 import json
+from datetime import datetime
 from uuid import uuid4
 
 import httpx
 import pytest
 
-from ai_annotation.errors import PermissionDeniedError
+from ai_annotation import (
+    DatasetLifecycleCounts,
+    DatasetLifecyclePreview,
+    DatasetLifecycleResult,
+)
+from ai_annotation.errors import ConflictError, PermissionDeniedError
 from ai_annotation.models import (
     Dataset,
     DatasetItem,
@@ -41,9 +47,144 @@ def test_list_datasets(client, respx_mock):
     req = route.calls.last.request
     assert req.url.params["search"] == "ds"
     assert req.url.params["limit"] == "10"
+    assert req.url.params["state"] == "active"
     assert isinstance(page, Page)
     assert isinstance(page.items[0], Dataset)
     assert page.total == 1
+
+
+@pytest.mark.parametrize("state", ["active", "archived", "all"])
+def test_list_datasets_state_preserves_existing_positional_arguments(
+    client, respx_mock, state
+):
+    route = respx_mock.get(f"{API}/datasets").mock(
+        return_value=httpx.Response(
+            200, json={"items": [], "total": 0, "limit": 10, "offset": 20}
+        )
+    )
+    client.datasets.list("ds", "image", 10, 20, state=state)
+    assert dict(route.calls.last.request.url.params) == {
+        "search": "ds",
+        "data_type": "image",
+        "limit": "10",
+        "offset": "20",
+        "state": state,
+    }
+
+
+def test_dataset_lifecycle_fields_are_typed_and_backward_compatible(client, respx_mock):
+    archived_by = str(uuid4())
+    route = respx_mock.get(f"{API}/datasets/{DS_ID}").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                **DATASET,
+                "archived_at": "2026-10-24T01:00:00Z",
+                "archived_by": archived_by,
+                "lifecycle_revision": 7,
+            },
+        )
+    )
+    dataset = client.datasets.get(DS_ID)
+    assert isinstance(dataset.archived_at, datetime)
+    assert str(dataset.archived_by) == archived_by
+    assert dataset.lifecycle_revision == 7
+    assert route.called
+
+    active = Dataset.model_validate(DATASET)
+    assert active.archived_at is None
+    assert active.archived_by is None
+    assert active.lifecycle_revision == 1
+
+
+@pytest.mark.parametrize("operation", ["archive", "restore"])
+def test_dataset_lifecycle_preview_and_apply_exact_review(
+    client, respx_mock, operation
+):
+    counts = {
+        "items": 12,
+        "sources": 2,
+        "projects": 3,
+        "tasks": 15,
+        "annotations": 18,
+        "active_scans": 0,
+        "active_registrations": 0,
+        "enabled_schedules": 1,
+        "pending_jobs": 0,
+        "ready_lineage_versions": 4,
+        "unfinished_lineage_versions": 0,
+    }
+    preview_route = respx_mock.post(f"{API}/datasets/{DS_ID}/lifecycle-preview").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "dataset_id": DS_ID,
+                "lifecycle_revision": 7,
+                "state": "active" if operation == "archive" else "archived",
+                "operation": operation,
+                "measured_at": "2026-10-24T01:00:00Z",
+                "expires_at": "2026-10-24T01:05:00Z",
+                "impact_token": "reviewed-token",
+                "counts": counts,
+                "frozen_coverage": "recorded_dataset_membership_only",
+            },
+        )
+    )
+    preview = client.datasets.preview_lifecycle(DS_ID, operation, expected_revision=7)
+    assert isinstance(preview, DatasetLifecyclePreview)
+    assert isinstance(preview.counts, DatasetLifecycleCounts)
+    assert isinstance(preview.expires_at, datetime)
+    assert preview.counts.model_dump() == counts
+    assert json.loads(preview_route.calls.last.request.content) == {
+        "operation": operation,
+        "expected_revision": 7,
+    }
+
+    archived_by = str(uuid4())
+    apply_route = respx_mock.post(f"{API}/datasets/{DS_ID}/lifecycle").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "dataset_id": DS_ID,
+                "lifecycle_revision": 8,
+                "state": "archived" if operation == "archive" else "active",
+                "archived_at": "2026-10-24T01:01:00Z"
+                if operation == "archive"
+                else None,
+                "archived_by": archived_by if operation == "archive" else None,
+            },
+        )
+    )
+    result = client.datasets.set_lifecycle(
+        preview.dataset_id,
+        preview.operation,
+        expected_revision=preview.lifecycle_revision,
+        impact_token=preview.impact_token,
+    )
+    assert isinstance(result, DatasetLifecycleResult)
+    assert result.lifecycle_revision == 8
+    assert json.loads(apply_route.calls.last.request.content) == {
+        "operation": operation,
+        "expected_revision": 7,
+        "impact_token": "reviewed-token",
+    }
+    assert preview_route.call_count == apply_route.call_count == 1
+
+
+@pytest.mark.parametrize("status", [403, 409])
+def test_set_lifecycle_does_not_refresh_review_or_retry(client, respx_mock, status):
+    detail = {"code": "dataset_lifecycle_preview_changed", "message": "Review again"}
+    route = respx_mock.post(f"{API}/datasets/{DS_ID}/lifecycle").mock(
+        return_value=httpx.Response(status, json={"detail": detail})
+    )
+    error_type = PermissionDeniedError if status == 403 else ConflictError
+    with pytest.raises(error_type) as exc:
+        client.datasets.set_lifecycle(
+            DS_ID, "archive", expected_revision=7, impact_token="old-token"
+        )
+    assert exc.value.detail == detail
+    assert route.call_count == 1
+    assert len(respx_mock.calls) == 1
 
 
 def test_create_and_get_dataset(client, respx_mock):

@@ -140,47 +140,67 @@ test("dataset filters preserve deep-link state and browser history", async ({
   page,
   filtering,
 }) => {
-  const initial = getResponse(page, "/datasets", {
-    search: keysOf(filtering).keys.projects,
-    data_type: "image",
-  });
+  const projects = keysOf(filtering).keys.projects;
+  const imageId = filtering.operations.dataset_ids[0];
+  const videoId = filtering.operations.dataset_ids[1];
+  const imageName = filtering.operations.display_names.dataset_a;
+  const videoName = filtering.operations.display_names.dataset_b;
+  // A legacy `dataset=` link opens the deep detail page and carries the
+  // filtered list forward in `return`; the list itself must not be queried.
+  const detail = getResponse(page, "/datasets/" + imageId);
   await page.goto(
     "/datasets?" +
       new URLSearchParams({
-        q: keysOf(filtering).keys.projects,
+        q: projects,
         data_type: "image",
-        dataset: filtering.operations.dataset_ids[0],
+        dataset: imageId,
         keep: "filter-test",
       }),
   );
+  const deepLinked = await checked(await detail);
+  expect(deepLinked).toMatchObject({ id: imageId, name: imageName });
+  await expect(page.getByRole("heading", { level: 1, name: imageName })).toBeVisible();
+  const detailUrl = new URL(page.url());
+  expect(detailUrl.pathname).toBe("/datasets/" + imageId);
+  expect(detailUrl.searchParams.has("dataset")).toBe(false);
+  const returnTo = new URL(detailUrl.searchParams.get("return")!, "http://datasets.test");
+  expect(returnTo.pathname).toBe("/datasets");
+  expect(returnTo.searchParams.get("q")).toBe(projects);
+  expect(returnTo.searchParams.get("data_type")).toBe("image");
+  expect(returnTo.searchParams.get("keep")).toBe("filter-test");
+
+  const initial = getResponse(page, "/datasets", {
+    search: projects,
+    data_type: "image",
+  });
+  await page.getByRole("link", { name: "返回数据集列表" }).click();
   const images = await checked(await initial);
-  expect(images.items.map((item: { id: string }) => item.id)).toEqual([
-    filtering.operations.dataset_ids[0],
-  ]);
-  const imageRow = page.locator("#dataset-row-" + filtering.operations.dataset_ids[0]);
-  await expect(imageRow.getByRole("button", { name: "收起" })).toBeVisible();
-  await expect.poll(() => new URL(page.url()).searchParams.has("dataset")).toBe(false);
+  expect(images.items.map((item: { id: string }) => item.id)).toEqual([imageId]);
+  const imageRow = page.getByRole("link", { name: imageName, exact: true });
+  await expect(imageRow).toBeVisible();
+  await expect(imageRow).toHaveAttribute("href", new RegExp(`^/datasets/${imageId}\\?`));
+  await expect(page.getByRole("combobox", { name: "数据类型" })).toHaveValue("image");
+  expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
+
   const next = getResponse(page, "/datasets", {
-    search: keysOf(filtering).keys.projects,
+    search: projects,
     data_type: "video",
   });
-  await page.getByRole("button", { name: "视频", exact: true }).click();
+  await page.getByRole("combobox", { name: "数据类型" }).selectOption("video");
   const videos = await checked(await next);
-  expect(videos.items.map((item: { id: string }) => item.id)).toEqual([
-    filtering.operations.dataset_ids[1],
-  ]);
-  await expect(
-    page
-      .locator("#dataset-row-" + filtering.operations.dataset_ids[1])
-      .getByRole("button", { name: "展开" }),
-  ).toBeVisible();
+  expect(videos.items.map((item: { id: string }) => item.id)).toEqual([videoId]);
+  const videoRow = page.getByRole("link", { name: videoName, exact: true });
+  await expect(videoRow).toBeVisible();
+  await expect(videoRow).toHaveAttribute("href", new RegExp(`^/datasets/${videoId}\\?`));
+  await expect.poll(() => new URL(page.url()).searchParams.get("data_type")).toBe("video");
   await page.goBack();
   await expect.poll(() => new URL(page.url()).searchParams.get("data_type")).toBe("image");
   await expect(imageRow).toBeVisible();
   await page.goForward();
   await expect.poll(() => new URL(page.url()).searchParams.get("data_type")).toBe("video");
+  await expect(videoRow).toBeVisible();
   await page.reload();
-  await expect(page.locator("#dataset-row-" + filtering.operations.dataset_ids[1])).toBeVisible();
+  await expect(page.getByRole("link", { name: videoName, exact: true })).toBeVisible();
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 
@@ -282,13 +302,11 @@ test("image job search keeps spaces and applies its page reset with the debounce
   page,
   filtering,
 }) => {
+  const query = keysOf(filtering).keys.jobs;
   const initial = getResponse(page, "/async-jobs", { offset: "20" });
   await page.goto("/ai-pre/jobs?page=2&keep=filter-test");
   await checked(await initial);
-  const applied = getResponse(page, "/async-jobs", {
-    search: keysOf(filtering).keys.jobs,
-    offset: "0",
-  });
+  const applied = getResponse(page, "/async-jobs", { search: query, offset: "0" });
   const seen: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
@@ -296,19 +314,26 @@ test("image job search keeps spaces and applies its page reset with the debounce
       seen.push(url.search);
   });
   const search = page.getByPlaceholder("搜索 prompt...");
-  await search.pressSequentially(keysOf(filtering).keys.jobs, { delay: 15 });
+  await search.press(query[0]);
+  // From the first keystroke on the panel may only ask for the typed query:
+  // its page reset rides along with the debounced apply instead of fetching the
+  // unfiltered first page in between.
+  const typedAt = seen.length;
+  await search.pressSequentially(query.slice(1), { delay: 15 });
   const jobs = await checked(await applied);
   expect(jobs.items.map((job: { id: string }) => job.id)).toEqual([
     filtering.operations.job_ids[0],
   ]);
-  await expect(search).toHaveValue(keysOf(filtering).keys.jobs);
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get("q"))
-    .toBe(keysOf(filtering).keys.jobs);
+  await expect(search).toHaveValue(query);
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe(query);
   expect(new URL(page.url()).searchParams.has("page")).toBe(false);
-  expect(seen).toHaveLength(1);
+  const unfilteredWhileTyping = seen.slice(typedAt).filter((request) => {
+    const params = new URLSearchParams(request);
+    return params.get("offset") === "0" && !(params.get("search") ?? "").trim();
+  });
+  expect(unfilteredWhileTyping).toEqual([]);
   await page.reload();
-  await expect(search).toHaveValue(keysOf(filtering).keys.jobs);
+  await expect(search).toHaveValue(query);
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 

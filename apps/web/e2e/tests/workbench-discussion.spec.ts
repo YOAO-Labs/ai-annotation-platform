@@ -466,34 +466,27 @@ test("混合讨论可加载旧标注评论，阅读范围与各发送目标的�
     });
     const oldBody = "来自真实标注的旧批注";
     const attachmentBody = "原标注附件，不依赖当前选中对象";
-    const upload = await json<{ storage_key: string; upload_url: string }>(
+    const upload = await json<{
+      storageKey: string;
+      fileName: string;
+      mimeType: string;
+      size: number;
+    }>(
       await page.request.post(
-        `${API_BASE}/api/v1/annotations/${annotation.id}/comment-attachments/upload-init`,
+        `${API_BASE}/api/v1/annotations/${annotation.id}/comment-attachments/upload?file_name=discussion-proof.txt`,
         {
-          headers: auth(data.token),
-          data: { file_name: "discussion-proof.txt", content_type: "text/plain" },
+          headers: { ...auth(data.token), "Content-Type": "text/plain" },
+          data: Buffer.from(attachmentBody),
         },
       ),
     );
-    const uploaded = await page.request.put(upload.upload_url, {
-      data: Buffer.from(attachmentBody),
-      headers: { "Content-Type": "text/plain" },
-    });
-    expect(uploaded.ok()).toBe(true);
     await json(
       await page.request.post(`${API_BASE}/api/v1/annotations/${annotation.id}/comments`, {
         headers: auth(data.token),
         data: {
           body: oldBody,
           mentions: [],
-          attachments: [
-            {
-              storageKey: upload.storage_key,
-              fileName: "discussion-proof.txt",
-              mimeType: "text/plain",
-              size: Buffer.byteLength(attachmentBody),
-            },
-          ],
+          attachments: [upload],
           canvas_drawing: { shapes: [{ type: "line", points: [0.1, 0.1, 0.4, 0.4] }] },
         },
       }),

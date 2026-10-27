@@ -3,7 +3,8 @@
 权限：
   - global-scope 连接器、主机白名单：仅 super_admin。
   - owner-scope 连接器：project_admin 可建，创建者或 super_admin 可改/删。
-  - 查看/测试/导入：global、创建者本人或 super_admin 可用。
+  - 配置查看：仅 project_admin / super_admin，API Key 需 datasets:read。
+  - 测试/导入：沿各入口角色及连接使用范围校验。
 密钥永不回吐（Out 仅 secret_set:bool）。create/test/import 三处都过白名单 + SSRF。
 """
 
@@ -18,7 +19,7 @@ from app.config import settings
 from app.core.crypto import ConnectorCryptoNotConfigured
 from app.db.enums import UserRole
 from app.db.models.user import User
-from app.deps import get_current_user, get_db, require_roles
+from app.deps import get_current_user, get_db, require_roles, assert_request_scopes
 from app.schemas.storage_connection import (
     ConnectorAllowlistOut,
     ConnectorAllowlistUpdate,
@@ -28,6 +29,7 @@ from app.schemas.storage_connection import (
     StorageConnectionTestResult,
     StorageConnectionUpdate,
 )
+from app.services.content_snapshot import ContentError
 from app.services import connector_guard
 from app.services.audit import AuditAction, AuditService
 from app.services.storage_connection import (
@@ -130,11 +132,17 @@ async def get_deployment_sftp_preset(
 # ---- 连接器 CRUD ----
 
 
-@router.get("", response_model=list[StorageConnectionOut])
+@router.get(
+    "",
+    response_model=list[StorageConnectionOut],
+    description="仅项目管理员或超级管理员可读配置；API Key 需 datasets:read。",
+)
 async def list_connections(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    assert_request_scopes(request, "datasets:read")
     is_super = user.role == UserRole.SUPER_ADMIN
     conns = await StorageConnectionService.list_visible(
         db, all_scopes=is_super, user_id=user.id
@@ -185,12 +193,18 @@ async def create_connection(
     return to_out_dict(conn)
 
 
-@router.get("/{conn_id}", response_model=StorageConnectionOut)
+@router.get(
+    "/{conn_id}",
+    response_model=StorageConnectionOut,
+    description="仅项目管理员或超级管理员可读可见连接配置；API Key 需 datasets:read。",
+)
 async def get_connection(
     conn_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    assert_request_scopes(request, "datasets:read")
     conn = await StorageConnectionService.get(db, conn_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="连接器不存在")
@@ -209,6 +223,7 @@ async def update_connection(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    assert_request_scopes(request, "datasets:write")
     conn = await StorageConnectionService.get(db, conn_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="连接器不存在")
@@ -218,8 +233,17 @@ async def update_connection(
         raise HTTPException(status_code=403, detail=str(e))
     try:
         conn = await StorageConnectionService.update(
-            db, conn, name=payload.name, config=payload.config, secret=payload.secret
+            db,
+            conn,
+            name=payload.name,
+            config=payload.config,
+            secret=payload.secret,
+            expected_revision=payload.expected_revision,
+            actor_id=user.id,
+            api_key_id=getattr(request.state, "api_key_id", None),
         )
+    except ConnectorAccessDenied as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None
     except ConnectorValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except connector_guard.ConnectorHostDenied as e:
@@ -234,7 +258,10 @@ async def update_connection(
         target_id=str(conn.id),
         request=request,
         status_code=200,
-        detail={"secret_rotated": payload.secret is not None},
+        detail={
+            "secret_rotated": payload.secret is not None,
+            "revision": conn.revision,
+        },
     )
     await db.commit()
     await db.refresh(conn)
@@ -275,6 +302,7 @@ async def test_connection(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    assert_request_scopes(request, "datasets:read")
     conn = await StorageConnectionService.get(db, conn_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="连接器不存在")
@@ -283,7 +311,18 @@ async def test_connection(
     except ConnectorAccessDenied:
         raise HTTPException(status_code=404, detail="连接器不存在")
     try:
-        ok, message, count = await StorageConnectionService.test_connection(db, conn)
+        ok, message, count = await StorageConnectionService.test_connection(
+            db,
+            conn,
+            actor_id=user.id,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    except ConnectorAccessDenied:
+        raise HTTPException(status_code=404, detail="连接器不存在") from None
+    except ConnectorValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
     except connector_guard.ConnectorHostDenied as e:
         raise _denied(e)
     except ConnectorCryptoNotConfigured as e:

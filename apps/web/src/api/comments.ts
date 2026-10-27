@@ -6,7 +6,6 @@ import type {
   CanvasDrawing,
   AnnotationCommentOut,
   AnnotationCommentCreate,
-  CommentAttachmentUploadInitResponse,
 } from "./generated/types.gen";
 
 // ── 类型再导出（向后兼容旧 import 名） ─────────────────────────────
@@ -21,7 +20,6 @@ export type AnnotationCommentAnchor = CommentAnchor;
 export type CommentCanvasDrawing = CanvasDrawing;
 export type AnnotationCommentResponse = AnnotationCommentOut;
 export type CreateCommentPayload = AnnotationCommentCreate;
-export type AttachmentUploadInit = CommentAttachmentUploadInitResponse;
 
 // v0.8.8 · keyset 分页响应（base64-urlsafe cursor）
 export interface AnnotationCommentListPage {
@@ -68,19 +66,18 @@ export const commentsApi = {
 
   remove: (id: string) => apiClient.delete<void>(`/comments/${id}`),
 
-  /** 评论附件上传初始化：返回预签名 PUT URL 与 storageKey；前端需直接 PUT 到 url 上传文件。 */
-  attachmentUploadInit: (
-    annotationId: string,
-    payload: { file_name: string; content_type: string },
-  ) =>
-    apiClient.post<AttachmentUploadInit>(
-      `/annotations/${annotationId}/comment-attachments/upload-init`,
-      payload,
+  /** The authenticated response is the saved per-file receipt, including empty files. */
+  attachmentUpload: (annotationId: string, file: File, signal?: AbortSignal) =>
+    apiClient.silentPost<CommentAttachment>(
+      `/annotations/${annotationId}/comment-attachments/upload?file_name=${encodeURIComponent(file.name)}`,
+      undefined,
+      { body: file, headers: { "Content-Type": file.type || "application/octet-stream" }, signal },
     ),
 
-  /** Resolve an authorized URL before fetching the attachment without bearer headers. */
-  attachmentDownloadUrl: (annotationId: string, storageKey: string) =>
-    apiClient.get<{ download_url: string }>(
-      `/annotations/${annotationId}/comment-attachments/download?as_json=true&key=${encodeURIComponent(storageKey)}`,
+  /** The API authorizes and verifies the complete file before returning its bytes. */
+  attachmentDownload: (annotationId: string, storageKey: string, signal?: AbortSignal) =>
+    apiClient.silentGetBlob(
+      `/annotations/${annotationId}/comment-attachments/download?key=${encodeURIComponent(storageKey)}`,
+      { signal },
     ),
 };

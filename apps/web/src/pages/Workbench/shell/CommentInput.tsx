@@ -761,50 +761,36 @@ export function CommentInput({
       if (!uploadAnnotationId) return;
       const uploadIdentity = targetIdentity;
       const uploadRequestId = `upload-${randomId()}`;
+      const uploadOwner = store?.getOwner() ?? null;
       const uploadOrigin: DiscussionOrigin | null =
-        store && uploadTarget
+        store && uploadTarget && uploadOwner
           ? {
-              owner: store.getOwner(),
+              owner: uploadOwner,
               target: { ...uploadTarget },
               requestId: uploadRequestId,
             }
           : null;
       activeUploadRequestsRef.current.set(uploadIdentity, uploadRequestId);
       bumpRequestState();
+      const uploadStillCurrent = () =>
+        activeUploadRequestsRef.current.get(uploadIdentity) === uploadRequestId &&
+        (store && uploadOwner
+          ? store.isOwned(uploadOrigin ?? uploadOwner)
+          : visibleIdentityRef.current === uploadIdentity &&
+            legacyIdentityRef.current === uploadIdentity);
       try {
         for (const f of Array.from(files)) {
-          const uploadStillCurrent = () =>
-            activeUploadRequestsRef.current.get(uploadIdentity) === uploadRequestId &&
-            (store && uploadOrigin
-              ? store.isOwned(uploadOrigin)
-              : visibleIdentityRef.current === uploadIdentity &&
-                legacyIdentityRef.current === uploadIdentity);
-          // Do not start another init after logout/account or target change.
+          // A current lease may finish into its original target while another
+          // target is visible. A retired account cannot start the next file.
           if (!uploadStillCurrent()) return;
           if (f.size > MAX_ATTACH_BYTES) {
-            pushToast({ msg: `${f.name} 超过 20MB，已跳过`, kind: "warning" });
+            if (mountedRef.current && visibleIdentityRef.current === uploadIdentity) {
+              pushToast({ msg: `${f.name} 超过 20 MiB，已跳过`, kind: "warning" });
+            }
             continue;
           }
-          const init = await commentsApi.attachmentUploadInit(uploadAnnotationId, {
-            file_name: f.name,
-            content_type: f.type || "application/octet-stream",
-          });
-          // The init response is tied to the owner and annotation captured
-          // above. A lease change must stop before using its signed URL.
+          const attachment = await commentsApi.attachmentUpload(uploadAnnotationId, f);
           if (!uploadStillCurrent()) return;
-          const putRes = await fetch(init.upload_url, {
-            method: "PUT",
-            body: f,
-            headers: { "Content-Type": f.type || "application/octet-stream" },
-          });
-          if (!putRes.ok) throw new Error(`上传失败 (HTTP ${putRes.status})`);
-          if (!uploadStillCurrent()) return;
-          const attachment: CommentAttachment = {
-            storageKey: init.storage_key,
-            fileName: f.name,
-            mimeType: f.type || "application/octet-stream",
-            size: f.size,
-          };
           if (store && uploadOrigin) {
             store.acceptUpload(uploadOrigin, attachment);
           } else if (uploadStillCurrent()) {
@@ -812,7 +798,13 @@ export function CommentInput({
           }
         }
       } catch (err) {
-        pushToast({ msg: "附件上传失败", sub: String(err), kind: "error" });
+        if (
+          mountedRef.current &&
+          uploadStillCurrent() &&
+          visibleIdentityRef.current === uploadIdentity
+        ) {
+          pushToast({ msg: "附件上传失败", sub: String(err), kind: "error" });
+        }
       } finally {
         if (activeUploadRequestsRef.current.get(uploadIdentity) === uploadRequestId) {
           activeUploadRequestsRef.current.delete(uploadIdentity);

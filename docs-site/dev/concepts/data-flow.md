@@ -1,13 +1,14 @@
 ---
+title: 数据流
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 数据流
 
-本页通过五条核心业务序列图与精确代码索引，展示请求在前端、API、数据库、对象存储、Celery 队列与独立执行器之间的流转路径。
+本页通过核心业务序列图与精确代码索引，展示请求在前端、API、数据库、对象存储、Celery 队列、跨网络站点 Agent 与独立执行器之间的流转路径。
 
 ## 标注一条任务的完整链路
 
@@ -17,7 +18,7 @@ last_reviewed: 2026-10-19
   caption="当前工作台完成一条标注任务的主链"
 />
 
-当前 React 工作台先分页读取 `/tasks`，在本地选择记忆项、URL 指定项或首项，再单独申请 task lock；`GET /tasks/next` 是仍可用的调度旁路 API，但不是当前 UI 主链。`TaskOut.file_url`、annotations 与 predictions 分开读取，浏览器用签名 URL 直接访问对象存储。
+当前 React 工作台先分页读取 `/tasks`，在本地选择记忆项、URL 指定项或首项，再单独申请 task lock；`GET /tasks/next` 是仍可用的调度旁路 API，但不是当前 UI 主链。托管任务不再在 `TaskOut.file_url` 中返回整段对象存储预签名 URL，而是暴露延迟身份端点（`/api/v1/files/tasks/{id}/original-identity`），由浏览器按账号/会话范围发起认证原件下载、受验图片快照读取或原生视频短租约准备；annotations 与 predictions 分开读取。
 
 标注在绘制过程中通过 POST / PATCH / DELETE 实时落库，首个有效标注会使 `pending → in_progress`。提交接口只负责 `pending / in_progress → review`、释放锁、批次计数 / 自动流转与 `task.submit` 审计；它不批量创建标注、不通知 reviewer，也不在响应中返回下一题。若项目启用提交时 Mask QC 且任务包含有效 Mask，事务提交后才会异步派发质检。
 
@@ -25,7 +26,7 @@ last_reviewed: 2026-10-19
 
 - 当前工作台选题：`apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx`
 - 任务列表与调度旁路：`apps/api/app/api/v1/tasks/list.py:list_tasks / next_task`、`apps/api/app/services/scheduler.py:get_next_task`
-- Task 输出与签名 URL：`apps/api/app/api/v1/tasks/_shared.py:_task_with_url`、`apps/api/app/services/storage.py:generate_download_url`
+- Task 身份与认证原件交付：`apps/api/app/api/v1/tasks/_shared.py:_task_with_url`、`apps/api/app/api/v1/originals.py`、`apps/api/app/services/original_binary.py`、`apps/web/src/api/originals.ts`
 - 任务锁：`apps/web/src/hooks/useTaskLock.ts`、`apps/api/app/api/v1/tasks/locks.py`、`apps/api/app/services/task_lock.py`
 - 标注写入：`apps/api/app/api/v1/tasks/annotations.py`、`apps/api/app/services/annotation.py`
 - 提交：`apps/api/app/api/v1/tasks/lifecycle.py:submit_task`
@@ -63,7 +64,7 @@ API 成功派发时返回 HTTP 200，`job_id` 是 Celery task ID；worker 后续
 
 <ExcalidrawDiagram
   src="/diagrams/shared/workflow/async-export-delivery.svg"
-  alt="项目和批次导出从可选 Mask 预检、持久化派发、Worker 缓存与 Redis single-flight，到临时 ZIP、MinIO 工件、预签名下载和失败补偿的完整边界"
+  alt="项目和批次导出从可选 Mask 预检、持久化派发、Worker 缓存与 Redis single-flight，到临时 ZIP、固定归属工件、有期限下载和失败保留的完整边界"
   caption="异步导出交付链：先提交作业与审计，再派发；缓存未命中时单飞构建可下载工件"
 />
 
@@ -71,9 +72,9 @@ Mask export preflight 是项目范围的可选、只读计划步骤：adapter �
 
 项目与批次导出先校验 targets / options。VOC 仅允许单选，在记录审计后同步返回 ZIP；其他目标创建 `AsyncJob(kind=export)` 并写导出审计，两者成功 `commit` 后才调用 `run_export.delay()`，然后返回 HTTP 202 与 `job_id`。因此 broker 不会拿到尚未提交的作业 ID。
 
-Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets、options、adapter contract 版本合成 cache key。未过期且 MinIO 对象仍存在时，缓存命中路径会生成新的 7 天预签名 URL，直接完成作业并发 `export.ready`。未命中时，Worker 用 Redis `SET NX EX 6h` 对 cache key 做 single-flight；竞争失败会每 5 秒重试，最多 120 次，持锁后还会重查一次缓存。
+Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets、options、adapter contract 版本合成 cache key。命中时先核对缓存与独立ExportOutput的项目、键、大小及期限，再从保存桶完整验证SHA。最终授权/取消和维护围栏通过后，只签固定保存期限的剩余窗口，完成作业并发 `export.ready`；不会为旧对象重新延长七天。未命中时，Worker 用 Redis `SET NX EX 6h` 对 cache key 做 single-flight；竞争失败会每 5 秒重试，最多 120 次，持锁后还会重查一次缓存。
 
-真正构建时按块读取任务与标注，ZIP 写磁盘 tempfile，再流式多段上传到 export bucket。`ExportArtifact` 记录提交后，Worker 才生成友好文件名与预签名 URL、写入 `AsyncJob.result` 并发送完成通知；客户端也可轮询 `/async-jobs/{job_id}` 读终态。异常路径会回滚、删除已上传但未记录的孤儿对象、写 `failed` 与 `export.failed`；tempfile 和已获取的 Redis 锁在 `finally` 中清理。
+真正构建时按块读取任务与标注，ZIP写磁盘tempfile，先取得独立SHA/大小并提交ExportOutput pending归属、随机候选键和固定七天截止，再在durable permit中上传并完整回读。最终短事务复核原请求Key证明、账号/项目/任务/引用来源、取消、候选快照和维护代次，共同发布ready、缓存索引、Job结果与通知。异常/取消或commit应答未知保留pending及字节，不猜测删除；等真实线程收尾后才清tempfile并释放所属Redis锁。到期后无读取permit的ready对象先提交retired和缓存移除，再沿保存桶重试精确清理。项目或Job清理不会丢失独立Output责任。
 
 代码索引：
 
@@ -153,3 +154,53 @@ consumer 闭环验证前保持关闭；capability 响应不会把未验证 adapt
 - 通知模型：`apps/api/app/db/models/notification.py`
 - 前端 hook：`apps/web/src/hooks/useNotificationSocket.ts`
 - WS 协议详细：[`docs-site/dev/reference/ws-protocol.md`](../reference/ws-protocol)
+
+---
+
+## 目录来源扫描、预检差异与原地引用读取
+
+```text
+DatasetSource (filesystem / s3 / sftp / agent)
+  ├─ 1. 目录扫描 (DatasetScanRun / DatasetScanEntry, 60s 租约分块提交)
+  ├─ 2. 批量预检 (DatasetRegistrationRun / Entry, 固定已接纳路径基线并比对 6 类差异)
+  ├─ 3. 确认采纳 (创建 DatasetItem + DatasetAsset + DatasetReference / DatasetSourceRevision)
+  └─ 4. 原件验证读取 (original_sources / reference_snapshot + Location Gate 准入 + SHA-256 核验)
+```
+
+1. **目录扫描（Scan）**：`DatasetSource` 绑定数据集与受控存储位置后，按 `Location → Source → Job → Run` 短锁领取 `DatasetScanRun`，在事务外通过 `aap_filesystem_read`（`openat2`）、严格外部 S3/SFTP 客户端或站点 Agent 分块枚举目录，写入 `DatasetScanEntry`。`stat` 观测不直接提升内容为 `verified`。
+2. **批量预检与增量差异（Preflight）**：扫描完成后创建 `DatasetRegistrationRun`，在来源锁内以已接纳路径头（`DatasetSourceItem`）为基线，逐项完整读取字节并核验 SHA-256 与图片尺寸，生成新增、相同、内容变化、观测变化、未见和异常六类差异。
+3. **采纳与修订推进（Adoption）**：管理员确认仅新增（或周期计划命中 `pure_additions`）以及显式接纳同摘要重验、跨路径移动或新内容修订时，在同一事务内创建/更新 `DatasetItem`、`DatasetAsset`、`DatasetReference`（原地引用不复制对象存储副本）与不可变 `DatasetSourceRevision`，并为已关联项目补建任务。
+4. **验证读取与按需缓存（Verified Read）**：工作台或后台消费者读取原地引用样本时，先取得逻辑位置的维护 Gate 共享许可，核对当前任务/数据集权限与 API Key 证明；若位置与来源均开启 `on_demand` 且命中有效 `OriginalCacheEntry`，则从 `media-cache` 读取完整核验副本，否则回源捕获有界快照并复核完整 SHA-256。
+
+代码索引：
+
+- 目录扫描与恢复：`apps/api/app/services/dataset_scans.py`、`apps/_shared/filesystem_read/`
+- 预检差异与批量登记：`apps/api/app/services/dataset_registration.py`、`apps/api/app/services/dataset_source_changes.py`
+- 周期同步协调与修订：`apps/api/app/services/dataset_source_sync.py`、`apps/api/app/services/dataset_source_revisions.py`
+- 严格读取与按需缓存：`apps/api/app/services/dataset_content.py`、`apps/api/app/services/original_cache.py`
+- 架构总览：[数据集、目录来源与增量同步架构](./dataset-sources-and-sync)
+
+---
+
+## 跨网络站点 Agent 与迁移封存读取路由
+
+```text
+[跨网络站点 Agent 出站传输]
+apps/storage-agent ──HTTPS POST /site-agents/commands/poll──► 中心 API (派发租约命令)
+  ├─ 本地 openat2 + SHA-256 生成 0600 VerifiedStage
+  ├─ POST /commands/{id}/chunks (256 KiB 分块中继至有界 Redis)
+  └─ POST /commands/{id}/result (持久化关闭证据与业务 ACK)
+
+[迁移已封存读取映射 (StorageMigrationReadPublication)]
+调用方请求逻辑源 A ──► OriginalSource + immutable read_route ──► PhysicalReadPlan (目标 B + Gate 许可)
+```
+
+1. **站点 Agent 出站拉取与分块回传**：独立只读组件 `apps/storage-agent` 不监听入站端口，使用一次性配对取得凭据后，携带持久 `session_id` 轮询 `/api/v1/site-agents/commands/poll`。收到 `probe`、`browse`、`scan` 或 `read` 命令后，在本地受控根内完成完整 SHA-256 校验与 `VerifiedStage` 暂存；当 `/result` 返回 `409 agent_content_incomplete` 时，按 `256 KiB` 分块上传至 `/chunks`，由中心重组并二次校验 SHA-256 后交付上层 Snapshot。若主来源 Agent 离线，已登记的同数据集同 SHA-256 显式副本（`DatasetReferenceReplica`）可受控接管物理读取。
+2. **已封存迁移读取路由（`PhysicalReadPlan`）**：对象存储迁移完成最终增量核验并发布 `StorageMigrationReadPublication` 后，业务记录（`OriginalSource` 及 27 类保存目标）保持原逻辑源 A 地址不变，由 `PhysicalReadPlan` 与 `storage_migration_artifact_reads` 在读取时透明路由至目标 B 的准确已核验 `VersionId` 与 `ETag`，同时在目标 B 登记 `migration_read_<publication_id>` 与原 owner 读取许可，支持随时安全撤回（`withdrawing → withdrawn`）或九用途原子切换与回滚。
+
+代码索引：
+
+- 站点 Agent 控制面与传输：`apps/api/app/api/v1/site_agents.py`、`apps/api/app/api/v1/site_agent_transport.py`、`apps/api/app/services/agent_transport.py`、`apps/storage-agent/`
+- 显式同内容引用副本：`apps/api/app/services/dataset_reference_replicas.py`
+- 迁移读取发布与路由：`apps/api/app/services/storage_migration_read_publications.py`、`apps/api/app/services/original_read_plan.py`、`apps/api/app/services/storage_migration_artifact_reads.py`
+- 架构总览：[对象存储迁移、站点 Agent 与容量观测架构](./storage-migration-and-ops)

@@ -18,7 +18,12 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
+from app.services.dataset_storage_keys import (
+    dataset_relative_path,
+    managed_dataset_prefix,
+)
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
+from tests.fakes.managed_creation_storage import CreationStorage
 
 pytestmark = pytest.mark.asyncio
 
@@ -30,21 +35,15 @@ def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-class _FakePutOnlyClient:
-    """仅实现 put_object 的 fake storage client（用于 upload_zip 路径）。"""
+class _FakePutOnlyClient(CreationStorage):
+    """Realistic conditional creation fake for ZIP and its business mappings."""
 
-    def __init__(self) -> None:
-        self.objects: dict[str, bytes] = {}
 
-    def put_object(self, *, Bucket, Key, Body, ContentType=None):
-        self.objects[Key] = bytes(Body)
+@pytest.fixture(autouse=True)
+def local_creation_client(monkeypatch):
+    from app.services import managed_original_creation as creations
 
-    def delete_object(self, *, Bucket, Key):
-        self.objects.pop(Key, None)
-
-    def head_bucket(self, *, Bucket):
-        # create_dataset → ensure_bucket 会先 head_bucket 探测;假装 bucket 已存在。
-        return {}
+    monkeypatch.setattr(creations, "create_client", lambda **_: storage_service.client)
 
 
 def _make_zip(entries: dict[str, bytes]) -> bytes:
@@ -150,7 +149,6 @@ async def test_upload_zip_preserves_subdirectories(
         httpx_client, token, f"pc-d1-{uuid.uuid4().hex[:6]}", "point_cloud"
     )
     ds_id = ds["id"]
-    ds_name = ds["name"]
 
     zip_bytes = _make_zip(
         {
@@ -179,14 +177,18 @@ async def test_upload_zip_preserves_subdirectories(
         .scalars()
         .all()
     )
-    file_paths = {item.file_path for item in rows}
-    assert f"{ds_name}/lidar/000970.pcd" in file_paths
-    assert f"{ds_name}/camera/front/000970.jpg" in file_paths
-    assert f"{ds_name}/calib/camera/front.json" in file_paths
+    file_paths = {dataset_relative_path(item.file_path) for item in rows}
+    assert all(
+        item.file_path.startswith(managed_dataset_prefix(uuid.UUID(ds["id"])))
+        for item in rows
+    )
+    assert "lidar/000970.pcd" in file_paths
+    assert "camera/front/000970.jpg" in file_paths
+    assert "calib/camera/front.json" in file_paths
 
     # 旧拍平行为（basename only）不应存在
-    assert f"{ds_name}/000970.pcd" not in file_paths
-    assert f"{ds_name}/000970.jpg" not in file_paths
+    assert "000970.pcd" not in file_paths
+    assert "000970.jpg" not in file_paths
 
 
 async def test_upload_zip_zipslip_rejected(
@@ -203,7 +205,6 @@ async def test_upload_zip_zipslip_rejected(
         httpx_client, token, f"pc-slip-{uuid.uuid4().hex[:6]}", "point_cloud"
     )
     ds_id = ds["id"]
-    ds_name = ds["name"]
 
     zip_bytes = _make_zip(
         {
@@ -234,7 +235,7 @@ async def test_upload_zip_zipslip_rejected(
         .all()
     )
     assert len(rows) == 1
-    assert rows[0].file_path == f"{ds_name}/lidar/a.pcd"
+    assert dataset_relative_path(rows[0].file_path) == "lidar/a.pcd"
 
 
 async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
@@ -253,7 +254,6 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
         httpx_client, token, f"dedup-a-{uuid.uuid4().hex[:6]}", "image"
     )
     ds_a_id = ds_a["id"]
-    ds_a_name = ds_a["name"]
 
     zip_bytes_a = _make_zip(
         {
@@ -280,9 +280,9 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
         .scalars()
         .all()
     )
-    paths_a = {r.file_path for r in rows_a}
-    assert f"{ds_a_name}/camera/front/000970.jpg" in paths_a
-    assert f"{ds_a_name}/camera/left/000970.jpg" in paths_a
+    paths_a = {dataset_relative_path(r.file_path) for r in rows_a}
+    assert "camera/front/000970.jpg" in paths_a
+    assert "camera/left/000970.jpg" in paths_a
 
     # ── 情况 B：内容完全相同，只入 1 条 ──
     ds_b = await _create_dataset(
@@ -456,15 +456,10 @@ async def test_upload_zip_notes_reserved_role_top_level_mix(
     assert any("保留角色目录" in note and "import-formats.md" in note for note in notes)
 
 
-async def test_upload_zip_temporal_validation_failure_cleans_storage(
+async def test_upload_zip_temporal_validation_failure_preserves_creation_responsibility(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    """时序数据集 scene 校验失败(422) → 本次已写入 MinIO 的对象必须被清理,不留孤儿。
-
-    构造:is_temporal=True 的 dataset,zip 只含根级文件(无子目录)→ scene_inference
-    推不出任何 scene → assert_temporal_dataset_has_scenes 抛 422。断言 fake storage
-    中已无残留对象,且 DatasetItem 因事务 rollback 未落库。
-    """
+    """A rejected ZIP rolls back items but keeps independently verified creations."""
     user, token = super_admin
 
     fake_client = _FakePutOnlyClient()
@@ -506,10 +501,21 @@ async def test_upload_zip_temporal_validation_failure_cleans_storage(
     )
     assert resp.status_code == 422, resp.text
 
-    # 本次上传写入的对象应被清理,不留孤儿;dataset 创建时的文件夹占位
-    # ("{name}/" 空对象)属于 dataset 本身,不在本次清理范围内,允许保留。
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+
     leftover_files = [k for k in fake_client.objects if not k.endswith("/")]
-    assert leftover_files == [], leftover_files
+    assert len(leftover_files) == 2
+    creations = list(
+        await db_session.scalars(
+            select(ManagedOriginalCreation).where(
+                ManagedOriginalCreation.dataset_id == uuid.UUID(ds_id)
+            )
+        )
+    )
+    assert len(creations) == 2
+    assert {row.object_key for row in creations} == set(leftover_files)
+    assert all(row.status == "verified" for row in creations)
+    assert not [call for call in fake_client.calls if call[0] == "delete"]
 
     # 事务 rollback,DatasetItem 不应落库
     rows = (
