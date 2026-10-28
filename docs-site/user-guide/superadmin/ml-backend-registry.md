@@ -90,6 +90,18 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 每个全局 backend 注册后会自动得到一个 singleton 服务池（ADR-0050），池内含一个 active 成员指向该实例。off／observe 模式沿用 legacy 实例选择，enforce 模式在合格成员中分配请求；停止接流和执行安全检查始终生效。详见 [ADR-0050 服务池与请求路由](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
 
+## 可安装推理插件
+
+插件安装由超级管理员使用固定 OCI 摘要的批准制品及独立实例 Token 完成。先预留不可接流的安装身份、Registry 和资源绑定，再由部署机启动容器；平台 API 不运行 Docker。管理员本机检查镜像摘要、镜像和容器 ID 及 GPU 绑定并提交启动收据，这是可信管理员提供的证据，并非远程密码学证明。平台另行核对受认证服务的实际能力、运行时和资源身份。安装完成不会自动启用项目或发布模型。
+
+CUDA 安装还需提交通过验证的完整生命周期资格报告及其摘要。报告固定镜像、资产清单、实际 GPU、驱动、运行时与池拓扑，包含真实推理、取消和两次冷态释放等检查；平台核对报告与启动收据及在线服务事实。报告由超级管理员审核提交，不是插件自报布尔值，也不代表密码学远程证明。启动后激活失败时先读取最新安装修订：已记录的启动仍须完成安全排空，不能因激活失败而直接停止容器。
+
+安装使用 `/api/v1/admin/ml-integrations/plugins/installations`：`POST /prepare` 预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 也是重试的幂等键，重复请求必须匹配原意图和凭据。
+
+停用阻止新工作，但**不授权停止容器**。必须完成 quiesce，只有返回 `safe_to_stop` 才可按该收据停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。排空覆盖模型池、构建者、借用者和仍在执行的原生工作，并与实例、启动身份、控制代际和资源绑定。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。
+
+升级制品或运行时应创建新的不可变安装，重新完成验证及模型部署、试用，再由项目负责人显式启用项目和发布模型；不要原地替换旧容器以冒用已冻结的实例身份。旧安装继续保留，直到其依赖与排空条件均已满足。
+
 ## 服务池管理（超管）
 
 <!-- TODO IMAGE_CHECKLIST: images/superadmin/model-market/registry-service-pools.png — 注册管理服务池主视图（结构化 tab + 展开成员 + 维护操作） [auto] -->
@@ -158,6 +170,7 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 以下事件写入 `audit_logs`：
 
 - `ml_registry.created` / `ml_registry.updated` / `ml_registry.deleted`（全局注册 CRUD）
+- `ml_plugin_installation.prepared` / `launch_recorded` / `qualification_approved` / `activated` / `disabled` / `quiesced` / `retired`（插件身份与生命周期动作；不记录实例 Token）
 - `ml_registry.managed_auth_initialized`（默认凭据初始化与同步）
 - `ml_backend.rebuild_requested`（系统设置提交指定服务的镜像与容器重建）
 - `ml_service_pool.created` / `updated` / `deleted`（服务池 CRUD）

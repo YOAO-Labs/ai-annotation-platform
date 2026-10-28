@@ -9,6 +9,7 @@ from aap_assets_mask_content.contract import MaskContentFailure
 from aap_workspace.configuration_policy import ConfigurationPolicyError
 from app.config import settings
 from app.api.v1.router import api_router
+from app.api.v1.admin_plugin_installations import router as plugin_installations_router
 from app.api.v1.ws import router as ws_router, close_redis_pool as _close_ws_redis_pool
 from app.api.v1.bug_reports import close_bug_reopen_redis_pool
 from app.api.health import router as health_router
@@ -190,7 +191,7 @@ async def _request_validation_error_handler(
         "/api/v1/auth/reset-password",
         "/api/v1/auth/verify-email",
         "/api/v1/auth/register-open",
-    }:
+    } or path.startswith("/api/v1/admin/ml-integrations/plugins/installations"):
         return JSONResponse(
             status_code=422,
             content={
@@ -294,6 +295,7 @@ app.add_middleware(
 app.add_middleware(UploadBodyLimitMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(plugin_installations_router, prefix="/api/v1")
 app.include_router(ws_router)
 app.include_router(health_router, prefix="/health", tags=["health"])
 
