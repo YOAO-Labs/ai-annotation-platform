@@ -124,6 +124,23 @@ class PluginInstallationCommand(BaseModel):
     expected_revision: int = Field(ge=1, strict=True)
 
 
+class PluginLaunchReceipt(BaseModel):
+    """Trusted administrator's local container-runtime inspection evidence."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    installation_id: UUID
+    registry_id: UUID
+    artifact: str = Field(pattern=r"^\S+@sha256:[0-9a-f]{64}$")
+    image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    resource: PluginResourceBinding
+
+
+class PluginActivateRequest(PluginInstallationCommand):
+    receipt: PluginLaunchReceipt
+
+
 class PluginInstallationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

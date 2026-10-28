@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from aap_inference_contract.execution import freeze_json
-from aap_inference_contract.plugin import PluginInstallation, PluginManifest, plugin_is_active
+from aap_inference_contract.plugin import PluginActivateRequest, PluginInstallation, PluginManifest, plugin_is_active
 
 
 def manifest():
@@ -64,3 +64,22 @@ def test_reserved_status_fails_closed_and_legacy_stays_usable():
     assert not plugin_is_active({"plugin": installation("disabled")})
     assert not plugin_is_active({"plugin": {"status": "active"}})
     assert not plugin_is_active({"plugin": None})
+
+
+def test_activation_requires_exact_administrator_inspection_identity():
+    value = {
+        "expected_revision": 1,
+        "receipt": {
+            "installation_id": str(uuid4()), "registry_id": str(uuid4()),
+            "artifact": manifest()["artifact"], "image_id": "sha256:" + "c" * 64,
+            "container_id": "d" * 64, "resource": installation()["resource"],
+        },
+    }
+    assert PluginActivateRequest.model_validate(value).receipt.artifact == manifest()["artifact"]
+    value["receipt"]["container_id"] = "short"
+    with pytest.raises(ValidationError):
+        PluginActivateRequest.model_validate(value)
+    value["receipt"]["container_id"] = "d" * 64
+    value["receipt"]["unverified_claim"] = True
+    with pytest.raises(ValidationError):
+        PluginActivateRequest.model_validate(value)
