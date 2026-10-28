@@ -65,6 +65,10 @@ CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的�
 
 真实媒体派生 HTTP 验收直接通过 API authority 请求服务返回的下载 URL，再核对输出字节数、完整 SHA-256 与代际身份。已登记媒体缓存返回 API capability URL，不能把它拼接到 MinIO endpoint；不绕开能力校验直读底层对象。
 
+流式交付的独立数据库会话须注入当前测试的 function-scope 真实 session factory，避免跨 pytest 函数事件循环复用应用级连接池。保留真实数据库事务、存储读取与能力校验，不用模拟响应或扩大超时掩盖隔离问题。
+
+Worker 准备过程中仅按既有接口明确的 busy 错误码等待，不把任意冲突或授权失败当成可重试状态；保持原轮询次数、总体期限与最终输出断言。
+
 - **固定输入**：四个调用方分别传入 `--shard-index 0..3 --shard-count 4`。本地复现任一 CI 分片：
   ```bash
   cd apps/api

@@ -13,14 +13,16 @@ from app.config import settings
 from app.core.security import create_access_token
 from app.deps import get_db
 from app.main import app
+from app.services import media_cache_response
 from app.workers.celery_app import celery_app
 from tests.test_video_derivative_pipeline import real_video as real_video
 
 
 async def test_http_authority_dispatches_real_video_worker_and_verified_outputs(
-    real_video, tmp_path
+    real_video, tmp_path, monkeypatch
 ):
     context = real_video
+    monkeypatch.setattr(media_cache_response, "async_session", context.factory)
     node = "video-derivative-test-" + uuid.uuid4().hex + "@local"
     environment = dict(os.environ)
     for key in (
@@ -83,6 +85,16 @@ async def test_http_authority_dispatches_real_video_worker_and_verified_outputs(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app), base_url="http://test", headers=headers
         ) as client:
+
+            def retryable_busy(value):
+                return value.status_code == 409 and value.json().get("detail", {}).get(
+                    "code"
+                ) in {
+                    "content_busy",
+                    "storage_original_busy",
+                    "storage_maintenance_busy",
+                }
+
             manifest_path = f"/api/v1/tasks/{context.task_id}/video/manifest"
             first = await client.get(manifest_path)
             assert (
@@ -93,22 +105,18 @@ async def test_http_authority_dispatches_real_video_worker_and_verified_outputs(
                 response = await client.get(manifest_path)
                 if response.status_code == 200:
                     break
-                assert response.status_code == 503
+                assert response.status_code == 503 or retryable_busy(response), (
+                    response.json()
+                )
                 await asyncio.sleep(0.25)
-            assert response.status_code == 200
+            assert response.status_code == 200, response.json()
             generation = response.json()["metadata_generation_id"]
             assert generation and response.json()["video_url"] is None
 
             async def ready(path):
                 for _ in range(120):
                     value = await client.get(path)
-                    if value.status_code == 409 and value.json().get("detail", {}).get(
-                        "code"
-                    ) in {
-                        "content_busy",
-                        "storage_original_busy",
-                        "storage_maintenance_busy",
-                    }:
+                    if retryable_busy(value):
                         await asyncio.sleep(0.25)
                         continue
                     assert value.status_code in {200, 202}, value.json()
@@ -126,7 +134,7 @@ async def test_http_authority_dispatches_real_video_worker_and_verified_outputs(
                 assert value["metadata_generation_id"] == generation
                 assert value["output_id"] and value["sha256"] and value["byte_size"] > 0
                 body = await client.get(value["url"])
-                assert body.status_code == 200
+                assert body.status_code == 200, body.text
                 assert len(body.content) == value["byte_size"]
                 assert hashlib.sha256(body.content).hexdigest() == value["sha256"]
             samples = await client.get(
