@@ -19,9 +19,9 @@ def serve(args):
     from aap_inference_plugin import DetectionConfig, create_detection_app
     from aap_protocol_v2.lifecycle import load_verify_keyring
     from training_contract.inference_runtime import inference_runtime
-    from .install import inspect, install_request_model
+    from .install import inspect, install_request_model, validate_installed_receipt
     from training_contract.model_return import LIBRE_FORMAT
-    from .provider import Provider, validate_receipt
+    from .provider import Provider
 
     data = Path(os.environ.get("AAP_PLUGIN_DATA_DIR", "/var/lib/aap-libreyolo"))
     token = Path(args.token_file).read_text().strip()
@@ -42,7 +42,7 @@ def serve(args):
             available[size] = {"path": str(verify(path, item)), "asset": item}
     if "t" not in available:
         raise ValueError("Prepare the pinned YOLOv9t asset before starting the service")
-    store = ManagedModelStore(data / "managed", inspect=inspect, validate_receipt=validate_receipt)
+    store = ManagedModelStore(data / "managed", inspect=inspect, validate_receipt=validate_installed_receipt)
     kind = "cpu" if args.device == "cpu" else "cuda"
 
     def runtime_receipt(receipt):

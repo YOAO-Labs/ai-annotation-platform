@@ -5,7 +5,7 @@ import json
 import pytest
 from training_contract.model_return import libre_identity
 
-from aap_libreyolo_plugin.install import install_request_model
+from aap_libreyolo_plugin.install import install_request_model, validate_installed_receipt
 from aap_libreyolo_plugin.provider import validate_receipt
 
 
@@ -39,3 +39,12 @@ def test_install_restricts_artifact_origin_and_size():
                     {"size_bytes": 124}):
         with pytest.raises(ValueError):
             request.model_validate({**fields, **changed})
+
+
+def test_installed_receipt_checks_artifact_length(tmp_path):
+    path = tmp_path / "weights.pt"
+    path.write_bytes(b"x" * 123)
+    validate_installed_receipt(receipt(), path)
+    path.write_bytes(b"x")
+    with pytest.raises(ValueError, match="size"):
+        validate_installed_receipt(receipt(), path)

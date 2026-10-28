@@ -58,3 +58,9 @@ def inspect(path, receipt):
     from libreyolo_native import LibreDetectionModel
     model = LibreDetectionModel(path, receipt, device="cpu")
     model.close()
+
+
+def validate_installed_receipt(receipt, path):
+    validate_receipt(receipt)
+    if path.stat().st_size != receipt.get("artifact_size_bytes"):
+        raise ValueError("Installed native artifact size differs from receipt")
