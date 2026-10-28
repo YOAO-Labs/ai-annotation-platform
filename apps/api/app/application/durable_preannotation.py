@@ -340,6 +340,7 @@ async def run_durable_batch(
     writer,
     job_meta,
     result_extra,
+    authorize=None,
     finish_batch=None,
     failure_context=None,
 ):
@@ -360,18 +361,38 @@ async def run_durable_batch(
         manifest_summary=result_extra.get("manifest"),
     )
     await execution.call("start_batch_result_execution")
+    # The result owner starts the Job only after selection is sealed. Image
+    # authority requires that running Job and must precede overwrite/model work.
+    cancelled_before_authorization = False
+    if authorize is not None:
+        from app.services.content_snapshot import ContentError
+
+        cancelled_before_authorization = await _cancel_requested(
+            db, execution.scope["job_id"]
+        )
+        if not cancelled_before_authorization:
+            try:
+                await authorize(db)
+            except ContentError:
+                if not await _cancel_requested(db, execution.scope["job_id"]):
+                    raise
+                cancelled_before_authorization = True
     manifest_backed = request.accepted_input_manifest_protocol is not None
     member_overwrite = manifest_backed or request.accepted_inputs_protocol is not None
-    if not member_overwrite and not await _cancel_requested(
-        db, execution.scope["job_id"]
+    if (
+        not cancelled_before_authorization
+        and not member_overwrite
+        and not await _cancel_requested(db, execution.scope["job_id"])
     ):
         await _overwrite(execution, db, request)
-    cancelled = False
+    cancelled = cancelled_before_authorization
     forced_error = None
     async for member in execution.members(
         after_ordinal=execution.progress.next_ordinal - 1
     ):
         execution.ensure_owned()
+        if cancelled_before_authorization:
+            break
         if await _cancel_requested(db, execution.scope["job_id"]):
             saved = await execution.read_result(member.ordinal)
             if saved.result is None or not saved.result.raw_complete:

@@ -1635,6 +1635,27 @@ async def _execute_preannotation(
             durable_payload = precreated_job.payload or {}
             image_authority = durable_payload.get("prediction_authority")
             video_authority = durable_payload.get("video_prediction_authority")
+            authority_task_ids = requested_task_ids
+            if (
+                image_authority is not None
+                and accepted_input_manifest_protocol is not None
+            ):
+                # The proof also binds selections of already-admitted Jobs.
+                try:
+                    proof_ids = [row["task_id"] for row in image_authority["tasks"]]
+                except (TypeError, KeyError):
+                    raise ValueError("manifest prediction authority is invalid") from None
+                saved_ids = durable_payload.get("execution_task_ids", proof_ids)
+                if not isinstance(saved_ids, list) or any(
+                    not isinstance(value, str) for value in saved_ids
+                ):
+                    raise ValueError("manifest execution Task scope is unavailable")
+                try:
+                    authority_task_ids = [uuid.UUID(value) for value in saved_ids]
+                except ValueError as exc:
+                    raise ValueError("manifest execution Task scope is invalid") from exc
+                if len(set(authority_task_ids)) != len(authority_task_ids):
+                    raise ValueError("manifest execution Task scope contains duplicates")
             if image_authority is not None and video_authority is not None:
                 raise ValueError("prediction authority is ambiguous")
             if image_authority is not None:
@@ -1653,7 +1674,7 @@ async def _execute_preannotation(
                     image_authority,
                     project_id=project_uuid,
                     actor_id=actor.id if actor is not None else None,
-                    task_ids=requested_task_ids,
+                    task_ids=authority_task_ids,
                     batch_id=uuid.UUID(batch_id) if batch_id else None,
                     scope=execution_scope,
                     predict_mode=predict_mode,
@@ -1662,7 +1683,8 @@ async def _execute_preannotation(
                     node_id=api_node_id(),
                     execution_unit=execution_unit,
                 )
-                await reference_job.authorize(db)
+                if batch_results is None:
+                    await reference_job.authorize(db)
             elif video_authority is not None:
                 from app.services.storage_location import api_node_id
                 from app.services.video_prediction_references import (
@@ -2724,6 +2746,11 @@ async def _execute_preannotation(
 
             from aap_assets_input_manifests.contract import ManifestPageRequest
 
+            remaining_authority_ids = (
+                set(authority_task_ids)
+                if reference_job is not None
+                else None
+            )
             cursor = 0
             while cursor < accepted_manifest.header.selected_count:
                 try:
@@ -2747,6 +2774,11 @@ async def _execute_preannotation(
                         for member in page.members
                     ):
                         raise ValueError("manifest page escaped explicit Task scope")
+                    if remaining_authority_ids is not None:
+                        for member in page.members:
+                            if member.task_id not in remaining_authority_ids:
+                                raise ValueError("manifest page escaped frozen Task scope")
+                            remaining_authority_ids.remove(member.task_id)
                 except Exception as exc:
                     raise _ManifestPageReadFailure(cursor) from exc
 
@@ -2775,6 +2807,8 @@ async def _execute_preannotation(
                     if page.next_cursor is not None
                     else accepted_manifest.header.selected_count
                 )
+            if remaining_authority_ids:
+                raise ValueError("manifest omitted frozen Tasks")
 
         if batch_results is not None:
             from decimal import Decimal
@@ -3017,6 +3051,7 @@ async def _execute_preannotation(
                 writer=pred_svc,
                 job_meta=job_meta_base,
                 result_extra=summary,
+                authorize=reference_job.authorize if reference_job is not None else None,
                 finish_batch=finish_durable_batch,
                 failure_context=lambda member, error=None: durable_failure_facts(
                     member.manifest_member,

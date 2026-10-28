@@ -434,6 +434,124 @@ def _runtime_connections(monkeypatch, world):
     monkeypatch.setattr(settings, "preannotation_results_database_url_file", "")
 
 
+async def test_managed_image_authority_runs_only_after_native_selection_start(
+    test_engine, monkeypatch
+):
+    from copy import deepcopy
+
+    from app.application import preannotation_execution as execution
+    from app.core.security import create_access_token
+    from app.db.models.project import Project
+    from app.db.models.user import User
+    from app.services import async_job as jobs, prediction_progress
+    from app.services.content_snapshot import ContentError
+    from app.services.dataset_assets import ensure_legacy_bindings
+    from app.services.prediction_execution import create_snapshot
+    from app.services.prediction_references import (
+        ReferencePredictionJob,
+        capture_authority,
+    )
+    from tests.test_managed_prediction_requests import managed_task
+
+    async with _world(test_engine, staged=False) as world:
+        _runtime_connections(monkeypatch, world)
+        async with world.owner_factory() as owner:
+            await ensure_legacy_bindings(owner)
+            project = await owner.get(Project, world.project_id)
+            project.data_type = "image"
+            actor = await owner.get(User, world.actor_id)
+            task = await owner.get(Task, world.task_id)
+            task.file_type = "image"
+            await managed_task(owner, project, actor, task=task)
+            snapshot = await create_snapshot(
+                owner,
+                project.id,
+                {
+                    "stages": [
+                        {
+                            "stage": 0,
+                            "parent_stage": None,
+                            "ml_backend_id": str(world.backend_id),
+                        }
+                    ],
+                    "prompt": world.request.prompt,
+                    "output_mode": world.request.output_mode,
+                    "execution_scope": "bulk",
+                    "execution_unit": None,
+                    "predict_mode": world.request.predict_mode,
+                    "box_threshold": project.box_threshold,
+                    "text_threshold": project.text_threshold,
+                },
+            )
+            credential = SimpleNamespace(
+                state=SimpleNamespace(api_key_id=None, api_key_scopes=None),
+                headers={
+                    "authorization": "Bearer "
+                    + create_access_token(subject=str(actor.id), role=actor.role)
+                },
+            )
+            proof = await capture_authority(
+                owner, project, actor, credential, [task], snapshot,
+                scope="bulk", batch_id=None, predict_mode=world.request.predict_mode,
+            )
+            job = await jobs.get_job(owner, world.execution.scope["job_id"])
+            await jobs.bind_execution_snapshot(
+                owner, job, actor_id=actor.id, snapshot_id=snapshot.id
+            )
+            job.payload = {**job.payload, "prediction_authority": proof}
+            await owner.commit()
+            snapshot_id, snapshot_digest = snapshot.id, snapshot.digest
+
+        async with world.writers() as db:
+            authority = ReferencePredictionJob(
+                db, world.execution.scope["job_id"], proof,
+                project_id=world.project_id, actor_id=world.actor_id,
+                task_ids=[world.task_id], batch_id=None, scope="bulk",
+                predict_mode=world.request.predict_mode, snapshot_id=snapshot_id,
+                snapshot_digest=snapshot_digest, node_id="native-test",
+            )
+            with pytest.raises(ContentError, match="prediction_authority_revoked"):
+                await authority.authorize()
+
+        observed = []
+        real_authorize = ReferencePredictionJob.authorize
+
+        async def authorize_running(self, db=None):
+            job = await jobs.get_job(db, self.job_id, populate_existing=True)
+            observed.append((job.status, job.started_at))
+            async with world.writers() as cancelled_db:
+                cancelled_job = await jobs.get_job(cancelled_db, self.job_id)
+                cancelled_job.payload = {
+                    **cancelled_job.payload,
+                    "cancel_requested": True,
+                }
+                await cancelled_db.flush()
+                with pytest.raises(ContentError, match="prediction_authority_revoked"):
+                    await real_authorize(self, cancelled_db)
+                await cancelled_db.rollback()
+            return await real_authorize(self, db)
+
+        async def fail_after_start(*_args, **_kwargs):
+            raise ValueError("model failure after authorization")
+
+        monkeypatch.setattr(ReferencePredictionJob, "authorize", authorize_running)
+        monkeypatch.setattr(execution, "_model_execution_port", lambda *_a, **_k: object())
+        monkeypatch.setattr(execution, "_run_task_pipeline", fail_after_start)
+        monkeypatch.setattr(prediction_progress, "publish_progress", lambda *_a, **_k: None)
+        await execution.run_preannotation(world.request, execution_id="managed-start")
+        assert len(observed) == 1 and observed[0][0] == "running"
+        assert observed[0][1] is not None
+        async with world.owner_factory() as owner:
+            job = await owner.get(AsyncJob, world.execution.scope["job_id"])
+            assert job.status == "failed" and job.result["failed_count"] == 1
+            assert job.execution_snapshot_id == snapshot_id
+            assert job.payload["prediction_authority"] == deepcopy(proof)
+        async with world.writers() as db:
+            authority.db = db
+            with pytest.raises(ContentError, match="prediction_authority_revoked"):
+                await real_authorize(authority)
+
+
 async def test_real_runner_continues_after_a_failed_member_and_publishes_durable_progress(
     test_engine,
     monkeypatch,
