@@ -56,7 +56,7 @@ def _receipt(payload):
     }
 
 
-def _evidence(payload, *, boot_id=None, control_epoch=1):
+def _evidence(payload, *, boot_id=None, control_epoch=None):
     return {
         **_receipt(payload),
         "endpoint": payload.url,
@@ -154,7 +154,15 @@ async def test_revision_quiescence_retirement_and_launch_fence(db_session, test_
     with pytest.raises(ValueError):
         async with db_session.begin_nested():
             await data.command_plugin_installation(payload.installation_id, 4, "retire")
-    proof = {**evidence, "generation": 1, "pool_ids": [str(uuid4())]}
+    proof = {**evidence, "generation": None, "operation_id": str(uuid4()), "pool_ids": [str(uuid4())]}
+    for invalid in (
+        {key: value for key, value in proof.items() if key != "operation_id"},
+        {**proof, "generation": 1},
+    ):
+        with pytest.raises(ValueError):
+            async with db_session.begin_nested():
+                await data.command_plugin_installation(payload.installation_id, 4, "quiesce", invalid)
+        assert await data.get_plugin_installation(payload.installation_id) == disabled
     stale = {**proof, "boot_id": str(uuid4())}
     with pytest.raises(ValueError):
         async with db_session.begin_nested():
@@ -196,7 +204,7 @@ async def test_aborted_prepared_launch_can_be_quiesced_and_retired(db_session, t
     payload = _payload()
     await data.prepare_plugin_installation(payload)
     await data.command_plugin_installation(payload.installation_id, 1, "record_launch", _receipt(payload))
-    proof = {**_evidence(payload), "generation": 1, "pool_ids": [str(uuid4())]}
+    proof = {**_evidence(payload), "generation": None, "operation_id": str(uuid4()), "pool_ids": [str(uuid4())]}
     quiesced = await data.command_plugin_installation(payload.installation_id, 2, "quiesce", proof)
     assert quiesced.installation.status == "disabled"
     assert quiesced.installation.revision == 3
@@ -214,7 +222,7 @@ async def test_stopped_boot_cannot_activate_a_new_recorded_launch(db_session, te
     await data.command_plugin_installation(payload.installation_id, 1, "record_launch", _receipt(payload))
     await data.command_plugin_installation(
         payload.installation_id, 2, "quiesce",
-        {**old, "generation": 1, "pool_ids": [str(uuid4())]},
+        {**old, "generation": None, "operation_id": str(uuid4()), "pool_ids": [str(uuid4())]},
     )
     new_receipt = {**_receipt(payload), "container_id": "e" * 64}
     await data.command_plugin_installation(payload.installation_id, 3, "record_launch", new_receipt)
@@ -271,7 +279,7 @@ async def test_cuda_qualification_is_required_and_bound_to_launch(db_session, te
         "gpu_resource_id": "node/gpu", "physical_gpu_uuid": "GPU-123", "logical_device": "cuda:0"
     }
     payload = PreparePluginInstallation.model_validate(value)
-    evidence = _evidence(payload)
+    evidence = _evidence(payload, control_epoch=1)
     await data.prepare_plugin_installation(payload)
     await data.command_plugin_installation(payload.installation_id, 1, "record_launch", _receipt(payload))
     with pytest.raises(ValueError):

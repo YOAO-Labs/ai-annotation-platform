@@ -169,7 +169,10 @@ BEGIN
            OR evidence - ARRAY['endpoint','boot_id','control_epoch'] IS DISTINCT FROM lifecycle->'launch'
            OR evidence->>'endpoint' IS DISTINCT FROM r.url
            OR coalesce(evidence->>'boot_id','') = ''
-           OR (evidence->'control_epoch' IS DISTINCT FROM 'null'::jsonb
+           OR (i->'manifest'->'resource'->>'device'='cpu'
+               AND evidence->'control_epoch' IS DISTINCT FROM 'null'::jsonb)
+           OR (i->'manifest'->'resource'->>'device'='cuda'
+               AND evidence->'control_epoch' IS DISTINCT FROM 'null'::jsonb
                AND coalesce(evidence->>'control_epoch','') !~ '^[1-9][0-9]*$') THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid plugin activation evidence or state';
         END IF;
@@ -190,18 +193,23 @@ BEGIN
     ELSIF p_action='quiesce' THEN
         IF status NOT IN ('prepared','disabled')
            OR jsonb_typeof(evidence) IS DISTINCT FROM 'object'
-           OR evidence - ARRAY['endpoint','boot_id','control_epoch','generation','pool_ids']
+           OR evidence - ARRAY['endpoint','boot_id','control_epoch','generation','pool_ids','operation_id']
                IS DISTINCT FROM lifecycle->'launch'
            OR evidence->>'endpoint' IS DISTINCT FROM r.url
            OR coalesce(evidence->>'boot_id','') = ''
-           OR coalesce(evidence->>'control_epoch','') !~ '^[1-9][0-9]*$'
+           OR (i->'manifest'->'resource'->>'device'='cpu' AND (
+               evidence->'control_epoch' IS DISTINCT FROM 'null'::jsonb
+               OR evidence->'generation' IS DISTINCT FROM 'null'::jsonb
+               OR coalesce(evidence->>'operation_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))
+           OR (i->'manifest'->'resource'->>'device'='cuda' AND (
+               coalesce(evidence->>'control_epoch','') !~ '^[1-9][0-9]*$'
+               OR coalesce(evidence->>'generation','') !~ '^[1-9][0-9]*$'))
            OR (active IS NOT NULL AND active <> 'null'::jsonb AND (
                evidence->>'boot_id' IS DISTINCT FROM active->>'boot_id'
                OR (active->>'control_epoch' IS NOT NULL AND
                    (evidence->>'control_epoch')::numeric < (active->>'control_epoch')::numeric)))
            OR jsonb_typeof(evidence->'pool_ids') IS DISTINCT FROM 'array'
-           OR jsonb_array_length(evidence->'pool_ids')=0
-           OR coalesce(evidence->>'generation','') = '' THEN
+           OR jsonb_array_length(evidence->'pool_ids')=0 THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid or stale plugin quiescence proof';
         END IF;
         lifecycle := lifecycle || jsonb_build_object('proof',evidence || jsonb_build_object('revision',p_revision+1),
