@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -40,7 +41,7 @@ async def test_explicit_preannotation_retries_reuse_job_and_reject_changed_scope
 
     owner, token = super_admin
     project, backend, _batch, tasks = await _seed(db_session, owner.id)
-    dispatch = Mock(return_value="broker-wrapper-different-from-job")
+    dispatch = Mock(side_effect=lambda request, **_kwargs: request.async_job_id)
     monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", dispatch)
     headers = {**_bearer(token), "Idempotency-Key": f"predict-{uuid.uuid4()}"}
     body = {"ml_backend_id": str(backend.id), "task_ids": [str(tasks[0].id)]}
@@ -116,7 +117,7 @@ async def test_unkeyed_bulk_returns_durable_job_before_dispatch(
 
     def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
         dispatched["request"] = request
-        return "broker-generated-id"
+        return request.async_job_id
 
     monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
     response = await httpx_client.post(
@@ -128,7 +129,6 @@ async def test_unkeyed_bulk_returns_durable_job_before_dispatch(
     assert response.status_code == 200, response.text
     job_id = uuid.UUID(response.json()["job_id"])
     request = dispatched["request"]
-    assert response.json()["job_id"] != "broker-generated-id"
     assert request.async_job_id == str(job_id)
     assert request.task_ids is None
     job = await db_session.get(AsyncJob, job_id)
@@ -142,6 +142,46 @@ async def test_unkeyed_bulk_returns_durable_job_before_dispatch(
     )
     assert readable.status_code == 200, readable.text
     assert readable.json()["id"] == str(job_id)
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned strict Jobs lifecycle LOGIN",
+)
+async def test_unkeyed_execution_id_binding_uses_native_jobs_owner(test_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.services import async_job as async_job_svc
+    from tests.factory import create_project, create_user
+    from tests.test_jobs_lifecycle_native import _jobs_lifecycle_url
+
+    strict_engine = create_async_engine(_jobs_lifecycle_url(test_engine), hide_parameters=True)
+    owner_sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    strict_sessions = async_sessionmaker(strict_engine, expire_on_commit=False)
+    try:
+        async with owner_sessions() as setup:
+            actor = await create_user(
+                setup, "project_admin", f"jobs-bind-{uuid.uuid4().hex}@test.local",
+                "Jobs binding actor",
+            )
+            project = await create_project(setup, owner_id=actor.id)
+            await setup.commit()
+            actor_id, project_id = actor.id, project.id
+        async with strict_sessions() as strict:
+            job = await async_job_svc.create_job(
+                strict, kind="batch_predict", user_id=actor_id, project_id=project_id,
+                payload={"execution_scope": "bulk"},
+            )
+            job_id = job.id
+            async_job_svc.bind_execution_id(job, str(job_id))
+            await strict.commit()
+        async with strict_sessions() as strict:
+            saved = await async_job_svc.get_job(strict, job_id, populate_existing=True)
+            assert saved is not None
+            assert saved.status == "pending"
+            assert saved.celery_task_id == str(job_id)
+    finally:
+        await strict_engine.dispose()
+
 
 
 @pytest.mark.asyncio
@@ -289,7 +329,7 @@ def _mock_celery(monkeypatch):
         captured["request"] = request
         captured["queue"] = queue
         captured["soft_time_limit"] = soft_time_limit
-        return "fake-job-uuid"
+        return request.async_job_id
 
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 

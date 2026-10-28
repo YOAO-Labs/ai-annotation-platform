@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import and_, or_, select, func
 from aap_assets_catalog.associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetSummary,
@@ -83,7 +83,10 @@ from app.services.pipeline_validation import (
     check_parent_geometry_roi,
     resolve_preannotate_queue,
 )
-from app.services.batch_permissions import allows_bulk_preannotation
+from app.services.batch_permissions import (
+    allows_bulk_preannotation,
+    bulk_preannotation_eligible_condition,
+)
 from app.services.accepted_inputs import InputAdmission, get_input_admission
 from app.services.accepted_input_manifests import (
     InputManifestCaptureFactory,
@@ -117,6 +120,7 @@ from app.services.labeling_core_read_relations import (
     batch_row,
     get_core_row,
     task_row,
+    task_lock_row,
 )
 
 router = APIRouter()
@@ -1903,11 +1907,6 @@ async def trigger_preannotation(
                 db, project, stage.get("model_id"), stage_backend.id
             )
             if ref:
-                if ref["framework"] != "ultralytics" and len(stages) > 1:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="训练模型管线目前仅支持 Ultralytics 检测；此框架请使用单阶段推理",
-                    )
                 try:
                     build_predict_context(
                         prompt=None,
@@ -2019,6 +2018,25 @@ async def trigger_preannotation(
             batch_id=body.batch_id,
             scope=body.execution_scope,
         )
+        if uses_input_manifest:
+            # Match the Labeling manifest owner's bulk eligibility before
+            # capturing source authority for the selected execution members.
+            query = query.outerjoin(batch_row, batch_row.id == task_row.batch_id).where(
+                or_(
+                    task_row.batch_id.is_(None),
+                    and_(
+                        batch_row.project_id == project.id,
+                        batch_row.admin_locked.is_(False),
+                        bulk_preannotation_eligible_condition(batch_row),
+                    ),
+                ),
+                ~select(task_lock_row.task_id)
+                .where(
+                    task_lock_row.task_id == task_row.id,
+                    task_lock_row.expire_at > func.clock_timestamp(),
+                )
+                .exists(),
+            )
         if body.predict_mode == "skip_predicted":
             query = query.where(task_row.total_predictions == 0)
         input_tasks = list(
@@ -2100,7 +2118,7 @@ async def trigger_preannotation(
 
         selection = manifests.ManifestSelection(
             batch_id=body.batch_id,
-            task_ids=explicit_task_ids,
+            task_ids=canonical_task_ids,
             predict_mode=body.predict_mode,
         )
         payload = job.payload or {}
@@ -2250,7 +2268,11 @@ async def trigger_preannotation(
             # before publishing to Celery. Reuse the row and safely republish;
             # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
-            saved_ids = ((existing.payload or {}).get("scope") or {}).get("task_ids")
+            saved_ids = (
+                (existing.payload or {}).get("execution_task_ids")
+                if uses_input_manifest
+                else ((existing.payload or {}).get("scope") or {}).get("task_ids")
+            )
             if freeze_video_scope:
                 proof = (existing.payload or {}).get("video_prediction_authority")
                 if (
@@ -2320,6 +2342,11 @@ async def trigger_preannotation(
                 if explicit_task_ids is not None
                 else None
             )
+            selector_ids = (
+                [str(task_id) for task_id in canonical_task_ids]
+                if uses_input_manifest and canonical_task_ids is not None
+                else None if uses_input_manifest else scoped_ids
+            )
             precreated_payload: dict = {
                 "batch_id": str(body.batch_id) if body.batch_id else None,
                 "execution_scope": body.execution_scope,
@@ -2332,9 +2359,11 @@ async def trigger_preannotation(
                 "data_manager_idempotency_key": idempotency_key,
                 "data_manager_request_digest": request_digest_value,
             }
-            if scoped_ids is not None:
-                precreated_payload["scope"] = {"task_ids": scoped_ids}
-                precreated_payload["task_ids"] = scoped_ids
+            if selector_ids is not None:
+                precreated_payload["scope"] = {"task_ids": selector_ids}
+                precreated_payload["task_ids"] = selector_ids
+            if uses_input_manifest:
+                precreated_payload["execution_task_ids"] = scoped_ids
             if needs_snapshot:
                 frozen_model_ref = await freeze_execution()
                 precreated_payload["frozen_model_ref"] = frozen_model_ref
@@ -2377,6 +2406,11 @@ async def trigger_preannotation(
             if explicit_task_ids is not None
             else None
         )
+        selector_ids = (
+            [str(task_id) for task_id in canonical_task_ids]
+            if uses_input_manifest and canonical_task_ids is not None
+            else None if uses_input_manifest else scoped_ids
+        )
         if needs_snapshot:
             frozen_model_ref = await freeze_execution()
         authority_payload = await input_authority_payload()
@@ -2395,10 +2429,11 @@ async def trigger_preannotation(
                 "project_display_id": project.display_id,
                 "project_name": project.name,
                 **(
-                    {"scope": {"task_ids": scoped_ids}, "task_ids": scoped_ids}
-                    if scoped_ids is not None
+                    {"scope": {"task_ids": selector_ids}, "task_ids": selector_ids}
+                    if selector_ids is not None
                     else {}
                 ),
+                **({"execution_task_ids": scoped_ids} if uses_input_manifest else {}),
                 **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
                 **authority_payload,
                 **accepted_input_payload_for(authority_payload),
@@ -2411,7 +2446,9 @@ async def trigger_preannotation(
                 actor_id=current_user.id,
                 snapshot_id=execution_snapshot.id,
             )
-        precreated_job.celery_task_id = str(precreated_job.id)
+        async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
+        await capture_input_manifest(precreated_job, replay=False)
+        await capture_video_manifest(precreated_job, replay=False)
         await db.commit()
 
     accepted_inputs_protocol: str | None = None
@@ -2558,7 +2595,12 @@ async def trigger_preannotation(
         project_id=str(project.id),
         ml_backend_id=str(source_backend_id),
         task_ids=(
-            [str(tid) for tid in explicit_task_ids] if explicit_task_ids else None
+            [str(tid) for tid in (
+                canonical_task_ids if uses_input_manifest else explicit_task_ids
+            )]
+            if (canonical_task_ids if uses_input_manifest else explicit_task_ids)
+            is not None
+            else None
         ),
         prompt=body.prompt,
         output_mode=body.output_mode,

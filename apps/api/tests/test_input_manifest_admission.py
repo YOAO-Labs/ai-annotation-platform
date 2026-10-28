@@ -1,6 +1,7 @@
 """Bulk HTTP admission freezes membership with its Job before publishing."""
 
 from unittest.mock import Mock
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta, timezone
 
@@ -19,6 +20,7 @@ from app.services.accepted_input_manifests import (
 from tests.test_batch_predict_idempotency import _seed
 from tests.test_assets_catalog_native import _seed_dataset
 from tests.test_assets_images_execution import _seed_image
+from tests.test_managed_prediction_requests import managed_task
 from tests.factory import create_batch, create_project, create_task
 
 pytestmark = pytest.mark.asyncio
@@ -28,7 +30,7 @@ pytestmark = pytest.mark.asyncio
 def dispatch(monkeypatch):
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
-    dispatched = Mock(return_value="broker-wrapper")
+    dispatched = Mock(side_effect=lambda request, **_kwargs: request.async_job_id)
     monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", dispatched)
     return dispatched
 
@@ -65,6 +67,7 @@ async def test_bulk_replay_keeps_captured_members_after_new_tasks_and_batch_chan
     assert job.payload["accepted_input_manifest_digest"] == original_digest
     assert job.payload["total_tasks"] == job.payload["input_candidate_count"] == 3
     assert "task_ids" not in job.payload and "accepted_input_ids" not in job.payload
+    assert job.payload["execution_task_ids"] == sorted(str(task.id) for task in tasks)
     message = dispatch.call_args.args[0]
     assert message.task_ids is None and message.accepted_input_ids is None
     assert message.accepted_input_manifest_digest == original_digest
@@ -100,7 +103,8 @@ async def test_bulk_replay_keeps_captured_members_after_new_tasks_and_batch_chan
     )
     assert {member.task_id for member in page.members} == {task.id for task in tasks}
     assert late_task.id not in {member.task_id for member in page.members}
-    assert dispatch.call_count == 2
+    # A confirmed durable publication is not sent a second time on replay.
+    assert dispatch.call_count == 1
 
 
 async def test_explicit_selection_is_canonical_and_excludes_other_members(
@@ -125,6 +129,7 @@ async def test_explicit_selection_is_canonical_and_excludes_other_members(
     assert [str(task) for task in header.selection.task_ids] == canonical
     assert header.selected_count == response.json()["total_tasks"] == 2
     assert job.payload["task_ids"] == job.payload["scope"]["task_ids"] == canonical
+    assert job.payload["execution_task_ids"] == canonical
     assert dispatch.call_args.args[0].task_ids == canonical
     page = await SqlAlchemyManifestDatabase(db_session, commit=False).call(
         "read_accepted_image_input_manifest_page",
@@ -158,7 +163,93 @@ async def test_skip_predicted_counts_frozen_selected_members_not_candidates(
     assert response.json()["total_tasks"] == header.selected_count == selected
     assert header.candidate_count == job.payload["input_candidate_count"] == 3
     assert job.payload["total_tasks"] == selected
+    expected = sorted(str(task.id) for task in tasks if task.total_predictions == 0)
+    assert job.payload["execution_task_ids"] == expected
+    assert dispatch.call_args.args[0].task_ids is None
+    assert header.selection.task_ids is None
     assert dispatch.call_args.args[0].accepted_input_manifest_id == str(job.id)
+
+
+@pytest.mark.parametrize("all_predicted", [False, True])
+async def test_explicit_skip_retains_selector_and_replays_frozen_execution(
+    httpx_client, db_session, super_admin, dispatch, all_predicted
+):
+    actor, token = super_admin
+    project, backend, _batch, tasks = await _seed(db_session, actor.id)
+    tasks[0].total_predictions = 1
+    if all_predicted:
+        tasks[1].total_predictions = 1
+    await db_session.commit()
+    selector = sorted([str(tasks[0].id), str(tasks[1].id)])
+    selected = [] if all_predicted else [str(tasks[1].id)]
+    endpoint = f"/api/v1/projects/{project.id}/preannotate"
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": str(uuid4())}
+    body = {"ml_backend_id": str(backend.id), "task_ids": selector}
+
+    response = await httpx_client.post(endpoint, headers=headers, json=body)
+    assert response.status_code == 200, response.text
+    job = await db_session.get(AsyncJob, UUID(response.json()["job_id"]))
+    header = await _record(db_session, job, actor.id)
+    assert [str(task_id) for task_id in header.selection.task_ids] == selector
+    assert header.selected_count == len(selected)
+    assert job.payload["scope"]["task_ids"] == job.payload["task_ids"] == selector
+    assert job.payload["execution_task_ids"] == selected
+    assert dispatch.call_args.args[0].task_ids == selector
+
+    tasks[0].total_predictions = 0
+    await db_session.commit()
+    replay = await httpx_client.post(endpoint, headers=headers, json=body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["job_id"] == str(job.id)
+    assert replay.json()["total_tasks"] == len(selected)
+    assert (
+        await _record(db_session, job, actor.id)
+    ).selection_digest == header.selection_digest
+    page = await SqlAlchemyManifestDatabase(db_session, commit=False).call(
+        "read_accepted_image_input_manifest_page",
+        c.ManifestPageRequest(
+            job_id=job.id,
+            actor_id=actor.id,
+            project_id=project.id,
+            selection_digest=header.selection_digest,
+        ),
+    )
+    assert sorted(str(member.task_id) for member in page.members) == selected
+
+
+async def test_unbounded_selector_retains_more_than_200_execution_members(
+    httpx_client, db_session, super_admin, dispatch
+):
+    actor, token = super_admin
+    project, backend, batch, tasks = await _seed(db_session, actor.id)
+    for index in range(198):
+        task = Task(
+            id=uuid4(),
+            project_id=project.id,
+            batch_id=batch.id,
+            display_id=f"T-{uuid4().hex[:20]}",
+            file_name=f"extra-{index}.jpg",
+            file_path=f"items/{uuid4().hex}.jpg",
+            file_type="image",
+            status="pending",
+        )
+        db_session.add(task)
+        await db_session.flush()
+        await managed_task(db_session, project, SimpleNamespace(id=actor.id), task=task)
+        tasks.append(task)
+    await db_session.commit()
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/preannotate",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"ml_backend_id": str(backend.id), "batch_id": str(batch.id)},
+    )
+    assert response.status_code == 200, response.text
+    job = await db_session.get(AsyncJob, UUID(response.json()["job_id"]))
+    header = await _record(db_session, job, actor.id)
+    assert header.selection.task_ids is None
+    assert header.selected_count == response.json()["total_tasks"] == 201
+    assert job.payload["execution_task_ids"] == sorted(str(task.id) for task in tasks)
+    assert dispatch.call_args.args[0].task_ids is None
 
 
 async def test_project_all_selection_uses_bulk_eligibility_before_frozen_counts(
@@ -224,6 +315,9 @@ async def test_project_all_selection_uses_bulk_eligibility_before_frozen_counts(
         draft_task.id,
         standalone.id,
     }
+    assert job.payload["execution_task_ids"] == sorted(
+        str(task_id) for task_id in (tasks[2].id, draft_task.id, standalone.id)
+    )
     assert dispatch.call_count == 1
 
 

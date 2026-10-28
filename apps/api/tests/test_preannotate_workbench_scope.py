@@ -138,7 +138,7 @@ def _mock_celery(monkeypatch, app_module):
         captured["request"] = request
         captured["queue"] = queue
         captured["soft_time_limit"] = soft_time_limit
-        return "fake-job-uuid"
+        return request.async_job_id
 
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
     from app.services.accepted_inputs import get_input_admission
