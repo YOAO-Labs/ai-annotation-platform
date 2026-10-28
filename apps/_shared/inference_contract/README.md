@@ -31,3 +31,5 @@ Before sealing, Inference encodes the private health outcome with `health_observ
 ## Plugin installation intent
 
 `aap_inference_contract.plugin` defines a digest-pinned manifest, a bound resource, installation state and request/response models. The manifest is approved intent, not proof of a running artifact or its GPU qualification. CUDA bindings identify the platform resource, physical GPU and logical device separately. `plugin_is_active` allows legacy Registry entries without plugin metadata but rejects malformed or inactive reserved metadata. Manual endpoint tokens are separate from signed GPU admission authority.
+
+`PluginActivateRequest` carries a `PluginLaunchReceipt` containing administrator-inspected container and image identities and the approved digest and resource binding. This is trusted local operator evidence, not remote cryptographic attestation. The platform must separately verify authenticated endpoint facts and GPU lifecycle state. Disabling admission does not by itself prove that in-flight native work has drained or that an instance can be stopped.
