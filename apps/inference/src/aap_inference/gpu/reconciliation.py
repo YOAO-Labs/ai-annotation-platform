@@ -644,9 +644,8 @@ async def repair_gpu_resource(
 ) -> GPUResourceRepairResult:
     """Bootstrap or repair one desired-enforce resource without backend HTTP.
 
-    A valid ready ledger is left untouched.  Every continuity-loss path uses the
-    strict two-phase proof reset; ordinary reconciliation is never used to relax
-    token-horizon or health requirements.
+    A valid ready ledger may consume fresh idle health to extend its deadline
+    without rebuilding live state. Continuity loss uses the strict proof reset.
     """
 
     validate_gpu_resource_id(resource_id)
@@ -734,6 +733,93 @@ async def repair_gpu_resource(
                     and domain_matches
                     and all(member.state != "retiring" for member in durable_domain)
                 ):
+                    configured = config.gpu_arbiter_resources.get(resource_id)
+                    proof_context = GPUProofResetContext(
+                        resource_id=resource_id,
+                        allocatable_mb=allocatable_mb,
+                        reset_id="",
+                        begin_fingerprint="",
+                        ledger_revision=snapshot.ledger_revision,
+                        ledger_incarnation=snapshot.ledger_incarnation,
+                        prepared_at_ms=snapshot.observed_at_ms,
+                        backend_ids=snapshot.backend_ids,
+                        active_backend_ids=snapshot.active_backend_ids,
+                        backend_memberships=durable_domain,
+                    )
+                    evaluations = {
+                        str(member.backend_registry_id): _evaluate_gpu_member_proof(
+                            member,
+                            locked.fences.get(member.backend_registry_id),
+                            locked.registries.get(member.backend_registry_id),
+                            context=proof_context,
+                            db_now=locked.db_now,
+                            evidence_ttl=_HEALTH_EVIDENCE_MAX_AGE,
+                            residency_cooldown_ms=0,
+                        )
+                        for member in locked.memberships
+                    }
+                    allocations = {item.backend_id: item for item in snapshot.allocations}
+                    def agrees(backend_id: str, evaluation: _GPUProofEvaluation) -> bool:
+                        actual = allocations.get(backend_id)
+                        observed = evaluation.allocation
+                        if observed is None:
+                            return actual is None or actual.state in {
+                                GPUAllocationState.UNLOADED,
+                                GPUAllocationState.CPU_FALLBACK,
+                            }
+                        return (
+                            actual is not None
+                            and actual.state == GPUAllocationState.RESIDENT
+                            and actual.generation == observed.generation
+                            and actual.budget_mb == observed.budget_mb
+                            and actual.max_concurrency == observed.max_concurrency
+                            and actual.eviction_priority == observed.eviction_priority
+                        )
+
+                    complete = (
+                        not config.gpu_arbiter_config_errors
+                        and configured is not None
+                        and configured.resource_id == resource_id
+                        and configured.allocatable_mb == allocatable_mb
+                        and bool(snapshot.active_backend_ids)
+                        and len(locked.fences) == len(locked.memberships)
+                        and all(
+                            evaluation.complete
+                            and evaluation.evidence_deadline_ms is not None
+                            and agrees(backend_id, evaluation)
+                            for backend_id, evaluation in evaluations.items()
+                        )
+                    )
+                    if complete:
+                        deadline = min(
+                            evaluation.evidence_deadline_ms
+                            for evaluation in evaluations.values()
+                            if evaluation.evidence_deadline_ms is not None
+                        )
+                        if deadline > snapshot.reconcile_deadline_ms:
+                            if not await store.renew_ready(
+                                snapshot, evidence_deadline_ms=deadline
+                            ):
+                                return GPUResourceRepairResult(
+                                    resource_id=resource_id,
+                                    action="already_ready",
+                                    status="stale_revision",
+                                    ready=False,
+                                    reason="readiness_renewal_cas_failed",
+                                    ledger_revision=snapshot.ledger_revision,
+                                    ledger_incarnation=snapshot.ledger_incarnation,
+                                    committed_mb=snapshot.committed_mb,
+                                )
+                            return GPUResourceRepairResult(
+                                resource_id=resource_id,
+                                action="already_ready",
+                                status="ready",
+                                ready=True,
+                                reason="",
+                                ledger_revision=snapshot.ledger_revision + 1,
+                                ledger_incarnation=snapshot.ledger_incarnation,
+                                committed_mb=snapshot.committed_mb,
+                            )
                     return GPUResourceRepairResult(
                         resource_id=resource_id,
                         action="already_ready",

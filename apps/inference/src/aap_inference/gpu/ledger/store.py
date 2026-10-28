@@ -40,6 +40,7 @@ from aap_inference.gpu.ledger.scripts import (
     _VERIFY_TOMBSTONE_GC_LUA,
 )
 from aap_inference.gpu.ledger.scripts.installation_drain import _INSTALLATION_DRAIN_LUA
+from aap_inference.gpu.ledger.scripts.renew_ready import _RENEW_READY_LUA
 from aap_inference.gpu.ledger.types import (
     _CANONICAL_POSITIVE_INT64_RE,
     _DEFAULT_NAMESPACE,
@@ -120,6 +121,7 @@ class GPUArbiterStore:
         )
         self._begin_proof_reset_script = redis.register_script(_BEGIN_PROOF_RESET_LUA)
         self._commit_proof_reset_script = redis.register_script(_COMMIT_PROOF_RESET_LUA)
+        self._renew_ready_script = redis.register_script(_RENEW_READY_LUA)
         self._reconcile_card_script = redis.register_script(_RECONCILE_CARD_LUA)
         self._evolve_backend_domains_script = redis.register_script(
             _EVOLVE_BACKEND_DOMAINS_LUA
@@ -721,6 +723,36 @@ class GPUArbiterStore:
             reason=str(payload.get("reason", "")),
             idempotent=bool(payload.get("idempotent", False)),
         )
+
+    async def renew_ready(
+        self,
+        snapshot: GPUCardSnapshot,
+        *,
+        evidence_deadline_ms: int,
+    ) -> bool:
+        """Extend only the still-current ready snapshot, without rewriting live state."""
+        deadline = _validate_positive_int(evidence_deadline_ms, "evidence_deadline_ms")
+        domains = _canonical_backend_domains(snapshot.backend_memberships)
+        raw = await self._call(
+            lambda: self._renew_ready_script(
+                keys=[self.keys(snapshot.resource_id).card],
+                args=[
+                    snapshot.resource_id,
+                    snapshot.allocatable_mb,
+                    snapshot.ledger_revision,
+                    snapshot.ledger_incarnation,
+                    snapshot.reconcile_deadline_ms,
+                    deadline,
+                    domains.backend_domain_raw,
+                    domains.backend_domain_fingerprint,
+                    domains.membership_domain_raw,
+                    domains.membership_domain_fingerprint,
+                    domains.active_backend_domain_raw,
+                    domains.active_backend_domain_fingerprint,
+                ],
+            )
+        )
+        return int(raw) == 1
 
     async def reconcile_card(
         self,

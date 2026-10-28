@@ -3288,6 +3288,62 @@ async def test_expired_idempotent_repair_cannot_reopen_readiness(
 
 
 @pytest.mark.asyncio
+async def test_ready_renewal_cas_preserves_live_ledger_and_fences_races(redis_stores) -> None:
+    first, second = redis_stores
+    resource_id = "node-renewal/index:0"
+    await _bootstrap_empty_card(first, resource_id, 100)
+    await _admit_resident(first, resource_id, wait_for_cooldown=False,
+                          resident_cooldown_ms=30_000)
+    before_admission = await first.snapshot(resource_id)
+    assert (await first.admit(
+        resource_id, **_admission_kwargs("backend-a", "live-lease"),
+    )).admitted
+    proposed = int(time.time() * 1000) + 240_000
+    assert not await first.renew_ready(before_admission, evidence_deadline_ms=proposed)
+    stale = await first.snapshot(resource_id)
+    assert (await second.enqueue_backend(
+        resource_id, backend_id="backend-a", membership_epoch=1,
+        ticket_id="waiting", owner_id="waiter", ttl_ms=30_000,
+    )).status == "queued"
+    assert not await first.renew_ready(stale, evidence_deadline_ms=proposed)
+    current = await first.snapshot(resource_id)
+    assert current.allocations[0].evictable
+    assert current.leases and current.backend_queue_count == 1
+    assert await first.renew_ready(current, evidence_deadline_ms=proposed)
+    renewed = await first.snapshot(resource_id)
+    assert renewed.reconcile_deadline_ms == proposed
+    assert renewed.ledger_revision == current.ledger_revision + 1
+    assert renewed.ledger_incarnation == current.ledger_incarnation
+    assert renewed.allocations == current.allocations
+    assert renewed.leases == current.leases
+    assert renewed.backend_queue_count == current.backend_queue_count
+    assert renewed.card_queue_count == current.card_queue_count
+    assert renewed.transition_present == current.transition_present
+    assert not await second.renew_ready(current, evidence_deadline_ms=proposed + 1)
+    assert not await first.renew_ready(
+        replace(renewed, ledger_incarnation="different"), evidence_deadline_ms=proposed + 1,
+    )
+    assert not await first.renew_ready(
+        replace(renewed, reconcile_deadline_ms=renewed.reconcile_deadline_ms - 1),
+        evidence_deadline_ms=proposed + 1,
+    )
+    assert not await first.renew_ready(
+        renewed, evidence_deadline_ms=int(time.time() * 1000) + 301_000,
+    )
+
+    card = first.keys(resource_id).card
+    domain = await first._redis.hget(card, "membership_domain")
+    await first._redis.hset(card, "membership_domain", "[]")
+    assert not await first.renew_ready(renewed, evidence_deadline_ms=proposed + 1)
+    await first._redis.hset(card, "membership_domain", domain)
+    await first._redis.hset(card, "reconcile_deadline_ms", int(time.time() * 1000) - 1)
+    assert not await first.renew_ready(renewed, evidence_deadline_ms=proposed + 1)
+    expired = await first.snapshot(resource_id)
+    assert not expired.ready
+    assert not await first.renew_ready(expired, evidence_deadline_ms=proposed + 1)
+
+
+@pytest.mark.asyncio
 async def test_expired_reconcile_deadline_stops_new_work_and_queueing(
     redis_stores,
 ) -> None:
