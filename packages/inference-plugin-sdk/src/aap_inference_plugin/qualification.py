@@ -5,10 +5,11 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
 import secrets
+import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 import time
 import uuid
@@ -141,7 +142,12 @@ async def _lifecycle(url: str, token: str, key, registry: str, resource: str, im
                     pass
 
 
-def qualify_local(fixtures: Path, device: str, gpu_uuid: str, asset_dir: Path, report_path: Path) -> dict:
+def qualify_local(fixtures: Path, device: str, gpu_uuid: str, asset_dir: Path, report_path: Path, *, entrypoint: str) -> dict:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", entrypoint):
+        raise ValueError("--entrypoint must be the name of an installed console script")
+    executable = shutil.which(entrypoint)
+    if executable is None:
+        raise ValueError(f"installed console script {entrypoint!r} was not found")
     if not device.startswith("cuda:") or not device[5:].isdigit() or not gpu_uuid.startswith("GPU-"):
         raise ValueError("local GPU qualification requires --device cuda:<ordinal> and an exact --gpu-uuid")
     _, paths = load_fixtures(fixtures)
@@ -150,7 +156,7 @@ def qualify_local(fixtures: Path, device: str, gpu_uuid: str, asset_dir: Path, r
     with tempfile.TemporaryDirectory(prefix="aap-plugin-check-") as tmp:
         root = Path(tmp)
         native_path = root / "native.json"
-        command = ["aap-libreyolo", "probe", "--device", device, "--gpu-uuid", gpu_uuid,
+        command = [executable, "probe", "--device", device, "--gpu-uuid", gpu_uuid,
                    "--asset-dir", str(asset_dir), "--multi-image", str(paths["multi"]),
                    "--empty-image", str(paths["empty"]), "--output", str(native_path)]
         probe = subprocess.run(command, check=False, timeout=900)
@@ -172,7 +178,7 @@ def qualify_local(fixtures: Path, device: str, gpu_uuid: str, asset_dir: Path, r
         registry, resource = str(uuid.uuid4()), "local-qualification/" + gpu_uuid
         port = _port()
         url = f"http://127.0.0.1:{port}"
-        command = [sys.executable, "-m", "aap_inference_plugin._qualification_server", "--device", device,
+        command = [executable, "qualification-server", "--device", device,
                    "--gpu-uuid", gpu_uuid, "--asset-dir", str(asset_dir), "--token-file", str(token_file),
                    "--keyring-file", str(keyring), "--registry", registry, "--resource", resource, "--port", str(port)]
         with (root / "server.log").open("w+") as log:

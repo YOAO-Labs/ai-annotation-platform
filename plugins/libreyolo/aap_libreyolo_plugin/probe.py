@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-
+from .provider import Provider
 
 
 def require_exclusive_gpu(gpu_uuid):
@@ -30,12 +30,16 @@ def require_exclusive_gpu(gpu_uuid):
             raise ValueError("Selected GPU has another active compute process")
 
 
-def run(*, device, gpu_uuid, asset_dir, multi_image, empty_image, output):
+def run(args, provider_factory=Provider):
     import torch
     from PIL import Image
     from .assets import assets, verify
     from .device import verify_device
-    from .provider import Provider
+
+    device, gpu_uuid = args.device, args.gpu_uuid
+    asset_dir, multi_image, empty_image, output = (
+        args.asset_dir, args.multi_image, args.empty_image, args.output
+    )
 
     report = {"mode": "local-isolated", "device": device, "gpu_uuid": gpu_uuid, "checks": {}}
     checks = report["checks"]
@@ -87,7 +91,7 @@ def run(*, device, gpu_uuid, asset_dir, multi_image, empty_image, output):
         baseline_free, baseline_total = torch.cuda.mem_get_info(selected)
         require_exclusive_gpu(gpu_uuid)
         for cycle in range(2):
-            model = Provider().load("t", device, {"path": str(path)})
+            model = provider_factory().load("t", device, {"path": str(path)})
             try:
                 torch.cuda.synchronize(selected)
                 resident = torch.cuda.memory_allocated(selected)
