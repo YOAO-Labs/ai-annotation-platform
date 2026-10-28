@@ -63,6 +63,8 @@ aap-plugin build my-detector
 
 模型作者实现 `load`、单图 `predict` 和 `close`；`predict` 返回原图像素坐标的 `Detection`，SDK 负责协议响应、类别索引和坐标转换。裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。可选训练产物安装使用共享受控收据机制；插件不直接访问平台数据库。
 
+安装实例退役时，CPU 实例的不可逆终止排空使用认证的 `/lifecycle/terminal-drain`，并绑定注册实例和当前 boot；GPU 终止排空使用 `/lifecycle/terminal-drain-signed`，除业务 token 外还要求平台签发的 GPU DRAIN 许可。两种路径都等待真实模型借用和构建退出后卸载；业务 token 不能代替 GPU 许可，也不能重启已终止的实例。
+
 ## 协议教学：echo 示例
 
 下文先把最小 echo 示例跑起来，理解协议契约，再展示如何手写 OCR backend，最后注册到平台。

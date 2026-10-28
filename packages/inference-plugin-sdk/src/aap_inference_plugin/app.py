@@ -37,6 +37,13 @@ class Params(BaseModel):
     max_det: int = Field(default=300, ge=1, le=1000)
 
 
+class TerminalDrainRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    registry_id: str = Field(min_length=1, max_length=128)
+    boot_id: str = Field(min_length=1, max_length=128)
+    operation_id: str = Field(min_length=1, max_length=256)
+
+
 def receipt_digest(receipt: dict) -> str:
     return hashlib.sha256(json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -70,7 +77,8 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
     lifecycle = ManagedGpuLifecycle(pool, verify_keyring=config.verify_keyring,
                                     evictable_verified=config.evictable_verified,
                                     expected_registry_id=config.expected_registry_id,
-                                    expected_gpu_resource_id=config.expected_gpu_resource_id)
+                                    expected_gpu_resource_id=config.expected_gpu_resource_id,
+                                    terminal_cpu_enabled=config.device == "cpu")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -194,6 +202,10 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                   "physical_gpu_uuid": config.physical_gpu_uuid}
         if config.evictable_verified:
             result["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(mode="json")
+            if config.device.startswith("cuda:"):
+                result["terminal_lifecycle"] = {"terminal_drain_signed_endpoint": "/lifecycle/terminal-drain-signed"}
+        if config.device == "cpu" and config.expected_registry_id and not config.expected_gpu_resource_id:
+            result["terminal_lifecycle"] = {"terminal_drain_endpoint": "/lifecycle/terminal-drain"}
         return result
 
     @app.get("/versions")
@@ -296,6 +308,21 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
             return await lifecycle.legacy_unload()
         transition = GenerationTransitionRequest.model_validate_json(body)
         return (await lifecycle.managed_unload(transition.generation, generation_header=generation, token=token)).model_dump(mode="json")
+
+    if config.device == "cpu" and config.expected_registry_id and not config.expected_gpu_resource_id:
+        @app.post("/lifecycle/terminal-drain")
+        async def terminal_drain(body: TerminalDrainRequest):
+            return await lifecycle.terminal_drain(
+                registry_id=body.registry_id, boot_id=body.boot_id, operation_id=body.operation_id
+            )
+
+    if config.device.startswith("cuda:"):
+        @app.post("/lifecycle/terminal-drain-signed")
+        async def terminal_drain_signed(body: GenerationTransitionRequest, request: Request):
+            generation, token = headers(request)
+            return await lifecycle.terminal_drain_signed(
+                body.generation, generation_header=generation, token=token
+            )
 
     @app.post("/drain")
     @app.post("/drain/cancel")
