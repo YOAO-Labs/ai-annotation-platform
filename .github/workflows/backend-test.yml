@@ -24,7 +24,7 @@ permissions:
 jobs:
   test:
     name: Backend test shard execution
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -78,6 +78,16 @@ jobs:
           fi
           ffmpeg -version
           ffprobe -version
+      - name: Configure PostgreSQL client tools
+        run: |
+          pg_bin=/usr/lib/postgresql/16/bin
+          if [ ! -x "$pg_bin/pg_dump" ] || [ ! -x "$pg_bin/pg_restore" ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client-16
+          fi
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          "$pg_bin/pg_dump" --version
+          "$pg_bin/pg_restore" --version
       - name: Install uv
         run: pip install uv
       - name: Sync deps

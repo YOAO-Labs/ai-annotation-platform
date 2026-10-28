@@ -40,6 +40,7 @@ last_reviewed: 2026-10-26
 
 - **ML CPU 与共享契约套件**：PR 触及 `apps/_shared/**`（7 个共享包：`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor/`、`apps/storage-agent/` 或任一 `apps/*-backend/` 路径时，可在纯 CPU 虚拟环境中运行 pytest（其中 ML 与相关共享包由 `.github/workflows/ml-cpu-test.yml` 在独立一次性虚拟环境中自动执行：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
 - **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
+- **异步掩码预览按可见完成状态验收**：等待加载状态结束及原图画布尺寸提交，再检查像素与图层切换；`createImageBitmap` 被调用不代表异步解码、记录发布与 React 绘制 effect 已完成。不把 mock 调用次数当作画布就绪，也不扩大等待预算掩盖竞态。
 
 ---
 
@@ -58,6 +59,16 @@ uv run pytest --cov=app --cov-report=html    # 生成 HTML 覆盖率报告（输
 ### CI 分片运行
 
 CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的四个独立分片，每个分片在自己的 GitHub runner 上拥有独立的 Postgres / Redis / MinIO。分片只决定 pytest 收集哪些用例；依赖同步、worktree 运行时与 setup 测试、服务维护测试、存储隔离验收、`alembic upgrade head`、迁移校验、OpenAPI 快照漂移、`migration policy` 纯规则测试与覆盖率上传在每个分片上都完整执行，任何分片都不会因为分片而跳过检查。
+
+后端分片固定使用 `ubuntu-24.04`，备份/还原显式选择 PostgreSQL 16 客户端，与本 Job 的 `postgres:16` 服务配套，避免浮动 runner 的新版 `pg_dump` 生成旧服务端不支持的配置。客户端缺失时安装同主版本包，不通过过滤备份语句、忽略 `pg_restore` 错误或跳过恢复场景放行迁移门禁。
+
+使用 `pg_stat_activity` 观测并发锁等待时，每次轮询先调用 `pg_stat_clear_snapshot()`，避免同一观测事务的统计快照遗漏稍后建立的连接。锁序测试仍需验证真实阻塞、取消落库和唯一终态通知，不靠增加等待时间或吞掉异常稳定用例。
+
+真实媒体派生 HTTP 验收直接通过 API authority 请求服务返回的下载 URL，再核对输出字节数、完整 SHA-256 与代际身份。已登记媒体缓存返回 API capability URL，不能把它拼接到 MinIO endpoint；不绕开能力校验直读底层对象。
+
+流式交付的独立数据库会话须注入当前测试的 function-scope 真实 session factory，避免跨 pytest 函数事件循环复用应用级连接池。保留真实数据库事务、存储读取与能力校验，不用模拟响应或扩大超时掩盖隔离问题。
+
+Worker 准备过程中仅按既有接口明确的 busy 错误码等待，不把任意冲突或授权失败当成可重试状态；保持原轮询次数、总体期限与最终输出断言。
 
 - **固定输入**：四个调用方分别传入 `--shard-index 0..3 --shard-count 4`。本地复现任一 CI 分片：
   ```bash
@@ -264,6 +275,7 @@ Playwright 会自动准备专用逻辑数据库 `annotation_e2e`、执行迁移�
 
 - **智能路由入口（`scripts/plan-e2e-suites.mjs`）**：PR 默认运行“有界核心 smoke + 按变更路径触发的领域专项（Mask×3、`video-pipeline`、`pointcloud`）”。若触及共享依赖、运行时配置、未映射路径、空 diff、跨多域或文件重命名/删除，则保守放大为全量套件；纯文档变更（白名单 `.md`）显式跳过应用 E2E 并记录原因。设置仓库变量 `E2E_SELECTION_MODE=legacy` 可随时无代码回退至固定全量矩阵。
 - **规划报告传输**：完整的 legacy/planned 对照、变更路径分类和原因写入 `E2E_SHADOW_PATH`（默认 `e2e-shadow.json`），CLI 仅输出 `shadow_path` 文件指针。CI 从文件生成步骤摘要，并上传 `e2e-selection-report` 产物；不要将完整报告放入步骤输出或进程环境，以免大型 PR 超过进程参数上限。矩阵、必需 manifest 和 ML CPU 调度继续使用原有有界输出。
+- **浏览器运行环境**：可复用 E2E 套件与独立视觉回归 Job 固定使用 `ubuntu-24.04`，避免 `ubuntu-latest` 切换到 Playwright 尚不支持的发行版。升级 runner 前须核对 Playwright 支持范围，并通过 Chromium 安装及实际套件运行；不跳过浏览器依赖或缩小测试选集。
 - **视频工具准备**：后端分片与 E2E runner 先复用已有的 `ffmpeg` / `ffprobe`，缺少时才以 `--no-install-recommends` 安装 FFmpeg，避免下载无关驱动及语音模型占满 Job 预算；安装前先把 runner 的 `/etc/apt/apt-mirrors.txt` 指回 HTTPS 的 `archive.ubuntu.com`，避免区域 HTTP 镜像拖慢同一个 `apt-get`；两者版本均写入步骤日志，测试选集和超时不变。
 - **真实提供方验收**：版本、删除标记与净变化用例通过共用的 `live_provider_guard` 验证目标：本地仅允许工作树专属 `test` 桶；GitHub 托管 runner 可使用本次 Job 的临时 PostgreSQL、MinIO 与 Redis。远程存储、开发模式和非托管 runner 均拒绝，不用伪造工作树标记或跳过用例代替验收。
 - **必需套件审计（`scripts/audit-e2e-requirements.mjs`）**：核心 smoke 以 `--retries=0` 且 `flakyPolicy=forbid` 运行（重试后通过仍会阻断审计）；专项套件保留一次诊断重试并单独标记 flaky。审计脚本按计划 manifest 严格核对每个选中套件的产物，任何缺失、取消、setup 失败、套件名不匹配或核心 flaky 都会令汇总步骤失败（不会把缺失报告当作通过）。

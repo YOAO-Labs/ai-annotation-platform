@@ -129,7 +129,7 @@ class Settings(BaseSettings):
     # v0.10.24 · 版本号单源真值。FastAPI title version 与 /health version 都读它，
     # 发版只改这一处（+ pyproject.toml / package.json）。运维 scrape /health 拿到的
     # 版本号此前长期 stale（曾硬编码 0.7.6），故收口到 settings。
-    app_version: str = "0.26.1"
+    app_version: str = "0.26.2"
     debug: bool = True
     environment: Literal["development", "staging", "production"] = "development"
     e2e_seed_enabled: bool = False

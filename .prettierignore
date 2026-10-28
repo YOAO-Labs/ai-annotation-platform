@@ -49,6 +49,7 @@ skills-lock.json
 docs/benchmarks/
 docs/research/data/
 infra/grafana/dashboards/
+data/backend-manager/
 
 # Immutable history; keep its original authored formatting
 docs/adr/archive/
