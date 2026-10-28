@@ -1,0 +1,7 @@
+# Training contract: inference runtime qualification
+
+`training_contract.inference_runtime.inference_runtime(receipt, version, *, device="cpu")` returns the qualified execution identity for a managed model receipt. The default preserves historical CPU LibreYOLO and existing Ultralytics identities. `validate_inference_runtime(receipt, runtime)` recomputes the permitted identity and rejects changed, missing, or extra fields; callers must also compare a validated runtime to the runtime frozen in the deployment or reference.
+
+LibreYOLO 1.6.0 detect has a separate CUDA FP32 execution profile, selected explicitly with `device="cuda"`. Its qualification contains `device="cuda"`, `cuda_build="13.2"`, `precision="fp32"`, `half=false`, `amp=false`, `tf32=false`, and the pinned LibreYOLO, Torch and torchvision versions. Only the device kinds `cpu` and `cuda` are accepted; logical ordinals and physical GPU UUIDs are deployment bindings, not profile or artifact identity. Other frameworks do not acquire CUDA qualification through this interface.
+
+A qualified profile is an allowed identity, not evidence that hardware or runtime settings meet it. The executing plugin must verify the actual CUDA build, device binding and FP32/half/AMP/TF32 settings and fail closed if they differ. Installing and checking a GPU deployment does not alter the artifact's historical CPU `runtime_qualification`, its receipt identity, or an existing frozen CPU reference. Missing-runtime legacy references retain their existing CPU semantics.
