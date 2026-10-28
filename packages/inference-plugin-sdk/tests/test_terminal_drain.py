@@ -20,6 +20,8 @@ def test_cpu_terminal_drain_auth_identity_and_irreversibility():
         assert client.post("/lifecycle/terminal-drain", json=body).status_code in (401, 403)
         client.headers["Authorization"] = "Bearer " + TOKEN
         assert client.get("/setup").json()["terminal_lifecycle"] == {"terminal_drain_endpoint": "/lifecycle/terminal-drain"}
+        assert client.get("/setup").json()["registry_id"] == registry
+        assert client.get("/setup").json()["gpu_resource_id"] is None
         assert client.post("/warmup", json={"task": "detect"}).status_code == 200
         wrong = {**body, "registry_id": str(uuid4())}
         assert client.post("/lifecycle/terminal-drain", json=wrong).status_code >= 400

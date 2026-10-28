@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -32,8 +34,45 @@ my-libreyolo-plugin = "my_libreyolo_plugin:main"
 [tool.setuptools]
 py-modules = ["my_libreyolo_plugin"]
 ''', encoding="utf-8")
-    (directory / "my_libreyolo_plugin.py").write_text('''"""Standalone LibreYOLO plugin entry point."""
-from aap_libreyolo_plugin.cli import main
+    (directory / "my_libreyolo_plugin.py").write_text('''"""Real LibreYOLO detector; adapt these three model responsibilities."""
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+from PIL.Image import Image
+from aap_inference_plugin import Detection, DetectionModel
+from aap_libreyolo_plugin import cli
+from aap_libreyolo_plugin.provider import Provider as LibreProvider
+
+
+class Model:
+    """Own one loaded native model; image boxes remain in original-image pixels."""
+
+    def __init__(self, native: DetectionModel) -> None:
+        self.native = native
+        self.classes = native.classes
+
+    def predict(self, image: Image, parameters: Mapping[str, Any]) -> Sequence[Detection]:
+        return self.native.predict(image, parameters)
+
+    def close(self) -> None:
+        self.native.close()
+
+
+class Provider:
+    def __init__(self) -> None:
+        self.native = LibreProvider()
+
+    def load(self, model_id: str, device: str, config: Mapping[str, Any]) -> DetectionModel:
+        return Model(self.native.load(model_id, device, config))
+
+    def execution_facts(self) -> Mapping[str, Any]:
+        return self.native.execution_facts()
+
+
+def main() -> None:
+    cli.main(provider_factory=Provider)
 ''', encoding="utf-8")
 
 
@@ -46,7 +85,12 @@ def dev_server(args) -> None:
         raise ValueError("developer preflight is loopback-only; use provider serve for managed deployment")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", args.port))
-    command = ["aap-libreyolo", "serve", "--device", args.device, "--asset-dir", str(args.asset_dir),
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.entrypoint):
+        raise ValueError("--entrypoint must be the name of an installed console script")
+    executable = shutil.which(args.entrypoint)
+    if executable is None:
+        raise ValueError(f"installed console script {args.entrypoint!r} was not found; install the generated project in this environment")
+    command = [executable, "serve", "--device", args.device, "--asset-dir", str(args.asset_dir),
                "--token-file", str(args.token_file), "--host", args.host, "--port", str(args.port)]
     process = subprocess.Popen(command)
     try:
@@ -95,6 +139,7 @@ def main() -> None:
     init.add_argument("directory", type=Path)
     init.add_argument("--template", choices=["libreyolo-yolov9"], default="libreyolo-yolov9")
     dev = commands.add_parser("dev")
+    dev.add_argument("--entrypoint", default="my-libreyolo-plugin", help="Installed generated project's console script")
     dev.add_argument("--device", required=True)
     dev.add_argument("--host", default="127.0.0.1")
     dev.add_argument("--port", type=int, default=8000)

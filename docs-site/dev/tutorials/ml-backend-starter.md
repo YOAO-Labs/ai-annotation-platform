@@ -16,15 +16,18 @@ last_reviewed: 2026-10-19
 
 ```bash
 aap-plugin init my-detector --template libreyolo-yolov9
+# 在隔离环境中安装生成的项目；开发中可用 editable 安装以直接加载作者改动
+python -m pip install -e ./my-detector
 aap-plugin prepare-assets --size t --asset-dir ./assets
 # token 文件须事先创建，内容为至少 32 字符的私密随机 token；不要提交到源码库
 # CUDA 服务须设置 AAP_PLUGIN_GPU_UUID、AAP_PLUGIN_REGISTRY_ID、
 # AAP_PLUGIN_GPU_RESOURCE_ID 和 AAP_PLUGIN_GPU_KEYRING_FILE；绑定由管理员预先分配
-aap-plugin dev --device cuda:0 --asset-dir ./assets --token-file ./token
+aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./assets --token-file ./token
 ```
 
 资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。`--device cpu` 可用于显式本地调试，但不能替代 CUDA 验收，也不会自动回退。GPU 不可用或绑定不匹配时应修复设备配置，而不是更换模型或精度。
 `aap-plugin dev` 只监听本机 loopback，使用本地开发模式预热并检查实际设备驻留；它不建立平台托管准入。生产部署使用插件独立的 `serve` 入口，由平台签名准入后加载模型。
+生成的 `my_libreyolo_plugin.py` 包含可修改的 `Provider.load`、`Model.predict` 和 `Model.close`，默认真实委托 LibreYOLO 原生模型。`aap-plugin dev` 执行当前环境中 `--entrypoint` 指定的已安装 console script，而不是忽略生成项目或从平台仓库加载代码；换名后同步修改该选项。生产 wheel 不包含跨仓库 editable 路径，开发安装的 editable 指向开发者自己的项目。
 
 准备一个包含多检测和空检测真实图片的 fixture JSON。`box` 是相对于图片的 `[x, y, width, height]` 百分比；`box_tolerance` 同样以百分比计，`score_tolerance` 以 0–1 分数计。下面数值仅说明格式，必须替换为经人工确认的该模型实际期望，不能把示例当成验收结果：
 
@@ -59,7 +62,7 @@ aap-plugin check --qualify-local --fixtures ./fixtures.json \
 aap-plugin build my-detector
 ```
 
-本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；看不到必要事实时失败而不虚报成功。它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。构建输出 wheel 摘要；管理员仍需按插件 manifest 安装固定摘要制品、验证真实端点，再按既有 Registry 和项目设置启用。平台图片 URL 主机须由部署管理员明确配置。
+本地检查对原版 LibreYOLO provider 执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它不证明你修改过的作者 hook 已通过这些 GPU 检查。看不到必要事实时失败而不虚报成功。它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。构建输出 wheel 摘要；管理员仍需按插件 manifest 安装固定摘要制品、验证真实端点，再按既有 Registry 和项目设置启用。平台图片 URL 主机须由部署管理员明确配置。
 
 模型作者实现 `load`、单图 `predict` 和 `close`；`predict` 返回原图像素坐标的 `Detection`，SDK 负责协议响应、类别索引和坐标转换。裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。可选训练产物安装使用共享受控收据机制；插件不直接访问平台数据库。
 

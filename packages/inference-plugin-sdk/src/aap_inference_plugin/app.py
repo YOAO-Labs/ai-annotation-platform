@@ -199,7 +199,9 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                   "managed_model_compatibility": list(config.managed_model_compatibility),
                   "plugin_identity": dict(config.plugin_identity),
                   "runtime_info": runtime_facts(),
-                  "physical_gpu_uuid": config.physical_gpu_uuid}
+                  "physical_gpu_uuid": config.physical_gpu_uuid,
+                  "registry_id": config.expected_registry_id,
+                  "gpu_resource_id": config.expected_gpu_resource_id}
         if config.evictable_verified:
             result["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(mode="json")
             if config.device.startswith("cuda:"):
