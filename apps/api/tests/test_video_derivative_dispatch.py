@@ -125,18 +125,10 @@ async def test_http_authority_dispatches_real_video_worker_and_verified_outputs(
             for value in (frame, chunk):
                 assert value["metadata_generation_id"] == generation
                 assert value["output_id"] and value["sha256"] and value["byte_size"] > 0
-                raw_url = value["url"]
-                url = (
-                    ("https" if settings.minio_use_ssl else "http")
-                    + "://"
-                    + settings.minio_endpoint
-                    + raw_url.removeprefix("/minio")
-                )
-                async with httpx.AsyncClient() as provider:
-                    body = await provider.get(url)
-                    assert body.status_code == 200
-                    assert len(body.content) == value["byte_size"]
-                    assert hashlib.sha256(body.content).hexdigest() == value["sha256"]
+                body = await client.get(value["url"])
+                assert body.status_code == 200
+                assert len(body.content) == value["byte_size"]
+                assert hashlib.sha256(body.content).hexdigest() == value["sha256"]
             samples = await client.get(
                 f"/api/v1/videos/{context.item_id}/chunks/0/samples",
                 params={"expected_output_id": chunk["output_id"]},
