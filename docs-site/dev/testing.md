@@ -61,6 +61,8 @@ CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的�
 
 后端分片固定使用 `ubuntu-24.04`，备份/还原显式选择 PostgreSQL 16 客户端，与本 Job 的 `postgres:16` 服务配套，避免浮动 runner 的新版 `pg_dump` 生成旧服务端不支持的配置。客户端缺失时安装同主版本包，不通过过滤备份语句、忽略 `pg_restore` 错误或跳过恢复场景放行迁移门禁。
 
+使用 `pg_stat_activity` 观测并发锁等待时，每次轮询先调用 `pg_stat_clear_snapshot()`，避免同一观测事务的统计快照遗漏稍后建立的连接。锁序测试仍需验证真实阻塞、取消落库和唯一终态通知，不靠增加等待时间或吞掉异常稳定用例。
+
 - **固定输入**：四个调用方分别传入 `--shard-index 0..3 --shard-count 4`。本地复现任一 CI 分片：
   ```bash
   cd apps/api
