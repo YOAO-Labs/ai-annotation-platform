@@ -9,6 +9,7 @@ watched_tags = ["*"]
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared" = { status = "covered" }
 "GET /api/v1/training/catalog" = { status = "covered" }
 "GET /api/v1/training/projects" = { status = "covered" }
 "GET /api/v1/training/runs" = { status = "covered" }

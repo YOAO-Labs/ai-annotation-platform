@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_annotation._plugin_docker import ContainerConfig, Docker, _IMAGE, _QUALIFICATION_TARGET
 from ai_annotation._plugin_receipt import ReceiptStore, _check_private
-from ai_annotation.errors import AAPError
+from ai_annotation.errors import AAPError, APIStatusError, InstallError
 from ai_annotation.plugin_models import (
     PluginActivateRequest, PluginInstallationResult, PluginLaunchReceipt,
     PluginManifest, PluginPrepareRequest, PluginQualification, PluginResourceBinding,
@@ -50,8 +50,12 @@ class LocalPluginConfig(BaseModel):
             raise ValueError("url must be an HTTP(S) endpoint without credentials, query or fragment")
         if self.manifest.resource.device != "cuda":
             raise ValueError("local managed installation requires CUDA")
-        if self.manifest.plugin_id != "libreyolo" or self.manifest.entrypoint != ["aap-libreyolo", "serve", "--host", "0.0.0.0", "--port", "8000"]:
-            raise ValueError("local installer requires the approved LibreYOLO entrypoint")
+        if (
+            self.manifest.plugin_id != "libreyolo"
+            or self.manifest.entrypoint[1:] != ["serve", "--host", "0.0.0.0", "--port", "8000"]
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", self.manifest.entrypoint[0])
+        ):
+            raise ValueError("local installer requires an approved console script with fixed LibreYOLO serving arguments")
         if not _IMAGE.fullmatch(self.manifest.artifact):
             raise ValueError("image must be a safe digest-pinned OCI reference")
         if not re.fullmatch(r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", self.physical_gpu_uuid):
@@ -185,7 +189,8 @@ class LocalPluginDeployment:
         self._private_file(env_file, "".join(f"{key}={value}\n" for key, value in env.items()))
         return ContainerConfig(name="aap-plugin-" + receipt["installation_id"],
             installation_id=receipt["installation_id"], owner_hash=hashlib.sha256(receipt["owner"].encode()).hexdigest(),
-            image=config.manifest.artifact, gpu_uuid=config.physical_gpu_uuid, network=config.network,
+            image=config.manifest.artifact, entrypoint=tuple(config.manifest.entrypoint),
+            gpu_uuid=config.physical_gpu_uuid, network=config.network,
             host_port=config.host_port, container_port=8000, memory_mb=config.manifest.resource.memory_mb,
             cpus=config.cpus, env_file=env_file, data_dir=data, data_target=_DATA_TARGET,
             qualification_file=qualification_file)
@@ -201,6 +206,12 @@ class LocalPluginDeployment:
             return result
 
     def _qualification(self, receipt: dict, result: PluginInstallationResult, source: Path | None) -> PluginQualification:
+        try:
+            from aap_backend_runtime.lifecycle_evidence import validate_managed_lifecycle_evidence
+            from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
+        except ModuleNotFoundError as exc:
+            raise InstallError("Plugin deployment dependencies are missing; install 'ai-annotation-sdk[plugins]' from the private wheel index") from exc
+
         saved = receipt.get("qualification")
         path = self.store.directory / "qualification.json"
         if source is None:
@@ -210,18 +221,44 @@ class LocalPluginDeployment:
             _check_private(source, directory=False)
         try:
             report = json.loads(source.read_text(encoding="utf-8"))
-            if not isinstance(report, dict):
-                raise ValueError("report must be an object")
             canonical = json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
         except (OSError, ValueError, TypeError) as exc:
             raise AAPError("Unable to read a valid GPU lifecycle qualification report") from exc
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         if saved and saved["sha256"] != digest:
             raise AAPError("Qualification report differs from the installation receipt")
-        self._private_file(path, canonical)
+        try:
+            report = validate_managed_lifecycle_evidence(report)
+        except (TypeError, ValueError) as exc:
+            raise AAPError("Invalid GPU lifecycle qualification report") from exc
+        if not report["passed"]:
+            raise AAPError("GPU lifecycle qualification did not pass")
         image_id = self.docker.image_id(self._container(receipt, result, with_qualification=False))
         if saved and saved["image_id"] != image_id:
             raise AAPError("Qualified image ID differs from the local image")
+        item = result.installation
+        resource = item.resource
+        deployment = report["deployment"]
+        gpu = report["gpu"]
+        versions = deployment["runtime_versions"]
+        required = {
+            "plugin_id": item.manifest.plugin_id, "plugin_version": item.manifest.version,
+            "artifact": item.manifest.artifact, "asset_manifest_sha256": item.manifest.asset_manifest_sha256,
+            "registry_id": str(result.registry_id), "gpu_resource_id": resource.gpu_resource_id,
+            "driver_version": gpu["driver_version"],
+        }
+        if any(entry.framework == "libreyolo" for entry in item.manifest.managed_model_compatibility):
+            required.update({key: str(value).lower() if isinstance(value, bool) else str(value)
+                             for key, value in LIBRE_CUDA_RUNTIME.items()})
+        if (report["backend_name"] != item.manifest.plugin_id
+            or deployment["image_id"] != image_id
+            or gpu["uuid"] != resource.physical_gpu_uuid
+            or deployment["pool_topology"] != {"registry_id": str(result.registry_id),
+                "gpu_resource_id": resource.gpu_resource_id, "pools": {"models": {"cap": 1}}}
+            or any(versions.get(key) != value for key, value in required.items())
+            or ("cuda_build" in required and gpu["runtime_version"] != required["cuda_build"])):
+            raise AAPError("GPU lifecycle qualification differs from the reserved installation")
+        self._private_file(path, canonical)
         if not saved:
             receipt["qualification"] = {"sha256": digest, "image_id": image_id}
             self.store.save(receipt)
@@ -239,6 +276,10 @@ class LocalPluginDeployment:
             if result.installation.status == "active":
                 self.docker.verify_running(container)
             else:
+                # Record intent before Docker can create a container; a crash must
+                # not turn a possible launch into a cancellable reservation.
+                receipt["launch_attempted"] = True
+                self.store.save(receipt)
                 inspected = self.docker.ensure_started(container)
                 if inspected["image_id"] != receipt["qualification"]["image_id"]:
                     raise AAPError("Container image changed after qualification")
@@ -248,12 +289,28 @@ class LocalPluginDeployment:
                     image_id=inspected["image_id"], container_id=inspected["id"],
                     resource=result.installation.resource,
                 )
+                receipt["launch"] = evidence.model_dump(mode="json")
+                self.store.save(receipt)
                 result = self.plugins.activate(receipt["installation_id"], PluginActivateRequest(
                     expected_revision=result.installation.revision, receipt=evidence, qualification=qualification))
                 self._verify(receipt, result)
                 if result.installation.status != "active":
                     raise AAPError("Registry did not activate the installation")
             return result
+
+    def _save_proof(self, receipt: dict, proof) -> None:
+        self._verify(receipt, proof)
+        launch = proof.launch.model_dump(mode="json")
+        item = proof.installation
+        if (not proof.safe_to_stop or item.status != "disabled"
+            or launch["installation_id"] != str(item.installation_id)
+            or launch["registry_id"] != str(proof.registry_id)
+            or launch["artifact"] != item.manifest.artifact
+            or launch["resource"] != item.resource.model_dump(mode="json")
+            or (receipt.get("launch") is not None and receipt["launch"] != launch)):
+            raise AAPError("Plugin quiescence was not proven for the local launch")
+        receipt["quiescence"] = {"revision": item.revision, "launch": launch}
+        self.store.save(receipt)
 
     def disable(self) -> PluginInstallationResult:
         with self.store.locked():
@@ -266,17 +323,13 @@ class LocalPluginDeployment:
             if result.installation.status != "disabled":
                 raise AAPError("Installation is not disabled")
             container = self._container(receipt, result)
-            if not self.docker.exists(container) and receipt.get("quiesced_revision") == result.installation.revision:
+            saved = receipt.get("quiescence")
+            if not self.docker.exists(container) and saved and saved["revision"] == result.installation.revision:
                 return result
             proof = self.plugins.quiesce(receipt["installation_id"], result.installation.revision)
-            self._verify(receipt, proof)
-            if not proof.safe_to_stop or proof.installation.status != "disabled":
-                raise AAPError("Plugin quiescence was not proven; container remains running")
-            receipt["quiesced_revision"] = proof.installation.revision
-            self.store.save(receipt)
-            self.docker.stop_and_remove(container)
-            result = proof
-            return result
+            self._save_proof(receipt, proof)
+            self.docker.stop_and_remove(container, proof.launch.container_id)
+            return proof
 
     def uninstall(self) -> PluginInstallationResult:
         with self.store.locked():
@@ -287,11 +340,29 @@ class LocalPluginDeployment:
                 result = self.plugins.disable(receipt["installation_id"], result.installation.revision)
                 self._verify(receipt, result)
             if result.installation.status != "retired":
-                result = self.plugins.retire(receipt["installation_id"], result.installation.revision)
-                self._verify(receipt, result)
+                try:
+                    proof = self.plugins.quiesce(receipt["installation_id"], result.installation.revision)
+                except APIStatusError as exc:
+                    if (result.installation.status != "prepared" or exc.status_code != 409
+                        or not isinstance(exc.detail, dict)
+                        or exc.detail.get("error_code") != "plugin_launch_unrecorded"):
+                        raise
+                    if receipt.get("launch_attempted") or receipt.get("launch") or self.docker.exists(self._container(receipt, result, provision=False)):
+                        raise AAPError("Unrecorded local launch prevents cancellation") from exc
+                    result = self.plugins.cancel_prepared(receipt["installation_id"], result.installation.revision)
+                    self._verify(receipt, result)
+                else:
+                    self._save_proof(receipt, proof)
+                    result = self.plugins.retire(receipt["installation_id"], proof.installation.revision)
+                    self._verify(receipt, result)
             if result.installation.status != "retired":
                 raise AAPError("Registry did not prove retirement")
-            self.docker.stop_and_remove(self._container(receipt, result, provision=False))
+            container = self._container(receipt, result, provision=False)
+            saved = receipt.get("quiescence")
+            if saved and saved["revision"] + 1 == result.installation.revision:
+                self.docker.stop_and_remove(container, saved["launch"]["container_id"])
+            elif self.docker.exists(container):
+                raise AAPError("No matching quiescence proof for the local container")
             token_file = self.store.directory / "data" / "token"
             if token_file.exists():
                 _check_private(token_file, directory=False)

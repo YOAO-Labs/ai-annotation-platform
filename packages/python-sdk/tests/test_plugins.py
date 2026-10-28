@@ -28,8 +28,13 @@ def test_prepare_and_revision_actions_use_public_contract(client, respx_mock):
     root = f"{API}/admin/ml-integrations/plugins/installations"
     prepare = respx_mock.post(root).mock(return_value=httpx.Response(200, json=body))
     activate = respx_mock.post(f"{root}/{installation_id}/activate").mock(return_value=httpx.Response(200, json=body))
+    launch = {"installation_id": str(installation_id), "registry_id": str(registry_id),
+              "artifact": cfg.manifest.artifact, "image_id": "sha256:" + "d" * 64,
+              "container_id": "c" * 64, "resource": request.resource.model_dump(mode="json")}
     quiesce = respx_mock.post(f"{root}/{installation_id}/quiesce").mock(
-        return_value=httpx.Response(200, json={**body, "safe_to_stop": True}))
+        return_value=httpx.Response(200, json={**body, "safe_to_stop": True, "launch": launch}))
+    cancel = respx_mock.post(f"{root}/{installation_id}/cancel-prepared").mock(
+        return_value=httpx.Response(200, json=body))
     result = client.plugins.prepare(request)
     evidence = PluginLaunchReceipt(installation_id=installation_id, registry_id=registry_id,
         artifact=cfg.manifest.artifact, image_id="sha256:" + "d" * 64,
@@ -38,10 +43,13 @@ def test_prepare_and_revision_actions_use_public_contract(client, respx_mock):
     qualification = PluginQualification(report={"evidence": "passed"}, sha256=digest)
     client.plugins.activate(installation_id, PluginActivateRequest(expected_revision=1, receipt=evidence, qualification=qualification))
     proof = client.plugins.quiesce(installation_id, 1)
+    client.plugins.cancel_prepared(installation_id, 1)
     assert result.registry_id == registry_id
     assert proof.safe_to_stop is True
     assert json.loads(prepare.calls.last.request.content)["auth_token"] == request.auth_token
     assert json.loads(quiesce.calls.last.request.content) == {"expected_revision": 1}
+    assert json.loads(cancel.calls.last.request.content) == {"expected_revision": 1}
+    assert proof.launch.container_id == "c" * 64
     activation_body = json.loads(activate.calls.last.request.content)
     assert activation_body["receipt"]["container_id"] == "c" * 64
     assert activation_body["receipt"]["image_id"] == "sha256:" + "d" * 64

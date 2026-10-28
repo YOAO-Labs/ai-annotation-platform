@@ -76,7 +76,7 @@ async def _audit(db, admin, request, action, result):
     )
 
 
-@router.post("/prepare", response_model=PluginInstallationResponse)
+@router.post("", response_model=PluginInstallationResponse)
 async def prepare(data: PreparePluginInstallation, request: Request,
                   db: AsyncSession = Depends(get_db),
                   admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN))):
@@ -192,8 +192,14 @@ async def quiesce(installation_id: UUID, data: PluginInstallationCommand, reques
         raise HTTPException(status_code=409, detail={"error_code": "plugin_launch_unrecorded"})
     prior = lifecycle.get("proof")
     if isinstance(prior, dict) and prior.get("revision") == data.expected_revision:
+        try:
+            launch = PluginLaunchReceipt.model_validate(lifecycle["launch"])
+            if {k: prior.get(k) for k in launch.model_fields} != launch.model_dump(mode="json"):
+                raise ValueError("proof does not bind recorded launch")
+        except ValueError:
+            raise _conflict() from None
         await db.commit()
-        return PluginQuiesceResponse(**installation.model_dump(), safe_to_stop=True)
+        return PluginQuiesceResponse(**installation.model_dump(), safe_to_stop=True, launch=launch)
     pool = await topology.pool_for_registry(installation.registry_id)
     if pool is not None:
         member = await topology.drain_member(pool.id, installation.registry_id)
@@ -259,7 +265,7 @@ async def quiesce(installation_id: UUID, data: PluginInstallationCommand, reques
         raise _conflict() from None
     await _audit(db, admin, request, "quiesced", finalized)
     await db.commit()
-    return PluginQuiesceResponse(**finalized.model_dump(), safe_to_stop=True)
+    return PluginQuiesceResponse(**finalized.model_dump(), safe_to_stop=True, launch=launch)
 
 
 @router.post("/{installation_id}/retire", response_model=PluginInstallationResponse)
@@ -282,5 +288,29 @@ async def retire(installation_id: UUID, data: PluginInstallationCommand, request
     except ValueError:
         raise _conflict() from None
     await _audit(db, admin, request, "retired", result)
+    await db.commit()
+    return result
+
+
+@router.post("/{installation_id}/cancel-prepared", response_model=PluginInstallationResponse)
+async def cancel_prepared(installation_id: UUID, data: PluginInstallationCommand, request: Request,
+                          db: AsyncSession = Depends(get_db),
+                          admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN))):
+    from app.services import trained_models
+
+    installation = await _installation(db, installation_id)
+    topology = InferenceTopologyData(db)
+    if await topology.lock_plugin_registry(installation.registry_id) is None:
+        raise HTTPException(status_code=404, detail={"error_code": "plugin_installation_not_found"})
+    usage = await trained_models.registry_usage(db, installation.registry_id)
+    if usage.active_releases or usage.frozen_executions:
+        raise HTTPException(status_code=409, detail={"error_code": "plugin_installation_in_use", "active_releases": usage.active_releases, "frozen_executions": usage.frozen_executions})
+    try:
+        result = await topology.command_plugin_installation(
+            installation_id, data.expected_revision, "cancel_prepared"
+        )
+    except ValueError:
+        raise _conflict() from None
+    await _audit(db, admin, request, "cancelled_prepared", result)
     await db.commit()
     return result

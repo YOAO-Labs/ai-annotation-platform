@@ -34,7 +34,7 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch, inspected_scrip
         assert kwargs["check"] is False
         calls.append(argv)
         if argv[1:4] == ["container", "ls", "-a"]:
-            out = "abc" if exists else ""
+            out = "c" * 64 if exists else ""
         elif argv[1:3] == ["container", "create"]:
             exists = True
             out = "abc"
@@ -43,7 +43,7 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch, inspected_scrip
         elif "{{.Config.Image}}" in argv:
             out = cfg.image
         elif "{{json .HostConfig}}" in argv:
-            out = json.dumps({"Privileged": False, "NetworkMode": cfg.network,
+            out = json.dumps({"Privileged": False, "PidMode": "", "NetworkMode": cfg.network,
                 "Memory": cfg.memory_mb * 1024 * 1024, "NanoCpus": int(cfg.cpus * 1_000_000_000),
                 "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"],
                 "DeviceRequests": [{"DeviceIDs": [cfg.gpu_uuid], "Capabilities": [["gpu"]]}],
@@ -89,17 +89,20 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch, inspected_scrip
     assert not any("docker.sock" in arg for arg in creates[0])
     assert creates[0][-2:] == ["--", cfg.image]
     assert any("report.json,readonly" in arg for arg in creates[0])
+    assert all(call[-1] == "c" * 64 for call in calls if call[1:3] in (
+        ["container", "inspect"], ["container", "start"]
+    ))
 
 
 def test_unknown_container_is_not_adopted_or_stopped(monkeypatch):
     calls = []
     def run(argv, **kwargs):
         calls.append(argv)
-        out = "other" if "ls" in argv else '{"aap.installation":"other"}'
+        out = "c" * 64 if "ls" in argv else '{"aap.installation":"other"}'
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
     monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
     with pytest.raises(AAPError, match="another installation"):
-        Docker().stop_and_remove(config())
+        Docker().stop_and_remove(config(), "c" * 64)
     assert not any("stop" in argv or "rm" in argv for argv in calls)
 
 
@@ -129,3 +132,69 @@ def test_rejects_digest_mismatch_before_creating_container(monkeypatch):
     with pytest.raises(AAPError, match="approved digest"):
         Docker().ensure_started(config())
     assert not any("create" in argv or "start" in argv for argv in calls)
+
+
+@pytest.mark.parametrize("pid_mode", [None, "host", "container:" + "d" * 64, "private"])
+def test_inspect_rejects_unapproved_pid_mode(monkeypatch, pid_mode):
+    cfg = config()
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[1:4] == ["container", "ls", "-a"]:
+            out = "c" * 64
+        elif "{{json .Config.Labels}}" in argv:
+            out = json.dumps({"aap.installation": cfg.installation_id, "aap.owner": cfg.owner_hash,
+                              "aap.image": cfg.image, "aap.config": cfg.identity()})
+        elif "{{.Config.Image}}" in argv:
+            out = cfg.image
+        elif "{{json .HostConfig}}" in argv:
+            host = {"Privileged": False, "NetworkMode": cfg.network,
+                    "Memory": cfg.memory_mb * 1024 * 1024, "NanoCpus": int(cfg.cpus * 1_000_000_000),
+                    "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"],
+                    "DeviceRequests": [{"DeviceIDs": [cfg.gpu_uuid], "Capabilities": [["gpu"]]}]}
+            if pid_mode is not None:
+                host["PidMode"] = pid_mode
+            out = json.dumps(host)
+        elif "{{json .Mounts}}" in argv:
+            out = "[]"
+        else:
+            raise AssertionError(argv)
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
+    with pytest.raises(AAPError, match="resources"):
+        Docker().exists(cfg)
+    assert all(call[-1] == "c" * 64 for call in calls if call[1:3] == ["container", "inspect"])
+
+
+def test_stop_rejects_replacement_and_accepts_absence(monkeypatch):
+    cfg = config()
+    docker = Docker()
+    calls = []
+    monkeypatch.setattr(docker, "_inspect", lambda config: {"id": "d" * 64, "name": config.name})
+    monkeypatch.setattr(docker, "_run", lambda *args: calls.append(args))
+    with pytest.raises(AAPError, match="proven container"):
+        docker.stop_and_remove(cfg, "c" * 64)
+    assert calls == []
+    monkeypatch.setattr(docker, "_inspect", lambda config: None)
+    docker.stop_and_remove(cfg, "c" * 64)
+    assert calls == []
+
+
+@pytest.mark.parametrize("state", ["true", "false"])
+def test_stop_and_remove_uses_proven_full_id(monkeypatch, state):
+    cfg = config()
+    docker = Docker()
+    calls = []
+    monkeypatch.setattr(docker, "_inspect", lambda config: {"id": "c" * 64, "name": config.name})
+
+    def run(*args):
+        calls.append(args)
+        return state if args[:2] == ("container", "inspect") else ""
+
+    monkeypatch.setattr(docker, "_run", run)
+    docker.stop_and_remove(cfg, "c" * 64)
+    assert calls == ([("container", "inspect", "--format", "{{.State.Running}}", "c" * 64)]
+                     + ([("container", "stop", "c" * 64)] if state == "true" else [])
+                     + [("container", "rm", "c" * 64)])

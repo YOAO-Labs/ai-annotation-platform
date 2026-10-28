@@ -13,7 +13,7 @@ from typing import Any
 
 
 _ACTIONS_WITH_EVIDENCE = frozenset({"record_launch", "approve_qualification", "activate", "quiesce"})
-_ACTIONS_WITHOUT_EVIDENCE = frozenset({"disable", "retire"})
+_ACTIONS_WITHOUT_EVIDENCE = frozenset({"disable", "retire", "cancel_prepared"})
 
 
 def validate_installation_command(

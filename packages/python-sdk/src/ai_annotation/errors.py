@@ -12,6 +12,10 @@ class AAPError(Exception):
     """所有 SDK 异常的基类。"""
 
 
+class InstallError(AAPError):
+    """An optional SDK feature requires additional installed dependencies."""
+
+
 class APIStatusError(AAPError):
     """HTTP 4xx / 5xx 统一异常。"""
 

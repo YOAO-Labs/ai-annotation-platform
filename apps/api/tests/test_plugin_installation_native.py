@@ -66,6 +66,64 @@ def _evidence(payload, *, boot_id=None, control_epoch=None):
     }
 
 
+async def test_cancel_prepared_is_revision_fenced_and_retains_history(db_session, test_engine):
+    await assert_owned_test_database(test_engine)
+    data = InferenceTopologyData(db_session)
+    payload = _payload()
+    await data.prepare_plugin_installation(payload)
+    with pytest.raises(ValueError):
+        async with db_session.begin_nested():
+            await data.command_plugin_installation(payload.installation_id, 2, "cancel_prepared")
+    retired = await data.command_plugin_installation(payload.installation_id, 1, "cancel_prepared")
+    assert retired.installation.status == "retired"
+    assert retired.installation.revision == 2
+    row = (await db_session.execute(text(
+        "SELECT auth_token, extra_params FROM public.ml_backend_registry WHERE id=:id"
+    ), {"id": payload.installation_id})).one()
+    assert row.auth_token == "retired-sha256:" + hashlib.sha256(payload.auth_token.encode()).hexdigest()
+    assert row.extra_params["plugin_lifecycle"]["cancelled_prepared"] is True
+    assert await data.get_plugin_installation(payload.installation_id) == retired
+
+
+async def test_cancel_prepared_rejects_recorded_launch(db_session, test_engine):
+    await assert_owned_test_database(test_engine)
+    data = InferenceTopologyData(db_session)
+    payload = _payload()
+    await data.prepare_plugin_installation(payload)
+    recorded = await data.command_plugin_installation(payload.installation_id, 1, "record_launch", _receipt(payload))
+    with pytest.raises(ValueError):
+        async with db_session.begin_nested():
+            await data.command_plugin_installation(payload.installation_id, 2, "cancel_prepared")
+    assert await data.get_plugin_installation(payload.installation_id) == recorded
+
+
+async def test_gpu_prepared_cancellation_requires_untouched_durable_fence(db_session, test_engine):
+    await assert_owned_test_database(test_engine)
+    data = InferenceTopologyData(db_session)
+
+    def gpu_payload():
+        value = _payload().model_dump(mode="json")
+        value["manifest"]["resource"] = {"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 512}
+        value["resource"] = {"gpu_resource_id": "node/test-gpu", "physical_gpu_uuid": "GPU-test",
+                             "logical_device": "cuda:0"}
+        return PreparePluginInstallation.model_validate(value)
+
+    untouched = gpu_payload()
+    await data.prepare_plugin_installation(untouched)
+    retired = await data.command_plugin_installation(untouched.installation_id, 1, "cancel_prepared")
+    assert retired.installation.status == "retired"
+
+    used = gpu_payload()
+    await data.prepare_plugin_installation(used)
+    await db_session.execute(text(
+        "UPDATE public.gpu_backend_fences SET generation_high_water=1 WHERE backend_registry_id=:id"
+    ), {"id": used.installation_id})
+    with pytest.raises(ValueError):
+        async with db_session.begin_nested():
+            await data.command_plugin_installation(used.installation_id, 1, "cancel_prepared")
+    assert (await data.get_plugin_installation(used.installation_id)).installation.status == "prepared"
+
+
 async def test_prepare_replay_is_identity_bound_and_secret_sensitive(db_session, test_engine):
     await assert_owned_test_database(test_engine)
     data = InferenceTopologyData(db_session)

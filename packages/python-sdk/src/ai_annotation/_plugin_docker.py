@@ -94,12 +94,15 @@ class Docker:
         return result.stdout.strip()
 
     def _inspect(self, config: ContainerConfig) -> dict | None:
-        ids = self._run("container", "ls", "-a", "--filter", f"name=^/{config.name}$", "--format", "{{.ID}}")
+        ids = self._run("container", "ls", "-a", "--no-trunc", "--filter", f"name=^/{config.name}$", "--format", "{{.ID}}")
         if not ids:
             return None
         if len(ids.splitlines()) != 1:
             raise AAPError("Container name is ambiguous")
-        raw = self._run("container", "inspect", "--format", '{{json .Config.Labels}}', config.name)
+        container_id = ids
+        if not re.fullmatch(r"[0-9a-f]{64}", container_id):
+            raise AAPError("Container runtime returned an invalid full container ID")
+        raw = self._run("container", "inspect", "--format", '{{json .Config.Labels}}', container_id)
         try:
             labels = json.loads(raw)
         except ValueError as exc:
@@ -107,11 +110,11 @@ class Docker:
         expected = {"aap.installation": config.installation_id, "aap.owner": config.owner_hash, "aap.image": config.image, "aap.config": config.identity()}
         if not isinstance(labels, dict) or any(labels.get(k) != v for k, v in expected.items()):
             raise AAPError("Container belongs to another installation or has a different configuration")
-        image = self._run("container", "inspect", "--format", "{{.Config.Image}}", config.name)
+        image = self._run("container", "inspect", "--format", "{{.Config.Image}}", container_id)
         if image != config.image:
             raise AAPError("Container image does not match the installation receipt")
-        raw_config = self._run("container", "inspect", "--format", "{{json .HostConfig}}", config.name)
-        raw_mounts = self._run("container", "inspect", "--format", "{{json .Mounts}}", config.name)
+        raw_config = self._run("container", "inspect", "--format", "{{json .HostConfig}}", container_id)
+        raw_mounts = self._run("container", "inspect", "--format", "{{json .Mounts}}", container_id)
         try:
             host = json.loads(raw_config)
             mounts = json.loads(raw_mounts)
@@ -119,6 +122,7 @@ class Docker:
             raise AAPError("Unable to verify container resource configuration") from exc
         devices = host.get("DeviceRequests") if isinstance(host, dict) else None
         if (not isinstance(host, dict) or host.get("Privileged") is not False
+                or host.get("PidMode") != ""
                 or host.get("NetworkMode") != config.network
                 or host.get("Memory") != config.memory_mb * 1024 * 1024
                 or host.get("NanoCpus") != int(config.cpus * 1_000_000_000)
@@ -146,9 +150,9 @@ class Docker:
         actual_mounts = {(m.get("Source"), m.get("Destination"), m.get("RW")) for m in mounts}
         if len(mounts) != len(expected_mounts) or actual_mounts != expected_mounts:
             raise AAPError("Container mounts do not match the approved installation")
-        user = self._run("container", "inspect", "--format", "{{.Config.User}}", config.name)
-        entrypoint = self._run("container", "inspect", "--format", "{{json .Config.Entrypoint}}", config.name)
-        command = self._run("container", "inspect", "--format", "{{json .Config.Cmd}}", config.name)
+        user = self._run("container", "inspect", "--format", "{{.Config.User}}", container_id)
+        entrypoint = self._run("container", "inspect", "--format", "{{json .Config.Entrypoint}}", container_id)
+        command = self._run("container", "inspect", "--format", "{{json .Config.Cmd}}", container_id)
         try:
             entry = json.loads(entrypoint)
             cmd = json.loads(command)
@@ -157,9 +161,6 @@ class Docker:
         if (user != self._user() or entry != list(config.entrypoint)
                 or cmd not in (None, [])):
             raise AAPError("Container user or entrypoint differs from the approved runtime")
-        container_id = self._run("container", "inspect", "--format", "{{.Id}}", config.name)
-        if not re.fullmatch(r"[0-9a-f]{64}", container_id):
-            raise AAPError("Container runtime returned an invalid full container ID")
         return {"id": container_id, "name": config.name}
 
     def _verify_image(self, config: ContainerConfig) -> None:
@@ -188,13 +189,14 @@ class Docker:
     def verify_running(self, config: ContainerConfig) -> None:
         config.validate()
         self._verify_image(config)
-        if self._inspect(config) is None:
+        existing = self._inspect(config)
+        if existing is None:
             raise AAPError("Active installation has no owned container; refusing to restart without requalification")
         image_id = self._run("image", "inspect", "--format", "{{.Id}}", config.image)
-        container_image = self._run("container", "inspect", "--format", "{{.Image}}", config.name)
+        container_image = self._run("container", "inspect", "--format", "{{.Image}}", existing["id"])
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) or image_id != container_image:
             raise AAPError("Running container does not use the verified local image")
-        if self._run("container", "inspect", "--format", "{{.State.Running}}", config.name) != "true":
+        if self._run("container", "inspect", "--format", "{{.State.Running}}", existing["id"]) != "true":
             raise AAPError("Active installation container is not running; refusing to restart without requalification")
 
     def ensure_started(self, config: ContainerConfig) -> dict:
@@ -225,12 +227,12 @@ class Docker:
             if existing is None:
                 raise AAPError("Created container could not be verified")
         image_id = self._run("image", "inspect", "--format", "{{.Id}}", config.image)
-        container_image = self._run("container", "inspect", "--format", "{{.Image}}", config.name)
+        container_image = self._run("container", "inspect", "--format", "{{.Image}}", existing["id"])
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) or image_id != container_image:
             raise AAPError("Running container does not use the verified local image")
-        state = self._run("container", "inspect", "--format", "{{.State.Running}}", config.name)
+        state = self._run("container", "inspect", "--format", "{{.State.Running}}", existing["id"])
         if state == "false":
-            self._run("container", "start", config.name)
+            self._run("container", "start", existing["id"])
         elif state != "true":
             raise AAPError("Unknown container state")
         return {**existing, "image_id": image_id}
@@ -253,13 +255,16 @@ class Docker:
         config.validate()
         return self._inspect(config) is not None
 
-    def stop_and_remove(self, config: ContainerConfig) -> None:
+    def stop_and_remove(self, config: ContainerConfig, proven_id: str) -> None:
         config.validate()
-        if self._inspect(config) is None:
+        existing = self._inspect(config)
+        if existing is None:
             return
-        state = self._run("container", "inspect", "--format", "{{.State.Running}}", config.name)
+        if existing["id"] != proven_id:
+            raise AAPError("Container ID differs from the proven container")
+        state = self._run("container", "inspect", "--format", "{{.State.Running}}", proven_id)
         if state == "true":
-            self._run("container", "stop", config.name)
+            self._run("container", "stop", proven_id)
         elif state != "false":
             raise AAPError("Unknown container state")
-        self._run("container", "rm", config.name)
+        self._run("container", "rm", proven_id)

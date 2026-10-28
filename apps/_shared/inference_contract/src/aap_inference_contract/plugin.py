@@ -181,6 +181,7 @@ class PluginInstallationResponse(BaseModel):
 
 class PluginQuiesceResponse(PluginInstallationResponse):
     safe_to_stop: bool
+    launch: PluginLaunchReceipt
 
 
 def has_reserved_plugin_metadata(extra_params: object) -> bool:

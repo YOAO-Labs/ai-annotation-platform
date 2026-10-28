@@ -5,7 +5,7 @@ import pytest
 
 from app.api.v1 import admin_plugin_installations as routes
 from app.services.inference_topology_data import InferenceTopologyData
-from test_plugin_installation_api import BASE, payload
+from tests.test_plugin_installation_api import BASE, payload
 
 pytestmark = pytest.mark.asyncio
 
@@ -14,7 +14,7 @@ async def prepared_launch(httpx_client, super_admin, monkeypatch):
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = payload(uuid4())
-    first = await httpx_client.post(BASE + "/prepare", json=body, headers=headers)
+    first = await httpx_client.post(BASE, json=body, headers=headers)
     assert first.status_code == 200, first.text
     path = BASE + "/" + body["installation_id"]
     receipt = {"installation_id": body["installation_id"], "registry_id": first.json()["registry_id"],
@@ -35,7 +35,7 @@ async def prepared_launch(httpx_client, super_admin, monkeypatch):
     return path, headers, receipt, disabled.json()["installation"]["revision"]
 
 
-async def test_cpu_quiescence_commits_terminal_proof_and_fences_reactivation(httpx_client, super_admin, monkeypatch):
+async def test_cpu_quiescence_commits_terminal_proof_and_fences_reactivation(httpx_client, super_admin, monkeypatch, db_session):
     path, headers, receipt, revision = await prepared_launch(httpx_client, super_admin, monkeypatch)
     calls = []
 
@@ -49,13 +49,16 @@ async def test_cpu_quiescence_commits_terminal_proof_and_fences_reactivation(htt
     response = await httpx_client.post(path + "/quiesce", headers=headers, json={"expected_revision": revision})
     assert response.status_code == 200, response.text
     assert response.json()["safe_to_stop"] is True
+    assert response.json()["launch"] == receipt
     proof_revision = response.json()["installation"]["revision"]
     repeat = await httpx_client.post(path + "/quiesce", headers=headers, json={"expected_revision": proof_revision})
     assert repeat.status_code == 200 and repeat.json()["safe_to_stop"] is True
+    assert repeat.json()["launch"] == receipt
     assert len(calls) == 1
     restart = await httpx_client.post(path + "/activate", headers=headers,
                                       json={"expected_revision": proof_revision, "receipt": receipt})
     assert restart.status_code == 409
+    await db_session.rollback()
     retired = await httpx_client.post(path + "/retire", headers=headers,
                                       json={"expected_revision": proof_revision})
     assert retired.status_code == 200 and retired.json()["installation"]["status"] == "retired"
@@ -97,3 +100,33 @@ async def test_retirement_rejects_active_learning_dependencies(httpx_client, sup
     assert response.json()["detail"]["frozen_executions"] == 2
     current = await httpx_client.get(path, headers=headers)
     assert current.json()["installation"]["status"] == "disabled"
+
+
+async def test_cancel_prepared_checks_usage_and_revision(httpx_client, super_admin, monkeypatch):
+    from app.services import trained_models
+    from app.services.trained_model_reference_contract import RegistryLearningUsage
+
+    _, token = super_admin
+    headers = {"Authorization": f"Bearer {token}"}
+    body = payload(uuid4())
+    first = await httpx_client.post(BASE, json=body, headers=headers)
+    assert first.status_code == 200
+    path = BASE + "/" + body["installation_id"]
+
+    async def active_usage(db, registry_id):
+        return RegistryLearningUsage(active_releases=1, frozen_executions=1)
+
+    monkeypatch.setattr(trained_models, "registry_usage", active_usage)
+    blocked = await httpx_client.post(path + "/cancel-prepared", headers=headers, json={"expected_revision": 1})
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["error_code"] == "plugin_installation_in_use"
+
+    async def no_usage(db, registry_id):
+        return RegistryLearningUsage(active_releases=0, frozen_executions=0)
+
+    monkeypatch.setattr(trained_models, "registry_usage", no_usage)
+    stale = await httpx_client.post(path + "/cancel-prepared", headers=headers, json={"expected_revision": 2})
+    assert stale.status_code == 409
+    cancelled = await httpx_client.post(path + "/cancel-prepared", headers=headers, json={"expected_revision": 1})
+    assert cancelled.status_code == 200
+    assert cancelled.json()["installation"]["status"] == "retired"

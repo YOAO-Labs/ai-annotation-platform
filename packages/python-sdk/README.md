@@ -27,6 +27,7 @@ aap --version  # aap <sdk-version>@AAP<aap-target-version>
 pip install ai-annotation-sdk            # 核心 (httpx + pydantic)
 pip install 'ai-annotation-sdk[cli]'     # + aap 命令行 (typer + rich)
 pip install 'ai-annotation-sdk[tui]'     # + aap tui 终端面板 (textual, 隐含 cli)
+pip install 'ai-annotation-sdk[plugins]' # + 本机插件部署依赖（需配置发布私有 wheel 的索引）
 ```
 
 TUI 支持 Textual 8.x，启动时只加载 Projects、Jobs 与当前主体；Datasets、ML、看板和绩效按首次访问加载。
@@ -69,6 +70,7 @@ GPU/资源及挂载，并向核心提交可信管理员的本机检查收据；�
 报告必须绑定这次 `prepare` 返回的 Registry ID、GPU 资源、制品和运行时；安装器将其规范
 JSON 内容及 SHA-256 提交核心，并以只读文件挂载同一内容供插件验证。报告经首次持久化后，
 重试可省略 `--qualification`；不能用另一个报告覆盖原身份。本命令不会自行声明资格。
+报告和本地镜像先完成完整校验及身份绑定，再持久化；无效候选或镜像检查失败可修正后重试。
 
 升级时用**新**状态目录和新制品先运行 `prepare` 与 `prepare-assets`，取得绑定新身份的
 完整报告，再执行 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state
@@ -80,9 +82,9 @@ JSON 内容及 SHA-256 提交核心，并以只读文件挂载同一内容供插
 状态会阻止操作。退役保留历史 Registry、部署与发布记录，不删除历史数据；成功停止后移除
 本地业务 Token，但保留用于查询历史身份的收据。失败后保留状态目录并重试，不要手工接管
 名称相同但所有权不匹配的容器。`--yes` 只跳过确认，不覆盖授权、依赖或并发修订检查。
+仅 `prepare` 后且没有本地容器、启动收据或 GPU 执行历史的预留可直接取消；未知容器不能视为未启动。已启动实例的排空证明绑定完整容器 ID，重试只可停止该 ID，不能复用证明处理同名替代容器。恢复检查也要求私有 PID 命名空间。
 
-SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化 prepare/list/get/activate/
-disable/quiesce/retire，部署命令使用现有 CLI extra，不安装 Torch 或模型运行时。
+SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化安装动作。本机部署使用 `plugins` extra，须从发布 AAP 内部 wheel 的私有索引安装共享 runtime、协议及训练契约；不安装 Torch 或模型运行时。
 
 ## 快速上手
 

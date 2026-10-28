@@ -29,11 +29,13 @@ POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/activa
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/disable
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/quiesce
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/retire
+POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/cancel-prepared
 ```
 
 集合 `POST` 预留身份，不是 `/prepare`。管理员在 Docker 执行机使用 `aap plugins prepare`、`prepare-assets`、`install` 和 `status`；API 不访问 Docker socket。安装器使用批准的有界配置、独立私有 Bearer 与 GPU 验签公钥 keyring，检查实际镜像摘要和容器启动身份；CUDA 还须管理员批准完整共享生命周期报告。动作使用最新 `expected_revision`，并发冲突先读取状态。安装不会自动启用项目。
 
 `disable` 关闭准入不代表 `safe_to_stop`；须完成 quiesce 并使用对应证明修订后才可停止容器或退役。未知状态和通信失败不构成证明。`aap plugins disable`／`uninstall` 编排这些门禁；`upgrade` 使用新安装及 Registry 身份，不替换旧身份。配置、报告与命令见[超管插件安装](/user-guide/superadmin/ml-backend-registry#可安装推理插件)。
+`quiesce` 返回经过排空证明绑定的完整 `launch`（含容器 ID），仅授权停止该实例；同名替代容器不能继承证明。`cancel-prepared` 仅取消无启动历史且无活动发布或冻结执行引用的预留，使用修订 CAS 和 GPU 持久状态检查；调用方须另外确认本地没有容器，Registry 不观察 Docker。
 
 ## 注册请求
 

@@ -152,3 +152,4 @@ class PluginInstallationResult(BaseModel):
 
 class PluginQuiesceResult(PluginInstallationResult):
     safe_to_stop: bool = Field(strict=True)
+    launch: PluginLaunchReceipt

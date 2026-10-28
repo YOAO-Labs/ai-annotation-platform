@@ -100,24 +100,25 @@ async def test_endpoint_observation_rejects_changed_or_untrusted_facts():
         verify_endpoint_observation(installation, receipt.model_copy(update={"container_id": receipt.container_id, "artifact": "wrong"}), **kwargs)
 
 
-async def test_prepare_requires_super_admin_and_replay_matches_intent(httpx_client, super_admin, project_admin):
+async def test_prepare_requires_super_admin_and_replay_matches_intent(httpx_client, super_admin, project_admin, db_session):
     _, admin_token = super_admin
     _, project_token = project_admin
     body = payload(uuid4())
-    forbidden = await httpx_client.post(BASE + "/prepare", json=body, headers={"Authorization": f"Bearer {project_token}"})
+    forbidden = await httpx_client.post(BASE, json=body, headers={"Authorization": f"Bearer {project_token}"})
     assert forbidden.status_code == 403
     headers = {"Authorization": f"Bearer {admin_token}"}
-    first = await httpx_client.post(BASE + "/prepare", json=body, headers=headers)
+    first = await httpx_client.post(BASE, json=body, headers=headers)
     assert first.status_code == 200, first.text
     assert first.json()["installation"]["status"] == "prepared"
     assert body["auth_token"] not in first.text
-    replay = await httpx_client.post(BASE + "/prepare", json={**body, "url": body["url"] + "/"}, headers=headers)
+    replay = await httpx_client.post(BASE, json={**body, "url": body["url"] + "/"}, headers=headers)
     assert replay.status_code == 200
     assert replay.json() == first.json()
     different = {**body, "auth_token": "changed-" + "y" * 40}
-    conflict = await httpx_client.post(BASE + "/prepare", json=different, headers=headers)
+    conflict = await httpx_client.post(BASE, json=different, headers=headers)
     assert conflict.status_code == 409
     assert body["auth_token"] not in conflict.text
+    await db_session.rollback()
     listing = await httpx_client.get(BASE, headers=headers)
     assert listing.status_code == 200 and any(item["registry_id"] == first.json()["registry_id"] for item in listing.json())
     fetched = await httpx_client.get(BASE + "/" + body["installation_id"], headers=headers)
@@ -216,18 +217,18 @@ async def test_prepare_validation_never_echoes_token(httpx_client, super_admin):
     _, token = super_admin
     body = payload(uuid4())
     body["auth_token"] = "secret-too-short"
-    result = await httpx_client.post(BASE + "/prepare", json=body, headers={"Authorization": f"Bearer {token}"})
+    result = await httpx_client.post(BASE, json=body, headers={"Authorization": f"Bearer {token}"})
     assert result.status_code == 422
     assert body["auth_token"] not in result.text
 
 
-async def test_activate_and_disable_are_revision_fenced(httpx_client, super_admin, monkeypatch):
+async def test_activate_and_disable_are_revision_fenced(httpx_client, super_admin, monkeypatch, db_session):
     from app.api.v1 import admin_plugin_installations as routes
 
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = payload(uuid4())
-    prepared = await httpx_client.post(BASE + "/prepare", json=body, headers=headers)
+    prepared = await httpx_client.post(BASE, json=body, headers=headers)
     assert prepared.status_code == 200, prepared.text
     record = prepared.json()
     receipt = {
@@ -254,6 +255,7 @@ async def test_activate_and_disable_are_revision_fenced(httpx_client, super_admi
     stale = await httpx_client.post(path + "/disable", headers=headers,
                                     json={"expected_revision": revision - 1})
     assert stale.status_code == 409
+    await db_session.rollback()
     disabled = await httpx_client.post(path + "/disable", headers=headers,
                                        json={"expected_revision": revision})
     assert disabled.status_code == 200, disabled.text
@@ -266,7 +268,7 @@ async def test_failed_activation_retains_recorded_launch(httpx_client, super_adm
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = payload(uuid4())
-    created = await httpx_client.post(BASE + "/prepare", json=body, headers=headers)
+    created = await httpx_client.post(BASE, json=body, headers=headers)
     assert created.status_code == 200, created.text
     path = BASE + "/" + body["installation_id"]
     receipt = {"installation_id": body["installation_id"], "registry_id": created.json()["registry_id"],

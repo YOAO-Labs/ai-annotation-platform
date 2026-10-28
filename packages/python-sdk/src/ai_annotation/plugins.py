@@ -50,6 +50,11 @@ class PluginInstallations:
         response = self._http.request("POST", f"/admin/ml-integrations/plugins/installations/{installation_id}/retire", json=request.model_dump(mode="json"))
         return PluginInstallationResult.model_validate(response.json())
 
+    def cancel_prepared(self, installation_id: str | UUID, expected_revision: int) -> PluginInstallationResult:
+        request = PluginRevisionRequest(expected_revision=expected_revision)
+        response = self._http.request("POST", f"/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared", json=request.model_dump(mode="json"))
+        return PluginInstallationResult.model_validate(response.json())
+
     def quiesce(self, installation_id: str | UUID, expected_revision: int) -> PluginQuiesceResult:
         request = PluginRevisionRequest(expected_revision=expected_revision)
         response = self._http.request("POST", f"/admin/ml-integrations/plugins/installations/{installation_id}/quiesce", json=request.model_dump(mode="json"))

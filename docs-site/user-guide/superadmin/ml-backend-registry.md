@@ -93,6 +93,7 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 ## 可安装推理插件
 
 插件安装由超级管理员在可访问 Docker 的部署机执行 `aap plugins`，平台 API 不访问 Docker socket。使用批准的固定 OCI 摘要和有界 JSON 配置：完整 manifest、可达 URL、GPU 资源及物理 UUID、Docker 网络与端口、CPU 上限、图片主机白名单和 GPU 验签公钥 keyring；业务 Bearer Token 独立生成并保存在私有状态目录，公钥不能替代它，签发私钥不进入容器。配置与完整字段参见 [Python SDK 安装说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/packages/python-sdk/README.md#本机-gpu-推理插件安装)。
+独立部署机从发布 AAP 内部 wheel 的私有索引安装 `pip install 'ai-annotation-sdk[plugins]'`；此 extra 包含 CLI 和共享报告校验契约，不包含模型框架。
 
 ```bash
 aap plugins prepare --config deployment.json --state-dir ./plugin-state --json
@@ -107,6 +108,7 @@ aap plugins status --state-dir ./plugin-state --json
 安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
 
 停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。`aap plugins disable --state-dir ./plugin-state --yes --json` 执行停用、排空证明和安全停容器；`aap plugins uninstall --state-dir ./plugin-state --yes --json` 还执行依赖检查与退役。失败保留私有状态并查状态后重试，勿手工停止未知身份。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。
+仅预留且未启动的安装可在确认本地没有容器后取消；存在未知容器或启动历史时不得假定未执行。排空证明绑定完整容器 ID，同名替代实例不得使用旧证明；恢复检查拒绝共享或未知 PID 命名空间。无效资格报告和镜像检查失败不会固定候选，可修正后重试。
 
 升级须在新状态目录用新制品重新 `prepare`、`prepare-assets` 和审核报告，再使用 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state --qualification new-report.json --yes --json`。升级创建新的安装及 Registry 身份，旧身份保持不变。项目负责人显式启用新服务并完成模型部署、试用及人工发布；旧安装须满足依赖和排空条件才能退役。历史版本回滚也须在已验证的新插件部署上重新部署并人工发布，不能重新激活退役的旧 CPU 实例。
 
