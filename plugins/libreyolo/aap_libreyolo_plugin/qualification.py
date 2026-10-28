@@ -34,7 +34,8 @@ def verify_qualification(path, *, report_sha256, artifact, image_id, registry_id
                          gpu_uuid, runtime_qualification, expected_weight, gpu_facts=None):
     if not isinstance(report_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", report_sha256):
         raise ValueError("An administrator-approved report digest is required")
-    raw = Path(path).read_bytes()
+    with Path(path).open("rb") as source:
+        raw = source.read(1024 * 1024 + 1)
     if len(raw) > 1024 * 1024 or hashlib.sha256(raw).hexdigest() != report_sha256:
         raise ValueError("Lifecycle evidence does not match the approved digest")
     if (not isinstance(artifact, str) or not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", artifact)
