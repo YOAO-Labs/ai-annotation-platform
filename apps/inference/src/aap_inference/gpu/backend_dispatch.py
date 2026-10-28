@@ -25,7 +25,6 @@ from aap_inference.gpu.contracts import (
 )
 from aap_inference.gpu.diagnostics import (
     record_unregistered_gpu_shadow_dispatch,
-    unregistered_gpu_loading_blocked,
 )
 from aap_inference.gpu.native import GPUAuthorityData, GPUAuthorityDataProvider
 from aap_inference.gpu.policy import (
@@ -40,6 +39,7 @@ from aap_inference.gpu.policy import (
 from aap_inference.gpu.rollout_state import (
     GPUArbiterRolloutUnavailable,
     gpu_rollout_boundary_active,
+    read_gpu_arbiter_rollouts,
     resolve_gpu_arbiter_rollout,
 )
 from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
@@ -444,7 +444,17 @@ class BackendGPUDispatchContextFactory:
     async def unregistered_smoke_dispatch(self, url: str, operation: str):
         """Gate and observe unregistered smoke dispatch before any raw-URL POST."""
 
-        if unregistered_gpu_loading_blocked(config=self._config):
+        try:
+            async with self._data_provider.transaction() as data:
+                rollouts = await read_gpu_arbiter_rollouts(data)
+        except Exception as exc:
+            raise GPUArbiterDispatchError(GPUArbiterErrorCode.UNAVAILABLE) from exc
+        if any(
+            rollout.state != "off"
+            or rollout.effective_mode is GPUArbiterMode.ENFORCE
+            or rollout.target_mode is GPUArbiterMode.ENFORCE
+            for rollout in rollouts
+        ):
             raise GPUArbiterDispatchError(
                 GPUArbiterErrorCode.CONFIG_INVALID,
                 message=(

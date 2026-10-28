@@ -251,6 +251,8 @@ async def read_gpu_arbiter_rollouts(
             sorted(item.resource_id for item in snapshots)
         ):
             raise GPUAuthorityUnavailable()
+        if len({item.resource_id for item in snapshots}) != len(snapshots):
+            raise GPUAuthorityUnavailable()
         return snapshots
     except Exception as exc:
         raise GPUArbiterRolloutUnavailable(

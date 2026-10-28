@@ -327,6 +327,11 @@ class _NativeData:
             return {"backends": sorted(selected, key=lambda row: row["backend_id"])}
         if action == "rollout_read":
             return {"snapshot": self.rollouts.get(args["resource_id"])}
+        if action == "rollout_read_all":
+            return {"snapshots": sorted(
+                (item for item in self.rollouts.values() if item is not None),
+                key=lambda item: item["resource_id"],
+            )}
         if action == "rollout_boundary":
             return {"active": self.boundary_active}
         raise AssertionError(f"unexpected GPU Native action: {action}")
@@ -483,6 +488,47 @@ async def test_disabled_rollout_does_not_promote_desired_enforce() -> None:
 
     assert provider.transactions == 0
     assert data.calls == []
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["enforcing", "promoting", "demoting", "blocked"])
+@pytest.mark.parametrize("rollout_enabled", [True, False])
+async def test_unregistered_smoke_denied_by_durable_rollout(state, rollout_enabled):
+    # This row need not be present in static configuration.
+    data = _NativeData(rollouts={"node-b/index:1": _rollout(
+        "node-b/index:1", state=state, blocker_reason="blocked" if state == "blocked" else None
+    )})
+    dispatch = _factory(_Provider(data), config=_settings(mode="off", rollout_enabled=rollout_enabled))
+    posted = False
+    with pytest.raises(GPUArbiterDispatchError) as exc:
+        async with dispatch.unregistered_smoke_dispatch("http://unregistered", "reload"):
+            posted = True
+    assert exc.value.error_code == GPUArbiterErrorCode.CONFIG_INVALID.value
+    assert not posted
+    assert [action for action, _ in data.calls] == ["rollout_read_all"]
+
+
+@pytest.mark.asyncio
+async def test_unregistered_smoke_fails_closed_on_unavailable_boundary():
+    data = _NativeData()
+    data.fail_actions.add("rollout_read_all")
+    dispatch = _factory(_Provider(data), config=_settings(mode="off", rollout_enabled=False))
+    posted = False
+    with pytest.raises(GPUArbiterDispatchError) as exc:
+        async with dispatch.unregistered_smoke_dispatch("http://unregistered", "reload"):
+            posted = True
+    assert exc.value.error_code == GPUArbiterErrorCode.UNAVAILABLE.value
+    assert not posted
+
+
+@pytest.mark.asyncio
+async def test_unregistered_smoke_allowed_when_durable_rollouts_are_off():
+    data = _NativeData(rollouts={RESOURCE_ID: _rollout(
+        state="off", effective_mode="off", target_mode="off"
+    )})
+    dispatch = _factory(_Provider(data), config=_settings(mode="observe"))
+    async with dispatch.unregistered_smoke_dispatch("http://unregistered", "reload"):
+        pass
+    assert [action for action, _ in data.calls] == ["rollout_read_all"]
 
 
 @pytest.mark.asyncio

@@ -600,11 +600,25 @@ async def test_unregistered_smoke_test_blocks_raw_load_in_effective_enforce(
     httpx_client, super_admin, monkeypatch
 ):
     _, token = super_admin
-    calls = _patch_unregistered_smoke(
-        monkeypatch,
-        {"ok": True, "loaded": False, "pool": {"loaded_variants": []}},
-        effective_mode="enforce",
-    )
+    from aap_inference_contract.backend_control import BackendControlFailure
+    from app.services.inference_backend_control import BackendControlOperationError
+
+    calls = []
+
+    async def probe(endpoint, *, timeout_seconds):
+        calls.append(("health", endpoint.url))
+        return _probe_fact({"ok": True, "loaded": False, "pool": {"loaded_variants": []}})
+
+    async def smoke(endpoint, body):
+        raise BackendControlOperationError(BackendControlFailure(
+            code="gpu_config_invalid", status_code=503,
+            detail={"error_code": "gpu_config_invalid", "message": (
+                "effective enforce 下未注册 URL 只能执行只读 health/setup；"
+                "请先注册 backend 并完成受管身份绑定"
+            )},
+        ))
+
+    _patch_control(monkeypatch, manual_probe=probe, smoke_unregistered=smoke)
     res = await httpx_client.post(
         "/api/v1/admin/ml-integrations/observe/smoke-test",
         json={

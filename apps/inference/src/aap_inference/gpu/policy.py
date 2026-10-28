@@ -76,13 +76,6 @@ def effective_gpu_arbiter_mode(resource_id: str, *, config: Settings) -> GPUArbi
     return GPUArbiterMode.OFF
 
 
-def any_gpu_resource_effectively_enforced(*, config: Settings) -> bool:
-    """Return whether at least one configured resource is truly enforced."""
-
-    return any(
-        effective_gpu_arbiter_mode(resource_id, config=config) is GPUArbiterMode.ENFORCE
-        for resource_id in config.gpu_arbiter_resources
-    )
 
 
 def gpu_shadow_observation_enabled(

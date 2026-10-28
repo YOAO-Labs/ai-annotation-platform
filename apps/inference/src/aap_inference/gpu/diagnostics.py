@@ -23,7 +23,6 @@ from aap_inference.gpu.policy import (
     _is_explicit_cpu_backend,
     _requires_gpu_claim,
     _trusted_health_meta,
-    any_gpu_resource_effectively_enforced,
     effective_gpu_arbiter_mode,
 )
 from aap_inference.gpu.rollout_state import (
@@ -46,6 +45,7 @@ class GPUBackendDiagnosticFacts:
     state: str
     last_checked_at: datetime | None
     health_meta: Mapping[str, Any] | None
+    retired_installation: bool = False
 
 
 logger = structlog.get_logger(__name__)
@@ -58,11 +58,6 @@ _LEVEL_ORDER = {
     "blocker": 4,
 }
 
-
-def unregistered_gpu_loading_blocked(*, config: Settings) -> bool:
-    """Block raw loading URLs once any resource is effectively enforced."""
-
-    return any_gpu_resource_effectively_enforced(config=config)
 
 
 def claimed_budget_by_resource(
@@ -175,7 +170,9 @@ def build_backend_gpu_config_status(
     health_meta = _trusted_health_meta(backend)
     requires_gpu_claim = _requires_gpu_claim(health_meta)
 
-    if resource_id is None and budget is None:
+    if resource_id is None and budget is None and backend.retired_installation:
+        pass
+    elif resource_id is None and budget is None:
         if requires_gpu_claim:
             diagnostics.append(
                 _diag(
@@ -295,7 +292,7 @@ def apply_backend_rollout_status(
     rollout: GPUArbiterRolloutSnapshot | None,
     *,
     config: Settings,
-    backend_id: UUID,
+    backend_id: UUID | None,
 ) -> GPUBackendConfigStatus:
     """Project rollout dispatch readiness into a backend's config status."""
 

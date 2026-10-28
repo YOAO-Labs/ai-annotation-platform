@@ -24,12 +24,7 @@ from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
-from aap_inference.gpu.diagnostics import record_unregistered_gpu_shadow_dispatch
 from aap_inference.gpu.policy import GPUClaimConfigurationError
-from aap_inference.gpu.settings import (
-    GPUArbiterMode,
-    GPUAuthoritySettings,
-)
 from aap_inference_contract.topology import to_record
 from aap_inference_contract.backend_control import BackendRequestOnlyEndpoint
 from aap_inference.gpu.policy import strict_gpu_loaded_evidence
@@ -836,9 +831,23 @@ async def list_gpu_resources(
             )
             item_diagnostics.append(runtime_diagnostic)
             runtime_diagnostics.append(runtime_diagnostic)
+        if resource["effective_mode"] == "enforce" and runtime.durable_domain_matches is not True:
+            domain_diagnostic = GPUConfigDiagnostic(
+                code="gpu_arbiter_domain_mismatch",
+                level="blocker",
+                message="Redis 账本与持久成员域不匹配，无法证明运行时就绪",
+                resource_id=resource_id,
+            )
+            item_diagnostics.append(domain_diagnostic)
+            runtime_diagnostics.append(domain_diagnostic)
         resource_ready[resource_id] = bool(
             resource["desired_mode"] == "enforce"
             and resource["effective_mode"] == "enforce"
+            and rollout["effective_mode"] == "enforce"
+            and not rollout["dispatch_blocked"]
+            and settings.gpu_arbiter_rollout_enabled
+            and runtime.durable_domain_matches is True
+            and not any(d.code == "gpu_rollout_active_while_disabled" for d in item_diagnostics)
             and runtime.ready
         )
         status = max(
@@ -883,8 +892,14 @@ async def list_gpu_resources(
         for item in resources
         if item["desired_mode"] == "enforce"
     }
-    enforce_runtime_ready = bool(desired_enforce_ids) and all(
-        resource_ready[resource_id] for resource_id in desired_enforce_ids
+    enforce_runtime_ready = (
+        bool(desired_enforce_ids)
+        and not settings.gpu_arbiter_config_errors
+        and all(
+            rollout["resource_id"] in configured_ids or rollout["state"] == "off"
+            for rollout in rollouts
+        )
+        and all(resource_ready[resource_id] for resource_id in desired_enforce_ids)
     )
     runtime_ready = (
         not settings.gpu_arbiter_config_errors
@@ -896,9 +911,14 @@ async def list_gpu_resources(
             (
                 resource_ready[resource["gpu_resource_id"]]
                 if resource["desired_mode"] == "enforce"
-                else not rollout_by_resource[resource["gpu_resource_id"]][
-                    "dispatch_blocked"
-                ]
+                else (
+                    not rollout_by_resource[resource["gpu_resource_id"]]["dispatch_blocked"]
+                    and not any(
+                        diagnostic.code == "gpu_rollout_active_while_disabled"
+                        for diagnostic in static_diagnostics
+                        if diagnostic.resource_id == resource["gpu_resource_id"]
+                    )
+                )
             )
             for resource in resources
         )
@@ -1607,31 +1627,6 @@ async def smoke_test_backend(
         await _audit(result)
         return result
 
-    if registered_backend is None:
-        try:
-            gpu_diagnostics = await gpu_authority_client().get_diagnostics()
-        except GPUArbiterDispatchError as exc:
-            raise _gpu_dispatch_http_error(exc) from exc
-        resources = gpu_diagnostics.result.get("resources")
-        if not isinstance(resources, list) or any(
-            not isinstance(resource, dict)
-            or resource.get("effective_mode") not in {"off", "observe", "enforce"}
-            for resource in resources
-        ):
-            raise _gpu_dispatch_http_error(
-                GPUArbiterDispatchError(GPUArbiterErrorCode.UNAVAILABLE)
-            )
-        if any(resource["effective_mode"] == "enforce" for resource in resources):
-            raise _gpu_dispatch_http_error(
-                GPUArbiterDispatchError(
-                    GPUArbiterErrorCode.CONFIG_INVALID,
-                    message=(
-                        "effective enforce 下未注册 URL 只能执行只读 health/setup；"
-                        "请先注册 backend 并完成受管身份绑定"
-                    ),
-                )
-            )
-
     body = {key: value for key, value in variant.items() if value}
     load_started = time.monotonic()
     auto_unloaded = False
@@ -1646,15 +1641,6 @@ async def smoke_test_backend(
                 raise ValueError("registered backend unavailable")
             load_latency_ms = int((time.monotonic() - load_started) * 1000)
         else:
-            shadow_settings = GPUAuthoritySettings(
-                gpu_arbiter_mode=GPUArbiterMode(settings.gpu_arbiter_mode.value)
-            )
-            record_unregistered_gpu_shadow_dispatch(
-                base, "reload", config=shadow_settings
-            )
-            record_unregistered_gpu_shadow_dispatch(
-                base, "unload", config=shadow_settings
-            )
             smoke_result = await control.smoke_unregistered(endpoint, body)
             if (
                 set(smoke_result) != {"reload", "auto_unloaded", "load_latency_ms"}

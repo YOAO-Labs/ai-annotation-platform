@@ -527,7 +527,6 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "GPUClaimConfigurationError",
                 "GPUShadowCandidate",
                 "GPUShadowDecision",
-                "any_gpu_resource_effectively_enforced",
                 "backend_is_trusted_explicit_cpu",
                 "effective_gpu_arbiter_mode",
                 "evaluate_gpu_shadow_decision",
@@ -611,7 +610,6 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "build_resource_summaries",
                 "claimed_budget_by_resource",
                 "record_unregistered_gpu_shadow_dispatch",
-                "unregistered_gpu_loading_blocked",
             ),
         ),
         consumer_modules=(

@@ -22,12 +22,6 @@ from aap_inference.gpu.contracts import (
     gpu_arbiter_failure_record,
     summarize_gpu_arbiter_failures,
 )
-from aap_inference.gpu.diagnostics import unregistered_gpu_loading_blocked
-from aap_inference.gpu.settings import (
-    GPUArbiterMode,
-    GPUAuthoritySettings,
-    GPUResourceSettings,
-)
 
 
 @pytest.mark.parametrize(
@@ -220,44 +214,6 @@ def test_dispatch_outcome_channel_rejects_invalid_http_status(
         channel.report_response(status_code)  # type: ignore[arg-type]
 
 
-def test_unregistered_loading_gate_uses_effective_not_desired_mode() -> None:
-    config = GPUAuthoritySettings(
-        gpu_arbiter_mode=GPUArbiterMode.ENFORCE,
-        gpu_arbiter_resources={
-            "node-a/index:0": GPUResourceSettings(
-                resource_id="node-a/index:0",
-                node_id="node-a",
-                physical_device_token="index:0",
-                allocatable_mb=20_000,
-                mode=GPUArbiterMode.ENFORCE,
-            )
-        },
-    )
-
-    assert unregistered_gpu_loading_blocked(config=config) is False
-
-
-def test_unregistered_loading_gate_stays_closed_during_demotion(
-    monkeypatch,
-) -> None:
-    config = GPUAuthoritySettings(
-        gpu_arbiter_mode=GPUArbiterMode.OFF,
-        gpu_arbiter_resources={
-            "node-a/index:0": GPUResourceSettings(
-                resource_id="node-a/index:0",
-                node_id="node-a",
-                physical_device_token="index:0",
-                allocatable_mb=20_000,
-                mode=GPUArbiterMode.OFF,
-            )
-        },
-    )
-    monkeypatch.setattr(
-        "aap_inference.gpu.policy.effective_gpu_arbiter_mode",
-        lambda _resource_id, *, config: GPUArbiterMode.ENFORCE,
-    )
-
-    assert unregistered_gpu_loading_blocked(config=config) is True
 
 
 @pytest.mark.asyncio
