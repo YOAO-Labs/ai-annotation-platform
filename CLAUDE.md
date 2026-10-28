@@ -5,13 +5,28 @@
 ## Complete the task
 
 - Carry the requested outcome through implementation, relevant documentation, and verification. When requested, include browser validation, commits, pushes, or release work; do not stop at the first implementation. A review or diagnosis alone does not request a fix.
+- Keep changes within the requested task or epic and, for staged plans, the active milestone's acceptance criteria. Fix regressions introduced by this work and concrete prerequisites required for acceptance; do not treat the rest of the backlog as authorized work.
+- Discovered bugs, nearby cleanup, and unrelated check failures do not authorize scope expansion. Report them briefly and continue the requested work; do not repair them merely to make a broad suite green. If a blocker requires a material scope change, explain the dependency and obtain approval while continuing independent work.
 - Resolve routine choices from context. Ask only when missing information materially changes correctness, scope, or authorization; complete independent authorized work meanwhile. Carry prior authorization and corrections forward, including across side questions.
 - User instructions take precedence over repository and skill guidance, subject to system and developer instructions. If a skill blocks authorized work, identify the exact file and instruction and explain the actual conflict.
 - Read the affected implementation and relevant callers. Use the routing below when useful; do not read every document or load every skill for each edit.
-- Reuse existing owners, helpers, patterns, and dependencies. Architectural extensions are appropriate when they support the requested capability; explain consequential tradeoffs and preserve unrelated work.
+- Reuse existing owners, helpers, patterns, and dependencies. Prefer the simplest design that satisfies the requested capability; explain consequential architectural extensions and preserve unrelated work.
 - Delegate independent, bounded work when it saves time or improves quality. Read-only agents may share this checkout; modifying agents need isolated worktrees based on the current local `HEAD`. Before delegation that writes code, read [parallel work](.agents/references/parallel-work.md).
-- Verify changed behavior and run required checks. For low-impact changes, use lightweight checks; add regression tests when they exercise meaningful behavior. After checks pass, expand or repeat only for new changes, failures, or unresolved concerns. Do not repeat completed acceptance work simply because a task resumes.
-- Review the final diff and run `git diff --check`. Report the result, relevant evidence, and precise remaining limitations concisely. Distinguish local checks from live browser results and remote CI.
+
+## Implementation discipline
+
+- Validate untrusted input at the boundary that owns it, then rely on the validated internal contract. Do not repeat checks already guaranteed by schemas, constructors, or internal types.
+- Tie retries, fallbacks, compatibility paths, and concurrency safeguards to concrete failure modes or requirements within scope, not hypothetical robustness. Preserve meaningful failures; do not mask broken contracts with default values or silent catches.
+- Keep straightforward logic local. Extract helpers when they are reused, name a meaningful concept, or isolate a genuinely complex boundary; do not preemptively generalize for imagined callers.
+
+## Verification
+
+- For staged plans, organize implementation and verification around a coherent, independently verifiable acceptance slice, not each helper, file, or checklist item. A passing subtask check does not complete the requested milestone.
+- During implementation, use focused checks to resolve concrete uncertainty, reproduce a bug, or localize a failure; follow explicit test-first requirements. Otherwise, batch verification at the acceptance boundary instead of automatically adding tests or running broad suites after every small edit.
+- At the acceptance boundary, exercise the integrated behavior and run required checks before reporting completion. Scale verification to the change: instruction-only or documentation-only edits need relevant content, link, and formatting checks, not application suites.
+- Permanent tests should protect stable, consumer-visible behavior, boundaries, or failure modes, not temporary intermediate implementations, wiring, or incidental wording. Reuse existing coverage; add regression tests when they protect against a plausible bug.
+- Repeat completed checks only when subsequent changes can affect their results or a relevant failure or unresolved concern requires investigation. Do not repeat completed acceptance work simply because a task resumes.
+- Review the final diff and run `git diff --check`. Report the result, relevant evidence, and precise remaining limitations concisely, including unrelated failures left out of scope. Distinguish local checks from live browser results and remote CI.
 
 ## Project boundaries
 
