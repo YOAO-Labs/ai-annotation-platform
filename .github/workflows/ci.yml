@@ -125,7 +125,7 @@ jobs:
         run: pip install uv
       - name: SDK / CLI / TUI tests
         working-directory: packages/python-sdk
-        run: uv run --extra test pytest -q
+        run: uv run --extra test --extra plugins --with ../../apps/_shared/backend_runtime --with ../../apps/_shared/training_contract pytest -q
       - name: Build SDK distribution
         working-directory: packages/python-sdk
         run: uv build

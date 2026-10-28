@@ -10,6 +10,9 @@ watched_tags = ["*"]
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared" = { status = "covered" }
+"POST /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/stop-references" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/retire" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/training/catalog" = { status = "covered" }
 "GET /api/v1/training/projects" = { status = "covered" }
 "GET /api/v1/training/runs" = { status = "covered" }

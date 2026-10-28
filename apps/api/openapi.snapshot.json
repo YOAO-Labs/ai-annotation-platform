@@ -26622,6 +26622,36 @@
         "title": "ManagedLifecycleCapabilities",
         "type": "object"
       },
+      "ManagedModelCompatibility": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "minLength": 1,
+            "title": "Format",
+            "type": "string"
+          },
+          "framework": {
+            "minLength": 1,
+            "title": "Framework",
+            "type": "string"
+          },
+          "runtime_device": {
+            "enum": [
+              "cpu",
+              "cuda"
+            ],
+            "title": "Runtime Device",
+            "type": "string"
+          }
+        },
+        "required": [
+          "framework",
+          "format",
+          "runtime_device"
+        ],
+        "title": "ManagedModelCompatibility",
+        "type": "object"
+      },
       "ManagedOriginalReclaimApply": {
         "additionalProperties": false,
         "properties": {
@@ -32573,6 +32603,13 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "checking",
+              "ready",
+              "failed",
+              "draining",
+              "retired"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -35759,6 +35796,367 @@
         "title": "PlatformRole",
         "type": "string"
       },
+      "PluginActivateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "qualification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginLifecycleQualification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/PluginLaunchReceipt"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "receipt"
+        ],
+        "title": "PluginActivateRequest",
+        "type": "object"
+      },
+      "PluginInstallation": {
+        "additionalProperties": false,
+        "properties": {
+          "installation_id": {
+            "format": "uuid",
+            "title": "Installation Id",
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/PluginManifest"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/PluginResourceBinding"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installation_id",
+          "manifest",
+          "status",
+          "revision",
+          "resource"
+        ],
+        "title": "PluginInstallation",
+        "type": "object"
+      },
+      "PluginInstallationCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "PluginInstallationCommand",
+        "type": "object"
+      },
+      "PluginInstallationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/PluginInstallation"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registry_id",
+          "installation"
+        ],
+        "title": "PluginInstallationResponse",
+        "type": "object"
+      },
+      "PluginLaunchReceipt": {
+        "additionalProperties": false,
+        "description": "Trusted administrator's local container-runtime inspection evidence.",
+        "properties": {
+          "artifact": {
+            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$",
+            "title": "Artifact",
+            "type": "string"
+          },
+          "container_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Container Id",
+            "type": "string"
+          },
+          "image_id": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Image Id",
+            "type": "string"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "title": "Installation Id",
+            "type": "string"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/PluginResourceBinding"
+          }
+        },
+        "required": [
+          "installation_id",
+          "registry_id",
+          "artifact",
+          "image_id",
+          "container_id",
+          "resource"
+        ],
+        "title": "PluginLaunchReceipt",
+        "type": "object"
+      },
+      "PluginLifecycleQualification": {
+        "additionalProperties": false,
+        "description": "Administrator-approved, canonically hashed lifecycle qualification report.",
+        "properties": {
+          "report": {
+            "additionalProperties": true,
+            "title": "Report",
+            "type": "object"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report",
+          "sha256"
+        ],
+        "title": "PluginLifecycleQualification",
+        "type": "object"
+      },
+      "PluginManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_asset_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Asset Sources",
+            "type": "array"
+          },
+          "artifact": {
+            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$",
+            "title": "Artifact",
+            "type": "string"
+          },
+          "asset_manifest_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Manifest Sha256",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "enum": [
+                "inference",
+                "detection",
+                "managed_models"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Entrypoint",
+            "type": "array"
+          },
+          "license": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "License",
+            "type": "string"
+          },
+          "managed_model_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedModelCompatibility"
+            },
+            "title": "Managed Model Compatibility",
+            "type": "array"
+          },
+          "plugin_id": {
+            "maxLength": 128,
+            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "publisher": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Publisher",
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/PluginResourceRequirements"
+          },
+          "sdk_compatibility": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Sdk Compatibility",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "version",
+          "publisher",
+          "license",
+          "artifact",
+          "sdk_compatibility",
+          "entrypoint",
+          "capabilities",
+          "resource",
+          "asset_manifest_sha256",
+          "allowed_asset_sources"
+        ],
+        "title": "PluginManifest",
+        "type": "object"
+      },
+      "PluginQuiesceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/PluginInstallation"
+          },
+          "launch": {
+            "$ref": "#/components/schemas/PluginLaunchReceipt"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          },
+          "safe_to_stop": {
+            "title": "Safe To Stop",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "registry_id",
+          "installation",
+          "safe_to_stop",
+          "launch"
+        ],
+        "title": "PluginQuiesceResponse",
+        "type": "object"
+      },
+      "PluginResourceBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "gpu_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Resource Id"
+          },
+          "logical_device": {
+            "title": "Logical Device",
+            "type": "string"
+          },
+          "physical_gpu_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physical Gpu Uuid"
+          }
+        },
+        "required": [
+          "logical_device"
+        ],
+        "title": "PluginResourceBinding",
+        "type": "object"
+      },
+      "PluginResourceRequirements": {
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "enum": [
+              "cpu",
+              "cuda"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "gpu_memory_mb": {
+            "minimum": 0.0,
+            "title": "Gpu Memory Mb",
+            "type": "integer"
+          },
+          "memory_mb": {
+            "exclusiveMinimum": 0.0,
+            "title": "Memory Mb",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device",
+          "memory_mb",
+          "gpu_memory_mb"
+        ],
+        "title": "PluginResourceRequirements",
+        "type": "object"
+      },
       "PointCloudCameraOut": {
         "properties": {
           "calibration": {
@@ -38225,6 +38623,48 @@
           "confidence"
         ],
         "title": "PredictionShape",
+        "type": "object"
+      },
+      "PreparePluginInstallation": {
+        "additionalProperties": false,
+        "properties": {
+          "auth_token": {
+            "minLength": 32,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "title": "Installation Id",
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/PluginManifest"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/PluginResourceBinding"
+          },
+          "url": {
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "installation_id",
+          "name",
+          "url",
+          "auth_token",
+          "manifest",
+          "resource"
+        ],
+        "title": "PreparePluginInstallation",
         "type": "object"
       },
       "PreviewArtifact": {
@@ -69377,6 +69817,418 @@
         ]
       }
     },
+    "/api/v1/admin/ml-integrations/plugins/installations": {
+      "get": {
+        "operationId": "list_installations_api_v1_admin_ml_integrations_plugins_installations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PluginInstallationResponse"
+                  },
+                  "title": "Response List Installations Api V1 Admin Ml Integrations Plugins Installations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Installations",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      },
+      "post": {
+        "operationId": "prepare_api_v1_admin_ml_integrations_plugins_installations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreparePluginInstallation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prepare",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}": {
+      "get": {
+        "operationId": "get_installation_api_v1_admin_ml_integrations_plugins_installations__installation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Installation",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate": {
+      "post": {
+        "operationId": "activate_api_v1_admin_ml_integrations_plugins_installations__installation_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginActivateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared": {
+      "post": {
+        "operationId": "cancel_prepared_api_v1_admin_ml_integrations_plugins_installations__installation_id__cancel_prepared_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Prepared",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable": {
+      "post": {
+        "operationId": "disable_api_v1_admin_ml_integrations_plugins_installations__installation_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce": {
+      "post": {
+        "operationId": "quiesce_api_v1_admin_ml_integrations_plugins_installations__installation_id__quiesce_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginQuiesceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Quiesce",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire": {
+      "post": {
+        "operationId": "retire_api_v1_admin_ml_integrations_plugins_installations__installation_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
     "/api/v1/admin/ml-integrations/probe": {
       "post": {
         "description": "探测一个 ML backend URL 的 /health 端点; 不写 DB.",
@@ -97780,6 +98632,142 @@
           }
         ],
         "summary": "Trial Mask Content",
+        "tags": [
+          "trained-models"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/retire": {
+      "post": {
+        "operationId": "retire_deployment_api_v1_projects__project_id__trained_models__version_id__deployments__deployment_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deployment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDeploymentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Deployment",
+        "tags": [
+          "trained-models"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/stop-references": {
+      "post": {
+        "operationId": "stop_deployment_references_api_v1_projects__project_id__trained_models__version_id__deployments__deployment_id__stop_references_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deployment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDeploymentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stop Deployment References",
         "tags": [
           "trained-models"
         ]

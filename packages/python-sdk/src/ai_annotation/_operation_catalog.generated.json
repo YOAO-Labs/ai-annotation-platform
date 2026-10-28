@@ -972,7 +972,7 @@
   "guide_resource": "ai_annotation/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 753,
+  "operation_count": 764,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -3467,6 +3467,89 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MLIntegrationsOverview"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/ml-integrations/plugins/installations",
+      "method": "GET",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations",
+      "operation_id": "list_installations_api_v1_admin_ml_integrations_plugins_installations_get",
+      "summary": "List Installations",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.list"
+      ],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Response List Installations Api V1 Admin Ml Integrations Plugins Installations Get",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}",
+      "operation_id": "get_installation_api_v1_admin_ml_integrations_plugins_installations__installation_id__get",
+      "summary": "Get Installation",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.get"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
               }
             }
           }
@@ -23749,6 +23832,40 @@
           }
         },
         {
+          "name": "dataset_id",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Dataset Id",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dataset_filter",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Dataset Filter",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
           "name": "unbatched",
           "in": "query",
           "required": false,
@@ -25135,6 +25252,84 @@
           }
         }
       }
+    },
+    {
+      "name": "GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}",
+      "method": "GET",
+      "path": "/api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}",
+      "operation_id": "get_prediction_raster_mask_content_api_v1_tasks__task_id__predictions__prediction_id__mask_content__shape_index__get",
+      "summary": "Get Prediction Raster Mask Content",
+      "description": "Read image-candidate pixels after current task and source qualification.",
+      "tags": [
+        "tasks"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "task_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Task Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "prediction_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Prediction Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "shape_index",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Shape Index",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CocoRleContent"
+              }
+            }
+          }
+        },
+        "304": {
+          "description": "Not Modified"
+        },
+        "409": {
+          "description": "Mask reference or task context is invalid"
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        },
+        "503": {
+          "description": "Mask object storage is unavailable"
+        }
+      },
+      "reason": "not-implemented"
     },
     {
       "name": "GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}",
@@ -30860,6 +31055,355 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SmokeTestRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations",
+      "operation_id": "prepare_api_v1_admin_ml_integrations_plugins_installations_post",
+      "summary": "Prepare",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.prepare"
+      ],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PreparePluginInstallation"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate",
+      "operation_id": "activate_api_v1_admin_ml_integrations_plugins_installations__installation_id__activate_post",
+      "summary": "Activate",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.activate"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PluginActivateRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared",
+      "operation_id": "cancel_prepared_api_v1_admin_ml_integrations_plugins_installations__installation_id__cancel_prepared_post",
+      "summary": "Cancel Prepared",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.cancel_prepared"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PluginInstallationCommand"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable",
+      "operation_id": "disable_api_v1_admin_ml_integrations_plugins_installations__installation_id__disable_post",
+      "summary": "Disable",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.disable"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PluginInstallationCommand"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce",
+      "operation_id": "quiesce_api_v1_admin_ml_integrations_plugins_installations__installation_id__quiesce_post",
+      "summary": "Quiesce",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.quiesce"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginQuiesceResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PluginInstallationCommand"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire",
+      "operation_id": "retire_api_v1_admin_ml_integrations_plugins_installations__installation_id__retire_post",
+      "summary": "Retire",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.retire"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PluginInstallationCommand"
             }
           }
         }
@@ -42474,6 +43018,144 @@
           }
         }
       }
+    },
+    {
+      "name": "POST /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/retire",
+      "operation_id": "retire_deployment_api_v1_projects__project_id__trained_models__version_id__deployments__deployment_id__retire_post",
+      "summary": "Retire Deployment",
+      "description": null,
+      "tags": [
+        "trained-models"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "version_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Version Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "deployment_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Deployment Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "project_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Project Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelDeploymentOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
+    },
+    {
+      "name": "POST /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/stop-references",
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/stop-references",
+      "operation_id": "stop_deployment_references_api_v1_projects__project_id__trained_models__version_id__deployments__deployment_id__stop_references_post",
+      "summary": "Stop Deployment References",
+      "description": null,
+      "tags": [
+        "trained-models"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "version_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Version Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "deployment_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Deployment Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "project_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Project Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelDeploymentOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
     },
     {
       "name": "POST /api/v1/projects/{project_id}/training-datasets",
@@ -62850,6 +63532,252 @@
       "cli_aliases": [
         "pipelines.update"
       ]
+    },
+    {
+      "name": "plugins.activate",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "activate",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "request",
+          "kind": "positional_or_keyword",
+          "annotation": "PluginActivateRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResult",
+      "python_only": false,
+      "constructed_models": [
+        "UUID",
+        "ValueError"
+      ],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.cancel_prepared",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "cancel_prepared",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "positional_or_keyword",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResult",
+      "python_only": false,
+      "constructed_models": [
+        "PluginRevisionRequest"
+      ],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.disable",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "disable",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "positional_or_keyword",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResult",
+      "python_only": false,
+      "constructed_models": [
+        "PluginRevisionRequest"
+      ],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.get",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "get",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.list",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "list",
+      "parameters": [],
+      "return_type": "list[PluginInstallationResult]",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/ml-integrations/plugins/installations"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/ml-integrations/plugins/installations"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.prepare",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "prepare",
+      "parameters": [
+        {
+          "name": "request",
+          "kind": "positional_or_keyword",
+          "annotation": "PluginPrepareRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.quiesce",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "quiesce",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "positional_or_keyword",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginQuiesceResult",
+      "python_only": false,
+      "constructed_models": [
+        "PluginRevisionRequest"
+      ],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.retire",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "retire",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "positional_or_keyword",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResult",
+      "python_only": false,
+      "constructed_models": [
+        "PluginRevisionRequest"
+      ],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "point_cloud.calibration_history",
@@ -92276,6 +93204,308 @@
         "pipelines.update"
       ],
       "confirmation": false
+    },
+    {
+      "path": "aap plugins disable",
+      "alias": "plugins.disable",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
+    },
+    {
+      "path": "aap plugins install",
+      "alias": "plugins.install",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "qualification",
+          "kind": "option",
+          "options": [
+            "--qualification"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Admin-approved GPU lifecycle report JSON"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Approve submission of lifecycle qualification"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
+    },
+    {
+      "path": "aap plugins prepare",
+      "alias": "plugins.prepare",
+      "parameters": [
+        {
+          "name": "config",
+          "kind": "option",
+          "options": [
+            "--config"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Approved deployment JSON file"
+        },
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Private per-installation state directory"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": false
+    },
+    {
+      "path": "aap plugins prepare-assets",
+      "alias": "plugins.prepare-assets",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": false
+    },
+    {
+      "path": "aap plugins status",
+      "alias": "plugins.status",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": false
+    },
+    {
+      "path": "aap plugins uninstall",
+      "alias": "plugins.uninstall",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
+    },
+    {
+      "path": "aap plugins upgrade",
+      "alias": "plugins.upgrade",
+      "parameters": [
+        {
+          "name": "from_state",
+          "kind": "option",
+          "options": [
+            "--from-state"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Existing installation receipt"
+        },
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "New, prepared installation receipt"
+        },
+        {
+          "name": "qualification",
+          "kind": "option",
+          "options": [
+            "--qualification"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Admin-approved GPU lifecycle report JSON"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
     },
     {
       "path": "aap point-cloud-quality evaluation-create",

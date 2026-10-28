@@ -77,6 +77,19 @@
 | GET | `/topology` |
 | GET | `/runtime-snapshot` |
 
+## `admin_plugin_installations.py`
+
+| Method | Path |
+|---|---|
+| POST | `/` |
+| GET | `/` |
+| GET | `/{installation_id}` |
+| POST | `/{installation_id}/activate` |
+| POST | `/{installation_id}/disable` |
+| POST | `/{installation_id}/quiesce` |
+| POST | `/{installation_id}/retire` |
+| POST | `/{installation_id}/cancel-prepared` |
+
 ## `admin_preannotate.py`
 
 | Method | Path |
@@ -1076,6 +1089,8 @@
 | GET | `/trained-models/{version_id}` |
 | GET | `/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}` |
 | POST | `/trained-models/{version_id}/deploy` |
+| POST | `/trained-models/{version_id}/deployments/{deployment_id}/stop-references` |
+| POST | `/trained-models/{version_id}/deployments/{deployment_id}/retire` |
 | GET | `/trained-models/{version_id}/download` |
 | GET | `/model-releases` |
 | POST | `/model-releases` |
@@ -1232,4 +1247,4 @@
 
 ---
 
-_共 115 模块 / 740 路由_
+_共 116 模块 / 750 路由_
