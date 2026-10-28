@@ -1,10 +1,12 @@
+import hashlib
+import json
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from aap_inference_contract.execution import freeze_json
-from aap_inference_contract.plugin import PluginActivateRequest, PluginInstallation, PluginManifest, plugin_is_active
+from aap_inference_contract.plugin import PluginActivateRequest, PluginInstallation, PluginLifecycleQualification, PluginManifest, plugin_is_active
 
 
 def manifest():
@@ -49,6 +51,31 @@ def test_manifest_requires_fixed_digest_and_bounded_capabilities():
         PluginManifest.model_validate(value)
 
 
+@pytest.mark.parametrize("reference", [
+    "--mount=type=bind,src=/tmp,dst=/x@sha256:" + "a" * 64,
+    "image,other@sha256:" + "a" * 64,
+    "image=other@sha256:" + "a" * 64,
+    "image name@sha256:" + "a" * 64,
+    "-image@sha256:" + "a" * 64,
+    "registry.example:5000/@sha256:" + "a" * 64,
+])
+def test_artifact_rejects_option_and_invalid_reference_forms(reference):
+    value = manifest()
+    value["artifact"] = reference
+    with pytest.raises(ValidationError):
+        PluginManifest.model_validate(value)
+
+
+@pytest.mark.parametrize("reference", [
+    "registry.example:5000/team/model:stable@sha256:" + "a" * 64,
+    "model@sha256:" + "a" * 64,
+])
+def test_artifact_accepts_digest_pinned_registry_and_image(reference):
+    value = manifest()
+    value["artifact"] = reference
+    assert PluginManifest.model_validate(value).artifact == reference
+
+
 def test_cuda_binding_requires_physical_device():
     value = installation()
     value["resource"]["physical_gpu_uuid"] = None
@@ -82,6 +109,21 @@ def test_activation_requires_exact_administrator_inspection_identity():
     with pytest.raises(ValidationError):
         PluginActivateRequest.model_validate(value)
     value["receipt"]["container_id"] = "d" * 64
+    value["receipt"]["artifact"] = "--mount=evil@sha256:" + "a" * 64
+    with pytest.raises(ValidationError):
+        PluginActivateRequest.model_validate(value)
+    value["receipt"]["artifact"] = manifest()["artifact"]
     value["receipt"]["unverified_claim"] = True
     with pytest.raises(ValidationError):
         PluginActivateRequest.model_validate(value)
+
+
+def test_lifecycle_qualification_hashes_canonical_ascii_json():
+    report = {"name": "检测", "cycle": 1}
+    payload = json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    assert PluginLifecycleQualification(report=report, sha256=digest).sha256 == digest
+    with pytest.raises(ValidationError):
+        PluginLifecycleQualification(report={**report, "cycle": 2}, sha256=digest)
+    with pytest.raises(ValidationError):
+        PluginLifecycleQualification(report={"cycle": float("nan")}, sha256=digest)
