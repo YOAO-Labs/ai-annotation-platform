@@ -7,13 +7,14 @@ from pathlib import Path
 
 from .assets import assets, prepare, verify
 from .device import verify_device
+from .provider import Provider
 
 
 def csv(name):
     return tuple(part.strip() for part in os.environ.get(name, "").split(",") if part.strip())
 
 
-def serve(args):
+def serve(args, provider_factory=Provider):
     from importlib.metadata import version
     import torch
     import uvicorn
@@ -24,7 +25,6 @@ def serve(args):
     from .install import inspect, install_request_model, validate_installed_receipt
     from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME
     from .qualification import current_gpu, verify_qualification
-    from .provider import Provider
 
     data = Path(os.environ.get("AAP_PLUGIN_DATA_DIR", "/var/lib/aap-libreyolo"))
     token = Path(args.token_file).read_text().strip()
@@ -41,7 +41,7 @@ def serve(args):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
     gpu_facts = current_gpu(physical_gpu_uuid) if physical_gpu_uuid else None
-    provider = Provider()
+    provider = provider_factory()
     def runtime_info():
         return {**actual_versions, "cuda_build": torch.version.cuda,
                 "device": "cpu" if args.device == "cpu" else "cuda",
@@ -102,7 +102,7 @@ def serve(args):
     uvicorn.run(create_detection_app(provider, config), host=args.host, port=args.port)
 
 
-def main():
+def main(provider_factory=Provider):
     parser = argparse.ArgumentParser(prog="aap-libreyolo")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("prepare-assets", "serve"):
@@ -132,7 +132,7 @@ def main():
                    multi_image=args.multi_image, empty_image=args.empty_image, output=args.output):
             raise SystemExit(1)
     else:
-        serve(args)
+        serve(args, provider_factory=provider_factory)
 
 
 if __name__ == "__main__":

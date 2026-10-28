@@ -18,6 +18,8 @@ aap-libreyolo prepare-assets --size t --asset-dir /private/libreyolo/assets
 
 The command downloads only the pinned official source, bounds redirects and size, and checks SHA256 before publication. The default `t` must be prepared before serving; prepare s/m/c separately to expose those variants. Their original model repository licenses must be reviewed before use or redistribution. [LibreYOLO licensing](https://www.libreyolo.com/docs/licensing) identifies the library's code as MIT and YOLO9 COCO checkpoints as MIT, while identifying each exact weight repository as authoritative; code and weight licenses are distinct.
 
+An installed developer project can compose its own detection provider by calling `aap_libreyolo_plugin.cli.main(provider_factory=MyProvider)`. The zero-argument factory returns an object with `load(model_id, device, config)` and `execution_facts()`; the latter should delegate to the native provider when wrapping it so measured runtime facts remain accurate. The generated project owns its model's load, predict and close methods.
+
 For a local service, supply a private token file containing at least 32 characters and explicitly approved object origins/image hosts:
 
 ```sh
