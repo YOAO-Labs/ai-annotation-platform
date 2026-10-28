@@ -21,6 +21,9 @@ from tests.test_gpu_arbiter_proof_recovery import (
     _residency,
     proof_store,
 )
+import json
+
+from sqlalchemy.exc import DBAPIError
 
 
 async def _step(factory, action, arguments):
@@ -52,7 +55,11 @@ async def test_installation_intent_tables_are_private_to_definer(test_engine: As
 @pytest.mark.asyncio
 @pytest.mark.parametrize("resident", [False, True])
 async def test_native_plugin_admission_and_stale_subject(test_engine: AsyncEngine, resident: bool):
-    factory, ids = await _create_active_backends(test_engine, resource_id=_RESOURCE_A, budgets=(1024,))
+    active = {"status": "active", "resource": {"gpu_resource_id": _RESOURCE_A}}
+    factory, ids = await _create_active_backends(
+        test_engine, resource_id=_RESOURCE_A, budgets=(1024,),
+        extra_params_factory=lambda _id, _index: {"max_concurrency": 4, "plugin": active},
+    )
     backend_id = ids[0]
     try:
         await _install_live_health(factory, ids, resource_id=_RESOURCE_A,
@@ -74,16 +81,12 @@ async def test_native_plugin_admission_and_stale_subject(test_engine: AsyncEngin
         args = {"backend_registry_id": str(backend_id), "gpu_resource_id": _RESOURCE_A}
         if not resident:
             args["expected_challenge"] = None
-        # The legacy row without plugin metadata retains its original behavior.
-        assert (await _step(factory, action, args))["status"] == "ready"
-        active = {"status": "active", "resource": {"gpu_resource_id": _RESOURCE_A}}
-        await _plugin(factory, backend_id, active)
+        # The owner-controlled status can change without changing the runtime identity.
         ready = await _step(factory, action, args)
         assert ready["status"] == "ready"
         subject = ready["subject"]
-        for value in (None, {}, {**active, "status": "prepared"},
-                      {**active, "status": "disabled"}, {**active, "status": "retired"},
-                      {**active, "resource": {"gpu_resource_id": "other/GPU"}}):
+        for value in ({**active, "status": "prepared"},
+                      {**active, "status": "disabled"}, {**active, "status": "retired"}):
             await _plugin(factory, backend_id, value)
             assert await _step(factory, action, args) == {"status": "blocked", "reason": "plugin_not_active"}
             mutation = "record_runtime_token_expiry" if resident else "prepare_cold_generation"
@@ -108,14 +111,17 @@ async def test_native_plugin_admission_and_stale_subject(test_engine: AsyncEngin
 
 @pytest.mark.asyncio
 async def test_registry_lock_contention_fails_closed_without_affecting_eviction(test_engine: AsyncEngine):
-    factory, ids = await _create_active_backends(test_engine, resource_id=_RESOURCE_A, budgets=(1024,))
+    factory, ids = await _create_active_backends(
+        test_engine, resource_id=_RESOURCE_A, budgets=(1024,),
+        extra_params_factory=lambda _id, _index: {"max_concurrency": 4, "plugin": {
+            "status": "disabled", "resource": {"gpu_resource_id": _RESOURCE_A}}},
+    )
     backend_id = ids[0]
     try:
         await _install_live_health(factory, ids, resource_id=_RESOURCE_A, resident_backend_ids=frozenset(ids))
         async with factory.begin() as db:
             fence = await db.get(GPUBackendFence, backend_id)
             fence.generation_high_water = 1
-        await _plugin(factory, backend_id, {"status": "disabled", "resource": {"gpu_resource_id": _RESOURCE_A}})
         async with factory() as db:
             row = await db.get(MLBackendRegistry, backend_id)
             challenge = row.health_meta["gpu_arbiter_probe"]["challenge"]
@@ -136,19 +142,21 @@ async def test_registry_lock_contention_fails_closed_without_affecting_eviction(
 
 @pytest.mark.asyncio
 async def test_native_terminal_intent_replay_and_full_pool_proof(test_engine: AsyncEngine):
-    factory, ids = await _create_active_backends(test_engine, resource_id=_RESOURCE_A, budgets=(1024,))
+    resource = {"gpu_resource_id": _RESOURCE_A, "physical_gpu_uuid": "GPU-a", "logical_device": "cuda:0"}
+    factory, ids = await _create_active_backends(
+        test_engine, resource_id=_RESOURCE_A, budgets=(1024,),
+        extra_params_factory=lambda backend_id, _index: {
+            "max_concurrency": 4,
+            "plugin": {"installation_id": str(backend_id), "status": "disabled", "revision": 4, "resource": resource},
+            "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "a" * 64, "resource": resource}, "stopped": []},
+        },
+    )
     backend_id = ids[0]
     try:
         await _install_live_health(factory, ids, resource_id=_RESOURCE_A, resident_backend_ids=frozenset(ids))
         async with factory.begin() as db:
             row = await db.get(MLBackendRegistry, backend_id)
             residency = row.health_meta["residency"]
-            resource = {"gpu_resource_id": _RESOURCE_A, "physical_gpu_uuid": "GPU-a", "logical_device": "cuda:0"}
-            row.extra_params = {
-                "max_concurrency": 4,
-                "plugin": {"installation_id": str(backend_id), "status": "disabled", "revision": 4, "resource": resource},
-                "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "a" * 64, "resource": resource}, "stopped": []},
-            }
             endpoint = row.url
         request = {
             "registry_id": str(backend_id), "resource_id": _RESOURCE_A, "endpoint": endpoint,
@@ -272,7 +280,15 @@ async def test_pending_installation_control_reset_enforce_and_replay(test_engine
 
 @pytest.mark.asyncio
 async def test_disabled_enforced_resident_resume_preserves_live_work(test_engine: AsyncEngine):
-    factory, ids = await _create_active_backends(test_engine, resource_id=_RESOURCE_A, budgets=(1024,))
+    resource = {"gpu_resource_id": _RESOURCE_A, "physical_gpu_uuid": "GPU-a", "logical_device": "cuda:0"}
+    factory, ids = await _create_active_backends(
+        test_engine, resource_id=_RESOURCE_A, budgets=(1024,),
+        extra_params_factory=lambda backend_id, _index: {
+            "max_concurrency": 4,
+            "plugin": {"installation_id": str(backend_id), "status": "disabled", "revision": 8, "resource": resource},
+            "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "b" * 64, "resource": resource}, "stopped": []},
+        },
+    )
     backend_id = ids[0]
     try:
         await _install_live_health(factory, ids, resource_id=_RESOURCE_A, resident_backend_ids=frozenset(ids))
@@ -281,12 +297,6 @@ async def test_disabled_enforced_resident_resume_preserves_live_work(test_engine
             fence = await db.get(GPUBackendFence, backend_id)
             fence.token_expiry_high_water = datetime.now(UTC) + timedelta(minutes=2)
             residency = {**row.health_meta["residency"], "active_requests": 2, "borrowers": 1}
-            resource = {"gpu_resource_id": _RESOURCE_A, "physical_gpu_uuid": "GPU-a", "logical_device": "cuda:0"}
-            row.extra_params = {
-                "max_concurrency": 4,
-                "plugin": {"installation_id": str(backend_id), "status": "disabled", "revision": 8, "resource": resource},
-                "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "b" * 64, "resource": resource}, "stopped": []},
-            }
             endpoint = row.url
         request = {"registry_id": str(backend_id), "resource_id": _RESOURCE_A, "endpoint": endpoint,
                    "boot_id": residency["boot_id"], "operation_id": str(uuid4()),
@@ -304,6 +314,105 @@ async def test_disabled_enforced_resident_resume_preserves_live_work(test_engine
             assert fence.control_epoch_high_water == 1
             assert fence.generation_high_water == 1
     finally:
+        await _cleanup_backends(factory, ids)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plugin", [None, {}, {"status": "active", "resource": {"gpu_resource_id": "other/GPU"}}])
+async def test_malformed_plugin_is_blocked_from_initial_fence(test_engine, plugin):
+    factory, ids = await _create_active_backends(
+        test_engine, resource_id=_RESOURCE_A, budgets=(1024,),
+        extra_params_factory=lambda _id, _index: {"max_concurrency": 4, "plugin": plugin},
+    )
+    try:
+        await _install_live_health(factory, ids, resource_id=_RESOURCE_A, resident_backend_ids=frozenset(ids))
+        result = await _step(factory, "runtime_subject", {
+            "backend_registry_id": str(ids[0]), "gpu_resource_id": _RESOURCE_A,
+        })
+        assert result == {"status": "blocked", "reason": "plugin_not_active"}
+    finally:
+        await _cleanup_backends(factory, ids)
+
+
+@pytest.mark.asyncio
+async def test_owner_lifecycle_preserves_fence_and_requires_settled_terminal(test_engine):
+    resource = {"gpu_resource_id": _RESOURCE_A, "physical_gpu_uuid": "GPU-a", "logical_device": "cuda:0"}
+    def initial(backend_id, _index):
+        launch = {"installation_id": str(backend_id), "registry_id": str(backend_id),
+                  "artifact": "sha256:" + "a" * 64, "image_id": "sha256:" + "b" * 64,
+                  "container_id": "c" * 64, "resource": resource}
+        return {"max_concurrency": 4,
+                "plugin": {"installation_id": str(backend_id), "status": "prepared", "revision": 1,
+                           "resource": resource, "manifest": {"resource": {"device": "cuda"}}},
+                "plugin_lifecycle": {"launch": launch, "qualification": {}, "stopped": []}}
+    factory, ids = await _create_active_backends(
+        test_engine, resource_id=_RESOURCE_A, budgets=(1024,), extra_params_factory=initial,
+        auth_token="secret",
+    )
+    backend_id = ids[0]
+    async def command(revision, action, evidence=None):
+        async with factory.begin() as db:
+            return await db.scalar(text(
+                "SELECT aap_inference_topology_v1.command_plugin_installation(:id,:revision,:action,:evidence)"
+            ), {"id": backend_id, "revision": revision, "action": action,
+                "evidence": json.dumps(evidence) if evidence is not None else None})
+    try:
+        await _install_live_health(factory, ids, resource_id=_RESOURCE_A, resident_backend_ids=frozenset(ids))
+        async with factory() as db:
+            row = await db.get(MLBackendRegistry, backend_id)
+            launch = row.extra_params["plugin_lifecycle"]["launch"]
+            endpoint = row.url
+            residency = row.health_meta["residency"]
+            membership = await db.get(GPUBackendMembership, (backend_id, _RESOURCE_A))
+            epoch = membership.membership_epoch
+        activation = {**launch, "endpoint": endpoint, "boot_id": residency["boot_id"], "control_epoch": "1"}
+        await command(1, "activate", activation)
+        assert (await _step(factory, "runtime_subject", {"backend_registry_id": str(backend_id), "gpu_resource_id": _RESOURCE_A}))["status"] == "ready"
+        await command(2, "disable")
+        assert (await _step(factory, "runtime_subject", {"backend_registry_id": str(backend_id), "gpu_resource_id": _RESOURCE_A}))["reason"] == "plugin_not_active"
+        for column, value in (("url", "http://other.test"), ("auth_token", "other"),
+                              ("vram_budget_mb", 2048)):
+            with pytest.raises(DBAPIError):
+                async with factory.begin() as db:
+                    row = await db.get(MLBackendRegistry, backend_id)
+                    setattr(row, column, value)
+        with pytest.raises(DBAPIError):
+            async with factory.begin() as db:
+                row = await db.get(MLBackendRegistry, backend_id)
+                row.extra_params = {**row.extra_params, "plugin": {
+                    **row.extra_params["plugin"], "resource": {**resource, "logical_device": "cuda:1"}}}
+        request = {"registry_id": str(backend_id), "resource_id": _RESOURCE_A, "endpoint": endpoint,
+                   "boot_id": residency["boot_id"], "operation_id": str(uuid4()),
+                   "container_id": launch["container_id"], "pool_ids": ["models"]}
+        expiry = (datetime.now(UTC) + timedelta(minutes=3)).isoformat()
+        args = {"phase": "prepare", "request": request, "residency": residency, "preparation": None,
+                "token_expires_at": expiry, "ledger_source_generation": "1"}
+        prepared = (await _step(factory, "installation_terminal", args))["preparation"]
+        terminal = {**residency, "state": "draining", "draining": True, "gpu_loaded": False,
+                    "evictable": False, "generation": prepared["generation"],
+                    "pools": {"models": {"resident": False, "device": None, "provider": None}}}
+        proof = {**launch, "endpoint": endpoint, "boot_id": residency["boot_id"], "control_epoch": prepared["control_epoch"],
+                 "generation": prepared["generation"], "operation_id": request["operation_id"], "pool_ids": ["models"]}
+        with pytest.raises(DBAPIError):
+            await command(3, "quiesce", proof)
+        with pytest.raises(DBAPIError):
+            await command(3, "retire")
+        async with factory() as db:
+            assert (await db.get(MLBackendRegistry, backend_id)).auth_token == "secret"
+            assert (await db.get(GPUBackendMembership, (backend_id, _RESOURCE_A))).membership_epoch == epoch
+        commit = {**args, "phase": "commit", "residency": terminal,
+                  "preparation": prepared, "token_expires_at": prepared["token_expires_at"]}
+        assert (await _step(factory, "installation_terminal", {**commit, "residency": {**terminal, "borrowers": 1}}))["status"] == "blocked"
+        assert (await _step(factory, "installation_terminal", commit))["status"] == "verified"
+        await command(3, "quiesce", proof)
+        await command(4, "retire")
+        async with factory() as db:
+            row = await db.get(MLBackendRegistry, backend_id)
+            assert row.auth_token.startswith("retired-sha256:")
+            assert (await db.get(GPUBackendMembership, (backend_id, _RESOURCE_A))).membership_epoch == epoch
+    finally:
+        async with factory.begin() as db:
+            await db.execute(text("DELETE FROM aap_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"), {"id": backend_id})
         await _cleanup_backends(factory, ids)
 
 

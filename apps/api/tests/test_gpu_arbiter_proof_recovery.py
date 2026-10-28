@@ -392,6 +392,8 @@ async def _create_active_backends(
     *,
     resource_id: str,
     budgets: tuple[int, ...],
+    extra_params_factory=None,
+    auth_token=None,
 ) -> tuple[_GPUAuthoritySessionProvider, tuple[uuid.UUID, ...]]:
     factory = await _open_gpu_authority_provider(test_engine)
     backend_ids = tuple(uuid.uuid4() for _ in budgets)
@@ -408,7 +410,8 @@ async def _create_active_backends(
                         gpu_resource_id=resource_id,
                         vram_budget_mb=budget,
                         eviction_priority=index,
-                        extra_params={"max_concurrency": index + 4},
+                        extra_params=(extra_params_factory(backend_id, index) if extra_params_factory else {"max_concurrency": index + 4}),
+                        auth_token=auth_token,
                     )
                 )
         for backend_id in backend_ids:
