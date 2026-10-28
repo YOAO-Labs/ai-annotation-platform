@@ -12,13 +12,13 @@ last_reviewed: 2026-10-19
 
 ## 使用 LibreYOLO 检测插件
 
-从可信渠道取得**版本化、包含完整依赖闭包的 wheelhouse**；不要假定这些包已经发布到 PyPI。在仓库外的新环境安装，不需要 `../../apps` 或平台仓库的 editable 包：
+从可信渠道取得**版本化、包含完整依赖闭包的 wheelhouse**；不要假定这些包已经发布到 PyPI。Python 3.11 及以上的新环境可直接安装 wheel，不需要 `../../apps` 或平台仓库的 editable 包：
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --no-index --find-links /path/to/wheelhouse \
-  'aap-inference-plugin-sdk[dev]' aap-libreyolo-plugin
+  build aap-inference-plugin-sdk aap-libreyolo-plugin
 aap-plugin init my-detector --template libreyolo-yolov9
 python -m pip install --no-index --find-links /path/to/wheelhouse ./my-detector
 aap-plugin prepare-assets --size t --asset-dir ./assets
@@ -26,7 +26,7 @@ aap-plugin prepare-assets --size t --asset-dir ./assets
 aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./assets --token-file ./token
 ```
 
-SDK 的 `dev` extra 包含 `build`。生成项目可按需要修改后重新安装；开发者自己的项目也可 editable 安装，发布制品不应依赖 editable 路径。`aap-plugin dev` 调用当前环境已安装的作者 console script，并内部传入 `--local`；仅监听 `127.0.0.1`，不需要 Registry、管理员或 GPU keyring。必须显式选择 `cpu` 或 `cuda:N`；本机多 GPU 时可选择本地 ordinal，例如 `cuda:1`。服务预热并检查实际设备驻留；本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。
+`build` 是单独安装的构建工具，SDK 未声明 `dev` extra。生成项目可按需要修改后重新安装；开发者自己的项目也可 editable 安装，发布制品不应依赖 editable 路径。`aap-plugin dev` 调用当前环境已安装的作者 console script，仅监听 `127.0.0.1`，不需要 Registry、管理员或 GPU keyring。必须显式选择 `cpu` 或 `cuda:N`；例如没有 GPU 时把上面的 `cuda:0` 改为 `cpu`，本机多 GPU 时可选择本地 ordinal，例如 `cuda:1`。服务预热并检查实际设备驻留；本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。当前管理员安装器仅支持 CUDA。
 
 资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。GPU 不可用时应修复设备配置，而不是更换模型或精度。生成的 `my_libreyolo_plugin.py` 将作者 `Provider.load`、`Model.predict` 和 `Model.close` 委托给真实 LibreYOLO 原生模型，可按需求修改。
 
@@ -60,27 +60,30 @@ aap-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
 aap-plugin check --qualify-local --fixtures ./fixtures.json \
   --device cuda:0 --gpu-uuid GPU-实际设备UUID --asset-dir ./assets \
   --exclusive-gpu --report ./local-gpu-evidence.json
-  # 构建 wheel，记录输出的 SHA-256
-  aap-plugin build my-detector
+```
+
+另行构建作者 wheel，记录输出的 SHA-256：
+
+```bash
+aap-plugin build my-detector
 ```
 
 本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。看不到必要事实时失败而不虚报成功。平台图片 URL 主机须由部署管理员明确配置。
 
 检测 SDK 的窄 Python 合同由 `Detection`、`DetectionModel` 和 `DetectionProvider` 组成：provider 的 `load(model_id, device, config)` 返回持有 `classes` 的 model，model 的 `predict(image, parameters)` 返回原图像素坐标的检测，`close()` 释放模型。SDK 负责协议响应、类别索引和坐标转换；裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。通用 SDK 不依赖 ORM、Celery 或原生模型框架；具体模型运行时由 provider 提供，可选训练产物通过共享受控收据安装，不直接访问平台数据库。
 
-构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像离线安装 lock，而不是加载工作目录：
+构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像的 pip 安装步骤禁网并使用 `--require-hashes`，不加载工作目录。系统包安装步骤仍需要可用的软件包源。以下命令从仓库根目录执行，运行环境须已安装上面的 SDK 及插件依赖：
 
 ```bash
-aap-plugin build my-detector --base-image image@sha256:<真实摘要> \
+python plugins/libreyolo/build-image.py --base-image image@sha256:<真实摘要> \
   --wheelhouse /path/to/complete-wheelhouse --requirements-lock /path/to/requirements.lock \
   --entrypoint my-libreyolo-plugin --tag registry.example/my-detector:release --push
-aap-libreyolo manifest registry.example/my-detector:release \
-  --publisher "实际发布者" --license "实际制品许可证" --device cuda \
-  --memory-mb 16384 --gpu-memory-mb 8192 --asset-origin https://assets.example \
-  --output manifest.json
+python plugins/libreyolo/release-manifest.py registry.example/my-detector:release \
+  --device cuda --memory-mb 16384 --gpu-memory-mb 8192 \
+  --asset-origin https://assets.example --output manifest.json
 ```
 
-`--push` 可省略；生成 manifest 前镜像必须有可检查的实际 RepoDigest。`--publisher` 和 `--license` 是必填的实际制品声明，不应自行假定项目授予 MIT。上游当前 [9t](https://huggingface.co/LibreYOLO/LibreYOLO9t)、[9s](https://huggingface.co/LibreYOLO/LibreYOLO9s)、[9m](https://huggingface.co/LibreYOLO/LibreYOLO9m)、[9c](https://huggingface.co/LibreYOLO/LibreYOLO9c) 模型卡标为 MIT；代码及所用**具体权重**的许可证和来源仍须分别审核，这不表示固定版本的模型卡字节已核验。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格报告，安装不会自动为项目启用。
+`--push` 可省略；生成 manifest 前镜像必须有恰好一个可检查的实际 RepoDigest。资产 origin 必须与受控资产清单的实际下载来源一致，并由管理员授权；多个来源可重复 `--asset-origin`。发布脚本目前写入固定的发布者和许可证声明，发布前须审核并在必要时修正生成 manifest 的相应字段，不能把示例声明视为许可证证明。上游当前 [9t](https://huggingface.co/LibreYOLO/LibreYOLO9t)、[9s](https://huggingface.co/LibreYOLO/LibreYOLO9s)、[9m](https://huggingface.co/LibreYOLO/LibreYOLO9m)、[9c](https://huggingface.co/LibreYOLO/LibreYOLO9c) 模型卡标为 MIT；代码及所用**具体权重**的许可证和来源仍须分别审核，这不表示固定版本的模型卡字节已核验。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格报告，安装不会自动为项目启用。
 
 安装实例退役时，CPU 实例的不可逆终止排空使用认证的 `/lifecycle/terminal-drain`，并绑定注册实例和当前 boot；GPU 终止排空使用 `/lifecycle/terminal-drain-signed`，除业务 token 外还要求平台签发的 GPU DRAIN 许可。两种路径都等待真实模型借用和构建退出后卸载；业务 token 不能代替 GPU 许可，也不能重启已终止的实例。
 

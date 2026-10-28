@@ -92,8 +92,51 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 ## 可安装推理插件
 
-插件安装由超级管理员在可访问 Docker 的部署机执行 `aap plugins`，平台 API 不访问 Docker socket。使用批准的固定 OCI 摘要和有界 JSON 配置：完整 manifest、可达 URL、GPU 资源及物理 UUID、Docker 网络与端口、CPU 上限、图片主机白名单和 GPU 验签公钥 keyring；业务 Bearer Token 独立生成并保存在私有状态目录，公钥不能替代它，签发私钥不进入容器。配置与完整字段参见 [Python SDK 安装说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/packages/python-sdk/README.md#本机-gpu-推理插件安装)。
-独立部署机从发布 AAP 内部 wheel 的私有索引安装 `pip install 'ai-annotation-sdk[plugins]'`；此 extra 包含 CLI 和共享报告校验契约，不包含模型框架。
+插件由超级管理员在可访问 Docker 的部署机用 `aap plugins` 安装，不自动发现插件；平台 API 不访问 Docker socket。当前本机安装器仅支持 LibreYOLO CUDA 插件和一张明确授权的 NVIDIA 物理 GPU，需要 NVIDIA Container Toolkit、非 host Docker 网络和已加载的固定 OCI 摘要镜像。服务运行在隔离 Docker 进程，不挂载核心数据库、Redis 或 GPU 签发私钥。业务 Bearer Token 与 GPU 验签公钥是不同凭据。
+
+使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse，或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 Torch 或模型框架：
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --no-index --find-links /path/to/wheelhouse 'ai-annotation-sdk[plugins]'
+export AAP_BASE_URL="https://platform.example"
+export AAP_API_KEY="<超级管理员 API 密钥>"
+```
+
+API 密钥使用私密方式注入，不要提交或写入镜像。以可访问 Docker 的非 root 用户运行安装器；每个安装使用独立私有状态目录，保存原始收据、随机业务 Token、配置、公钥文件和资产以便故障恢复，不要共享、提交或删除。以下是完整 `deployment.json` **结构示例，不是可部署的真实制品**：将占位摘要、公钥、资源、来源和主机替换为经审核的真实值；`manifest` 以作者生成并经管理员审批的完整 manifest 为准。
+
+```json
+{
+  "name": "LibreYOLO detection",
+  "url": "http://172.17.0.1:18000",
+  "manifest": {
+    "plugin_id": "libreyolo",
+    "version": "0.1.0",
+    "publisher": "实际发布者",
+    "license": "实际制品许可证",
+    "artifact": "registry.example/libreyolo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sdk_compatibility": "0.1.0",
+    "entrypoint": ["my-libreyolo-plugin", "serve", "--host", "0.0.0.0", "--port", "8000"],
+    "capabilities": ["inference", "detection", "managed_models"],
+    "resource": {"device": "cuda", "memory_mb": 16384, "gpu_memory_mb": 8192},
+    "asset_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "managed_model_compatibility": [
+      {"framework": "libreyolo", "format": "libreyolo-native-state-dict-1.0", "runtime_device": "cuda"}
+    ],
+    "allowed_asset_sources": ["https://assets.example"]
+  },
+  "gpu_resource_id": "gpu-worker-1",
+  "physical_gpu_uuid": "GPU-12345678-1234-1234-1234-123456789abc",
+  "network": "aap-plugins",
+  "host_port": 18000,
+  "cpus": 4,
+  "gpu_verify_keyring": {"key-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+  "image_hosts": ["media.example"]
+}
+```
+
+`gpu_resource_id` 必须是平台配置的实际逐卡资源，`physical_gpu_uuid` 是该卡完整 UUID；安装器只将该卡暴露给容器，并绑定容器内逻辑 `cuda:0`，不按宿主机 ordinal 猜测。`memory_mb` 和 `gpu_memory_mb` 分别为 RAM 与显存预算（MiB），显存不得超过资源可分配量；`cpus` 为 CPU 上限。URL 必须从平台容器可达、指向该宿主端口，不能用 loopback；示例 bridge 地址须按实际网络替换。`image_hosts` 是可获取推理图片的主机名，`allowed_asset_sources` 是受控资产下载实际使用且获授权的完整 HTTP(S) origin，可含多个；二者不是同一白名单。公钥是 key ID 到 Ed25519 公钥的 unpadded base64url 映射，不能使用示例零值。安装器将其写入私有 `data/gpu-keyring.json`；当前数据目录是可写挂载，公钥文件并非独立只读挂载，须以部署机权限和容器隔离保护。资格报告文件则以只读方式挂载。不要将签发私钥放入配置或状态目录。
 
 ```bash
 aap plugins prepare --config deployment.json --state-dir ./plugin-state --json
@@ -103,12 +146,18 @@ aap plugins install --state-dir ./plugin-state --qualification gpu-report.json -
 aap plugins status --state-dir ./plugin-state --json
 ```
 
-`prepare` 预留不可接流的安装身份、Registry 和资源绑定；`prepare-assets` 显式准备固定资产。安装器检查真实 Docker 镜像摘要、镜像和容器 ID、启动身份及 GPU 绑定，再提交可信管理员的启动收据；这不是远程密码学证明。CUDA 必须另提交管理员审核通过的完整共享生命周期报告及摘要，绑定镜像、资产、实际 GPU、驱动、运行时和池拓扑，包含真实推理、取消和两次冷态释放。平台还会验证实际受认证端点。安装完成不会自动为任何项目启用或发布模型。
+`prepare` 预留不可接流的安装身份、Registry 和资源绑定；`prepare-assets` 显式准备固定资产。使用相同状态目录和配置重试，勿另造身份。安装器检查真实 Docker 镜像摘要、镜像和容器 ID、启动身份及 GPU 绑定，再提交可信管理员的启动收据；这不是远程密码学证明。CUDA 必须另提交管理员审核通过的完整共享生命周期报告及摘要，绑定此次预留的 Registry、镜像、资产、实际 GPU、驱动、运行时和池拓扑，包含真实推理、取消和两次冷态释放。`--yes` 表示管理员批准提交报告，不替代审核；本地 `aap-plugin check --qualify-local` 的报告不等于平台托管资格报告。平台还会验证实际受认证端点。安装完成不会自动为任何项目启用或发布模型；项目负责人须显式启用该服务，部署候选模型、加载试用并人工发布，详见[模型回流与默认预标](../online-learning/models)。模型注册本身不会自动发布。
 
 安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
 
-停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。`aap plugins disable --state-dir ./plugin-state --yes --json` 执行停用、排空证明和安全停容器；`aap plugins uninstall --state-dir ./plugin-state --yes --json` 还执行依赖检查与退役。失败保留私有状态并查状态后重试，勿手工停止未知身份。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。
-仅预留且未启动的安装可在确认本地没有容器后取消；存在未知容器或启动历史时不得假定未执行。排空证明绑定完整容器 ID，同名替代实例不得使用旧证明；恢复检查拒绝共享或未知 PID 命名空间。无效资格报告和镜像检查失败不会固定候选，可修正后重试。
+停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。下列命令由安装器执行停用、排空证明、停止拥有的容器，以及依赖检查与退役：
+
+```bash
+aap plugins disable --state-dir ./plugin-state --yes --json
+aap plugins uninstall --state-dir ./plugin-state --yes --json
+```
+
+失败保留私有状态并查状态后重试，勿手工停止未知身份。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。对于仅预留且从未尝试启动的安装，直接执行上述 `uninstall`：仅在无启动尝试或启动收据、且确认本地不存在对应容器时，安装器才会使用 `cancel-prepared` 取消预留；未知容器或启动历史不能假定未执行。排空证明绑定完整容器 ID，同名替代实例不得使用旧证明；恢复检查拒绝共享或未知 PID 命名空间。无效资格报告和镜像检查失败不会固定候选，可修正后重试。
 
 升级须在新状态目录用新制品重新 `prepare`、`prepare-assets` 和审核报告，再使用 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state --qualification new-report.json --yes --json`。升级创建新的安装及 Registry 身份，旧身份保持不变。项目负责人显式启用新服务并完成模型部署、试用及人工发布；旧安装须满足依赖和排空条件才能退役。历史版本回滚也须在已验证的新插件部署上重新部署并人工发布，不能重新激活退役的旧 CPU 实例。
 
