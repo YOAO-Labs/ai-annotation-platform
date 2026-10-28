@@ -223,3 +223,92 @@ def test_failed_terminal_cleanup_never_authorizes_stop_or_reopens():
         with pytest.raises(LifecycleHTTPError):
             await lifecycle.begin_workload(AdmissionScope.PREDICT, generation_header=None, token=None)
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("qualified", [False, True])
+def test_managed_startup_rejects_workloads_until_signed_enforcement(qualified):
+    async def scenario():
+        builds = []
+        pool = _pool(lambda key: (builds.append(key), BuildArtifact(key))[1])
+        key = Ed25519PrivateKey.generate()
+        lifecycle = ManagedGpuLifecycle(
+            pool, verify_keyring={"k": key.public_key()}, evictable_verified=qualified,
+            boot_id="boot-1", expected_registry_id="registry-1",
+            expected_gpu_resource_id="node/GPU-1", allow_legacy_workloads=False,
+        )
+
+        def token(scope, jti, generation=None):
+            control = scope in {AdmissionScope.RESET, AdmissionScope.MODE}
+            claims = AdmissionTokenClaims(
+                backend_registry_id="registry-1", gpu_resource_id="node/GPU-1",
+                boot_id="boot-1", control_epoch="1", generation=generation,
+                scope=scope, jti=jti, exp=int(time.time()) + 60,
+                owner="owner" if control else None, operation=jti if control else None,
+            )
+            return sign_admission_token(claims, private_key=key, kid="k")
+
+        async def work(scope, generation, permit):
+            operation = await lifecycle.begin_workload(
+                scope, generation_header=generation, token=permit,
+            )
+            try:
+                if scope == AdmissionScope.WARMUP:
+                    await pool.warmup("model")
+                else:
+                    async with pool.borrow("model"):
+                        pass
+            finally:
+                await operation.close()
+
+        for scope in (AdmissionScope.WARMUP, AdmissionScope.PREDICT):
+            for generation, permit in (
+                (None, None), ("1", "invalid"),
+                ("1", token(scope, f"early-{scope.value}", "1")),
+            ):
+                with pytest.raises(LifecycleHTTPError) as error:
+                    await work(scope, generation, permit)
+                assert error.value.detail["error_code"] == "gpu_admission_denied"
+        assert not builds
+        assert (await pool.snapshot())["current_size"] == 0
+        assert (await lifecycle.residency()).active_requests == 0
+
+        await lifecycle.reset(LifecycleResetRequest(control_epoch="1"),
+                              token=token(AdmissionScope.RESET, "reset"))
+        if not qualified:
+            with pytest.raises(LifecycleHTTPError):
+                await lifecycle.set_mode(LifecycleModeRequest(gate="enforce", control_epoch="1"),
+                                         token=token(AdmissionScope.MODE, "mode"))
+            with pytest.raises(LifecycleHTTPError):
+                await work(AdmissionScope.WARMUP, None, None)
+            assert not builds
+        else:
+            await lifecycle.set_mode(LifecycleModeRequest(gate="enforce", control_epoch="1"),
+                                     token=token(AdmissionScope.MODE, "mode"))
+            for generation, permit in ((None, None), ("1", "invalid")):
+                with pytest.raises(LifecycleHTTPError):
+                    await work(AdmissionScope.WARMUP, generation, permit)
+            assert not builds
+            await work(AdmissionScope.WARMUP, "1", token(AdmissionScope.WARMUP, "warm", "1"))
+            await work(AdmissionScope.PREDICT, "1", token(AdmissionScope.PREDICT, "predict", "1"))
+            assert builds == ["model"]
+        await lifecycle.shutdown()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("policy", [None, True])
+def test_legacy_default_and_explicit_local_policy_still_allow_workloads(policy):
+    async def scenario():
+        builds = []
+        pool = _pool(lambda key: (builds.append(key), BuildArtifact(key))[1])
+        options = {} if policy is None else {"allow_legacy_workloads": policy}
+        lifecycle = ManagedGpuLifecycle(pool, verify_keyring={}, **options)
+        operation = await lifecycle.begin_workload(
+            AdmissionScope.PREDICT, generation_header=None, token=None,
+        )
+        assert not operation.managed
+        async with pool.borrow("model"):
+            pass
+        await operation.close()
+        assert builds == ["model"]
+        await lifecycle.shutdown()
+    asyncio.run(scenario())

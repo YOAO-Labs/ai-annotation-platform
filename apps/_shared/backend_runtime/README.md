@@ -34,9 +34,12 @@ ML backend 运行时共享组件 (无状态叶子函数 + 取消安全的 LRU �
   docstring 与 logger 名, 现由本包统一提供。
 - `gpu_lifecycle.ManagedGpuLifecycle(pool, *, verify_keyring, evictable_verified=False,
   boot_id=None, expected_registry_id=None, expected_gpu_resource_id=None,
-  terminal_cpu_enabled=False)` — 签名控制、generation、JTI、取消与池排空状态机；
-  签名控制始终要求预配置 Registry 和 GPU resource 双重绑定。CPU 可只配置 Registry；
-  `terminal_cpu_enabled` 只能由部署配置确认的 CPU 实例开启。
+  terminal_cpu_enabled=False, allow_legacy_workloads=True)` — 签名控制、generation、JTI、
+  取消与池排空状态机；`allow_legacy_workloads=False` 拒绝 LEGACY 状态下所有工作请求
+  （即使提供签名头），但不阻止签名启动控制。受管 CUDA 服务须设置为 False，直到
+  合格实例完成签名切换至 ENFORCE 才能接收持有效许可的工作；独占本地开发和旧调用方
+  默认保留 LEGACY 行为。签名控制始终要求预配置 Registry 和 GPU resource 双重绑定。
+  CPU 可只配置 Registry；`terminal_cpu_enabled` 只能由部署配置确认的 CPU 实例开启。
   registry ID 是平台实例 UUID，resource ID 是平台 `<node>/<physical-token>`；
   调用方必须独立校验实际物理 GPU UUID 与部署绑定，不能信任逻辑 CUDA 序号。
   `terminal_drain(registry_id=..., boot_id=..., operation_id=...)` 是 CPU 专用、

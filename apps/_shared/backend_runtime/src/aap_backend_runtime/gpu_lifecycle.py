@@ -156,12 +156,14 @@ class ManagedGpuLifecycle:
         expected_registry_id: str | None = None,
         expected_gpu_resource_id: str | None = None,
         terminal_cpu_enabled: bool = False,
+        allow_legacy_workloads: bool = True,
     ) -> None:
         if expected_gpu_resource_id and not expected_registry_id:
             raise ValueError("GPU lifecycle identity requires a registry identity")
         self._expected_registry_id = expected_registry_id
         self._expected_gpu_resource_id = expected_gpu_resource_id
         self._terminal_cpu_enabled = terminal_cpu_enabled
+        self._allow_legacy_workloads = allow_legacy_workloads
         self._expected_identity = (BoundLifecycleIdentity(backend_registry_id=expected_registry_id, gpu_resource_id=expected_gpu_resource_id) if expected_registry_id and expected_gpu_resource_id else None)
         self._pool = pool
         self._verify_keyring = dict(verify_keyring)
@@ -227,6 +229,8 @@ class ManagedGpuLifecycle:
                     LifecycleErrorCode.TRANSITION_CONFLICT,
                     message="backend residency is unknown; signed reset is required",
                 )
+            if self._gate is LifecycleGate.LEGACY and not self._allow_legacy_workloads:
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
 
             pool_snapshot = await self._pool.snapshot()
             if self._gate is LifecycleGate.ENFORCE and pool_snapshot["cleanup_failed"]:
