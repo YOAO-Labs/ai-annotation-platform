@@ -48,8 +48,9 @@ def _row(
     )
 
 @pytest.mark.asyncio
-async def test_screenshot_seed_cannot_take_over_plugin_registry():
-    row = _row("http://plugin", source="manual", extra_params={"plugin": {"status": "active"}})
+@pytest.mark.parametrize("extra", [{"plugin": {"status": "active"}}, {"plugin_lifecycle": None}])
+async def test_screenshot_seed_cannot_take_over_plugin_registry(extra):
+    row = _row("http://plugin", source="manual", extra_params=extra)
     data = _Data([row])
     with pytest.raises(ValueError, match="Plugin installations"):
         await get_or_create_seed(data, row.url, "seed", {"managed_by": "seed"})
@@ -631,6 +632,23 @@ async def test_empty_environment_disconnects_all_rows_and_flushes_once():
     assert trace.index(("http_exit",)) < trace.index(("clock",))
     assert trace.index(("clock",)) < trace.index(("data_factory",))
     assert trace[-2:] == [("flush",), ("data_exit",)]
+
+
+@pytest.mark.asyncio
+async def test_environment_does_not_disconnect_lifecycle_only_registry():
+    trace = []
+    row = _row("http://stale", source="env", extra_params={"plugin_lifecycle": None})
+    data = _Data([row], trace=trace)
+    await sync_environment(
+        [],
+        timeout_seconds=1,
+        data_factory=lambda: _DataContext(data, trace),
+        capability_limits_factory=CapabilityLimits,
+        client_factory=lambda _timeout: _ClientContext(trace),
+        setup_probe=lambda _client, url: _immediate(trace, url),
+    )
+    assert row.state == "connected"
+    assert data.staged_disconnects == []
 
 
 async def _immediate(trace, url):

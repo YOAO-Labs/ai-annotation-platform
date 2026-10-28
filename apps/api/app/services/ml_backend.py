@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
 
+from aap_inference_contract.plugin import has_reserved_plugin_metadata
 from aap_inference_contract.topology import RegistryPublicFacts
 from aap_protocol_v2.backend_auth import managed_provider
 from fastapi import HTTPException
@@ -146,7 +146,7 @@ class MLBackendService:
         if unknown:
             raise TypeError(f"unsupported ML backend fields: {sorted(unknown)}")
         extra = kwargs.get("extra_params")
-        if isinstance(extra, Mapping) and "plugin" in extra:
+        if has_reserved_plugin_metadata(extra):
             raise GPUBackendManagedMutationBlocked(
                 "Plugin installation metadata is reserved for the installation owner"
             )
@@ -297,9 +297,7 @@ class MLBackendService:
             return None
         old_extra = row.extra_params
         new_extra = kwargs.get("extra_params", old_extra)
-        if (isinstance(old_extra, Mapping) and "plugin" in old_extra) or (
-            isinstance(new_extra, Mapping) and "plugin" in new_extra
-        ):
+        if has_reserved_plugin_metadata(old_extra) or has_reserved_plugin_metadata(new_extra):
             raise GPUBackendManagedMutationBlocked(
                 "Plugin installation changes require the installation owner"
             )

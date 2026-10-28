@@ -10,7 +10,8 @@ from aap_inference_contract.execution import FrozenModelOperation, ModelExecutio
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["batch_predict", "interactive_predict"])
-async def test_inactive_plugin_is_rejected_before_dispatch(operation):
+@pytest.mark.parametrize("lifecycle_only", [False, True])
+async def test_inactive_plugin_is_rejected_before_dispatch(operation, lifecycle_only):
     registry_id, request_id, scope_id = uuid4(), uuid4(), uuid4()
     authority = BackendEndpointAuthority(kind="scope", scope_id=scope_id, control_id=None, attempt_id=request_id)
     subject = BackendEndpointSubject(
@@ -29,7 +30,8 @@ async def test_inactive_plugin_is_rejected_before_dispatch(operation):
             "asset_manifest_sha256": "b" * 64, "allowed_asset_sources": [],
         },
     }
-    endpoint = SimpleNamespace(registry_id=registry_id, extra_params={"plugin": plugin}, endpoint_sha256="a" * 64)
+    extra = {"plugin_lifecycle": None} if lifecycle_only else {"plugin": plugin}
+    endpoint = SimpleNamespace(registry_id=registry_id, extra_params=extra, endpoint_sha256="a" * 64)
 
     class Source:
         async def open(self, *args, **kwargs):

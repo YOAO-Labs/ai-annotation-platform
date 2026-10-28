@@ -23,7 +23,7 @@ class RegistryData:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reserved", [{"plugin": {}}, {"plugin": None}])
+@pytest.mark.parametrize("reserved", [{"plugin": {}}, {"plugin": None}, {"plugin_lifecycle": None}, {"plugin_lifecycle": {"proof": "forged"}}])
 async def test_generic_create_rejects_reserved_metadata(reserved):
     coordinator = BackendTopologyCoordinator(RegistryData(None))
     with pytest.raises(ManagedMutationBlocked):
@@ -36,6 +36,9 @@ async def test_generic_create_rejects_reserved_metadata(reserved):
     ({"plugin": {"status": "active"}}, {"extra_params": {}}),
     ({"plugin": {"status": "active"}}, {"url": "http://other"}),
     ({"plugin": None}, {"name": "other"}),
+    ({}, {"extra_params": {"plugin_lifecycle": {"proof": "forged"}}}),
+    ({"plugin_lifecycle": {"proof": "existing"}}, {"extra_params": {}}),
+    ({"plugin_lifecycle": None}, {"name": "other"}),
 ])
 async def test_generic_update_cannot_add_remove_or_mutate_installation(original, patch):
     data = RegistryData(original)
@@ -44,8 +47,9 @@ async def test_generic_update_cannot_add_remove_or_mutate_installation(original,
     assert data.patches == []
 
 @pytest.mark.asyncio
-async def test_generic_delete_preserves_historical_plugin_registry():
-    coordinator = BackendTopologyCoordinator(RegistryData({"plugin": None}))
+@pytest.mark.parametrize("extra", [{"plugin": None}, {"plugin_lifecycle": None}])
+async def test_generic_delete_preserves_historical_plugin_registry(extra):
+    coordinator = BackendTopologyCoordinator(RegistryData(extra))
     with pytest.raises(ManagedMutationBlocked):
         await coordinator.validate_delete(uuid4())
     with pytest.raises(ManagedMutationBlocked):

@@ -15,12 +15,13 @@ class ExistingRegistry:
 
 
 @pytest.mark.asyncio
-async def test_generic_create_rejects_plugin_before_credential_handshake():
+@pytest.mark.parametrize("reserved", [{"plugin": {"status": "active"}}, {"plugin_lifecycle": None}])
+async def test_generic_create_rejects_plugin_before_credential_handshake(reserved):
     service = MLBackendService(None)
     with pytest.raises(GPUBackendManagedMutationBlocked):
         await service.create_registry(
             "plugin", "http://backend", auth_method="managed:yolo",
-            extra_params={"plugin": {"status": "active"}},
+            extra_params=reserved,
         )
 
 
@@ -29,6 +30,8 @@ async def test_generic_create_rejects_plugin_before_credential_handshake():
     (MappingProxyType({"plugin": MappingProxyType({"status": "active"})}), {"url": "http://other"}),
     ({"plugin": None}, {"extra_params": {}}),
     ({}, {"extra_params": {"plugin": {"status": "active"}}}),
+    ({"plugin_lifecycle": {"proof": "existing"}}, {"extra_params": {}}),
+    ({}, {"extra_params": {"plugin_lifecycle": {"proof": "forged"}}}),
 ])
 async def test_generic_update_rejects_before_endpoint_handshake(monkeypatch, extra, patch):
     service = MLBackendService(None)

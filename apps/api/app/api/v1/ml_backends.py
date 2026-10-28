@@ -13,6 +13,7 @@ from aap_inference_contract.execution import (
     ModelExecutionError,
     thaw_json,
 )
+from aap_inference_contract.plugin import has_reserved_plugin_metadata
 from aap_inference_contract.topology import to_record
 from aap_protocol_v2 import (
     MAX_MASK_RESPONSE_BYTES,
@@ -413,7 +414,7 @@ async def create_ml_backend(
     # v0.19.0 ADR-0044 · 「为项目添加 backend」= 按 url 复用/新建全局注册项 + 为本项目启用。
     # 不再有 max_ml_backends_per_project 上限 (显存保护交全局行 extra_params.max_concurrency)。
     svc = MLBackendService(db)
-    if isinstance(data.extra_params, dict) and "plugin" in data.extra_params:
+    if has_reserved_plugin_metadata(data.extra_params):
         raise HTTPException(
             status_code=409,
             detail={"error_code": "plugin_installation_owner_required"},

@@ -64,6 +64,8 @@ def test_reserved_status_fails_closed_and_legacy_stays_usable():
     assert not plugin_is_active({"plugin": installation("disabled")})
     assert not plugin_is_active({"plugin": {"status": "active"}})
     assert not plugin_is_active({"plugin": None})
+    assert not plugin_is_active({"plugin_lifecycle": None})
+    assert not plugin_is_active({"plugin_lifecycle": {"proof": "forged"}})
 
 
 def test_activation_requires_exact_administrator_inspection_identity():

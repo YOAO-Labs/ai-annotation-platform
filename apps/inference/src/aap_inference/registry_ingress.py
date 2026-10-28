@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +11,7 @@ from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from aap_inference_contract.capabilities import CapabilityLimits
+from aap_inference_contract.plugin import has_reserved_plugin_metadata
 
 from .capabilities import extract_capabilities
 from .pool_capability import canonicalize_capability, capability_fingerprint
@@ -174,7 +175,7 @@ async def get_or_create_seed(
     if row is None:
         row = await data.create_seed_registry(name, normalized_url, marker)
     else:
-        if isinstance(row.extra_params, Mapping) and "plugin" in row.extra_params:
+        if has_reserved_plugin_metadata(row.extra_params):
             raise ValueError("Plugin installations cannot be used as screenshot seeds")
         previous_extra_params = row.extra_params
         staged_extra_params = {
@@ -228,9 +229,10 @@ async def refresh_candidates(
     capability_limits_factory: Callable[[], CapabilityLimits],
     clock: Callable[[], datetime] | None = None,
 ) -> list[RegistryRow]:
-    expected_snapshots = {row.id: endpoint_snapshot(row) for row in backends}
+    eligible = [row for row in backends if not has_reserved_plugin_metadata(row.extra_params)]
+    expected_snapshots = {row.id: endpoint_snapshot(row) for row in eligible}
     probes = await asyncio.gather(
-        *(_probe_backend(backend, client_factory) for backend in backends)
+        *(_probe_backend(backend, client_factory) for backend in eligible)
     )
     now = (clock if clock is not None else lambda: datetime.now(UTC))()
     for probe in probes:
@@ -340,7 +342,9 @@ async def sync_environment(
                 else None
             )
             existing = await data.by_url(url)
-            if existing is not None and existing.source != "env":
+            if existing is not None and (
+                existing.source != "env" or has_reserved_plugin_metadata(existing.extra_params)
+            ):
                 continue
 
             health_meta = {"capabilities": capabilities} if capabilities else None
@@ -382,7 +386,7 @@ async def sync_environment(
 
         observed = set(urls)
         for row in await data.candidates("env"):
-            if row.url not in observed:
+            if row.url not in observed and not has_reserved_plugin_metadata(row.extra_params):
                 row.state = "disconnected"
                 await data.stage_env_disconnect(row)
 

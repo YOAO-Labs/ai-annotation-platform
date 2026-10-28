@@ -152,6 +152,13 @@ class PluginQuiesceResponse(PluginInstallationResponse):
     safe_to_stop: bool
 
 
+def has_reserved_plugin_metadata(extra_params: object) -> bool:
+    """Recognize either installation-owner key, including malformed values."""
+    return isinstance(extra_params, Mapping) and (
+        "plugin" in extra_params or "plugin_lifecycle" in extra_params
+    )
+
+
 def plugin_is_active(extra_params: object) -> bool:
     """Legacy registries remain usable; malformed reserved metadata fails closed."""
     if extra_params is None:
@@ -159,7 +166,7 @@ def plugin_is_active(extra_params: object) -> bool:
     if not isinstance(extra_params, Mapping):
         return False
     if "plugin" not in extra_params:
-        return True
+        return "plugin_lifecycle" not in extra_params
     try:
         return PluginInstallation.model_validate(thaw_json(extra_params["plugin"])).status == "active"
     except (ValueError, TypeError):
