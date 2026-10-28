@@ -1,0 +1,9 @@
+[project]
+name = "aap-libreyolo-native"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["aap-training-contract", "numpy", "libreyolo==1.6.0", "torch==2.14.1+cu132", "torchvision==0.29.1+cu132"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

@@ -1,4 +1,4 @@
-"""Strict native LibreYOLO CPU detection behind the existing managed pool."""
+"""Strict native LibreYOLO detection for immutable trained checkpoints."""
 
 from __future__ import annotations
 
@@ -71,6 +71,29 @@ def validate_metadata(blob, expected):
     validate_checkpoint_metadata(blob, strict=True)
 
 
+def validate_pretrained_metadata(blob, size):
+    """Validate the distinct official 1.1.1 checkpoint profile, not training receipts."""
+    from libreyolo.utils.serialization import validate_checkpoint_metadata
+
+    if (
+        not isinstance(blob, dict)
+        or set(blob) != {"model", "schema_version", "libreyolo_version", "model_family",
+                         "size", "task", "nc", "imgsz", "names"}
+        or blob["schema_version"] != "1.0"
+        or blob["libreyolo_version"] != "1.1.1"
+        or blob["model_family"] != "yolo9"
+        or blob["size"] != size
+        or size not in {"t", "s", "m", "c"}
+        or blob["task"] != "detect"
+        or type(blob["nc"]) is not int or blob["nc"] != 80
+        or type(blob["imgsz"]) is not int or blob["imgsz"] != 640
+    ):
+        raise ValueError("Pretrained native metadata differs from verified profile")
+    names = ordered_names(blob["names"], 80)
+    validate_checkpoint_metadata(blob, strict=True)
+    return names
+
+
 def verify_loaded_tensors(source, loaded):
     import torch
 
@@ -100,9 +123,9 @@ def verify_loaded_tensors(source, loaded):
 
 
 class LibreDetectionModel:
-    """One native model owned by a serialized pool borrower; CPU is qualified."""
+    """One native model owned by a serialized pool borrower."""
 
-    def __init__(self, path, expected):
+    def __init__(self, path, expected, *, device="cpu", pretrained_size=None):
         import torch
         from libreyolo import LibreYOLO
 
@@ -114,49 +137,101 @@ class LibreDetectionModel:
             or any(actual[name] != LIBRE_RUNTIME[name] for name in actual)
         ):
             raise ValueError("Unqualified native inference runtime")
+        self._device = torch.device(device)
+        if self._device.type not in {"cpu", "cuda"} or (
+            self._device.type == "cpu" and self._device.index is not None
+        ):
+            raise ValueError("Unsupported native inference device")
+        if self._device.type == "cuda":
+            if self._device.index is None or not torch.cuda.is_available():
+                raise ValueError("An explicit available CUDA device is required")
+            if torch.version.cuda != "13.2":
+                raise ValueError("Unqualified CUDA build")
+            if self._device.index >= torch.cuda.device_count():
+                raise ValueError("CUDA device is not visible")
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
         blob = torch.load(path, map_location="cpu", weights_only=True)
-        validate_metadata(blob, expected)
-        self._native = LibreYOLO(str(path), device="cpu", task="detect")
+        if pretrained_size is None:
+            validate_metadata(blob, expected)
+            expected_names = expected["classes"]
+        else:
+            expected_names = validate_pretrained_metadata(blob, pretrained_size)
+        self._native = LibreYOLO(str(path), device=str(self._device), task="detect")
+        self._native.model.float()
         verify_loaded_tensors(blob["model"], self._native.model.state_dict())
-        names = ordered_names(self._native.names, len(expected["classes"]))
-        if names != expected["classes"]:
+        names = ordered_names(self._native.names, len(expected_names))
+        if names != expected_names:
             raise ValueError("Loaded native classes differ from checkpoint identity")
         self.names = dict(enumerate(names))
         self._imgsz = blob["imgsz"]
         self.task = "detect"
+        self._verify_device()
+
+    def _verify_device(self):
+        import torch
+
+        for tensor in list(self._native.model.parameters()) + list(self._native.model.buffers()):
+            if tensor.device != self._device:
+                raise ValueError("Native model tensor is on the wrong device")
+            if tensor.is_floating_point() and tensor.dtype != torch.float32:
+                raise ValueError("Native model must use FP32")
+        if self._device.type == "cuda" and (
+            torch.backends.cuda.matmul.allow_tf32 or torch.backends.cudnn.allow_tf32
+        ):
+            raise ValueError("TF32 must remain disabled")
 
     @property
     def device(self):
         return self._native.device
 
     def to(self, device):
-        if str(device) != "cpu":
-            raise ValueError("LibreYOLO managed inference is qualified on CPU only")
-        self._native._runner._set_device("cpu")
+        if str(device) != str(self._device):
+            raise ValueError("Native inference cannot change its qualified device")
+        self._verify_device()
         return self
 
     def predict(self, image, *, conf, iou, max_det, classes, device, verbose=False):
-        if str(device) != "cpu" or str(self.device) != "cpu":
-            raise ValueError("Native prediction device differs from CPU qualification")
-        result = self._native.predict(
-            image,
-            conf=conf,
-            iou=iou,
-            max_det=max_det,
-            classes=classes,
-            imgsz=self._imgsz,
-            device="cpu",
-            augment=False,
-            save=False,
-            show=False,
-            stream=False,
-            batch=1,
-            tiling=False,
-            cuda_graph=False,
-        )
+        import torch
+
+        if torch.device(device) != self._device:
+            raise ValueError("Native prediction device differs from qualification")
+        self._verify_device()
+        try:
+            with torch.inference_mode(), torch.autocast(device_type=self._device.type, enabled=False):
+                result = self._native.predict(
+                    image,
+                    conf=conf,
+                    iou=iou,
+                    max_det=max_det,
+                    classes=classes,
+                    imgsz=self._imgsz,
+                    device=str(self._device),
+                    augment=False,
+                    half=False,
+                    save=False,
+                    show=False,
+                    stream=False,
+                    batch=1,
+                    tiling=False,
+                    cuda_graph=False,
+                )
+        finally:
+            if self._device.type == "cuda":
+                torch.cuda.synchronize(self._device)
+        self._verify_device()
         validate_result(result, image.size, self.names, classes, max_det)
         # Single-image LibreYOLO returns Results; [0] would drop all but one box.
         return [result]
+
+    def close(self):
+        import torch
+
+        if self._device.type == "cuda":
+            torch.cuda.synchronize(self._device)
+        self._native = None
+        if self._device.type == "cuda":
+            torch.cuda.empty_cache()
 
 
 def validate_result(result, dimensions, names, classes, max_det):

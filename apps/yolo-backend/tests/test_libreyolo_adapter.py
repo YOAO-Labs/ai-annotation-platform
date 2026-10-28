@@ -8,10 +8,11 @@ import pytest
 from PIL import Image
 import torch
 
-from libreyolo_adapter import (
+from libreyolo_native import (
     LibreDetectionModel,
     ordered_names,
     validate_metadata,
+    validate_pretrained_metadata,
     validate_result,
     verify_loaded_tensors,
 )
@@ -234,6 +235,43 @@ def test_native_runtime_and_partial_checkpoint_are_rejected(tmp_path, monkeypatc
     identity["runtime_qualification"]["revision"] = 99
     with pytest.raises(ValueError, match="runtime"):
         LibreDetectionModel(tmp_path / "missing.pt", identity)
-    monkeypatch.setattr("libreyolo_adapter.version", lambda _: "foreign")
+    monkeypatch.setattr("libreyolo_native.version", lambda _: "foreign")
     with pytest.raises(ValueError, match="runtime"):
         LibreDetectionModel(tmp_path / "missing.pt", expected())
+
+
+def test_device_guard_rejects_wrong_dtype_and_device():
+    model = LibreDetectionModel.__new__(LibreDetectionModel)
+    model._device = torch.device("cpu")
+    model._native = SimpleNamespace(model=torch.nn.Linear(2, 2))
+    model._verify_device()
+    model._native.model.half()
+    with pytest.raises(ValueError, match="FP32"):
+        model._verify_device()
+    model._native.model.float()
+    model._device = torch.device("cuda:0")
+    with pytest.raises(ValueError, match="wrong device"):
+        model._verify_device()
+
+
+def test_qualified_model_cannot_switch_devices():
+    model = LibreDetectionModel.__new__(LibreDetectionModel)
+    model._device = torch.device("cpu")
+    model._native = SimpleNamespace(model=torch.nn.Linear(2, 2))
+    assert model.to("cpu") is model
+    with pytest.raises(ValueError, match="cannot change"):
+        model.to("cuda:0")
+
+
+def test_pretrained_identity_is_separate_from_trained_checkpoint_contract():
+    names = [f"class-{index}" for index in range(80)]
+    blob = {"model": {"main.weight": torch.ones(2)}, "schema_version": "1.0",
+            "libreyolo_version": "1.1.1", "model_family": "yolo9", "size": "t",
+            "task": "detect", "nc": 80, "imgsz": 640, "names": dict(enumerate(names))}
+    assert validate_pretrained_metadata(blob, "t") == names
+    with pytest.raises(ValueError):
+        validate_metadata(blob, expected("t", names))
+    with pytest.raises(ValueError):
+        validate_pretrained_metadata(blob, "s")
+    with pytest.raises(ValueError):
+        validate_pretrained_metadata({**blob, "libreyolo_version": "1.6.0"}, "t")
