@@ -48,7 +48,7 @@ async def deploy_model(
                 status_code=503, detail="暂时无法复查推理实例，请稍后重试"
             ) from exc
         else:
-            learning.check_trial_runtime(deployment, receipt)
+            learning.check_trial_runtime(version, deployment, receipt)
             return deployment
 
     deployment, check_id = await learning.begin_deployment_check(

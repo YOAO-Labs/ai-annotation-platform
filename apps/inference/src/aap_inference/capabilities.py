@@ -422,9 +422,33 @@ def extract_capabilities(
                 ),
             }
 
+    managed_compatibility = []
+    compatibility_warning = None
+    if "managed_model_compatibility" in setup:
+        from aap_inference_contract.plugin import ManagedModelCompatibility
+
+        try:
+            raw_compatibility = setup["managed_model_compatibility"]
+            if not isinstance(raw_compatibility, list):
+                raise ValueError("compatibility must be a list")
+            managed_compatibility = [
+                ManagedModelCompatibility.model_validate(entry).model_dump(mode="json")
+                for entry in raw_compatibility
+            ]
+        except (TypeError, ValueError):
+            compatibility_warning = {
+                "level": "warning",
+                "model_id": None,
+                "field": "managed_model_compatibility",
+                "value": "invalid",
+                "message": "managed_model_compatibility declaration is invalid.",
+            }
+
     warnings = _collect_warnings(models)
     if managed_lifecycle_warning is not None:
         warnings.append(managed_lifecycle_warning)
+    if compatibility_warning is not None:
+        warnings.append(compatibility_warning)
 
     caps: dict = {
         # Stable compatibility/model identity fields participate in service-pool
@@ -448,6 +472,7 @@ def extract_capabilities(
         # ADR-0049 · 远端声明必须显式携带全部冻结字段；平台不能用 Pydantic
         # 默认值把 partial/legacy backend 静默升级成受管 backend。
         "managed_lifecycle": managed_lifecycle,
+        "managed_model_compatibility": managed_compatibility,
         "models": models,
         "is_interactive": any(m["is_interactive"] for m in models),
         "supported_prompts": _union(models, "supported_prompts"),

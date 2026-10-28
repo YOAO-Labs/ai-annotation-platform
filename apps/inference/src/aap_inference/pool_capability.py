@@ -268,6 +268,12 @@ def canonicalize_capability(raw: Mapping[str, Any] | None) -> dict:
             canonical[field_name] = bool(caps.get(field_name, _DEFAULTS[field_name]))
         else:
             canonical[field_name] = caps.get(field_name, _DEFAULTS[field_name])
+    # Preserve existing legacy fingerprints when no managed model is advertised.
+    # A declared compatibility set changes which checkpoints a member can serve.
+    if caps.get("managed_model_compatibility"):
+        canonical["managed_model_compatibility"] = _canonicalize_list_field(
+            caps["managed_model_compatibility"]
+        )
     return canonical
 
 
@@ -307,7 +313,7 @@ def diff_capabilities(
     cand_canon = canonicalize_capability(candidate_snapshot)
     differing = tuple(
         field
-        for field in _CANONICAL_FIELDS
+        for field in (*_CANONICAL_FIELDS, "managed_model_compatibility")
         if pool_canon.get(field) != cand_canon.get(field)
     )
     if not differing:

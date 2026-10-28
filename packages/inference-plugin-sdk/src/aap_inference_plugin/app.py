@@ -253,6 +253,12 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                 params = Params.model_validate(context.get("params") or {}).model_dump()
             except ValidationError as exc:
                 raise HTTPException(422, detail=exc.errors(include_url=False, include_input=False, include_context=False)) from exc
+            if "classes" in context:
+                classes = context["classes"]
+                if (not isinstance(classes, list) or not classes
+                        or any(type(index) is not int or index < 0 for index in classes)):
+                    raise HTTPException(422, "classes must be a nonempty list of nonnegative integer indices")
+                params["classes"] = classes
             key, meta = await identity(context)
             output = []
             for task in tasks:
@@ -261,6 +267,10 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                 except (ValueError, OSError, httpx.HTTPError) as exc:
                     raise HTTPException(422, "Image input is invalid or unavailable; check the allowed host and image limits") from exc
                 async with pool.borrow(key) as lease:
+                    if "classes" in params and any(
+                        index >= len(lease.resource.classes) for index in params["classes"]
+                    ):
+                        raise HTTPException(422, "class index is not supported by the model")
                     future = asyncio.ensure_future(asyncio.to_thread(lease.resource.predict, image, params))
                     track(operation, future)
                     try:

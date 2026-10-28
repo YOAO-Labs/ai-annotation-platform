@@ -16,7 +16,9 @@ class Model:
     def __init__(self):
         self.closed = False
     def predict(self, image, parameters):
-        return [Detection(1, 2, 5, 8, 0, .9), Detection(5, 0, 10, 4, 1, .4)]
+        detections = [Detection(1, 2, 5, 8, 0, .9), Detection(5, 0, 10, 4, 1, .4)]
+        selected = parameters.get("classes")
+        return [item for item in detections if selected is None or item.class_index in selected]
     def close(self):
         self.closed = True
 
@@ -57,6 +59,20 @@ def test_detection_protocol_and_cleanup():
         assert client.post("/predict", json={"tasks": [{"id": 7, "file_path": image_url()}], "context": {"params": {"conf": 2}}}).status_code == 422
         assert client.post("/unload").json()["unloaded"] == 1
         assert provider.models[0].closed
+
+
+def test_class_filter_applies_to_emitted_detections():
+    app = create_detection_app(Provider(), DetectionConfig(token=TOKEN, device="cpu", catalog={"t": {}}, default_model="t"))
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as client:
+        body = {"tasks": [{"id": 7, "file_path": image_url()}], "context": {"classes": [1]}}
+        response = client.post("/predict", json=body)
+        assert response.status_code == 200
+        assert [item["native_class_index"] for item in response.json()["results"][0]["result"]] == [1]
+        for invalid in ([True], ["1"], [-1], [2], [], None, "1"):
+            body["context"]["classes"] = invalid
+            assert client.post("/predict", json=body).status_code == 422
+        body["context"] = {"params": {"classes": [1]}}
+        assert client.post("/predict", json=body).status_code == 422
 
 
 def test_reject_local_file_and_unapproved_host():

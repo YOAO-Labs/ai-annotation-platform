@@ -543,10 +543,19 @@ class PinnedRuntimeConflict(HTTPException):
         super().__init__(status_code=409, detail=detail)
 
 
-def check_trial_runtime(deployment, receipt):
-    """Require the live execution profile to be the one used by the trial."""
+def check_trial_runtime(version, deployment, receipt):
+    """Require the live profile to match the trial, including legacy CPU trials."""
     pinned = (deployment.trial or {}).get("inference_runtime")
-    if pinned != (receipt or {}).get("inference_runtime"):
+    live = (receipt or {}).get("inference_runtime")
+    if pinned is None and live is not None:
+        from training_contract.inference_runtime import inference_runtime
+
+        try:
+            expected = expected_receipt(version)
+            pinned = inference_runtime(expected, version.framework_version, device="cpu")
+        except (TypeError, ValueError):
+            pinned = None
+    if pinned != live:
         raise HTTPException(status_code=409, detail="推理实例运行时与已试用的部署不一致")
 
 
@@ -1179,7 +1188,7 @@ async def publish(db, project, user, body):
 
         live = await live_receipt(db, deployment.registry_id, str(version.id))
         check_receipt(version, live)
-        check_trial_runtime(deployment, live)
+        check_trial_runtime(version, deployment, live)
     if body.rollback_from_id:
         previous = await db.get(ModelRelease, body.rollback_from_id)
         if (
