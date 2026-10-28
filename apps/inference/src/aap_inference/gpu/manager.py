@@ -368,19 +368,19 @@ class GPUAuthorityManager:
             resource is None or resource.allocatable_mb != allocatable_mb
         ):
             raise ValueError("GPU observation configuration does not match runtime")
-        memberships = await self._read_resource_memberships(resource_id)
         rollout = await read_gpu_arbiter_rollout(self._data, resource_id)
         should_observe_ledger = self._config.gpu_arbiter_desired_mode(
             resource_id
         ) is GPUArbiterMode.ENFORCE or (rollout is not None and rollout.state != "off")
         if not should_observe_ledger:
+            memberships = await self._read_resource_memberships(resource_id)
             observation = disabled_gpu_resource_runtime_observation(memberships)
         else:
             async with self._open_store() as store:
                 observation = await observe_gpu_resource_runtime(
+                    self._data,
                     store,
                     resource_id,
-                    memberships,
                 )
         return GPUResourceRuntimeObservationReply.model_validate(observation.__dict__)
 
@@ -421,14 +421,15 @@ class GPUAuthorityManager:
         resource_id: str,
         membership_epoch: int,
     ) -> GPURetiredMembershipReply:
-        result = await probe_retired_gpu_membership(
-            self._data,
-            self._endpoint_source,
-            self._backend_transport,
-            backend_id,
-            resource_id,
-            membership_epoch,
-        )
+        async with self._data.transaction() as data:
+            result = await probe_retired_gpu_membership(
+                data,
+                self._endpoint_source,
+                self._backend_transport,
+                backend_id,
+                resource_id,
+                membership_epoch,
+            )
         return GPURetiredMembershipReply(
             backend_id=backend_id,
             resource_id=resource_id,
