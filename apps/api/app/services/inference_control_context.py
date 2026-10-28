@@ -25,7 +25,7 @@ _READ_OPERATIONS = frozenset(
         "versions",
     }
 )
-_CONTROL_OPERATIONS = frozenset({"unload", "reload"})
+_CONTROL_OPERATIONS = frozenset({"unload", "reload", "terminal_drain"})
 _SCOPE_OPERATIONS = frozenset(
     {"warmup", "install_trained_model", "managed_evaluation_seal"}
 )
@@ -63,7 +63,7 @@ def backend_control_operation_context_factory(db):
             async with lifecycle_control(
                 db,
                 registry_id,
-                operation,
+                "unload" if operation == "terminal_drain" else operation,
                 expected_topology=expected_topology,
             ) as control_binding:
                 control = control_binding.control

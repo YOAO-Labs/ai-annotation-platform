@@ -253,6 +253,7 @@ class BackendControlService:
                     "setup": "setup",
                     "health_meta": "health_observation",
                     "unload": "lifecycle",
+                    "terminal_drain": "lifecycle",
                     "reload": "lifecycle",
                     "warmup": "execution",
                     "catalog_fallback": "catalog_fallback",
@@ -295,6 +296,38 @@ class BackendControlService:
         except BackendEndpointUnavailable:
             raise BackendControlUnavailable() from None
         return reply.result
+
+    async def terminal_drain(
+        self, registry_id: uuid.UUID, *, boot_id: str, operation_id: uuid.UUID
+    ) -> dict[str, object]:
+        result = await self._execute(
+            "terminal_drain",
+            registry_id,
+            body={
+                "registry_id": str(registry_id),
+                "boot_id": boot_id,
+                "operation_id": str(operation_id),
+            },
+        )
+        if (
+            type(result) is not dict
+            or set(result) != {
+                "registry_id", "boot_id", "operation_id", "control_epoch",
+                "generation", "pool_ids", "unloaded",
+            }
+            or result["registry_id"] != str(registry_id)
+            or result["boot_id"] != boot_id
+            or result["operation_id"] != str(operation_id)
+            or result["control_epoch"] is not None
+            or result["generation"] is not None
+            or result["unloaded"] is not True
+            or type(result["pool_ids"]) is not list
+            or not result["pool_ids"]
+            or any(type(pool) is not str or not pool for pool in result["pool_ids"])
+            or result["pool_ids"] != sorted(set(result["pool_ids"]))
+        ):
+            raise BackendControlUnavailable()
+        return result
 
     async def _registry_exists(self, registry_id: uuid.UUID) -> bool:
         return (

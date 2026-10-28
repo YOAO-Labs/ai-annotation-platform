@@ -28,6 +28,7 @@ GPUControlOperation = Literal[
     "drain",
     "cancel_drain",
     "unload",
+    "terminal_drain",
 ]
 
 
@@ -97,6 +98,15 @@ class GPUBackendControlTransport(Protocol):
         request_id: UUID,
         timeout_seconds: float,
     ) -> ManagedUnloadResponse: ...
+
+    async def lifecycle_terminal_drain(
+        self,
+        endpoint: BackendEndpointSnapshot,
+        grant: GPUDispatchGrantPort,
+        *,
+        request_id: UUID,
+        timeout_seconds: float,
+    ) -> dict[str, object]: ...
 
 
 __all__ = ["GPUBackendControlTransport", "GPUControlOperation"]

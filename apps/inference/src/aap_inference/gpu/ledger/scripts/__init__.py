@@ -1,4 +1,4 @@
-"""Re-export of the 15 final composed Lua scripts and shared preambles."""
+"""Re-export the composed Lua scripts and shared preambles."""
 
 from aap_inference.gpu.ledger.scripts.lua_sources import (
     _ADMIT_LUA,
@@ -19,6 +19,7 @@ from aap_inference.gpu.ledger.scripts.lua_sources import (
     _TRANSITION_OWNER_LUA,
     _VERIFY_TOMBSTONE_GC_LUA,
 )
+from aap_inference.gpu.ledger.scripts.installation_drain import _INSTALLATION_DRAIN_LUA
 
 __all__ = [
     "_ADMIT_LUA",
@@ -28,6 +29,7 @@ __all__ = [
     "_COLLECT_RETIRED_BACKEND_LUA",
     "_COMMIT_PROOF_RESET_LUA",
     "_EVOLVE_BACKEND_DOMAINS_LUA",
+    "_INSTALLATION_DRAIN_LUA",
     "_LEDGER_INTEGRITY_LUA",
     "_LEASE_LUA",
     "_MARK_CARD_NOT_READY_LUA",

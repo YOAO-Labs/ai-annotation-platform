@@ -38,7 +38,9 @@
       "retired_probe_subject",
       "retired_probe_commit",
       "shadow_snapshot",
-      "resource_runtime_observation"
+      "resource_runtime_observation",
+      "installation_terminal",
+      "installation_control"
     ]
   },
   "caller_native": {

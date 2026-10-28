@@ -129,6 +129,8 @@ _GPU_PATHS = frozenset(
         gpu_contract.GPU_DISPATCH_ACQUIRE_PATH,
         gpu_contract.GPU_DISPATCH_SETTLE_PATH,
         gpu_contract.GPU_ADMIN_ACTIVATE_PATH,
+        gpu_contract.GPU_ADMIN_INSTALLATION_ACTIVATE_PATH,
+        gpu_contract.GPU_ADMIN_INSTALLATION_QUIESCE_PATH,
         gpu_contract.GPU_ADMIN_ROLLOUT_PATH,
         gpu_contract.GPU_ADMIN_OBSERVE_PATH,
         gpu_contract.GPU_ADMIN_REPAIR_PATH,
@@ -680,6 +682,16 @@ class PipelineHttpServer:
                 reply = await self.gpu_manager.activate_resource_memberships(
                     request.resource_id, pending_only=request.pending_only
                 )
+            elif path == gpu_contract.GPU_ADMIN_INSTALLATION_ACTIVATE_PATH:
+                request = gpu_contract.GPUInstallationControlRequest.model_validate_json(
+                    body
+                )
+                reply = await self.gpu_manager.activate_installation(request)
+            elif path == gpu_contract.GPU_ADMIN_INSTALLATION_QUIESCE_PATH:
+                request = gpu_contract.GPUInstallationControlRequest.model_validate_json(
+                    body
+                )
+                reply = await self.gpu_manager.quiesce_installation(request)
             elif path == gpu_contract.GPU_ADMIN_ROLLOUT_PATH:
                 request = gpu_contract.GPURolloutControlRequest.model_validate_json(
                     body

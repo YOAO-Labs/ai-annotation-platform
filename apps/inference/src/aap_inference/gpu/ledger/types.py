@@ -202,6 +202,17 @@ class GPUTransitionOwnerResult:
     expires_at_ms: int | None = None
     idempotent: bool = False
 
+@dataclass(frozen=True)
+class GPUInstallationDrainResult:
+    status: Literal[
+        "owned", "active_leases", "settled", "released", "busy",
+        "missing", "owner_mismatch", "stale_generation", "config_mismatch",
+        "invalid_transition", "not_ready", "ledger_corrupt",
+    ]
+    lease_count: int = 0
+    idempotent: bool = False
+
+
 
 @dataclass(frozen=True)
 class GPUIdleEvictionResult:

@@ -326,6 +326,19 @@ if card_exists and current_resource ~= ARGV[1] then
   return response('ledger_corrupt', 'resource_identity_mismatch')
 end
 
+-- A terminal installation fence cannot be erased by a generic proof reset.
+if card_exists then
+  local raw = redis.call('GET', KEYS[4])
+  local mirror = redis.call('HGET', KEYS[1], 'transition_mirror')
+  for _, candidate in ipairs({raw or '', mirror or ''}) do
+    local ok, transition = pcall(cjson.decode, candidate)
+    if ok and type(transition) == 'table'
+       and transition.operation == 'installation_drain' then
+      return response('not_ready', 'installation_drain_in_progress')
+    end
+  end
+end
+
 if card_exists then
   local proof_state = redis.call('HGET', KEYS[1], 'proof_reset_state')
   if proof_state == 'prepared' then
@@ -1371,7 +1384,8 @@ if transition_raw then
          or transition.expires_at_ms > transition.hard_deadline_ms)) then
     return cjson.encode({status='ledger_corrupt', ready=false, ledger_revision=0, committed_mb=current_committed, purged_leases=0, reason='transition_invalid'})
   end
-  if transition.eviction_branch ~= nil
+  if transition.operation == 'installation_drain'
+     or transition.eviction_branch ~= nil
      or transition.expires_at_ms > transition_now then
     local current_deadline = tonumber(
       redis.call('HGET', KEYS[1], 'reconcile_deadline_ms') or '0')
@@ -1397,7 +1411,8 @@ elseif transition_mirror ~= '' then
            > mirrored_transition.hard_deadline_ms)) then
     return cjson.encode({status='ledger_corrupt', ready=false, ledger_revision=tonumber(expected_revision), committed_mb=current_committed, purged_leases=0, reason='transition_mirror_invalid'})
   end
-  if mirrored_transition.eviction_branch ~= nil
+  if mirrored_transition.operation == 'installation_drain'
+     or mirrored_transition.eviction_branch ~= nil
      or mirrored_transition.expires_at_ms > transition_now then
     return cjson.encode({status='partial_state', ready=false, ledger_revision=tonumber(expected_revision), committed_mb=current_committed, purged_leases=0, reason='transition_key_missing_before_expiry'})
   end
@@ -2019,6 +2034,13 @@ if transition_raw then
        and transition.eviction_branch ~= 'unload') then
     return response('ledger_corrupt', tonumber(current_revision), incarnation,
       target_domains, 'transition_domain_invalid')
+  end
+  if transition.operation == 'installation_drain'
+     and (not target_domains.members[transition.backend_id]
+       or target_domains.members[transition.backend_id].membership_epoch
+         ~= transition.installation_membership_epoch) then
+    return response('config_mismatch', tonumber(current_revision), incarnation,
+      target_domains, 'installation_drain_membership_changed')
   end
 elseif transition_mirror ~= '' then
   return response('ledger_corrupt', tonumber(current_revision), incarnation,
@@ -3191,6 +3213,15 @@ local function inspect_ledger(
        or not integrity_valid_generation(transition.generation)
        or type(transition.operation) ~= 'string' or transition.operation == ''
        or type(transition.require_idle) ~= 'boolean'
+       or (transition.operation == 'installation_drain'
+         and (not integrity_valid_generation(transition.installation_membership_epoch)
+           or transition.installation_membership_epoch ~= domains.memberships[transition.backend_id].membership_epoch
+           or type(transition.installation_source_generation) ~= 'string'
+           or (transition.installation_source_generation ~= ''
+             and not integrity_valid_generation(transition.installation_source_generation))
+           or type(transition.installation_had_allocation) ~= 'boolean'
+           or type(transition.installation_settled) ~= 'boolean'
+           or transition.require_idle ~= false or transition.eviction_branch ~= nil))
        or (transition.eviction_branch ~= nil
          and transition.eviction_branch ~= 'cancel'
          and transition.eviction_branch ~= 'unload')
@@ -3204,7 +3235,8 @@ local function inspect_ledger(
       return nil, 'ledger_corrupt', 'transition_mirror_mismatch'
     end
     local transition_now = integrity_now_ms()
-    if transition.eviction_branch == nil
+    if transition.operation ~= 'installation_drain'
+       and transition.eviction_branch == nil
        and transition.expires_at_ms <= transition_now then
       transition = nil
     end
@@ -3222,7 +3254,8 @@ local function inspect_ledger(
       integrity_fault(resource_id, 'transition_mirror_invalid', now)
       return nil, 'ledger_corrupt', 'transition_mirror_invalid'
     end
-    if mirrored.eviction_branch ~= nil
+    if mirrored.operation == 'installation_drain'
+       or mirrored.eviction_branch ~= nil
        or mirrored.expires_at_ms > integrity_now_ms() then
       integrity_fault(resource_id, 'transition_key_missing_before_expiry', now)
       return nil, 'ledger_corrupt', 'transition_key_missing_before_expiry'
@@ -4379,7 +4412,8 @@ if current and (
   return cjson.encode({status='ledger_corrupt'})
 end
 now = now_ms()
-if current and current.eviction_branch == nil
+if current and current.operation ~= 'installation_drain'
+   and current.eviction_branch == nil
    and current.expires_at_ms <= now then
   current = nil
 end
@@ -4452,6 +4486,9 @@ end
 
 if ARGV[1] == 'acquire' then
   if current then
+    if current.operation == 'installation_drain' then
+      return cjson.encode({status='busy', owner_id=current.owner_id, generation=current.generation})
+    end
     if current.owner_id == ARGV[4] and current.backend_id == ARGV[3]
        and current.generation == ARGV[5] and current.operation == ARGV[6]
        and current.require_idle == (ARGV[8] == '1') then
@@ -4517,6 +4554,11 @@ end
 if current.operation ~= ARGV[6] or current.backend_id ~= ARGV[3] then
   return cjson.encode({status='operation_mismatch', owner_id=current.owner_id, generation=current.generation, expires_at_ms=current.expires_at_ms})
 end
+-- This owner is durable and may only be changed by the installation protocol.
+if current.operation == 'installation_drain' then
+  return cjson.encode({status='invalid_transition', owner_id=current.owner_id, generation=current.generation})
+end
+
 
 if ARGV[1] == 'revalidate' then
   if current.require_idle ~= (ARGV[8] == '1') then
@@ -5095,6 +5137,13 @@ if not ledger then
 end
 if not ledger.known_backends[ARGV[2]] then
   return cjson.encode({status='not_ready', committed_mb=ledger.committed})
+end
+if ledger.transition and ledger.transition.backend_id == ARGV[2]
+   and ledger.transition.operation == 'installation_drain'
+   and not (ledger.allocations[ARGV[2]]
+     and (ledger.allocations[ARGV[2]].state == 'reserving'
+       or ledger.allocations[ARGV[2]].state == 'loading')) then
+  return cjson.encode({status='owner_mismatch', committed_mb=ledger.committed})
 end
 local lease_key = ledger.lease_keys[ARGV[2]]
 

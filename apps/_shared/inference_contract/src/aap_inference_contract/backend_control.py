@@ -36,6 +36,7 @@ BackendControlOperation = Literal[
     "setup",
     "health_meta",
     "unload",
+    "terminal_drain",
     "reload",
     "warmup",
     "catalog_fallback",
@@ -174,6 +175,7 @@ class BackendControlRequest(_StrictModel):
             "setup": "setup",
             "health_meta": "health_observation",
             "unload": "lifecycle",
+            "terminal_drain": "lifecycle",
             "reload": "lifecycle",
             "warmup": "execution",
             "catalog_fallback": "catalog_fallback",
@@ -193,6 +195,7 @@ class BackendControlRequest(_StrictModel):
             raise ValueError("backend control endpoint does not match operation")
         binding_kind = {
             "unload": "control",
+            "terminal_drain": "control",
             "reload": "control",
             "warmup": "scope",
             "install_trained_model": "scope",
@@ -254,6 +257,21 @@ class BackendControlRequest(_StrictModel):
             and self.body is None
         ):
             raise ValueError("backend control operation requires its typed body")
+        if self.operation == "terminal_drain":
+            body = self.body or {}
+            if (
+                set(body) != {"registry_id", "boot_id", "operation_id"}
+                or body["registry_id"] != str(self.registry_id)
+                or type(body["boot_id"]) is not str
+                or not body["boot_id"]
+                or type(body["operation_id"]) is not str
+            ):
+                raise ValueError("invalid terminal drain request")
+            try:
+                if str(uuid.UUID(body["operation_id"])) != body["operation_id"]:
+                    raise ValueError
+            except (TypeError, ValueError, AttributeError):
+                raise ValueError("invalid terminal drain request") from None
         if self.operation == "trained_model_receipt":
             version_id = (self.body or {}).get("version_id")
             if set(self.body or {}) != {"version_id"} or type(version_id) is not str:

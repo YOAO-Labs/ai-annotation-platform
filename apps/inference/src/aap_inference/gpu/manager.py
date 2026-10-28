@@ -16,6 +16,8 @@ import uuid
 from aap_protocol_v2.lifecycle import AdmissionScope
 
 from aap_inference.gpu.endpoint_source import OwnedBackendEndpointSource
+from aap_inference.gpu.installation_activation import activate_gpu_installation
+from aap_inference.gpu.installation_quiescence import quiesce_gpu_installation
 from aap_inference.gpu.control_preparation import GPUReadinessDemoter
 from aap_inference.gpu.contracts import (
     GPUConfigDiagnostic,
@@ -62,6 +64,9 @@ from aap_inference.gpu.settings import GPUAuthoritySettings, GPUArbiterMode
 from aap_inference.gpu.signing import GPUAdmissionTokenSigner
 from aap_inference.gpu.transport import GPUBackendControlTransport
 from aap_inference_contract.gpu import (
+    GPUInstallationControlRequest,
+    GPUInstallationQuiesceReply,
+    GPUInstallationActivationReply,
     GPUActivateMembershipResult,
     GPUActivateMembershipsReply,
     GPUAdminDiagnosticsReply,
@@ -284,6 +289,34 @@ class GPUAuthorityManager:
         self._report_outcome(session.grant, request)
         await session.context.__aexit__(None, None, None)
         return GPUDispatchSettleReply(settled=True)
+
+    async def activate_installation(
+        self, request: GPUInstallationControlRequest
+    ) -> GPUInstallationActivationReply:
+        return await activate_gpu_installation(
+            request,
+            data=self._data,
+            signer_factory=self._signer_factory,
+            endpoint_source=self._endpoint_source,
+            backend_transport=self._backend_transport,
+            readiness_demoter=self._readiness_demoter,
+            enforce=self._config.gpu_arbiter_desired_mode(request.resource_id) is GPUArbiterMode.ENFORCE,
+            clock=self._clock,
+        )
+
+    async def quiesce_installation(
+        self, request: GPUInstallationControlRequest
+    ) -> GPUInstallationQuiesceReply:
+        return await quiesce_gpu_installation(
+            request,
+            data=self._data,
+            store_factory=self._store_factory,
+            signer_factory=self._signer_factory,
+            endpoint_source=self._endpoint_source,
+            backend_transport=self._backend_transport,
+            readiness_demoter=self._readiness_demoter,
+            clock=self._clock,
+        )
 
     async def activate_resource_memberships(
         self,

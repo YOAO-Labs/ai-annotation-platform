@@ -69,11 +69,13 @@ _GPU_CONTROL_PATHS = {
     "drain": ("POST", "/drain"),
     "cancel_drain": ("POST", "/drain/cancel"),
     "unload": ("POST", "/unload"),
+    "terminal_drain": ("POST", "/lifecycle/terminal-drain-signed"),
 }
 _BACKEND_CONTROL_PURPOSES = {
     "setup": "setup",
     "health_meta": "health_observation",
     "unload": "lifecycle",
+    "terminal_drain": "lifecycle",
     "reload": "lifecycle",
     "warmup": "execution",
     "catalog_fallback": "catalog_fallback",
@@ -100,6 +102,7 @@ _BACKEND_CONTROL_READS = frozenset(
 _BACKEND_CONTROL_MUTATIONS = frozenset(
     {
         "unload",
+        "terminal_drain",
         "reload",
         "warmup",
         "install_trained_model",
@@ -482,6 +485,8 @@ def _backend_control_target(
         return "GET", "/versions", None
     if operation == "unload":
         return "POST", "/unload", None
+    if operation == "terminal_drain":
+        return "POST", "/lifecycle/terminal-drain", None
     if operation == "reload":
         return "POST", "/reload", None
     if operation == "warmup":
@@ -573,7 +578,7 @@ class RoutingBackendControlRequestContextFactory:
                 or opened_endpoint.authority is None
                 or not _authority_matches(opened_endpoint.authority, binding)
                 or (
-                    request.operation in {"unload", "reload"}
+                    request.operation in {"unload", "reload", "terminal_drain"}
                     and binding.kind != "control"
                 )
                 or (
@@ -900,6 +905,22 @@ class BackendTransportGPUControlAdapter:
             timeout_seconds=timeout_seconds,
         )
         return await transport.lifecycle_drain(grant)
+    async def lifecycle_terminal_drain(
+        self,
+        endpoint: BackendEndpointSnapshot,
+        grant: GPUDispatchGrantPort,
+        *,
+        request_id: uuid.UUID,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        transport = self._bound_transport(
+            endpoint,
+            request_id=request_id,
+            operation="terminal_drain",
+            timeout_seconds=timeout_seconds,
+        )
+        return await transport.lifecycle_terminal_drain(grant)
+
 
     async def lifecycle_cancel_drain(
         self,

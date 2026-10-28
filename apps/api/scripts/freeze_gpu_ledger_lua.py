@@ -1,9 +1,7 @@
-"""Compute SHA-256 of the 15 final GPU-arbiter Redis Lua scripts.
+"""Compute SHA-256 of the final GPU-arbiter Redis Lua scripts.
 
-The GPU Redis ledger registers exactly 15 Lua scripts via ``redis.register_script``.
-Each *final* script body is the fully-composed string (shared preamble + body) that
-Redis actually sees. P0 freezes their SHA-256; P1 must reproduce every value after the
-``gpu_arbiter_store`` module is split into the ``gpu_arbitration.ledger`` package.
+Each script body is the fully composed string (shared preamble + body) that
+Redis actually sees.
 
 Usage
 -----
@@ -11,7 +9,7 @@ Usage
     uv run python scripts/freeze_gpu_ledger_lua.py --json      # machine-readable
     uv run python scripts/freeze_gpu_ledger_lua.py --check <file>   # compare to golden
 
-The 15 final script names mirror the constants defined in
+The final script names mirror the constants defined in
 ``aap_inference.gpu.ledger.scripts``.
 """
 
@@ -24,7 +22,7 @@ import sys
 from pathlib import Path
 
 # Attribute name on GPUArbiterStore -> final composed Lua string to freeze.
-# Order matches GPUArbiterStore.__init__ registration order (15 entries).
+# Order matches GPUArbiterStore.__init__ registration order.
 SCRIPT_SPECS: list[tuple[str, str]] = [
     ("mark_card_not_ready_script", "_MARK_CARD_NOT_READY_LUA"),
     ("begin_proof_reset_script", "_BEGIN_PROOF_RESET_LUA"),
@@ -41,6 +39,7 @@ SCRIPT_SPECS: list[tuple[str, str]] = [
     ("begin_idle_eviction_script", "_BEGIN_IDLE_EVICTION_LUA"),
     ("arm_eviction_cancel_script", "_ARM_EVICTION_CANCEL_LUA"),
     ("transition_script", "_TRANSITION_LUA"),
+    ("installation_drain_script", "_INSTALLATION_DRAIN_LUA"),
 ]
 
 

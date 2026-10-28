@@ -679,6 +679,17 @@ class BackendTransport:
                 resp.raise_for_status()
                 return resp.json()
 
+    async def terminal_drain(self, body: dict[str, str]) -> dict:
+        """Irreversibly drain a CPU installation through its fixed lifecycle route."""
+        async with self._http_client(timeout=self.options.ml_predict_timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/lifecycle/terminal-drain",
+                headers=self._headers(),
+                json=body,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def reload(
         self,
         sam_variant: str | None = None,
@@ -820,7 +831,7 @@ class BackendTransport:
         endpoint: str,
         grant: BackendDispatchGrant,
     ) -> httpx.Response:
-        if endpoint not in {"/drain", "/drain/cancel", "/unload"}:
+        if endpoint not in {"/drain", "/drain/cancel", "/unload", "/lifecycle/terminal-drain-signed"}:
             raise ValueError("managed GPU transition endpoint is invalid")
         request = GenerationTransitionRequest(generation=grant.generation)
         try:
@@ -859,6 +870,16 @@ class BackendTransport:
         if parsed.generation != grant.generation:
             raise ValueError("drain response generation does not match the request")
         return parsed
+
+    async def lifecycle_terminal_drain(self, grant: BackendDispatchGrant) -> dict:
+        """Send an irreversible signed all-pool terminal drain."""
+        response = await self._managed_generation_transition(
+            "/lifecycle/terminal-drain-signed", grant
+        )
+        result = response.json()
+        if type(result) is not dict or result.get("generation") != grant.generation:
+            raise ValueError("terminal drain response generation does not match")
+        return result
 
     async def lifecycle_cancel_drain(
         self,

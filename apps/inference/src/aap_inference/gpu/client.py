@@ -24,6 +24,8 @@ from aap_inference_contract.gpu import (
     GPU_ADMIN_ACTIVATE_PATH,
     GPU_ADMIN_COLLECT_PATH,
     GPU_ADMIN_DIAGNOSTICS_PATH,
+    GPU_ADMIN_INSTALLATION_ACTIVATE_PATH,
+    GPU_ADMIN_INSTALLATION_QUIESCE_PATH,
     GPU_ADMIN_OBSERVE_PATH,
     GPU_ADMIN_PROBE_PATH,
     GPU_ADMIN_REPAIR_PATH,
@@ -40,6 +42,9 @@ from aap_inference_contract.gpu import (
     GPUDispatchAcquireRequest,
     GPUDispatchSettleReply,
     GPUDispatchSettleRequest,
+    GPUInstallationActivationReply,
+    GPUInstallationControlRequest,
+    GPUInstallationQuiesceReply,
     GPURetiredMembershipReply,
     GPURetiredMembershipRequest,
     GPURolloutControlReply,
@@ -132,6 +137,47 @@ class GPUAuthorityHTTPClient:
                 grant.report_uncertain_if_missing("response_not_reported")
             settle_request = self._settle_request(grant)
             await self._settle_cancellation_safe(settle_request)
+
+    async def activate_installation(
+        self, request: GPUInstallationControlRequest
+    ) -> GPUInstallationActivationReply:
+        response = await self._post(
+            GPU_ADMIN_INSTALLATION_ACTIVATE_PATH, request.model_dump(mode="json")
+        )
+        reply = self._decode_success(response, GPUInstallationActivationReply)
+        self._validate_installation_reply(request, reply)
+        return reply
+
+    async def quiesce_installation(
+        self, request: GPUInstallationControlRequest
+    ) -> GPUInstallationQuiesceReply:
+        response = await self._post(
+            GPU_ADMIN_INSTALLATION_QUIESCE_PATH, request.model_dump(mode="json")
+        )
+        reply = self._decode_success(response, GPUInstallationQuiesceReply)
+        self._validate_installation_reply(request, reply)
+        if reply.operation_id != request.operation_id or reply.container_id != request.container_id:
+            raise GPUArbiterDispatchError(
+                GPUArbiterErrorCode.UNAVAILABLE,
+                message="GPU authority returned mismatched installation proof",
+            )
+        return reply
+
+    @staticmethod
+    def _validate_installation_reply(
+        request: GPUInstallationControlRequest, reply: GPUInstallationActivationReply
+    ) -> None:
+        if (
+            reply.registry_id != request.registry_id
+            or reply.resource_id != request.resource_id
+            or reply.endpoint != request.endpoint
+            or reply.boot_id != request.boot_id
+            or reply.pool_ids != request.pool_ids
+        ):
+            raise GPUArbiterDispatchError(
+                GPUArbiterErrorCode.UNAVAILABLE,
+                message="GPU authority returned mismatched installation identity",
+            )
 
     async def activate_resource_memberships(
         self,

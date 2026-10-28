@@ -39,6 +39,7 @@ from aap_inference.gpu.ledger.scripts import (
     _TRANSITION_OWNER_LUA,
     _VERIFY_TOMBSTONE_GC_LUA,
 )
+from aap_inference.gpu.ledger.scripts.installation_drain import _INSTALLATION_DRAIN_LUA
 from aap_inference.gpu.ledger.types import (
     _CANONICAL_POSITIVE_INT64_RE,
     _DEFAULT_NAMESPACE,
@@ -67,6 +68,7 @@ from aap_inference.gpu.ledger.types import (
     GPUCardSnapshot,
     GPUEvictionBranchResult,
     GPUIdleEvictionResult,
+    GPUInstallationDrainResult,
     GPULeaseMutationResult,
     GPUProofResetCAS,
     GPUProofResetContext,
@@ -140,6 +142,7 @@ class GPUArbiterStore:
             _ARM_EVICTION_CANCEL_LUA
         )
         self._transition_script = redis.register_script(_TRANSITION_LUA)
+        self._installation_drain_script = redis.register_script(_INSTALLATION_DRAIN_LUA)
 
     @classmethod
     def from_url(
@@ -1584,6 +1587,98 @@ class GPUArbiterStore:
             expires_at_ms=self._optional_int(payload.get("expires_at_ms")),
         )
 
+    async def begin_installation_drain(
+        self,
+        resource_id: str,
+        *,
+        backend_id: str,
+        membership_epoch: int,
+        source_generation: str | None,
+        generation: str,
+        owner_id: str,
+    ) -> GPUInstallationDrainResult:
+        """Acquire the durable fence, including while existing leases drain."""
+        return await self._installation_drain_operation(
+            "begin", resource_id, backend_id=backend_id,
+            membership_epoch=membership_epoch, source_generation=source_generation,
+            generation=generation, owner_id=owner_id,
+        )
+
+    async def finish_installation_drain(
+        self,
+        resource_id: str,
+        *,
+        backend_id: str,
+        membership_epoch: int,
+        generation: str,
+        owner_id: str,
+    ) -> GPUInstallationDrainResult:
+        """Settle only after the caller verifies a fresh authenticated all-pool proof.
+
+        The owner remains held until durable native settlement is complete.
+        """
+        return await self._installation_drain_operation(
+            "finish", resource_id, backend_id=backend_id,
+            membership_epoch=membership_epoch, source_generation=None,
+            generation=generation, owner_id=owner_id,
+        )
+
+    async def release_installation_drain(
+        self,
+        resource_id: str,
+        *,
+        backend_id: str,
+        membership_epoch: int,
+        generation: str,
+        owner_id: str,
+    ) -> GPUInstallationDrainResult:
+        """Release only after native settlement durably prohibits new admissions."""
+        return await self._installation_drain_operation(
+            "release", resource_id, backend_id=backend_id,
+            membership_epoch=membership_epoch, source_generation=None,
+            generation=generation, owner_id=owner_id,
+        )
+
+    async def _installation_drain_operation(
+        self,
+        action: Literal["begin", "finish", "release"],
+        resource_id: str,
+        *,
+        backend_id: str,
+        membership_epoch: int,
+        source_generation: str | None,
+        generation: str,
+        owner_id: str,
+    ) -> GPUInstallationDrainResult:
+        keys = self.keys(resource_id)
+        _validate_nonempty(backend_id, "backend_id", max_length=128)
+        _validate_nonempty(owner_id, "owner_id", max_length=256)
+        membership_epoch = _validate_membership_epoch(membership_epoch)
+        generation = _validate_generation(generation)
+        if source_generation is not None:
+            source_generation = _validate_generation(source_generation)
+        domains = await self._ledger_domain(keys)
+        raw = await self._call(
+            lambda: self._installation_drain_script(
+                keys=self._ledger_keys(keys, domains.backend_ids),
+                args=[
+                    action, resource_id, backend_id, str(membership_epoch),
+                    source_generation or "", generation, owner_id,
+                    domains.backend_domain_raw, domains.backend_domain_fingerprint,
+                    domains.ledger_incarnation, domains.membership_domain_raw,
+                    domains.membership_domain_fingerprint,
+                    domains.active_backend_domain_raw,
+                    domains.active_backend_domain_fingerprint,
+                ],
+            )
+        )
+        payload = self._decode_result(raw)
+        return GPUInstallationDrainResult(
+            status=payload["status"],
+            lease_count=int(payload.get("lease_count", 0)),
+            idempotent=bool(payload.get("idempotent", False)),
+        )
+
     async def acquire_transition_owner(
         self,
         resource_id: str,
@@ -2447,7 +2542,10 @@ class GPUArbiterStore:
                         expected_resource_id=resource_id,
                         backend_memberships=backend_memberships,
                     )
-                    if "eviction_branch" in transition_document:
+                    if (
+                        "eviction_branch" in transition_document
+                        or transition_document["operation"] == "installation_drain"
+                    ):
                         if transition_pttl_ms != -1:
                             raise GPUArbiterStoreError(
                                 "GPU frozen transition expiry is invalid"
@@ -2463,6 +2561,7 @@ class GPUArbiterStore:
                     mirrored_expires_at_ms = mirrored_transition["expires_at_ms"]
                     if (
                         "eviction_branch" in mirrored_transition
+                        or mirrored_transition["operation"] == "installation_drain"
                         or mirrored_expires_at_ms > redis_now_ms
                     ):
                         raise GPUArbiterStoreError(
@@ -2785,6 +2884,10 @@ class GPUArbiterStore:
             "requester_queue_owner_id",
             "victim_membership_epoch",
             "victim_source_generation",
+            "installation_membership_epoch",
+            "installation_source_generation",
+            "installation_had_allocation",
+            "installation_settled",
         }
         if (
             not isinstance(value, dict)
@@ -2830,6 +2933,29 @@ class GPUArbiterStore:
         branch = value.get("eviction_branch")
         if "eviction_branch" in value and branch not in {"cancel", "unload"}:
             raise GPUArbiterStoreError("GPU eviction branch is invalid")
+        installation_fields = {
+            "installation_membership_epoch",
+            "installation_source_generation",
+            "installation_had_allocation",
+            "installation_settled",
+        }
+        if value["operation"] == "installation_drain":
+            if not installation_fields.issubset(value):
+                raise GPUArbiterStoreError("GPU installation transition is incomplete")
+            if (
+                _validate_generation(value["installation_membership_epoch"])
+                != str(victim_membership.membership_epoch)
+                or not isinstance(value["installation_settled"], bool)
+                or not isinstance(value["installation_had_allocation"], bool)
+            ):
+                raise GPUArbiterStoreError("GPU installation transition identity is invalid")
+            source = value["installation_source_generation"]
+            if source != "":
+                _validate_generation(source)
+            else:
+                value["installation_source_generation"] = None
+        elif installation_fields.intersection(value):
+            raise GPUArbiterStoreError("GPU installation transition operation is invalid")
         eviction_fields = {
             "requester_backend_id",
             "requester_membership_epoch",

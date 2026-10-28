@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 GPU_AUTHORITY_PROTOCOL = "aap-inference-gpu-authority/v1"
 GPU_AUTHORITY_DATA_PROTOCOL = "aap-inference-gpu-native/v1"
@@ -29,6 +29,8 @@ GPU_ADMIN_REPAIR_PATH = "/internal/inference/gpu/v1/admin/repair-resource"
 GPU_ADMIN_PROBE_PATH = "/internal/inference/gpu/v1/admin/probe-retired-membership"
 GPU_ADMIN_COLLECT_PATH = "/internal/inference/gpu/v1/admin/collect-tombstone"
 GPU_ADMIN_DIAGNOSTICS_PATH = "/internal/inference/gpu/v1/admin/diagnostics"
+GPU_ADMIN_INSTALLATION_ACTIVATE_PATH = "/internal/inference/gpu/v1/admin/activate-installation"
+GPU_ADMIN_INSTALLATION_QUIESCE_PATH = "/internal/inference/gpu/v1/admin/quiesce-installation"
 GPU_AUTHORITY_NATIVE_FUNCTIONS = (
     "aap_inference_gpu_v1.gpu_authority_policy()",
     "aap_inference_gpu_v1.gpu_authority_step(text,text)",
@@ -68,6 +70,8 @@ GPU_AUTHORITY_NATIVE_ACTIONS = (
     "retired_probe_commit",
     "shadow_snapshot",
     "resource_runtime_observation",
+    "installation_terminal",
+    "installation_control",
 )
 
 GPU_CALLER_DATA_PROTOCOL = "aap-inference-gpu-caller-native/v1"
@@ -138,6 +142,8 @@ GPUAuthorityAction = Literal[
     "retired_probe_commit",
     "shadow_snapshot",
     "resource_runtime_observation",
+    "installation_terminal",
+    "installation_control",
 ]
 
 GPUCallerAction = Literal[
@@ -202,6 +208,42 @@ class GPUDispatchSettleRequest(_GPUModel):
 class GPUDispatchSettleReply(_GPUModel):
     protocol: Literal["aap-inference-gpu-dispatch/v1"] = GPU_DISPATCH_HTTP_PROTOCOL
     settled: bool
+
+
+class GPUInstallationControlRequest(_GPUModel):
+    protocol: Literal["aap-inference-gpu-admin/v1"] = GPU_ADMIN_HTTP_PROTOCOL
+    registry_id: UUID
+    resource_id: str = Field(min_length=1, max_length=256)
+    endpoint: str = Field(min_length=1, max_length=2048)
+    boot_id: str = Field(min_length=1, max_length=128)
+    operation_id: UUID
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    pool_ids: list[str] = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def valid_pool_ids(self):
+        if any(not pool or len(pool) > 128 or pool.strip() != pool for pool in self.pool_ids):
+            raise ValueError("invalid GPU installation pool IDs")
+        if self.pool_ids != sorted(set(self.pool_ids)):
+            raise ValueError("GPU installation pool IDs must be unique and ordered")
+        return self
+
+
+class GPUInstallationActivationReply(_GPUModel):
+    protocol: Literal["aap-inference-gpu-admin/v1"] = GPU_ADMIN_HTTP_PROTOCOL
+    registry_id: UUID
+    resource_id: str = Field(min_length=1, max_length=256)
+    endpoint: str = Field(min_length=1, max_length=2048)
+    boot_id: str = Field(min_length=1, max_length=128)
+    control_epoch: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
+    pool_ids: list[str] = Field(min_length=1, max_length=128)
+
+
+class GPUInstallationQuiesceReply(GPUInstallationActivationReply):
+    generation: str = Field(pattern=r"^[1-9][0-9]{0,18}$")
+    operation_id: UUID
+    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    unloaded: Literal[True]
 
 
 class GPUActivateMembershipsRequest(_GPUModel):
@@ -463,6 +505,8 @@ __all__ = [
     "GPU_ADMIN_COLLECT_PATH",
     "GPU_ADMIN_DIAGNOSTICS_PATH",
     "GPU_ADMIN_HTTP_PROTOCOL",
+    "GPU_ADMIN_INSTALLATION_ACTIVATE_PATH",
+    "GPU_ADMIN_INSTALLATION_QUIESCE_PATH",
     "GPU_ADMIN_OBSERVE_PATH",
     "GPU_ADMIN_PROBE_PATH",
     "GPU_ADMIN_REPAIR_PATH",
@@ -490,6 +534,9 @@ __all__ = [
     "GPUDispatchAcquireRequest",
     "GPUDispatchSettleReply",
     "GPUDispatchSettleRequest",
+    "GPUInstallationActivationReply",
+    "GPUInstallationControlRequest",
+    "GPUInstallationQuiesceReply",
     "GPUResourceObservationRequest",
     "GPUResourceRepairReply",
     "GPUResourceRepairRequest",

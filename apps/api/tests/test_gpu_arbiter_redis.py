@@ -9165,3 +9165,208 @@ async def test_retiring_collection_shrinks_exact_domain_and_receipt_replays(
     )
     assert refreshed_receipt is not None
     assert refreshed_receipt.ledger_incarnation == reset_snapshot.ledger_incarnation
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "source", "has_allocation"),
+    [
+        (GPUAllocationState.UNKNOWN, None, True),
+        (GPUAllocationState.UNKNOWN, "7", True),
+        (GPUAllocationState.UNLOADED, "7", True),
+        (None, "7", False),
+    ],
+)
+async def test_installation_drain_settles_exact_generation_and_keeps_fence(
+    redis_stores, state, source, has_allocation
+) -> None:
+    first, second = redis_stores
+    resource = f"installation-{state}-{source}-{has_allocation}"
+    allocation = (
+        _reconcile_allocation(state=state, generation=source)
+        if has_allocation else None
+    )
+    await first.reconcile_card(
+        resource, 100, expected_ledger_revision=None,
+        expected_ledger_incarnation=None,
+        backend_memberships=_memberships("backend-a"),
+        allocations=(allocation,) if allocation else (),
+        lease_cleanup=None, ready=True,
+        reconcile_deadline_ms=_future_reconcile_deadline_ms(),
+        repair_id="bootstrap-installation",
+    )
+    args = dict(
+        backend_id="backend-a", membership_epoch=1,
+        source_generation=source, generation="8", owner_id="install-owner",
+    )
+    assert (await first.begin_installation_drain(resource, **args)).status == "owned"
+    assert (await second.begin_installation_drain(resource, **args)).idempotent
+    assert (await second.begin_installation_drain(
+        resource, **{**args, "owner_id": "other"}
+    )).status == "busy"
+    before = await first.snapshot(resource)
+    assert before.transition["operation"] == "installation_drain"
+    assert before.committed_mb == (60 if state is GPUAllocationState.UNKNOWN else 0)
+    assert (await first.release_installation_drain(
+        resource, **{key: value for key, value in args.items() if key != "source_generation"}
+    )).status == "invalid_transition"
+    assert (await first.begin_proof_reset(
+        resource, 100, expected_ledger_revision=before.ledger_revision,
+        expected_ledger_incarnation=before.ledger_incarnation,
+        backend_memberships=_memberships("backend-a"), reset_id="unsafe-reset",
+    )).status == "not_ready"
+    assert (await first.reconcile_card(
+        resource, 100, expected_ledger_revision=before.ledger_revision,
+        expected_ledger_incarnation=before.ledger_incarnation,
+        backend_memberships=_memberships("backend-a"), allocations=before.allocations,
+        lease_cleanup=None, ready=True,
+        reconcile_deadline_ms=_future_reconcile_deadline_ms(), repair_id="unsafe-repair",
+    )).status == "busy"
+    terminal = {key: value for key, value in args.items() if key != "source_generation"}
+    # The caller supplies independently verified fresh all-pool evidence before finish.
+    assert (await first.finish_installation_drain(resource, **terminal)).status == "settled"
+    assert (await second.finish_installation_drain(resource, **terminal)).idempotent
+    settled = await first.snapshot(resource)
+    assert settled.transition_present
+    assert settled.committed_mb == 0
+    if allocation:
+        assert settled.allocations[0].state is GPUAllocationState.UNLOADED
+        assert settled.allocations[0].generation == "8"
+    else:
+        assert settled.allocations == ()
+    assert (await first.release_installation_drain(resource, **terminal)).status == "released"
+    assert (await second.release_installation_drain(resource, **terminal)).idempotent
+    retry = await first.begin_installation_drain(resource, **args)
+    assert retry.status == "released" and retry.idempotent
+    assert not (await first.snapshot(resource)).transition_present
+
+
+@pytest.mark.asyncio
+async def test_installation_drain_fences_admissions_and_waits_for_uncertain_leases(
+    redis_stores,
+) -> None:
+    first, second = redis_stores
+    resource = "installation-busy"
+    await _bootstrap_empty_card(first, resource, 100)
+    await _admit_resident(first, resource, wait_for_cooldown=False)
+    await first.mark_lease_uncertain(
+        resource, backend_id="backend-a", lease_id="lease-a",
+        owner_id="owner-a", generation="1",
+    )
+    args = dict(
+        backend_id="backend-a", membership_epoch=1, source_generation="1",
+        generation="2", owner_id="install-owner",
+    )
+    owned = await first.begin_installation_drain(resource, **args)
+    assert owned.status == "active_leases" and owned.lease_count == 1
+    assert (await second.admit(resource, **_admission_kwargs(
+        "backend-a", "new-lease"
+    ))).status == "transition_in_progress"
+    terminal = {key: value for key, value in args.items() if key != "source_generation"}
+    assert (await first.finish_installation_drain(resource, **terminal)).status == "active_leases"
+    assert (await first.release_lease(
+        resource, backend_id="backend-a", lease_id="lease-a",
+        owner_id="owner-a", generation="1",
+    )).status == "released"
+    assert (await second.begin_installation_drain(resource, **args)).status == "owned"
+    await first.mark_card_not_ready(resource, 100, reason="installation-drain")
+    assert (await first.finish_installation_drain(resource, **terminal)).status == "settled"
+    settled = await first.snapshot(resource)
+    assert settled.committed_mb == 0
+    assert settled.allocations[0].generation == "2"
+
+
+@pytest.mark.asyncio
+async def test_installation_drain_rejects_stale_identity(redis_stores) -> None:
+    first, _ = redis_stores
+    resource = "installation-stale"
+    await _bootstrap_empty_card(first, resource, 100)
+    await _admit_resident(first, resource, wait_for_cooldown=False)
+    args = dict(
+        backend_id="backend-a", membership_epoch=1, source_generation="1",
+        generation="2", owner_id="install-owner",
+    )
+    assert (await first.begin_installation_drain(
+        resource, **{**args, "membership_epoch": 2}
+    )).status == "config_mismatch"
+    assert (await first.begin_installation_drain(
+        resource, **{**args, "source_generation": "9"}
+    )).status == "stale_generation"
+    assert (await first.begin_installation_drain(
+        resource, **{**args, "generation": "1"}
+    )).status == "stale_generation"
+    assert not (await first.snapshot(resource)).transition_present
+
+
+@pytest.mark.asyncio
+async def test_installation_domain_evolves_missing_authoritative_members(
+    redis_stores, monkeypatch,
+) -> None:
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from aap_inference.gpu.ledger import installation_domain
+
+    first, _ = redis_stores
+    resource = "installation-domain-empty"
+    await first.mark_card_not_ready(resource, 100, reason="installation-drain")
+    domain = _memberships("backend-a", "backend-b")
+
+    class Provider:
+        @asynccontextmanager
+        async def transaction(self):
+            yield object()
+
+    async def lock_domain(_transaction, _resource):
+        return SimpleNamespace(memberships=domain)
+
+    monkeypatch.setattr(installation_domain, "_lock_gpu_resource_proof_domain", lock_domain)
+    monkeypatch.setattr(installation_domain, "_gpu_domain_members", lambda members: members)
+    await installation_domain.ensure_installation_domain(
+        Provider(), first, resource, "backend-a", 1
+    )
+    snapshot = await first.snapshot(resource)
+    assert snapshot.backend_memberships == domain
+    assert not snapshot.ready
+    assert (await first.begin_installation_drain(
+        resource, backend_id="backend-a", membership_epoch=1,
+        source_generation=None, generation="1", owner_id="install-owner",
+    )).status == "owned"
+
+
+@pytest.mark.asyncio
+async def test_installation_domain_refuses_to_drop_or_reidentify_members(
+    redis_stores, monkeypatch,
+) -> None:
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from aap_inference.gpu.ledger import installation_domain
+    from aap_inference_contract.gpu import GPUAuthorityUnavailable
+
+    first, _ = redis_stores
+    resource = "installation-domain-mismatch"
+    await _bootstrap_empty_card(first, resource, 100)
+    before = await first.snapshot(resource)
+    domain = _memberships("backend-a")
+
+    class Provider:
+        @asynccontextmanager
+        async def transaction(self):
+            yield object()
+
+    async def lock_domain(_transaction, _resource):
+        return SimpleNamespace(memberships=domain)
+
+    monkeypatch.setattr(installation_domain, "_lock_gpu_resource_proof_domain", lock_domain)
+    monkeypatch.setattr(installation_domain, "_gpu_domain_members", lambda members: members)
+    with pytest.raises(GPUAuthorityUnavailable):
+        await installation_domain.ensure_installation_domain(
+            Provider(), first, resource, "backend-a", 1
+        )
+    domain = _memberships(*_TEST_BACKEND_DOMAIN, epoch=2)
+    with pytest.raises(GPUAuthorityUnavailable):
+        await installation_domain.ensure_installation_domain(
+            Provider(), first, resource, "backend-a", 2
+        )
+    after = await first.snapshot(resource)
+    assert after.backend_memberships == before.backend_memberships
+    assert after.ledger_revision == before.ledger_revision

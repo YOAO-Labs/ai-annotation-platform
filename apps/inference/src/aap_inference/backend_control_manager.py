@@ -33,7 +33,7 @@ from aap_inference_contract.backend_endpoint import (
     BackendEndpointBinding,
     BackendEndpointPurpose,
 )
-from aap_inference_contract.plugin import plugin_is_active
+from aap_inference_contract.plugin import PluginInstallation, plugin_is_active
 
 from .backend_control_stats_postgres import (
     BackendControlStatsUnavailable,
@@ -216,6 +216,21 @@ class BackendControlManager:
                 purpose=purpose,
                 authority=request.endpoint_subject.authority,
             )
+            if request.operation == "terminal_drain":
+                try:
+                    installation = PluginInstallation.model_validate(
+                        endpoint.transport_configuration().extra_params["plugin"]
+                    )
+                except (KeyError, TypeError, ValueError):
+                    raise BackendEndpointUnavailable() from None
+                if (
+                    installation.installation_id != request.registry_id
+                    or installation.manifest.resource.device != "cpu"
+                    or installation.resource.gpu_resource_id is not None
+                    or endpoint.gpu_resource_id is not None
+                    or installation.status not in {"prepared", "disabled"}
+                ):
+                    raise BackendEndpointUnavailable()
             if request.operation in {
                 "reload",
                 "warmup",
@@ -262,6 +277,8 @@ class BackendControlManager:
             return {"healthy": healthy, "meta": meta}
         if operation == "unload":
             return _require_object(await transport.unload())
+        if operation == "terminal_drain":
+            return _require_object(await transport.terminal_drain(_require_object(body)))
         if operation == "reload":
             payload = _reload_body(body)
             return _require_object(
