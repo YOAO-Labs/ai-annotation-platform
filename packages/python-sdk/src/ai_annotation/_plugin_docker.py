@@ -14,11 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ai_annotation.errors import AAPError
+from ai_annotation.plugin_models import _OCI_DIGEST_REFERENCE
 
-_IMAGE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$")
+_IMAGE = re.compile(_OCI_DIGEST_REFERENCE)
 _GPU = re.compile(r"^GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _OWNER = re.compile(r"^[0-9a-f]{64}$")
+_QUALIFICATION_TARGET = "/var/lib/aap-libreyolo-qualification/report.json"
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class ContainerConfig:
     env_file: Path
     data_dir: Path
     data_target: str
+    qualification_file: Path | None = None
 
     def validate(self) -> None:
         if not _NAME.fullmatch(self.name) or not _NAME.fullmatch(self.network):
@@ -60,13 +63,15 @@ class ContainerConfig:
             raise AAPError("Docker mount paths must not contain commas")
         if "docker.sock" in str(self.data_dir) or "docker.sock" in self.data_target:
             raise AAPError("Docker socket mounts are not permitted")
+        if self.qualification_file is not None and (not self.qualification_file.is_absolute() or "," in str(self.qualification_file)):
+            raise AAPError("Qualification file must have a safe absolute path")
 
     def identity(self) -> str:
         fields = (
             self.installation_id, self.owner_hash, self.image, self.gpu_uuid,
             self.network, str(self.host_port), str(self.container_port),
             str(self.memory_mb), str(self.cpus), str(self.env_file),
-            str(self.data_dir), self.data_target,
+            str(self.data_dir), self.data_target, str(self.qualification_file),
         )
         return hashlib.sha256(json.dumps(fields, separators=(",", ":")).encode()).hexdigest()
 
@@ -127,12 +132,13 @@ class Docker:
                 or bindings[0].get("HostPort") != str(config.host_port)
                 or set(ports) != {f"{config.container_port}/tcp"}):
             raise AAPError("Container port bindings do not match the approved installation")
-        if (not isinstance(mounts, list) or len(mounts) != 1
-                or not isinstance(mounts[0], dict)
-                or mounts[0].get("Type") != "bind"
-                or mounts[0].get("Source") != str(config.data_dir)
-                or mounts[0].get("Destination") != config.data_target
-                or mounts[0].get("RW") is not True):
+        expected_mounts = {(str(config.data_dir), config.data_target, True)}
+        if config.qualification_file is not None:
+            expected_mounts.add((str(config.qualification_file), _QUALIFICATION_TARGET, False))
+        if not isinstance(mounts, list) or any(not isinstance(m, dict) or m.get("Type") != "bind" for m in mounts):
+            raise AAPError("Container mounts do not match the approved installation")
+        actual_mounts = {(m.get("Source"), m.get("Destination"), m.get("RW")) for m in mounts}
+        if len(mounts) != len(expected_mounts) or actual_mounts != expected_mounts:
             raise AAPError("Container mounts do not match the approved installation")
         user = self._run("container", "inspect", "--format", "{{.Config.User}}", config.name)
         entrypoint = self._run("container", "inspect", "--format", "{{json .Config.Entrypoint}}", config.name)
@@ -159,6 +165,14 @@ class Docker:
         if not isinstance(digests, list) or config.image not in digests:
             raise AAPError("Local image does not have the approved digest")
 
+    def image_id(self, config: ContainerConfig) -> str:
+        config.validate()
+        self._verify_image(config)
+        image_id = self._run("image", "inspect", "--format", "{{.Id}}", config.image)
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+            raise AAPError("Docker returned an invalid image ID")
+        return image_id
+
     @staticmethod
     def _user() -> str:
         if os.geteuid() == 0:
@@ -180,6 +194,8 @@ class Docker:
     def ensure_started(self, config: ContainerConfig) -> dict:
         config.validate()
         self._verify_image(config)
+        if config.qualification_file is None:
+            raise AAPError("GPU qualification report is required before starting")
         existing = self._inspect(config)
         if existing is None:
             self._run(
@@ -196,7 +212,8 @@ class Docker:
                 "--label", f"aap.config={config.identity()}",
                 "--env-file", str(config.env_file),
                 "--mount", f"type=bind,src={config.data_dir},dst={config.data_target}",
-                config.image,
+                "--mount", f"type=bind,src={config.qualification_file},dst={_QUALIFICATION_TARGET},readonly",
+                "--", config.image,
             )
             existing = self._inspect(config)
             if existing is None:
@@ -222,7 +239,7 @@ class Docker:
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--env-file", str(config.env_file),
             "--mount", f"type=bind,src={config.data_dir},dst={config.data_target}",
-            "--entrypoint", "aap-libreyolo", config.image,
+            "--entrypoint", "aap-libreyolo", "--", config.image,
             "prepare-assets", "--size", "t", "--asset-dir", f"{config.data_target}/assets",
         )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from uuid import uuid4
 
@@ -9,7 +10,7 @@ from typer.testing import CliRunner
 
 from ai_annotation.cli.main import app
 from ai_annotation.errors import ValidationError
-from ai_annotation.plugin_models import PluginActivateRequest, PluginLaunchReceipt, PluginPrepareRequest, PluginResourceBinding
+from ai_annotation.plugin_models import PluginActivateRequest, PluginLaunchReceipt, PluginPrepareRequest, PluginQualification, PluginResourceBinding
 from .conftest import API
 from .test_plugin_deployment import config
 
@@ -33,7 +34,9 @@ def test_prepare_and_revision_actions_use_public_contract(client, respx_mock):
     evidence = PluginLaunchReceipt(installation_id=installation_id, registry_id=registry_id,
         artifact=cfg.manifest.artifact, image_id="sha256:" + "d" * 64,
         container_id="c" * 64, resource=request.resource)
-    client.plugins.activate(installation_id, PluginActivateRequest(expected_revision=1, receipt=evidence))
+    digest = hashlib.sha256(b'{"evidence":"passed"}').hexdigest()
+    qualification = PluginQualification(report={"evidence": "passed"}, sha256=digest)
+    client.plugins.activate(installation_id, PluginActivateRequest(expected_revision=1, receipt=evidence, qualification=qualification))
     proof = client.plugins.quiesce(installation_id, 1)
     assert result.registry_id == registry_id
     assert proof.safe_to_stop is True
@@ -43,6 +46,7 @@ def test_prepare_and_revision_actions_use_public_contract(client, respx_mock):
     assert activation_body["receipt"]["container_id"] == "c" * 64
     assert activation_body["receipt"]["image_id"] == "sha256:" + "d" * 64
     assert activation_body["expected_revision"] == 1
+    assert activation_body["qualification"] == {"report": {"evidence": "passed"}, "sha256": digest}
     assert request.auth_token not in repr(request)
 
 
@@ -60,10 +64,11 @@ def test_prepare_error_never_echoes_token(client, respx_mock):
     assert token not in str(exc.value.detail)
 
 
-def test_json_destructive_command_requires_confirmation_before_mutation(monkeypatch, tmp_path):
+@pytest.mark.parametrize("command", ["install", "uninstall"])
+def test_json_destructive_command_requires_confirmation_before_mutation(monkeypatch, tmp_path, command):
     def should_not_connect(*args, **kwargs):
         raise AssertionError("must not connect before confirmation")
     monkeypatch.setattr("ai_annotation.cli.plugins.get_client", should_not_connect)
-    result = CliRunner().invoke(app, ["--error-format", "json", "plugins", "uninstall", "--state-dir", str(tmp_path), "--json"])
+    result = CliRunner().invoke(app, ["--error-format", "json", "plugins", command, "--state-dir", str(tmp_path), "--json"])
     assert result.exit_code != 0
     assert "secret" not in result.output

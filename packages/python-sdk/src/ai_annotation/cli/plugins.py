@@ -45,12 +45,15 @@ def prepare_assets(
 @app.command("install")
 def install(
     state_dir: Path = typer.Option(..., "--state-dir"),
+    qualification: Path | None = typer.Option(None, "--qualification", help="Admin-approved GPU lifecycle report JSON"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Approve submission of lifecycle qualification"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Start the owned image and activate only after core verifies the endpoint."""
     with cli_errors(json_output):
+        confirm_destructive("Approve this GPU lifecycle report and activate the plugin?", yes, json_output)
         with get_client(json_output) as client:
-            result = _deployment(client, state_dir).install()
+            result = _deployment(client, state_dir).install(qualification)
     print_learning_result(result, json_output)
 
 
@@ -83,6 +86,7 @@ def disable(
 def upgrade(
     from_state: Path = typer.Option(..., "--from-state", help="Existing installation receipt"),
     state_dir: Path = typer.Option(..., "--state-dir", help="New, prepared installation receipt"),
+    qualification: Path | None = typer.Option(None, "--qualification", help="Admin-approved GPU lifecycle report JSON"),
     yes: bool = typer.Option(False, "--yes", "-y"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -99,7 +103,7 @@ def upgrade(
                 raise AAPError("Upgrade requires a new artifact digest")
             if old.installation.status != "active":
                 raise AAPError("The existing installation must remain active during upgrade")
-            result = new.install()
+            result = new.install(qualification)
     print_learning_result(result, json_output)
 
 

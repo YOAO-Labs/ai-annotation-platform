@@ -1,10 +1,19 @@
 """Public plugin manifest and Registry installation types."""
 from __future__ import annotations
 
-from typing import Literal
+import hashlib
+import json
+
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+_OCI_DIGEST_REFERENCE = (
+    r"^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?"
+    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
+    r"(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
+)
 
 
 class PluginResourceRequirements(BaseModel):
@@ -33,7 +42,7 @@ class PluginManifest(BaseModel):
     version: str = Field(min_length=1, max_length=128)
     publisher: str = Field(min_length=1, max_length=255)
     license: str = Field(min_length=1, max_length=255)
-    artifact: str = Field(pattern=r"^\S+@sha256:[0-9a-f]{64}$")
+    artifact: str = Field(pattern=_OCI_DIGEST_REFERENCE)
     sdk_compatibility: str = Field(min_length=1, max_length=255)
     entrypoint: list[str] = Field(min_length=1)
     capabilities: list[Literal["inference", "detection", "managed_models"]] = Field(min_length=1)
@@ -108,14 +117,31 @@ class PluginLaunchReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     installation_id: UUID
     registry_id: UUID
-    artifact: str = Field(pattern=r"^\S+@sha256:[0-9a-f]{64}$")
+    artifact: str = Field(pattern=_OCI_DIGEST_REFERENCE)
     image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     resource: PluginResourceBinding
 
 
+class PluginQualification(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    report: dict[str, Any]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_digest(self):
+        try:
+            payload = json.dumps(self.report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("lifecycle report must be finite JSON") from exc
+        if hashlib.sha256(payload).hexdigest() != self.sha256:
+            raise ValueError("lifecycle report digest mismatch")
+        return self
+
+
 class PluginActivateRequest(PluginRevisionRequest):
     receipt: PluginLaunchReceipt
+    qualification: PluginQualification | None = None
 
 
 class PluginInstallationResult(BaseModel):

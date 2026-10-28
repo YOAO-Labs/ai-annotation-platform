@@ -17,7 +17,7 @@ def config():
         image="example.invalid/plugin@sha256:" + "b" * 64,
         gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc", network="approved", host_port=9080,
         container_port=8000, memory_mb=4096, cpus=2, env_file=Path("/private/env"),
-        data_dir=Path("/private/data"), data_target="/data",
+        data_dir=Path("/private/data"), data_target="/data", qualification_file=Path("/private/report.json"),
     )
 
 
@@ -47,7 +47,10 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch):
                 "DeviceRequests": [{"DeviceIDs": [cfg.gpu_uuid], "Capabilities": [["gpu"]]}],
                 "PortBindings": {f"{cfg.container_port}/tcp": [{"HostPort": str(cfg.host_port), "HostIp": ""}]}})
         elif "{{json .Mounts}}" in argv:
-            out = json.dumps([{"Type": "bind", "Source": str(cfg.data_dir), "Destination": cfg.data_target, "RW": True}])
+            out = json.dumps([
+                {"Type": "bind", "Source": str(cfg.data_dir), "Destination": cfg.data_target, "RW": True},
+                {"Type": "bind", "Source": str(cfg.qualification_file), "Destination": "/var/lib/aap-libreyolo-qualification/report.json", "RW": False},
+            ])
         elif "{{.Config.User}}" in argv:
             out = "1000:1000"
         elif "{{json .Config.Entrypoint}}" in argv:
@@ -78,6 +81,8 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch):
     assert creates[0][creates[0].index("--gpus") + 1] == "device=GPU-12345678-1234-1234-1234-123456789abc"
     assert creates[0][-1] == cfg.image
     assert not any("docker.sock" in arg for arg in creates[0])
+    assert creates[0][-2:] == ["--", cfg.image]
+    assert any("report.json,readonly" in arg for arg in creates[0])
 
 
 def test_unknown_container_is_not_adopted_or_stopped(monkeypatch):

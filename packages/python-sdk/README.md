@@ -53,7 +53,8 @@ UID/GID 读取仅该用户可访问的状态目录。
 aap plugins prepare --config deployment.json --state-dir ./libreyolo-state --json
 # 以下显式步骤会从批准的来源准备并核验默认 t 资产；不会在预测时隐式下载。
 aap plugins prepare-assets --state-dir ./libreyolo-state --json
-aap plugins install --state-dir ./libreyolo-state --json
+# 先取得与该 Registry、GPU、镜像和 runtime 绑定的完整、通过的 GPU 生命周期证据。
+aap plugins install --state-dir ./libreyolo-state --qualification gpu-report.json --yes --json
 aap plugins status --state-dir ./libreyolo-state --json
 ```
 
@@ -64,10 +65,14 @@ GPU/资源及挂载，并向核心提交可信管理员的本机检查收据；�
 独立验证可达性、健康、setup 和运行事实后才激活；安装不自动启用任何项目。项目负责人仍须
 通过现有 `aap ml-backends` 或项目设置显式启用。若激活失败，容器保持原状且不自动接流；
 修复原因后重试同一状态目录。已激活实例的容器若消失或停止，不会未经重新资格检查而重启。
-真实 GPU 生命周期资格与镜像收据不同；本命令不自行声明已完成生命周期资格。
+真实 GPU 生命周期资格与镜像收据不同：超级管理员须提交完整、通过的共享生命周期报告。
+报告必须绑定这次 `prepare` 返回的 Registry ID、GPU 资源、制品和运行时；安装器将其规范
+JSON 内容及 SHA-256 提交核心，并以只读文件挂载同一内容供插件验证。报告经首次持久化后，
+重试可省略 `--qualification`；不能用另一个报告覆盖原身份。本命令不会自行声明资格。
 
-升级时用**新**状态目录和新制品先运行 `prepare` 与 `prepare-assets`，再执行
-`aap plugins upgrade --from-state ./old-state --state-dir ./new-state --yes --json`。
+升级时用**新**状态目录和新制品先运行 `prepare` 与 `prepare-assets`，取得绑定新身份的
+完整报告，再执行 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state
+--qualification new-gpu-report.json --yes --json`。
 这会验证并激活新身份，保留旧实例与已有冻结引用；模型需重新部署、试用并由负责人发布。
 `aap plugins disable --state-dir ./libreyolo-state --yes --json` 先关闭核心准入，再等待
 核心证明签名排空及全部运行结束，只有证明成功才停止容器。卸载使用

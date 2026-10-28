@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from uuid import uuid4
 
 import pytest
@@ -21,6 +23,12 @@ def config():
             "resource": {"device": "cuda", "memory_mb": 4096, "gpu_memory_mb": 2048},
             "asset_manifest_sha256": "a" * 64, "allowed_asset_sources": ["https://assets.example"]},
     })
+
+
+def report_file(tmp_path):
+    path = tmp_path / "gpu-evidence.json"
+    path.write_text(json.dumps({"note": "通过", "deployment": {"pools": ["models"]}}, ensure_ascii=False))
+    return path
 
 
 class Core:
@@ -56,6 +64,9 @@ class Core:
         assert request.receipt.installation_id == self.result.installation.installation_id
         assert request.receipt.resource == self.result.installation.resource
         assert request.receipt.artifact == self.result.installation.manifest.artifact
+        assert request.qualification is not None
+        canonical = json.dumps(request.qualification.report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+        assert request.qualification.sha256 == hashlib.sha256(canonical.encode()).hexdigest()
         self.events.append("activate")
         return self._transition("active")
 
@@ -78,6 +89,8 @@ class LocalDocker:
     def __init__(self, events):
         self.events = events
         self.running = False
+    def image_id(self, config):
+        return "sha256:" + "d" * 64
     def ensure_started(self, config):
         self.events.append("start")
         self.running = True
@@ -104,10 +117,28 @@ def test_reservation_replays_same_identity_and_install_activates_after_start(tmp
     assert core.requests[0].auth_token == core.requests[1].auth_token
     assert len(core.requests[0].auth_token) >= 32
     deployment.prepare_assets()
-    active = deployment.install()
+    active = deployment.install(report_file(tmp_path))
     assert active.installation.status == "active"
     assert core.events == ["assets", "start", "activate"]
     assert "token" not in active.model_dump_json()
+    canonical = (tmp_path / "state" / "qualification.json").read_bytes()
+    assert b"\\u901a\\u8fc7" in canonical
+    assert "AAP_PLUGIN_QUALIFICATION_SHA256=" + hashlib.sha256(canonical).hexdigest() in (tmp_path / "state" / "container.env").read_text()
+
+
+def test_missing_or_changed_qualification_never_starts(tmp_path):
+    core = Core()
+    docker = LocalDocker(core.events)
+    deployment = LocalPluginDeployment(core, "https://api.example", tmp_path / "state", docker)
+    deployment.prepare(config())
+    with pytest.raises(AAPError, match="qualification report is required"):
+        deployment.install()
+    assert "start" not in core.events
+    deployment.install(report_file(tmp_path))
+    changed = tmp_path / "changed.json"
+    changed.write_text('{"different":true}')
+    with pytest.raises(AAPError, match="differs"):
+        deployment.install(changed)
 
 
 def test_lost_prepare_response_reuses_persisted_identity(tmp_path):
@@ -132,7 +163,7 @@ def test_active_install_does_not_restart_missing_container(tmp_path):
     docker = LocalDocker(core.events)
     deployment = LocalPluginDeployment(core, "https://api.example", tmp_path / "state", docker)
     deployment.prepare(config())
-    deployment.install()
+    deployment.install(report_file(tmp_path))
     docker.running = False
     with pytest.raises(AAPError, match="not running"):
         deployment.install()
@@ -144,7 +175,7 @@ def test_disable_does_not_stop_without_core_quiescence_proof(tmp_path):
     docker = LocalDocker(core.events)
     deployment = LocalPluginDeployment(core, "https://api.example", tmp_path / "state", docker)
     deployment.prepare(config())
-    deployment.install()
+    deployment.install(report_file(tmp_path))
     core.safe = False
     with pytest.raises(AAPError, match="quiescence"):
         deployment.disable()
@@ -161,7 +192,7 @@ def test_uninstall_preserves_container_when_core_reports_active_dependency(tmp_p
     docker = LocalDocker(core.events)
     deployment = LocalPluginDeployment(core, "https://api.example", tmp_path / "state", docker)
     deployment.prepare(config())
-    deployment.install()
+    deployment.install(report_file(tmp_path))
     core.dependent = True
     with pytest.raises(AAPError, match="active dependency"):
         deployment.uninstall()
@@ -176,7 +207,7 @@ def test_retire_removes_local_token_and_remains_queryable(tmp_path):
     state = tmp_path / "state"
     deployment = LocalPluginDeployment(core, "https://api.example", state, docker)
     deployment.prepare(config())
-    deployment.install()
+    deployment.install(report_file(tmp_path))
     result = deployment.uninstall()
     assert result.installation.status == "retired"
     assert not (state / "data" / "token").exists()
@@ -204,3 +235,10 @@ def test_retry_rejects_changed_configuration_without_mutation(tmp_path):
     with pytest.raises(AAPError, match="different configuration"):
         deployment.prepare(changed)
     assert len(core.requests) == 1
+
+
+def test_manifest_rejects_docker_option_injection():
+    body = config().model_dump(mode="json")
+    body["manifest"]["artifact"] = "--privileged@sha256:" + "a" * 64
+    with pytest.raises(ValueError):
+        LocalPluginConfig.model_validate(body)

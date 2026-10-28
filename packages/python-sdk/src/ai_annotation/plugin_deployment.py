@@ -18,12 +18,12 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_annotation._plugin_docker import ContainerConfig, Docker
+from ai_annotation._plugin_docker import ContainerConfig, Docker, _IMAGE, _QUALIFICATION_TARGET
 from ai_annotation._plugin_receipt import ReceiptStore, _check_private
 from ai_annotation.errors import AAPError
 from ai_annotation.plugin_models import (
     PluginActivateRequest, PluginInstallationResult, PluginLaunchReceipt,
-    PluginManifest, PluginPrepareRequest, PluginResourceBinding,
+    PluginManifest, PluginPrepareRequest, PluginQualification, PluginResourceBinding,
 )
 from ai_annotation.plugins import PluginInstallations
 
@@ -52,6 +52,8 @@ class LocalPluginConfig(BaseModel):
             raise ValueError("local managed installation requires CUDA")
         if self.manifest.plugin_id != "libreyolo" or self.manifest.entrypoint != ["aap-libreyolo", "serve", "--host", "0.0.0.0", "--port", "8000"]:
             raise ValueError("local installer requires the approved LibreYOLO entrypoint")
+        if not _IMAGE.fullmatch(self.manifest.artifact):
+            raise ValueError("image must be a safe digest-pinned OCI reference")
         if not re.fullmatch(r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", self.physical_gpu_uuid):
             raise ValueError("one physical NVIDIA GPU UUID is required")
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", self.network) or self.network == "host":
@@ -149,7 +151,7 @@ class LocalPluginDeployment:
             stream.flush()
             os.fsync(stream.fileno())
 
-    def _container(self, receipt: dict, result: PluginInstallationResult, *, provision: bool = True) -> ContainerConfig:
+    def _container(self, receipt: dict, result: PluginInstallationResult, *, provision: bool = True, with_qualification: bool = True) -> ContainerConfig:
         config = LocalPluginConfig.model_validate(receipt["config"])
         data = self.store.directory / "data"
         data.mkdir(mode=0o700, exist_ok=True)
@@ -168,15 +170,25 @@ class LocalPluginDeployment:
             "AAP_PLUGIN_IMAGE_HOSTS": ",".join(config.image_hosts),
             "AAP_PLUGIN_DATA_DIR": _DATA_TARGET,
         }
+        qualification = receipt.get("qualification") if with_qualification else None
+        qualification_file = self.store.directory / "qualification.json" if qualification else None
+        if qualification:
+            env.update({
+                "AAP_PLUGIN_QUALIFICATION_FILE": _QUALIFICATION_TARGET,
+                "AAP_PLUGIN_QUALIFICATION_SHA256": qualification["sha256"],
+                "AAP_PLUGIN_OCI_ARTIFACT": config.manifest.artifact,
+                "AAP_PLUGIN_IMAGE_ID": qualification["image_id"],
+            })
         if any("\n" in value or "\r" in value for value in env.values()):
             raise AAPError("Invalid newline in plugin configuration")
-        env_file = self.store.directory / "container.env"
+        env_file = self.store.directory / ("container.env" if qualification else "prepare.env")
         self._private_file(env_file, "".join(f"{key}={value}\n" for key, value in env.items()))
         return ContainerConfig(name="aap-plugin-" + receipt["installation_id"],
             installation_id=receipt["installation_id"], owner_hash=hashlib.sha256(receipt["owner"].encode()).hexdigest(),
             image=config.manifest.artifact, gpu_uuid=config.physical_gpu_uuid, network=config.network,
             host_port=config.host_port, container_port=8000, memory_mb=config.manifest.resource.memory_mb,
-            cpus=config.cpus, env_file=env_file, data_dir=data, data_target=_DATA_TARGET)
+            cpus=config.cpus, env_file=env_file, data_dir=data, data_target=_DATA_TARGET,
+            qualification_file=qualification_file)
 
     def prepare_assets(self) -> PluginInstallationResult:
         with self.store.locked():
@@ -185,21 +197,51 @@ class LocalPluginDeployment:
             self._verify(receipt, result)
             if result.installation.status != "prepared":
                 raise AAPError("Assets can only be prepared for a prepared installation")
-            self.docker.prepare_assets(self._container(receipt, result))
+            self.docker.prepare_assets(self._container(receipt, result, with_qualification=False))
             return result
 
-    def install(self) -> PluginInstallationResult:
+    def _qualification(self, receipt: dict, result: PluginInstallationResult, source: Path | None) -> PluginQualification:
+        saved = receipt.get("qualification")
+        path = self.store.directory / "qualification.json"
+        if source is None:
+            if not saved:
+                raise AAPError("A GPU lifecycle qualification report is required")
+            source = path
+            _check_private(source, directory=False)
+        try:
+            report = json.loads(source.read_text(encoding="utf-8"))
+            if not isinstance(report, dict):
+                raise ValueError("report must be an object")
+            canonical = json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+        except (OSError, ValueError, TypeError) as exc:
+            raise AAPError("Unable to read a valid GPU lifecycle qualification report") from exc
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if saved and saved["sha256"] != digest:
+            raise AAPError("Qualification report differs from the installation receipt")
+        self._private_file(path, canonical)
+        image_id = self.docker.image_id(self._container(receipt, result, with_qualification=False))
+        if saved and saved["image_id"] != image_id:
+            raise AAPError("Qualified image ID differs from the local image")
+        if not saved:
+            receipt["qualification"] = {"sha256": digest, "image_id": image_id}
+            self.store.save(receipt)
+        return PluginQualification(report=report, sha256=digest)
+
+    def install(self, qualification_path: Path | None = None) -> PluginInstallationResult:
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])
             self._verify(receipt, result)
             if result.installation.status not in {"prepared", "active"}:
                 raise AAPError("Only a prepared or active installation can be started")
+            qualification = self._qualification(receipt, result, qualification_path)
             container = self._container(receipt, result)
             if result.installation.status == "active":
                 self.docker.verify_running(container)
             else:
                 inspected = self.docker.ensure_started(container)
+                if inspected["image_id"] != receipt["qualification"]["image_id"]:
+                    raise AAPError("Container image changed after qualification")
                 evidence = PluginLaunchReceipt(
                     installation_id=result.installation.installation_id,
                     registry_id=result.registry_id, artifact=result.installation.manifest.artifact,
@@ -207,7 +249,7 @@ class LocalPluginDeployment:
                     resource=result.installation.resource,
                 )
                 result = self.plugins.activate(receipt["installation_id"], PluginActivateRequest(
-                    expected_revision=result.installation.revision, receipt=evidence))
+                    expected_revision=result.installation.revision, receipt=evidence, qualification=qualification))
                 self._verify(receipt, result)
                 if result.installation.status != "active":
                     raise AAPError("Registry did not activate the installation")
