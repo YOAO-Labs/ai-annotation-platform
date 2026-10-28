@@ -40,6 +40,7 @@ last_reviewed: 2026-10-26
 
 - **ML CPU 与共享契约套件**：PR 触及 `apps/_shared/**`（7 个共享包：`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor/`、`apps/storage-agent/` 或任一 `apps/*-backend/` 路径时，可在纯 CPU 虚拟环境中运行 pytest（其中 ML 与相关共享包由 `.github/workflows/ml-cpu-test.yml` 在独立一次性虚拟环境中自动执行：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
 - **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
+- **异步掩码预览按可见完成状态验收**：等待加载状态结束及原图画布尺寸提交，再检查像素与图层切换；`createImageBitmap` 被调用不代表异步解码、记录发布与 React 绘制 effect 已完成。不把 mock 调用次数当作画布就绪，也不扩大等待预算掩盖竞态。
 
 ---
 
