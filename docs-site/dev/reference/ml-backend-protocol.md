@@ -15,7 +15,7 @@ last_reviewed: 2026-10-20
 
 平台不内置任何具体模型。它把可挂接的「推理服务」抽象成 `MLBackend` 行——一个 URL + 鉴权信息 + 几个布尔位（`is_interactive` / `state`）。本文规定接入方需要实现的 HTTP 端点与请求/响应 schema。只要遵循，就能在「模型市场 → 注册管理」里注册、在「项目设置 → ML 模型」里启用。
 
-LibreYOLO 检测的新接入使用独立插件，不再把 LibreYOLO 当作内置 YOLO 服务的一条运行路径。作者通过通用 Python SDK 的 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`，再由 SDK 组合 HTTP 协议与生命周期；SDK 不依赖平台 ORM、Celery 或原生模型框架。具体模型运行时由插件提供。安装、作者命令、权重许可证边界与本地检查限制见[检测插件教程](/dev/tutorials/ml-backend-starter#使用-libreyolo-检测插件)；本地 CUDA 检查不构成托管 GPU 资格。
+插件以统一、语言无关的 manifest 和 HTTP 协议接入 Registry；运行时 SDK 组合协议、认证和生命周期，模型实现由插件提供。当前实现仅覆盖 Inference 与图片检测 Python SDK，尚无通用前端插件框架。LibreYOLO 检测的新接入使用独立插件，不再作为内置 YOLO 服务的运行路径。作者通过 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`；SDK 不依赖平台 ORM、Celery 或原生模型框架。安装、作者命令、权重许可证边界与本地检查限制见[检测插件教程](/dev/tutorials/ml-backend-starter#使用-libreyolo-检测插件)。
 
 ---
 
@@ -1754,7 +1754,7 @@ YOLO 在 `/setup` 中以 `model_metadata_endpoint=true` 声明这个可选接口
 
 有核验观测的内置阶段通过 `context.builtin_model_ref` 携带 `artifact_sha256`、`classes_digest`、`loader_version`。YOLO 在实际借出的模型上匹配三者，身份不符返回 409。未核验的内置检测若使用原生类别索引过滤，也须核对实际类别与预置声明一致，避免用错索引。项目训练模型继续使用 `frozen_model_ref`，原生索引先过滤，返回平台后再按版本冻结的绑定转换为项目类别。
 
-Ultralytics 图片检测允许整图根阶段和父框裁剪阶段；受控实例分割仅允许图片整图源阶段。每阶段独立冻结身份。同一 YOLO 实例可执行多个阶段。工作台当前题、批量预标和失败完整重试共享执行契约；交互、视频和其他训练任务仍须各自取得资格。详见[执行快照](../concepts/prediction-pipeline#模型目录与执行快照)。
+受控图片检测允许整图根阶段和父框裁剪阶段；受控实例分割仅允许图片整图源阶段。每阶段独立冻结模型、Registry、收据和类别绑定。工作台当前题、批量预标和失败完整重试共享执行契约；实例或身份不可用时明确失败，不回退到基础模型。交互、视频和其他训练任务仍须各自取得资格。详见[执行快照](../concepts/prediction-pipeline#模型目录与执行快照)。
 
 ### 安装：`POST /managed-models`
 
@@ -1774,6 +1774,10 @@ Ultralytics 的请求模型定义在 `apps/yolo-backend/managed_models.py` 的 `
 平台生成请求，Backend 按版本取得进程内锁，下载至临时目录，验证字节数和 SHA-256，再在 CPU 上实际检查原生任务、框架版本与类别顺序。通过后原子保存 `CHECKPOINTS_DIR/managed/{model_version_id}/weights.pt` 和 `receipt.json`。
 
 已有有效副本且身份一致时幂等返回；有效副本身份不同返回 `409`，不覆盖不可变版本。损坏副本可在重新核验后修复。下载大小、摘要或原生检查失败返回 `422`。磁盘安装收据是请求中除 `download_url`、`size_bytes` 之外的非空训练身份字段。安装与查询响应在其外增加独立 `inference_runtime`：`revision`、`framework`、`training_version`、实际 `version`、规范 `task`、`compatibility` 与 `qualification`；不回写磁盘训练收据。
+
+LibreYOLO 原生插件使用 `libreyolo==1.6.0`，支持 YOLO9 t/s/m/c 检测，默认规格为 t，不依赖 Ultralytics。CUDA 配置固定 PyTorch `2.14.1+cu132`、torchvision `0.29.1+cu132`、CUDA build `13.2`，以 FP32 执行，`half`、AMP 和 TF32 均关闭。训练与推理版本必须匹配；`inference_runtime` 独立固定实际版本与执行资格，训练收据中的原始资格和磁盘收据不改写。显式 CPU 开发配置与历史 CPU 部署不是 CUDA 故障回退；GPU 不可用时不得改用 CPU 冒充同一部署。
+
+安装声明、发布者的资源主张与本地开发检查不能替代目标实例的受认证健康、运行时及受管 GPU 资格检查。GPU 请求还须通过既有仲裁的签名准入与生命周期控制；详见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)。
 
 检测请求及收据保持原有字段，不因新增分割能力写入空的分割资格字段。分割安装须按冻结的基础模型检查网络结构、原生 Segment 头、有限权重张量与完整有序类别，不能只相信文件名或请求声明。旧训练版本仅登记 YOLO11n 分割；当前版本的模型范围见共享模型契约。
 
@@ -1845,4 +1849,4 @@ Backend 必须在响应 `meta.trained_model` 回传三项模型身份，在 `met
 
 该评估最多 32 张图、每图 200 个真值和 100 个预测，总真值 2,000 个；固定原图上限 1,280,000 像素、单边 4,096，每图真值或预测 RLE 各限 2 MiB，匹配最多 20,000,000 run 操作。冻结 spec 与最终报告还分别受 4 MiB、8 MiB 预算约束，超限不能产出伪造的成功摘要。
 
-共享逐样本评估与主动选样只接受通过对应任务、环境和策略资格检查的 Ultralytics 模型；软件协议支持不等于分割 GPU 或自动循环已取得部署资格。LibreYOLO 候选经已验证插件部署、固定样本试用和人工发布；历史版本回滚需在新插件部署并人工发布，不可重新激活已退役的旧 CPU 实例。这不表示已获得共享逐样本评估或主动选样资格。详见[在线学习与训练体系](/dev/concepts/training-datasets#_4-1-冻结逐样本评估)。
+共享逐样本评估与主动选样只接受通过对应任务、环境和策略资格检查的 Ultralytics 模型；软件协议支持不等于 GPU 或自动循环已取得部署资格。LibreYOLO 候选须经合格插件部署、固定样本试用和人工发布；旧 CPU 部署按依赖安全退出，已退役实例不可重新激活。回滚到旧模型须在可用的新部署上重新试用并人工发布。这不表示已获得共享逐样本评估或主动选样资格。详见[在线学习与训练体系](/dev/concepts/training-datasets#_4-1-冻结逐样本评估)。
