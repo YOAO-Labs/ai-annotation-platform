@@ -25,8 +25,18 @@ if any((step.get("kind") != "cancel_drain" and
         (step["path"] not in allowed or step["method"] not in {"GET", "POST"}))
        for step in steps):
     raise ValueError("Unsupported evidence action")
-if sum(step.get("path") == "/predict" for step in steps) < 2 or sum(step.get("path") == "/unload" for step in steps) < 2:
-    raise ValueError("Two real predict and unload cycles are required")
+completed_cycles = 0
+predicted = False
+for step in steps:
+    if step.get("expected_status", 200) != 200:
+        continue
+    if step.get("path") == "/predict":
+        predicted = True
+    elif step.get("path") == "/unload" and predicted:
+        completed_cycles += 1
+        predicted = False
+if completed_cycles < 2:
+    raise ValueError("Two ordered successful predict/unload cycles are required")
 if not any(step.get("kind") == "cancel_drain" for step in steps):
     raise ValueError("A real cancellation/drain observation is required")
 token = args.token_file.read_text().strip()
@@ -99,8 +109,10 @@ with httpx.Client(base_url=args.url, timeout=300, follow_redirects=False) as cli
                             "gpu_before": before, "gpu_after": memory()})
             continue
         response = client.request(step["method"], step["path"], headers=headers, json=step.get("body"))
-        response.raise_for_status()
-        if step["path"] == "/unload":
+        expected_status = step.get("expected_status", 200)
+        if response.status_code != expected_status:
+            raise RuntimeError(f"{step['path']} returned {response.status_code}, expected {expected_status}")
+        if step["path"] == "/unload" and expected_status == 200:
             unload = ManagedUnloadResponse.model_validate(response.json())
             if not unload.unloaded:
                 raise RuntimeError("Managed unload did not confirm a fully unloaded state")
