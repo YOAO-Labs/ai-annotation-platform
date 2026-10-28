@@ -752,7 +752,9 @@ class BackendTopologyCoordinator:
                 }
                 for row in rows
             ],
-            "replace_baseline": mismatch is not None,
+            "replace_baseline": (
+                mismatch is not None or pool.capability_fingerprint != fingerprint
+            ),
             "replacement_snapshot": _mutable_json(snapshot),
         }
         updated = await self.data.accept_drift(

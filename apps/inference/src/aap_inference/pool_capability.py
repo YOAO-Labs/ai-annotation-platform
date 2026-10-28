@@ -229,9 +229,9 @@ def _canonicalize_models(value: Any) -> list[dict]:
         model["params"] = _canonicalize_param_schema(raw_model.get("params"))
         resource_profile = raw_model.get("resource_profile") or {}
         model["batchable"] = bool(
-            resource_profile.get("batchable", False)
+            resource_profile.get("batchable", raw_model.get("batchable", False))
             if isinstance(resource_profile, dict)
-            else False
+            else raw_model.get("batchable", False)
         )
         model["exemplar_capabilities"] = _canonicalize_schema_value(
             raw_model.get("exemplar_capabilities") or {}
@@ -279,12 +279,7 @@ def canonicalize_capability(raw: Mapping[str, Any] | None) -> dict:
 
 def capability_fingerprint(raw_or_canonical: Mapping[str, Any] | None) -> str:
     """SHA-256 hex of canonical capabilities, accepting raw or frozen facts."""
-    record = to_record(raw_or_canonical) if raw_or_canonical is not None else {}
-    canonical = (
-        record
-        if isinstance(record, dict) and record.keys() == _DEFAULTS.keys()
-        else canonicalize_capability(record)
-    )
+    canonical = canonicalize_capability(raw_or_canonical)
     encoded = json.dumps(
         canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")
     )

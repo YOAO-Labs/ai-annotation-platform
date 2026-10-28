@@ -293,6 +293,42 @@ async def test_drift_stages_native_disable_with_pre_mutation_fences():
 
 
 @pytest.mark.asyncio
+async def test_managed_batchability_seed_is_stable_and_changes_disable():
+    registry_id = uuid.uuid4()
+    pool_id = uuid.uuid4()
+    member = SimpleNamespace(id=uuid.uuid4(), pool_id=pool_id, traffic_state="active")
+    pool = SimpleNamespace(
+        id=pool_id,
+        capability_snapshot=None,
+        capability_fingerprint=None,
+        routing_generation=1,
+        legacy_instance_id=registry_id,
+        enabled=True,
+    )
+    caps = {
+        "models": [{"id": "t", "resource_profile": {"batchable": True}}],
+        "managed_model_compatibility": [{"framework": "libreyolo", "runtime_device": "cuda"}],
+    }
+    data = _Data(member=member, pool=pool)
+    await reconcile_pool_capability(data, registry_id, caps)
+    assert pool.capability_fingerprint == capability_fingerprint(caps)
+    assert pool.capability_snapshot["models"][0]["batchable"] is True
+    await reconcile_pool_capability(data, registry_id, caps)
+    assert member.traffic_state == "active"
+    assert pool.enabled is True
+    assert len(data.staged) == 1
+
+    changed = {
+        **caps,
+        "models": [{"id": "t", "resource_profile": {"batchable": False}}],
+    }
+    await reconcile_pool_capability(data, registry_id, changed)
+    assert member.traffic_state == "disabled"
+    assert pool.enabled is False
+    assert data.staged[-1]["operation"] == "disable"
+
+
+@pytest.mark.asyncio
 async def test_missing_observation_clock_drops_response_before_any_write():
     backend = SimpleNamespace(
         id=uuid.uuid4(),
