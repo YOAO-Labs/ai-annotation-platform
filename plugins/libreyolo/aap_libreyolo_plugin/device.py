@@ -28,3 +28,4 @@ def verify_device(device: str, expected_uuid: str | None):
     actual = "GPU-" + str(uuid.UUID(bytes=bytes(raw)))
     if actual.lower() != expected_uuid.lower():
         raise ValueError("CUDA physical GPU differs from approved binding")
+    return actual

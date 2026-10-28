@@ -167,6 +167,22 @@ class LibreDetectionModel:
         self._imgsz = blob["imgsz"]
         self.task = "detect"
         self._verify_device()
+        self.execution_facts = None
+        self._forward_seen = False
+        self._native.model.register_forward_pre_hook(self._check_forward_input)
+
+    def _check_forward_input(self, _module, inputs):
+        import torch
+
+        if not inputs or not isinstance(inputs[0], torch.Tensor):
+            raise ValueError("Native forward did not receive an image tensor")
+        tensor = inputs[0]
+        if tensor.device != self._device or tensor.dtype != torch.float32:
+            raise ValueError("Native image tensor differs from the FP32 device profile")
+        if torch.is_autocast_enabled(self._device.type):
+            raise ValueError("Native forward used automatic mixed precision")
+        self._verify_device()
+        self._forward_seen = True
 
     def _verify_device(self):
         import torch
@@ -197,6 +213,8 @@ class LibreDetectionModel:
         if torch.device(device) != self._device:
             raise ValueError("Native prediction device differs from qualification")
         self._verify_device()
+        self._forward_seen = False
+        self.execution_facts = None
         try:
             with torch.inference_mode(), torch.autocast(device_type=self._device.type, enabled=False):
                 result = self._native.predict(
@@ -221,6 +239,12 @@ class LibreDetectionModel:
                 torch.cuda.synchronize(self._device)
         self._verify_device()
         validate_result(result, image.size, self.names, classes, max_det)
+        if not self._forward_seen:
+            raise ValueError("Native prediction did not execute the verified model")
+        self.execution_facts = {
+            "precision": "fp32", "half": False, "amp": False,
+            "tf32": False if self._device.type == "cuda" else None,
+        }
         # Single-image LibreYOLO returns Results; [0] would drop all but one box.
         return [result]
 

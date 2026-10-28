@@ -9,3 +9,4 @@ RUN python -m pip install --no-index --find-links=/wheelhouse aap-libreyolo-plug
 USER 10001:10001
 EXPOSE 8000
 ENTRYPOINT ["aap-libreyolo", "serve", "--host", "0.0.0.0", "--port", "8000"]
+CMD []

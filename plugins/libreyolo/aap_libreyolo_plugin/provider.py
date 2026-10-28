@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 
 from libreyolo_native import LibreDetectionModel
 from aap_inference_plugin import Detection
@@ -34,16 +35,19 @@ def validate_receipt(receipt):
         raise ValueError("Class identity mismatch")
 
 class Model:
-    def __init__(self, native):
+    def __init__(self, native, provider):
         self.native = native
+        self.provider = provider
         self.classes = list(native.names.values())
 
     def predict(self, image, parameters):
+        self.provider.record_execution(None)
         result = self.native.predict(
             image, conf=parameters.get("conf", 0.25), iou=parameters.get("iou", 0.45),
             max_det=parameters.get("max_det", 300), classes=parameters.get("classes"),
             device=str(self.native._device),
         )[0]
+        self.provider.record_execution(self.native.execution_facts)
         boxes = result.boxes
         def values(value):
             if hasattr(value, "detach"):
@@ -57,9 +61,22 @@ class Model:
 
     def close(self):
         self.native.close()
+        self.provider.record_execution(None)
 
 
 class Provider:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._execution_facts = None
+
+    def record_execution(self, facts):
+        with self._lock:
+            self._execution_facts = dict(facts) if facts is not None else None
+
+    def execution_facts(self):
+        with self._lock:
+            return dict(self._execution_facts) if self._execution_facts is not None else {}
+
     def load(self, model_id, device, config):
         if not model_id.startswith("trained:"):
             from .assets import assets, verify
@@ -70,7 +87,7 @@ class Provider:
             path = verify(config["path"], item)
             expected = {"framework": "libreyolo", "framework_version": "1.6.0",
                         **libre_identity(f"LibreYOLO9{model_id}")}
-            return Model(LibreDetectionModel(path, expected, device=device, pretrained_size=model_id))
+            return Model(LibreDetectionModel(path, expected, device=device, pretrained_size=model_id), self)
         receipt = config["receipt"]
         validate_receipt(receipt)
         if model_id != f"trained:{receipt['model_version_id']}":
@@ -83,4 +100,4 @@ class Provider:
         frozen_runtime = frozen.get("inference_runtime")
         if frozen_runtime != runtime and not (device == "cpu" and frozen_runtime is None):
             raise ValueError("Frozen inference runtime differs from deployment")
-        return Model(LibreDetectionModel(config["path"], receipt, device=device))
+        return Model(LibreDetectionModel(config["path"], receipt, device=device), self)

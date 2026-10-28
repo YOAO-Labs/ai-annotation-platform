@@ -275,3 +275,17 @@ def test_pretrained_identity_is_separate_from_trained_checkpoint_contract():
         validate_pretrained_metadata(blob, "s")
     with pytest.raises(ValueError):
         validate_pretrained_metadata({**blob, "libreyolo_version": "1.6.0"}, "t")
+
+
+def test_forward_guard_checks_actual_image_tensor_and_autocast():
+    model = LibreDetectionModel.__new__(LibreDetectionModel)
+    model._device = torch.device("cpu")
+    model._native = SimpleNamespace(model=torch.nn.Linear(2, 2))
+    model._forward_seen = False
+    model._check_forward_input(None, (torch.ones(1, 2),))
+    assert model._forward_seen
+    with pytest.raises(ValueError, match="image tensor"):
+        model._check_forward_input(None, (torch.ones(1, 2, dtype=torch.float16),))
+    with torch.autocast("cpu"):
+        with pytest.raises(ValueError, match="mixed precision"):
+            model._check_forward_input(None, (torch.ones(1, 2),))
