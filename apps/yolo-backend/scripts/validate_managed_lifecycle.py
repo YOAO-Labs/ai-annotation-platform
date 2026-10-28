@@ -262,6 +262,8 @@ async def _run() -> dict[str, Any]:
     os.environ["GPU_LIFECYCLE_VERIFY_KEYS_JSON"] = json.dumps(
         {"validation": encode_ed25519_public_key(private_key.public_key())}
     )
+    os.environ["GPU_LIFECYCLE_REGISTRY_ID"] = REGISTRY_ID
+    os.environ["GPU_LIFECYCLE_RESOURCE_ID"] = RESOURCE_ID
     os.environ["YOLO_MANAGED_LIFECYCLE_VERIFIED"] = "1"
     os.environ["YOLO_IDLE_UNLOAD_SECONDS"] = "0"
     os.environ["YOLO_BUILD_TIMEOUT"] = "300"

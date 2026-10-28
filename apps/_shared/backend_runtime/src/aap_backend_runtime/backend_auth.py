@@ -38,6 +38,21 @@ def backend_auth_headers(provider: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def require_external_bearer(request, expected_token: str) -> None:
+    """Authenticate an external instance token independently of provider identity."""
+    from fastapi import HTTPException
+
+    supplied = request.headers.getlist("authorization")
+    if (
+        len(expected_token) < 32
+        or len(supplied) != 1
+        or not secrets.compare_digest(
+            supplied[0].encode("utf-8"), f"Bearer {expected_token}".encode("utf-8")
+        )
+    ):
+        raise HTTPException(status_code=403, detail="Backend authentication failed")
+
+
 class BackendBearerMiddleware:
     def __init__(self, app, provider: str):
         self.app = app

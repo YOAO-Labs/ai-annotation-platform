@@ -1,4 +1,4 @@
-"""YOLO managed GPU lifecycle state domain.
+"""Managed GPU lifecycle state domain.
 
 The shared protocol package owns only wire models.  This module deliberately keeps
 YOLO's pool, borrower, active-operation, replay, and fencing state local to the single
@@ -35,7 +35,13 @@ from aap_protocol_v2.lifecycle import (
 )
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from model_pool import ModelPool
+from typing import Protocol
+
+class LifecyclePool(Protocol):
+    async def snapshot(self) -> dict[str, Any]: ...
+    async def unload_all(self, *, reason: str, force_cleanup: bool) -> int: ...
+    async def unload_idle(self, *, idle_before: float) -> int: ...
+    async def shutdown(self) -> None: ...
 
 ControlPhase = Literal["normal", "draining", "unloading", "unknown"]
 Fingerprint = tuple[Any, ...]
@@ -89,7 +95,7 @@ class WorkloadOperation:
 
     def __init__(
         self,
-        lifecycle: YoloGpuLifecycle,
+        lifecycle: ManagedGpuLifecycle,
         operation_id: str,
         *,
         managed: bool,
@@ -137,17 +143,22 @@ class WorkloadOperation:
             raise asyncio.CancelledError
 
 
-class YoloGpuLifecycle:
-    """Single-process managed lifecycle guard for the YOLO model pool."""
+class ManagedGpuLifecycle:
+    """Single-process managed lifecycle guard for a model pool."""
 
     def __init__(
         self,
-        pool: ModelPool,
+        pool: LifecyclePool,
         *,
         verify_keyring: Mapping[str, Ed25519PublicKey],
         evictable_verified: bool = False,
         boot_id: str | None = None,
+        expected_registry_id: str | None = None,
+        expected_gpu_resource_id: str | None = None,
     ) -> None:
+        if bool(expected_registry_id) != bool(expected_gpu_resource_id):
+            raise ValueError("both expected lifecycle identities are required")
+        self._expected_identity = (BoundLifecycleIdentity(backend_registry_id=expected_registry_id, gpu_resource_id=expected_gpu_resource_id) if expected_registry_id and expected_gpu_resource_id else None)
         self._pool = pool
         self._verify_keyring = dict(verify_keyring)
         self._evictable_verified = evictable_verified
@@ -939,6 +950,8 @@ class YoloGpuLifecycle:
         claims: AdmissionTokenClaims,
         scope: AdmissionScope,
     ) -> None:
+        if self._expected_identity is None or self._expected_identity != BoundLifecycleIdentity(backend_registry_id=claims.backend_registry_id, gpu_resource_id=claims.gpu_resource_id):
+            raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
         if claims.scope is not scope or claims.boot_id != self._boot_id:
             raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
         if self._identity is not None and not self._identity_matches(claims):
@@ -1065,4 +1078,4 @@ class YoloGpuLifecycle:
             task.exception()
 
 
-__all__ = ["WorkloadOperation", "YoloGpuLifecycle"]
+__all__ = ["WorkloadOperation", "ManagedGpuLifecycle"]

@@ -98,3 +98,23 @@ def test_manual_token_always_takes_precedence_without_changing_private_file(
 def test_deployment_mapping_rejects_ambiguous_or_untrusted_urls(mapping):
     with pytest.raises(ValueError):
         validate_backend_urls(mapping)
+
+
+def test_external_bearer_requires_one_long_exact_token():
+    from fastapi import Request
+    from aap_backend_runtime.backend_auth import require_external_bearer
+
+    app = FastAPI()
+    @app.get("/protected")
+    def protected(request: Request):
+        require_external_bearer(request, "x" * 32)
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        assert client.get("/protected", headers={"Authorization": "Bearer " + "x" * 32}).status_code == 200
+        assert client.get("/protected").status_code == 403
+        assert client.get("/protected", headers={"Authorization": "Bearer wrong"}).status_code == 403
+        assert client.get("/protected", headers=[
+            ("Authorization", "Bearer " + "x" * 32),
+            ("Authorization", "Bearer " + "x" * 32),
+        ]).status_code == 403

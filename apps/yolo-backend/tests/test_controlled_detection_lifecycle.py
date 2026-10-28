@@ -378,7 +378,7 @@ async def test_real_managed_routes_and_fault_matrix_keep_exact_detection_identit
     # immutable installation, request parsing, pool ownership, and fault routes
     # run their production code; this remains a CPU tool contract test.
     import main
-    from gpu_lifecycle import YoloGpuLifecycle
+    from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
     from model_pool import ModelPool
     from predictor import model_key_for_context
 
@@ -389,8 +389,9 @@ async def test_real_managed_routes_and_fault_matrix_keep_exact_detection_identit
     native = SimpleNamespace(names={0: "shape"}, device="cuda:0")
     pool = ModelPool(2, lambda *_: native, lambda: None)
     key = Ed25519PrivateKey.generate()
-    lifecycle = YoloGpuLifecycle(
-        pool, verify_keyring={"test": key.public_key()}, evictable_verified=True
+    lifecycle = ManagedGpuLifecycle(
+        pool, verify_keyring={"test": key.public_key()}, evictable_verified=True,
+        expected_registry_id="test-yolo", expected_gpu_resource_id="test-node/GPU-1",
     )
 
     class Predictor:

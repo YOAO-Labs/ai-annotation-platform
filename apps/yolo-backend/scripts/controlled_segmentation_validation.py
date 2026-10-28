@@ -23,7 +23,8 @@ from aap_protocol_v2.mask_interaction import (
     MAX_MASK_RESPONSE_BYTES,
     canonical_rle_bytes,
 )
-from managed_models import InstallRequest, ManagedModelRef, digest, file_digest
+from managed_models import InstallRequest, ManagedModelRef, digest
+from aap_backend_runtime.managed_models import file_digest
 from managed_segmentation import validate_budget
 from training_contract.model_return import segmentation_identity, ultralytics_identity
 from training_contract.models import model_spec

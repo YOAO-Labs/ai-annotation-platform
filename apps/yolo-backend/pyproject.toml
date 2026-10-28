@@ -9,6 +9,7 @@ dependencies = [
     "aap-backend-runtime",
     "aap-protocol-v2",
     "aap-task-contract",
+    "aap-libreyolo-native",
     "torch==2.14.1",
     "torchvision==0.29.1",
     "fastapi>=0.110",
@@ -45,13 +46,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "class_names", "model_metadata", "observability", "gpu_lifecycle", "managed_models", "managed_segmentation", "libreyolo_adapter", "sample_evaluations", "segmentation_evaluations"]
+py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "class_names", "model_metadata", "observability", "managed_models", "managed_segmentation", "sample_evaluations", "segmentation_evaluations"]
 
 [tool.uv.sources]
 aap-backend-runtime = { path = "../_shared/backend_runtime", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
+aap-libreyolo-native = { path = "../_shared/libreyolo_native", editable = true }
 torch = { index = "pytorch-cu132" }
 torchvision = { index = "pytorch-cu132" }
 clip = { git = "https://github.com/ultralytics/CLIP.git", rev = "7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40" }
@@ -65,5 +67,5 @@ explicit = true
 testpaths = ["tests"]
 # 共享包从 apps/_shared/* 注入: Docker 容器内由 `pip install -e /app/protocol_v2` 提供;
 # 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/mask_utils/src", "../_shared/backend_runtime/src", "../_shared/training_contract"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/mask_utils/src", "../_shared/backend_runtime/src", "../_shared/training_contract", "../_shared/libreyolo_native/src"]
 asyncio_mode = "auto"

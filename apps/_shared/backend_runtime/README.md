@@ -32,6 +32,17 @@ ML backend 运行时共享组件 (无状态叶子函数 + 取消安全的 LRU �
   保持日志身份与 backend 一致 (如 `grounded-sam2-backend.managed-pool`)。
   之前 `grounded-sam2-backend/managed_pool.py` 与 `sam3-backend/managed_pool.py` 仅差
   docstring 与 logger 名, 现由本包统一提供。
+- `gpu_lifecycle.ManagedGpuLifecycle(pool, *, verify_keyring, evictable_verified=False,
+  boot_id=None, expected_registry_id=None, expected_gpu_resource_id=None)` — 签名控制、
+  generation、JTI、取消与池排空状态机；缺少预配置绑定时拒绝所有签名控制。
+  registry ID 是平台实例 UUID，resource ID 是平台 `<node>/<physical-token>`；
+  调用方必须独立校验实际物理 GPU UUID 与部署绑定，不能信任逻辑 CUDA 序号。
+- `managed_models.ManagedModelStore(root, *, inspect, validate_receipt)` — 复用锁、
+  有界下载、摘要、不可变收据和原子安装。调用方负责严格验证请求、下载来源和
+  checkpoint/receipt；`inspect(path, receipt)` 与 `validate_receipt(receipt, path)`
+  注入框架专属校验。下载不跟随重定向。
+- `backend_auth.require_external_bearer(request, expected_token)` — 外部实例独立
+  Bearer token 校验，不赋予任何第一方 provider 身份。
 
 **不包含** (见 `docs/plans/archive/2026-06-29-v0.20.3-ml-backend-shared-layer-extraction.md`):
 

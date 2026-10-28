@@ -81,7 +81,7 @@ class FakeRunner(runner_module.Runner):
             "argv": list(self.container["Config"]["Entrypoint"]),
             "shutdown": True,
             "lifecycle_sha256": hashlib.sha256(
-                (ROOT / "apps/yolo-backend/gpu_lifecycle.py").read_bytes()
+                (ROOT / "apps/_shared/backend_runtime/src/aap_backend_runtime/gpu_lifecycle.py").read_bytes()
             ).hexdigest(),
         }
         self.services = [{"provider": "yolo", "can_rebuild": True, "reason": None}]
@@ -276,7 +276,7 @@ class QueueTests(unittest.TestCase):
                     ],
                     "shutdown": True,
                     "lifecycle_sha256": hashlib.sha256(
-                        (ROOT / "apps" / service / "gpu_lifecycle.py").read_bytes()
+                        (ROOT / "apps/_shared/backend_runtime/src/aap_backend_runtime/gpu_lifecycle.py" if provider == "yolo" else ROOT / "apps" / service / "gpu_lifecycle.py").read_bytes()
                     ).hexdigest(),
                 }
                 self.runner.validate(provider, container)

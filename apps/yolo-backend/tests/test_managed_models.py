@@ -97,7 +97,7 @@ def download(monkeypatch, raw, *, declared=None):
         )
     )
     monkeypatch.setattr(
-        "managed_models.httpx.AsyncClient",
+        "aap_backend_runtime.managed_models.httpx.AsyncClient",
         lambda **kwargs: original(transport=transport, **kwargs),
     )
 

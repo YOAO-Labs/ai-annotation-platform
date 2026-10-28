@@ -24,7 +24,7 @@ class _Model:
 
 
 def _domain(*, free_gpu_memory=None, evictable_verified: bool = True):
-    from gpu_lifecycle import YoloGpuLifecycle
+    from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
     from model_pool import ModelPool
 
     private_key = Ed25519PrivateKey.generate()
@@ -34,11 +34,13 @@ def _domain(*, free_gpu_memory=None, evictable_verified: bool = True):
         free_gpu_memory or (lambda: None),
         build_timeout=1.0,
     )
-    lifecycle = YoloGpuLifecycle(
+    lifecycle = ManagedGpuLifecycle(
         pool,
         verify_keyring={"current": private_key.public_key()},
         evictable_verified=evictable_verified,
         boot_id="boot-1",
+        expected_registry_id="backend-1",
+        expected_gpu_resource_id="node-a/GPU-1",
     )
     return lifecycle, pool, private_key
 
@@ -692,7 +694,7 @@ async def test_cancelled_close_still_releases_active_operation() -> None:
 
 @pytest.mark.asyncio
 async def test_cancelled_legacy_unload_owner_recovers_without_keyring() -> None:
-    from gpu_lifecycle import YoloGpuLifecycle
+    from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
     from model_pool import ModelPool
 
     cleanup_started = threading.Event()
@@ -703,7 +705,7 @@ async def test_cancelled_legacy_unload_owner_recovers_without_keyring() -> None:
         assert allow_cleanup.wait(timeout=1.0)
 
     pool = ModelPool(1, lambda *_args: _Model(), cleanup, build_timeout=1.0)
-    lifecycle = YoloGpuLifecycle(pool, verify_keyring={}, boot_id="boot-legacy")
+    lifecycle = ManagedGpuLifecycle(pool, verify_keyring={}, boot_id="boot-legacy")
     operation = await lifecycle.begin_workload(
         AdmissionScope.WARMUP,
         generation_header=None,
@@ -833,3 +835,36 @@ async def test_failed_cleanup_stays_unknown_is_idempotent_and_reset_recovers() -
     )
     assert recovered.residency.state.value == "unloaded"
     assert recovered.residency.gpu_loaded is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("registry,resource", [
+    ("other-backend", "node-a/GPU-1"),
+    ("backend-1", "node-b/GPU-2"),
+])
+async def test_first_signed_control_cannot_choose_instance_identity(registry, resource):
+    lifecycle, _pool, key = _domain()
+    claims = AdmissionTokenClaims(
+        backend_registry_id=registry, gpu_resource_id=resource,
+        boot_id=lifecycle.boot_id, generation=None, control_epoch="1",
+        scope=AdmissionScope.MODE, jti="wrong-binding", exp=int(time.time()) + 60,
+        owner="platform-1", operation="mode",
+    )
+    token = sign_admission_token(claims, private_key=key, kid="current")
+    with pytest.raises(LifecycleHTTPError):
+        await lifecycle.set_mode(LifecycleModeRequest(gate="enforce", control_epoch="1"), token=token)
+    await _enforce(lifecycle, key)
+
+
+@pytest.mark.asyncio
+async def test_signed_control_requires_preconfigured_binding():
+    from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
+    from model_pool import ModelPool
+
+    key = Ed25519PrivateKey.generate()
+    lifecycle = ManagedGpuLifecycle(
+        ModelPool(1, lambda *_: _Model(), lambda: None),
+        verify_keyring={"current": key.public_key()}, evictable_verified=True,
+    )
+    with pytest.raises(LifecycleHTTPError):
+        await _enforce(lifecycle, key)

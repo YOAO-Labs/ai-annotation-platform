@@ -50,6 +50,8 @@ ai-annotation-platform 的第三个 ML backend（v0.14.12）—— 基于 [ultra
 | `YOLO_CHECKPOINTS_DIR`            | `/app/checkpoints` | 权重落盘位置                                          |
 | `YOLO_MANAGED_LIFECYCLE_VERIFIED` | `0`                | 当前部署通过真实 GPU 全池回落验收后设为 `1`           |
 | `GPU_LIFECYCLE_VERIFY_KEYS_JSON`  | 空                 | Ed25519 验签公钥 keyring JSON；空值只启用 legacy gate |
+| `GPU_LIFECYCLE_REGISTRY_ID`       | 空                 | 平台 Registry 实例 UUID；签名控制必须预先绑定 |
+| `GPU_LIFECYCLE_RESOURCE_ID`       | 空                 | 平台 GPU 资源 `<node>/<physical-token>`；签名控制必须预先绑定 |
 | `LOG_LEVEL`                       | `INFO`             | python logging                                        |
 
 ## 部署
@@ -122,6 +124,9 @@ Backend 的检查点状态、模型安装收据和评估日志继续保存在单
 `YOLO_MANAGED_LIFECYCLE_VERIFIED=0` 时，`/setup` 不发布 `managed_lifecycle`，Backend
 拒绝进入 `enforce` 且不会报告可驱逐；只有当前镜像、权重和 GPU 完成多模型池加载、受管全池卸载与
 显存回落基线验证后，才能把该开关设为 `1`。
+签名控制必须同时配置上述 Registry 与资源身份；缺失或 claim 不一致时拒绝控制，
+不会信任首个 claim。迁移前先为每个实例注入正确绑定，再切换镜像；独立核验物理
+GPU UUID，逻辑 `cuda:0` 不代表宿主卡身份。未配置时 legacy 非受管请求仍沿原路径。
 
 独占目标卡并准备好 detect / segment / pose / OBB 四份业务权重后，在目标镜像内执行：
 

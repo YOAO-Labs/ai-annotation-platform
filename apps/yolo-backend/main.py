@@ -81,7 +81,7 @@ from managed_models import (
     authenticate as authenticate_managed,
     digest,
 )
-from gpu_lifecycle import WorkloadOperation, YoloGpuLifecycle
+from aap_backend_runtime.gpu_lifecycle import WorkloadOperation, ManagedGpuLifecycle
 from model_pool import ModelBuildTimeout, ModelPool, PoolBusyError
 from model_registry import (
     MODEL_MATRIX,
@@ -271,7 +271,7 @@ def _move_model_to_effective_device(model):
 
 _model_pool: ModelPool | None = None
 _predictor: YoloPredictor | None = None
-_gpu_lifecycle: YoloGpuLifecycle | None = None
+_gpu_lifecycle: ManagedGpuLifecycle | None = None
 _idle_task: asyncio.Task | None = None
 
 
@@ -312,10 +312,12 @@ async def lifespan(app: FastAPI):
         free_gpu_memory=_strict_free_gpu_memory,
         build_timeout=BUILD_TIMEOUT,
     )
-    _gpu_lifecycle = YoloGpuLifecycle(
+    _gpu_lifecycle = ManagedGpuLifecycle(
         _model_pool,
         verify_keyring=verify_keyring,
         evictable_verified=MANAGED_LIFECYCLE_VERIFIED,
+        expected_registry_id=os.environ.get("GPU_LIFECYCLE_REGISTRY_ID") or None,
+        expected_gpu_resource_id=os.environ.get("GPU_LIFECYCLE_RESOURCE_ID") or None,
     )
     update_pool_size(0)
     _predictor = YoloPredictor(_model_pool)

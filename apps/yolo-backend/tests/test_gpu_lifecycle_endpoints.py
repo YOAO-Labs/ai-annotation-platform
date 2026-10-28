@@ -41,6 +41,8 @@ def managed_client(monkeypatch, tmp_path):
         {"current": encode_ed25519_public_key(private_key.public_key())}
     )
     monkeypatch.setenv("GPU_LIFECYCLE_VERIFY_KEYS_JSON", keyring)
+    monkeypatch.setenv("GPU_LIFECYCLE_REGISTRY_ID", "backend-1")
+    monkeypatch.setenv("GPU_LIFECYCLE_RESOURCE_ID", "node-a/GPU-1")
     monkeypatch.setenv("YOLO_MANAGED_LIFECYCLE_VERIFIED", "1")
     monkeypatch.setenv("YOLO_CHECKPOINTS_DIR", str(tmp_path))
 
