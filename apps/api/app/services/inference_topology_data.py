@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_inference.plugin_installation import validate_installation_command
 from aap_inference.topology import (
     RegistryDeletion,
     RegistryTopologySnapshot,
@@ -27,6 +28,10 @@ from aap_inference_contract.topology import (
     RegistryReference,
     to_record,
 )
+from aap_inference_contract.plugin import (
+    PluginInstallationResponse,
+    PreparePluginInstallation,
+)
 
 _SCHEMA = "aap_inference_topology_v1"
 _REPAIR_MODEL_LOCK_STATUSES = frozenset(
@@ -35,6 +40,14 @@ _REPAIR_MODEL_LOCK_STATUSES = frozenset(
 _REGISTRY_FACTS = text(f"SELECT {_SCHEMA}.registry_facts(CAST(:registry_id AS uuid))")
 _LOCK_PLUGIN_REGISTRY = text(
     f"SELECT {_SCHEMA}.lock_plugin_registry(CAST(:registry_id AS uuid))"
+)
+_PREPARE_PLUGIN = text(f"SELECT {_SCHEMA}.prepare_plugin_installation(CAST(:intent AS text))")
+_GET_PLUGIN = text(f"SELECT {_SCHEMA}.plugin_installation(CAST(:id AS uuid))")
+_LIST_PLUGINS = text(f"SELECT {_SCHEMA}.plugin_installations()")
+_PLUGIN_EVIDENCE = text(f"SELECT {_SCHEMA}.plugin_installation_evidence(CAST(:id AS uuid))")
+_COMMAND_PLUGIN = text(
+    f"SELECT {_SCHEMA}.command_plugin_installation("
+    "CAST(:id AS uuid),CAST(:revision AS integer),CAST(:action AS text),CAST(:evidence AS text))"
 )
 _REGISTRY_URL_OWNER = text(f"SELECT {_SCHEMA}.registry_url_owner(CAST(:url AS text))")
 _REGISTRY_CATALOG = text(f"SELECT {_SCHEMA}.registry_catalog()")
@@ -325,6 +338,59 @@ class InferenceTopologyData:
             await self._scalar(_LOCK_PLUGIN_REGISTRY, {"registry_id": registry_id})
         )
         return RegistryPublicFacts.from_record(row) if row is not None else None
+
+    async def _plugin_scalar(self, statement, parameters=None):
+        try:
+            return await self._scalar(statement, parameters)
+        except DBAPIError as error:
+            if _sqlstate(error) in {"22023", "22P02"}:
+                raise ValueError(_primary_message(error)) from error
+            raise
+
+    async def prepare_plugin_installation(
+        self, payload: PreparePluginInstallation
+    ) -> PluginInstallationResponse:
+        row = await self._plugin_scalar(
+            _PREPARE_PLUGIN, {"intent": payload.model_dump_json()}
+        )
+        return PluginInstallationResponse.model_validate(_object(row))
+
+    async def get_plugin_installation(
+        self, installation_id: UUID
+    ) -> PluginInstallationResponse | None:
+        row = _object(await self._plugin_scalar(_GET_PLUGIN, {"id": installation_id}))
+        return PluginInstallationResponse.model_validate(row) if row is not None else None
+
+    async def list_plugin_installations(self) -> list[PluginInstallationResponse]:
+        rows = _array(await self._plugin_scalar(_LIST_PLUGINS))
+        return [PluginInstallationResponse.model_validate(row) for row in rows]
+
+    async def get_plugin_installation_evidence(
+        self, installation_id: UUID
+    ) -> Mapping[str, Any] | None:
+        return _object(await self._plugin_scalar(_PLUGIN_EVIDENCE, {"id": installation_id}))
+
+    async def command_plugin_installation(
+        self, installation_id: UUID, expected_revision: int, action: str,
+        evidence: Mapping[str, Any] | None = None,
+    ) -> PluginInstallationResponse:
+        validate_installation_command(expected_revision, action, evidence)
+        if action == "retire":
+            # Inference row first, then Learning's deployment locks: the same
+            # order used by freeze and publish.  Keep both through commit.
+            if await self.lock_plugin_registry(installation_id) is None:
+                raise ValueError("plugin installation not found")
+            from app.services import trained_models
+
+            usage = await trained_models.registry_usage(self.db, installation_id)
+            if usage.active_releases or usage.frozen_executions:
+                raise ValueError("plugin installation has active Learning dependencies")
+        row = await self._plugin_scalar(
+            _COMMAND_PLUGIN,
+            {"id": installation_id, "revision": expected_revision, "action": action,
+             "evidence": _json(evidence) if evidence is not None else None},
+        )
+        return PluginInstallationResponse.model_validate(_object(row))
 
     async def registry_url_owner(self, url: str) -> RegistryName | None:
         row = _object(await self._scalar(_REGISTRY_URL_OWNER, {"url": url}))
