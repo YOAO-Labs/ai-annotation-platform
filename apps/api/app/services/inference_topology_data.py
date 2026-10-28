@@ -350,10 +350,25 @@ class InferenceTopologyData:
     async def prepare_plugin_installation(
         self, payload: PreparePluginInstallation
     ) -> PluginInstallationResponse:
+        from aap_inference.gpu.policy import validate_gpu_claim
+        from aap_inference.topology import BackendTopologyCoordinator
+        from app.config import settings
+        normalized_url = payload.url.rstrip("/")
+        if not normalized_url:
+            raise ValueError("invalid plugin endpoint URL")
+        payload = payload.model_copy(update={"url": normalized_url})
+
+        validate_gpu_claim(
+            payload.resource.gpu_resource_id,
+            payload.manifest.resource.gpu_memory_mb or None,
+            config=settings,
+        )
         row = await self._plugin_scalar(
             _PREPARE_PLUGIN, {"intent": payload.model_dump_json()}
         )
-        return PluginInstallationResponse.model_validate(_object(row))
+        response = PluginInstallationResponse.model_validate(_object(row))
+        await BackendTopologyCoordinator(self).ensure_singleton_pool(response.registry_id)
+        return response
 
     async def get_plugin_installation(
         self, installation_id: UUID

@@ -14,6 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_inference_contract.plugin import PreparePluginInstallation
+from app.config import settings
 from app.services.inference_topology_data import InferenceTopologyData
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
@@ -74,7 +75,13 @@ async def test_prepare_replay_is_identity_bound_and_secret_sensitive(db_session,
     assert first.installation.installation_id == payload.installation_id
     assert first.installation.status == "prepared"
     assert first.installation.revision == 1
+    pool = await data.singleton_pool(payload.installation_id)
+    assert pool is not None
+    members = await data.pool_members(pool.id)
+    assert [member.registry_id for member in members] == [payload.installation_id]
     assert await data.prepare_plugin_installation(payload) == first
+    assert await data.singleton_pool(payload.installation_id) == pool
+    assert await data.pool_members(pool.id) == members
     assert await data.get_plugin_installation(payload.installation_id) == first
     assert first in await data.list_plugin_installations()
     assert payload.auth_token not in first.model_dump_json()
@@ -266,17 +273,27 @@ async def test_concurrent_commands_with_same_revision_have_one_winner(test_engin
             assert await InferenceTopologyData(loser).get_plugin_installation(payload.installation_id) == result
     finally:
         async with maker.begin() as db:
+            await db.execute(text("DELETE FROM public.ml_backend_pool_members WHERE registry_id=:id"),
+                             {"id": payload.installation_id})
+            await db.execute(text("DELETE FROM public.ml_backend_service_pools WHERE legacy_instance_id=:id"),
+                             {"id": payload.installation_id})
             await db.execute(text("DELETE FROM public.ml_backend_registry WHERE id=:id"),
                              {"id": payload.installation_id})
 
 
-async def test_cuda_qualification_is_required_and_bound_to_launch(db_session, test_engine):
+async def test_cuda_qualification_is_required_and_bound_to_launch(db_session, test_engine, monkeypatch):
     await assert_owned_test_database(test_engine)
+    monkeypatch.setattr(settings, "gpu_arbiter_resources_json", json.dumps({
+        "node/GPU-123": {
+            "node_id": "node", "physical_device_token": "GPU-123",
+            "allocatable_mb": 8192, "mode": "observe",
+        }
+    }))
     data = InferenceTopologyData(db_session)
     value = _payload().model_dump(mode="json")
     value["manifest"]["resource"] = {"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 2048}
     value["resource"] = {
-        "gpu_resource_id": "node/gpu", "physical_gpu_uuid": "GPU-123", "logical_device": "cuda:0"
+        "gpu_resource_id": "node/GPU-123", "physical_gpu_uuid": "GPU-123", "logical_device": "cuda:0"
     }
     payload = PreparePluginInstallation.model_validate(value)
     evidence = _evidence(payload, control_epoch=1)

@@ -35,7 +35,8 @@ BEGIN
        OR jsonb_typeof(v->'manifest') IS DISTINCT FROM 'object'
        OR jsonb_typeof(v->'resource') IS DISTINCT FROM 'object'
        OR coalesce(length(v->>'auth_token'),0) < 32
-       OR coalesce(v->>'name','') = '' OR coalesce(v->>'url','') = '' THEN
+       OR coalesce(v->>'name','') = '' OR coalesce(v->>'url','') = ''
+       OR v->>'url' IS DISTINCT FROM rtrim(v->>'url','/') THEN
         RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid plugin installation intent';
     END IF;
     k := (v->>'installation_id')::uuid;
