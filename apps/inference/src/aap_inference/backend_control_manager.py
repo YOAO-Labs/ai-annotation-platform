@@ -216,7 +216,12 @@ class BackendControlManager:
                 purpose=purpose,
                 authority=request.endpoint_subject.authority,
             )
-            if request.operation in {"reload", "warmup", "install_trained_model"} and not plugin_is_active(endpoint.extra_params):
+            if request.operation in {
+                "reload",
+                "warmup",
+                "install_trained_model",
+                "managed_evaluation_seal",
+            } and not plugin_is_active(endpoint.extra_params):
                 raise BackendEndpointUnavailable()
             configuration = (
                 _NoAuthConfiguration(endpoint)
