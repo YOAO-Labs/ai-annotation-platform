@@ -76,7 +76,7 @@ class Provider:
         if model_id != f"trained:{receipt['model_version_id']}":
             raise ValueError("Trained model identity differs from receipt")
         frozen = config["frozen_model_ref"]
-        for field in ("model_version_id", "sha256", "classes_digest", "classes"):
+        for field in ("model_version_id", "sha256", "classes_digest"):
             if frozen.get(field) != receipt.get(field):
                 raise ValueError(f"Frozen {field} differs from receipt")
         runtime = inference_runtime(receipt, "1.6.0", device="cuda" if device.startswith("cuda:") else "cpu")

@@ -42,3 +42,5 @@ The image runs as UID/GID 10001, listens on port 8000 and uses `/var/lib/aap-lib
 ## Qualification
 
 `gpu-evidence.py` accepts a controller-prepared scenario with fresh signed lifecycle/admission headers and records actual HTTP responses and `nvidia-smi` observations for at least two prediction/unload cycles. It does not issue authority credentials or mark a deployment qualified. Review recorded results alongside the existing lifecycle evidence, real GPU tensor/device checks, cancellation and release behavior. The training-return trial and project release are separately required; synthetic tests and a successful image build are not qualification.
+
+The lifecycle is not marked evictable by default. Only after the deployment's real GPU lifecycle qualification has passed may the trusted operator set `AAP_PLUGIN_EVICTABLE_VERIFIED=1`; this setting is not itself evidence of qualification.

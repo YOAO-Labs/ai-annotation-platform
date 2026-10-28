@@ -55,7 +55,8 @@ def serve(args):
         install_request_model=install_request_model(csv("AAP_PLUGIN_ASSET_ORIGINS")),
         managed_model_compatibility=({"framework": "libreyolo", "format": LIBRE_FORMAT, "runtime_device": kind},),
         verify_keyring=keyring, expected_registry_id=registry, expected_gpu_resource_id=resource,
-        allowed_image_hosts=csv("AAP_PLUGIN_IMAGE_HOSTS"), evictable_verified=False,
+        allowed_image_hosts=csv("AAP_PLUGIN_IMAGE_HOSTS"),
+        evictable_verified=os.environ.get("AAP_PLUGIN_EVICTABLE_VERIFIED") == "1",
     )
     uvicorn.run(create_detection_app(Provider(), config), host=args.host, port=args.port)
 
