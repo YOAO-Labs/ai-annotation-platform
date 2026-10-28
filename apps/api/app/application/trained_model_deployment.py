@@ -30,6 +30,8 @@ async def deploy_model(
     )
     await learning.enabled_backend(db, project.id, registry_id)
     deployment = await learning.lock_deployment(db, version.id, registry_id)
+    if deployment and deployment.status in {"draining", "retired"}:
+        raise HTTPException(status_code=409, detail="该部署已停止创建新引用")
     if deployment and deployment.status == "ready":
         try:
             receipt = await backend_io.live_receipt(db, registry_id, str(version.id))
@@ -46,6 +48,7 @@ async def deploy_model(
                 status_code=503, detail="暂时无法复查推理实例，请稍后重试"
             ) from exc
         else:
+            learning.check_trial_runtime(deployment, receipt)
             return deployment
 
     deployment, check_id = await learning.begin_deployment_check(
@@ -55,16 +58,29 @@ async def deploy_model(
     await db.commit()
 
     error = None
+    conflict = None
     try:
         receipt, trial = await backend_io.install_and_trial(
             db, project, version, deployment
         )
+    except learning.PinnedRuntimeConflict as exc:
+        receipt, trial = {}, {}
+        error = str(exc.detail)
+        conflict = exc
     except Exception as exc:
         receipt, trial = {}, {}
         error = f"加载或样本试用未通过（{type(exc).__name__}）"
 
+    # Release the Inference registry fence before reacquiring the project lock;
+    # the result is re-fenced against current installation state below.
+    await db.commit()
+
     await project_lock(db, project.id)
     await lock_project_manager(db, actor_id, project.id)
+    try:
+        await learning.enabled_backend(db, project.id, registry_id)
+    except HTTPException:
+        error = "推理插件安装已停用"
     deployment = await learning.complete_deployment_check(
         db,
         deployment_id,
@@ -74,4 +90,6 @@ async def deploy_model(
         error=error,
     )
     await db.commit()
+    if conflict:
+        raise conflict
     return deployment

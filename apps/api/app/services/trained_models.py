@@ -44,6 +44,7 @@ from app.services.trained_model_reference_contract import (
     FreezeModelReferencePort,
     FreezeModelReferenceRequest,
     FrozenModelReference,
+    RegistryLearningUsage,
     ValidateFrozenModelReferenceRequest,
 )
 
@@ -335,6 +336,86 @@ async def lock_deployment(db, version_id, registry_id):
     )
 
 
+async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
+    """Lock Learning deployments and report live release and frozen-work facts.
+
+    The caller must first hold Inference's registry lock in this transaction.
+    """
+    from app.services.jobs_deployment_usage import frozen_deployment_usage
+
+    deployments = (await db.scalars(
+        select(ModelDeployment)
+        .where(ModelDeployment.registry_id == registry_id)
+        .order_by(ModelDeployment.id)
+        .with_for_update()
+    )).all()
+    ids = [deployment.id for deployment in deployments]
+    if not ids:
+        return RegistryLearningUsage(active_releases=0, frozen_executions=0)
+    active_releases = await db.scalar(
+        select(func.count())
+        .select_from(ProjectModelSelection)
+        .join(ModelRelease, ModelRelease.id == ProjectModelSelection.release_id)
+        .where(ModelRelease.deployment_id.in_(ids))
+    )
+    frozen = 0
+    for deployment in deployments:
+        usage = await frozen_deployment_usage(
+            db, deployment.id, deployment.registry_id, deployment.model_version_id
+        )
+        frozen += usage.active_jobs + usage.retryable_failures
+    return RegistryLearningUsage(active_releases=int(active_releases), frozen_executions=frozen)
+
+
+async def retire_deployment(db, project_id, version_id, deployment_id, *, terminal):
+    """Stop new references first; terminal retirement only after dependencies drain."""
+    from app.services.inference_topology_data import InferenceTopologyData
+    from app.services.jobs_deployment_usage import frozen_deployment_usage
+
+    version = await load_version(db, project_id, version_id)
+    if version.framework != "libreyolo":
+        raise HTTPException(status_code=422, detail="此操作仅适用于 LibreYOLO 部署")
+    candidate = await db.get(ModelDeployment, deployment_id)
+    if candidate is None or candidate.model_version_id != version.id:
+        raise HTTPException(status_code=404, detail="模型部署不存在")
+    if await InferenceTopologyData(db).lock_plugin_registry(candidate.registry_id) is None:
+        raise HTTPException(status_code=404, detail="推理实例不存在")
+    deployment = await db.scalar(
+        select(ModelDeployment).where(ModelDeployment.id == deployment_id)
+        .with_for_update().execution_options(populate_existing=True)
+    )
+    if deployment is None or deployment.model_version_id != version.id:
+        raise HTTPException(status_code=404, detail="模型部署不存在")
+    if terminal:
+        if deployment.status == "retired":
+            return deployment
+        if deployment.status != "draining":
+            raise HTTPException(status_code=409, detail="须先停止创建新引用")
+        release_count = await db.scalar(
+            select(func.count()).select_from(ProjectModelSelection)
+            .join(ModelRelease, ModelRelease.id == ProjectModelSelection.release_id)
+            .where(ModelRelease.deployment_id == deployment.id)
+        )
+        usage = await frozen_deployment_usage(
+            db, deployment.id, deployment.registry_id, deployment.model_version_id
+        )
+        if release_count or usage.active_jobs or usage.retryable_failures:
+            raise HTTPException(status_code=409, detail={
+                "code": "deployment_in_use",
+                "active_releases": int(release_count),
+                "active_jobs": usage.active_jobs,
+                "retryable_failures": usage.retryable_failures,
+            })
+        deployment.status = "retired"
+    elif deployment.status == "ready":
+        deployment.status = "draining"
+        deployment.check_id = uuid.uuid4()
+    elif deployment.status != "draining":
+        raise HTTPException(status_code=409, detail="只有就绪部署可停止创建新引用")
+    await db.flush()
+    return deployment
+
+
 async def begin_deployment_check(db, version, registry_id, deployment=None):
     if deployment is None:
         deployment = ModelDeployment(
@@ -342,6 +423,8 @@ async def begin_deployment_check(db, version, registry_id, deployment=None):
         )
         db.add(deployment)
     check_id = uuid.uuid4()
+    if deployment.status in {"draining", "retired"}:
+        raise HTTPException(status_code=409, detail="该部署已停止创建新引用")
     deployment.check_id = check_id
     deployment.status = "checking"
     deployment.error_message = None
@@ -368,8 +451,9 @@ async def complete_deployment_check(
         raise HTTPException(status_code=409, detail="该部署已有更新的检查，请刷新")
     deployment.status = "failed" if error else "ready"
     deployment.error_message = error
-    deployment.receipt = receipt
-    deployment.trial = trial
+    if not error:
+        deployment.receipt = receipt
+        deployment.trial = trial
     deployment.checked_at = now()
     return deployment
 
@@ -446,6 +530,62 @@ def check_receipt(version, receipt):
             ) from exc
 
 
+class PinnedRuntimeConflict(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(status_code=409, detail=detail)
+
+
+def check_trial_runtime(deployment, receipt):
+    """Require the live execution profile to be the one used by the trial."""
+    pinned = (deployment.trial or {}).get("inference_runtime")
+    if pinned != (receipt or {}).get("inference_runtime"):
+        raise HTTPException(status_code=409, detail="推理实例运行时与已试用的部署不一致")
+
+
+def check_install_runtime(version, deployment, receipt):
+    runtime = receipt.get("inference_runtime")
+    if version.framework == "libreyolo" and runtime is None:
+        raise HTTPException(status_code=409, detail="LibreYOLO 部署必须明确声明运行时")
+    pinned = (deployment.trial or {}).get("inference_runtime")
+    if pinned is not None and runtime != pinned:
+        raise PinnedRuntimeConflict("已固定运行时不可原地更改，请使用新部署")
+    if deployment.receipt and pinned is None and runtime is not None:
+        # A legacy trial without a profile has CPU semantics, not a GPU trial.
+        if version.framework == "libreyolo" and runtime.get("qualification", {}).get("device") != "cpu":
+            raise PinnedRuntimeConflict("旧 CPU 部署不可原地切换运行时")
+
+
+def check_declared_compatibility(backend, version, runtime=None):
+    """Match approved and observed generic managed-model capabilities."""
+    from aap_inference_contract.topology import to_record
+
+    params = to_record(backend.extra_params or {})
+    plugin = params.get("plugin")
+    if plugin is None:
+        return
+    if not isinstance(plugin, dict) or not isinstance(plugin.get("manifest"), dict):
+        raise HTTPException(status_code=409, detail="插件安装元数据无效")
+    manifest = plugin.get("manifest", {})
+    approved = manifest.get("managed_model_compatibility", [])
+    capabilities = to_record((backend.health_meta or {}).get("capabilities") or {})
+    observed = capabilities.get("managed_model_compatibility", [])
+    device = (runtime or {}).get("qualification", {}).get("device")
+    artifact_format = expected_receipt(version).get("artifact_format")
+    if not isinstance(approved, list) or not isinstance(observed, list):
+        raise HTTPException(status_code=409, detail="插件未声明受控模型兼容性")
+    matches = [
+        entry for entry in approved
+        if isinstance(entry, dict)
+        and entry.get("framework") == version.framework
+        and entry.get("format") == artifact_format
+        and entry.get("runtime_device") in {"cpu", "cuda"}
+        and (device is None or entry["runtime_device"] == device)
+        and entry in observed
+    ]
+    if not matches:
+        raise HTTPException(status_code=409, detail="插件未声明兼容的框架、格式与运行时")
+
+
 def backend_control_http_exception(error):
     """Translate the framework-neutral control failure at the API consumer edge."""
     failure = error.failure
@@ -461,7 +601,10 @@ def backend_control_http_exception(error):
 def validate_result_runtime(meta, ref):
     if "inference_runtime" not in ref and "inference_runtime" in (meta or {}):
         actual = validate_inference_runtime(ref, meta["inference_runtime"])
-        if actual["version"] != ref.get("framework_version"):
+        if actual["version"] != ref.get("framework_version") or (
+            ref.get("framework") == "libreyolo"
+            and actual.get("qualification", {}).get("device") != "cpu"
+        ):
             raise ValueError("Legacy frozen reference cannot change inference runtime")
     if "inference_runtime" in ref:
         expected = validate_inference_runtime(ref, ref["inference_runtime"])
@@ -483,6 +626,14 @@ def wire_reference(ref):
 
 
 async def enabled_backend(db, project_id, registry_id):
+    from app.services.inference_topology_data import InferenceTopologyData
+    from aap_inference_contract.plugin import plugin_is_active
+
+    facts = await InferenceTopologyData(db).lock_plugin_registry(registry_id)
+    if facts is None:
+        raise HTTPException(status_code=404, detail="推理实例不存在")
+    if not plugin_is_active(facts.extra_params):
+        raise HTTPException(status_code=409, detail="推理插件安装未启用")
     backend = await db.get(MLBackendRegistry, registry_id)
     if not backend or not await MLBackendService(db).is_enabled(
         project_id, registry_id
@@ -807,17 +958,20 @@ async def resolve_reference(
                 detail="普通推理只能使用已发布且未归档的模型；候选模型请先加载与试用",
             )
     validate_bindings(project, version.classes, version.bindings, model_task(version))
+    backend = await enabled_backend(db, project.id, registry_id)
     deployment = await db.scalar(
         select(ModelDeployment).where(
             ModelDeployment.model_version_id == version.id,
             ModelDeployment.registry_id == registry_id,
             ModelDeployment.status == "ready",
-        )
+        ).with_for_update()
     )
     if not deployment or (release and release.deployment_id != deployment.id):
         raise HTTPException(status_code=409, detail="所选实例没有该模型版本的就绪部署")
     check_receipt(version, deployment.receipt)
-    await enabled_backend(db, project.id, registry_id)
+    check_declared_compatibility(
+        backend, version, (deployment.trial or {}).get("inference_runtime")
+    )
     await assert_routable_backend(db, project.id, registry_id)
     return frozen_reference(version, deployment, release)
 
@@ -834,11 +988,17 @@ async def validate_frozen_reference(db, project_id, ref):
         raise ValueError("Controlled model reference digest mismatch")
     version = await load_version(db, project_id, uuid.UUID(ref["model_version_id"]))
     validate_bindings(project, version.classes, version.bindings, model_task(version))
-    deployment = await db.get(ModelDeployment, uuid.UUID(ref["deployment_id"]))
+    registry_id = uuid.UUID(ref["registry_id"])
+    await enabled_backend(db, project_id, registry_id)
+    deployment = await db.scalar(
+        select(ModelDeployment).where(ModelDeployment.id == uuid.UUID(ref["deployment_id"]))
+        .with_for_update().execution_options(populate_existing=True)
+    )
     if (
         not deployment
         or deployment.model_version_id != version.id
-        or deployment.status != "ready"
+        or deployment.registry_id != registry_id
+        or deployment.status not in {"ready", "draining"}
     ):
         raise ValueError("Controlled deployment is unavailable")
     release = (
@@ -863,7 +1023,6 @@ async def validate_frozen_reference(db, project_id, ref):
         != ref
     ):
         raise ValueError("Controlled model reference changed")
-    await enabled_backend(db, project_id, deployment.registry_id)
     return deployment.registry_id
 
 
@@ -986,7 +1145,14 @@ async def publish(db, project, user, body):
         validate_bindings(
             project, version.classes, version.bindings, model_task(version)
         )
-        deployment = await db.get(ModelDeployment, body.deployment_id)
+        candidate = await db.get(ModelDeployment, body.deployment_id)
+        if candidate is None:
+            raise HTTPException(status_code=409, detail="模型尚未完成加载检查与样本试用")
+        backend = await enabled_backend(db, project.id, candidate.registry_id)
+        deployment = await db.scalar(
+            select(ModelDeployment).where(ModelDeployment.id == body.deployment_id)
+            .with_for_update()
+        )
         if (
             not deployment
             or deployment.model_version_id != version.id
@@ -995,12 +1161,17 @@ async def publish(db, project, user, body):
             raise HTTPException(
                 status_code=409, detail="模型尚未完成加载检查与样本试用"
             )
-        await enabled_backend(db, project.id, deployment.registry_id)
+        if deployment.registry_id != candidate.registry_id:
+            raise HTTPException(status_code=409, detail="模型部署身份已变化")
+        check_declared_compatibility(
+            backend, version, (deployment.trial or {}).get("inference_runtime")
+        )
         await assert_routable_backend(db, project.id, deployment.registry_id)
         from app.services.trained_model_backend import live_receipt
 
         live = await live_receipt(db, deployment.registry_id, str(version.id))
         check_receipt(version, live)
+        check_trial_runtime(deployment, live)
     if body.rollback_from_id:
         previous = await db.get(ModelRelease, body.rollback_from_id)
         if (

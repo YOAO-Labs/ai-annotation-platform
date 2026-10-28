@@ -34,7 +34,8 @@ async def install_and_trial(
     deployment: ModelDeployment,
 ):
     """Install the frozen artifact and run its fixed validation-image trial."""
-    await models.enabled_backend(db, project.id, deployment.registry_id)
+    backend = await models.enabled_backend(db, project.id, deployment.registry_id)
+    models.check_declared_compatibility(backend, version)
     await models.assert_routable_backend(db, project.id, deployment.registry_id)
     weights_owner = await models.owner_for_model(db, version)
     dataset = await db.get(
@@ -86,6 +87,10 @@ async def install_and_trial(
     except inference_backend_control.BackendControlOperationError as exc:
         raise models.backend_control_http_exception(exc) from exc
     models.check_receipt(version, receipt)
+    models.check_install_runtime(version, deployment, receipt)
+    models.check_declared_compatibility(
+        backend, version, receipt.get("inference_runtime")
+    )
     runtime = receipt.get("inference_runtime")
     frozen_reference = models.frozen_reference(
         version, deployment, include_runtime=runtime is not None, runtime=runtime

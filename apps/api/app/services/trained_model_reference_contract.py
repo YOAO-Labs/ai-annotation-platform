@@ -33,6 +33,15 @@ class FrozenModelReference(TypedDict):
     artifact_format: NotRequired[str]
     artifact_size_bytes: NotRequired[int]
     runtime_qualification: NotRequired[dict[str, Any]]
+    inference_runtime: NotRequired[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryLearningUsage:
+    """Dependencies that prevent removing an inference installation."""
+
+    active_releases: int
+    frozen_executions: int
 
 
 @dataclass(frozen=True, slots=True)

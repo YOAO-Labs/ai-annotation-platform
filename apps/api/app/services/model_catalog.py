@@ -95,6 +95,10 @@ def concrete_variants(model):
 
 
 def backend_reason(backend, pool, member, *, enabled, member_count):
+    from aap_inference_contract.plugin import plugin_is_active
+
+    if not plugin_is_active(backend.extra_params):
+        return "plugin_inactive", "推理插件安装未启用"
     if not enabled:
         return "project_disabled", "项目未启用此后端"
     if pool is None or not pool.enabled:
@@ -421,6 +425,9 @@ async def list_catalog(
                     )
             try:
                 trained_models.check_receipt(version, deployment.receipt)
+                trained_models.check_declared_compatibility(
+                    backend, version, (deployment.trial or {}).get("inference_runtime")
+                )
                 # Artifact inspection is a historical fact, independent of current health.
                 class_meta.class_source = "checkpoint"
                 class_meta.verification_status = "verified"

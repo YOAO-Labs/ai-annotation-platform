@@ -59,7 +59,7 @@ class ModelDeploymentOut(BaseModel):
     id: uuid.UUID
     model_version_id: uuid.UUID
     registry_id: uuid.UUID
-    status: str
+    status: Literal["checking", "ready", "failed", "draining", "retired"]
     receipt: dict
     trial: dict
     error_message: str | None

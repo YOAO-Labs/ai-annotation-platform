@@ -64,7 +64,7 @@ class ModelDeployment(Base):
             "model_version_id", "registry_id", name="uq_trained_model_deployment"
         ),
         CheckConstraint(
-            "status IN ('checking','ready','failed')",
+            "status IN ('checking','ready','failed','draining','retired')",
             name="ck_trained_model_deployment_status",
         ),
     )

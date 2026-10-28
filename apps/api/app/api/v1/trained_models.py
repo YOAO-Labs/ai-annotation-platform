@@ -243,6 +243,48 @@ async def deploy_model(
     )
 
 
+@router.post(
+    "/trained-models/{version_id}/deployments/{deployment_id}/stop-references",
+    response_model=ModelDeploymentOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def stop_deployment_references(
+    version_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    await project_lock(db, project.id)
+    await lock_project_manager(db, actor_id, project.id)
+    result = await service.retire_deployment(
+        db, project.id, version_id, deployment_id, terminal=False
+    )
+    await db.commit()
+    return result
+
+
+@router.post(
+    "/trained-models/{version_id}/deployments/{deployment_id}/retire",
+    response_model=ModelDeploymentOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def retire_deployment(
+    version_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    await project_lock(db, project.id)
+    await lock_project_manager(db, actor_id, project.id)
+    result = await service.retire_deployment(
+        db, project.id, version_id, deployment_id, terminal=True
+    )
+    await db.commit()
+    return result
+
+
 @router.get("/trained-models/{version_id}/download")
 async def download_model(
     version_id: uuid.UUID,
