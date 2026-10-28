@@ -1425,6 +1425,7 @@ class LocalResources:
                     "aap_labeling_v1.video_segment_lifecycle_command(jsonb), "
                     "aap_labeling_v1.annotation_transfer_command(jsonb), "
                     "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid), "
+                    "aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer), "
                     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean), "
                     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean), "
                     "aap_labeling_v1.mask_qc_command(jsonb), "

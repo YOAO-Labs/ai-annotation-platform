@@ -131,6 +131,28 @@ async def lock_task_for_core_read(
     return (await execute_core_read(db, statement)).scalar_one_or_none()
 
 
+async def lock_task_dataset_item_links_for_core_read(
+    db: AsyncSession,
+    task_id: uuid.UUID,
+    *,
+    compact: bool = False,
+    link_id: uuid.UUID | None = None,
+    max_links: int | None = None,
+) -> list[TaskDatasetItemLink]:
+    """Lock the selected published link rows in the caller's transaction."""
+    locked = func.aap_labeling_v1.lock_task_dataset_item_links_for_core_read(
+        task_id, compact, link_id, max_links
+    ).table_valued(
+        *(
+            column(name, TaskDatasetItemLink.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["task_dataset_item_link_rows"]
+        )
+    )
+    row = aliased(TaskDatasetItemLink, locked, adapt_on_names=True)
+    statement = select(row).order_by(row.id).execution_options(populate_existing=True)
+    return list((await execute_core_read(db, statement)).scalars().all())
+
+
 async def lock_batch_rows_for_core_read(
     db: AsyncSession,
     batch_ids: list[uuid.UUID],
@@ -383,6 +405,7 @@ __all__ = [
     "lock_active_annotation_rows_for_share",
     "lock_feedback_task_rows_for_share",
     "lock_task_for_core_read",
+    "lock_task_dataset_item_links_for_core_read",
     "lock_task_rows_for_core_read",
     "lock_task_rows_for_core_read_share",
     "prediction_meta_row",

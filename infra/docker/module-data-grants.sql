@@ -2853,6 +2853,8 @@ ALTER FUNCTION aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
+    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])

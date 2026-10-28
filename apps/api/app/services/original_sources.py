@@ -24,7 +24,6 @@ from app.db.models.dataset_asset import (
     StorageLocation,
 )
 from app.db.models.storage_maintenance import StorageMaintenanceGate
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.task_original import TaskOriginal
 from app.services import storage_access, task_originals
 from app.services.content_snapshot import ContentError
@@ -32,6 +31,8 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.labeling_core_read_relations import (
     get_core_row,
     lock_task_for_core_read,
+    lock_task_dataset_item_links_for_core_read,
+    task_dataset_item_link_row,
     task_row,
 )
 from app.services.reference_keys import is_reference, reference_key
@@ -182,19 +183,25 @@ async def _relation(
         task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if task is None:
         raise ContentError("content_task_missing", 404)
-    statement = select(TaskDatasetItemLink).where(
-        TaskDatasetItemLink.task_id == task.id
-    )
-    if compact_relation:
-        selected = TaskDatasetItemLink.role == "primary_lidar"
-        if link_id is not None:
-            selected = selected | (TaskDatasetItemLink.id == link_id)
-        statement = statement.where(selected)
-    if max_links is not None:
-        statement = statement.limit(max_links + 1)
-    rows = list(
-        await db.scalars(_statement(statement.order_by(TaskDatasetItemLink.id), lock))
-    )
+    if lock:
+        rows = await lock_task_dataset_item_links_for_core_read(
+            db,
+            task.id,
+            compact=compact_relation,
+            link_id=link_id,
+            max_links=max_links,
+        )
+    else:
+        link = task_dataset_item_link_row
+        statement = select(link).where(link.task_id == task.id)
+        if compact_relation:
+            selected = link.role == "primary_lidar"
+            if link_id is not None:
+                selected = selected | (link.id == link_id)
+            statement = statement.where(selected)
+        if max_links is not None:
+            statement = statement.limit(max_links + 1)
+        rows = list(await db.scalars(_statement(statement.order_by(link.id), False)))
     if max_links is not None and len(rows) > max_links:
         raise ContentError("original_relation_budget_exceeded", 422)
     links = tuple(
@@ -208,8 +215,8 @@ async def _relation(
         has_links = bool(
             await db.scalar(
                 select(
-                    select(TaskDatasetItemLink.id)
-                    .where(TaskDatasetItemLink.task_id == task.id)
+                    select(task_dataset_item_link_row.id)
+                    .where(task_dataset_item_link_row.task_id == task.id)
                     .exists()
                 )
             )

@@ -52,6 +52,7 @@ BEGIN
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
         'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)',
+        'aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)',
         'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)',
         'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)',
         'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)',
@@ -74,6 +75,7 @@ BEGIN
           AND function.proretset
           AND function.prorettype = CASE v_signature
               WHEN 'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)' THEN 'aap_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)' THEN 'aap_labeling_v1.batch_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)' THEN 'aap_labeling_v1.annotation_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
@@ -122,6 +124,7 @@ END;
 $revoke$;
 
 REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
     aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
     aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
     aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
@@ -135,6 +138,7 @@ REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean
     FROM :"core_read_role", PUBLIC;
 GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"core_read_role";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
     aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
     aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
     aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
@@ -167,6 +171,7 @@ DECLARE
                           WHERE rolname=current_setting('aap.core_read_role'));
     v_allowed oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)'),
