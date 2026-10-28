@@ -33,10 +33,22 @@ ML backend 运行时共享组件 (无状态叶子函数 + 取消安全的 LRU �
   之前 `grounded-sam2-backend/managed_pool.py` 与 `sam3-backend/managed_pool.py` 仅差
   docstring 与 logger 名, 现由本包统一提供。
 - `gpu_lifecycle.ManagedGpuLifecycle(pool, *, verify_keyring, evictable_verified=False,
-  boot_id=None, expected_registry_id=None, expected_gpu_resource_id=None)` — 签名控制、
-  generation、JTI、取消与池排空状态机；缺少预配置绑定时拒绝所有签名控制。
+  boot_id=None, expected_registry_id=None, expected_gpu_resource_id=None,
+  terminal_cpu_enabled=False)` — 签名控制、generation、JTI、取消与池排空状态机；
+  签名控制始终要求预配置 Registry 和 GPU resource 双重绑定。CPU 可只配置 Registry；
+  `terminal_cpu_enabled` 只能由部署配置确认的 CPU 实例开启。
   registry ID 是平台实例 UUID，resource ID 是平台 `<node>/<physical-token>`；
   调用方必须独立校验实际物理 GPU UUID 与部署绑定，不能信任逻辑 CUDA 序号。
+  `terminal_drain(registry_id=..., boot_id=..., operation_id=...)` 是 CPU 专用、
+  不可逆的安装停止栅栏：调用方必须先验证业务 Bearer。GPU 必须使用
+  `terminal_drain_signed(generation, generation_header=..., token=...)` 和已绑定的
+  签名 DRAIN 控制令牌，不接受 CPU 业务认证代替签名。两者阻止后续工作与恢复，
+  等待所有真实请求、future、builder、borrower、waiter 和清理结束后强制清空
+  `models` 池并验证可信空状态；断开的调用者不会取消后台清理。同一身份可重试，
+  不同身份不可复用，进程健康信息仍可读取。CPU 返回 registry_id、boot_id、
+  operation_id、null control_epoch/generation、pool_ids 和 unloaded；GPU 另返回
+  gpu_resource_id 及签名绑定的 control_epoch/generation。该进程内证明必须由平台
+  持久停止栅栏和容器身份共同约束，不能独立作为重启后的停止授权。
 - `managed_models.ManagedModelStore(root, *, inspect, validate_receipt)` — 复用锁、
   有界下载、摘要、不可变收据和原子安装。调用方负责严格验证请求、下载来源和
   checkpoint/receipt；`inspect(path, receipt)` 与 `validate_receipt(receipt, path)`
