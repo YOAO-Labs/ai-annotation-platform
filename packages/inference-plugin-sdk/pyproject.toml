@@ -7,7 +7,7 @@ name = "aap-inference-plugin-sdk"
 version = "0.1.0"
 description = "Detection authoring tools for AAP inference plugins"
 requires-python = ">=3.11"
-dependencies = ["aap-protocol-v2", "aap-backend-runtime", "aap-inference-contract", "fastapi>=0.115", "httpx>=0.27", "pillow>=10", "pydantic>=2", "uvicorn>=0.30"]
+dependencies = ["aap-protocol-v2", "aap-backend-runtime", "aap-inference-contract", "cryptography>=43", "fastapi>=0.115", "httpx>=0.27", "pillow>=10", "pydantic>=2", "uvicorn>=0.30"]
 
 [project.scripts]
 aap-plugin = "aap_inference_plugin.cli:main"

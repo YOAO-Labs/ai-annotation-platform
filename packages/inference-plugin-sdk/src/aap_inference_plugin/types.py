@@ -38,6 +38,9 @@ class DetectionConfig:
     default_model: str
     versions: Mapping[str, str] = field(default_factory=dict)
     series: str = "detection"
+    physical_gpu_uuid: str | None = None
+    plugin_identity: Mapping[str, str] = field(default_factory=dict)
+    runtime_info: Mapping[str, Any] | Callable[[], Mapping[str, Any]] = field(default_factory=dict)
     managed_store: Any | None = None
     runtime_receipt: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     install_request_model: type | None = None
@@ -54,6 +57,10 @@ class DetectionConfig:
             raise ValueError("token must contain at least 32 characters")
         if self.device != "cpu" and not (self.device.startswith("cuda:") and self.device[5:].isdigit()):
             raise ValueError("device must be cpu or cuda:<ordinal>")
+        if self.device == "cpu" and self.physical_gpu_uuid is not None:
+            raise ValueError("CPU device cannot have a physical GPU UUID")
+        if self.device.startswith("cuda:") and (not self.physical_gpu_uuid or not self.physical_gpu_uuid.startswith("GPU-")):
+            raise ValueError("CUDA device requires an observed physical GPU UUID")
         if not self.catalog or self.default_model not in self.catalog:
             raise ValueError("default model must be present in a nonempty catalog")
         if any(not isinstance(k, str) or not k or not isinstance(v, Mapping) for k, v in self.catalog.items()):

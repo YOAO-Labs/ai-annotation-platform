@@ -8,7 +8,7 @@ from test_detection_app import Model, TOKEN, image_url
 
 VERSION = "7c5fba75-1432-458d-b874-111111111111"
 IDENTITY = {"model_version_id": VERSION, "sha256": "a" * 64, "classes_digest": "b" * 64}
-RUNTIME = {"device": "cpu", "revision": 1}
+RUNTIME = {"qualification": {"device": "cpu"}, "revision": 1}
 
 
 class Install(BaseModel):
@@ -45,7 +45,9 @@ def test_managed_reference_is_pinned_and_returned():
         assert response.status_code == 200
         meta = response.json()["results"][0]["meta"]
         assert meta == {"trained_model": IDENTITY, "inference_runtime": RUNTIME}
-        body["context"]["frozen_model_ref"]["inference_runtime"] = {"device": "cuda", "revision": 1}
+        del body["context"]["frozen_model_ref"]["inference_runtime"]
+        assert client.post("/predict", json=body).status_code == 200
+        body["context"]["frozen_model_ref"]["inference_runtime"] = {"qualification": {"device": "cuda"}, "revision": 1}
         assert client.post("/predict", json=body).status_code == 409
         body["context"]["frozen_model_ref"]["inference_runtime"] = RUNTIME
         body["context"]["model_variants"] = {"size": "t"}

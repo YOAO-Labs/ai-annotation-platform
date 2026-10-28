@@ -144,7 +144,7 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                 raise ValueError("reference differs from installed receipt")
             runtime = actual["inference_runtime"]
             pinned = ref.get("inference_runtime")
-            if (pinned is None and runtime.get("device") != "cpu") or (pinned is not None and pinned != runtime):
+            if (pinned is None and runtime.get("qualification", {}).get("device") != "cpu") or (pinned is not None and pinned != runtime):
                 raise ValueError("reference runtime differs from installed runtime")
             key = json.dumps({"kind": "managed", "ref": ref, "runtime": runtime,
                               "receipt_digest": receipt_digest(actual), "device": config.device},
@@ -152,6 +152,9 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
             return key, {"trained_model": {k: actual[k] for k in ("model_version_id", "sha256", "classes_digest")}, "inference_runtime": runtime}
         except (KeyError, ValueError, FileNotFoundError) as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    def runtime_facts():
+        return dict(config.runtime_info() if callable(config.runtime_info) else config.runtime_info)
 
     @app.get("/health")
     async def health(request: Request, response: Response):
@@ -161,9 +164,13 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
             response.headers[GPU_HEALTH_CHALLENGE_HEADER] = challenge
             response.headers["Cache-Control"] = "no-store"
         snapshot, residency = await lifecycle.snapshot_and_residency()
+        facts = runtime_facts()
         return {"status": "ok", "compute": {"configured_device": config.device,
                 "effective_device": config.device if snapshot["current_size"] else None,
                 "cpu_fallback_supported": False}, "pool": snapshot,
+                "gpu_info": {"physical_gpu_uuid": config.physical_gpu_uuid,
+                             "driver_version": facts.get("driver_version"),
+                             "total_memory_mb": facts.get("total_memory_mb")},
                 "residency": residency.model_dump(mode="json")}
 
     @app.get("/setup")
@@ -181,7 +188,10 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                   "task_contract_revision": 1, "name": "detection-plugin", "is_interactive": False,
                   "supported_prompts": ["none"], "supported_geometric_outputs": ["bbox"], "models": [model],
                   "warmup_endpoint": True, "params": Params.model_json_schema(),
-                  "managed_model_compatibility": list(config.managed_model_compatibility)}
+                  "managed_model_compatibility": list(config.managed_model_compatibility),
+                  "plugin_identity": dict(config.plugin_identity),
+                  "runtime_info": runtime_facts(),
+                  "physical_gpu_uuid": config.physical_gpu_uuid}
         if config.evictable_verified:
             result["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(mode="json")
         return result

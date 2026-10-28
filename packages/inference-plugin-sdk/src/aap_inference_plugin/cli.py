@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
+import time
 
 import httpx
 
@@ -36,51 +37,55 @@ from aap_libreyolo_plugin.cli import main
 ''', encoding="utf-8")
 
 
-def check(url: str, token: str, image: Path) -> None:
+def dev_server(args) -> None:
+    """Warm a developer-only service; this is not managed GPU admission."""
+    token = args.token_file.read_text(encoding="utf-8").strip()
     if len(token) < 32:
-        raise ValueError("set AAP_PLUGIN_TOKEN to the configured token (at least 32 characters)")
-    data = image.read_bytes()
-    if not data or len(data) > 20 * 1024 * 1024:
-        raise ValueError("image must be nonempty and at most 20 MiB")
-    source = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
-    with httpx.Client(base_url=url.rstrip("/"), timeout=120, follow_redirects=False) as client:
-        health = client.get("/health")
-        health.raise_for_status()
-        if health.json().get("status") != "ok":
-            raise ValueError("/health did not report status=ok")
-        denied = client.get("/setup")
-        if denied.status_code not in (401, 403):
-            raise ValueError("/setup accepted a request without a token")
-        client.headers["Authorization"] = "Bearer " + token
-        setup = client.get("/setup")
-        setup.raise_for_status()
-        setup = setup.json()
-        models = setup.get("models", [])
-        if not any(m.get("id") == "detect" and m.get("task") == "detect" and
-                   set(m.get("supported_inputs", [])) >= {"full_image", "crop"} for m in models):
-            raise ValueError("/setup must expose detect with full_image and crop inputs")
-        request = {"tasks": [{"id": "check", "file_path": source}], "context": {"task": "detect", "model_id": "detect"}}
-        response = client.post("/predict", json=request)
-        response.raise_for_status()
-        results = response.json().get("results")
-        if not isinstance(results, list) or len(results) != 1 or results[0].get("task") != "check":
-            raise ValueError("/predict did not preserve the supplied task id")
-        for item in results[0].get("result", []):
-            value = item.get("value", {})
-            if item.get("type") != "rectanglelabels" or not isinstance(item.get("native_class_index"), int):
-                raise ValueError("/predict returned a non-detection or missing native class index")
-            score = item.get("score")
-            labels = value.get("rectanglelabels")
-            if not isinstance(score, (int, float)) or isinstance(score, bool) or not 0 <= score <= 1 or not isinstance(labels, list) or len(labels) != 1 or not isinstance(labels[0], str) or not labels[0]:
-                raise ValueError("/predict returned an invalid score or native class name")
-            if not (0 <= value.get("x", -1) < 100 and 0 <= value.get("y", -1) < 100 and
-                    0 < value.get("width", 0) <= 100 - value["x"] and 0 < value.get("height", 0) <= 100 - value["y"]):
-                raise ValueError("/predict returned an invalid percentage box")
-        bad = dict(request)
-        bad["context"] = {"task": "detect", "params": {"conf": 2}}
-        if client.post("/predict", json=bad).status_code != 422:
-            raise ValueError("/predict did not reject an invalid confidence parameter")
-    print("HTTP detection check passed; local execution does not establish managed GPU qualification")
+        raise ValueError("token file must contain at least 32 characters")
+    if args.host != "127.0.0.1":
+        raise ValueError("developer preflight is loopback-only; use provider serve for managed deployment")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", args.port))
+    command = ["aap-libreyolo", "serve", "--device", args.device, "--asset-dir", str(args.asset_dir),
+               "--token-file", str(args.token_file), "--host", args.host, "--port", str(args.port)]
+    process = subprocess.Popen(command)
+    try:
+        url = f"http://127.0.0.1:{args.port}"
+        with httpx.Client(base_url=url, timeout=120, trust_env=False,
+                          headers={"Authorization": "Bearer " + token}) as client:
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise ValueError(f"developer service exited before readiness (exit {process.returncode})")
+                try:
+                    if client.get("/health", timeout=2).status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    pass
+                time.sleep(0.1)
+            else:
+                raise ValueError("developer service did not become ready")
+            response = client.post("/warmup", json={"task": "detect", "model_variants": {"series": "yolov9", "size": "t"}})
+            response.raise_for_status()
+            health = client.get("/health")
+            health.raise_for_status()
+            info = health.json()
+            if info.get("compute", {}).get("effective_device") != args.device or info.get("pool", {}).get("current_size", 0) < 1:
+                raise ValueError("preflight did not establish a resident model on the requested device")
+            if args.device.startswith("cuda:") and info.get("residency", {}).get("gpu_loaded") is not True:
+                raise ValueError("preflight did not establish actual CUDA model residency")
+        print("Developer preflight loaded the model on the requested device; local mode is not managed GPU qualification", flush=True)
+        code = process.wait()
+        if code:
+            raise ValueError(f"developer service exited with status {code}")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
 
 
 def main() -> None:
@@ -99,8 +104,15 @@ def main() -> None:
     prepare.add_argument("--size", choices=["t", "s", "m", "c"], default="t")
     prepare.add_argument("--asset-dir", type=Path, required=True)
     verify = commands.add_parser("check")
-    verify.add_argument("--url", required=True)
-    verify.add_argument("--image", required=True, type=Path)
+    mode = verify.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--url", help="Check a running HTTP endpoint only")
+    mode.add_argument("--qualify-local", action="store_true", help="Run full local-exclusive GPU qualification")
+    verify.add_argument("--fixtures", required=True, type=Path)
+    verify.add_argument("--device")
+    verify.add_argument("--gpu-uuid")
+    verify.add_argument("--asset-dir", type=Path)
+    verify.add_argument("--exclusive-gpu", action="store_true")
+    verify.add_argument("--report", type=Path)
     build = commands.add_parser("build")
     build.add_argument("directory", nargs="?", type=Path, default=Path.cwd())
     args = parser.parse_args()
@@ -108,16 +120,29 @@ def main() -> None:
         if args.command == "init":
             init_project(args.directory)
         elif args.command == "dev":
-            subprocess.run(["aap-libreyolo", "serve", "--device", args.device, "--asset-dir", str(args.asset_dir), "--token-file", str(args.token_file), "--host", args.host, "--port", str(args.port)], check=True)
+            dev_server(args)
         elif args.command == "prepare-assets":
             subprocess.run(["aap-libreyolo", "prepare-assets", "--size", args.size, "--asset-dir", str(args.asset_dir)], check=True)
         elif args.command == "check":
-            check(args.url, os.environ.get("AAP_PLUGIN_TOKEN", ""), args.image)
+            if args.qualify_local:
+                if not (args.device and args.gpu_uuid and args.asset_dir and args.report and args.exclusive_gpu):
+                    raise ValueError("--qualify-local requires --device, --gpu-uuid, --asset-dir, --exclusive-gpu and --report")
+                from .qualification import qualify_local
+                report = qualify_local(args.fixtures, args.device, args.gpu_uuid, args.asset_dir, args.report)
+                print(json.dumps({"mode": report["mode"], "report": str(args.report), "platform_managed_qualified": False}))
+            else:
+                if args.device or args.gpu_uuid or args.asset_dir or args.exclusive_gpu:
+                    raise ValueError("GPU qualification options require --qualify-local")
+                from .check import check_http
+                report = check_http(args.url, os.environ.get("AAP_PLUGIN_TOKEN", ""), args.fixtures)
+                if args.report:
+                    args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+                print(json.dumps(report))
         else:
             subprocess.run([sys.executable, "-m", "build", "--wheel", str(args.directory)], check=True)
             for artifact in sorted((args.directory / "dist").glob("*.whl")):
                 print(f"{hashlib.sha256(artifact.read_bytes()).hexdigest()}  {artifact}")
-    except (OSError, ValueError, httpx.HTTPError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, httpx.HTTPError, subprocess.SubprocessError) as exc:
         print(f"aap-plugin: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
