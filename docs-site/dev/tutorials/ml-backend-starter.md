@@ -8,7 +8,36 @@ last_reviewed: 2026-10-19
 
 # ML Backend 接入教程：从 echo 示例到真实模型
 
-本文是接入 ML Backend 的入门路径：先把最小的 echo 示例跑起来，理解协议契约，再一步步把它改造成一个真实推理的 backend（以 OCR 为贯穿示例），最后注册到平台。
+检测模型的推荐路径是独立安装检测插件 SDK 和 LibreYOLO 插件；下面的 echo 示例仅用于理解 HTTP 协议，并不执行真实推理。
+
+## 使用 LibreYOLO 检测插件
+
+从可信包仓库或版本化 wheel 集合安装 `aap-inference-plugin-sdk` 和 `aap-libreyolo-plugin`（构建 wheel 还需 `build`）。它们不要求平台仓库或 editable 路径；通用检测 SDK 不依赖 Torch，模型运行时由 LibreYOLO 插件提供。
+
+```bash
+aap-plugin init my-detector --template libreyolo-yolov9
+aap-plugin prepare-assets --size t --asset-dir ./assets
+# token 文件须事先创建，内容为至少 32 字符的私密随机 token；不要提交到源码库
+aap-plugin dev --device cuda:0 --asset-dir ./assets --token-file ./token
+```
+
+资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。`--device cpu` 可用于显式本地调试，但不能替代 CUDA 验收，也不会自动回退。GPU 不可用或绑定不匹配时应修复设备配置，而不是更换模型或精度。
+
+在另一终端，以同一 token 检查真实图片：
+
+```bash
+export AAP_PLUGIN_TOKEN="$(cat ./token)"
+aap-plugin check --url http://127.0.0.1:8000 --image ./example.png
+aap-plugin build my-detector
+```
+
+检查会访问真实 `/health`、`/setup` 和 `/predict`，验证认证、输入、坐标和参数；本地检查并不授予共享 GPU 托管资格。构建输出 wheel 摘要；管理员仍需按插件 manifest 安装固定摘要制品、验证真实端点，再按现有 Registry 和项目设置启用。允许访问的平台图片 URL 主机必须由部署管理员明确配置，不接受本地文件路径。
+
+模型作者实现 `load`、单图 `predict` 和 `close`；`predict` 返回原图像素坐标的 `Detection`，SDK 负责协议响应、类别索引和坐标转换。裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。可选训练产物安装使用共享受控收据机制；插件不直接访问平台数据库。
+
+## 协议教学：echo 示例
+
+下文先把最小 echo 示例跑起来，理解协议契约，再展示如何手写 OCR backend，最后注册到平台。
 
 > **协议以 [ML Backend 协议契约](/dev/reference/ml-backend-protocol) 为准**，本文不重复抄协议；遇到字段语义疑问，一律以协议文档为权威。
 
