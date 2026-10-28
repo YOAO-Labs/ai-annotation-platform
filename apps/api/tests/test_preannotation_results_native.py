@@ -937,20 +937,23 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     )
     await _start_member(db_session, lease_scope, 1)
     task = tasks[0]
-    raw_bodies = [
-        json.dumps(
-            _request_body(
-                task_id=task.id,
-                project_id=task.project_id,
-                write_scope=write_scopes[0],
-                result=[{"type": "rectangle", "index": index}],
-            ),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
-        for index in range(2)
-    ]
+    raw_bodies = []
+    for index in range(2):
+        body = _request_body(
+            task_id=task.id,
+            project_id=task.project_id,
+            write_scope=write_scopes[0],
+            result=[{"type": "rectangle", "index": index}],
+            pipeline_extra={"accepted_input": {"owner_kind": "task_original"}},
+        )
+        body["model_provenance"] = {"model_id": str(uuid.uuid4())} if index == 0 else {}
+        body["token_meta"] = {
+            "inference_runtime": {"provider": "libreyolo"},
+            "segmentation": {"format": "polygons"},
+        }
+        raw_bodies.append(
+            json.dumps(body, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+        )
     raw_digest, _ = _bundle_digest(str(job_id), 1, "a" * 64, "raw", raw_bodies)
     context = {"pipeline_stages": {}, "gpu_arbiter_failures": [], "total_cost": "0"}
     begun = _assert_ok(
@@ -1002,10 +1005,31 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         )
     )
     assert raw_sealed["result"]["state"] == "captured"
+    from app.application.preannotation_results import restore_write_scope
+    from app.services.batch_result_masks import normalize_batch_prediction_masks
+    from app.services.labeling_prediction_contract import (
+        ApplyPredictionResultRequest,
+        BatchResultPredictionIdentity,
+    )
+    from app.services.prediction import PredictionService
+
     prepared_bodies = []
     for body_bytes in raw_bodies:
         body = json.loads(body_bytes)
-        body["result"] = [dict(body["result"][0], prepared=True)]
+        (normalized,) = await normalize_batch_prediction_masks(
+            db_session,
+            (ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=task.project_id,
+                ml_backend_id=None,
+                result=body["result"],
+                write_scope=restore_write_scope(body["write_scope"]),
+                pipeline_extra=body["pipeline_extra"],
+                model_provenance=body["model_provenance"],
+                token_meta=body["token_meta"],
+            ),),
+        )
+        body["result"] = normalized.result
         prepared_bodies.append(
             json.dumps(
                 body, ensure_ascii=False, separators=(",", ":"), sort_keys=True
@@ -1150,7 +1174,43 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         == 1
     )
 
-    await insert_predictions(wrong_first=False)
+
+    writer = PredictionService(db_session)
+    for body_bytes, metadata in zip(prepared_bodies, raw_meta, strict=True):
+        body = json.loads(body_bytes)
+        request = ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=task.project_id,
+            ml_backend_id=None,
+            result=body["result"],
+            write_scope=restore_write_scope(body["write_scope"]),
+            pipeline_extra=body["pipeline_extra"],
+            model_provenance=body["model_provenance"],
+            token_meta=body["token_meta"],
+            batch_result_identity=BatchResultPredictionIdentity(
+                uuid.UUID(metadata["prediction_id"]),
+                datetime.fromisoformat(metadata["prediction_created_at"].replace("Z", "+00:00")),
+            ),
+        )
+        await writer._persist_prediction_result(request, task, request.result)
+
+    with pytest.raises(DBAPIError) as rejected_metadata:
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text("UPDATE public.prediction_metas SET extra = extra - 'inference_runtime' "
+                     "WHERE prediction_id = :prediction_id"),
+                {"prediction_id": uuid.UUID(raw_meta[0]["prediction_id"])},
+            )
+            await _native(
+                db_session, "aap_labeling_v1", "finish_batch_result_write",
+                lease_scope | {
+                    "ordinal": 1,
+                    "result_id": begun["result"]["result_id"],
+                    "prepared_digest": prepared_digest,
+                },
+            )
+    assert getattr(rejected_metadata.value.orig, "sqlstate", None) == "P0001"
+    assert "result_conflict" in str(rejected_metadata.value.orig)
     applied = _assert_ok(
         await _native(
             db_session,

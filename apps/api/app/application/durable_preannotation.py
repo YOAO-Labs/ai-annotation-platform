@@ -507,10 +507,13 @@ async def run_durable_batch(
         except PreannotationResultDeferred:
             await db.rollback()
             raise
-        except (BatchResultFailure, SQLAlchemyError):
+        except BatchResultFailure:
             await db.rollback()
-            # A protocol/provider/commit error cannot prove that business writes
-            # failed, or that a captured result is safe to discard.
+            # Deterministic native rejections are not storage outages. Preserve
+            # them without turning a retained result into a member failure.
+            raise
+        except SQLAlchemyError:
+            await db.rollback()
             raise PreannotationResultDeferred("storage_unavailable") from None
         except MaskContentFailure as exc:
             await db.rollback()

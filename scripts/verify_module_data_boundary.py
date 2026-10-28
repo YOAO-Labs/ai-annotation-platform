@@ -1167,6 +1167,7 @@ SQL_ARTIFACTS = (
     "0385_labeling_repair_rollback_shard.sql",
     "0386_inference_repair_model_lock.sql",
     "0387_labeling_annotation_lineage.sql",
+    "0397_preannotation_result_receipt.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",
