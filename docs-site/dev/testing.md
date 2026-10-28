@@ -59,6 +59,8 @@ uv run pytest --cov=app --cov-report=html    # 生成 HTML 覆盖率报告（输
 
 CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的四个独立分片，每个分片在自己的 GitHub runner 上拥有独立的 Postgres / Redis / MinIO。分片只决定 pytest 收集哪些用例；依赖同步、worktree 运行时与 setup 测试、服务维护测试、存储隔离验收、`alembic upgrade head`、迁移校验、OpenAPI 快照漂移、`migration policy` 纯规则测试与覆盖率上传在每个分片上都完整执行，任何分片都不会因为分片而跳过检查。
 
+后端分片固定使用 `ubuntu-24.04`，备份/还原显式选择 PostgreSQL 16 客户端，与本 Job 的 `postgres:16` 服务配套，避免浮动 runner 的新版 `pg_dump` 生成旧服务端不支持的配置。客户端缺失时安装同主版本包，不通过过滤备份语句、忽略 `pg_restore` 错误或跳过恢复场景放行迁移门禁。
+
 - **固定输入**：四个调用方分别传入 `--shard-index 0..3 --shard-count 4`。本地复现任一 CI 分片：
   ```bash
   cd apps/api
