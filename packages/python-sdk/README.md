@@ -32,6 +32,53 @@ pip install 'ai-annotation-sdk[tui]'     # + aap tui 终端面板 (textual, 隐�
 TUI 支持 Textual 8.x，启动时只加载 Projects、Jobs 与当前主体；Datasets、ML、看板和绩效按首次访问加载。
 列表提供筛选与分页，详情可查看 Dataset items、Batch、项目 Pool，并可确认后重试 failed Job。
 
+## 本机 GPU 推理插件安装
+
+`aap plugins` 由平台超级管理员在 Docker 执行机运行；平台 API 不访问 Docker socket。先从
+LibreYOLO 插件发布流程取得真实构建产物的固定 OCI 摘要及生成的 manifest，并将该摘要镜像
+加载到执行机的 Docker。执行机必须具备 NVIDIA Container Toolkit、显式授权的单张物理 GPU、
+受批准的 Docker 网络，以及平台 API 可访问的插件 URL。不要使用浮动标签、host 网络、平台
+数据库凭据或 GPU 签发私钥。请以可访问 Docker 的**非 root**用户运行；容器使用该用户的
+UID/GID 读取仅该用户可访问的状态目录。
+
+准备一个管理员审批的 JSON 配置文件：`manifest` 为构建生成的完整 manifest 对象；另含
+`name`、`url`（平台可访问的插件 HTTP(S) URL）、`gpu_resource_id`、
+`physical_gpu_uuid`（`GPU-...`）、`network`、`host_port`、`cpus`、
+`gpu_verify_keyring`（key ID 到 Ed25519 公钥的 unpadded base64url 映射）和
+`image_hosts`（允许下载图片的主机名列表）。manifest 的 `allowed_asset_sources` 是批准的
+资产源 origin 列表。`host_port` 暴露容器的 8000 端口；确保 URL 指向这个实例，且网络策略
+允许核心访问它。配置仅含公钥，不含业务 Token。
+
+```bash
+aap plugins prepare --config deployment.json --state-dir ./libreyolo-state --json
+# 以下显式步骤会从批准的来源准备并核验默认 t 资产；不会在预测时隐式下载。
+aap plugins prepare-assets --state-dir ./libreyolo-state --json
+aap plugins install --state-dir ./libreyolo-state --json
+aap plugins status --state-dir ./libreyolo-state --json
+```
+
+`prepare` 先持久化随机安装身份和独立 Token，再预留不可接流的 Registry/GPU 绑定。
+重试必须使用相同状态目录和配置；该目录及其中的收据、Token、公钥文件和资产目录为私有
+状态，不能复制给其他安装或丢失。`install` 核验本机镜像摘要、镜像 ID、容器所有权、
+GPU/资源及挂载，并向核心提交可信管理员的本机检查收据；这不是远程加密证明。核心仍需
+独立验证可达性、健康、setup 和运行事实后才激活；安装不自动启用任何项目。项目负责人仍须
+通过现有 `aap ml-backends` 或项目设置显式启用。若激活失败，容器保持原状且不自动接流；
+修复原因后重试同一状态目录。已激活实例的容器若消失或停止，不会未经重新资格检查而重启。
+真实 GPU 生命周期资格与镜像收据不同；本命令不自行声明已完成生命周期资格。
+
+升级时用**新**状态目录和新制品先运行 `prepare` 与 `prepare-assets`，再执行
+`aap plugins upgrade --from-state ./old-state --state-dir ./new-state --yes --json`。
+这会验证并激活新身份，保留旧实例与已有冻结引用；模型需重新部署、试用并由负责人发布。
+`aap plugins disable --state-dir ./libreyolo-state --yes --json` 先关闭核心准入，再等待
+核心证明签名排空及全部运行结束，只有证明成功才停止容器。卸载使用
+`aap plugins uninstall --state-dir ./libreyolo-state --yes --json`；活动依赖或未知资源
+状态会阻止操作。退役保留历史 Registry、部署与发布记录，不删除历史数据；成功停止后移除
+本地业务 Token，但保留用于查询历史身份的收据。失败后保留状态目录并重试，不要手工接管
+名称相同但所有权不匹配的容器。`--yes` 只跳过确认，不覆盖授权、依赖或并发修订检查。
+
+SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化 prepare/list/get/activate/
+disable/quiesce/retire，部署命令使用现有 CLI extra，不安装 Torch 或模型运行时。
+
 ## 快速上手
 
 ```python

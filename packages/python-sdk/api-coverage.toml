@@ -2,6 +2,13 @@ snapshot = "0.26.1"
 watched_tags = ["*"]
 
 [operations]
+"POST /api/v1/admin/ml-integrations/plugins/installations" = { status = "covered" }
+"GET /api/v1/admin/ml-integrations/plugins/installations" = { status = "covered" }
+"GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire" = { status = "covered" }
 "GET /api/v1/training/catalog" = { status = "covered" }
 "GET /api/v1/training/projects" = { status = "covered" }
 "GET /api/v1/training/runs" = { status = "covered" }

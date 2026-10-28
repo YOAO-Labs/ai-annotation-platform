@@ -33,6 +33,7 @@ from ai_annotation.cli import (
     members,
     ml_backends,
     ml_registry,
+    plugins,
     notifications,
     pipelines,
     predictions,
@@ -292,6 +293,7 @@ app.add_typer(jobs.app, name="jobs", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(export.app, name="export", rich_help_panel=PANEL_PIPELINE)
 app.add_typer(ml_backends.app, name="ml-backends", rich_help_panel=PANEL_MONITOR)
 app.add_typer(ml_registry.app, name="ml-registry", rich_help_panel=PANEL_MONITOR)
+app.add_typer(plugins.app, name="plugins", rich_help_panel=PANEL_MONITOR)
 app.add_typer(service_pools.app, name="service-pools", rich_help_panel=PANEL_MONITOR)
 app.add_typer(dashboard.app, name="dashboard", rich_help_panel=PANEL_MONITOR)
 app.add_typer(learning.app, name="learning", rich_help_panel=PANEL_PIPELINE)

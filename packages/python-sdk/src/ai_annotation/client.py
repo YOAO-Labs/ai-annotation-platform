@@ -75,6 +75,7 @@ from ai_annotation.storage_connections import StorageConnections
 from ai_annotation.admin_operations import AdminOperations
 from ai_annotation.ml_diagnostics import MLDiagnostics
 from ai_annotation.project_ml import ProjectML
+from ai_annotation.plugins import PluginInstallations
 from ai_annotation.audit_logs import AuditLogs
 from ai_annotation.task_views import TaskViews
 from ai_annotation.pipelines import ProjectPipelines
@@ -2134,6 +2135,7 @@ class Client:
         self.admin_operations = AdminOperations(self._http)
         self.ml_diagnostics = MLDiagnostics(self._http)
         self.project_ml = ProjectML(self._http)
+        self.plugins = PluginInstallations(self._http)
         self.audit_logs = AuditLogs(self._http)
         self.guide_assets = GuideAssets(self._http)
         self.project_performance = ProjectPerformance(self._http)
