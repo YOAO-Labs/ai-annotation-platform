@@ -9,9 +9,12 @@ from pydantic import ValidationError
 
 from aap_jobs.domain_query_contract import (
     CrossFramePageRequest,
+    FrozenDeploymentUsage,
+    FrozenDeploymentUsageRequest,
     JobCount,
     jobs_domain_query_schema,
     jobs_domain_query_sql,
+    jobs_frozen_deployment_usage_sql,
 )
 
 
@@ -35,7 +38,10 @@ def test_domain_query_resources_match_the_frozen_contract():
     assert (
         root / "apps/api/alembic/sql/0329_jobs_domain_queries.sql"
     ).read_text() == jobs_domain_query_sql()
-    assert len(schema["x-postgresql-functions"]) == 5
+    assert (
+        root / "apps/api/alembic/sql/0389_learning_deployment_retirement.sql"
+    ).read_text() == jobs_frozen_deployment_usage_sql()
+    assert len(schema["x-postgresql-functions"]) == 6
     assert len(schema["x-row-columns"]) == 15
 
 
@@ -63,3 +69,16 @@ def test_count_preserves_signed_bigint_without_boolean_or_string_coercion():
     for invalid in [-1, 2**63, True, "3"]:
         with pytest.raises(ValidationError):
             JobCount.model_validate_json(json.dumps({"count": invalid}))
+
+
+def test_frozen_deployment_usage_is_closed_and_requires_real_bigints():
+    ids = {key: str(uuid.uuid4()) for key in ("deployment_id", "registry_id", "model_version_id")}
+    request = FrozenDeploymentUsageRequest.model_validate_json(json.dumps(ids))
+    assert str(request.deployment_id) == ids["deployment_id"]
+    with pytest.raises(ValidationError):
+        FrozenDeploymentUsageRequest.model_validate_json(json.dumps({**ids, "extra": 1}))
+    usage = FrozenDeploymentUsage.model_validate({"active_jobs": 1, "retryable_failures": 2})
+    assert usage.active_jobs == 1 and usage.retryable_failures == 2
+    for value in (True, "1", -1, 2**63):
+        with pytest.raises(ValidationError):
+            FrozenDeploymentUsage.model_validate({"active_jobs": value, "retryable_failures": 0})

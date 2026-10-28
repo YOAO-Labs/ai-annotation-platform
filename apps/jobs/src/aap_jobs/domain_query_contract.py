@@ -19,6 +19,7 @@ JOBS_DOMAIN_QUERY_FUNCTIONS = {
     "cross_frame_page": "aap_jobs_v1.cross_frame_job_page",
     "cross_frame_count": "aap_jobs_v1.cross_frame_job_count",
     "latest_batch_prediction_times": "aap_jobs_v1.latest_batch_prediction_times",
+    "frozen_deployment_usage": "aap_jobs_v1.frozen_deployment_usage",
 }
 
 
@@ -53,6 +54,17 @@ class JobCount(_ClosedModel):
     count: StrictInt = Field(ge=0, le=2**63 - 1)
 
 
+class FrozenDeploymentUsageRequest(_ClosedModel):
+    deployment_id: UUID
+    registry_id: UUID
+    model_version_id: UUID
+
+
+class FrozenDeploymentUsage(_ClosedModel):
+    active_jobs: StrictInt = Field(ge=0, le=2**63 - 1)
+    retryable_failures: StrictInt = Field(ge=0, le=2**63 - 1)
+
+
 def jobs_domain_query_schema():
     row_return = (
         "TABLE("
@@ -72,6 +84,11 @@ def jobs_domain_query_schema():
             "TABLE(project_id uuid, latest_created_at timestamp with time zone)",
             "stable",
         ),
+        "frozen_deployment_usage": (
+            "uuid, uuid, uuid",
+            "TABLE(active_jobs bigint, retryable_failures bigint)",
+            "stable",
+        ),
     }
     models = (
         CrossFrameKeyRequest,
@@ -80,6 +97,8 @@ def jobs_domain_query_schema():
         LatestPredictionTimesRequest,
         LatestPredictionTime,
         JobCount,
+        FrozenDeploymentUsageRequest,
+        FrozenDeploymentUsage,
         AsyncJobLifecycleRow,
     )
     return {
@@ -104,6 +123,7 @@ def jobs_domain_query_schema():
             "page_and_count": "separate statements; count ignores the page limit",
             "latest_prediction": "batch_predict; current project_id only; max(created_at)",
             "authorization": "caller retains current actor/task/project visibility checks",
+            "frozen_deployment_usage": "active jobs and undismissed retries; all snapshot stages and legacy exact-instance references; caller holds registry and deployment locks",
             "singleflight": "lock before the active lookup; original advisory namespace and transaction lifetime",
         },
         "x-transactions": {
@@ -119,3 +139,7 @@ def jobs_domain_query_schema():
 
 def jobs_domain_query_sql():
     return files("aap_jobs").joinpath("sql/0329_jobs_domain_queries.sql").read_text()
+
+
+def jobs_frozen_deployment_usage_sql():
+    return files("aap_jobs").joinpath("sql/0389_learning_deployment_retirement.sql").read_text()

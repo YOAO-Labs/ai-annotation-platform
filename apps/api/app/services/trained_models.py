@@ -341,7 +341,8 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
 
     The caller must first hold Inference's registry lock in this transaction.
     """
-    from app.services.jobs_deployment_usage import frozen_deployment_usage
+    from aap_jobs.domain_query_contract import FrozenDeploymentUsageRequest
+    from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     deployments = (await db.scalars(
         select(ModelDeployment)
@@ -360,8 +361,11 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
     )
     frozen = 0
     for deployment in deployments:
-        usage = await frozen_deployment_usage(
-            db, deployment.id, deployment.registry_id, deployment.model_version_id
+        usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
+            FrozenDeploymentUsageRequest(
+                deployment_id=deployment.id, registry_id=deployment.registry_id,
+                model_version_id=deployment.model_version_id,
+            )
         )
         frozen += usage.active_jobs + usage.retryable_failures
     return RegistryLearningUsage(active_releases=int(active_releases), frozen_executions=frozen)
@@ -370,7 +374,8 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
 async def retire_deployment(db, project_id, version_id, deployment_id, *, terminal):
     """Stop new references first; terminal retirement only after dependencies drain."""
     from app.services.inference_topology_data import InferenceTopologyData
-    from app.services.jobs_deployment_usage import frozen_deployment_usage
+    from aap_jobs.domain_query_contract import FrozenDeploymentUsageRequest
+    from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     version = await load_version(db, project_id, version_id)
     if version.framework != "libreyolo":
@@ -396,8 +401,11 @@ async def retire_deployment(db, project_id, version_id, deployment_id, *, termin
             .join(ModelRelease, ModelRelease.id == ProjectModelSelection.release_id)
             .where(ModelRelease.deployment_id == deployment.id)
         )
-        usage = await frozen_deployment_usage(
-            db, deployment.id, deployment.registry_id, deployment.model_version_id
+        usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
+            FrozenDeploymentUsageRequest(
+                deployment_id=deployment.id, registry_id=deployment.registry_id,
+                model_version_id=deployment.model_version_id,
+            )
         )
         if release_count or usage.active_jobs or usage.retryable_failures:
             raise HTTPException(status_code=409, detail={

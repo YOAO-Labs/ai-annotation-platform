@@ -107,6 +107,49 @@
       "title": "JobCount",
       "type": "object"
     },
+    "FrozenDeploymentUsageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "registry_id": {
+          "format": "uuid",
+          "title": "Registry Id",
+          "type": "string"
+        },
+        "model_version_id": {
+          "format": "uuid",
+          "title": "Model Version Id",
+          "type": "string"
+        }
+      },
+      "required": ["deployment_id", "registry_id", "model_version_id"],
+      "title": "FrozenDeploymentUsageRequest",
+      "type": "object"
+    },
+    "FrozenDeploymentUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "active_jobs": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Active Jobs",
+          "type": "integer"
+        },
+        "retryable_failures": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retryable Failures",
+          "type": "integer"
+        }
+      },
+      "required": ["active_jobs", "retryable_failures"],
+      "title": "FrozenDeploymentUsage",
+      "type": "object"
+    },
     "AsyncJobLifecycleRow": {
       "additionalProperties": false,
       "description": "Fixed public row used to refresh the existing API ORM identity.",
@@ -276,6 +319,11 @@
       "arguments": "uuid[]",
       "returns": "TABLE(project_id uuid, latest_created_at timestamp with time zone)",
       "volatility": "stable"
+    },
+    "aap_jobs_v1.frozen_deployment_usage": {
+      "arguments": "uuid, uuid, uuid",
+      "returns": "TABLE(active_jobs bigint, retryable_failures bigint)",
+      "volatility": "stable"
     }
   },
   "x-row-columns": [
@@ -320,6 +368,7 @@
     "page_and_count": "separate statements; count ignores the page limit",
     "latest_prediction": "batch_predict; current project_id only; max(created_at)",
     "authorization": "caller retains current actor/task/project visibility checks",
+    "frozen_deployment_usage": "active jobs and undismissed retries; all snapshot stages and legacy exact-instance references; caller holds registry and deployment locks",
     "singleflight": "lock before the active lookup; original advisory namespace and transaction lifetime"
   },
   "x-transactions": {

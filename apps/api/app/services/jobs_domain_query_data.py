@@ -1,6 +1,10 @@
 """Borrowed-session binding for the Jobs owner's fixed domain queries."""
 
 from sqlalchemy import select, text
+from aap_jobs.domain_query_contract import (
+    FrozenDeploymentUsage,
+    FrozenDeploymentUsageRequest,
+)
 
 from app.db.models.async_job import AsyncJob
 
@@ -82,6 +86,23 @@ class JobsDomainQueryPostgresData:
             {"project_ids": project_ids},
         )
         return result.all()
+
+    async def frozen_deployment_usage(
+        self, request: FrozenDeploymentUsageRequest
+    ) -> FrozenDeploymentUsage:
+        """Read owner facts in the caller's fenced transaction."""
+        if self.db.autoflush:
+            await self.db.flush()
+        result = await self.db.execute(
+            text(
+                "SELECT active_jobs, retryable_failures FROM "
+                "aap_jobs_v1.frozen_deployment_usage("
+                "CAST(:deployment_id AS uuid), CAST(:registry_id AS uuid), "
+                "CAST(:model_version_id AS uuid))"
+            ),
+            request.model_dump(),
+        )
+        return FrozenDeploymentUsage.model_validate(dict(result.mappings().one()))
 
     async def lock_action_idempotency(self, *, action, project_id, actor_id, key):
         await self.db.execute(

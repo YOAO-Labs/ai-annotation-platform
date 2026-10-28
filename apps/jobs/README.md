@@ -94,19 +94,24 @@ for the bounded native and packaging evidence.
 
 ## Fixed domain queries
 
-`aap-jobs-domain-queries/v1` packages five fixed native capabilities and their
+`aap-jobs-domain-queries/v1` packages six fixed native capabilities and their
 schema without an API or ORM dependency. Cross-frame singleflight uses the
 original actor/key advisory transaction lock before querying pending/running
 jobs. History page and count remain separate actor/scene/kind statements;
 ordering remains `created_at DESC`, with no new project predicate or tie breaker.
 The admin prediction projection returns each current project's latest
 `batch_predict` creation time; retained scope is intentionally excluded.
+`frozen_deployment_usage(uuid,uuid,uuid)` reports pending/running Jobs and
+undismissed retry failures for a deployment, including secondary snapshot stages
+and legacy exact-instance references. Learning holds the registry and deployment
+locks in the same transaction before requesting these facts. Job terminal state
+does not prove that native inference has physically drained.
 
 The borrowed-session API binding preserves ORM identities, original autoflush
 and statement order. Taking the advisory lock does not flush; the following
 mapped lookup does. The count and aggregate retain their original query flush.
 No capability commits, retries, authorizes the actor, or changes execution
-ownership. Ordinary runtime profiles receive these five functions; the strict
+ownership. Ordinary runtime profiles require these six functions; the strict
 lifecycle LOGIN retains its existing eight capabilities. Other private reads
 and legacy edits still prevent global Jobs credential retirement.
 
