@@ -147,7 +147,7 @@ async def test_native_terminal_intent_replay_and_full_pool_proof(test_engine: As
             row.extra_params = {
                 "max_concurrency": 4,
                 "plugin": {"installation_id": str(backend_id), "status": "disabled", "revision": 4, "resource": resource},
-                "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "a" * 64, "resource": resource}},
+                "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "a" * 64, "resource": resource}, "stopped": []},
             }
             endpoint = row.url
         request = {
@@ -163,6 +163,18 @@ async def test_native_terminal_intent_replay_and_full_pool_proof(test_engine: As
         prepared = first["preparation"]
         assert prepared["source_generation"] == "1"
         assert prepared["generation"] == "2"
+        async with factory() as db:
+            fence = await db.get(GPUBackendFence, backend_id)
+            runtime_epoch = str(fence.runtime_epoch_high_water)
+        cold = {"backend_registry_id": str(backend_id), "gpu_resource_id": _RESOURCE_A,
+                "membership_epoch": 1, "budget_mb": 1024, "eviction_priority": 0,
+                "max_concurrency": 4, "boot_id": residency["boot_id"], "observed_generation": None,
+                "generation": "1", "control_epoch": "1", "runtime_epoch": runtime_epoch,
+                "token_expires_at": expiry, "db_now": datetime.now(UTC).isoformat()}
+        proof_args = {"expected_subject": cold, "challenge": None}
+        assert (await _step(factory, "cold_terminal_from_health", proof_args))["status"] == "ready"
+        wrong_boot = {**proof_args, "expected_subject": {**cold, "boot_id": "other-boot"}}
+        assert (await _step(factory, "cold_terminal_from_health", wrong_boot))["reason"] == "generation_changed"
         repeated = await _step(factory, "installation_terminal", args)
         assert repeated["preparation"]["generation"] == prepared["generation"]
         conflicting = {**args, "request": {**request, "operation_id": str(uuid4())}}
@@ -317,3 +329,46 @@ async def test_terminal_domain_bootstraps_missing_promoted_membership(test_engin
         assert started.status == "owned"
     finally:
         await _cleanup_backends(factory, ids)
+
+
+@pytest.mark.asyncio
+async def test_terminal_first_claim_promotes_pending_legacy_resident(test_engine: AsyncEngine):
+    factory = await _open_gpu_authority_provider(test_engine)
+    backend_id = uuid4()
+    resource = {"gpu_resource_id": _RESOURCE_A, "physical_gpu_uuid": "GPU-a", "logical_device": "cuda:0"}
+    endpoint = f"http://gpu-proof-{backend_id}.test"
+    try:
+        async with factory.begin() as db:
+            db.add(MLBackendRegistry(
+                id=backend_id, name="terminal-legacy", url=endpoint, gpu_resource_id=_RESOURCE_A,
+                vram_budget_mb=1024, eviction_priority=0,
+                extra_params={"max_concurrency": 4,
+                    "plugin": {"installation_id": str(backend_id), "status": "prepared", "revision": 1, "resource": resource},
+                    "plugin_lifecycle": {"launch": {"registry_id": str(backend_id), "container_id": "a" * 64, "resource": resource}, "stopped": []}},
+            ))
+        residency = _residency(backend_id, _RESOURCE_A, resident=True)
+        residency.update(identity=None, control_epoch=None, lifecycle_gate="legacy", generation=None,
+                         evictable=False, active_requests=1, borrowers=1)
+        request = {"registry_id": str(backend_id), "resource_id": _RESOURCE_A, "endpoint": endpoint,
+                   "boot_id": residency["boot_id"], "operation_id": str(uuid4()),
+                   "container_id": "a" * 64, "pool_ids": ["models"]}
+        args = {"phase": "prepare", "request": request, "residency": residency,
+                "preparation": None, "token_expires_at": (datetime.now(UTC) + timedelta(minutes=3)).isoformat(),
+                "ledger_source_generation": None}
+        preparation = (await _step(factory, "installation_terminal", args))["preparation"]
+        assert preparation["generation"] == "1" and preparation["control_epoch"] == "1"
+        assert (await _step(factory, "installation_terminal", args))["preparation"]["generation"] == "1"
+        terminal = {**residency, "identity": {"audience": "aap-gpu-lifecycle",
+                    "backend_registry_id": str(backend_id), "gpu_resource_id": _RESOURCE_A},
+                    "control_epoch": "1", "lifecycle_gate": "enforce", "state": "draining",
+                    "draining": True, "gpu_loaded": False, "generation": "1",
+                    "active_requests": 0, "borrowers": 0,
+                    "pools": {"models": {"resident": False, "device": None, "provider": None}}}
+        verify = {**args, "phase": "verify", "residency": terminal, "preparation": preparation,
+                  "token_expires_at": preparation["token_expires_at"]}
+        assert (await _step(factory, "installation_terminal", verify))["status"] == "verified"
+        assert (await _step(factory, "installation_terminal", {**verify, "phase": "commit"}))["status"] == "verified"
+    finally:
+        async with factory.begin() as db:
+            await db.execute(text("DELETE FROM aap_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"), {"id": backend_id})
+        await _cleanup_backends(factory, (backend_id,))

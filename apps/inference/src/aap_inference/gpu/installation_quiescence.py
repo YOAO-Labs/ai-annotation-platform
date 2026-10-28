@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 
 from aap_protocol_v2.lifecycle import AdmissionScope, AdmissionTokenClaims
 from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-from aap_inference.gpu.installation_bootstrap import bootstrap_gpu_installation
 from aap_inference.gpu.contracts import GPUDispatchGrant
 from aap_inference.gpu.ledger.installation_domain import ensure_installation_domain
 from aap_inference_contract.gpu import GPUInstallationControlRequest, GPUInstallationQuiesceReply
@@ -56,18 +55,6 @@ async def quiesce_gpu_installation(
     if endpoint.registry_id != request.registry_id or endpoint.url != request.endpoint or endpoint.gpu_resource_id != request.resource_id:
         raise ValueError("GPU installation endpoint changed")
     initial = await _health(endpoint, backend_transport, request_id)
-    if initial.get("lifecycle_gate") != "enforce" or initial.get("identity") is None or initial.get("control_epoch") is None:
-        await bootstrap_gpu_installation(
-            request, data=data, signer_factory=signer_factory, endpoint_source=endpoint_source,
-            backend_transport=backend_transport, clock=clock, readiness_demoter=readiness_demoter,
-        )
-        current = await endpoint_source.open_owned(
-            request.registry_id, request_id=request_id, purpose="health_observation", binding=None
-        )
-        if current.endpoint_sha256 != endpoint.endpoint_sha256:
-            raise ValueError("GPU installation endpoint changed")
-        endpoint = current
-        initial = await _health(endpoint, backend_transport, request_id)
     store = store_factory()
     try:
         async with data.transaction() as transaction:
@@ -77,12 +64,9 @@ async def quiesce_gpu_installation(
         rows = candidates.get("candidates") if isinstance(candidates, dict) else None
         matches = [row for row in rows if isinstance(row, dict)
                    and row.get("backend_id") == str(request.registry_id)
-                   and row.get("state") == "active"] if isinstance(rows, list) else []
+                   and row.get("state") in {"pending", "active"}] if isinstance(rows, list) else []
         if len(matches) != 1 or type(matches[0].get("membership_epoch")) is not int:
             raise ValueError("GPU installation active membership unavailable")
-        await ensure_installation_domain(
-            data, store, request.resource_id, str(request.registry_id), matches[0]["membership_epoch"]
-        )
         snapshot = await store.snapshot(request.resource_id)
         transition = snapshot.transition
         if isinstance(transition, dict) and transition.get("owner_id") == owner:
@@ -103,6 +87,9 @@ async def quiesce_gpu_installation(
         expiration = prepared["token_expires_at"]
         expires = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
         membership_epoch = prepared["membership_epoch"]
+        await ensure_installation_domain(
+            data, store, request.resource_id, str(request.registry_id), membership_epoch
+        )
         if prepared["settled"] is True:
             verified = {"phase": "verify", "request": document, "residency": initial,
                         "preparation": prepared, "token_expires_at": expiration,

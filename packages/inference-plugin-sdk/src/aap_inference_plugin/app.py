@@ -204,8 +204,8 @@ def create_detection_app(provider: DetectionProvider, config: DetectionConfig) -
                   "gpu_resource_id": config.expected_gpu_resource_id}
         if config.evictable_verified:
             result["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(mode="json")
-            if config.device.startswith("cuda:"):
-                result["terminal_lifecycle"] = {"terminal_drain_signed_endpoint": "/lifecycle/terminal-drain-signed"}
+        if config.device.startswith("cuda:") and config.expected_registry_id and config.expected_gpu_resource_id:
+            result["terminal_lifecycle"] = {"terminal_drain_signed_endpoint": "/lifecycle/terminal-drain-signed"}
         if config.device == "cpu" and config.expected_registry_id and not config.expected_gpu_resource_id:
             result["terminal_lifecycle"] = {"terminal_drain_endpoint": "/lifecycle/terminal-drain"}
         return result

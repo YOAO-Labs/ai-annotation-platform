@@ -67,7 +67,7 @@ def verify_endpoint_observation(
     compatibility = [entry.model_dump(mode="json") for entry in manifest.managed_model_compatibility]
     if setup.get("managed_model_compatibility") != compatibility:
         raise PluginObservationRejected("managed model capabilities differ from manifest")
-    if any(entry.framework == "libreyolo" for entry in manifest.managed_model_compatibility):
+    if not for_drain and any(entry.framework == "libreyolo" for entry in manifest.managed_model_compatibility):
         baseline = LIBRE_CUDA_RUNTIME if manifest.resource.device == "cuda" else LIBRE_RUNTIME
         if any(runtime.get(key) != baseline[key] for key in ("libreyolo", "torch", "torchvision")):
             raise PluginObservationRejected("installed runtime versions are not qualified")
@@ -97,7 +97,7 @@ def verify_endpoint_observation(
     }:
         raise PluginObservationRejected("GPU terminal lifecycle capability unavailable")
     try:
-        if manifest.resource.device == "cuda":
+        if manifest.resource.device == "cuda" and not for_drain:
             canonical_managed_lifecycle_capabilities(setup.get("managed_lifecycle"))
         residency = BackendResidency.model_validate(health.get("residency"))
     except (TypeError, ValueError):

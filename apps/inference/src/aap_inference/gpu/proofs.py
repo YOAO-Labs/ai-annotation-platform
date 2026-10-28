@@ -2699,6 +2699,7 @@ def _cold_terminal_durable_reason(
     fence: GPUProofFence,
     registry: GPUProofRegistry,
     expected_subject: GPUPreparedColdRuntimeSubject,
+    *, native_generation_checked: bool = False,
 ) -> str | None:
     try:
         generation = _strict_nonnegative_int64(
@@ -2725,7 +2726,12 @@ def _cold_terminal_durable_reason(
         or membership.max_concurrency != expected_subject.max_concurrency
     ):
         return "membership_changed"
-    if generation != int(expected_subject.generation):
+    # Native has already checked equality or the exact, locked installation
+    # terminal intent for this old cold generation. Never infer that exception
+    # here from a high-water value alone.
+    if generation != int(expected_subject.generation) and not (
+        native_generation_checked and generation > int(expected_subject.generation)
+    ):
         return "generation_changed"
     if control_epoch != int(expected_subject.control_epoch):
         return "control_epoch_changed"
@@ -2898,6 +2904,7 @@ async def commit_gpu_cold_terminal_from_health(
             facts.fence,
             facts.registry,
             expected_subject,
+            native_generation_checked=True,
         )
         if durable_reason is not None:
             return GPUColdTerminalCommitResult(

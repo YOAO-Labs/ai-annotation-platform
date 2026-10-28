@@ -679,7 +679,11 @@ class ManagedGpuLifecycle:
             claims.owner or "", claims.operation or "",
         )
         async with self._lock:
-            self._validate_enforced_transition_locked(claims, AdmissionScope.DRAIN)
+            self._validate_control_claim_locked(claims, AdmissionScope.DRAIN)
+            if self._identity is not None and claims.control_epoch != self._control_epoch:
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+            if self._identity is None and (self._gate is not LifecycleGate.LEGACY or self._control_epoch is not None):
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
             if not claims.owner or not claims.operation:
                 raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
             self._consume_jti_locked(
@@ -696,6 +700,9 @@ class ManagedGpuLifecycle:
                     or (self._generation is not None and int(canonical) <= int(self._generation))
                 ):
                     raise LifecycleHTTPError(LifecycleErrorCode.GENERATION_CONFLICT)
+                self._bind_identity_locked(claims)
+                self._control_epoch = claims.control_epoch
+                self._gate = LifecycleGate.ENFORCE
                 self._generation = canonical
                 self._generation_open = False
                 self._current_drain = expected

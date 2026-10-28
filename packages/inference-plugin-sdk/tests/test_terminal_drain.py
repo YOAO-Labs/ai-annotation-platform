@@ -81,6 +81,18 @@ def test_cuda_cannot_use_bearer_only_cpu_terminal_drain():
         assert response.status_code == 404
         assert client.post("/lifecycle/terminal-drain-signed", json={"generation": "1"}).status_code >= 400
 
+def test_unqualified_bound_cuda_advertises_only_signed_terminal_control():
+    registry = str(uuid4())
+    config = DetectionConfig(token=TOKEN, device="cuda:0", physical_gpu_uuid="GPU-123",
+                             catalog={"t": {}}, default_model="t", expected_registry_id=registry,
+                             expected_gpu_resource_id="local/GPU-123", evictable_verified=False)
+    with TestClient(create_detection_app(Provider(), config), headers={"Authorization": "Bearer " + TOKEN}) as client:
+        setup = client.get("/setup").json()
+        assert setup["terminal_lifecycle"] == {"terminal_drain_signed_endpoint": "/lifecycle/terminal-drain-signed"}
+        assert "managed_lifecycle" not in setup
+        assert client.post("/lifecycle/terminal-drain-signed", json={"generation": "1"}).status_code >= 400
+
+
 
 def test_cuda_terminal_drain_requires_and_consumes_signed_gpu_authority():
     from aap_protocol_v2.lifecycle import AdmissionScope

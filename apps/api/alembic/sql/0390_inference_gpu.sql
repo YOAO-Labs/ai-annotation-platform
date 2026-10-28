@@ -607,7 +607,15 @@ BEGIN
         v_now:=pg_catalog.transaction_timestamp();
         IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'active' OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL OR v_membership.membership_epoch<>aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_missing');
         ELSIF v_membership.vram_budget_mb<>aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647) OR v_membership.eviction_priority<>aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647) OR v_membership.max_concurrency<>aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','membership_changed');
-        ELSIF (p_action='cold_terminal_from_health' AND v_fence.generation_high_water<>(v_expected->>'generation')::bigint) OR (p_action<>'cold_terminal_from_health' AND v_fence.generation_high_water<(v_expected->>'generation')::bigint) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','generation_changed');
+        ELSIF (p_action='cold_terminal_from_health' AND v_fence.generation_high_water<>(v_expected->>'generation')::bigint
+               AND NOT EXISTS (SELECT 1 FROM aap_inference_gpu_v1.installation_terminal_intents t
+                   WHERE t.backend_registry_id=v_id AND NOT t.settled
+                     AND t.request->>'resource_id'=v_resource AND t.request->>'boot_id'=v_expected->>'boot_id'
+                     AND t.membership_epoch=v_membership.membership_epoch
+                     AND t.source_generation=v_expected->>'generation'
+                     AND t.generation=v_fence.generation_high_water
+                     AND t.control_epoch=v_fence.control_epoch_high_water AND t.runtime_epoch=v_fence.runtime_epoch_high_water))
+           OR (p_action<>'cold_terminal_from_health' AND v_fence.generation_high_water<(v_expected->>'generation')::bigint) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','generation_changed');
         ELSIF v_fence.control_epoch_high_water::text IS DISTINCT FROM v_expected->>'control_epoch' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','control_epoch_changed');
         ELSIF v_fence.runtime_epoch_high_water::text IS DISTINCT FROM v_expected->>'runtime_epoch' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_epoch_changed');
         ELSIF v_fence.token_expiry_high_water IS NULL OR v_fence.token_expiry_high_water<aap_inference_gpu_v1._timestamp(v_expected->'token_expires_at') THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','token_horizon_changed');
@@ -962,7 +970,7 @@ BEGIN
         END;
         SELECT * INTO v_terminal_intent FROM aap_inference_gpu_v1.installation_terminal_intents i WHERE i.backend_registry_id=v_id FOR UPDATE;
         v_now:=pg_catalog.clock_timestamp();
-        IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'active'
+        IF v_membership.backend_registry_id IS NULL OR v_membership.state NOT IN ('pending','active')
            OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL
            OR v_registry.gpu_resource_id IS DISTINCT FROM v_resource
            OR v_registry.url IS DISTINCT FROM v_text
@@ -973,13 +981,22 @@ BEGIN
            OR v_registry.extra_params #>> '{plugin_lifecycle,launch,container_id}' IS DISTINCT FROM v_reason
            OR v_registry.extra_params #>> '{plugin_lifecycle,launch,registry_id}' IS DISTINCT FROM v_id::text
            OR v_registry.extra_params #> '{plugin_lifecycle,launch,resource}' IS DISTINCT FROM v_registry.extra_params #> '{plugin,resource}'
+           OR pg_catalog.jsonb_typeof(v_registry.extra_params #> '{plugin_lifecycle,stopped}') IS DISTINCT FROM 'array'
+           OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(CASE WHEN pg_catalog.jsonb_typeof(v_registry.extra_params #> '{plugin_lifecycle,stopped}')='array' THEN v_registry.extra_params #> '{plugin_lifecycle,stopped}' ELSE '[]'::jsonb END) s(value)
+                     WHERE s.value->>'container_id'=v_reason OR s.value->>'boot_id'=v_boot)
            OR (v_registry.extra_params #>> '{plugin_lifecycle,activation,boot_id}' IS NOT NULL AND v_registry.extra_params #>> '{plugin_lifecycle,activation,boot_id}' IS DISTINCT FROM v_boot)
            OR v_residency->>'boot_id' IS DISTINCT FROM v_boot
-           OR v_residency #>> '{identity,audience}' IS DISTINCT FROM 'aap-gpu-lifecycle'
-           OR v_residency #>> '{identity,backend_registry_id}' IS DISTINCT FROM v_id::text
-           OR v_residency #>> '{identity,gpu_resource_id}' IS DISTINCT FROM v_resource
-           OR v_residency->>'control_epoch' IS DISTINCT FROM v_fence.control_epoch_high_water::text
-           OR v_fence.control_epoch_high_water<=0 OR v_fence.runtime_epoch_high_water<=v_membership.runtime_epoch_baseline
+           OR NOT COALESCE((
+               (v_args->>'phase'='prepare' AND v_residency->'identity'='null'::jsonb
+                AND v_residency->'control_epoch'='null'::jsonb AND v_residency->>'lifecycle_gate'='legacy'
+                AND ((v_membership.state='pending' AND v_fence.runtime_epoch_high_water=v_membership.runtime_epoch_baseline)
+                     OR (v_membership.state='active' AND v_fence.runtime_epoch_high_water>v_membership.runtime_epoch_baseline)))
+               OR (v_residency #>> '{identity,audience}'='aap-gpu-lifecycle'
+                   AND v_residency #>> '{identity,backend_registry_id}'=v_id::text
+                   AND v_residency #>> '{identity,gpu_resource_id}'=v_resource
+                   AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text
+                   AND v_fence.control_epoch_high_water>0
+                   AND v_membership.state='active' AND v_fence.runtime_epoch_high_water>v_membership.runtime_epoch_baseline)), false)
            OR v_time<=v_now OR v_time>v_now+interval '5 minutes' THEN
             v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','installation_changed');
         ELSIF v_args->>'phase'='prepare' THEN
@@ -1000,6 +1017,19 @@ BEGIN
                OR (v_args->>'ledger_source_generation' IS NOT NULL AND (v_args->>'ledger_source_generation')::bigint>v_fence.generation_high_water) THEN
                 v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','generation_changed');
             ELSE
+                IF v_terminal_intent.backend_registry_id IS NULL OR v_terminal_intent.request IS DISTINCT FROM v_expected THEN
+                    IF v_residency->'identity'='null'::jsonb THEN
+                        IF v_fence.control_epoch_high_water=9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+                        v_fence.control_epoch_high_water:=v_fence.control_epoch_high_water+1;
+                        UPDATE public.gpu_backend_fences SET control_epoch_high_water=v_fence.control_epoch_high_water WHERE backend_registry_id=v_id;
+                    END IF;
+                    IF v_membership.state='pending' THEN
+                        IF v_fence.runtime_epoch_high_water=9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+                        v_fence.runtime_epoch_high_water:=v_fence.runtime_epoch_high_water+1;
+                        UPDATE public.gpu_backend_fences SET runtime_epoch_high_water=v_fence.runtime_epoch_high_water WHERE backend_registry_id=v_id;
+                        UPDATE public.gpu_backend_memberships SET state='active',updated_at=v_now WHERE backend_registry_id=v_id AND gpu_resource_id=v_resource;
+                    END IF;
+                END IF;
                 v_generation:=v_fence.generation_high_water+1;
                 INSERT INTO aap_inference_gpu_v1.installation_terminal_intents AS i
                     (backend_registry_id,request,revision,membership_epoch,generation,source_generation,control_epoch,runtime_epoch,settled)

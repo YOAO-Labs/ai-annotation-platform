@@ -189,6 +189,16 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
     verify_endpoint_observation(installation, receipt, **kwargs)
     with pytest.raises(PluginObservationRejected):
         verify_endpoint_observation(installation, receipt, **{**kwargs, "qualification": None})
+    unqualified_setup = deepcopy(setup)
+    unqualified_setup.pop("managed_lifecycle")
+    unqualified_setup["runtime_info"]["torch"] = "unqualified"
+    verify_endpoint_observation(installation, receipt, **{
+        **kwargs, "setup": unqualified_setup, "qualification": None, "for_drain": True,
+    })
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(installation, receipt, **{
+            **kwargs, "setup": unqualified_setup, "qualification": None,
+        })
     with pytest.raises(PluginObservationRejected):
         verify_endpoint_observation(installation, receipt, **{
             **kwargs, "qualification": qualification.model_copy(update={"sha256": "0" * 64}),

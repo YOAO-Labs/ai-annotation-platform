@@ -28,6 +28,7 @@ local function matches(t)
     and t.owner_id == owner and t.generation == generation
     and t.installation_membership_epoch == epoch
 end
+local receipt_field = 'installation_drain_receipt:' .. backend .. ':' .. owner
 if action == 'begin' then
   if transition then
     if not matches(transition) or transition.installation_source_generation ~= source then
@@ -35,7 +36,7 @@ if action == 'begin' then
     end
     return response(leases > 0 and 'active_leases' or 'owned', true)
   end
-  local receipt = integrity_decode(redis.call('HGET', KEYS[1], 'last_installation_drain_receipt'))
+  local receipt = integrity_decode(redis.call('HGET', KEYS[1], receipt_field))
   if matches(receipt) and receipt.installation_source_generation == source then
     return response('released', true)
   end
@@ -61,13 +62,11 @@ if action == 'begin' then
   redis.call('HINCRBY', KEYS[1], 'ledger_revision', 1)
   return response(leases > 0 and 'active_leases' or 'owned')
 end
-if not transition then
-  if action == 'release' then
-    local receipt = integrity_decode(redis.call('HGET', KEYS[1], 'last_installation_drain_receipt'))
-    if matches(receipt) then return response('released', true) end
-  end
-  return response('missing')
+if action == 'release' then
+  local receipt = integrity_decode(redis.call('HGET', KEYS[1], receipt_field))
+  if matches(receipt) then return response('released', true) end
 end
+if not transition then return response('missing') end
 if not matches(transition) then return response('owner_mismatch') end
 if leases > 0 then return response('active_leases') end
 if not integrity_has_revision_headroom(redis.call('HGET', KEYS[1], 'ledger_revision')) then
@@ -114,7 +113,7 @@ elseif action == 'release' then
   end
   redis.call('DEL', KEYS[4])
   redis.call('HSET', KEYS[1], 'transition_mirror', '',
-    'last_installation_drain_receipt', cjson.encode(transition), 'updated_at_ms', tostring(ledger.now))
+    receipt_field, cjson.encode(transition), 'updated_at_ms', tostring(ledger.now))
   redis.call('HINCRBY', KEYS[1], 'ledger_revision', 1)
   return response('released')
 end

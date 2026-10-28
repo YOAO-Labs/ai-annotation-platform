@@ -177,6 +177,40 @@ def test_signed_gpu_terminal_fence_rejects_reactivation_and_wrong_identity():
         await lifecycle.shutdown()
     asyncio.run(scenario())
 
+def test_signed_terminal_first_claim_drains_legacy_resident_and_borrower():
+    async def scenario():
+        key = Ed25519PrivateKey.generate()
+        pool = _pool()
+        lifecycle = ManagedGpuLifecycle(pool, verify_keyring={"k": key.public_key()},
+            evictable_verified=False, boot_id="boot-1", expected_registry_id="registry-1",
+            expected_gpu_resource_id="node/GPU-1")
+        await pool.warmup("model")
+        operation = await lifecycle.begin_workload(AdmissionScope.PREDICT, generation_header=None, token=None)
+        def signed(registry):
+            claims = AdmissionTokenClaims(backend_registry_id=registry, gpu_resource_id="node/GPU-1",
+                boot_id="boot-1", generation="1", control_epoch="1", scope=AdmissionScope.DRAIN,
+                jti="terminal", exp=int(time.time()) + 60, owner="owner", operation="stop-1")
+            return sign_admission_token(claims, private_key=key, kid="k")
+        with pytest.raises(LifecycleHTTPError):
+            await lifecycle.terminal_drain_signed("1", generation_header="1", token=signed("other"))
+        async with pool.borrow("model"):
+            stopping = asyncio.create_task(lifecycle.terminal_drain_signed(
+                "1", generation_header="1", token=signed("registry-1")))
+            while lifecycle._terminal_identity is None:
+                await asyncio.sleep(0)
+            with pytest.raises(LifecycleHTTPError):
+                await lifecycle.begin_workload(AdmissionScope.PREDICT, generation_header=None, token=None)
+            await operation.close()
+            assert not stopping.done()
+        proof = await stopping
+        assert proof["unloaded"] and proof["control_epoch"] == "1"
+        residency = await lifecycle.residency()
+        assert residency.draining and not residency.gpu_loaded
+        assert residency.identity.backend_registry_id == "registry-1"
+        await lifecycle.shutdown()
+    asyncio.run(scenario())
+
+
 
 def test_failed_terminal_cleanup_never_authorizes_stop_or_reopens():
     async def scenario():

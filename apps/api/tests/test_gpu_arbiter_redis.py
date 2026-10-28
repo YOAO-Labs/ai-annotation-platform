@@ -9240,6 +9240,28 @@ async def test_installation_drain_settles_exact_generation_and_keeps_fence(
     assert retry.status == "released" and retry.idempotent
     assert not (await first.snapshot(resource)).transition_present
 
+@pytest.mark.asyncio
+async def test_installation_drain_receipts_survive_other_member_and_active_transition(redis_stores):
+    first, _ = redis_stores
+    resource = "installation-receipt-isolation"
+    await first.reconcile_card(
+        resource, 100, expected_ledger_revision=None, expected_ledger_incarnation=None,
+        backend_memberships=_memberships("backend-a", "backend-b"), allocations=(),
+        lease_cleanup=None, ready=True, reconcile_deadline_ms=_future_reconcile_deadline_ms(),
+        repair_id="bootstrap-receipt-isolation",
+    )
+    a = dict(backend_id="backend-a", membership_epoch=1, generation="1", owner_id="installation:a")
+    b = dict(backend_id="backend-b", membership_epoch=1, generation="1", owner_id="installation:b")
+    assert (await first.begin_installation_drain(resource, source_generation=None, **a)).status == "owned"
+    assert (await first.finish_installation_drain(resource, **a)).status == "settled"
+    assert (await first.release_installation_drain(resource, **a)).status == "released"
+    assert (await first.begin_installation_drain(resource, source_generation=None, **b)).status == "owned"
+    assert (await first.release_installation_drain(resource, **a)).idempotent
+    assert (await first.finish_installation_drain(resource, **b)).status == "settled"
+    assert (await first.release_installation_drain(resource, **b)).status == "released"
+    assert (await first.release_installation_drain(resource, **a)).idempotent
+
+
 
 @pytest.mark.asyncio
 async def test_installation_drain_fences_admissions_and_waits_for_uncertain_leases(
