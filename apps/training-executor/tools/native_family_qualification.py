@@ -58,7 +58,8 @@ def qualify_managed_return(path, base_model, root):
     """Use the actual HTTP installer and native inspection, with task-owned storage."""
     backend = Path(__file__).resolve().parents[2] / "yolo-backend"
     sys.path.insert(0, str(backend))
-    from managed_models import InstallRequest, ManagedModelStore
+    from managed_models import InstallRequest as UltralyticsInstallRequest
+    from managed_models import ManagedModelStore as UltralyticsModelStore
     from scripts.controlled_segmentation_validation import _weight_server
     from training_contract.model_return import libre_identity, ultralytics_identity
 
@@ -85,9 +86,26 @@ def qualify_managed_return(path, base_model, root):
             else {}
         ),
     }
-    store = ManagedModelStore(root / "managed")
+    if framework == "libreyolo":
+        plugin = Path(__file__).resolve().parents[3] / "plugins" / "libreyolo"
+        sys.path.insert(0, str(plugin))
+        from aap_backend_runtime.managed_models import ManagedModelStore
+        from aap_libreyolo_plugin.install import (
+            inspect, install_request_model, validate_installed_receipt,
+        )
+
+        store = ManagedModelStore(root / "managed", inspect=inspect, validate_receipt=validate_installed_receipt)
+    else:
+        store = UltralyticsModelStore(root / "managed")
     with _weight_server(path) as url:
-        body = InstallRequest.model_validate(
+        if framework == "libreyolo":
+            from urllib.parse import urlsplit
+
+            parsed = urlsplit(url)
+            request_model = install_request_model([f"{parsed.scheme}://{parsed.netloc}"])
+        else:
+            request_model = UltralyticsInstallRequest
+        body = request_model.model_validate(
             {**expected, "size_bytes": path.stat().st_size, "download_url": url}
         )
         installed = asyncio.run(store.install(body))

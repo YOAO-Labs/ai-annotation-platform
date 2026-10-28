@@ -23,9 +23,8 @@ COPY _shared/task_contract/ /app/task_contract/
 COPY _shared/protocol_v2/ /app/protocol_v2/
 COPY _shared/backend_runtime/ /app/backend_runtime/
 COPY _shared/training_contract/ /app/training_contract/
-COPY _shared/libreyolo_native/ /app/libreyolo_native/
-RUN python -m pip install --no-deps --no-build-isolation -e /app/task_contract -e /app/protocol_v2 -e /app/backend_runtime -e /app/training_contract -e /app/libreyolo_native
-RUN python -c "import torch,torchvision,ultralytics,libreyolo,pynvml; assert torch.__version__ == '2.14.1+cu132'; assert torchvision.__version__ == '0.29.1+cu132'; assert ultralytics.__version__ == '8.4.183'; assert libreyolo.__version__ == '1.6.0'"
+RUN python -m pip install --no-deps --no-build-isolation -e /app/task_contract -e /app/protocol_v2 -e /app/backend_runtime -e /app/training_contract
+RUN python -c "import torch,torchvision,ultralytics,pynvml; assert torch.__version__ == '2.14.1+cu132'; assert torchvision.__version__ == '0.29.1+cu132'; assert ultralytics.__version__ == '8.4.183'"
 
 COPY yolo-backend/main.py yolo-backend/predictor.py yolo-backend/schemas.py \
     yolo-backend/model_pool.py yolo-backend/model_registry.py \

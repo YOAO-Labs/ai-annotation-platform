@@ -5,8 +5,8 @@
 # Isolated per suite: every invocation creates its own throwaway virtualenv, so
 # no suite can inherit another package's `sys.modules` (the committed tests
 # install MagicMock torch stubs, and a shared interpreter would let a stub leak
-# into a later suite). YOLO native tests also run in a separate interpreter from
-# its stubbed contract tests. No GPU, weights or network are used by the tests.
+# into a later suite). Native plugin tests run separately from YOLO's stubbed
+# contract tests. No GPU, weights or network are used by the tests.
 #
 # Usage:
 #   scripts/run-ml-cpu-tests.sh plan "<spec>"   # print name=value suite flags
@@ -170,13 +170,22 @@ run() {
       run_pytest "apps/_shared/protocol_v2" "$VENV_PATH"
       ;;
     yolo)
-      # Native loading verifies the exact qualified binary/runtime identity.
-      # Install the backend lock, including its pinned CUDA wheels, but execute
-      # on CPU. Do not mix real tensors with the older contract tests' stubs.
+      # Execute the backend's locked graph on CPU.
       new_venv "3.12"
       run_in "apps/yolo-backend" env UV_PROJECT_ENVIRONMENT="$VENV_PATH" uv sync --locked --extra dev
-      run_pytest "apps/yolo-backend" "$VENV_PATH" --ignore=tests/test_libreyolo_adapter.py
-      run_pytest "apps/yolo-backend" "$VENV_PATH" tests/test_libreyolo_adapter.py
+      run_pytest "apps/yolo-backend" "$VENV_PATH"
+      # Native plugin tests need real tensors and their own interpreter.
+      new_venv "3.12"
+      run_in "plugins/libreyolo" uv pip install --python "$VENV_PATH/bin/python" \
+        --extra-index-url https://download.pytorch.org/whl/cu132 \
+        -e "$ROOT/apps/_shared/task_contract" \
+        -e "$ROOT/apps/_shared/protocol_v2" \
+        -e "$ROOT/apps/_shared/backend_runtime" \
+        -e "$ROOT/apps/_shared/inference_contract" \
+        -e "$ROOT/apps/_shared/training_contract" \
+        -e "$ROOT/apps/_shared/libreyolo_native" \
+        -e "$ROOT/packages/inference-plugin-sdk" -e . pytest pytest-asyncio
+      run_pytest "plugins/libreyolo" "$VENV_PATH" tests/test_native.py tests/test_provider.py
       ;;
     rapidocr)
       install_editable "apps/rapidocr-backend" "3.10" "dev"

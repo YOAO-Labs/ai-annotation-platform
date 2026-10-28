@@ -258,19 +258,12 @@ backend 默认输出 ultralytics 内置类名：
 ```bash
 # 单测（按锁文件安装依赖，不需 GPU 或模型权重）
 cd apps/yolo-backend
-uv run pytest tests/ -q --ignore=tests/test_libreyolo_adapter.py
-uv run pytest tests/test_libreyolo_adapter.py -q
+uv run pytest tests/ -q
 
 # 端到端冒烟（需 GPU + ultralytics 权重）
 # 见 v0.14.12 计划 §6.2
 ```
 
-CI 使用 `bash scripts/run-ml-cpu-tests.sh run yolo` 创建临时虚拟环境，按后端锁文件安装完整的固定依赖。普通契约测试与原生 LibreYOLO 测试分别启动 Python 进程，避免 Torch 桩污染真实张量测试。原生测试在 CPU 上验证固定运行时的加载、类别顺序和坐标，无需 GPU、下载权重或启动训练；结束后自动删除虚拟环境和测试临时文件。
+CI 使用 `bash scripts/run-ml-cpu-tests.sh run yolo` 创建临时虚拟环境，按后端锁文件安装固定依赖，结束后自动删除虚拟环境和测试临时文件。
 
-## LibreYOLO 受控模型
-
-认证的 `POST /managed-models` 支持独立通过资格检查的 LibreYOLO YOLO9 t/s/m/c 原生检测 state-dict。它使用专属原生适配器，服务端固定 LibreYOLO、Torch、torchvision 与 CPU 运行时身份；E、其他任务、量化、P2/E2E 和外部格式不在该资格范围。内置模型目录继续使用原有 Ultralytics 组合。
-
-安装先核对精确 SHA256、字节数、原始类别顺序和 native metadata，再检查全部主模型张量确实加载；仅原生辅助训练头可不进入推理结构。原生单图 Results 的所有检测均保留，按原图尺寸验证坐标、类别和置信度后转换一次百分比。收据固定框架、版本、家族、规格、格式、字节数和运行时资格；模型池以 UUID、权重 SHA 和收据摘要隔离实例与类别缓存，仍遵守原有借用和取消保护。
-
-重建当前镜像时一并安装共享 `aap-training-contract`，保留 checkpoints 卷的 `managed/` 权重与收据。平台完成固定验证图试用后，仍须负责人明确发布或回滚。共享逐样本评估及主动选样目前只接受 Ultralytics；原生推理成功不授予共享评估资格。平台流程见[在线学习](../../docs-site/user-guide/online-learning/index.md)。
+LibreYOLO 受控推理由独立的 `plugins/libreyolo` 插件提供；此后端只接受 Ultralytics 收据。迁移前须完成或明确处置旧 CPU 部署的所有冻结工作，保留历史收据与模型引用。平台流程见[在线学习](../../docs-site/user-guide/online-learning/index.md)。

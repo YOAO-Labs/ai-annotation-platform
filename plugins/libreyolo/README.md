@@ -43,6 +43,8 @@ The image runs as UID/GID 10001, listens on port 8000 and uses `/var/lib/aap-lib
 
 ## Qualification
 
+Native CPU regression coverage lives in `tests/test_native.py`; `bash scripts/run-ml-cpu-tests.sh run yolo` runs it in a separate temporary environment from the old backend's stubbed tests. It constructs and reloads real t/s/m/c models without downloading weights.
+
 For a local-exclusive developer check, use known real images (one yielding multiple detections and one yielding none):
 
 ```sh

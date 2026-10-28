@@ -48,3 +48,28 @@ def test_installed_receipt_checks_artifact_length(tmp_path):
     path.write_bytes(b"x")
     with pytest.raises(ValueError, match="size"):
         validate_installed_receipt(receipt(), path)
+
+
+@pytest.mark.asyncio
+async def test_installed_native_receipt_rejects_corrupted_qualification(tmp_path, monkeypatch):
+    import httpx
+    from fastapi import HTTPException
+    from aap_backend_runtime.managed_models import ManagedModelStore
+
+    raw = b"controlled checkpoint"
+    fields = {**receipt(), "sha256": hashlib.sha256(raw).hexdigest(),
+              "size_bytes": len(raw), "artifact_size_bytes": len(raw),
+              "download_url": "https://assets.example/object"}
+    body = install_request_model(["https://assets.example"]).model_validate(fields)
+    client = httpx.AsyncClient
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=raw))
+    monkeypatch.setattr("aap_backend_runtime.managed_models.httpx.AsyncClient",
+                        lambda **kwargs: client(transport=transport, **kwargs))
+    store = ManagedModelStore(tmp_path, inspect=lambda *_: None,
+                              validate_receipt=validate_installed_receipt)
+    installed = await store.install(body)
+    assert await store.install(body) == installed
+    installed["runtime_qualification"]["revision"] = 99
+    (tmp_path / str(body.model_version_id) / "receipt.json").write_text(json.dumps(installed))
+    with pytest.raises(HTTPException):
+        store.receipt(str(body.model_version_id))

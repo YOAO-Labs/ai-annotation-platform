@@ -15,12 +15,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from aap_backend_runtime.managed_models import ManagedModelStore as _ManagedModelStore
 from aap_backend_runtime.backend_auth import backend_credential
-from training_contract.model_return import (
-    LIBRE_FORMAT,
-    LIBRE_RUNTIME,
-    libre_identity,
-    ultralytics_identity,
-)
+from training_contract.model_return import ultralytics_identity
 from training_contract.inference_runtime import inference_runtime
 from training_contract.models import model_spec
 from training_contract.native_architecture import (
@@ -40,7 +35,9 @@ def digest(value):
 
 def runtime_receipt(receipt):
     """Decorate a response without changing the immutable on-disk training receipt."""
-    framework = importlib.import_module(receipt["framework"])
+    if receipt.get("framework") != "ultralytics":
+        raise HTTPException(status_code=409, detail="Unsupported managed model framework")
+    framework = importlib.import_module("ultralytics")
     try:
         runtime = inference_runtime(receipt, framework.__version__)
     except ValueError as exc:
@@ -64,7 +61,7 @@ class ManagedModelRef(BaseModel):
 
 class InstallRequest(ManagedModelRef):
     classes: list[str] = Field(min_length=1, max_length=1000)
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: Literal["ultralytics"]
     framework_version: str = Field(min_length=1, max_length=50)
     task: Literal["detection", "segmentation"]
     size_bytes: int = Field(gt=0, le=2 * 1024**3)
@@ -106,14 +103,6 @@ class InstallRequest(ManagedModelRef):
             validate_segmentation_receipt(self.model_dump(mode="json"))
         elif self.output_contract is not None:
             raise ValueError("Unexpected output contract for detection install")
-        elif self.framework == "libreyolo":
-            identity = libre_identity(f"LibreYOLO9{self.model_size}")
-            if (
-                self.framework_version != "1.6.0"
-                or any(getattr(self, key) != value for key, value in identity.items())
-                or self.artifact_size_bytes != self.size_bytes
-            ):
-                raise ValueError("Unqualified native managed identity")
         elif self.framework_version == "8.4.183":
             validate_detection_receipt(self.model_dump(mode="json"))
         elif self.framework_version != "8.4.177" or any(
@@ -179,6 +168,8 @@ def _reference_model(base_model, classes):
 
 
 def _validate_installed_receipt(receipt, path):
+    if receipt.get("framework") != "ultralytics":
+        raise ValueError("Unsupported managed model framework")
     if receipt.get("task") == "segmentation":
         validate_segmentation_receipt(receipt)
         if digest(receipt["classes"]) != receipt["classes_digest"]:
@@ -187,16 +178,6 @@ def _validate_installed_receipt(receipt, path):
         raise ValueError("Unexpected detection output contract")
     elif receipt.get("framework") == "ultralytics" and receipt.get("framework_version") == "8.4.183":
         validate_detection_receipt(receipt)
-    if receipt.get("framework") == "libreyolo" and (
-        receipt.get("framework_version") != "1.6.0"
-        or receipt.get("model_family") != "yolo9"
-        or receipt.get("model_size") not in {"t", "s", "m", "c"}
-        or receipt.get("artifact_format") != LIBRE_FORMAT
-        or receipt.get("artifact_size_bytes") != path.stat().st_size
-        or receipt.get("runtime_qualification") != LIBRE_RUNTIME
-        or digest(receipt["classes"]) != receipt["classes_digest"]
-    ):
-        raise ValueError("Installed native qualification differs")
 
 
 class ManagedModelStore(_ManagedModelStore):
@@ -205,10 +186,8 @@ class ManagedModelStore(_ManagedModelStore):
 
     @staticmethod
     def inspect(path, expected):
-        if expected["framework"] == "libreyolo":
-            from libreyolo_native import LibreDetectionModel
-
-            return LibreDetectionModel(path, expected)
+        if expected.get("framework") != "ultralytics":
+            raise ValueError("Unsupported managed model framework")
         import ultralytics
         from ultralytics import YOLO
 

@@ -560,9 +560,9 @@ POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin
 
 既有 `/preannotate` 接受 `model_id="trained:<uuid>"` 或 `"project-release"`。服务端解析并冻结权重、类别绑定、部署与发布来源，客户不能提供冻结引用或权重 URL。`Idempotency-Key` 重放沿用原任务冻结身份。受控模型只接受单阶段整图图片检测，使用现有任务作用域和写入检查；不支持的范围在入队前拒绝，worker 再次校验。结果校验实际模型身份、任务身份及原生类别索引，来源保存在 Prediction 元数据中，失败重试继续使用原身份。
 
-YOLO 的 `POST /managed-models` 和 `GET /managed-models/{version_id}` 使用 `Bearer` 凭据，仅供平台部署。平台自行生成短期内部对象 URL；后端以大小、SHA-256、原生类别及框架版本校验后原子保存。有效版本不能被其他身份覆盖，损坏副本可按固定摘要重建；缺少版本直接失败，不降级到内置模型。
+YOLO 的 `POST /managed-models` 和 `GET /managed-models/{version_id}` 使用 `Bearer` 凭据，仅供平台部署且只接受 Ultralytics；LibreYOLO 使用独立插件实例。平台自行生成短期内部对象 URL；后端以大小、SHA-256、原生类别及框架版本校验后原子保存。有效版本不能被其他身份覆盖，损坏副本可按固定摘要重建；缺少版本直接失败，不降级到内置模型。
 
-LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，版本与 CPU 运行时资格独立固定。来源执行必须成功，且 `weights`、`metrics` 各有唯一已验证产物。安装收据追加 `model_family`、`model_size`、`artifact_format`、`artifact_size_bytes` 与 `runtime_qualification`；试用、发布和预测继续绑定确切实例。旧 Ultralytics 收据与 `frozen_model_ref` 的三字段 wire 不变。原生报告中的 precision／recall 别名不作为常规指标保存；负哨兵为 null，逐类别缺口保留。逐样本评估与主动学习创建仍拒绝 LibreYOLO，共享 evaluator 需要独立资格。
+LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，训练来源资格与插件的 CPU 或 CUDA 推理运行时资格独立固定。来源执行必须成功，且 `weights`、`metrics` 各有唯一已验证产物。安装收据追加 `model_family`、`model_size`、`artifact_format`、`artifact_size_bytes` 与 `runtime_qualification`；试用、发布和预测继续绑定确切实例和推理运行时。旧 Ultralytics 收据与历史冻结引用保持不变。原生报告中的 precision／recall 别名不作为常规指标保存；负哨兵为 null，逐类别缺口保留。逐样本评估与主动学习创建仍拒绝 LibreYOLO，共享 evaluator 需要独立资格。
 
 ## 自动训练策略
 

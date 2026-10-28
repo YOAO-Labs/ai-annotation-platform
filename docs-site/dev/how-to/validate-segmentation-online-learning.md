@@ -110,7 +110,7 @@ export VALIDATION_CONTROLLED_MODEL_IMAGE=/fixtures/image.jpg
 
 失败时保持 `YOLO_MANAGED_LIFECYCLE_VERIFIED=0`。通过后也须先复核镜像、权重、物理卡、驱动和池容量，再按部署流程启用并重创目标实例。更换任一资格身份后重验；本机另一块卡或另一组模型的报告不能替代目标部署。取消计数验收不等于中断真实 GPU kernel，也不覆盖硬件掉卡或驱动复位。
 
-受控检测模型使用同一工具单独运行：schema 3 设 `task="detect"`，基础模型改为实际检测规格。报告必须包含 `controlled_detect_*` 全真检查及 `deployment.pool_topology.controlled_detect` 两轮非空原生检测框证据。普通 `YOLO(name)` 检测结果不能代替该受控路径。LibreYOLO 回流当前是 CPU 原生检测资格，不能用它生成 CUDA 显存回收结论；其训练 GPU 恢复仍按前面的故障表验收。
+受控检测模型使用同一工具单独运行：schema 3 设 `task="detect"`，基础模型改为实际检测规格。报告必须包含 `controlled_detect_*` 全真检查及 `deployment.pool_topology.controlled_detect` 两轮非空原生检测框证据。普通 `YOLO(name)` 检测结果不能代替该受控路径。LibreYOLO 使用独立插件；CPU 原生资格或本地独占 GPU 检查不能代替目标平台的 CUDA 显存回收和生命周期验收。其训练 GPU 恢复仍按前面的故障表验收。
 
 受控检测的预测元数据须包含精确模型身份；安装收据已冻结 `inference_runtime` 时，还须携带完全一致的推理环境。缺失、漂移或多余的元数据均不通过验收。
 

@@ -194,8 +194,6 @@ def _build_model(task: str, series: str, size: str):
         if normalize_task(receipt["task"]) != task:
             raise ValueError("Controlled model pool task differs from the receipt")
         model = _managed_models.inspect(path, receipt)
-        if receipt["framework"] == "libreyolo":
-            return model.to("cpu")
         return _move_model_to_effective_device(model)
 
     from ultralytics import YOLO  # noqa: PLC0415
