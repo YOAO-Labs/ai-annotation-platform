@@ -94,7 +94,7 @@ def validate_pretrained_metadata(blob, size):
     return names
 
 
-def verify_loaded_tensors(source, loaded):
+def verify_loaded_tensors(source, loaded, *, pretrained_dfl_project=None):
     import torch
 
     if not isinstance(source, dict) or any(not isinstance(key, str) for key in source):
@@ -104,11 +104,31 @@ def verify_loaded_tensors(source, loaded):
         for key, value in source.items()
         if not key.startswith(("aux.", "aux_head."))
     }
+    if pretrained_dfl_project is not None:
+        # Official 1.1.1 checkpoints store DFL as a fixed convolution; 1.6
+        # replaces it with a nonpersistent projection buffer and discards the
+        # old key during loading. Verify that conversion against the live buffer.
+        key = "head.dfl.conv.weight"
+        tensor = main.pop(key, None)
+        project = pretrained_dfl_project.detach().cpu()
+        if (
+            not isinstance(tensor, torch.Tensor)
+            or not tensor.is_floating_point()
+            or tensor.shape != (1, 16, 1, 1)
+            or project.shape != (1, 1, 16, 1)
+            or project.dtype != torch.float32
+            or not torch.equal(project.flatten(), torch.arange(16, dtype=torch.float32))
+            or not torch.equal(
+                tensor.detach().cpu().flatten(), torch.arange(16, dtype=tensor.dtype)
+            )
+        ):
+            raise ValueError("Native pretrained DFL projection differs from checkpoint")
     if set(main) != set(loaded):
         raise ValueError("Native main tensor keys differ; partial loading is forbidden")
     for key, tensor in source.items():
         if not isinstance(tensor, torch.Tensor) or (
-            tensor.is_floating_point() and not bool(torch.isfinite(tensor).all())
+            (tensor.is_floating_point() or tensor.is_complex())
+            and not bool(torch.isfinite(tensor).all())
         ):
             raise ValueError("Native checkpoint contains invalid tensor values")
         if key not in main:
@@ -159,7 +179,10 @@ class LibreDetectionModel:
             expected_names = validate_pretrained_metadata(blob, pretrained_size)
         self._native = LibreYOLO(str(path), device=str(self._device), task="detect")
         self._native.model.float()
-        verify_loaded_tensors(blob["model"], self._native.model.state_dict())
+        project = self._native.model.head.dfl.project if pretrained_size is not None else None
+        verify_loaded_tensors(
+            blob["model"], self._native.model.state_dict(), pretrained_dfl_project=project
+        )
         names = ordered_names(self._native.names, len(expected_names))
         if names != expected_names:
             raise ValueError("Loaded native classes differ from checkpoint identity")

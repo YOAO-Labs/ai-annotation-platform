@@ -111,6 +111,62 @@ def test_all_main_tensors_must_load_exactly_and_auxiliary_heads_remain_allowed()
         )
 
 
+def test_pretrained_dfl_projection_is_verified_without_weakening_main_load():
+    project = torch.arange(16, dtype=torch.float32).reshape(1, 1, 16, 1)
+    source = {
+        "head.dfl.conv.weight": project.reshape(1, 16, 1, 1).clone(),
+        "head.weight": torch.tensor([1.0, 2.0]),
+    }
+    loaded = {"head.weight": source["head.weight"].clone()}
+    verify_loaded_tensors(source, loaded, pretrained_dfl_project=project)
+    with pytest.raises(ValueError, match="main tensor keys"):
+        verify_loaded_tensors(source, loaded)
+    corruptions = [
+        {key: value for key, value in source.items() if key != "head.dfl.conv.weight"},
+        {**source, "head.dfl.conv.weight": torch.ones(1, 16, 1, 1)},
+        {**source, "head.dfl.conv.weight": torch.arange(16).reshape(1, 16, 1, 1)},
+        {**source, "head.dfl.conv.weight": torch.full((1, 16, 1, 1), float("nan"))},
+        {**source, "head.dfl.conv.weight": project.clone()},
+        {key: value for key, value in source.items() if key != "head.weight"},
+        {**source, "aux.weight": torch.tensor([complex(float("nan"), 0)])},
+        {**source, "unexpected.weight": torch.ones(1)},
+        {**source, "head.weight": torch.tensor([1.0, 3.0])},
+        {**source, "aux.weight": torch.tensor([float("inf")])},
+    ]
+    for corrupted in corruptions:
+        with pytest.raises(ValueError):
+            verify_loaded_tensors(corrupted, loaded, pretrained_dfl_project=project)
+    with pytest.raises(ValueError, match="DFL projection"):
+        verify_loaded_tensors(source, loaded, pretrained_dfl_project=project + 1)
+
+
+@pytest.mark.parametrize("size", list("tsmc"))
+def test_pretrained_legacy_dfl_loads_exactly_for_each_size(tmp_path, size):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    names = [f"class-{index}" for index in range(80)]
+    native = LibreYOLO9(None, size, nb_classes=80, device="cpu", task="detect")
+    state = native.model.state_dict()
+    state["head.dfl.conv.weight"] = native.model.head.dfl.project.reshape(1, 16, 1, 1).clone()
+    blob = {
+        "model": state,
+        "schema_version": "1.0",
+        "libreyolo_version": "1.1.1",
+        "model_family": "yolo9",
+        "size": size,
+        "task": "detect",
+        "nc": 80,
+        "imgsz": 640,
+        "names": dict(enumerate(names)),
+    }
+    path = tmp_path / "pretrained.pt"
+    torch.save(blob, path)
+    del native, state, blob
+    model = LibreDetectionModel(path, expected(size, names), pretrained_size=size)
+    assert ordered_names(model.names, 80) == names
+    model.close()
+
+
 def result(xyxy=None, scores=None, indexes=None):
     class Boxes(SimpleNamespace):
         def __len__(self):
