@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 aap-libreyolo = "aap_libreyolo_plugin.cli:main"
+aap-libreyolo-evidence = "aap_libreyolo_plugin.evidence:main"
 
 [build-system]
 requires = ["setuptools>=68"]
