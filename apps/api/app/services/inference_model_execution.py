@@ -19,6 +19,7 @@ from aap_inference_contract.execution import (
 )
 from aap_inference_contract.execution_client import ModelExecutionHttpClient
 from aap_inference_contract.routing import RoutingScopeView
+from aap_inference_contract.plugin import plugin_is_active
 from aap_workspace.config import secret_source
 
 from app.config import settings
@@ -216,6 +217,11 @@ class _ModelExecutionGateway(ModelExecutionPort):
             if backend is None:
                 raise RoutingError(
                     RejectionReason.POOL_UNAVAILABLE, "Selected backend is unavailable"
+                )
+            if not plugin_is_active(backend.extra_params):
+                raise RoutingError(
+                    RejectionReason.POOL_UNAVAILABLE,
+                    "Plugin installation is not active",
                 )
             member_id = None
             if scope.pool_id is not None:

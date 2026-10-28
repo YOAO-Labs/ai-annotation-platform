@@ -1085,6 +1085,48 @@ async def _cleanup_repair_route(
 
 
 @pytest.mark.parametrize("release", ["commit", "rollback"])
+async def test_plugin_registry_lock_serializes_registry_mutation(
+    test_engine, monkeypatch, release
+):
+    await assert_owned_test_database(test_engine)
+    registry_id, pool_id, project_id, actor_id = await _seed_repair_route(
+        test_engine, monkeypatch
+    )
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    holder, peer = maker(), maker()
+    task = None
+    try:
+        holder_pid = await _timeouts(holder)
+        peer_pid = await _timeouts(peer)
+        locked = await InferenceTopologyData(holder).lock_plugin_registry(registry_id)
+        assert locked is not None and locked.id == registry_id
+
+        async def update():
+            await MLBackendService(peer).update(registry_id, name="changed")
+            await peer.commit()
+
+        task = asyncio.create_task(update())
+        await _blocked_by(test_engine, peer_pid, holder_pid)
+        if release == "commit":
+            await holder.commit()
+        else:
+            await holder.rollback()
+        await asyncio.wait_for(task, 4)
+    finally:
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await holder.rollback()
+        await peer.rollback()
+        await holder.close()
+        await peer.close()
+        await _cleanup_repair_route(
+            test_engine, registry_id, pool_id, project_id, actor_id
+        )
+
+
+@pytest.mark.parametrize("release", ["commit", "rollback"])
 async def test_repair_model_lock_holds_route_until_transaction_ends(
     test_engine, monkeypatch, release
 ):

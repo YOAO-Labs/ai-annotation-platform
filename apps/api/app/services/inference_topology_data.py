@@ -33,6 +33,9 @@ _REPAIR_MODEL_LOCK_STATUSES = frozenset(
     {"ready", "backend_unavailable", "model_changed"}
 )
 _REGISTRY_FACTS = text(f"SELECT {_SCHEMA}.registry_facts(CAST(:registry_id AS uuid))")
+_LOCK_PLUGIN_REGISTRY = text(
+    f"SELECT {_SCHEMA}.lock_plugin_registry(CAST(:registry_id AS uuid))"
+)
 _REGISTRY_URL_OWNER = text(f"SELECT {_SCHEMA}.registry_url_owner(CAST(:url AS text))")
 _REGISTRY_CATALOG = text(f"SELECT {_SCHEMA}.registry_catalog()")
 _REGISTRY_NAMES = text(
@@ -315,6 +318,12 @@ class InferenceTopologyData:
 
     async def registry_facts(self, registry_id: UUID) -> RegistryPublicFacts | None:
         row = _object(await self._scalar(_REGISTRY_FACTS, {"registry_id": registry_id}))
+        return RegistryPublicFacts.from_record(row) if row is not None else None
+
+    async def lock_plugin_registry(self, registry_id: UUID) -> RegistryPublicFacts | None:
+        row = _object(
+            await self._scalar(_LOCK_PLUGIN_REGISTRY, {"registry_id": registry_id})
+        )
         return RegistryPublicFacts.from_record(row) if row is not None else None
 
     async def registry_url_owner(self, url: str) -> RegistryName | None:

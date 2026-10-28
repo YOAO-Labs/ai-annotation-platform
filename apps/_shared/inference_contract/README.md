@@ -27,3 +27,7 @@ Semantic rules supplement the field schema:
 The model description documents the current tree semantics; the legacy fixture retains its captured historical description for comparison. Only that description is excluded from schema-field regression comparisons.
 
 Before sealing, Inference encodes the private health outcome with `health_observation_outcome_text`; the API decodes the verified text with `decode_health_observation_outcome`. This private body is limited to 16 MiB and accepts Python's legacy `NaN`, `Infinity`, and `-Infinity` number tokens to preserve the original response-materialization phase. The HTTP request and reply envelopes remain strict finite JSON and contain only opaque encrypted Native values.
+
+## Plugin installation intent
+
+`aap_inference_contract.plugin` defines a digest-pinned manifest, a bound resource, installation state and request/response models. The manifest is approved intent, not proof of a running artifact or its GPU qualification. CUDA bindings identify the platform resource, physical GPU and logical device separately. `plugin_is_active` allows legacy Registry entries without plugin metadata but rejects malformed or inactive reserved metadata. Manual endpoint tokens are separate from signed GPU admission authority.

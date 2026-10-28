@@ -29,6 +29,7 @@ from aap_inference_contract.execution import (
     tracker_response_digest,
     thaw_json,
 )
+from aap_inference_contract.plugin import plugin_is_active
 
 from .backend_transport import (
     BackendOptions,
@@ -176,6 +177,8 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
                 authority=request.route_binding.endpoint_authority(),
             )
             if endpoint.registry_id != request.endpoint_registry_id:
+                raise ModelExecutionUnavailable()
+            if not plugin_is_active(endpoint.extra_params):
                 raise ModelExecutionUnavailable()
             if (
                 request.required_instance_id is not None

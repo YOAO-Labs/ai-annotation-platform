@@ -33,6 +33,7 @@ from aap_inference_contract.backend_endpoint import (
     BackendEndpointBinding,
     BackendEndpointPurpose,
 )
+from aap_inference_contract.plugin import plugin_is_active
 
 from .backend_control_stats_postgres import (
     BackendControlStatsUnavailable,
@@ -215,6 +216,8 @@ class BackendControlManager:
                 purpose=purpose,
                 authority=request.endpoint_subject.authority,
             )
+            if request.operation in {"reload", "warmup", "install_trained_model"} and not plugin_is_active(endpoint.extra_params):
+                raise BackendEndpointUnavailable()
             configuration = (
                 _NoAuthConfiguration(endpoint)
                 if request.operation == "catalog_fallback"
