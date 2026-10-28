@@ -29,6 +29,7 @@ class ContainerConfig:
     installation_id: str
     owner_hash: str
     image: str
+    entrypoint: tuple[str, ...]
     gpu_uuid: str
     network: str
     host_port: int
@@ -49,6 +50,11 @@ class ContainerConfig:
             raise AAPError("Invalid container ownership identity")
         if not _IMAGE.fullmatch(self.image):
             raise AAPError("Plugin image must be pinned to a sha256 digest")
+        if (not isinstance(self.entrypoint, tuple) or len(self.entrypoint) != 6
+                or not isinstance(self.entrypoint[0], str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", self.entrypoint[0])
+                or self.entrypoint[1:] != ("serve", "--host", "0.0.0.0", "--port", "8000")):
+            raise AAPError("Invalid approved plugin entrypoint")
         if not _GPU.fullmatch(self.gpu_uuid):
             raise AAPError("One physical NVIDIA GPU UUID is required")
         if not (1 <= self.host_port <= 65535 and 1 <= self.container_port <= 65535):
@@ -68,7 +74,7 @@ class ContainerConfig:
 
     def identity(self) -> str:
         fields = (
-            self.installation_id, self.owner_hash, self.image, self.gpu_uuid,
+            self.installation_id, self.owner_hash, self.image, self.entrypoint, self.gpu_uuid,
             self.network, str(self.host_port), str(self.container_port),
             str(self.memory_mb), str(self.cpus), str(self.env_file),
             str(self.data_dir), self.data_target, str(self.qualification_file),
@@ -148,7 +154,7 @@ class Docker:
             cmd = json.loads(command)
         except ValueError as exc:
             raise AAPError("Unable to verify container entrypoint") from exc
-        if (user != self._user() or entry != ["aap-libreyolo", "serve", "--host", "0.0.0.0", "--port", "8000"]
+        if (user != self._user() or entry != list(config.entrypoint)
                 or cmd not in (None, [])):
             raise AAPError("Container user or entrypoint differs from the approved runtime")
         container_id = self._run("container", "inspect", "--format", "{{.Id}}", config.name)

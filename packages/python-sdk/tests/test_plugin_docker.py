@@ -15,13 +15,15 @@ def config():
     return ContainerConfig(
         name="aap-plugin-123", installation_id="123", owner_hash="a" * 64,
         image="example.invalid/plugin@sha256:" + "b" * 64,
+        entrypoint=("author-plugin", "serve", "--host", "0.0.0.0", "--port", "8000"),
         gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc", network="approved", host_port=9080,
         container_port=8000, memory_mb=4096, cpus=2, env_file=Path("/private/env"),
         data_dir=Path("/private/data"), data_target="/data", qualification_file=Path("/private/report.json"),
     )
 
 
-def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch):
+@pytest.mark.parametrize("inspected_script", ["author-plugin", "other-plugin"])
+def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch, inspected_script):
     cfg = config()
     calls = []
     exists = False
@@ -54,7 +56,7 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch):
         elif "{{.Config.User}}" in argv:
             out = "1000:1000"
         elif "{{json .Config.Entrypoint}}" in argv:
-            out = json.dumps(["aap-libreyolo", "serve", "--host", "0.0.0.0", "--port", "8000"])
+            out = json.dumps([inspected_script, "serve", "--host", "0.0.0.0", "--port", "8000"])
         elif "{{json .Config.Cmd}}" in argv:
             out = "null"
         elif "{{json .RepoDigests}}" in argv:
@@ -74,6 +76,10 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(monkeypatch):
     monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
     monkeypatch.setattr(Docker, "_user", staticmethod(lambda: "1000:1000"))
     docker = Docker()
+    if inspected_script != cfg.entrypoint[0]:
+        with pytest.raises(AAPError, match="entrypoint"):
+            docker.ensure_started(cfg)
+        return
     docker.ensure_started(cfg)
     docker.ensure_started(cfg)
     creates = [x for x in calls if x[1:3] == ["container", "create"]]
@@ -102,6 +108,16 @@ def test_rejects_floating_image_and_nonphysical_gpu():
         replace(config(), image="example.invalid/plugin:latest").validate()
     with pytest.raises(AAPError):
         replace(config(), gpu_uuid="all").validate()
+
+
+def test_approved_entrypoint_is_validated_and_part_of_identity():
+    cfg = config()
+    assert cfg.identity() != replace(cfg, entrypoint=("other-plugin", *cfg.entrypoint[1:])).identity()
+    for entry in (("/tmp/plugin", *cfg.entrypoint[1:]),
+                  ("plugin;echo", *cfg.entrypoint[1:]),
+                  ("plugin", "serve", "--host", "0.0.0.0", "--port", "9000")):
+        with pytest.raises(AAPError, match="entrypoint"):
+            replace(cfg, entrypoint=entry).validate()
 
 
 def test_rejects_digest_mismatch_before_creating_container(monkeypatch):
