@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -174,6 +174,8 @@ async def get_or_create_seed(
     if row is None:
         row = await data.create_seed_registry(name, normalized_url, marker)
     else:
+        if isinstance(row.extra_params, Mapping) and "plugin" in row.extra_params:
+            raise ValueError("Plugin installations cannot be used as screenshot seeds")
         previous_extra_params = row.extra_params
         staged_extra_params = {
             **(row.extra_params or {}),

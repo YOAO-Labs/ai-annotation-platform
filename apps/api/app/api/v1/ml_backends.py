@@ -413,6 +413,11 @@ async def create_ml_backend(
     # v0.19.0 ADR-0044 · 「为项目添加 backend」= 按 url 复用/新建全局注册项 + 为本项目启用。
     # 不再有 max_ml_backends_per_project 上限 (显存保护交全局行 extra_params.max_concurrency)。
     svc = MLBackendService(db)
+    if isinstance(data.extra_params, dict) and "plugin" in data.extra_params:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "plugin_installation_owner_required"},
+        )
     backend = await svc.get_by_url(data.url)
     if backend is None:
         backend = await svc.create_registry(

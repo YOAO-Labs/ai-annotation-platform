@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 
 from aap_inference_contract.topology import RegistryPublicFacts
 from aap_protocol_v2.backend_auth import managed_provider
@@ -144,6 +145,11 @@ class MLBackendService:
         unknown = set(kwargs) - (_REGISTRY_MUTABLE_FIELDS - {"name", "url"})
         if unknown:
             raise TypeError(f"unsupported ML backend fields: {sorted(unknown)}")
+        extra = kwargs.get("extra_params")
+        if isinstance(extra, Mapping) and "plugin" in extra:
+            raise GPUBackendManagedMutationBlocked(
+                "Plugin installation metadata is reserved for the installation owner"
+            )
         validate_gpu_claim(
             kwargs.get("gpu_resource_id"),
             kwargs.get("vram_budget_mb"),
@@ -289,6 +295,14 @@ class MLBackendService:
         row = await coordinator.get_registry(registry_id)
         if row is None:
             return None
+        old_extra = row.extra_params
+        new_extra = kwargs.get("extra_params", old_extra)
+        if (isinstance(old_extra, Mapping) and "plugin" in old_extra) or (
+            isinstance(new_extra, Mapping) and "plugin" in new_extra
+        ):
+            raise GPUBackendManagedMutationBlocked(
+                "Plugin installation changes require the installation owner"
+            )
         if (
             preserve_manual_auth
             and row.auth_method != "none"

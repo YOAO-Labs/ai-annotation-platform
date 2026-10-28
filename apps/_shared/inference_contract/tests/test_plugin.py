@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from aap_inference_contract.execution import freeze_json
 from aap_inference_contract.plugin import PluginInstallation, PluginManifest, plugin_is_active
 
 
@@ -59,6 +60,7 @@ def test_reserved_status_fails_closed_and_legacy_stays_usable():
     assert plugin_is_active(None)
     assert plugin_is_active({"max_concurrency": 4})
     assert plugin_is_active({"plugin": installation()})
+    assert plugin_is_active(freeze_json({"plugin": installation()}))
     assert not plugin_is_active({"plugin": installation("disabled")})
     assert not plugin_is_active({"plugin": {"status": "active"}})
     assert not plugin_is_active({"plugin": None})

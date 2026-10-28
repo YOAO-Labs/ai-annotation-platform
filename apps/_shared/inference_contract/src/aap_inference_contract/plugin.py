@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .execution import thaw_json
+
 
 class PluginResourceRequirements(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -142,6 +144,6 @@ def plugin_is_active(extra_params: object) -> bool:
     if "plugin" not in extra_params:
         return True
     try:
-        return PluginInstallation.model_validate(extra_params["plugin"]).status == "active"
+        return PluginInstallation.model_validate(thaw_json(extra_params["plugin"])).status == "active"
     except (ValueError, TypeError):
         return False

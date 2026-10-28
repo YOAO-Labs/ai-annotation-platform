@@ -262,6 +262,11 @@ class BackendTopologyCoordinator:
         unknown = set(kwargs) - mutable_fields
         if unknown:
             raise TypeError(f"unsupported ML backend fields: {sorted(unknown)}")
+        extra = kwargs.get("extra_params")
+        if isinstance(extra, Mapping) and "plugin" in extra:
+            raise ManagedMutationBlocked(
+                "Plugin installation metadata is reserved for the installation owner"
+            )
         if source != "manual":
             raise ValueError("manual topology creation only accepts source=manual")
         normalized_url = url.rstrip("/")
@@ -448,6 +453,14 @@ class BackendTopologyCoordinator:
         row = await self.data.registry_facts(registry_id)
         if row is None:
             return None
+        old_extra = row.extra_params
+        new_extra = kwargs.get("extra_params", old_extra)
+        if (isinstance(old_extra, Mapping) and "plugin" in old_extra) or (
+            isinstance(new_extra, Mapping) and "plugin" in new_extra
+        ):
+            raise ManagedMutationBlocked(
+                "Plugin installation changes require the installation owner"
+            )
         patch = dict(kwargs)
         if "url" in patch:
             url = patch["url"]
@@ -462,6 +475,9 @@ class BackendTopologyCoordinator:
         return updated
 
     async def validate_delete(self, registry_id: UUID) -> bool:
+        row = await self.data.registry_facts(registry_id)
+        if row is not None and isinstance(row.extra_params, Mapping) and "plugin" in row.extra_params:
+            raise ManagedMutationBlocked("Plugin Registry history must be retained")
         exists, running_jobs = await self.data.validate_registry_delete(registry_id)
         if running_jobs:
             raise RegistryDeleteBlocked(running_jobs)
@@ -473,6 +489,9 @@ class BackendTopologyCoordinator:
         *,
         expected_topology: RegistryTopologySnapshot | None = None,
     ) -> RegistryDeletion:
+        row = await self.data.registry_facts(registry_id)
+        if row is not None and isinstance(row.extra_params, Mapping) and "plugin" in row.extra_params:
+            raise ManagedMutationBlocked("Plugin Registry history must be retained")
         return await self.data.delete_registry(registry_id, expected_topology)
 
     async def pool_id_for_registry(self, registry_id: UUID) -> UUID | None:

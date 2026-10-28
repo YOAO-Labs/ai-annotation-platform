@@ -47,6 +47,15 @@ def _row(
         extra_params=extra_params,
     )
 
+@pytest.mark.asyncio
+async def test_screenshot_seed_cannot_take_over_plugin_registry():
+    row = _row("http://plugin", source="manual", extra_params={"plugin": {"status": "active"}})
+    data = _Data([row])
+    with pytest.raises(ValueError, match="Plugin installations"):
+        await get_or_create_seed(data, row.url, "seed", {"managed_by": "seed"})
+    assert data.staged_seed_markers == []
+
+
 
 class _Data:
     def __init__(self, rows=(), *, trace=None, cached_result=None):

@@ -976,6 +976,11 @@ async def create_registry(
                 ],
             },
         ) from exc
+    except GPUBackendManagedMutationBlocked as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "plugin_installation_owner_required", "message": str(exc)},
+        ) from exc
     await AuditService.log(
         db,
         actor=admin,
