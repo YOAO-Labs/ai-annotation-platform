@@ -12,22 +12,23 @@ last_reviewed: 2026-10-19
 
 ## 使用 LibreYOLO 检测插件
 
-从可信包仓库或版本化 wheel 集合安装 `aap-inference-plugin-sdk` 和 `aap-libreyolo-plugin`（构建 wheel 还需 `build`）。它们不要求平台仓库或 editable 路径；通用检测 SDK 不依赖 Torch，模型运行时由 LibreYOLO 插件提供。
+从可信渠道取得**版本化、包含完整依赖闭包的 wheelhouse**；不要假定这些包已经发布到 PyPI。在仓库外的新环境安装，不需要 `../../apps` 或平台仓库的 editable 包：
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --no-index --find-links /path/to/wheelhouse \
+  'aap-inference-plugin-sdk[dev]' aap-libreyolo-plugin
 aap-plugin init my-detector --template libreyolo-yolov9
-# 在隔离环境中安装生成的项目；开发中可用 editable 安装以直接加载作者改动
-python -m pip install -e ./my-detector
+python -m pip install --no-index --find-links /path/to/wheelhouse ./my-detector
 aap-plugin prepare-assets --size t --asset-dir ./assets
 # token 文件须事先创建，内容为至少 32 字符的私密随机 token；不要提交到源码库
-# CUDA 服务须设置 AAP_PLUGIN_GPU_UUID、AAP_PLUGIN_REGISTRY_ID、
-# AAP_PLUGIN_GPU_RESOURCE_ID 和 AAP_PLUGIN_GPU_KEYRING_FILE；绑定由管理员预先分配
 aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./assets --token-file ./token
 ```
 
-资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。`--device cpu` 可用于显式本地调试，但不能替代 CUDA 验收，也不会自动回退。GPU 不可用或绑定不匹配时应修复设备配置，而不是更换模型或精度。
-`aap-plugin dev` 只监听本机 loopback，使用本地开发模式预热并检查实际设备驻留；它不建立平台托管准入。生产部署使用插件独立的 `serve` 入口，由平台签名准入后加载模型。
-生成的 `my_libreyolo_plugin.py` 包含可修改的 `Provider.load`、`Model.predict` 和 `Model.close`，默认真实委托 LibreYOLO 原生模型。`aap-plugin dev` 执行当前环境中 `--entrypoint` 指定的已安装 console script，而不是忽略生成项目或从平台仓库加载代码；换名后同步修改该选项。生产 wheel 不包含跨仓库 editable 路径，开发安装的 editable 指向开发者自己的项目。
+SDK 的 `dev` extra 包含 `build`。生成项目可按需要修改后重新安装；开发者自己的项目也可 editable 安装，发布制品不应依赖 editable 路径。`aap-plugin dev` 调用当前环境已安装的作者 console script，并内部传入 `--local`；仅监听 `127.0.0.1`，不需要 Registry、管理员或 GPU keyring。必须显式选择 `cpu` 或 `cuda:N`；本机多 GPU 时可选择本地 ordinal，例如 `cuda:1`。服务预热并检查实际设备驻留；本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。
+
+资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。GPU 不可用时应修复设备配置，而不是更换模型或精度。生成的 `my_libreyolo_plugin.py` 将作者 `Provider.load`、`Model.predict` 和 `Model.close` 委托给真实 LibreYOLO 原生模型，可按需求修改。
 
 准备一个包含多检测和空检测真实图片的 fixture JSON。`box` 是相对于图片的 `[x, y, width, height]` 百分比；`box_tolerance` 同样以百分比计，`score_tolerance` 以 0–1 分数计。下面数值仅说明格式，必须替换为经人工确认的该模型实际期望，不能把示例当成验收结果：
 
@@ -59,18 +60,33 @@ aap-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
 aap-plugin check --qualify-local --fixtures ./fixtures.json \
   --device cuda:0 --gpu-uuid GPU-实际设备UUID --asset-dir ./assets \
   --exclusive-gpu --report ./local-gpu-evidence.json
-aap-plugin build my-detector
+  # 构建 wheel，记录输出的 SHA-256
+  aap-plugin build my-detector
 ```
 
-本地检查对原版 LibreYOLO provider 执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它不证明你修改过的作者 hook 已通过这些 GPU 检查。看不到必要事实时失败而不虚报成功。它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。构建输出 wheel 摘要；管理员仍需按插件 manifest 安装固定摘要制品、验证真实端点，再按既有 Registry 和项目设置启用。平台图片 URL 主机须由部署管理员明确配置。
+本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。看不到必要事实时失败而不虚报成功。平台图片 URL 主机须由部署管理员明确配置。
 
-模型作者实现 `load`、单图 `predict` 和 `close`；`predict` 返回原图像素坐标的 `Detection`，SDK 负责协议响应、类别索引和坐标转换。裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。可选训练产物安装使用共享受控收据机制；插件不直接访问平台数据库。
+检测 SDK 的窄 Python 合同由 `Detection`、`DetectionModel` 和 `DetectionProvider` 组成：provider 的 `load(model_id, device, config)` 返回持有 `classes` 的 model，model 的 `predict(image, parameters)` 返回原图像素坐标的检测，`close()` 释放模型。SDK 负责协议响应、类别索引和坐标转换；裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。通用 SDK 不依赖 ORM、Celery 或原生模型框架；具体模型运行时由 provider 提供，可选训练产物通过共享受控收据安装，不直接访问平台数据库。
+
+构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像离线安装 lock，而不是加载工作目录：
+
+```bash
+aap-plugin build my-detector --base-image image@sha256:<真实摘要> \
+  --wheelhouse /path/to/complete-wheelhouse --requirements-lock /path/to/requirements.lock \
+  --entrypoint my-libreyolo-plugin --tag registry.example/my-detector:release --push
+aap-libreyolo manifest registry.example/my-detector:release \
+  --publisher "实际发布者" --license "实际制品许可证" --device cuda \
+  --memory-mb 16384 --gpu-memory-mb 8192 --asset-origin https://assets.example \
+  --output manifest.json
+```
+
+`--push` 可省略；生成 manifest 前镜像必须有可检查的实际 RepoDigest。`--publisher` 和 `--license` 是必填的实际制品声明，不应自行假定项目授予 MIT。上游当前 [9t](https://huggingface.co/LibreYOLO/LibreYOLO9t)、[9s](https://huggingface.co/LibreYOLO/LibreYOLO9s)、[9m](https://huggingface.co/LibreYOLO/LibreYOLO9m)、[9c](https://huggingface.co/LibreYOLO/LibreYOLO9c) 模型卡标为 MIT；代码及所用**具体权重**的许可证和来源仍须分别审核，这不表示固定版本的模型卡字节已核验。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格报告，安装不会自动为项目启用。
 
 安装实例退役时，CPU 实例的不可逆终止排空使用认证的 `/lifecycle/terminal-drain`，并绑定注册实例和当前 boot；GPU 终止排空使用 `/lifecycle/terminal-drain-signed`，除业务 token 外还要求平台签发的 GPU DRAIN 许可。两种路径都等待真实模型借用和构建退出后卸载；业务 token 不能代替 GPU 许可，也不能重启已终止的实例。
 
 ## 协议教学：echo 示例
 
-下文先把最小 echo 示例跑起来，理解协议契约，再展示如何手写 OCR backend，最后注册到平台。
+下文的 echo 是协议教学，不是真实模型或推荐的模型实现。OCR 片段仅解释协议映射，省略具体推理封装。
 
 > **协议以 [ML Backend 协议契约](/dev/reference/ml-backend-protocol) 为准**，本文不重复抄协议；遇到字段语义疑问，一律以协议文档为权威。
 
@@ -202,7 +218,7 @@ async def predict(req: PredictRequest):
     return {"results": results}
 ```
 
-至此就是一个能在平台跑批量预标注的真实 OCR backend。固定 demo 输出的 mock 版本可对照 `docs-site/dev/examples/mock-v2-backend/` 的 `ppocr` 条目与 `_demo_shapes("ocr")`。
+完成自己的图像读取、模型推理封装和安全检查后，才能形成可用的 OCR backend；上面的片段本身不是完整实现。固定 demo 输出可对照 `docs-site/dev/examples/mock-v2-backend/` 的 `ppocr` 条目与 `_demo_shapes("ocr")`。
 
 > 建议同步给自己的 backend 写 contract tests（fastapi `TestClient` 即可，无需起服务），两个示例目录下的 `tests/test_contract.py` 可直接当模板抄。
 

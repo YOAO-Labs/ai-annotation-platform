@@ -15,6 +15,8 @@ last_reviewed: 2026-10-20
 
 平台不内置任何具体模型。它把可挂接的「推理服务」抽象成 `MLBackend` 行——一个 URL + 鉴权信息 + 几个布尔位（`is_interactive` / `state`）。本文规定接入方需要实现的 HTTP 端点与请求/响应 schema。只要遵循，就能在「模型市场 → 注册管理」里注册、在「项目设置 → ML 模型」里启用。
 
+LibreYOLO 检测的新接入使用独立插件，不再把 LibreYOLO 当作内置 YOLO 服务的一条运行路径。作者通过通用 Python SDK 的 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`，再由 SDK 组合 HTTP 协议与生命周期；SDK 不依赖平台 ORM、Celery 或原生模型框架。具体模型运行时由插件提供。安装、作者命令、权重许可证边界与本地检查限制见[检测插件教程](/dev/tutorials/ml-backend-starter#使用-libreyolo-检测插件)；本地 CUDA 检查不构成托管 GPU 资格。
+
 ---
 
 ## 任务字段与兼容输入
@@ -1734,7 +1736,7 @@ challenge。其他 scope 继续运行。屏蔽记录覆盖 Native 记录的实�
 
 ## 12. 受控自训模型部署协议 (/managed-models)
 
-本节针对平台训练产物的受控回流，不等同于 YOLO Backend 普通模型目录的全部能力。当前支持 Ultralytics 原生图片检测、受控 `yolo11n-seg` 图片实例分割，以及通过资格核验的 LibreYOLO YOLO9 t/s/m/c 原生检测权重。其他分割规格、LibreYOLO 分割、YOLO9 e 和未通过资格检查的训练结果仍可下载，不进入此回流协议。
+本节针对平台训练产物的受控回流，不等同于 YOLO Backend 普通模型目录的全部能力。支持 Ultralytics 原生图片检测、受控 `yolo11n-seg` 图片实例分割，以及通过资格核验的 LibreYOLO YOLO9 t/s/m/c 原生检测权重；LibreYOLO 由独立插件接收部署。其他分割规格、LibreYOLO 分割、YOLO9 e 和未通过资格检查的训练结果仍可下载，不进入此回流协议。
 
 ### 认证与模型身份
 
@@ -1756,7 +1758,7 @@ Ultralytics 图片检测允许整图根阶段和父框裁剪阶段；受控实�
 
 ### 安装：`POST /managed-models`
 
-请求模型定义在 `apps/yolo-backend/managed_models.py` 的 `InstallRequest`：
+Ultralytics 的请求模型定义在 `apps/yolo-backend/managed_models.py` 的 `InstallRequest`；LibreYOLO 插件通过共享受控模型合同接收相应请求：
 
 | 字段                             | 含义与约束                                                                                                                                                             |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1843,4 +1845,4 @@ Backend 必须在响应 `meta.trained_model` 回传三项模型身份，在 `met
 
 该评估最多 32 张图、每图 200 个真值和 100 个预测，总真值 2,000 个；固定原图上限 1,280,000 像素、单边 4,096，每图真值或预测 RLE 各限 2 MiB，匹配最多 20,000,000 run 操作。冻结 spec 与最终报告还分别受 4 MiB、8 MiB 预算约束，超限不能产出伪造的成功摘要。
 
-共享逐样本评估与主动选样只接受通过对应任务、环境和策略资格检查的 Ultralytics 模型；软件协议支持不等于分割 GPU 或自动循环已取得部署资格。LibreYOLO 的固定样本试用、人工发布与回退可用，不表示已获得这两类能力。详见[在线学习与训练体系](/dev/concepts/training-datasets#_4-1-冻结逐样本评估)。
+共享逐样本评估与主动选样只接受通过对应任务、环境和策略资格检查的 Ultralytics 模型；软件协议支持不等于分割 GPU 或自动循环已取得部署资格。LibreYOLO 候选经已验证插件部署、固定样本试用和人工发布；历史版本回滚需在新插件部署并人工发布，不可重新激活已退役的旧 CPU 实例。这不表示已获得共享逐样本评估或主动选样资格。详见[在线学习与训练体系](/dev/concepts/training-datasets#_4-1-冻结逐样本评估)。

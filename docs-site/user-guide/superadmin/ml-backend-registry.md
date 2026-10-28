@@ -92,15 +92,23 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 ## 可安装推理插件
 
-插件安装由超级管理员使用固定 OCI 摘要的批准制品及独立实例 Token 完成。先预留不可接流的安装身份、Registry 和资源绑定，再由部署机启动容器；平台 API 不运行 Docker。管理员本机检查镜像摘要、镜像和容器 ID 及 GPU 绑定并提交启动收据，这是可信管理员提供的证据，并非远程密码学证明。平台另行核对受认证服务的实际能力、运行时和资源身份。安装完成不会自动启用项目或发布模型。
+插件安装由超级管理员在可访问 Docker 的部署机执行 `aap plugins`，平台 API 不访问 Docker socket。使用批准的固定 OCI 摘要和有界 JSON 配置：完整 manifest、可达 URL、GPU 资源及物理 UUID、Docker 网络与端口、CPU 上限、图片主机白名单和 GPU 验签公钥 keyring；业务 Bearer Token 独立生成并保存在私有状态目录，公钥不能替代它，签发私钥不进入容器。配置与完整字段参见 [Python SDK 安装说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/packages/python-sdk/README.md#本机-gpu-推理插件安装)。
 
-CUDA 安装还需提交通过验证的完整生命周期资格报告及其摘要。报告固定镜像、资产清单、实际 GPU、驱动、运行时与池拓扑，包含真实推理、取消和两次冷态释放等检查；平台核对报告与启动收据及在线服务事实。报告由超级管理员审核提交，不是插件自报布尔值，也不代表密码学远程证明。启动后激活失败时先读取最新安装修订：已记录的启动仍须完成安全排空，不能因激活失败而直接停止容器。
+```bash
+aap plugins prepare --config deployment.json --state-dir ./plugin-state --json
+aap plugins prepare-assets --state-dir ./plugin-state --json
+# 管理员先审核与该安装身份、镜像和 GPU 绑定的完整共享生命周期报告
+aap plugins install --state-dir ./plugin-state --qualification gpu-report.json --yes --json
+aap plugins status --state-dir ./plugin-state --json
+```
 
-安装使用 `/api/v1/admin/ml-integrations/plugins/installations`：`POST /prepare` 预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 也是重试的幂等键，重复请求必须匹配原意图和凭据。
+`prepare` 预留不可接流的安装身份、Registry 和资源绑定；`prepare-assets` 显式准备固定资产。安装器检查真实 Docker 镜像摘要、镜像和容器 ID、启动身份及 GPU 绑定，再提交可信管理员的启动收据；这不是远程密码学证明。CUDA 必须另提交管理员审核通过的完整共享生命周期报告及摘要，绑定镜像、资产、实际 GPU、驱动、运行时和池拓扑，包含真实推理、取消和两次冷态释放。平台还会验证实际受认证端点。安装完成不会自动为任何项目启用或发布模型。
 
-停用阻止新工作，但**不授权停止容器**。必须完成 quiesce，只有返回 `safe_to_stop` 才可按该收据停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。排空覆盖模型池、构建者、借用者和仍在执行的原生工作，并与实例、启动身份、控制代际和资源绑定。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。
+安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
 
-升级制品或运行时应创建新的不可变安装，重新完成验证及模型部署、试用，再由项目负责人显式启用项目和发布模型；不要原地替换旧容器以冒用已冻结的实例身份。旧安装继续保留，直到其依赖与排空条件均已满足。
+停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。`aap plugins disable --state-dir ./plugin-state --yes --json` 执行停用、排空证明和安全停容器；`aap plugins uninstall --state-dir ./plugin-state --yes --json` 还执行依赖检查与退役。失败保留私有状态并查状态后重试，勿手工停止未知身份。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。
+
+升级须在新状态目录用新制品重新 `prepare`、`prepare-assets` 和审核报告，再使用 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state --qualification new-report.json --yes --json`。升级创建新的安装及 Registry 身份，旧身份保持不变。项目负责人显式启用新服务并完成模型部署、试用及人工发布；旧安装须满足依赖和排空条件才能退役。历史版本回滚也须在已验证的新插件部署上重新部署并人工发布，不能重新激活退役的旧 CPU 实例。
 
 ## 服务池管理（超管）
 

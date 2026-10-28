@@ -19,6 +19,24 @@ POST   /api/v1/admin/ml-integrations/registry/:registry_id/health # 健康检查
 POST   /api/v1/admin/ml-integrations/probe                       # 注册前无副作用探测
 ```
 
+## 独立插件安装
+
+```http
+POST /api/v1/admin/ml-integrations/plugins/installations
+GET  /api/v1/admin/ml-integrations/plugins/installations
+GET  /api/v1/admin/ml-integrations/plugins/installations/:installation_id
+POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/activate
+POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/disable
+POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/quiesce
+POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/retire
+```
+
+集合 `POST` 预留身份，不是 `/prepare`。管理员在 Docker 执行机使用 `aap plugins prepare`、`prepare-assets`、`install` 和 `status`；API 不访问 Docker socket。安装器使用批准的有界配置、独立私有 Bearer 与 GPU 验签公钥 keyring，检查实际镜像摘要和容器启动身份；CUDA 还须管理员批准完整共享生命周期报告。动作使用最新 `expected_revision`，并发冲突先读取状态。安装不会自动启用项目。
+
+`disable` 关闭准入不代表 `safe_to_stop`；须完成 quiesce 并使用对应证明修订后才可停止容器或退役。未知状态和通信失败不构成证明。`aap plugins disable`／`uninstall` 编排这些门禁；`upgrade` 使用新安装及 Registry 身份，不替换旧身份。配置、报告与命令见[超管插件安装](/user-guide/superadmin/ml-backend-registry#可安装推理插件)。
+
+## 注册请求
+
 一个物理 backend 对应一条全局 registry 记录；项目只引用它，不复制 URL、鉴权或能力快照。创建请求使用真实注册合同：
 
 ```http
