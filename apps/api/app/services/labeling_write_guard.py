@@ -368,7 +368,14 @@ async def lock_labeling_write(
         actor, _project, access = await lock_current_project_access(
             db, actor_id=scope.actor_id, project_id=scope.project_id
         )
-        if scope.operation in _MANAGER_OPERATIONS and not access.is_manager:
+        if (
+            scope.operation in _MANAGER_OPERATIONS
+            and not (
+                scope.operation == "preannotation"
+                and scope.execution_scope == "workbench"
+            )
+            and not access.is_manager
+        ):
             raise HTTPException(status_code=403, detail="项目管理权限已变化")
         batch = None
         if scope.expected_batch_id is not None:
@@ -427,8 +434,18 @@ async def lock_labeling_write(
                     batch is not None and not allows_bulk_preannotation(batch)
                 ):
                     raise _conflict("preannotation_task_not_eligible")
-            elif task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES:
-                raise _conflict("preannotation_task_not_eligible")
+            else:
+                if task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES:
+                    raise _conflict("preannotation_task_not_eligible")
+                task_access.assert_annotation_write_allowed(task, access)
+                task_access.assert_task_editable(task, actor.id, access=access)
+                task_access.assert_effective_task_assignee(
+                    actor.id,
+                    await task_access.resolve_effective_task_assignee_id(db, task),
+                    action="run current-task AI",
+                    project_id=task.project_id,
+                    access=access,
+                )
         elif scope.operation not in {"prediction_import", "prediction_retry"}:
             task_access.assert_annotation_write_allowed(
                 task,

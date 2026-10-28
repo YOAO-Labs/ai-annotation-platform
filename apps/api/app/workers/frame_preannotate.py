@@ -812,7 +812,9 @@ async def _run_segment(
                 _preannotation_actor_revoked,
             )
 
-            if await _preannotation_actor_revoked(db, actor_uuid, project_uuid):
+            if await _preannotation_actor_revoked(
+                db, actor_uuid, project_uuid, execution_scope="bulk"
+            ):
                 await _fail_frame_job_in_session(
                     db, job_id, project_id, "preannotation_actor_revoked"
                 )

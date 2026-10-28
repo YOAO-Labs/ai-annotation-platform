@@ -1141,6 +1141,193 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "assignment",
+        "foreign_lock",
+        "completed",
+        "disabled",
+        "draft",
+        "assignment_before_dispatch",
+        "forged_scope",
+    ],
+)
+async def test_workbench_annotator_execution_rechecks_authority_at_write(
+    change, db_session: AsyncSession, monkeypatch, super_admin, annotator
+):
+    from datetime import timedelta
+
+    from fastapi import HTTPException
+
+    from aap_inference_contract.execution import ModelTaskResult
+    from app.db.models.prediction import Prediction
+    from app.db.models.task import Task
+    from app.db.models.task_batch import TaskBatch
+    from app.db.models.task_lock import TaskLock
+    from tests.factory import create_membership
+    from tests.inference_execution_test_ports import patch_batch_execution
+
+    owner, _ = super_admin
+    actor, _ = annotator
+    project, backend = await _seed_project_and_backend(db_session, owner.id)
+    await create_membership(
+        db_session, project_id=project.id, user_id=actor.id, role="annotator"
+    )
+    batch = TaskBatch(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        display_id=f"B-{uuid.uuid4().hex[:8]}",
+        name="assigned",
+        status="active",
+        annotator_id=actor.id,
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        batch_id=batch.id,
+        display_id=f"T-{uuid.uuid4().hex[:8]}",
+        file_name="a.jpg",
+        file_path="http://x/a.jpg",
+        file_type="image",
+        status="in_progress",
+    )
+    db_session.add_all([batch, task])
+    await db_session.flush()
+    db_session.add(
+        TaskLock(
+            task_id=task.id,
+            user_id=actor.id,
+            expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+    )
+    job = AsyncJob(
+        kind="batch_predict",
+        project_id=project.id,
+        user_id=actor.id,
+        status="pending",
+        payload={
+            "execution_scope": "workbench",
+            "batch_id": None,
+            "task_ids": [str(task.id)],
+        },
+    )
+    db_session.add(job)
+    await db_session.flush()
+    project_id, task_id, job_id = project.id, task.id, job.id
+    if change == "assignment_before_dispatch":
+        batch.annotator_id = owner.id
+    elif change == "forged_scope":
+        job.payload = {**job.payload, "execution_scope": "bulk"}
+    await db_session.flush()
+
+    model_calls = 0
+
+    async def respond(_operation, task_input):
+        nonlocal model_calls
+        model_calls += 1
+        if change == "assignment":
+            batch.annotator_id = owner.id
+        elif change == "foreign_lock":
+            db_session.add(
+                TaskLock(
+                    task_id=task_id,
+                    user_id=owner.id,
+                    expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                )
+            )
+        elif change == "completed":
+            task.status = "completed"
+        elif change == "disabled":
+            actor.is_active = False
+        elif change == "draft":
+            batch.status = "draft"
+        await db_session.flush()
+        await db_session.commit()
+        return ModelTaskResult(
+            task_id=task_input["id"],
+            result=(),
+            score=0.9,
+            model_version="stub-v1",
+            inference_time_ms=10,
+            meta={},
+        )
+
+    patch_batch_execution(monkeypatch, respond, instance_id=backend.id)
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+    kwargs = dict(
+        project_id=str(project_id),
+        ml_backend_id=str(backend.id),
+        task_ids=[str(task_id)],
+        user_id=str(actor.id),
+        async_job_id=str(job_id),
+        prompt="x",
+        execution_scope="workbench",
+    )
+    if change in {"assignment_before_dispatch", "forged_scope"}:
+        with pytest.raises((ValueError, HTTPException)):
+            await _run_batch(**kwargs)
+        assert model_calls == 0
+        return
+    await _run_batch(**kwargs)
+    job = await db_session.get(AsyncJob, job_id, populate_existing=True)
+    predictions = await db_session.scalar(
+        select(func.count()).select_from(Prediction).where(Prediction.task_id == task_id)
+    )
+    if change == "none":
+        assert job.status == "completed"
+        assert job.result["success_count"] == 1
+        assert predictions == 1
+    else:
+        assert predictions == 0
+        assert job.status == "failed" or job.result["failed_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_annotator_cannot_use_workbench_authority(
+    db_session: AsyncSession, monkeypatch, super_admin, annotator
+):
+    from app.db.models.task import Task
+    from tests.factory import create_membership
+
+    owner, _ = super_admin
+    actor, _ = annotator
+    project, backend = await _seed_project_and_backend(db_session, owner.id)
+    await create_membership(
+        db_session, project_id=project.id, user_id=actor.id, role="annotator"
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        assignee_id=actor.id,
+        display_id=f"T-{uuid.uuid4().hex[:8]}",
+        file_name="a.jpg",
+        file_path="http://x/a.jpg",
+        file_type="image",
+        status="pending",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
+    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
+    with pytest.raises(ValueError, match="actor is unavailable"):
+        await _run_batch(
+            project_id=str(project.id),
+            ml_backend_id=str(backend.id),
+            task_ids=[str(task.id)],
+            user_id=str(actor.id),
+            execution_scope="bulk",
+        )
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["uploading", "review", "completed"])
 async def test_run_batch_workbench_scope_rejects_non_editable_status(
     status, db_session: AsyncSession, monkeypatch, super_admin

@@ -206,21 +206,14 @@ async def _cancel_requested(db, job_id):
     )
 
 
-async def _actor_available(db, execution):
-    from app.services.project_access import get_workspace_project
-    from app.services.identity_account_lock_data import IdentityAccountLockData
-    from app.services.project_access import is_privileged_for_project
+async def _actor_available(db, execution, execution_scope):
+    from app.application.preannotation_execution import _preannotation_actor_revoked
 
-    actor_id = uuid.UUID(str(execution.scope["actor_id"]))
-    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-    project = await get_workspace_project(
-        db, project_id=execution.scope["project_id"], populate_existing=True
-    )
-    return (
-        actor is not None
-        and actor.is_active
-        and project is not None
-        and is_privileged_for_project(actor, project)
+    return not await _preannotation_actor_revoked(
+        db,
+        uuid.UUID(str(execution.scope["actor_id"])),
+        execution.scope["project_id"],
+        execution_scope=execution_scope,
     )
 
 
@@ -398,7 +391,7 @@ async def run_durable_batch(
             if saved.result is None or not saved.result.raw_complete:
                 cancelled = True
                 break
-        if not await _actor_available(db, execution):
+        if not await _actor_available(db, execution, request.execution_scope):
             forced_error = "preannotation_actor_revoked"
             break
         context = {

@@ -567,7 +567,9 @@ async def test_receipt_is_private_and_bound_to_task_session_and_transaction(
         await lock_actor_project_authority(
             db_session, actor.id, project_id, nowait=False
         )
-        assert not await _preannotation_actor_revoked(db_session, actor.id, project_id)
+        assert not await _preannotation_actor_revoked(
+            db_session, actor.id, project_id, execution_scope="bulk"
+        )
         await owner.lock_key()
         await validate_task_scope(db_session, project, task, actor, "bulk", lock=True)
         async with db_session.begin_nested():

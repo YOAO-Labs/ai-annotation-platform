@@ -435,7 +435,9 @@ async def prepared(w, client, admin, monkeypatch):
     from app.services.project_write_guard import lock_actor_project_authority
 
     await lock_actor_project_authority(w.db, w.actor.id, w.project.id, nowait=False)
-    assert not await _preannotation_actor_revoked(w.db, w.actor.id, w.project.id)
+    assert not await _preannotation_actor_revoked(
+        w.db, w.actor.id, w.project.id, execution_scope="bulk"
+    )
     anchor = await owner.final_receipt(w.task)
     writes = [
         dict(

@@ -42,21 +42,35 @@ logger = logging.getLogger(__name__)
 _WRITE_ATTEMPTS = 3
 
 
-async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
-    """Read current initiating-account and project authority without holding ML locks."""
+async def _preannotation_actor_revoked(
+    db, actor_id, project_uuid, *, execution_scope: str
+) -> bool:
+    """Check current account and project authority; task eligibility is separate."""
+    from fastapi import HTTPException
+    from aap_workspace_contract.access import ProjectCapability
     from app.services.identity_account_lock_data import IdentityAccountLockData
-    from app.services.project_access import is_privileged_for_project
+    from app.services.project_access import (
+        is_privileged_for_project,
+        resolve_project_access,
+    )
 
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     project = await get_workspace_project(
         db, project_id=project_uuid, populate_existing=True
     )
-    return (
-        actor is None
-        or not actor.is_active
-        or project is None
-        or not is_privileged_for_project(actor, project)
-    )
+    if actor is None or not actor.is_active or project is None:
+        return True
+    if execution_scope == "bulk":
+        return not is_privileged_for_project(actor, project)
+    if execution_scope != "workbench":
+        return True
+    try:
+        access = await resolve_project_access(db, actor_id=actor_id, project=project)
+    except HTTPException as exc:
+        if exc.status_code in {401, 403, 404}:
+            return True
+        raise
+    return not access.has(ProjectCapability.ANNOTATION_WRITE.value)
 
 
 def _make_crop_uploader(storage, job_id: str):
@@ -1497,12 +1511,7 @@ async def _execute_preannotation(
             actor = await IdentityAccountLockData(db).read_actor_status(
                 uuid.UUID(user_id)
             )
-            if (
-                actor is None
-                or not actor.is_active
-                or project is None
-                or not is_privileged_for_project(actor, project)
-            ):
+            if actor is None or not actor.is_active or project is None:
                 raise ValueError("preannotation actor is unavailable")
         else:
             raise ValueError("preannotation actor is required")
@@ -1525,6 +1534,7 @@ async def _execute_preannotation(
             if (
                 precreated_job is None
                 or precreated_job.project_id != project_uuid
+                or precreated_job.kind != "batch_predict"
                 or (
                     user_id is not None and precreated_job.user_id != uuid.UUID(user_id)
                 )
@@ -1631,6 +1641,33 @@ async def _execute_preannotation(
             prompt_type = root.get("prompt_type")
             box_threshold_snapshot = execution_snapshot_payload.get("box_threshold")
             text_threshold_snapshot = execution_snapshot_payload.get("text_threshold")
+        if execution_scope != request.execution_scope:
+            raise ValueError("queued execution scope differs from frozen snapshot")
+        if execution_scope not in {"bulk", "workbench"}:
+            raise ValueError("preannotation execution scope is unavailable")
+        if precreated_job is not None:
+            saved_payload = precreated_job.payload or {}
+            if saved_payload.get("execution_scope") != execution_scope:
+                raise ValueError(
+                    "preannotation execution scope differs from durable job"
+                )
+        if execution_scope == "workbench" and not is_privileged_for_project(
+            actor, project
+        ):
+            if (
+                precreated_job is None
+                or batch_id is not None
+                or requested_task_ids is None
+                or len(requested_task_ids) != 1
+                or (precreated_job.payload or {}).get("batch_id") is not None
+                or (precreated_job.payload or {}).get("task_ids")
+                != [str(requested_task_ids[0])]
+            ):
+                raise ValueError("preannotation workbench job scope is unavailable")
+        if await _preannotation_actor_revoked(
+            db, actor.id, project_uuid, execution_scope=execution_scope
+        ):
+            raise ValueError("preannotation actor is unavailable")
         if precreated_job is not None:
             durable_payload = precreated_job.payload or {}
             image_authority = durable_payload.get("prediction_authority")
@@ -1786,6 +1823,11 @@ async def _execute_preannotation(
                     locked_by_other = bool(locks)
                 if locked_by_other:
                     raise ValueError("preannotation task scope is locked for editing")
+            if workbench_scope:
+                from app.services.prediction_execution import validate_task_scope
+
+                for task, _ in scope_rows:
+                    await validate_task_scope(db, project, task, actor, "workbench")
         from app.services import trained_models
         from app.services.trained_model_reference_contract import (
             FreezeModelReferenceError,
@@ -3174,7 +3216,7 @@ async def _execute_preannotation(
             # Fail before more model work when the initiating authority is gone.
             # The labeling owner independently fences the actual final write.
             if actor is not None and await _preannotation_actor_revoked(
-                db, uuid.UUID(user_id), project_uuid
+                db, uuid.UUID(user_id), project_uuid, execution_scope=execution_scope
             ):
                 await async_job_svc.mark_failed(
                     db, async_job_id, error="preannotation_actor_revoked"
@@ -3660,7 +3702,10 @@ async def _execute_preannotation(
                     authority_denied
                     or write_scope.actor_id is None
                     or await _preannotation_actor_revoked(
-                        db, write_scope.actor_id, project_uuid
+                        db,
+                        write_scope.actor_id,
+                        project_uuid,
+                        execution_scope=execution_scope,
                     )
                 ):
                     await async_job_svc.mark_failed(

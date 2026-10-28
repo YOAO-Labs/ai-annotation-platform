@@ -645,7 +645,9 @@ async def test_reference_writer_keeps_native_mask_gate_before_materialization(
         await lock_actor_project_authority(
             db_session, actor.id, project.id, nowait=False
         )
-        assert not await _preannotation_actor_revoked(db_session, actor.id, project.id)
+        assert not await _preannotation_actor_revoked(
+            db_session, actor.id, project.id, execution_scope="bulk"
+        )
         await owner.lock_key()
         await validate_task_scope(db_session, project, task, actor, "bulk", lock=True)
         receipt = await owner.final_receipt(task)
