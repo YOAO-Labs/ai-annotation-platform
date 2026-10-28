@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 from uuid import uuid4
 
@@ -180,7 +182,10 @@ async def test_revision_quiescence_retirement_and_launch_fence(db_session, test_
     row = (await db_session.execute(text(
         "SELECT auth_token, extra_params FROM public.ml_backend_registry WHERE id=:id"
     ), {"id": payload.installation_id})).one()
-    assert row.auth_token is None
+    digest = hashlib.sha256(payload.auth_token.encode()).hexdigest()
+    assert row.auth_token == "retired-sha256:" + digest
+    assert payload.auth_token not in json.dumps(row.extra_params)
+    assert digest not in json.dumps(row.extra_params["plugin_lifecycle"])
     assert row.extra_params["plugin"]["status"] == "retired"
     assert row.extra_params["plugin_lifecycle"]["stopped"]
 
@@ -255,3 +260,45 @@ async def test_concurrent_commands_with_same_revision_have_one_winner(test_engin
         async with maker.begin() as db:
             await db.execute(text("DELETE FROM public.ml_backend_registry WHERE id=:id"),
                              {"id": payload.installation_id})
+
+
+async def test_cuda_qualification_is_required_and_bound_to_launch(db_session, test_engine):
+    await assert_owned_test_database(test_engine)
+    data = InferenceTopologyData(db_session)
+    value = _payload().model_dump(mode="json")
+    value["manifest"]["resource"] = {"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 2048}
+    value["resource"] = {
+        "gpu_resource_id": "node/gpu", "physical_gpu_uuid": "GPU-123", "logical_device": "cuda:0"
+    }
+    payload = PreparePluginInstallation.model_validate(value)
+    evidence = _evidence(payload)
+    await data.prepare_plugin_installation(payload)
+    await data.command_plugin_installation(payload.installation_id, 1, "record_launch", _receipt(payload))
+    with pytest.raises(ValueError):
+        async with db_session.begin_nested():
+            await data.command_plugin_installation(payload.installation_id, 2, "activate", evidence)
+    report = {"device": "cuda", "qualified": True}
+    digest = hashlib.sha256(json.dumps(
+        report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    ).encode()).hexdigest()
+    qualified = await data.command_plugin_installation(
+        payload.installation_id, 2, "approve_qualification", {"report": report, "sha256": digest}
+    )
+    assert qualified.installation.revision == 3
+    active = await data.command_plugin_installation(payload.installation_id, 3, "activate", evidence)
+    assert active.installation.status == "active"
+    await data.command_plugin_installation(payload.installation_id, 4, "disable")
+    await data.command_plugin_installation(
+        payload.installation_id, 5, "quiesce",
+        {**evidence, "generation": 1, "pool_ids": [str(uuid4())]},
+    )
+    new_receipt = {**_receipt(payload), "container_id": "e" * 64}
+    recorded = await data.command_plugin_installation(payload.installation_id, 6, "record_launch", new_receipt)
+    assert recorded.installation.revision == 7
+    with pytest.raises(ValueError):
+        async with db_session.begin_nested():
+            await data.command_plugin_installation(
+                payload.installation_id, 7, "activate",
+                {**evidence, **new_receipt, "boot_id": str(uuid4())},
+            )
+    assert await data.get_plugin_installation(payload.installation_id) == recorded

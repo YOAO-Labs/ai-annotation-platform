@@ -54,8 +54,9 @@ BEGIN
            OR r.name IS DISTINCT FROM v->>'name'
            OR r.url IS DISTINCT FROM v->>'url'
            OR r.auth_method IS DISTINCT FROM 'token'
-           OR r.extra_params->'plugin_lifecycle'->>'credential_digest'
-               IS DISTINCT FROM encode(sha256(convert_to(v->>'auth_token','UTF8')),'hex') THEN
+           OR r.auth_token IS DISTINCT FROM CASE WHEN i->>'status'='retired'
+                THEN 'retired-sha256:' || encode(sha256(convert_to(v->>'auth_token','UTF8')),'hex')
+                ELSE v->>'auth_token' END THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='plugin installation intent conflicts with existing identity';
         END IF;
         RETURN jsonb_build_object('registry_id',k,'installation',i);
@@ -67,9 +68,7 @@ BEGIN
             (id,name,url,state,is_interactive,auth_method,auth_token,extra_params,
              gpu_resource_id,vram_budget_mb,eviction_priority,source)
         VALUES (k,v->>'name',v->>'url','disconnected',false,'token',v->>'auth_token',
-            jsonb_build_object('plugin',i,'plugin_lifecycle',jsonb_build_object(
-                'stopped', '[]'::jsonb, 'credential_digest',
-                encode(sha256(convert_to(v->>'auth_token','UTF8')),'hex'))),
+            jsonb_build_object('plugin',i,'plugin_lifecycle',jsonb_build_object('stopped', '[]'::jsonb)),
             v->'resource'->>'gpu_resource_id',
             NULLIF(v->'manifest'->'resource'->>'gpu_memory_mb','0')::integer,0,'manual');
     EXCEPTION WHEN unique_violation THEN
@@ -101,7 +100,7 @@ CREATE FUNCTION aap_inference_topology_v1.plugin_installation_evidence(p_id uuid
 RETURNS jsonb LANGUAGE sql STABLE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
-    SELECT r.extra_params->'plugin_lifecycle' - 'credential_digest'
+    SELECT r.extra_params->'plugin_lifecycle'
     FROM public.ml_backend_registry r WHERE r.id=p_id AND r.extra_params ? 'plugin'
 $function$;
 -- aap-statement-break
@@ -151,10 +150,22 @@ BEGIN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='previous launch requires quiescence proof';
         END IF;
         IF lifecycle->'launch' IS DISTINCT FROM evidence THEN
-            lifecycle := (lifecycle - 'proof' - 'activation') || jsonb_build_object('launch',evidence);
+            lifecycle := (lifecycle - 'proof' - 'activation' - 'qualification') || jsonb_build_object('launch',evidence);
         END IF;
+    ELSIF p_action='approve_qualification' THEN
+        IF status NOT IN ('prepared','disabled')
+           OR jsonb_typeof(lifecycle->'launch') IS DISTINCT FROM 'object'
+           OR jsonb_typeof(evidence) IS DISTINCT FROM 'object'
+           OR evidence - ARRAY['report','sha256'] <> '{}'::jsonb
+           OR jsonb_typeof(evidence->'report') IS DISTINCT FROM 'object'
+           OR coalesce(evidence->>'sha256','') !~ '^[0-9a-f]{64}$' THEN
+            RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid plugin qualification evidence or state';
+        END IF;
+        lifecycle := lifecycle || jsonb_build_object('qualification',evidence);
     ELSIF p_action='activate' THEN
         IF status NOT IN ('prepared','disabled') OR jsonb_typeof(evidence) IS DISTINCT FROM 'object'
+           OR (i->'manifest'->'resource'->>'device'='cuda'
+               AND jsonb_typeof(lifecycle->'qualification') IS DISTINCT FROM 'object')
            OR evidence - ARRAY['endpoint','boot_id','control_epoch'] IS DISTINCT FROM lifecycle->'launch'
            OR evidence->>'endpoint' IS DISTINCT FROM r.url
            OR coalesce(evidence->>'boot_id','') = ''
@@ -212,7 +223,9 @@ BEGIN
     i := i || jsonb_build_object('status',status,'revision',p_revision+1);
     UPDATE public.ml_backend_registry SET extra_params=extra_params ||
         jsonb_build_object('plugin',i,'plugin_lifecycle',lifecycle),
-        auth_token=CASE WHEN status='retired' THEN NULL ELSE auth_token END,
+        auth_token=CASE WHEN status='retired' AND auth_token IS NOT NULL
+            THEN 'retired-sha256:' || encode(sha256(convert_to(auth_token,'UTF8')),'hex')
+            ELSE auth_token END,
         updated_at=clock_timestamp()
     WHERE id=p_id;
     RETURN jsonb_build_object('registry_id',p_id,'installation',i);
