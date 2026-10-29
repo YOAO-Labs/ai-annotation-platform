@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import replace
 import hashlib
 import io
+import os
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -13,7 +14,7 @@ import uuid
 from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
-from sqlalchemy import delete, event, update
+from sqlalchemy import delete, event, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -408,6 +409,7 @@ async def test_guard_execution_locks_real_version_before_real_job(
     assert version_index < job_index
 
 
+@pytest.mark.parametrize("lock", [False, True])
 @pytest.mark.parametrize(
     "change",
     [
@@ -422,7 +424,7 @@ async def test_guard_execution_locks_real_version_before_real_job(
     ],
 )
 async def test_guard_execution_rechecks_saved_database_bindings(
-    execution_world, change
+    execution_world, change, lock
 ):
     world = execution_world
     if change == "owner":
@@ -435,7 +437,7 @@ async def test_guard_execution_rechecks_saved_database_bindings(
             ),
         )
         with pytest.raises(ContentError) as failure:
-            await worker.guard_execution(world.db, context, lock=True)
+            await worker.guard_execution(world.db, context, lock=lock)
         assert failure.value.code == "training_input_binding_changed"
         return
     if change == "snapshot":
@@ -483,16 +485,17 @@ async def test_guard_execution_rechecks_saved_database_bindings(
     assert all(getattr(cached, field) == value for field, value in before.items())
     if change in {"attempt", "celery-task"}:
         with pytest.raises(worker.Superseded):
-            await worker.guard_execution(world.db, world.context, lock=True)
+            await worker.guard_execution(world.db, world.context, lock=lock)
     else:
         with pytest.raises(ContentError) as error:
-            await worker.guard_execution(world.db, world.context, lock=True)
+            await worker.guard_execution(world.db, world.context, lock=lock)
         assert error.value.code == "training_input_binding_changed"
 
 
+@pytest.mark.parametrize("lock", [False, True])
 @pytest.mark.parametrize("cancel", ["version", "job", "requested"])
 async def test_guard_execution_observes_current_job_or_version_cancellation(
-    execution_world, cancel
+    execution_world, cancel, lock
 ):
     world = execution_world
     model = TrainingDatasetVersion if cancel == "version" else AsyncJob
@@ -510,7 +513,156 @@ async def test_guard_execution_observes_current_job_or_version_cancellation(
     )
     assert world.version.status == "running" and world.job.status == "running"
     with pytest.raises(asyncio.CancelledError):
-        await worker.guard_execution(world.db, world.context, lock=True)
+        await worker.guard_execution(world.db, world.context, lock=lock)
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires a disposable database with role creation privileges",
+)
+async def test_unlocked_guard_refreshes_job_without_private_jobs_select(
+    execution_world,
+):
+    world = execution_world
+    role = "learning_jobs_guard_" + uuid.uuid4().hex
+    await world.db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+    await world.db.execute(
+        text(f'GRANT USAGE ON SCHEMA public, aap_jobs_v1 TO "{role}"')
+    )
+    await world.db.execute(
+        text(f'GRANT SELECT ON public.training_dataset_versions TO "{role}"')
+    )
+    await world.db.execute(
+        text(
+            f"GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
+            f"aap_jobs_v1.read_job_execution_snapshot(uuid), "
+            f'aap_jobs_v1.read_job_progress(uuid) TO "{role}"'
+        )
+    )
+    await world.db.execute(text(f'SET LOCAL ROLE "{role}"'))
+    assert not await world.db.scalar(
+        text(
+            "SELECT has_any_column_privilege(current_user, 'public.async_jobs', 'SELECT')"
+        )
+    )
+    assert await worker.guard_execution(world.db, world.context) is world.version
+    await world.db.execute(text("RESET ROLE"))
+    await world.db.execute(
+        update(AsyncJob)
+        .where(AsyncJob.id == world.job.id)
+        .values(celery_task_id="replacement")
+        .execution_options(synchronize_session=False)
+    )
+    await world.db.execute(text(f'SET LOCAL ROLE "{role}"'))
+    with pytest.raises(worker.Superseded):
+        await worker.guard_execution(world.db, world.context)
+    await world.db.execute(text("RESET ROLE"))
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires a disposable database with role creation privileges",
+)
+async def test_dataset_dispatch_and_cancellation_without_private_jobs_select(
+    execution_world,
+):
+    from app.services.training_dataset_cancellation_contract import (
+        TrainingDatasetCancellationFailure,
+    )
+    from tests.factory import create_user
+
+    world = execution_world
+    db = world.db
+    outsider = await create_user(
+        db, "employee", f"jobs-reader-{uuid.uuid4()}@test.local", "Outsider"
+    )
+    actor_id, outsider_id = world.actor.id, outsider.id
+    project_id, job_id, version_id = world.project.id, world.job.id, world.version.id
+    world.job.status = world.version.status = "pending"
+    await db.flush()
+    db.expunge(world.job)
+    role = "learning_jobs_dataset_" + uuid.uuid4().hex
+    await db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+    await db.execute(
+        text(
+            f"GRANT USAGE ON SCHEMA public, aap_jobs_v1, aap_identity_v1, "
+            f'aap_workspace_v1, aap_notifications_v1 TO "{role}"'
+        )
+    )
+    await db.execute(
+        text(f'GRANT SELECT, UPDATE ON public.training_dataset_versions TO "{role}"')
+    )
+    await db.execute(
+        text(
+            f"GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
+            f"aap_jobs_v1.read_job_execution_snapshot(uuid), "
+            f"aap_jobs_v1.read_job_progress(uuid), "
+            f"aap_jobs_v1.apply_lifecycle(uuid,jsonb), "
+            f"aap_identity_v1.lock_accounts_share(uuid[],boolean), "
+            f"aap_workspace_v1.project_access_step(uuid,uuid,text), "
+            f"aap_notifications_v1.find_terminal_notification(uuid,text,uuid), "
+            f"aap_notifications_v1.preference_command(jsonb), "
+            f"aap_notifications_v1.delivery_job_scopes(uuid[]), "
+            f"aap_notifications_v1.delivery_member_pairs(jsonb), "
+            f"aap_notifications_v1.delivery_owner_pairs(jsonb), "
+            f"aap_notifications_v1.delivery_reviewer_pairs(jsonb), "
+            f"aap_notifications_v1.delivery_super_pairs(jsonb), "
+            f'aap_notifications_v1.append_job_terminal_notification(jsonb) TO "{role}"'
+        )
+    )
+    sent = []
+
+    async def dispatch(version_id, job_id, attempt_id, *, execution_id):
+        sent.append((version_id, job_id, attempt_id, execution_id))
+
+    revoked = []
+    port = datasets.SqlTrainingDatasetCancellation(
+        db, execution_control=SimpleNamespace(request_cancel=revoked.append)
+    )
+    await db.execute(text(f'SET LOCAL ROLE "{role}"'))
+    assert not await db.scalar(
+        text(
+            "SELECT has_any_column_privilege(current_user, 'public.async_jobs', 'SELECT')"
+        )
+    )
+    await datasets.dispatch_dataset(
+        db, world.version, dispatcher=SimpleNamespace(dispatch_dataset=dispatch)
+    )
+    job = await datasets.jobs.get_job(db, job_id, populate_existing=True)
+    assert sent[0][0:2] == (version_id, job_id)
+    assert job.celery_task_id == sent[0][3]
+
+    with pytest.raises(TrainingDatasetCancellationFailure) as denied:
+        await port.request_cancel(
+            job_id=job_id, project_id=project_id, actor_id=outsider_id
+        )
+    assert denied.value.status_code == 404
+
+    savepoint = await db.begin_nested()
+    await port.request_cancel(job_id=job_id, project_id=project_id, actor_id=actor_id)
+    await db.flush()
+    assert (
+        await datasets.jobs.get_job(db, job_id, populate_existing=True)
+    ).status == "cancelled"
+    assert (
+        await db.get(TrainingDatasetVersion, version_id, populate_existing=True)
+    ).status == "cancelled"
+    await savepoint.rollback()
+    assert (
+        await datasets.jobs.get_job(db, job_id, populate_existing=True)
+    ).status == "pending"
+    assert (
+        await db.get(TrainingDatasetVersion, version_id, populate_existing=True)
+    ).status == "pending"
+    await port.request_cancel(job_id=job_id, project_id=project_id, actor_id=actor_id)
+    await db.flush()
+    with pytest.raises(TrainingDatasetCancellationFailure) as replay:
+        await port.request_cancel(
+            job_id=job_id, project_id=project_id, actor_id=actor_id
+        )
+    assert replay.value.status_code == 409
+    assert revoked == [sent[0][3], sent[0][3]]
+    await db.execute(text("RESET ROLE"))
 
 
 @pytest.fixture

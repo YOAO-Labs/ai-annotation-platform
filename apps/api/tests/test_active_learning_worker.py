@@ -2,13 +2,14 @@
 
 import asyncio
 import copy
+import os
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.active_learning import (
@@ -116,6 +117,57 @@ async def prepared(world, claim_id, ordinal=0):
         row.status, row.media = "inflight", service.media_descriptor(round, sample)
         await db.commit()
         return round, row, png
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires a disposable database with role creation privileges",
+)
+async def test_dispatch_recovery_without_private_jobs_select(
+    db_session, super_admin, monkeypatch
+):
+    owner, _ = super_admin
+    fixture = await seed(db_session, owner, monkeypatch)
+    round, attempt, _ = await create(db_session, owner, fixture)
+    job_id = attempt.async_job_id
+    db_session.expunge_all()
+    round = await db_session.get(Round, round.id)
+    role = "learning_jobs_dispatch_" + uuid.uuid4().hex
+    await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+    await db_session.execute(
+        text(f'GRANT USAGE ON SCHEMA public, aap_jobs_v1 TO "{role}"')
+    )
+    await db_session.execute(
+        text(f'GRANT SELECT, UPDATE ON public.active_learning_attempts TO "{role}"')
+    )
+    await db_session.execute(
+        text(
+            f"GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
+            f"aap_jobs_v1.read_job_execution_snapshot(uuid), "
+            f"aap_jobs_v1.read_job_progress(uuid), "
+            f'aap_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
+        )
+    )
+    dispatched = []
+    monkeypatch.setattr(
+        worker.run_round, "apply_async", lambda **values: dispatched.append(values)
+    )
+    await db_session.execute(text(f'SET LOCAL ROLE "{role}"'))
+    assert not await db_session.scalar(
+        text(
+            "SELECT has_any_column_privilege(current_user, 'public.async_jobs', 'SELECT')"
+        )
+    )
+    await worker.dispatch(db_session, round)
+    job = await worker.jobs.get_job(db_session, job_id, populate_existing=True)
+    assert job.celery_task_id == dispatched[0]["task_id"]
+    attempt = await db_session.get(Attempt, attempt.id)
+    assert attempt.dispatched_at is not None
+    attempt.claim_id = uuid.uuid4()
+    await db_session.flush()
+    await worker.dispatch(db_session, round)
+    assert len(dispatched) == 1
+    await db_session.execute(text("RESET ROLE"))
 
 
 async def test_duplicate_claim_and_late_checkpoint_are_fenced(world):

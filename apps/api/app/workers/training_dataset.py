@@ -35,7 +35,6 @@ from app.services import (
 from app.services import training_dataset_originals as originals
 from app.services import storage_access
 from app.services.training_dataset_bridge import content_digest
-from app.db.models.async_job import AsyncJob
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     build_training_package,
@@ -92,7 +91,7 @@ async def guard_execution(db, context, *, lock=False, status="running"):
             job_lock_statement(context.job_id, mode="update", populate_existing=True)
         )
         if lock
-        else await db.get(AsyncJob, context.job_id, populate_existing=True)
+        else await jobs.get_job(db, context.job_id, populate_existing=True)
     )
     if (version and version.status == "cancelled") or (
         job
