@@ -11,6 +11,7 @@ name = "aap-backend-runtime"
 version = "0.1.0"
 source = { editable = "../../apps/_shared/backend_runtime" }
 dependencies = [
+    { name = "aap-lifecycle-contract" },
     { name = "aap-protocol-v2" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -20,6 +21,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-lifecycle-contract", editable = "../../apps/_shared/lifecycle_contract" },
     { name = "aap-protocol-v2", editable = "../../apps/_shared/protocol_v2" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.110" },
@@ -112,6 +114,7 @@ dependencies = [
     { name = "aap-backend-runtime" },
     { name = "aap-inference-plugin-sdk" },
     { name = "aap-libreyolo-native" },
+    { name = "aap-lifecycle-contract" },
     { name = "aap-protocol-v2" },
     { name = "aap-training-contract" },
     { name = "httpx" },
@@ -123,11 +126,17 @@ requires-dist = [
     { name = "aap-backend-runtime", editable = "../../apps/_shared/backend_runtime" },
     { name = "aap-inference-plugin-sdk", editable = "../../packages/inference-plugin-sdk" },
     { name = "aap-libreyolo-native", editable = "../../apps/_shared/libreyolo_native" },
+    { name = "aap-lifecycle-contract", editable = "../../apps/_shared/lifecycle_contract" },
     { name = "aap-protocol-v2", editable = "../../apps/_shared/protocol_v2" },
     { name = "aap-training-contract", editable = "../../apps/_shared/training_contract" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
+
+[[package]]
+name = "aap-lifecycle-contract"
+version = "0.1.0"
+source = { editable = "../../apps/_shared/lifecycle_contract" }
 
 [[package]]
 name = "aap-protocol-v2"

@@ -52,11 +52,8 @@ def config():
 
 
 def report_file(tmp_path):
-    from aap_backend_runtime.lifecycle_evidence import (
-        REQUIRED_CONTRACT_CHECKS,
-        build_managed_lifecycle_evidence,
-        memory_cycle_evidence,
-    )
+    from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
+    from aap_lifecycle_contract import REQUIRED_CONTRACT_CHECKS, memory_cycle_evidence
     from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
     receipt = json.loads((tmp_path / "state" / "receipt.json").read_text())

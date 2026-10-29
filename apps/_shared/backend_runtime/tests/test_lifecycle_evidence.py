@@ -6,9 +6,11 @@ import hashlib
 import pytest
 
 from aap_backend_runtime.lifecycle_evidence import (
-    REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
     build_managed_lifecycle_evidence,
+)
+from aap_lifecycle_contract import (
+    REQUIRED_CONTRACT_CHECKS,
     memory_cycle_evidence,
     validate_managed_lifecycle_evidence,
 )

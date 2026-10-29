@@ -226,6 +226,7 @@ name = "aap-backend-runtime"
 version = "0.1.0"
 source = { editable = "../_shared/backend_runtime" }
 dependencies = [
+    { name = "aap-lifecycle-contract" },
     { name = "aap-protocol-v2" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -235,6 +236,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-lifecycle-contract", editable = "../_shared/lifecycle_contract" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.110" },
@@ -479,6 +481,11 @@ requires-dist = [
 provides-extras = ["client", "runtime", "server", "test"]
 
 [[package]]
+name = "aap-lifecycle-contract"
+version = "0.1.0"
+source = { editable = "../_shared/lifecycle_contract" }
+
+[[package]]
 name = "aap-mail-transport"
 version = "0.1.0"
 source = { editable = "../_shared/mail_transport" }
@@ -714,7 +721,6 @@ dependencies = [
     { name = "aap-assets-source" },
     { name = "aap-audit", extra = ["postgres"] },
     { name = "aap-audit-contract" },
-    { name = "aap-backend-runtime" },
     { name = "aap-filesystem-read" },
     { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-identity-admission", extra = ["http"] },
@@ -723,6 +729,7 @@ dependencies = [
     { name = "aap-jobs", extra = ["queue-client"] },
     { name = "aap-labeling", extra = ["postgres"] },
     { name = "aap-labeling-mask-gc", extra = ["client"] },
+    { name = "aap-lifecycle-contract" },
     { name = "aap-mail-transport" },
     { name = "aap-media-probe", extra = ["client"] },
     { name = "aap-notifications", extra = ["postgres", "publication-client"] },
@@ -766,6 +773,7 @@ dependencies = [
 
 [package.optional-dependencies]
 test = [
+    { name = "aap-backend-runtime" },
     { name = "nuscenes-devkit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -782,7 +790,7 @@ requires-dist = [
     { name = "aap-assets-source", editable = "../assets-source" },
     { name = "aap-audit", extras = ["postgres"], editable = "../audit" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
-    { name = "aap-backend-runtime", editable = "../_shared/backend_runtime" },
+    { name = "aap-backend-runtime", marker = "extra == 'test'", editable = "../_shared/backend_runtime" },
     { name = "aap-filesystem-read", editable = "../_shared/filesystem_read" },
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-identity-admission", extras = ["http"], editable = "../_shared/identity_admission" },
@@ -791,6 +799,7 @@ requires-dist = [
     { name = "aap-jobs", extras = ["queue-client"], editable = "../jobs" },
     { name = "aap-labeling", extras = ["postgres"], editable = "../labeling" },
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
+    { name = "aap-lifecycle-contract", editable = "../_shared/lifecycle_contract" },
     { name = "aap-mail-transport", editable = "../_shared/mail_transport" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
     { name = "aap-notifications", extras = ["postgres", "publication-client"], editable = "../notifications" },

@@ -351,7 +351,7 @@ class LocalPluginDeployment:
         self, receipt: dict, result: PluginInstallationResult, source: Path | None
     ) -> PluginQualification:
         try:
-            from aap_backend_runtime.lifecycle_evidence import (
+            from aap_lifecycle_contract import (
                 validate_managed_lifecycle_evidence,
             )
             from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
