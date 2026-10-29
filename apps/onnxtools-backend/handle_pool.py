@@ -17,12 +17,17 @@ logger = logging.getLogger("onnxtools-backend.handle-pool")
 UTC = timezone.utc
 
 HANDLE_ORDER = ("pipeline", "detector", "va")
+HANDLE_SESSION_COUNTS = {"pipeline": 2, "detector": 1, "va": 1}
 GPU_PROVIDERS = frozenset({"CUDAExecutionProvider", "TensorrtExecutionProvider"})
 CPU_PROVIDERS = frozenset({"CPUExecutionProvider"})
 
 
 class HandlePoolBusyError(RuntimeError):
     """The fixed handle pool cannot safely start or unload work right now."""
+
+
+class HandleDeviceError(RuntimeError):
+    """A constructed handle does not satisfy the configured device policy."""
 
 
 class HandleBuildTimeout(RuntimeError):
@@ -76,6 +81,7 @@ class HandlePool:
         inspect_providers: ProviderInspector,
         *,
         build_timeout: float = 30.0,
+        validate_handle: Callable[[str, Any], str | None] | None = None,
         strict_cleanup: Callable[[], None] | None = None,
     ) -> None:
         if set(factories) != set(HANDLE_ORDER):
@@ -85,6 +91,7 @@ class HandlePool:
 
         self._factories = dict(factories)
         self._inspect_providers = inspect_providers
+        self._validate_handle = validate_handle
         self._build_timeout = build_timeout
         self._strict_cleanup = strict_cleanup or (lambda: None)
         self._cap = len(HANDLE_ORDER)
@@ -233,6 +240,10 @@ class HandlePool:
                 )
             if build_cancelled:
                 raise asyncio.CancelledError
+            if self._validate_handle is not None:
+                error = self._validate_handle(name, handle)
+                if error is not None:
+                    raise HandleDeviceError(error)
             load_ms = int((time.monotonic() - started) * 1000)
             loaded_at = datetime.now(UTC)
             entry = _HandleEntry(

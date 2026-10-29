@@ -23,6 +23,8 @@ import cv2
 import numpy as np
 from aap_backend_runtime import fetch_image
 
+from handle_pool import HANDLE_SESSION_COUNTS
+
 
 def _class_name_of(names: Any, cls: int) -> str:
     """从检测器 ``class_names`` 取下标 ``cls`` 的类名，兼容 dict / list 两种载体。
@@ -142,6 +144,45 @@ def _session_provider_chain(session: Any) -> list[str] | None:
     return [str(provider) for provider in providers]
 
 
+def inspect_handle_sessions(name: str, handle: Any) -> list[Any] | None:
+    """Return the actual ORT session owners in the fixed business topology."""
+    if name in {"detector", "va"}:
+        return [getattr(handle, "_onnx_session", None)]
+    if name == "pipeline":
+        detector = getattr(handle, "detector", None)
+        classifier = getattr(handle, "va_classifier", None)
+        return [
+            getattr(detector, "_onnx_session", None),
+            getattr(classifier, "_onnx_session", None),
+        ]
+    return None
+
+
+def strict_cuda_handle_error(name: str, handle: Any) -> str | None:
+    """Reject whole-session CPU fallback while allowing ORT graph partitioning."""
+    sessions = inspect_handle_sessions(name, handle)
+    if sessions is None or len(sessions) != HANDLE_SESSION_COUNTS.get(name):
+        return f"{name}: incomplete business session topology"
+    for session in sessions:
+        if session is None:
+            return f"{name}: missing business session"
+        try:
+            providers = session.get_providers()
+            device_id = (
+                session.get_provider_options()
+                .get("CUDAExecutionProvider", {})
+                .get("device_id")
+            )
+            if not providers or providers[0] != "CUDAExecutionProvider":
+                return f"{name}: CUDA is not the primary session provider"
+            if device_id != "0":
+                return f"{name}: CUDA session did not select logical device 0"
+            session.disable_fallback()
+        except Exception:
+            return f"{name}: cannot verify device or disable session fallback"
+    return None
+
+
 def inspect_handle_providers(name: str, handle: Any) -> list[list[str]] | None:
     """Read every expected business session owned by one logical handle.
 
@@ -150,17 +191,10 @@ def inspect_handle_providers(name: str, handle: Any) -> list[list[str]] | None:
     residency for a partially introspectable composite handle.
     """
 
-    if name == "detector" or name == "va":
-        chain = _session_provider_chain(getattr(handle, "_onnx_session", None))
-        return [chain or []]
-    if name == "pipeline":
-        detector = getattr(handle, "detector", None)
-        classifier = getattr(handle, "va_classifier", None)
-        return [
-            _session_provider_chain(getattr(detector, "_onnx_session", None)) or [],
-            _session_provider_chain(getattr(classifier, "_onnx_session", None)) or [],
-        ]
-    return None
+    sessions = inspect_handle_sessions(name, handle)
+    if sessions is None:
+        return None
+    return [_session_provider_chain(session) or [] for session in sessions]
 
 
 async def _run_blocking_until_complete(call: Any) -> Any:
@@ -273,5 +307,7 @@ __all__ = [
     "classification_to_result",
     "detections_to_results",
     "inspect_handle_providers",
+    "inspect_handle_sessions",
+    "strict_cuda_handle_error",
     "load_image_bgr",
 ]

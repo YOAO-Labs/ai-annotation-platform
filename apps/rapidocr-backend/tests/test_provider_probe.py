@@ -196,6 +196,32 @@ def test_cuda_exception_commits_cpu_latch_only_after_cpu_replacement_succeeds(
     assert factory.use_cuda is False
 
 
+def test_strict_cuda_never_retries_with_cpu_after_device_error(monkeypatch) -> None:
+    monkeypatch.setattr(predictor_module, "_soft_ort_cuda_use", lambda: True)
+    monkeypatch.setenv("RAPIDOCR_DEVICE", "gpu")
+    factory = predictor_module.RapidOCREngineFactory(strict_cuda=True)
+    attempts = []
+
+    def construct(_resolved, *, use_cuda):
+        attempts.append(use_cuda)
+        raise RuntimeError("CUDA driver unavailable")
+
+    monkeypatch.setattr(factory, "_construct", construct)
+    with pytest.raises(predictor_module.RapidOCREngineBuildError):
+        factory.build(_resolved())
+    assert attempts == [True]
+
+
+def test_strict_cuda_rejects_unavailable_provider_before_construction(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(predictor_module, "_soft_ort_cuda_use", lambda: False)
+    monkeypatch.setenv("RAPIDOCR_DEVICE", "gpu")
+    factory = predictor_module.RapidOCREngineFactory(strict_cuda=True)
+    with pytest.raises(predictor_module.RapidOCREngineBuildError, match="unavailable"):
+        factory.build(_resolved())
+
+
 def test_non_device_failure_never_retries_cpu_or_latches(
     monkeypatch,
 ) -> None:

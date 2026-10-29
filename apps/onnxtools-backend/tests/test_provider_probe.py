@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import sys
 import types
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -148,6 +149,36 @@ def test_composite_routes_cpu_preference_to_both_business_sessions(monkeypatch):
     ]
     assert len(probe_calls) == 1
     assert pipeline.class_names == ["car"]
+
+
+def test_partial_composite_failure_releases_constructed_detector(monkeypatch):
+    references = []
+
+    class Detector:
+        pass
+
+    def make_detector(_providers):
+        detector = Detector()
+        references.append(weakref.ref(detector))
+        return detector
+
+    def fail_classifier(_providers):
+        raise RuntimeError("classifier construction failed")
+
+    class FakePipeline:
+        pass
+
+    pipeline_module = types.ModuleType("onnxtools.pipeline")
+    pipeline_module.VehicleAttributePipeline = FakePipeline
+    monkeypatch.setitem(sys.modules, "onnxtools.pipeline", pipeline_module)
+    monkeypatch.setattr(
+        backend_main, "_probe_providers", lambda: ["CPUExecutionProvider"]
+    )
+    monkeypatch.setattr(backend_main, "_make_detector", make_detector)
+    monkeypatch.setattr(backend_main, "_make_va_classifier", fail_classifier)
+    with pytest.raises(RuntimeError, match="classifier construction failed"):
+        backend_main._make_pipeline()
+    assert references[0]() is None
 
 
 def test_upstream_pipeline_shim_contract():
