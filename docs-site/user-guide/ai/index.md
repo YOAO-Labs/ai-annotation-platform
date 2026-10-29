@@ -25,8 +25,8 @@ last_reviewed: 2026-10-27
 | 角色       | 常用 AI 任务                                                               | 从哪里开始                                                                                                                                                                                                            |
 | ---------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 标注员     | 在当前图片生成辅助结果、审阅候选、追踪视频目标                             | [图片交互式 AI](../workbench/sam-tool) · [审阅 AI 候选](./candidate-review) · [视频 AI 追踪](../workbench/video-propagate)                                                                                            |
-| 项目管理员 | 启用模型、批量预标、在线学习与模型训练、复用编排、导入外部预测、重试失败项 | [项目 ML 模型](../projects/ml-backends) · [AI 预标](../projects/ai-preannotate) · [在线学习](../online-learning/) · [全局编排库](../projects/pipeline-library) · [外部预测导入](../datasets/prediction-import-export) |
-| 超级管理员 | 管理全局 backend、查看模型能力与运行状态、协助恢复失败任务                 | [模型市场](../superadmin/model-market) · [失败预测排查](../superadmin/failed-predictions)                                                                                                                             |
+| 项目管理员 | 启用模型服务、批量预标、在线学习与模型训练、复用编排、导入外部预测、重试失败项 | [启用模型服务](../projects/ml-backends) · [AI 预标](../projects/ai-preannotate) · [在线学习](../online-learning/) · [全局编排库](../projects/pipeline-library) · [外部预测导入](../datasets/prediction-import-export) |
+| 超级管理员 | 管理全局模型服务、查看模型能力与运行状态、协助恢复失败任务                 | [模型市场](../superadmin/model-market) · [失败预测排查](../superadmin/failed-predictions)                                                                                                                             |
 
 ## 按任务进入
 
@@ -42,7 +42,7 @@ last_reviewed: 2026-10-27
 | 配置样本增量变化门槛与冷却，自动触发周期训练        | [自动训练策略](../online-learning/automation)                |
 | 对视频轨迹发起模型追踪、补种子并审阅整批结果        | [视频关键帧传播与 AI 追踪](../workbench/video-propagate)     |
 | 导入外部模型的预测、替换或清理候选                  | [外部预测导入 / 导出](../datasets/prediction-import-export)  |
-| 让项目可用某个 backend，并处理模型置灰或路由问题    | [项目 ML 模型](../projects/ml-backends)                      |
+| 让项目可用某个模型服务，并处理模型置灰或路由问题    | [启用模型服务](../projects/ml-backends)                      |
 | 保存、共享或套用一套多阶段预标编排                  | [全局编排库](../projects/pipeline-library)                   |
 | 查看任务历史、取消批量预标或重试可恢复项            | [AI 任务与失败恢复](../workflows/failed-prediction-recovery) |
 
@@ -58,13 +58,13 @@ last_reviewed: 2026-10-27
 
 1. 当前账号是否有对应入口的角色权限。
 2. 项目是否启用了所需工具单位和交互式 AI 开关。
-3. 项目是否启用了声明该能力的 ML Backend；视频追踪还要求 backend 声明对应 tracker。
+3. 项目是否启用了声明该能力的模型服务；视频追踪还要求模型服务声明对应 tracker。
 4. 任务或批次是否满足运行前置条件。批量预标要求批次处于 `active`，或为尚未分派标注员与质检员的 `draft` 批次。
-5. 管理员是否已配置并启动独立 Inference 服务；模型后端在线不等于推理、路由和 GPU 权威都已就绪。运维配置见 [Inference 私有运行指南](/api/guides/inference-runtime)。
+5. 管理员是否已配置并启动独立 Inference 服务；模型服务在线不等于推理、路由和 GPU 权威都已就绪。运维配置见 [Inference 私有运行指南](/api/guides/inference-runtime)。
 
 推理服务不可用或结果尚未确认时，平台不会自动改用本地客户端、其他实例或 CPU 重跑。已有后台作业先查询状态，再按对应入口的恢复操作处理；不要把连接超时当作模型已经停止或结果已经回滚。
 
-具体的模型置灰、能力路由和项目配置见[项目 ML 模型](../projects/ml-backends)；运行失败后的恢复路径见[失败预测恢复](../workflows/failed-prediction-recovery)。
+具体的模型置灰、能力路由和项目配置见[启用模型服务](../projects/ml-backends)；运行失败后的恢复路径见[失败预测恢复](../workflows/failed-prediction-recovery)。
 
 ## 相关概念
 
