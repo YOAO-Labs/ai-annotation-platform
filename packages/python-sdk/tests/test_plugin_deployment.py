@@ -8,7 +8,10 @@ import pytest
 
 from ai_annotation.errors import AAPError, APIStatusError
 from ai_annotation.plugin_deployment import LocalPluginConfig, LocalPluginDeployment
-from ai_annotation.plugin_models import PluginInstallationResult, PluginQuiesceResult
+from aap_inference_contract.plugin import (
+    PluginInstallationResponse,
+    PluginQuiesceResponse,
+)
 
 
 def config():
@@ -39,6 +42,17 @@ def config():
                     "8000",
                 ],
                 "capabilities": ["inference", "detection"],
+                "models": [
+                    {
+                        "id": "detect",
+                        "task": "detect",
+                        "is_interactive": False,
+                        "supported_prompts": ["none"],
+                        "supported_inputs": ["full_image", "crop"],
+                        "supported_geometric_outputs": ["bbox"],
+                    }
+                ],
+                "pools": {"models": {"cap": 1}},
                 "resource": {
                     "device": "cuda",
                     "memory_mb": 4096,
@@ -144,7 +158,7 @@ class Core:
     def prepare(self, request):
         self.requests.append(request)
         if self.result is None:
-            self.result = PluginInstallationResult.model_validate(
+            self.result = PluginInstallationResponse.model_validate(
                 {
                     "registry_id": str(uuid4()),
                     "installation": {
@@ -167,7 +181,7 @@ class Core:
         payload = self.result.model_dump(mode="json")
         payload["installation"]["status"] = status
         payload["installation"]["revision"] += 1
-        self.result = PluginInstallationResult.model_validate(payload)
+        self.result = PluginInstallationResponse.model_validate(payload)
         return self.result
 
     def activate(self, installation_id, request):
@@ -207,7 +221,7 @@ class Core:
         if self.safe and self.proven_revision != revision:
             self._transition("disabled")
             self.proven_revision = self.result.installation.revision
-        return PluginQuiesceResult.model_validate(
+        return PluginQuiesceResponse.model_validate(
             {
                 **self.result.model_dump(mode="json"),
                 "safe_to_stop": self.safe,
@@ -308,6 +322,57 @@ class LocalDocker:
             self.running = True
             self.started_at = "boot-" + self.container_id[0]
         return self.verify_running(config)
+
+
+def test_cpu_libreyolo_denies_gpu_and_preserves_existing_drain_state(tmp_path):
+    body = config().model_dump(mode="json")
+    body["gpu_resource_id"] = None
+    body["physical_gpu_uuid"] = None
+    body["gpu_verify_keyring"] = {}
+    body["manifest"]["resource"] = {
+        "device": "cpu",
+        "memory_mb": 4096,
+        "gpu_memory_mb": 0,
+    }
+    core = Core()
+    deployment = LocalPluginDeployment(
+        core, "https://api.example", tmp_path / "state", LocalDocker(core.events)
+    )
+    result = deployment.prepare(LocalPluginConfig.model_validate(body))
+    receipt = deployment.store.load()
+    container = deployment._container(receipt, result)
+    env = container.env_file.read_text()
+    assert "\nNVIDIA_VISIBLE_DEVICES=void\n" in env
+    assert "\nCUDA_VISIBLE_DEVICES=\n" in env
+
+    # A historical CPU launch can still be inspected and drained, but a new
+    # launch must not silently reuse the old, unfenced environment.
+    old_env = env.replace("NVIDIA_VISIBLE_DEVICES=void\nCUDA_VISIBLE_DEVICES=\n", "")
+    container.env_file.write_text(old_env)
+    assert (
+        deployment._container(receipt, result, provision=False).identity()
+        == container.identity()
+    )
+    assert container.env_file.read_text() == old_env
+    with pytest.raises(AAPError, match="Existing deployment file does not match"):
+        deployment._container(receipt, result)
+
+
+def test_install_accepts_qualified_ort_factory_session_counts(tmp_path):
+    core = Core()
+    deployment = LocalPluginDeployment(
+        core, "https://api.example", tmp_path / "state", LocalDocker(core.events)
+    )
+    deployment.prepare(config())
+    path = report_file(tmp_path)
+    report = json.loads(path.read_text())
+    report["deployment"]["runtime_versions"]["onnxruntime"] = "1.23.2"
+    report["deployment"]["pool_topology"]["session_counts"] = {"models": 1}
+    for cycle in report["cycles"]:
+        cycle["session_observations"] = {"models": [["CUDAExecutionProvider"]]}
+    path.write_text(json.dumps(report))
+
+    assert deployment.install(path).installation.status == "active"
 
 
 def test_restart_quiesces_replaces_and_keeps_history_and_data(tmp_path):

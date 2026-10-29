@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["typer>=0.12", "rich>=13.0"]
-plugins = ["typer>=0.12", "rich>=13.0", "aap-lifecycle-contract==0.1.0", "aap-training-contract==0.1.0"]
+plugins = ["typer>=0.12", "rich>=13.0", "aap-inference-contract==0.1.0", "aap-lifecycle-contract==0.1.0", "aap-training-contract==0.1.0"]
 streams = ["websockets>=12"]
 # tui 隐含 cli (aap tui 子命令从 CLI 入口启动)
 # websockets stays optional for public streams and the TUI; core HTTP uses httpx.
@@ -45,6 +45,7 @@ ai_annotation = ["_operation_catalog.generated.json", "AGENT_GUIDE.md"]
 version = { attr = "ai_annotation._version.__version__" }
 
 [tool.uv.sources]
+aap-inference-contract = { path = "../../apps/_shared/inference_contract", editable = true }
 aap-lifecycle-contract = { path = "../../apps/_shared/lifecycle_contract", editable = true }
 aap-training-contract = { path = "../../apps/_shared/training_contract", editable = true }
 aap-task-contract = { path = "../../apps/_shared/task_contract", editable = true }

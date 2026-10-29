@@ -132,6 +132,8 @@ class _BackendRequestHandler(BaseHTTPRequestHandler):
                     {
                         "gpu_info": {"device": "loopback-cpu"},
                         "host": {"name": "synthetic-backend"},
+                        "pool_topology": {"engines": {"cap": 3}},
+                        "ort_session_counts": {"engines": 2},
                     },
                     headers=response_headers,
                 )
@@ -259,6 +261,8 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
         assert health_meta == {
             "gpu_info": {"device": "loopback-cpu"},
             "host": {"name": "synthetic-backend"},
+            "pool_topology": {"engines": {"cap": 3}},
+            "ort_session_counts": {"engines": 2},
             "_aap_gpu_health_challenge_echo": _HEALTH_CHALLENGE,
         }
         setup = await transport.setup()

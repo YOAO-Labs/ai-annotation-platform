@@ -31,16 +31,19 @@ python3 apps/rapidocr-backend/download_models.py   # SHA256 校验、幂等
 
 ## Python 依赖与镜像构建
 
-`pyproject.toml` 声明 RapidOCR 3.9.0、ONNX Runtime GPU 1.23.2、NumPy 2.2.6、
-headless OpenCV 和三个直接使用的共享包。ORT GPU wheel 也可在 CPU 上运行；CUDA 镜像额外使用
-`cuda` extra 中的 cuDNN 9.10.2，CUDA/cuBLAS 由基础镜像提供。共享 runtime 还依赖
-`aap-lifecycle-contract`。共享包仍是本仓库构建输入，这不是独立插件迁移或 GPU 验收声明。
+`pyproject.toml` 将 CPU 与 CUDA 声明为互斥的运行时 extra：`cpu` 使用
+ONNX Runtime 1.23.2，`cuda` 使用 ONNX Runtime GPU 1.23.2 和 cuDNN 9.10.2。
+两者均使用 RapidOCR 3.9.0、NumPy 2.2.6、headless OpenCV 和共享包；
+CUDA/cuBLAS 由 GPU 基础镜像提供。共享 runtime 还依赖 `aap-lifecycle-contract`。
 
-`uv.lock` 固定完整依赖图，镜像安装的 `requirements-runtime.txt` 固定各 registry
-artifact 的哈希；`requirements-build.txt` 固定构建工具 wheel。更新 lock 后，在本目录运行：
+`uv.lock` 固定完整依赖图；CPU 的 `requirements-cpu.txt` 与 CUDA 的
+`requirements-runtime.txt` 分别固定 registry artifact 的哈希，
+`requirements-build.txt` 固定构建工具 wheel。更新 lock 后，在本目录运行：
 
 ```bash
 uv lock
+uv export --locked --extra cpu --extra build --no-emit-local \
+  --no-emit-package opencv-python --output-file requirements-cpu.txt
 uv export --locked --extra cuda --extra build --no-emit-local \
   --no-emit-package opencv-python --no-emit-package nvidia-cublas-cu12 \
   --output-file requirements-runtime.txt
@@ -53,6 +56,12 @@ uv export --locked --extra cuda --extra build --no-emit-local \
 两者会覆盖同一 `cv2` 文件。`nvidia-cublas-cu12` 同样不从 wheel 安装，以免覆盖基础镜像的 CUDA 库；
 `pip check` 也会报告 cuDNN metadata 所要求的这个 Python distribution 缺失。该布局不是 metadata 全绿的普通 pip 安装。
 
+插件安装时先由管理员核验所选权重的来源与授权，按 `models/` 下的相对路径放入
+安装状态目录的 `data/models/`。使用 `python -m plugin_assets` 逐个传入获准的
+`--asset`、固定 OCI 摘要和发布者／许可信息，生成 `data/assets.json` 与插件
+manifest；它不会下载权重。启动时验证 manifest 摘要、已选文件的固定 SHA256，
+并拒绝未列入清单的 ONNX 文件。未准备的变体不能推理，目录仍完整公布所有合法组合。
+
 ## 运行（dev）
 
 ```bash
@@ -64,20 +73,27 @@ curl -s localhost:8005/setup | python3 -m json.tool
 端口 8005。base 与瘦身后的 onnxtools-backend 共享 `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04`，
 RapidOCR 镜像会在其上固定 cuDNN 9.10.2，以保证 PP-OCRv6 非对称 padding 卷积在
 RTX 3090 上不会从 CUDAExecutionProvider 回退到 CPUExecutionProvider。当前 `gpu-rapidocr`
-compose profile 会无条件申请 NVIDIA 设备，因此只用于 GPU 部署。backend
-也支持显式 CPU 模式；无 GPU reservation 时可直接运行同一镜像并设置
-`RAPIDOCR_DEVICE=cpu`。环境变量：
+compose profile 会无条件申请 NVIDIA 设备，因此只用于 GPU 部署。
+CPU 专用镜像使用 `apps/rapidocr-backend/Dockerfile.cpu` 和 CPU ORT，
+不申请 GPU，也不包含 GPU ORT 或 NVIDIA wheel。以 `apps/` 为构建上下文；
+其默认权重目录是 `/var/lib/aap-plugin/models`。
 
-| 变量                                  | 默认          | 说明                                                                                                                                        |
-| ------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RAPIDOCR_MODEL_DIR`                  | `/app/models` | 权重根目录                                                                                                                                  |
-| `RAPIDOCR_DEVICE`                     | `gpu`         | `gpu` 优先构造 CUDA session，明确设备错误时才尝试 CPU replacement；`cpu` 只构造 CPU session。实际 provider 以 `/health` 的业务 session 为准 |
-| `RAPIDOCR_POOL_CAP`                   | `3`           | composite 引擎数上限；每个引擎固定持有 det/cls/rec 三个 ORT session                                                                         |
-| `RAPIDOCR_BUILD_TIMEOUT`              | `30`          | 调用方等待冷启动的秒数；超时后 builder 仍由池跟踪                                                                                           |
-| `RAPIDOCR_IDLE_UNLOAD_SECONDS`        | `600`         | 整池空闲卸载阈值；非正数关闭                                                                                                                |
-| `RAPIDOCR_IDLE_CHECK_INTERVAL`        | `60`          | 空闲检查周期                                                                                                                                |
-| `RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED` | `0`           | 部署级验收门；只有当前镜像、权重和物理 GPU 的严格证据通过后才设为 `1`                                                                       |
-| `GPU_LIFECYCLE_VERIFY_KEYS_JSON`      | 空            | Ed25519 验签公钥 keyring；空值保持 legacy gate                                                                                              |
+```bash
+docker build -f apps/rapidocr-backend/Dockerfile.cpu -t rapidocr-cpu apps
+```
+
+环境变量：
+
+| 变量                                  | 默认                                                | 说明                                                                                                                                        |
+| ------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RAPIDOCR_MODEL_DIR`                  | GPU `/app/models`；CPU `/var/lib/aap-plugin/models` | 权重根目录                                                                                                                                  |
+| `RAPIDOCR_DEVICE`                     | GPU `gpu`；CPU `cpu`                                | `gpu` 优先构造 CUDA session，明确设备错误时才尝试 CPU replacement；`cpu` 只构造 CPU session。实际 provider 以 `/health` 的业务 session 为准 |
+| `RAPIDOCR_POOL_CAP`                   | `3`                                                 | composite 引擎数上限；每个引擎固定持有 det/cls/rec 三个 ORT session                                                                         |
+| `RAPIDOCR_BUILD_TIMEOUT`              | `30`                                                | 调用方等待冷启动的秒数；超时后 builder 仍由池跟踪                                                                                           |
+| `RAPIDOCR_IDLE_UNLOAD_SECONDS`        | `600`                                               | 整池空闲卸载阈值；非正数关闭                                                                                                                |
+| `RAPIDOCR_IDLE_CHECK_INTERVAL`        | `60`                                                | 空闲检查周期                                                                                                                                |
+| `RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED` | `0`                                                 | 部署级验收门；只有当前镜像、权重和物理 GPU 的严格证据通过后才设为 `1`                                                                       |
+| `GPU_LIFECYCLE_VERIFY_KEYS_JSON`      | 空                                                  | Ed25519 验签公钥 keyring；空值保持 legacy gate                                                                                              |
 
 ## 引擎池与受管生命周期
 
@@ -98,7 +114,8 @@ admission。无 body 的 `/unload` 继续作为 legacy best-effort 兼容路径�
 启动阶段不创建临时 ORT session。只有受 admission 保护的首个 builder 才构造业务
 session。CUDA composite 构造异常只在确认为设备错误时才尝试 CPU 替代；即使替代成功，
 由于无法直接观测部分构造的私有所有权链，residency 仍保持 unknown，直到一次成功的
-全池清理。
+全池清理。平台管理的 CUDA 插件使用严格设备门：业务 session 的首 provider 必须是
+CUDAExecutionProvider，不允许 CPU 替代。
 
 默认 cap=3 的部署验收会同时构建三个 composite engine，并要求 9 条 det/cls/rec 业务
 session 全部以 CUDA 为首 provider。独占目标卡后执行：

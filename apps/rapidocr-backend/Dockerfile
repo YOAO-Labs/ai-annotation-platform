@@ -28,7 +28,8 @@ COPY _shared/lifecycle_contract/ /build/lifecycle_contract/
 COPY _shared/backend_runtime/ /build/backend_runtime/
 COPY rapidocr-backend/pyproject.toml rapidocr-backend/main.py rapidocr-backend/predictor.py \
      rapidocr-backend/schemas.py rapidocr-backend/catalog.py rapidocr-backend/engine_pool.py \
-     rapidocr-backend/gpu_lifecycle.py /build/rapidocr-backend/
+     rapidocr-backend/gpu_lifecycle.py rapidocr-backend/download_models.py \
+     rapidocr-backend/plugin_assets.py /build/rapidocr-backend/
 RUN python3 -m pip install --no-build-isolation --no-deps \
         /build/task_contract /build/protocol_v2 /build/lifecycle_contract /build/backend_runtime /build/rapidocr-backend \
     && rm -rf /build

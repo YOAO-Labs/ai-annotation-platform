@@ -10,7 +10,10 @@ from typer.testing import CliRunner
 
 from ai_annotation.cli.main import app
 from ai_annotation.errors import ValidationError
-from ai_annotation.plugin_models import PluginPrepareRequest, PluginResourceBinding
+from aap_inference_contract.plugin import (
+    PreparePluginInstallation,
+    PluginResourceBinding,
+)
 from .conftest import API
 from .test_plugin_deployment import Core, LocalDocker, config, report_file
 
@@ -18,7 +21,7 @@ from .test_plugin_deployment import Core, LocalDocker, config, report_file
 def test_prepare_error_never_echoes_token(client, respx_mock):
     cfg = config()
     token = "secret-" + "x" * 40
-    request = PluginPrepareRequest(
+    request = PreparePluginInstallation(
         installation_id=uuid4(),
         name=cfg.name,
         url=cfg.url,

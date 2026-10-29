@@ -17,13 +17,16 @@ dependencies = [
     "numpy==2.2.6",
     "Pillow>=10",
     "rapidocr==3.9.0",
-    "onnxruntime-gpu==1.23.2",
     "opencv-python-headless==5.0.0.93",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23"]
-cuda = ["nvidia-cudnn-cu12==9.10.2.21; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+cpu = ["onnxruntime==1.23.2"]
+cuda = [
+    "onnxruntime-gpu==1.23.2",
+    "nvidia-cudnn-cu12==9.10.2.21; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 build = ["setuptools==80.9.0", "wheel==0.45.1"]
 
 [build-system]
@@ -31,12 +34,15 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "catalog", "engine_pool", "gpu_lifecycle"]
+py-modules = ["main", "predictor", "schemas", "catalog", "engine_pool", "gpu_lifecycle", "download_models", "plugin_assets"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Source tests use the same shared packages installed as wheels in the image.
 pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/lifecycle_contract/src", "../_shared/backend_runtime/src"]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
 
 [tool.uv.sources]
 aap-backend-runtime = { path = "../_shared/backend_runtime" }

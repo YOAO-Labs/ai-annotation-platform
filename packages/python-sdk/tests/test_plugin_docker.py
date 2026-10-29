@@ -29,7 +29,7 @@ def config():
         cpus=2,
         env_file=Path("/private/env"),
         data_dir=Path("/private/data"),
-        data_target="/data",
+        data_target="/var/lib/aap-libreyolo",
         qualification_file=Path("/private/report.json"),
     )
 

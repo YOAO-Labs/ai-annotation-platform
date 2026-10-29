@@ -13,16 +13,30 @@ from ai_annotation.cli._output import (
     print_learning_result,
     read_json_body,
 )
-from ai_annotation.errors import AAPError
-from ai_annotation.plugin_deployment import LocalPluginConfig, LocalPluginDeployment
+from ai_annotation.errors import AAPError, InstallError
 
 app = typer.Typer(
-    help="Manage trusted local GPU plugin installations.", no_args_is_help=True
+    help="Manage trusted local inference plugin installations.", no_args_is_help=True
 )
 
 
-def _deployment(client, state_dir: Path) -> LocalPluginDeployment:
-    return LocalPluginDeployment(client.plugins, client._http._origin, state_dir)
+def _deployment_types():
+    try:
+        from ai_annotation.plugin_deployment import (
+            LocalPluginConfig,
+            LocalPluginDeployment,
+        )
+    except ModuleNotFoundError as exc:
+        if exc.name != "aap_inference_contract":
+            raise
+        raise InstallError(
+            "Plugin deployment dependencies are missing; install 'ai-annotation-sdk[plugins]'"
+        ) from exc
+    return LocalPluginConfig, LocalPluginDeployment
+
+
+def _deployment(client, state_dir: Path):
+    return _deployment_types()[1](client.plugins, client._http._origin, state_dir)
 
 
 @app.command("prepare")
@@ -33,9 +47,9 @@ def prepare(
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Reserve an inactive registry and GPU binding; no container is started."""
+    """Reserve an inactive registry and resource binding; no container is started."""
     with cli_errors(json_output):
-        body = read_json_body(config, LocalPluginConfig)
+        body = read_json_body(config, _deployment_types()[0])
         with get_client(json_output) as client:
             result = _deployment(client, state_dir).prepare(body)
     print_learning_result(result, json_output)
@@ -67,12 +81,36 @@ def install(
     """Start the owned image and activate only after core verifies the endpoint."""
     with cli_errors(json_output):
         confirm_destructive(
-            "Approve this GPU lifecycle report and activate the plugin?",
+            "Activate this plugin and approve any supplied GPU lifecycle report?",
             yes,
             json_output,
         )
         with get_client(json_output) as client:
             result = _deployment(client, state_dir).install(qualification)
+    print_learning_result(result, json_output)
+
+
+@app.command("migrate-state")
+def migrate_state(
+    state_dir: Path = typer.Option(..., "--state-dir"),
+    manifest: Path = typer.Option(
+        ..., "--manifest", help="Approved migrated manifest JSON"
+    ),
+    image_id: str = typer.Option(
+        ..., "--image-id", help="Approved immutable local image ID"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Update a legacy receipt only after Registry and local ownership checks."""
+    with cli_errors(json_output):
+        _deployment_types()
+        from aap_inference_contract.plugin import PluginManifest
+
+        body = read_json_body(manifest, PluginManifest)
+        confirm_destructive("Migrate this local plugin receipt?", yes, json_output)
+        with get_client(json_output) as client:
+            result = _deployment(client, state_dir).migrate_state(body, image_id)
     print_learning_result(result, json_output)
 
 

@@ -260,6 +260,7 @@ async def test_terminal_receipt_accepts_same_pools_in_backend_order(monkeypatch)
     )
     assert result.unloaded is True
     assert result.pool_ids == ["detector", "pipeline", "va"]
+
     assert store.closed
 
 
