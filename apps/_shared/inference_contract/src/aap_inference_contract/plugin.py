@@ -3,6 +3,7 @@
 The manifest is an administrator-approved intent, not evidence that an endpoint
 is running the artifact or has qualified for GPU admission.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +12,15 @@ from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from aap_task_contract import Task
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictStr,
+    model_validator,
+)
 
 from .execution import thaw_json
 
@@ -44,6 +53,43 @@ class ManagedModelCompatibility(BaseModel):
     runtime_device: Literal["cpu", "cuda"]
 
 
+class PluginModelCapability(BaseModel):
+    """The security-relevant projection of one advertised protocol model."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: StrictStr = Field(min_length=1, max_length=128)
+    task: Task
+    is_interactive: StrictBool
+    supported_prompts: list[StrictStr] = Field(min_length=1)
+    supported_inputs: list[StrictStr] = Field(min_length=1)
+    supported_geometric_outputs: list[StrictStr]
+
+    @model_validator(mode="after")
+    def validate_capabilities(self):
+        if self.id.strip() != self.id:
+            raise ValueError("model id must be canonical")
+        for values in (
+            self.supported_prompts,
+            self.supported_inputs,
+            self.supported_geometric_outputs,
+        ):
+            if any(not value or value.strip() != value for value in values):
+                raise ValueError("capabilities must be nonempty canonical strings")
+            if len(values) != len(set(values)):
+                raise ValueError("capabilities must be unique")
+        return self
+
+
+class PluginPoolTopology(BaseModel):
+    """Approved maximum handles and business sessions per handle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    cap: int = Field(gt=0, strict=True)
+    sessions: int = Field(gt=0, strict=True)
+
+
 class PluginManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -54,10 +100,16 @@ class PluginManifest(BaseModel):
     artifact: str = Field(pattern=_OCI_DIGEST_REFERENCE)
     sdk_compatibility: str = Field(min_length=1, max_length=255)
     entrypoint: list[str] = Field(min_length=1)
-    capabilities: list[Literal["inference", "detection", "managed_models"]] = Field(min_length=1)
+    capabilities: list[Literal["inference", "detection", "managed_models"]] = Field(
+        min_length=1
+    )
+    models: list[PluginModelCapability] = Field(min_length=1, max_length=128)
+    pools: dict[str, PluginPoolTopology] = Field(min_length=1, max_length=128)
     resource: PluginResourceRequirements
     asset_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    managed_model_compatibility: list[ManagedModelCompatibility] = Field(default_factory=list)
+    managed_model_compatibility: list[ManagedModelCompatibility] = Field(
+        default_factory=list
+    )
     allowed_asset_sources: list[str]
 
     @model_validator(mode="after")
@@ -68,13 +120,27 @@ class PluginManifest(BaseModel):
             raise ValueError("capabilities must be unique")
         if "inference" not in self.capabilities:
             raise ValueError("inference capability is required")
+        if len({model.id for model in self.models}) != len(self.models):
+            raise ValueError("model ids must be unique")
+        if any(
+            not pool or len(pool) > 128 or pool.strip() != pool for pool in self.pools
+        ):
+            raise ValueError("pool ids must be nonempty and canonical")
         if any(not item or not item.strip() for item in self.allowed_asset_sources):
             raise ValueError("asset sources must not be empty")
-        if ("managed_models" in self.capabilities) != bool(self.managed_model_compatibility):
-            raise ValueError("managed model capability and compatibility declarations must agree")
-        if any(item.runtime_device != self.resource.device for item in self.managed_model_compatibility):
+        if ("managed_models" in self.capabilities) != bool(
+            self.managed_model_compatibility
+        ):
+            raise ValueError(
+                "managed model capability and compatibility declarations must agree"
+            )
+        if any(
+            item.runtime_device != self.resource.device
+            for item in self.managed_model_compatibility
+        ):
             raise ValueError("managed model runtime must match the instance device")
         return self
+
 
 class PluginResourceBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -97,9 +163,19 @@ class PluginInstallation(BaseModel):
     def validate_binding(self):
         resource = self.resource
         if self.manifest.resource.device == "cuda":
-            if not resource.gpu_resource_id or not resource.physical_gpu_uuid or not resource.logical_device.startswith("cuda:"):
-                raise ValueError("CUDA requires an explicit resource, physical UUID, and logical device")
-        elif resource.gpu_resource_id is not None or resource.physical_gpu_uuid is not None or resource.logical_device != "cpu":
+            if (
+                not resource.gpu_resource_id
+                or not resource.physical_gpu_uuid
+                or not resource.logical_device.startswith("cuda:")
+            ):
+                raise ValueError(
+                    "CUDA requires an explicit resource, physical UUID, and logical device"
+                )
+        elif (
+            resource.gpu_resource_id is not None
+            or resource.physical_gpu_uuid is not None
+            or resource.logical_device != "cpu"
+        ):
             raise ValueError("CPU installation must not have a GPU binding")
         return self
 
@@ -157,8 +233,11 @@ class PluginLifecycleQualification(BaseModel):
     def validate_digest(self):
         try:
             payload = json.dumps(
-                self.report, sort_keys=True, separators=(",", ":"),
-                ensure_ascii=True, allow_nan=False,
+                self.report,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
             ).encode("utf-8")
         except (TypeError, ValueError) as exc:
             raise ValueError("lifecycle report must be finite JSON") from exc
@@ -200,6 +279,9 @@ def plugin_is_active(extra_params: object) -> bool:
     if "plugin" not in extra_params:
         return "plugin_lifecycle" not in extra_params
     try:
-        return PluginInstallation.model_validate(thaw_json(extra_params["plugin"])).status == "active"
+        return (
+            PluginInstallation.model_validate(thaw_json(extra_params["plugin"])).status
+            == "active"
+        )
     except (ValueError, TypeError):
         return False
