@@ -184,6 +184,10 @@ test.describe("raster mask native write matrix", () => {
     expect(created.annotation_type).toBe("raster_mask");
     expect(created.geometry.type).toBe("raster_mask");
     const firstContent = await getMaskContent(request, created.id, token);
+    expect(firstContent.encoding).toBe("coco_rle");
+    expect(firstContent.size).toEqual([48, 64]);
+    expect(firstContent.counts.reduce((sum, count) => sum + count, 0)).toBe(48 * 64);
+    expect(firstContent.counts.some((count, index) => index % 2 === 1 && count > 0)).toBe(true);
 
     await page.reload();
     await expect(page.getByTestId(`box-list-item-${created.id}`)).toContainText(

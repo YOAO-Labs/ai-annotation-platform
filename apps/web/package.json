@@ -22,7 +22,7 @@
     "test:e2e:visual": "playwright test --config=playwright.extended.config.ts --grep @visual",
     "test:e2e:stress": "playwright test --config=playwright.stress.config.ts",
     "test:e2e:mask-readonly": "PLAYWRIGHT_RASTER_MASK_MATRIX=readonly playwright test e2e/tests/raster-mask-native.spec.ts --project=chromium",
-    "test:e2e:mask-native": "PLAYWRIGHT_RASTER_MASK_MATRIX=native playwright test e2e/tests/raster-mask-native.spec.ts e2e/tests/mask-advanced-operations.spec.ts --project=chromium",
+    "test:e2e:mask-native": "PLAYWRIGHT_RASTER_MASK_MATRIX=native playwright test e2e/tests/raster-mask-native.spec.ts e2e/tests/mask-advanced-operations.spec.ts e2e/tests/mask-editor.spec.ts --project=chromium && PLAYWRIGHT_RASTER_MASK_MATRIX=native playwright test --config=playwright.browser-integration.config.ts --project=chromium",
     "test:e2e:mask-ai-native": "PLAYWRIGHT_RASTER_MASK_MATRIX=native playwright test e2e/tests/native-mask-ai.spec.ts e2e/tests/video-tracker-local-review.spec.ts --project=chromium",
     "screenshots": "playwright test --config=playwright.screenshots.config.ts --project=desktop-light",
     "screenshots:dark": "playwright test --config=playwright.screenshots.config.ts --project=desktop-dark",

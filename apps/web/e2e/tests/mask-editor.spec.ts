@@ -1,81 +1,69 @@
 /**
- * v0.10.10 · I11 · Mask 编辑器 e2e。
- *
- * 覆盖：
- *  1. 空白 mask → 原生 Mask 入库（M / 拖拽 / Enter）
- *  2. user polygon 精修：先画 polygon，refine → erase → Enter，验 update 路径
- *  3. AI prediction 精修：seed.injectPrediction → refine → 确认转换，验新原生 Mask annotation
- *  4. hotkey 全集：B / E / 滚轮 / Esc → MaskToolbar UI 同步
- *
- * SAM 候选精修入口需要真实 ml-backend 跑出候选，本期 e2e 不覆盖；
- * 单测层面 useImageAnnotationActions.test 已分流过 kind=sam。
+ * Mask keyboard controls and refinement of the seeded prediction.
+ * Native creation, persistence and re-edit are covered by the native write matrix.
  */
+import type { APIRequestContext } from "@playwright/test";
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { test, expect } from "../fixtures/seed";
+import { openPredictionRefinement, confirmMaskRefinement } from "../helpers/mask-refinement";
+
+const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
+
+interface SavedMask {
+  id: string;
+  annotation_type: string;
+  parent_prediction_id: string | null;
+  class_name: string;
+  geometry: { type: string };
+}
+
+interface MaskContent {
+  encoding: string;
+  size: number[];
+  counts: number[];
+}
+
+async function savedMasks(request: APIRequestContext, taskId: string, token: string) {
+  const response = await request.get(`${API_BASE}/api/v1/tasks/${taskId}/annotations`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(response.ok()).toBe(true);
+  return (await response.json()) as SavedMask[];
+}
+
+async function maskContent(request: APIRequestContext, id: string, token: string) {
+  const response = await request.get(`${API_BASE}/api/v1/annotations/${id}/mask-content`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(response.ok()).toBe(true);
+  return (await response.json()) as MaskContent;
+}
+
+// COCO RLE is column-major; inspect fixed source pixels without the editor codec.
+function pixel(content: MaskContent, x: number, y: number): number {
+  const offset = x * content.size[0] + y;
+  let end = 0;
+  for (let index = 0; index < content.counts.length; index += 1) {
+    end += content.counts[index];
+    if (offset < end) return index % 2;
+  }
+  throw new Error("RLE does not cover requested pixel");
+}
 
 test.describe("mask editor (I11)", () => {
-  test("空白 mask → Enter 提交一个原生 Mask annotation", async ({ page, seed }) => {
+  test("AI prediction polygon 精修 → 确认后新原生 Mask 入库", async ({ page, request, seed }) => {
     const data = await seed.owned();
+    const taskId = data.task_ids[0];
+    await seed.configureRasterMask(data.project_id, true);
+    const token = await seed.accessToken(data.annotator_email);
     await seed.advanceTask({
-      taskId: data.task_ids[0],
-      toStatus: "pending",
-      annotatorEmail: data.annotator_email,
-    });
-    await seed.injectToken(page, data.annotator_email);
-    await page.goto(`/projects/${data.project_id}/annotate`);
-    await page.waitForLoadState("networkidle");
-
-    // 按 M 切 mask 工具
-    await page.keyboard.press("m");
-    await expect(page.getByTestId("mask-tool-capsule")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("mask-settings-trigger")).toHaveAttribute("title", /· 就绪 ·/);
-
-    // 在画布上拖拽画一笔
-    const stage = page.getByTestId("workbench-stage");
-    const box = await stage.boundingBox();
-    if (!box) throw new Error("stage boundingBox 不可用");
-    const sx = box.x + box.width * 0.4;
-    const sy = box.y + box.height * 0.4;
-    const ex = box.x + box.width * 0.55;
-    const ey = box.y + box.height * 0.55;
-    await page.mouse.move(sx, sy);
-    await page.mouse.down();
-    await page.mouse.move(ex, ey, { steps: 10 });
-    await page.mouse.up();
-
-    // dirty 指示应变成「未保存」
-    await expect(page.getByTestId("mask-tool-capsule").getByRole("status")).toHaveAttribute(
-      "aria-label",
-      "未保存",
-    );
-
-    // Enter 提交 → 监听 POST /annotations
-    const annoPost = page
-      .waitForResponse(
-        (resp) =>
-          /\/api\/v1\/(annotations|tasks\/[^/]+\/annotations)/.test(resp.url()) &&
-          resp.request().method() === "POST" &&
-          resp.status() < 400,
-        { timeout: 10_000 },
-      )
-      .catch(() => null);
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("class-picker-popover")).toBeVisible();
-    await page.keyboard.press("Enter");
-    const resp = await annoPost;
-    expect(resp).not.toBeNull();
-  });
-
-  test("AI prediction polygon 精修 → 确认后新原生 Mask 入库", async ({ page, seed }) => {
-    const data = await seed.owned();
-    await seed.advanceTask({
-      taskId: data.task_ids[0],
+      taskId,
       toStatus: "pending",
       annotatorEmail: data.annotator_email,
     });
     // 注入一条 polygon prediction
-    await seed.injectPrediction({
-      taskId: data.task_ids[0],
+    const { prediction_id: predictionId } = await seed.injectPrediction({
+      taskId,
       projectId: data.project_id,
       label: "car",
       polygon: [
@@ -88,23 +76,8 @@ test.describe("mask editor (I11)", () => {
     });
 
     await seed.injectToken(page, data.annotator_email);
-    // 显式带 ?task= 定位到注入了 prediction 的 task，避免依赖工作台默认 tasks[0] 选择顺序
-    // （后端 list_tasks 排序变化曾导致默认载入别的任务、AI 候选为空）。
-    await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
-    await page.waitForLoadState("networkidle");
-
-    // 右侧 AI 行的精修按钮（data-testid 由 BoxListItem 渲染：ai-refine-{annotation 行 id}）。
-    // 候选 id 不可预知，用 role / 文本兜底。
-    // 操作区改为 ⋮ 常驻 + hover 浮出后, refine 按钮默认 pointer-events-none, 须先 hover
-    // group/act 容器触发浮出。tailwind named group-hover/act 只对 group/act 后代触发,
-    // hover 整个 box-list-item 行不够 (group/act 是内层 div); 须 hover group/act 本身或
-    // 其有 pointer events 的后代——即 ⋮ 常驻按钮 (aria-label="更多操作")。
-    const aiRow = page.locator('[data-testid^="box-list-item-"]').first();
-    await expect(aiRow).toBeVisible({ timeout: 10_000 });
-    await aiRow.getByRole("button", { name: "更多操作" }).hover();
-    const refineBtn = page.locator('[data-testid^="ai-refine-"]').first();
-    await expect(refineBtn).toBeVisible({ timeout: 10_000 });
-    await refineBtn.click();
+    await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
+    await openPredictionRefinement(page, predictionId);
 
     // mask 工具应激活 + buffer 已 from polygon 初始化
     await expect(page.getByTestId("mask-tool-capsule")).toBeVisible();
@@ -141,42 +114,32 @@ test.describe("mask editor (I11)", () => {
     await page.mouse.move(cx - 20, cy, { steps: 4 });
     await page.mouse.up();
 
-    // commit 触发：确认转换报告（可能追加 lossy 警告）后创建带 prediction lineage 的原生 Mask。
-    let confirmCount = 0;
-    const decision = page.getByRole("alertdialog");
-    const acceptDecision = async () => {
-      await expect(decision).toBeVisible();
-      // 记住「这一条」对话框的 Radix 实例 id:确认后 app 可能在旧对话框退场动画期间
-      // 立刻入队下一条(如 lossy 警告),按 role 定位会命中新对话框。按 id 等这一条
-      // 真正卸载,既不会命中后续对话框,也不依赖 ElementHandle——元素先卸载时
-      // handle 已失效,waitForElementState("detached") 会直接抛 "not attached"。
-      const currentId = await decision.getAttribute("id");
-      await decision.locator('[data-slot="alert-dialog-action"]').click();
-      confirmCount += 1;
-      if (currentId) {
-        await expect(page.locator(`[id="${currentId}"]`)).toHaveCount(0, { timeout: 10_000 });
-      }
-    };
-    const annoPost = page
-      .waitForResponse(
-        (resp) =>
-          /\/api\/v1\/(annotations|tasks\/[^/]+\/annotations)/.test(resp.url()) &&
-          resp.request().method() === "POST" &&
-          resp.status() < 400,
-        { timeout: 10_000 },
-      )
-      .catch(() => null);
     await openMaskSettings(page);
     await page.getByTestId("mask-toolbar").getByTestId("mask-primary-action").click();
-    await acceptDecision();
-    // lossy 警告视转换报告而定;短暂等待出现则再确认一轮,未出现则直接等落库。
-    await decision
-      .waitFor({ state: "visible", timeout: 3_000 })
-      .then(() => acceptDecision())
-      .catch(() => undefined);
-    const resp = await annoPost;
-    expect(resp).not.toBeNull();
-    expect(confirmCount).toBeGreaterThan(0);
+    await confirmMaskRefinement(page);
+
+    await expect.poll(async () => (await savedMasks(request, taskId, token)).length).toBe(1);
+    const [saved] = await savedMasks(request, taskId, token);
+    expect(saved).toMatchObject({
+      annotation_type: "raster_mask",
+      parent_prediction_id: predictionId,
+      class_name: "car",
+      geometry: { type: "raster_mask" },
+    });
+    const content = await maskContent(request, saved.id, token);
+    expect(content.encoding).toBe("coco_rle");
+    expect(content.size).toEqual([48, 64]);
+    expect(content.counts.reduce((sum, count) => sum + count, 0)).toBe(48 * 64);
+    expect(pixel(content, 0, 0)).toBe(0);
+    expect(pixel(content, 32, 22)).toBe(1);
+    const foreground = content.counts.reduce((sum, count, i) => sum + (i % 2 ? count : 0), 0);
+    expect(foreground).toBeGreaterThan(0);
+    expect(foreground).toBeLessThan(285);
+
+    await page.reload();
+    await expect(page.getByTestId(`box-list-item-${saved.id}`)).toBeVisible();
+    expect(await savedMasks(request, taskId, token)).toContainEqual(saved);
+    expect(await maskContent(request, saved.id, token)).toEqual(content);
   });
 
   test("mask 工具 hotkey 全集：B / E / 滚轮 / Esc", async ({ page, seed }) => {
