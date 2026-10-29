@@ -594,6 +594,9 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         plugin_id="onnxtools", onnxruntime="1.22"
     )
     expected = {"pipeline": 2, "detector": 1}
+    ort_setup["runtime_info"]["ort_session_counts"] = deepcopy(expected)
+    ort_health["ort_session_counts"] = deepcopy(expected)
+    ort_report["deployment"]["pool_topology"]["session_counts"] = deepcopy(expected)
     session = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     observed = {
         name: [list(session) for _ in range(count)] for name, count in expected.items()
@@ -624,6 +627,27 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
                 receipt,
                 **{**ort_kwargs, "qualification": signed_report(bad_report)},
             )
+    truncated = deepcopy(ort_report)
+    for cycle in truncated["cycles"]:
+        cycle["session_observations"]["pipeline"].pop()
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation,
+            receipt,
+            **{**ort_kwargs, "qualification": signed_report(truncated)},
+        )
+    wrong_counts = deepcopy(ort_health)
+    wrong_counts["ort_session_counts"]["pipeline"] = 1
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation, receipt, **{**ort_kwargs, "health": wrong_counts}
+        )
+    wrong_setup_counts = deepcopy(ort_setup)
+    wrong_setup_counts["runtime_info"]["ort_session_counts"]["detector"] = True
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation, receipt, **{**ort_kwargs, "setup": wrong_setup_counts}
+        )
     wrong_runtime = deepcopy(ort_setup)
     wrong_runtime["runtime_info"]["runtime_versions"]["onnxruntime"] = "different"
     with pytest.raises(PluginObservationRejected):
