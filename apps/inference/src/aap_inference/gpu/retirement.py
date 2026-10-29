@@ -469,7 +469,7 @@ async def retire_gpu_backend_membership(
                 resource_id,
                 membership_epoch,
             )
-        return await collect_gpu_backend_tombstone(
+        result = await collect_gpu_backend_tombstone(
             collector_data,
             store,
             backend_id,
@@ -477,6 +477,11 @@ async def retire_gpu_backend_membership(
             membership_epoch,
             proof=probe.proof,
         )
+        if probe.proof is None and result.reason == "redis_receipt_missing":
+            return GPUTombstoneCollectionResult(
+                backend_id, resource_id, membership_epoch, "blocked", probe.reason
+            )
+        return result
     except Exception as exc:
         logger.warning("GPU retired tombstone collection failed", exc_info=True)
         return GPUTombstoneCollectionResult(

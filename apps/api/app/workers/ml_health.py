@@ -382,23 +382,6 @@ async def _repair_one_gpu_resource(
     memberships = await _resource_memberships(factory, resource_id)
     collected_now = False
     for membership in memberships:
-        probe = await client.probe_retired_membership(
-            membership.backend_id,
-            resource_id,
-            membership.membership_epoch,
-        )
-        if not probe.proof_available:
-            collections.append(
-                {
-                    "backend_id": str(membership.backend_id),
-                    "resource_id": resource_id,
-                    "membership_epoch": membership.membership_epoch,
-                    "status": "blocked",
-                    "reason": probe.reason,
-                    "redis_idempotent": False,
-                }
-            )
-            continue
         collected = await client.collect_tombstone(
             membership.backend_id,
             resource_id,
