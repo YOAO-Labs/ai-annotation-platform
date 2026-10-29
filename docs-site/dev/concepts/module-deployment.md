@@ -58,7 +58,7 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 
 ### API SDK 与插件 SDK {#api-sdk-and-plugin-sdk}
 
-**统一必要契约和开发流程，不合并 SDK 包。** 两套 SDK 已分别提供；插件仓库迁移与管理工具的运行时依赖收口尚未完成。
+**统一必要契约和开发流程，不合并 SDK 包。** 两套 SDK 已分别提供，生命周期证明的纯校验已独立于模型运行时；插件仓库迁移和跨仓制品分发尚未完成。
 
 | 维度                | API SDK                                      | 插件 SDK                                                       |
 | ------------------- | -------------------------------------------- | -------------------------------------------------------------- |
@@ -72,7 +72,7 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 
 跨边界必需的 manifest、安装身份、资源绑定、生命周期证明 schema 与纯校验规则沿用平台维护的公共契约。消费者使用版本化契约包，或从同一权威 schema 生成对应类型；不复制另一套字段定义、权限规则或准入判断。两套 SDK 独立发布，分别声明各自兼容范围；组合使用须验证兼容组合，不要求版本号同步。
 
-当前 API SDK 的 `plugins` extra 依赖后端运行时和训练契约，宿主及管理员工具仍使用运行时中的生命周期证据校验。拆仓时按实际用途将便携证明与纯校验收口到公共契约，模型装载、证据采集和资源释放机制留在插件运行时；这项依赖整理尚不能视为已交付。
+生命周期证明 schema、内存周期计算和纯校验由平台的 `aap-lifecycle-contract` 提供，支持 Python 3.10 及以上且无第三方运行依赖。生产 API 和 API SDK 的 `plugins` extra 使用该契约，不再安装 `aap-backend-runtime`；训练契约仍按实际用途保留，测试 extra 可使用运行时生成证据夹具。模型装载、文件摘要采集、证明生产和资源释放机制仍在插件运行时。已通过独立 wheel 与当前 API 镜像的禁网只读检查；这不等于公共制品渠道、独立插件仓库或实际 GPU 资格已经交付。
 
 具体插件确需调用平台公开 API 时，可自行显式依赖 API SDK，并使用获准操作和作用域的凭据。插件 SDK 不自动注入平台客户端、管理员凭据或内部签名私钥，也不提供访问平台私有模块、数据库或绕过领域 owner 的通道。
 
@@ -189,22 +189,30 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Jobs／Labeling：旧视频输入保留 | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏 | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312的23项与0313的10项定向案例及完整迁移往返通过；进程内取消单测单列 | 新领取路径的本地资格完成；已领租约仍须真实停机／凭据围栏；历史 expired／已删对象修复和无账本退役 operator 未实现，适用旧库时单列代码项；[当前组合工件](#coherent-module-artifact)已验收，日常拓扑未采用 |
 | Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
 | Inference：非暂缓完整模块 | 流水线、探测／健康、Registry、路由、模型执行、Backend control 与 GPU 权威均有独立合同／工件及受限数据能力 | 普通 API／worker、批量／当前任务／二次推理、质量、训练模型调用与视频窗口已迁移；原 UOW、实例绑定及迟到结果围栏保持 | [完整资格与采用](#inference-whole-module)：466项非editable便携测试、当前三镜像、真实模型 HTTP／冷 worker、帧 CLI SIGKILL恢复、完整 PostgreSQL恢复及本机采用通过 | 当前非暂缓 Python 模块的本地门槛与本机适用采用完成；GPU策略off，不据此通过NVIDIA／生产容量、对象存储灾难恢复、通用历史退役、另一种语言提供方或暂缓Learning／Assets扩展 |
-| Learning：训练、版本、评估及发布         | 训练 executor 独立拉取与交接已实现；其余账本仍由 API 持有                                                          | executor 与部分保留检查已迁移                                                                    | 既有 executor 资格仅证明执行子能力                                                                                                                       | 冻结来源、训练／搜索／评估／主动学习／发布事务及对 Workspace／Inference 的 owner 调用待完整提取                                                                                                                                                                                                                                                                  |
+| Learning：训练、版本、评估及发布 | 训练 executor 独立拉取与交接已实现；其余账本仍由 API 持有 | executor、部分保留检查及主动学习反馈的 Audit 公共读取已迁移 | 既有 executor 资格仅证明执行子能力；[反馈读取](#learning-feedback-audit)另有真实 PostgreSQL 与 ASGI 验收 | 冻结来源、训练／搜索／评估／主动学习／发布事务及对 Workspace／Inference 的 owner 调用待完整提取 |
 | Insights：查询及保存视图                 | 已有本地只读组合和投影                                                                                             | 尚未完成全量 owner 读取合同迁移                                                                  | 完整独立运行未验收                                                                                                                                       | 跨 owner 批量快照／投影、授权／新鲜度／删除语义及保存视图写入待收口                                                                                                                                                                                                                                                                                              |
 | Jobs：非暂缓完整模块 | 队列 V2、固定读取／生命周期与动作锁、完整消息／稳定 ID 的同事务交接及独立 relay 已实现 | 非暂缓读取及普通预标、重试、帧 canvas、导出、质量、修复／导入、tracker 与取消重投均迁移；原 UOW 与领域终态保持 | [完整资格与采用](#jobs-nonheld-module)：当前三镜像、71项非editable安装测试、真实受限消费者／整库恢复、强杀后的部分 canvas 恢复及本机三进程通过 | 本地非暂缓模块门槛和本机适用采用完成；四处 Learning 读取保留 SELECT，暂缓 Assets 扩展、其他部署／替代语言提供方及生产／GPU容量不据此通过 |
 | Audit：同事务业务事件追加 | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现 | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读 | [追加 owner](#audit-append-owner)：既有 PG／纯检查、受限 LOGIN／Node 证据保留；本轮受限追加前置检查通过 | 默认 LAN／worktree 的私表写入、序列和树所有权已在源码收口；[当前 API／元数据 worker 冷组合](#audit-cold-consumers)通过，其他业务消费者与完整模块继续跟踪，Learning 父表 SELECT 保留 |
 | Audit：测试夹具清理 | 0366 在既有维护命令内提供固定共享／namespace 清理，保留测试库、精确路径及不可变性标记守卫 | 原 seed 清理通过同一事务／savepoint 的 typed owner 适配器调用，并经公开事件关系核对残留 | 0366 的真实受限角色、共享／namespace／回滚、非测试库拒绝及两条原 HTTP 清理路径均已定向通过 | 本操作实现与调用边界已收口；[维护冷验收](#audit-maintenance-cold-qualification)通过，不扩大 Labeling／Assets 范围 |
 | Audit：HTTP 请求元数据 | 响应后 Celery 与同步回退使用同一追加 owner；请求 ID 长度边界及原尽力投递语义保持 | 原 middleware／worker 绑定保持；孤儿 actor 回滚后匿名重试，不新增去重或可靠投递承诺 | [元数据边界](#audit-http-metadata)：真实 broker 拒绝、结果不明注入、受限追加 LOGIN、prefork 子进程 SIGKILL、重启重放及整库恢复通过 | 现有绑定及[当前冷 API／worker 组合](#audit-cold-consumers)的故障与恢复通过；业务审计 request ID 的独立遗留边界未扩修，日常独立拓扑未切换 |
-| Audit：查询、筛选与导出                  | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                                     | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                      | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                                     | [当前冷 API](#audit-cold-consumers)的真实查询、筛选、游标、项目隔离及 CSV／JSON 导出通过；本操作限定本地资格完成，暂缓 Learning 仍需父表 SELECT                                                                                                                                                                                                                                                                                   |
-| Audit：领域事实消费者 | 公开事件关系保留 14 个原生字段及复合行键 | 历史、批次、看板、评审快照与项目绩效已迁移；主动学习仍走原路径 | [读取组合](#support-read-relations)与[分析读取](#support-delivery-and-analytics)的历史资格保留 | 主线 Learning 功能已纳入代码；下一步迁移其领域事实读取并证明权限／事务边界，再撤销父表 SELECT，不能继续以等待主线合并代替实现 |
+| Audit：查询、筛选与导出 | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合 | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序 | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归 | [当前冷 API](#audit-cold-consumers)的真实查询、筛选、游标、项目隔离及 CSV／JSON 导出通过；主动学习反馈已另行迁移，存量父表 SELECT 的整体撤销尚未实施 |
+| Audit：领域事实消费者 | 公开事件关系保留 14 个原生字段及复合行键 | 历史、批次、看板、评审快照、项目绩效及主动学习反馈均使用公开事件关系 | [读取组合](#support-read-relations)与[分析读取](#support-delivery-and-analytics)历史资格保留；[反馈读取](#learning-feedback-audit)通过定向受限角色与 HTTP 快照重放 | 反馈读取切片已收口；撤销父表 SELECT 前仍须核对其余消费者和运行凭据，不据此宣称完整 Learning 或 Audit 独立部署 |
 | Audit／Insights：汇总与分析投影 | 日聚合公开关系与固定并发刷新已集成，MV 由 Audit owner 持有 | 月报已迁移；尾段保留公开事件关系，维护保留原提交边界 | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)的原生／Node 证据保留；本轮独立维护 CLI 实际刷新通过 | 独立维护 CLI 及[原 Celery 刷新消费者](#audit-maintenance-consumers)均通过；默认混合维护 worker 的凭据切换由 Runtime assembly 单列，Go 仅实验 |
 | Audit：分区、保留与冷归档 | 固定维护合同／Native 能力与调用方事务适配已实现，上传成功后以同事务快照锁退役分区 | 原 API／Celery 入口已迁移；独立 CLI 使用专用写凭据，管理员列表／读取使用独立只读凭据 | [维护冷验收](#audit-maintenance-cold-qualification)：真实 CLI、上传后 SIGKILL／回滚、孤儿接管、整库恢复、重复执行及原 ASGI HTTP 权限通过 | 独立 CLI 与[既有 Beat／Celery 消费者](#audit-maintenance-consumers)的限定本地资格通过；归档桶在 PostgreSQL 恢复期间保留，未验证对象存储灾难恢复；日常调度未切换 |
-| Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；Learning 暂缓读取、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
+| Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
 | 插件装配与扩展安装 | 推理切片已有版本化 manifest、Python 开发 SDK 与安装治理；全扩展点统一装配、发现及依赖兼容机制仍未交付 | LibreYOLO 复用 Inference／Registry、GPU 仲裁及各业务 owner；API 路由、Celery、迁移与凭据总体仍静态装配 | [推理插件接入](/dev/tutorials/ml-backend-starter)与[安装生命周期](/user-guide/superadmin/ml-backend-registry)：真实训练回流、单卡 CUDA、人工发布、当前任务／批量／裁剪、CPU 冻结及 off／observe／enforce 在途重启已验收；不据此通过其他插件或双卡隔离 | 完成核心内置装配及其他扩展 SPI；其余五个推理后端迁移、独立仓库分发与许可门禁仍待实施，不恢复旧适配器或建立第二套业务实现 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
+
+## Learning 反馈的 Audit 读取 {#learning-feedback-audit}
+
+主动学习反馈通过既有 `audit_event` 公共关系读取驳回事实，不再导入 Audit 私有 ORM 模型。读取继续共享调用方事务：仅计入已接受任务的成功 `task.reject`，保留接受时间与快照截止时间的包含边界、稳定事件顺序、行数上限、请求冲突和不可变重放；不把未知修正数或不完整工时补成已知值。
+
+当前集成通过真实隔离 PostgreSQL 中的普通与定向受限事务两案；临时 NOLOGIN 角色没有 Audit 父表 SELECT，其他依赖仍按既有同进程测试环境提供。实际 FastAPI ASGI 路由的首次记录与同请求重放均返回 200，失败、接受前及截止后事件未混入。该 HTTP smoke 复用现有夹具的非 Audit 传输和内存对象存储，不代表真实模型推理、独立 HTTP 进程或完整 Learning 部署验收。
+
+本切片不修改生产 grant、不新建服务或迁移，也不撤销仍存在的兼容父表 SELECT。其他 Learning 领域读取、完整账本提取、实际运行凭据和跨 owner 事务继续按剩余工作台账推进；下述历史收据中的 Learning 暂缓说明不覆盖本次新增的反馈读取证据。
 
 ## 视频输入保留 {#tracker-input-retention}
 

@@ -1,10 +1,10 @@
 # 推理后端插件化与 YOAO-Plugins 独立仓库规划
 
-> 状态：规划完成，尚未实施多后端迁移。LibreYOLO 试点已按原计划完成限定单卡验收；不因首个插件通过而宣称其他后端、通用装配或独立仓库分发完成。
+> 状态：已启动首批并行实施，多后端插件迁移尚未交付。LibreYOLO 试点已按原计划完成限定单卡验收；不因首个插件或依赖准备通过而宣称其他后端、通用装配或独立仓库分发完成。
 >
-> 日期：2026-10-28。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，本轮已创建并核验为 **Private**；未推送当前工作区代码。
+> 日期：规划于 2026-10-28，实施记录更新于 2026-10-29。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，已核验为 **Private**；未推送当前工作区代码。
 >
-> 授权范围：规划全部现有推理后端的插件化、创建目标仓库。公开仓库、推送代码、迁移其他后端或实现前端 SDK 不属于本轮已完成事项。不指定发布版本或发布日期。
+> 授权范围：按既定边界使用 Orca 在独立工作树实施，由主进程审核并合并提交。公开仓库、远程推送、发布版本和前端 SDK 不在本轮实施范围；不指定发布版本或发布日期。
 >
 > 前置资料：[能力边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)、[LibreYOLO 试点](1793156248_libreyolo-inference-plugin.md)、[核心模块部署与边界台账](../../docs-site/dev/concepts/module-deployment.md)。
 
@@ -84,13 +84,13 @@ LibreYOLO 已交付独立 SDK、插件及安装治理，在自有隔离环境完
 | 权限与资格证明的解释、准入决定                                                            | 平台宿主／Inference owner          | 插件提供事实与证明，不能自行批准或修改资格标准                                 |
 | 模型权重与受控训练产物                                                                    | 各自获准的资产渠道／平台领域 owner | 授权准备、摘要校验、只授予所需访问；不随代码仓任意复制或公开                   |
 
-迁移共享运行时前，需把平台依赖的**便携证明 schema／纯校验规则**与模型侧采样、装载、清理机制分清。当前 API 和管理员 CLI 引用了 `aap_backend_runtime.lifecycle_evidence`，API SDK 的 `plugins` extra 也依赖后端运行时与训练契约；这些是待收口的依赖接缝，不是合并两套 SDK 的理由。逐项确认实际用途，沿现有公共契约承接纯校验，生产证据的工具留在插件 SDK／运行时；不得因此让宿主的权威校验依赖某个具体模型插件。
+平台依赖的**便携证明 schema／纯校验规则**已收口到无第三方运行依赖的 `aap-lifecycle-contract`。生产 API 和管理员 CLI 使用该契约，API SDK 的 `plugins` extra 不再依赖模型后端运行时，训练契约按实际用途保留；证据生产、文件摘要采集、模型装载和清理机制继续由 `aap-backend-runtime` 持有。此次提取保持原证明格式与阈值，不把宿主权威校验交给具体插件；多模型能力匹配、多池资格与跨仓制品渠道仍需后续验收。
 
 Mask 算法工具可随模型代码迁移；平台的几何语义、像素格式与现有一致性夹具仍受核心契约约束，不借拆仓改写编码或增加新的权威格式。
 
 后续改造先将独立插件仓库放在平台工作树的 **`plugins/YOAO-plugins/`**，本地目录名按此大小写固定；远程仓库仍为 `YOAO-Labs/YOAO-Plugins`。平台根 `.gitignore` 使用 `/plugins/YOAO-plugins/` 忽略整个嵌套仓库，其代码由插件仓库独立跟踪和提交，不作为平台目录或 Git submodule 提交。
 
-目标布局如下；这是后续目录规划，本轮未创建本地嵌套仓库或远程目录。现有 `plugins/libreyolo/` 在实际迁移并完成调用方切换前保持原位，不因新增忽略规则停止跟踪：
+目标布局如下；本地 `plugins/YOAO-plugins/` 已从私有空仓库克隆，但尚未迁入算法源码或建立下列目录。现有 `plugins/libreyolo/` 在实际迁移并完成调用方切换前保持原位，不因新增忽略规则停止跟踪：
 
 ```text
 plugins/YOAO-plugins/
@@ -225,12 +225,29 @@ GPU 验收按可用且已获授权的独占设备安排，不接管其他人的�
 
 本计划接续 LibreYOLO 试点并覆盖模型服务拆仓，不退役 Identity／Workspace／Assets／Learning／Insights 等核心模块目标，不把训练执行器、存储 agent、前端 UI 或整个 `apps/inference` 搬进插件仓。跨域缺口只在确实阻塞相应验收时按原所有权解决，不增加模型名称专用调度或宽权限旁路。
 
+### 并行工作流与共享门禁
+
+后端 owner 解耦和推理插件化是两条并行交付线，共用一条便携契约前置线；不要按旧目录机械拆成互相改写相同接口的任务。后端完整目标与剩余事项继续以[核心模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)为唯一入口，本计划只列插件交付依赖和当前协调切片。
+
+| 首批工作包                   | 独占修改范围                                                  | 依赖与合入门禁                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 便携生命周期契约             | 纯证明包、运行时生产者与 API／管理员 SDK 消费者、相关构建输入 | 单一契约负责人；保持原字段、阈值和错误语义，证明独立安装及宿主不加载模型运行时；先由主进程审核提交                        |
+| Learning 反馈的 Audit 边界   | 反馈事实读取、既有回归场景和对应用户说明                      | 可与契约线独立推进；复用公开 Audit 关系和原事务，用无父表读取权限的测试角色及 HTTP 快照重放验收，不借机撤销全局 grant     |
+| RapidOCR／ONNXTools 依赖闭合 | 两个后端各自的依赖声明、锁文件、Docker 构建输入和安装说明     | 先独立准备依赖图，接入已审核的契约提交后再做安装／构建验收；不并行改写 manifest、准入规则、qualification 脚本或根 Compose |
+
+Orca run 为 `run_1e86c5259b79`，基线为 `1d6573b2a2e8c28b4e9c0c92d30456ac7d142da1`。三个执行者分别使用 `worktree-agent-plugin-contract`、`worktree-agent-learning-feedback` 和 `worktree-agent-onnx-packaging` 工作树；模型固定为 OMP `openai-codex/gpt-6.1-terra`，工作树本地 `defaultThinkingLevel: xhigh`，终端已核对实际模型与推理等级。该本地设置不提交到产品源码，也不修改全局配置。
+
+执行者只提交所属切片，交接精确 commit、实际验证、失败和限制；主进程独立审核后以正常 Git merge 合入，再验证组合行为、维护正式台账。共享接口发生变化时只接入审核后的提交，不复制另一工作树的未提交文件。完成的执行者先释放终端，已合入且干净的工作树在保留证据后由 Orca 移除。
+
+这一批交付的是阶段 B 的依赖边界准备和一个独立的 Learning 读取切片，不代表整个阶段 B 或 C 完成。下一批仍以多模型／多结果、CPU／CUDA 与真实多池、可获取的版本化制品及干净跨仓构建门禁确定；不得凭锁文件或导入检查跳过真实插件业务验收。
+
 ## Outcome
 
 - 本轮已完成六个迁移单元、真实共享依赖、检测专用假设、有状态边界与许可证前置的盘点，形成上述顺序与验收门。
 - 已按用户指定创建并核验 `YOAO-Labs/YOAO-Plugins` 为私有仓库；未推送代码或权重。
 - 统一契约／分运行环境 SDK／前端信任分层为采用的目标方向；本期只推进推理与 Python 开发体验，不宣称通用插件框架或前端 SDK 已实现。
-- 正式架构入口：`docs-site/dev/concepts/module-deployment.md`。本轮规划不增加功能发布记录或版本号。
+- 正式架构入口：`docs-site/dev/concepts/module-deployment.md`。已实现的依赖边界影响记入 `CHANGELOG.md` 的 Unreleased；不据此指定发布版本或日期。
 - 实施与验收：LibreYOLO 原计划的限定单卡验收已完成；其余五个后端的插件化、实际拆仓与跨仓发布尚未实施。本轮静态盘点不计作这些后端的运行验收。
-- 后续改造的本地独立插件仓库路径固定为 `plugins/YOAO-plugins/`，平台根 `.gitignore` 已忽略该目录；本次仅落实目录约定与忽略规则，未创建或克隆嵌套仓库，未搬迁或推送代码。
-- 已明确 API SDK 与插件 SDK 分包、独立版本及共享必要契约的原则，并补充开发工具分工、依赖收口和独立安装验收要求；正式规则见 `docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk`。本次仅补充文档，未调整 SDK 代码、依赖或版本。
+- 本地独立插件仓库已克隆到 `plugins/YOAO-plugins/`，平台根 `.gitignore` 忽略整个嵌套仓库；未搬迁算法源码、创建 submodule 或推送代码。
+- API SDK 与插件 SDK 保持分包、独立版本及共享必要契约。生命周期纯校验的实现与消费者已在契约提交 `8ddcd65be` 中收口并合入；正式规则见 `docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk`。
+- 并行的 Learning 反馈读取提交 `47b5eec70` 已审核合入；其无 Audit 父表读取权限和 HTTP 快照重放证据记在核心模块台账，不计作插件迁移完成。
