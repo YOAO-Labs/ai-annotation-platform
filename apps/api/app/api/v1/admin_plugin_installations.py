@@ -452,7 +452,7 @@ async def quiesce(
             or result["operation_id"] != str(operation_id)
             or result["control_epoch"] is not None
             or result["generation"] is not None
-            or result["pool_ids"] != ["models"]
+            or result["pool_ids"] != sorted(installation.installation.manifest.pools)
             or result["unloaded"] is not True
         ):
             raise HTTPException(

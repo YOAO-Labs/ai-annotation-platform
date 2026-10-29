@@ -9,6 +9,7 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from tests.migration_helpers import load
 
@@ -296,5 +297,47 @@ async def test_historical_capabilities_migrate_atomically_and_restore(
             {"id": row["id"]},
         )
         assert restored == old_extra
+
+    await db_session.run_sync(exercise)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["active", "uncertain"])
+async def test_terminal_drain_migration_refuses_unresolved_downgrade(db_session, state):
+    migration = load("0402_plugin_terminal_drain_route.py")
+    control_id, registry_id, attempt_id = uuid4(), uuid4(), uuid4()
+
+    def exercise(sync):
+        connection = sync.connection()
+        migration.op = Operations(MigrationContext.configure(connection))
+        connection.execute(
+            text("""
+                INSERT INTO aap_inference_routing_v1.controls
+                    (id, registry_id, kind, phase, challenge, config_revision, realm)
+                VALUES (:control, :registry, 'unload', 'prepared', repeat('c', 64), 1, 'test')
+            """),
+            {"control": control_id, "registry": registry_id},
+        )
+        connection.execute(
+            text("""
+                INSERT INTO aap_inference_routing_v1.control_attempts
+                    (id, control_id, method, path, transport_identity_sha256, state)
+                VALUES (:attempt, :control, 'POST', '/lifecycle/terminal-drain',
+                        repeat('a', 64), :state)
+            """),
+            {"attempt": attempt_id, "control": control_id, "state": state},
+        )
+        with pytest.raises(DBAPIError, match="unresolved terminal drain"):
+            with connection.begin_nested():
+                migration.downgrade()
+        connection.execute(
+            text("""
+                UPDATE aap_inference_routing_v1.control_attempts
+                SET state='response', status_code=200 WHERE id=:attempt
+            """),
+            {"attempt": attempt_id},
+        )
+        migration.downgrade()
+        migration.upgrade()
 
     await db_session.run_sync(exercise)
