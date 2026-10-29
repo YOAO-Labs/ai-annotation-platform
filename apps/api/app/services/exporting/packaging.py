@@ -702,9 +702,7 @@ async def build_export_zip(
                     zf.writestr(f"{prefix}data.yaml", _build_data_yaml(classes_list))
 
             # Spool the manifest outside ZIP: only one ZIP write handle may be open.
-            with tempfile.TemporaryFile(
-                mode="w+b", prefix="export-manifest-"
-            ) as mf:
+            with tempfile.TemporaryFile(mode="w+b", prefix="export-manifest-") as mf:
                 mf.write(
                     (
                         json.dumps(metadata, ensure_ascii=False)[:-1] + ', "images": ['

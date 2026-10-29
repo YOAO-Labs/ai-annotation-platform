@@ -18,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 from ai_annotation.auth_models import _validate_password_strength
 
 
@@ -111,13 +111,13 @@ class TaskEventBatchRequest(_AccountRequest):
     events: list[TaskEventIn] = Field(min_length=1, max_length=200)
 
 
-class TaskEventDiscarded(_AAPModel):
+class TaskEventDiscarded(_SDKModel):
     index: int = Field(ge=0)
     client_id: UUID | None = None
     reason: str = Field(min_length=1, max_length=64)
 
 
-class TaskEventBatchResult(_AAPModel):
+class TaskEventBatchResult(_SDKModel):
     accepted: int
     queued_async: bool
     discarded: list[TaskEventDiscarded] = Field(default_factory=list)

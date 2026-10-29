@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
 class _RequestModel(BaseModel):
@@ -25,18 +25,18 @@ class FileUploadInitRequest(_RequestModel):
     content_type: str = "image/jpeg"
 
 
-class FileUploadInit(_AAPModel):
+class FileUploadInit(_SDKModel):
     task_id: UUID
     upload_url: str
     expires_in: int
 
 
-class FileUploadComplete(_AAPModel):
+class FileUploadComplete(_SDKModel):
     status: str
     task_id: UUID
 
 
-class OriginalIdentity(_AAPModel):
+class OriginalIdentity(_SDKModel):
     owner_kind: Literal["dataset_asset", "task_original"]
     content_id: UUID
     sha256: str
@@ -47,7 +47,7 @@ class OriginalIdentity(_AAPModel):
     download_path: str
 
 
-class ThumbnailBackfill(_AAPModel):
+class ThumbnailBackfill(_SDKModel):
     project_id: UUID
     operation_id: UUID
     job_id: UUID

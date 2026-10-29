@@ -42,14 +42,14 @@ ProjectCapability = Literal[
 ProjectAccessKind = Literal["super_admin", "owner", "member"]
 
 
-class _AAPModel(BaseModel):
+class _SDKModel(BaseModel):
     # Older Pydantic reserves every model_ name, including legitimate API fields.
     model_config = ConfigDict(
         extra="allow", protected_namespaces=("model_validate", "model_dump")
     )
 
 
-class Page(_AAPModel, Generic[T]):
+class Page(_SDKModel, Generic[T]):
     """limit/offset 分页响应 (datasets 等)。"""
 
     items: list[T]
@@ -58,7 +58,7 @@ class Page(_AAPModel, Generic[T]):
     offset: int
 
 
-class Project(_AAPModel):
+class Project(_SDKModel):
     point_cloud_quality_config: PointCloudQualityConfigRead | None = None
     id: UUID
     display_id: str
@@ -71,7 +71,7 @@ class Project(_AAPModel):
     created_at: datetime | None = None
 
 
-class ProjectAccess(_AAPModel):
+class ProjectAccess(_SDKModel):
     """当前账号在某个项目上的解析后权限 (``GET /projects/{id}/access``)。
 
     管理者 (超管 / 负责人) 的 membership 字段可能为 None; 普通成员给出
@@ -89,7 +89,7 @@ class ProjectAccess(_AAPModel):
     capabilities: list[ProjectCapability] = Field(default_factory=list)
 
 
-class Dataset(_AAPModel):
+class Dataset(_SDKModel):
     id: UUID
     display_id: str
     name: str
@@ -109,7 +109,7 @@ DatasetLifecycleOperation = Literal["archive", "restore"]
 DatasetLifecycleState = Literal["active", "archived"]
 
 
-class DatasetLifecycleCounts(_AAPModel):
+class DatasetLifecycleCounts(_SDKModel):
     items: int
     sources: int
     projects: int
@@ -123,7 +123,7 @@ class DatasetLifecycleCounts(_AAPModel):
     unfinished_lineage_versions: int
 
 
-class DatasetLifecyclePreview(_AAPModel):
+class DatasetLifecyclePreview(_SDKModel):
     """A short-lived impact review bound to the actor and dataset revision."""
 
     dataset_id: UUID
@@ -137,7 +137,7 @@ class DatasetLifecyclePreview(_AAPModel):
     frozen_coverage: Literal["recorded_dataset_membership_only"]
 
 
-class DatasetLifecycleResult(_AAPModel):
+class DatasetLifecycleResult(_SDKModel):
     dataset_id: UUID
     lifecycle_revision: int
     state: DatasetLifecycleState
@@ -145,7 +145,7 @@ class DatasetLifecycleResult(_AAPModel):
     archived_by: UUID | None
 
 
-class DatasetItem(_AAPModel):
+class DatasetItem(_SDKModel):
     id: UUID
     dataset_id: UUID
     file_name: str
@@ -162,20 +162,20 @@ class DatasetItem(_AAPModel):
     created_at: datetime | None = None
 
 
-class DatasetUnlinkPreview(_AAPModel):
+class DatasetUnlinkPreview(_SDKModel):
     will_delete_tasks: int = 0
     will_delete_annotations: int = 0
     will_delete_batches: int = 0
 
 
-class DatasetUnlinkResult(_AAPModel):
+class DatasetUnlinkResult(_SDKModel):
     deleted_tasks: int = 0
     deleted_annotations: int = 0
     deleted_batches: int = 0
     deleted_batch_ids: list[UUID] = Field(default_factory=list)
 
 
-class UploadedItem(_AAPModel):
+class UploadedItem(_SDKModel):
     """upload_files 单文件三步流的结果 (file_name 由 SDK 补充)。"""
 
     item_id: UUID
@@ -184,7 +184,7 @@ class UploadedItem(_AAPModel):
     linked_tasks: Any = None
 
 
-class ZipUploadResult(_AAPModel):
+class ZipUploadResult(_SDKModel):
     added: int = 0
     deduped: int = 0
     skipped: int = 0
@@ -194,7 +194,7 @@ class ZipUploadResult(_AAPModel):
     scene_inference_notes: list[str] = Field(default_factory=list)
 
 
-class LinkResult(_AAPModel):
+class LinkResult(_SDKModel):
     """status="linking" 时建 task 走异步, 用 async_job_id 配合 jobs.wait。"""
 
     status: str
@@ -204,7 +204,7 @@ class LinkResult(_AAPModel):
     created_tasks: int | None = None
 
 
-class Task(_AAPModel):
+class Task(_SDKModel):
     id: UUID
     project_id: UUID
     display_id: str
@@ -218,7 +218,7 @@ class Task(_AAPModel):
     created_at: datetime | None = None
 
 
-class TaskPage(_AAPModel):
+class TaskPage(_SDKModel):
     """tasks.list 响应; cursor 翻页时 total 为 None (复用首页值)。"""
 
     items: list[Task]
@@ -228,7 +228,7 @@ class TaskPage(_AAPModel):
     next_cursor: str | None = None
 
 
-class Annotation(_AAPModel):
+class Annotation(_SDKModel):
     id: UUID
     task_id: UUID
     source: str
@@ -249,7 +249,7 @@ FeedbackStatus = Literal["open", "resolved", "wont_fix"]
 FeedbackSeverity = Literal["info", "warn", "blocker"]
 
 
-class FeedbackMention(_AAPModel):
+class FeedbackMention(_SDKModel):
     user_id: UUID = Field(alias="userId")
     display_name: str = Field(alias="displayName", min_length=1, max_length=120)
     offset: int = Field(ge=0)
@@ -258,7 +258,7 @@ class FeedbackMention(_AAPModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
-class DiscussionActions(_AAPModel):
+class DiscussionActions(_SDKModel):
     edit: bool = False
     change_status: bool = False
     delete: bool = False
@@ -444,7 +444,7 @@ class AnnotationFeedbackCreate(BaseModel):
         return self
 
 
-class AnnotationFeedback(_AAPModel):
+class AnnotationFeedback(_SDKModel):
     id: UUID
     kind: FeedbackKind
     anchor_type: FeedbackAnchorType
@@ -482,21 +482,21 @@ class AnnotationFeedback(_AAPModel):
             return None
 
 
-class FeedbackPage(_AAPModel):
+class FeedbackPage(_SDKModel):
     items: list[AnnotationFeedback]
     next_cursor: str | None = None
     total: int | None = None
     status_counts: dict[str, int] | None = None
 
 
-class FeedbackThreadPage(_AAPModel):
+class FeedbackThreadPage(_SDKModel):
     root: AnnotationFeedback
     items: list[AnnotationFeedback]
     next_cursor: str | None = None
     total: int
 
 
-class ImportResult(_AAPModel):
+class ImportResult(_SDKModel):
     """predictions.import_file 响应 (后端 ImportResult)。"""
 
     imported: int = 0
@@ -505,7 +505,7 @@ class ImportResult(_AAPModel):
     dry_run: bool = False
 
 
-class Job(_AAPModel):
+class Job(_SDKModel):
     id: UUID
     kind: str
     status: str
@@ -519,12 +519,12 @@ class Job(_AAPModel):
     updated_at: datetime | None = None
 
 
-class JobPage(_AAPModel):
+class JobPage(_SDKModel):
     items: list[Job]
     total: int
 
 
-class GpuInfo(_AAPModel):
+class GpuInfo(_SDKModel):
     """ML Backend `/health` 缓存的 GPU 指标 (字段缺失 = backend 未上报)。"""
 
     device_name: str | None = None
@@ -536,12 +536,12 @@ class GpuInfo(_AAPModel):
     gpu_power_watts: float | None = None
 
 
-class HostInfo(_AAPModel):
+class HostInfo(_SDKModel):
     container_cpu_percent: float | None = None
     container_memory_percent: float | None = None
 
 
-class CacheStats(_AAPModel):
+class CacheStats(_SDKModel):
     hits: int | None = None
     misses: int | None = None
     size: int | None = None
@@ -549,7 +549,7 @@ class CacheStats(_AAPModel):
     hit_rate: float | None = None
 
 
-class HealthMeta(_AAPModel):
+class HealthMeta(_SDKModel):
     """backend `/health` 深度指标缓存; capabilities 等未声明字段经 extra="allow" 仍可访问。"""
 
     gpu_info: GpuInfo | None = None
@@ -558,7 +558,7 @@ class HealthMeta(_AAPModel):
     model_version: str | None = None
 
 
-class MLBackend(_AAPModel):
+class MLBackend(_SDKModel):
     """ML Backend (只读监控)。state: connected / error。
 
     全局注册表 (ADR-0044): `id` 是全局 registry id, 一物理 backend 全局
@@ -580,25 +580,25 @@ class MLBackend(_AAPModel):
     updated_at: datetime | None = None
 
 
-class MLBackendHealth(_AAPModel):
+class MLBackendHealth(_SDKModel):
     status: str
     backend_id: UUID
     backend_name: str
 
 
-class MLBackendUnloadResult(_AAPModel):
+class MLBackendUnloadResult(_SDKModel):
     ok: bool | None = None
     unloaded: bool | int | None = None
     residency: Any = None
 
 
-class ProjectMLBackend(_AAPModel):
+class ProjectMLBackend(_SDKModel):
     backend: MLBackend
     enabled: bool = False
     default_variants: dict[str, Any] | None = None
 
 
-class ServicePoolSummary(_AAPModel):
+class ServicePoolSummary(_SDKModel):
     id: UUID
     name: str
     enabled: bool = False
@@ -607,20 +607,20 @@ class ServicePoolSummary(_AAPModel):
     routing_generation: int = 1
 
 
-class ProjectServicePool(_AAPModel):
+class ProjectServicePool(_SDKModel):
     pool: ServicePoolSummary
     enabled: bool = False
     default_variants: dict[str, Any] | None = None
 
 
-class ServicePoolMember(_AAPModel):
+class ServicePoolMember(_SDKModel):
     registry_id: UUID
     registry_name: str
     traffic_state: str
     weight: int = 1
 
 
-class ServicePool(_AAPModel):
+class ServicePool(_SDKModel):
     id: UUID
     name: str
     enabled: bool
@@ -633,7 +633,7 @@ class ServicePool(_AAPModel):
     updated_at: datetime | None = None
 
 
-class CapabilityDrift(_AAPModel):
+class CapabilityDrift(_SDKModel):
     pool_id: UUID
     registry_id: UUID
     member_state: str
@@ -646,14 +646,14 @@ class CapabilityDrift(_AAPModel):
     blocking_members: list[UUID] = Field(default_factory=list)
 
 
-class ServicePoolTopology(_AAPModel):
+class ServicePoolTopology(_SDKModel):
     schema_version: str
     generated_at: datetime
     router_mode: str
     pools: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class ServicePoolRuntimeSnapshot(_AAPModel):
+class ServicePoolRuntimeSnapshot(_SDKModel):
     schema_version: str
     observed_at: datetime
     router_mode: str
@@ -663,7 +663,7 @@ class ServicePoolRuntimeSnapshot(_AAPModel):
     pools: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class MLBackendStatsSnapshot(_AAPModel):
+class MLBackendStatsSnapshot(_SDKModel):
     """/ws/ml-backend-stats 每 1s 推送的单个 backend 实时快照。
 
     `loaded` / `idle_unload_seconds` / `last_request_age_seconds` / `pool` / `video_pool`
@@ -687,7 +687,7 @@ class MLBackendStatsSnapshot(_AAPModel):
     timestamp: datetime | None = None
 
 
-class UserBrief(_AAPModel):
+class UserBrief(_SDKModel):
     """责任人 inline 摘要 (batch annotator / reviewer 等)。"""
 
     id: UUID
@@ -700,7 +700,7 @@ class UserBrief(_AAPModel):
     avatar_ref: str | None = None
 
 
-class Batch(_AAPModel):
+class Batch(_SDKModel):
     """项目批次。progress_pct 为 0-100 浮点; annotator/reviewer 为责任人摘要。"""
 
     id: UUID
@@ -719,24 +719,24 @@ class Batch(_AAPModel):
     created_at: datetime | None = None
 
 
-class BatchDistributeResult(_AAPModel):
+class BatchDistributeResult(_SDKModel):
     distributed_batches: int
     annotator_per_batch: dict[str, str | None] = Field(default_factory=dict)
     reviewer_per_batch: dict[str, str | None] = Field(default_factory=dict)
 
 
-class BulkBatchActionItem(_AAPModel):
+class BulkBatchActionItem(_SDKModel):
     batch_id: UUID
     reason: str
 
 
-class BulkBatchActionResult(_AAPModel):
+class BulkBatchActionResult(_SDKModel):
     succeeded: list[UUID] = Field(default_factory=list)
     skipped: list[BulkBatchActionItem] = Field(default_factory=list)
     failed: list[BulkBatchActionItem] = Field(default_factory=list)
 
 
-class Member(_AAPModel):
+class Member(_SDKModel):
     """项目成员。
 
     ``role`` 是项目角色 (annotator / reviewer / viewer), ``platform_role`` 是
@@ -755,7 +755,7 @@ class Member(_AAPModel):
     avatar_ref: str | None = None
 
 
-class ProjectMemberRolePreview(_AAPModel):
+class ProjectMemberRolePreview(_SDKModel):
     """成员角色变更预检 (``POST .../role/preview``); 只读, 不写库。
 
     ``preview_token`` 必须原样回传到 ``PATCH .../role``; ``requires_handoff``
@@ -774,7 +774,7 @@ class ProjectMemberRolePreview(_AAPModel):
     resource_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
-class Me(_AAPModel):
+class Me(_SDKModel):
     """当前认证主体 (GET /auth/me)。
 
     ``role`` 是账号的平台角色 (super_admin / project_admin / employee / viewer),
@@ -790,31 +790,31 @@ class Me(_AAPModel):
     role: PlatformRole
 
 
-class TaskActionResult(_AAPModel):
+class TaskActionResult(_SDKModel):
     status: str
     task_id: UUID
 
 
-class ReviewClaim(_AAPModel):
+class ReviewClaim(_SDKModel):
     task_id: UUID
     reviewer_id: UUID
     reviewer_claimed_at: datetime
     is_self: bool
 
 
-class AnnotationBulkUpdateResult(_AAPModel):
+class AnnotationBulkUpdateResult(_SDKModel):
     updated_ids: list[UUID] = Field(default_factory=list)
     updated_count: int = 0
 
 
-class JobRetryResult(_AAPModel):
+class JobRetryResult(_SDKModel):
     status: str
     job_id: UUID
     queued: int
     skipped: int
 
 
-class ProjectStats(_AAPModel):
+class ProjectStats(_SDKModel):
     """可见项目聚合统计 (GET /projects/stats)。*_series 为最近 12 周时间序列。"""
 
     total_data: int = 0
@@ -829,7 +829,7 @@ class ProjectStats(_AAPModel):
     pending_review_series: list[int] = Field(default_factory=list)
 
 
-class PersonStat(_AAPModel):
+class PersonStat(_SDKModel):
     """全员绩效卡片项 (GET /dashboard/admin/people 的 items)。"""
 
     user_id: str
@@ -847,7 +847,7 @@ class PersonStat(_AAPModel):
     alerts: list[str] = Field(default_factory=list)
 
 
-class MyPerformance(_AAPModel):
+class MyPerformance(_SDKModel):
     """标注员自助绩效 (GET /dashboard/me/performance)。自身 4 周趋势 + 团队均线对标。"""
 
     user_id: str
@@ -864,11 +864,11 @@ class MyPerformance(_AAPModel):
     first_pass_yield: float | None = None
 
 
-class DashboardStats(_AAPModel):
+class DashboardStats(_SDKModel):
     """admin / reviewer / annotator 仪表盘原始数据 (字段随角色而异, 全经 extra 透传)。"""
 
 
-class ApiKey(_AAPModel):
+class ApiKey(_SDKModel):
     id: UUID
     name: str
     key_prefix: str

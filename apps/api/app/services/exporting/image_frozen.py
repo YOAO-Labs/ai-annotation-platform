@@ -13,7 +13,7 @@ from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
-from app.schemas.native_json import SceneTrackEntry, SceneTrackInterval
+from app.schemas.native_json import SceneTrackEntry, SceneTrackIntervalEntry
 from app.services.content_snapshot import ContentError
 from app.services.exporting.service import ExportService, _export_annotation_copy
 from aap_workspace_contract import derive_attribute_keys, derive_classes_list
@@ -193,7 +193,7 @@ class FrozenExportService(ExportService):
                 attributes=row.attributes or {},
                 attributes_meta=row.attributes_meta or {},
                 intervals=[
-                    SceneTrackInterval(
+                    SceneTrackIntervalEntry(
                         start_frame=interval.start_frame,
                         end_frame=interval.end_frame,
                         source=interval.source,

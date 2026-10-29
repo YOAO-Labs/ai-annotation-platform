@@ -13,7 +13,7 @@ from ai_annotation.export_models import (
     LidarExportIssue as LidarExportIssue,
     LidarExportPreflightResult as LidarExportPreflightResult,
 )
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
 class _BatchRequest(BaseModel):
@@ -24,11 +24,11 @@ class _BatchRequest(BaseModel):
     )
 
 
-class UnclassifiedTaskCount(_AAPModel):
+class UnclassifiedTaskCount(_SDKModel):
     count: int
 
 
-class BatchAuditLogEntry(_AAPModel):
+class BatchAuditLogEntry(_SDKModel):
     id: int
     created_at: datetime | None = None
     actor_id: str | None = None
@@ -40,7 +40,7 @@ class BatchAuditLogEntry(_AAPModel):
     detail: dict[str, Any] | None = None
 
 
-class BatchSubmitReviewResult(_AAPModel):
+class BatchSubmitReviewResult(_SDKModel):
     batch_id: UUID
     status: str
     submitted_tasks: int = 0
@@ -93,7 +93,7 @@ class ReviewedBatchAssignment(BatchAssignmentPreviewRequest):
     preview_version: str = Field(min_length=64, max_length=64)
 
 
-class BatchDistributionPreviewItem(_AAPModel):
+class BatchDistributionPreviewItem(_SDKModel):
     batch_id: UUID
     display_id: str
     name: str
@@ -107,14 +107,14 @@ class BatchDistributionPreviewItem(_AAPModel):
     skipped_reason: str | None = None
 
 
-class BatchDistributionRecipient(_AAPModel):
+class BatchDistributionRecipient(_SDKModel):
     user_id: UUID
     role: Literal["annotator", "reviewer"]
     new_task_count: int
     existing_backlog_count: int
 
 
-class BatchDistributionPreview(_AAPModel):
+class BatchDistributionPreview(_SDKModel):
     project_id: UUID
     only_unassigned: bool
     total_batches: int

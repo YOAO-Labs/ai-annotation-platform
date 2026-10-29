@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 StorageKind = Literal["s3", "sftp"]
 StorageScope = Literal["global", "owner"]
@@ -105,7 +105,7 @@ class StorageConnectionUpdate(_RequestModel):
         return self
 
 
-class StorageConnection(_AAPModel):
+class StorageConnection(_SDKModel):
     id: UUID
     name: str
     kind: StorageKind
@@ -131,18 +131,18 @@ class ConnectorAllowlistUpdate(_RequestModel):
     entries: list[Annotated[str, Field(max_length=253)]] = Field(max_length=256)
 
 
-class ConnectorAllowlist(_AAPModel):
+class ConnectorAllowlist(_SDKModel):
     entries: list[str]
     source: Literal["database", "environment"]
 
 
-class DeploymentSFTPStoragePreset(_AAPModel):
+class DeploymentSFTPStoragePreset(_SDKModel):
     enabled: bool
     host: str | None = None
     port: int = 22
 
 
-class StorageConnectionTestResult(_AAPModel):
+class StorageConnectionTestResult(_SDKModel):
     """HTTP 200 with ``ok=False`` is a normal negative connectivity result."""
 
     ok: bool

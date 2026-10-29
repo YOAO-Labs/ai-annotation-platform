@@ -968,7 +968,7 @@
       "optional_extra": "streams"
     }
   ],
-  "openapi_version": "0.26.1",
+  "openapi_version": "0.26.2",
   "guide_resource": "ai_annotation/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
@@ -37809,7 +37809,7 @@
       "path": "/api/v1/projects/{project_id}/annotations/import",
       "operation_id": "import_annotations_api_v1_projects__project_id__annotations_import_post",
       "summary": "Import Annotations",
-      "description": "导入 AAP JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
+      "description": "导入原生 JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
       "tags": [
         "annotations"
       ],
@@ -37859,7 +37859,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AAPImportResult"
+                "$ref": "#/components/schemas/ImportResult"
               }
             }
           }
@@ -42150,7 +42150,7 @@
       "path": "/api/v1/projects/{project_id}/predictions/import",
       "operation_id": "import_predictions_api_v1_projects__project_id__predictions_import_post",
       "summary": "Import Predictions",
-      "description": "外部模型预测结果导入端点 (v0.10.15).\n\n支持 COCO Detection、YOLO zip 与平台原生 AAP JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
+      "description": "外部模型预测结果导入端点 (v0.10.15).\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
       "tags": [
         "predictions"
       ],
@@ -42211,7 +42211,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AAPImportResult"
+                "$ref": "#/components/schemas/ImportResult"
               }
             }
           }
@@ -53792,7 +53792,7 @@
       "calls": [],
       "external_http": false,
       "constraints": [
-        "Owner/superadmin plus annotations:write for API keys. One multipart file, AAP JSON only, at most 64 MiB. Returns a synchronous partial receipt, not a job; overwrite replaces only imported annotations. CLI emits full JSON then exits 1 on errors. No idempotency key or automatic POST retry."
+        "Owner/superadmin plus annotations:write for API keys. One multipart file, native JSON only, at most 64 MiB. Returns a synchronous partial receipt, not a job; overwrite replaces only imported annotations. CLI emits full JSON then exits 1 on errors. No idempotency key or automatic POST retry."
       ],
       "cli_aliases": [
         "annotations.import"
@@ -77088,7 +77088,7 @@
           "required": true,
           "default": null,
           "type": "<class 'pathlib.Path'>",
-          "description": "AAP JSON 文件"
+          "description": "原生 JSON 文件"
         },
         {
           "name": "dry_run",
@@ -93370,6 +93370,48 @@
       ],
       "sdk_methods": [],
       "confirmation": false
+    },
+    {
+      "path": "aap plugins restart",
+      "alias": "plugins.restart",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
     },
     {
       "path": "aap plugins status",

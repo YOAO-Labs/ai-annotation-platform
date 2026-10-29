@@ -100,7 +100,8 @@ def _route(
                 db=db,
                 current_user=user,
             )
-        monkeypatch.setattr(predictions_import, "import_" + name, importer)
+        importer_name = "import_native_json" if name == "aap_json" else "import_" + name
+        monkeypatch.setattr(predictions_import, importer_name, importer)
         return await predictions.import_predictions(
             request=request,
             files=files,

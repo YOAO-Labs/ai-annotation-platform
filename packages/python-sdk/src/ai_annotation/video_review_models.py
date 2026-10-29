@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
-from ai_annotation.models import Annotation, _AAPModel
+from ai_annotation.models import Annotation, _SDKModel
 
 
 class _VideoRequest(BaseModel):
@@ -119,7 +119,7 @@ class VideoTrackQualityAcceptRequest(_VideoRequest):
     pairs: list[VideoTrackPairDecision] = Field(max_length=1000)
 
 
-class VideoTrackQualityIssue(_AAPModel):
+class VideoTrackQualityIssue(_SDKModel):
     id: UUID
     left_annotation_id: UUID | None = None
     right_annotation_id: UUID | None = None
@@ -129,7 +129,7 @@ class VideoTrackQualityIssue(_AAPModel):
     metric: dict[str, Any]
 
 
-class VideoTrackQualityRun(_AAPModel):
+class VideoTrackQualityRun(_SDKModel):
     id: UUID
     task_id: UUID
     left_segment_id: UUID
@@ -174,7 +174,7 @@ class VideoTrackCompositionRequest(_VideoRequest):
         return self
 
 
-class VideoTrackCompositionResponse(_AAPModel):
+class VideoTrackCompositionResponse(_SDKModel):
     operation: Literal["aggregate_bboxes", "split_track", "merge_tracks", "join_tracks"]
     updated_annotations: list[Annotation] = Field(default_factory=list)
     created_annotations: list[Annotation] = Field(default_factory=list)
@@ -194,7 +194,7 @@ class VideoTrackConvertToBboxesRequest(_VideoRequest):
         return self
 
 
-class VideoTrackConvertToBboxesResponse(_AAPModel):
+class VideoTrackConvertToBboxesResponse(_SDKModel):
     source_annotation: Annotation | None
     created_annotations: list[Annotation]
     deleted_source: bool

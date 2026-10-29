@@ -236,7 +236,7 @@ def _aap_subset_bytes(envelope: NativeJsonEnvelope, source_index: int) -> bytes:
     ).encode("utf-8")
 
 
-class AAPJsonAdapter(LegacyPackagingAdapter):
+class NativeJsonAdapter(LegacyPackagingAdapter):
     async def _load(self, staged: StagedObject) -> NativeJsonEnvelope:
         if staged.size_bytes > 64 * 1024 * 1024:
             raise ValueError("resource_budget_exceeded:max_aap_json_bytes")

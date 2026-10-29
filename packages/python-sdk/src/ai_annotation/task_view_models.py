@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ai_annotation.models import Task, UserBrief, _AAPModel
+from ai_annotation.models import Task, UserBrief, _SDKModel
 
 TaskViewVisibility = Literal["private", "project"]
 TaskViewEntityScope = Literal["tasks", "objects", "tracks"]
@@ -60,7 +60,7 @@ class ProjectTaskViewCopyRequest(_RequestModel):
     visibility: TaskViewVisibility | None = None
 
 
-class ProjectTaskView(_AAPModel):
+class ProjectTaskView(_SDKModel):
     id: UUID | None = None
     key: str | None = None
     project_id: UUID
@@ -79,7 +79,7 @@ class ProjectTaskView(_AAPModel):
     invalid_fields: list[str] = Field(default_factory=list)
 
 
-class ProjectTaskViewListResponse(_AAPModel):
+class ProjectTaskViewListResponse(_SDKModel):
     items: list[ProjectTaskView]
 
 
@@ -118,7 +118,7 @@ class DataManagerTask(Task):
     scene_total_frames: int | None = None
 
 
-class ProjectTaskQueryResponse(_AAPModel):
+class ProjectTaskQueryResponse(_SDKModel):
     items: list[DataManagerTask]
     total: int
     limit: int

@@ -32,8 +32,8 @@ image_height=<optional COCO fallback height>
 | `format`                       | query | `aap_json` \| `coco` \| `yolo` | 是   | input 格式. 默认 `aap_json`.                                                                                      |
 | `yolo_variant`                 | query | `det` \| `obb` \| `seg`        | 否   | 仅 `format=yolo` 生效,默认 `det`.                                                                                 |
 | `dry_run`                      | query | bool                           | 否   | true 时走全部校验路径但**不入库**, 供前端 wizard 预览.                                                            |
-| `file`                         | form  | File                           | 是   | 原生 JSON / COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                                 |
-| `model_version`                | form  | string                         | 否   | 原生 JSON 内 `model_version` 缺失时的兜底值.                                                                       |
+| `file`                         | form  | File                           | 是   | 原生 JSON / COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                         |
+| `model_version`                | form  | string                         | 否   | 原生 JSON 内 `model_version` 缺失时的兜底值.                                                                      |
 | `overwrite_existing`           | form  | bool                           | 否   | 默认 true。true 时按 task 维度删该 task 下 `source='external_import'` 的旧 prediction 后再写入;显式 false 时追加. |
 | `image_width` / `image_height` | form  | int                            | 否   | 仅 `format=coco` 生效。COCO `images[]` 缺 `width/height` 时作为全局兜底；图片自带尺寸优先。两个字段必须同时提供。 |
 
@@ -52,6 +52,8 @@ image_height=<optional COCO fallback height>
   "dry_run": false
 }
 ```
+
+OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。
 
 错误是逐 entry / shape 累计，不让整批挂。多文件上传时后端合并响应，并在 errors[].reason 前缀文件名。单文件 schema_version 不兼容 / JSON 不可解析会整体 422；多文件中的坏文件会作为一条错误累计，其他文件继续处理。
 

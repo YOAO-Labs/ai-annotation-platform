@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.schemas.mask_format import MaskFormatCapability
-from app.services.mask_formats.adapters import AAPJsonAdapter, LegacyPackagingAdapter
+from app.services.mask_formats.adapters import NativeJsonAdapter, LegacyPackagingAdapter
 from app.services.mask_formats.contracts import MaskFormatDescriptor
 from app.services.mask_formats.image_adapters import (
     IMAGE_IMPORT_PARSERS,
@@ -203,7 +203,7 @@ _VIDEO_FORMAT_IDS = frozenset({"coco-frames-seg", "davis", "youtube-vos", "mots"
 registry = MaskFormatRegistry()
 for descriptor in _DESCRIPTORS:
     if descriptor.format_id == "aap_json":
-        adapter = AAPJsonAdapter(descriptor)
+        adapter = NativeJsonAdapter(descriptor)
     elif descriptor.format_id in _IMAGE_FORMAT_IDS:
         adapter = ImageMaskImportAdapter(
             descriptor, IMAGE_IMPORT_PARSERS[descriptor.format_id]

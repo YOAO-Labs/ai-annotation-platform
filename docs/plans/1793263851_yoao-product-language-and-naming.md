@@ -389,3 +389,15 @@ UI 验证使用实际构建和隔离环境；文档／计划阶段不虚构浏�
 | Session receipt key、ContextVar、document 事件                                              | `assets_verified_receipts`、领域 ContextVar、`shell:popover-open`                                  | 同请求／事务缓存、路由上下文和同 document 的发送／订阅双方        | 不跨重启持久化；事务结束清理规则不变                           | 缓存、提交／回滚及页面行为；不把持久训练草稿作为同类局部字符串处理                                                                     |
 | 调用自有 `aap-content-` 等临时前缀                                                          | 用途前缀，不加新品牌                                                                               | API、资产／媒体组件与调用方清理                                   | 本调用生命周期；不是受控存储路径                               | 现有内容与清理用例；`aap-reference-` 的外部清理消费者、调用方持有的 `aap-export-` 工件保留，不能在本批猜测退役                         |
 | `AAP_` 配置、数据库／grants、`_aap_managed`、冻结收据、Identity issuer 与现有 worktree 标签 | KEEP／MIGRATE，按 N3–N6 各自阶段处理                                                               | 公开客户端、持久 owner、安全守卫、部署与恢复工具                  | 已持久化或跨进程／外部使用；历史迁移和输入仍有真实消费者       | 本批不改名、不降低校验、不复制或销毁原数据；未知资源仍拒绝接管，历史签名与精确位置保留原解释                                           |
+
+### 12.2 N2：内部命名与私有 workspace 清理
+
+**状态：本批内部命名切片完成；不代表全仓 API 或原生导出门通过。**
+
+- Python SDK 的私有 `_AAPModel` 改为 `_SDKModel`，34 个模型模块的继承／导入同步，无旧 alias 或 re-export；公共 `AAPError`、发行包、CLI 和版本元数据保持 N0 的保留边界。
+- 原生交换 schema／导入函数与真实动态调用者使用领域名称，mask adapter 统一为 `NativeJsonAdapter`。`SceneTrackIntervalEntry` 与 ORM 的 `SceneTrackInterval` 明确分开，避免同名导入覆盖；三个实际导出消费者同步，不改区间字段或 JSON 几何。
+- 事务内 receipt cache、ContextVar、同 document 事件和调用自有临时前缀已按 N0 分类迁移。私有 workspace 使用 `yoao`／`web`／`docs-site`，根脚本、CI、启动器和当前开发命令同步；未跨共享依赖链接安装或改变持久存储位置。
+- 两个公开 OpenAPI 组件名称单独审阅：`AAPImportResult`／`AAPImportErrorEntry` 改为 `ImportResult`／`ImportErrorEntry`。归一化这两个名称后的差异只有 API 显示标题及两段导入说明，没有 wire 字段、selector 或 operation ID 改动；生成客户端与 SDK 操作目录沿现有生成器同步。
+- SDK 全套现有回归 **1250 通过，0 失败／错误／跳过**，原始 JUnit 为 `.artifacts/test-results/sdk-model-consumers.xml`。动态 importer 的 5 项定向回归通过；实际 CLI 从普通 runtime 读取本任务项目与 5 个任务，证明新模型基类的真实响应解析。Web 构建／类型检查、契约生成和文档构建通过；无 GPU 或分发渠道资格结论。
+
+冻结导出集中数据库回归仍保留既有 9 通过／8 失败的边界（LiDAR 内容身份及视频 FPS）；未用新 expected 掩盖这些问题。N1 的真实 UI 导出另暴露旧 collector 的私表锁定路径，且现有公开 Labeling 合同缺少完整等价锁能力；不能以内部重命名 smoke 成功替代 N1 往返验收。该前置能力按 G3 切片决定，不恢复私表授权，也不为当前无 scene-track 的夹具特判。

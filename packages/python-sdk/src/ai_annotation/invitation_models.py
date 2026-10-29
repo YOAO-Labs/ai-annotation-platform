@@ -8,13 +8,13 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 InvitationStatus = Literal["pending", "accepted", "expired", "revoked", "all"]
 InvitationScope = Literal["me", "all"]
 
 
-class Invitation(_AAPModel):
+class Invitation(_SDKModel):
     id: UUID
     email: str
     role: str
@@ -31,7 +31,7 @@ class Invitation(_AAPModel):
     created_at: datetime
 
 
-class InvitationPage(_AAPModel):
+class InvitationPage(_SDKModel):
     items: list[Invitation]
     total: int
     page: int
@@ -39,7 +39,7 @@ class InvitationPage(_AAPModel):
     pages: int
 
 
-class InvitationStats(_AAPModel):
+class InvitationStats(_SDKModel):
     total: int
     pending: int
     accepted: int
@@ -47,7 +47,7 @@ class InvitationStats(_AAPModel):
     revoked: int
 
 
-class InvitationResend(_AAPModel):
+class InvitationResend(_SDKModel):
     """Resending rotates/revives the token; it does not send email."""
 
     invite_url: str = Field(repr=False)
@@ -55,7 +55,7 @@ class InvitationResend(_AAPModel):
     expires_at: datetime
 
 
-class InvitationEmailSent(_AAPModel):
+class InvitationEmailSent(_SDKModel):
     invitation_id: UUID
     email: str
     invite_url: str = Field(repr=False)

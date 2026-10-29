@@ -52,7 +52,7 @@ from app.schemas.native_json import (
     PredictionEntry,
     ProjectMeta,
     SceneTrackEntry,
-    SceneTrackInterval,
+    SceneTrackIntervalEntry,
     TaskBlock,
     TaskMatch,
 )
@@ -1248,7 +1248,7 @@ class ExportService:
                     attributes=track.attributes or {},
                     attributes_meta=track.attributes_meta or {},
                     intervals=[
-                        SceneTrackInterval(
+                        SceneTrackIntervalEntry(
                             start_frame=interval.start_frame,
                             end_frame=interval.end_frame,
                             source=interval.source,

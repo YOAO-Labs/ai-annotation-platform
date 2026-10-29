@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 PipelineScope = Literal["private", "organization", "public"]
 VisualTaskName = Literal[
@@ -140,7 +140,7 @@ class ProjectPipelineApplyRequest(BaseModel):
     set_default: bool = False
 
 
-class ProjectPipeline(_AAPModel):
+class ProjectPipeline(_SDKModel):
     id: UUID
     scope: PipelineScope
     project_id: UUID | None = None
@@ -215,7 +215,7 @@ class PreannotateRequest(BaseModel):
         return self
 
 
-class PreannotationSubmission(_AAPModel):
+class PreannotationSubmission(_SDKModel):
     """Acknowledgement for a queued (or idempotently reused) preannotation job."""
 
     job_id: UUID

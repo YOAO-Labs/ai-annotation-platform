@@ -8,10 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
-class Notification(_AAPModel):
+class Notification(_SDKModel):
     id: UUID
     type: str
     target_type: str
@@ -21,24 +21,24 @@ class Notification(_AAPModel):
     created_at: datetime
 
 
-class NotificationPage(_AAPModel):
+class NotificationPage(_SDKModel):
     items: list[Notification]
     total: int
     unread: int
 
 
-class NotificationUnreadCount(_AAPModel):
+class NotificationUnreadCount(_SDKModel):
     unread: int
 
 
-class NotificationPreference(_AAPModel):
+class NotificationPreference(_SDKModel):
     type: str
     in_app: bool = True
     email: bool = False
     toast: bool = False
 
 
-class NotificationPreferences(_AAPModel):
+class NotificationPreferences(_SDKModel):
     items: list[NotificationPreference]
 
 
@@ -65,13 +65,13 @@ class NotificationPreferenceUpdate(BaseModel):
         return self
 
 
-class NotificationActionResult(_AAPModel):
+class NotificationActionResult(_SDKModel):
     ok: bool
 
 
-class NotificationMarkAllReadResult(_AAPModel):
+class NotificationMarkAllReadResult(_SDKModel):
     updated: int
 
 
-class NotificationClearReadResult(_AAPModel):
+class NotificationClearReadResult(_SDKModel):
     deleted: int

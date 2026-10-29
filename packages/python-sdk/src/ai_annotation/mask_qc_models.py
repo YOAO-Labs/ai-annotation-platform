@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 from ai_annotation.video_tracker_models import CocoRleMaskContent as CocoRleMaskContent
 
 MaskQCSeverity = Literal["info", "warning", "blocker"]
@@ -172,7 +172,7 @@ class MaskRepairRollbackRequest(_MaskQCRequest):
     expected_result_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class MaskQCRun(_AAPModel):
+class MaskQCRun(_SDKModel):
     id: UUID
     project_id: UUID
     async_job_id: UUID | None
@@ -188,14 +188,14 @@ class MaskQCRun(_AAPModel):
     reused: bool = False
 
 
-class MaskQCRegionBBox(_AAPModel):
+class MaskQCRegionBBox(_SDKModel):
     x0: float
     y0: float
     x1: float
     y1: float
 
 
-class MaskQCIssue(_AAPModel):
+class MaskQCIssue(_SDKModel):
     id: UUID
     run_id: UUID | None
     last_seen_run_id: UUID | None
@@ -224,12 +224,12 @@ class MaskQCIssue(_AAPModel):
     updated_at: datetime
 
 
-class MaskQCIssuePage(_AAPModel):
+class MaskQCIssuePage(_SDKModel):
     items: list[MaskQCIssue]
     next_cursor: str | None = None
 
 
-class TaskMaskQCSummary(_AAPModel):
+class TaskMaskQCSummary(_SDKModel):
     task_id: UUID
     run_id: UUID | None
     qc_digest: str | None
@@ -248,7 +248,7 @@ class TaskMaskQCSummary(_AAPModel):
     blocking: bool = False
 
 
-class MaskCompareSide(_AAPModel):
+class MaskCompareSide(_SDKModel):
     annotation_id: UUID
     annotation_version: int
     frame_index: int | None = None
@@ -262,7 +262,7 @@ class MaskCompareSide(_AAPModel):
     candidate_instance_id: str | None = None
 
 
-class MaskCompareMetrics(_AAPModel):
+class MaskCompareMetrics(_SDKModel):
     current_area_pixels: int
     baseline_area_pixels: int
     intersection_pixels: int
@@ -276,7 +276,7 @@ class MaskCompareMetrics(_AAPModel):
     dice_denominator: int
 
 
-class MaskCompareResult(_AAPModel):
+class MaskCompareResult(_SDKModel):
     baseline_kind: MaskCompareBaseline
     current: MaskCompareSide
     baseline: MaskCompareSide
@@ -284,7 +284,7 @@ class MaskCompareResult(_AAPModel):
     loss: list[str] = Field(default_factory=list)
 
 
-class MaskRepairPlanItem(_AAPModel):
+class MaskRepairPlanItem(_SDKModel):
     issue_id: UUID
     task_id: UUID | None = None
     annotation_ids: list[UUID] = Field(default_factory=list)
@@ -299,7 +299,7 @@ class MaskRepairPlanItem(_AAPModel):
     skip_detail: str | None = None
 
 
-class MaskRepairPlanSummary(_AAPModel):
+class MaskRepairPlanSummary(_SDKModel):
     action_count: int
     executable_count: int
     skipped_count: int
@@ -309,7 +309,7 @@ class MaskRepairPlanSummary(_AAPModel):
     shard_count: int
 
 
-class MaskRepairDryRunResult(_AAPModel):
+class MaskRepairDryRunResult(_SDKModel):
     receipt: str = Field(repr=False)
     plan_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     expires_at: datetime
@@ -317,7 +317,7 @@ class MaskRepairDryRunResult(_AAPModel):
     summary: MaskRepairPlanSummary
 
 
-class MaskRepairBatch(_AAPModel):
+class MaskRepairBatch(_SDKModel):
     id: UUID
     project_id: UUID
     async_job_id: UUID | None

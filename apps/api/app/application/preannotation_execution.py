@@ -1022,9 +1022,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
         ):
             raise ValueError("accepted image input receipt differs from admitted task")
         try:
-            temporary_directory = tempfile.TemporaryDirectory(
-                prefix="accepted-input-"
-            )
+            temporary_directory = tempfile.TemporaryDirectory(prefix="accepted-input-")
         except OSError as exc:
             raise PreannotationInputDeferred("storage_unavailable") from exc
         with temporary_directory as directory:

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 from ai_annotation.export_models import ExportRequestBody
 
 
@@ -23,18 +23,18 @@ DataManagerValueType = Literal[
 DataManagerEntityScope = Literal["tasks", "objects", "tracks"]
 
 
-class DataManagerProjectKindOut(_AAPModel):
+class DataManagerProjectKindOut(_SDKModel):
     data_type: str
     type_key: str
     scene_mode: bool
 
 
-class DataManagerOptionOut(_AAPModel):
+class DataManagerOptionOut(_SDKModel):
     value: str
     label: str
 
 
-class DataManagerFilterFieldOut(_AAPModel):
+class DataManagerFilterFieldOut(_SDKModel):
     key: str
     label: str
     group: str
@@ -46,7 +46,7 @@ class DataManagerFilterFieldOut(_AAPModel):
     attribute_key: str | None = None
 
 
-class DataManagerColumnOut(_AAPModel):
+class DataManagerColumnOut(_SDKModel):
     key: str
     label: str
     group: str
@@ -56,18 +56,18 @@ class DataManagerColumnOut(_AAPModel):
     sort_field: str | None = None
 
 
-class DataManagerMetricOut(_AAPModel):
+class DataManagerMetricOut(_SDKModel):
     key: str
     label: str
     group: str
 
 
-class DataManagerToolUnitOut(_AAPModel):
+class DataManagerToolUnitOut(_SDKModel):
     id: str
     classes: list[str] = Field(default_factory=list)
 
 
-class DataManagerSchemaResponse(_AAPModel):
+class DataManagerSchemaResponse(_SDKModel):
     entity_scope: DataManagerEntityScope = "tasks"
     available_entity_scopes: list[DataManagerEntityScope] = Field(
         default_factory=lambda: ["tasks", "objects"]
@@ -93,12 +93,12 @@ class DataManagerSummaryRequest(_RequestModel):
     )
 
 
-class DataManagerScopeSummary(_AAPModel):
+class DataManagerScopeSummary(_SDKModel):
     visible_task_total: int = 0
     matched_task_total: int = 0
 
 
-class DataManagerAnnotationSummary(_AAPModel):
+class DataManagerAnnotationSummary(_SDKModel):
     total: int = 0
     single_frame: int = 0
     tracked: int = 0
@@ -110,7 +110,7 @@ class DataManagerAnnotationSummary(_AAPModel):
     by_type: dict[str, int] = Field(default_factory=dict)
 
 
-class DataManagerAiReviewSummary(_AAPModel):
+class DataManagerAiReviewSummary(_SDKModel):
     prediction_shapes: int = 0
     low_confidence_prediction_shapes: int = 0
     tracker_jobs: int = 0
@@ -119,7 +119,7 @@ class DataManagerAiReviewSummary(_AAPModel):
     confidence_buckets: dict[str, int] = Field(default_factory=dict)
 
 
-class DataManagerAttributeSummary(_AAPModel):
+class DataManagerAttributeSummary(_SDKModel):
     tool_unit_id: str
     key: str
     label: str
@@ -129,7 +129,7 @@ class DataManagerAttributeSummary(_AAPModel):
     values: dict[str, int] = Field(default_factory=dict)
 
 
-class DataManagerSummaryResponse(_AAPModel):
+class DataManagerSummaryResponse(_SDKModel):
     scope: DataManagerScopeSummary
     task_status: dict[str, int] = Field(default_factory=dict)
     annotations: DataManagerAnnotationSummary
@@ -148,7 +148,7 @@ class DataManagerMatchesRequest(_RequestModel):
     offset: int = Field(default=0, ge=0)
 
 
-class DataManagerMatchItem(_AAPModel):
+class DataManagerMatchItem(_SDKModel):
     entity_kind: Literal["annotation", "prediction_shape", "tracker_job"]
     id: UUID
     shape_index: int | None = None
@@ -161,7 +161,7 @@ class DataManagerMatchItem(_AAPModel):
     frame_index: int | None = None
 
 
-class DataManagerMatchesResponse(_AAPModel):
+class DataManagerMatchesResponse(_SDKModel):
     task_id: UUID
     items: list[DataManagerMatchItem] = Field(default_factory=list)
     total: int = 0
@@ -190,7 +190,7 @@ class DataManagerEntityQueryRequest(_RequestModel):
     )
 
 
-class DataManagerEntityLocation(_AAPModel):
+class DataManagerEntityLocation(_SDKModel):
     project_id: UUID
     task_id: UUID
     task_display_id: str
@@ -206,7 +206,7 @@ class DataManagerEntityLocation(_AAPModel):
     video_frame_index: int | None = None
 
 
-class DataManagerObjectOut(_AAPModel):
+class DataManagerObjectOut(_SDKModel):
     entity_key: str
     annotation_id: UUID
     task_id: UUID
@@ -232,7 +232,7 @@ class DataManagerObjectOut(_AAPModel):
     location: DataManagerEntityLocation
 
 
-class DataManagerEntityFacets(_AAPModel):
+class DataManagerEntityFacets(_SDKModel):
     matched_total: int = Field(
         default=0,
         description="Complete matched entity count for the query grain, not current page length.",
@@ -245,7 +245,7 @@ class DataManagerEntityFacets(_AAPModel):
     by_quality: dict[str, int] = Field(default_factory=dict)
 
 
-class DataManagerObjectQueryResponse(_AAPModel):
+class DataManagerObjectQueryResponse(_SDKModel):
     items: list[DataManagerObjectOut] = Field(default_factory=list)
     total: int
     limit: int
@@ -253,16 +253,16 @@ class DataManagerObjectQueryResponse(_AAPModel):
     facets: DataManagerEntityFacets = Field(default_factory=DataManagerEntityFacets)
 
 
-class DataManagerObjectDetailResponse(_AAPModel):
+class DataManagerObjectDetailResponse(_SDKModel):
     item: DataManagerObjectOut
 
 
-class DataManagerTrackSourceSummary(_AAPModel):
+class DataManagerTrackSourceSummary(_SDKModel):
     annotation_sources: dict[str, int] = Field(default_factory=dict)
     keyframe_sources: dict[str, int] = Field(default_factory=dict)
 
 
-class DataManagerTrackOut(_AAPModel):
+class DataManagerTrackOut(_SDKModel):
     entity_key: str
     track_ref: str = Field(
         description="Opaque server locator used by track_detail; distinct from the business track_id."
@@ -295,7 +295,7 @@ class DataManagerTrackOut(_AAPModel):
     location: DataManagerEntityLocation
 
 
-class DataManagerTrackQueryResponse(_AAPModel):
+class DataManagerTrackQueryResponse(_SDKModel):
     items: list[DataManagerTrackOut] = Field(default_factory=list)
     total: int
     limit: int
@@ -303,7 +303,7 @@ class DataManagerTrackQueryResponse(_AAPModel):
     facets: DataManagerEntityFacets = Field(default_factory=DataManagerEntityFacets)
 
 
-class DataManagerTrackMemberOut(_AAPModel):
+class DataManagerTrackMemberOut(_SDKModel):
     annotation_id: UUID
     task_id: UUID
     task_display_id: str
@@ -318,7 +318,7 @@ class DataManagerTrackMemberOut(_AAPModel):
     location: DataManagerEntityLocation
 
 
-class DataManagerTrackDetailResponse(_AAPModel):
+class DataManagerTrackDetailResponse(_SDKModel):
     track: DataManagerTrackOut
     members: list[DataManagerTrackMemberOut] = Field(
         default_factory=list,
@@ -368,7 +368,7 @@ class DataManagerTaskAssignmentApplyRequest(DataManagerTaskAssignmentRequest):
     )
 
 
-class DataManagerTaskAssignmentItem(_AAPModel):
+class DataManagerTaskAssignmentItem(_SDKModel):
     task_id: UUID
     task_display_id: str | None = None
     batch_id: UUID | None = None
@@ -386,7 +386,7 @@ class DataManagerTaskAssignmentItem(_AAPModel):
     reason: str | None = None
 
 
-class DataManagerTaskAssignmentResponse(_AAPModel):
+class DataManagerTaskAssignmentResponse(_SDKModel):
     task_ids: list[UUID]
     preview_version: str
     eligible_count: int = 0
@@ -416,6 +416,6 @@ class DataManagerTaskExportRequest(ExportRequestBody, DataManagerTaskSelection):
         return self
 
 
-class DataManagerTaskExportSubmission(_AAPModel):
+class DataManagerTaskExportSubmission(_SDKModel):
     job_id: UUID
     status: str

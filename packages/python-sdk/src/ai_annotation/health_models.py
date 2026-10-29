@@ -6,21 +6,21 @@ from typing import Literal
 
 from pydantic import Field
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
-class HealthQueue(_AAPModel):
+class HealthQueue(_SDKModel):
     name: str
     length: int
 
 
-class HealthWorker(_AAPModel):
+class HealthWorker(_SDKModel):
     name: str
     last_heartbeat_seconds_ago: float | None = None
     pool_max: int | None = None
 
 
-class HealthCheck(_AAPModel):
+class HealthCheck(_SDKModel):
     status: Literal["ok", "error"]
     latency_ms: float | None = None
     detail: str | None = None
@@ -29,7 +29,7 @@ class HealthCheck(_AAPModel):
     queues: list[HealthQueue] = Field(default_factory=list)
 
 
-class HealthReport(_AAPModel):
+class HealthReport(_SDKModel):
     status: Literal["ok", "degraded"]
     version: str
     checks: dict[str, HealthCheck]

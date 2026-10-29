@@ -38,6 +38,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- OpenAPI 导入响应组件改为 `ImportResult`／`ImportErrorEntry`，生成客户端须同步更新，响应 JSON 字段不变。
+
 ### Fixed
 
 - 修复原生 Mask 创建／更新时几何尺寸序列化不一致导致的写入回执校验失败，以及更新提交后读取过期对象触发的异步加载错误；保留原有版本前置条件、权限和回执身份校验。

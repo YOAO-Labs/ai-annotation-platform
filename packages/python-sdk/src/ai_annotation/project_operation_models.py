@@ -14,12 +14,12 @@ from ai_annotation.export_models import (
     LidarExportPreflightResult,
 )
 
-from ai_annotation.models import Project, _AAPModel
+from ai_annotation.models import Project, _SDKModel
 
 LidarExportPreflight = LidarExportPreflightResult
 
 
-class ProjectPage(_AAPModel):
+class ProjectPage(_SDKModel):
     items: list[Project]
     total: int
     page: int
@@ -27,7 +27,7 @@ class ProjectPage(_AAPModel):
     pages: int
 
 
-class ProjectReadiness(_AAPModel):
+class ProjectReadiness(_SDKModel):
     project_id: UUID
     guide_ready: bool
     classes_ready: bool
@@ -47,12 +47,12 @@ class ProjectReadiness(_AAPModel):
     activated_batch_count: int
 
 
-class ProjectClassUsage(_AAPModel):
+class ProjectClassUsage(_SDKModel):
     classes: dict[str, int] = Field(default_factory=dict)
     attributes: dict[str, int] = Field(default_factory=dict)
 
 
-class ProjectClassRenameRequest(_AAPModel):
+class ProjectClassRenameRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     old_name: str
@@ -68,18 +68,18 @@ class ProjectClassRenameRequest(_AAPModel):
         return normalized
 
 
-class ProjectCleanupOrphansRequest(_AAPModel):
+class ProjectCleanupOrphansRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     dry_run: bool = True
 
 
-class ProjectCleanupOrphansResult(_AAPModel):
+class ProjectCleanupOrphansResult(_SDKModel):
     orphan_annotations: int = 0
     orphan_attribute_keys: dict[str, int] = Field(default_factory=dict)
 
 
-class ProjectDataset(_AAPModel):
+class ProjectDataset(_SDKModel):
     id: UUID
     display_id: str
     name: str
@@ -89,24 +89,24 @@ class ProjectDataset(_AAPModel):
     tasks_in_project: int
 
 
-class ProjectMentionCandidate(_AAPModel):
+class ProjectMentionCandidate(_SDKModel):
     user_id: UUID
     user_name: str
     user_email: str | None = None
     kind: Literal["member", "owner", "super_admin"] = "member"
 
 
-class ProjectTransferRequest(_AAPModel):
+class ProjectTransferRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     new_owner_id: UUID
 
 
-class OrphanTasksPreview(_AAPModel):
+class OrphanTasksPreview(_SDKModel):
     orphan_tasks: int
     orphan_annotations: int
 
 
-class OrphanTasksCleanupResult(_AAPModel):
+class OrphanTasksCleanupResult(_SDKModel):
     deleted_tasks: int
     deleted_annotations: int

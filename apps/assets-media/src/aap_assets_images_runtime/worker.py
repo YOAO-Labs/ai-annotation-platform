@@ -423,9 +423,7 @@ class ImageExecutor:
                     height=dimensions[1],
                 )
             self._validate_metadata_probe_size(claim, source.object_identity)
-            with tempfile.TemporaryDirectory(
-                prefix="image-dimensions-"
-            ) as temporary:
+            with tempfile.TemporaryDirectory(prefix="image-dimensions-") as temporary:
                 workspace = Path(temporary)
                 workspace.chmod(0o700)
                 source_path = workspace / _source_filename(source.file_name)

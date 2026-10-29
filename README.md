@@ -53,6 +53,8 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 核心能力的目标形态是随项目发布的内置插件，模型、训练器、连接器与格式等扩展通过版本化契约安装。当前已提取多项 owner 能力并保留同事务、权限和恢复边界，但统一插件清单、安装及启停机制尚未实现。模块资格、主线功能合并后的边界与下一步见[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)；独立包或独立进程不等于插件化完成。
 
+API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生成；导入响应的组件类型名与现有 wire 值说明见[导入接口](./docs-site/api/guides/import.md#响应)。
+
 ## 工作台 AI 案例
 
 图片标注工作台支持对已确认标注做[二次推理](./docs-site/user-guide/ai/current-task-inference.md)，由标注员、项目管理员或超级管理员使用。审核工作台隐藏相关入口，接口也拒绝审核员调用；人工审核修改保留。

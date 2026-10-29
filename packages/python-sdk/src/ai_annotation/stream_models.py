@@ -8,11 +8,11 @@ from uuid import UUID
 
 from pydantic import Field, field_validator
 
-from ai_annotation.models import MLBackendStatsSnapshot, _AAPModel
+from ai_annotation.models import MLBackendStatsSnapshot, _SDKModel
 from ai_annotation.notification_models import Notification
 
 
-class NotificationSyncEvent(_AAPModel):
+class NotificationSyncEvent(_SDKModel):
     type: Literal["notifications.sync"]
     reason: str | None = None
 
@@ -20,7 +20,7 @@ class NotificationSyncEvent(_AAPModel):
 NotificationStreamEvent = Notification | NotificationSyncEvent
 
 
-class PreannotationProgressEvent(_AAPModel):
+class PreannotationProgressEvent(_SDKModel):
     current: int
     total: int
     status: str
@@ -36,7 +36,7 @@ class PredictionJobEvent(PreannotationProgressEvent):
     job_celery_task_id: str | None = None
 
 
-class BatchEvent(_AAPModel):
+class BatchEvent(_SDKModel):
     type: str
     at: datetime
     batch_id: UUID | None = None
@@ -45,7 +45,7 @@ class BatchEvent(_AAPModel):
     to_status: str | None = Field(default=None, alias="to")
 
 
-class VideoTrackerEvent(_AAPModel):
+class VideoTrackerEvent(_SDKModel):
     type: str
     job_id: UUID
     task_id: UUID
@@ -67,7 +67,7 @@ class VideoTrackerEvent(_AAPModel):
         return None if value == "None" else value
 
 
-class MLStatsEvent(_AAPModel):
+class MLStatsEvent(_SDKModel):
     backends: list[MLBackendStatsSnapshot]
     timestamp: datetime
 

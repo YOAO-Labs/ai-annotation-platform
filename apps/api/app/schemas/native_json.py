@@ -118,7 +118,7 @@ class PredictionEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class SceneTrackInterval(BaseModel):
+class SceneTrackIntervalEntry(BaseModel):
     start_frame: int = Field(ge=0)
     end_frame: int | None = Field(default=None, ge=0)
     source: Literal["legacy_envelope", "manual", "imported", "derived"] = "imported"
@@ -139,7 +139,7 @@ class SceneTrackEntry(BaseModel):
     presence_mode: Literal["inferred", "explicit"] = "explicit"
     attributes: dict[str, Any] = Field(default_factory=dict)
     attributes_meta: dict[str, Any] = Field(default_factory=dict)
-    intervals: list[SceneTrackInterval] = Field(default_factory=list)
+    intervals: list[SceneTrackIntervalEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 

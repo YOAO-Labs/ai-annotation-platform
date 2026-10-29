@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
 class _RequestModel(BaseModel):
@@ -219,12 +219,12 @@ class TrainingPreviewCreate(_RequestModel):
     request_id: uuid.UUID
 
 
-class TrainingTaskDatasetCapability(_AAPModel):
+class TrainingTaskDatasetCapability(_SDKModel):
     supported: bool
     reason: str | None = None
 
 
-class TrainingTaskDatasetCapabilities(_AAPModel):
+class TrainingTaskDatasetCapabilities(_SDKModel):
     create_version: TrainingTaskDatasetCapability
     qualified_training: TrainingTaskDatasetCapability
     overview_statistics: TrainingTaskDatasetCapability
@@ -233,7 +233,7 @@ class TrainingTaskDatasetCapabilities(_AAPModel):
     semantic_comparison: TrainingTaskDatasetCapability
 
 
-class TrainingDatasetSummary(_AAPModel):
+class TrainingDatasetSummary(_SDKModel):
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
@@ -265,12 +265,12 @@ class TrainingDatasetOut(TrainingDatasetSummary):
     manifest: dict[str, Any]
 
 
-class TrainingDatasetPage(_AAPModel):
+class TrainingDatasetPage(_SDKModel):
     items: list[TrainingDatasetSummary]
     total: int
 
 
-class TrainingDatasetPreflight(_AAPModel):
+class TrainingDatasetPreflight(_SDKModel):
     ready: bool
     digest: str
     classes: list[str]
@@ -284,7 +284,7 @@ class TrainingDatasetPreflight(_AAPModel):
     source: dict[str, Any] = Field(default_factory=dict)
 
 
-class TrainingTaskDataset(_AAPModel):
+class TrainingTaskDataset(_SDKModel):
     id: uuid.UUID | None
     project_id: uuid.UUID
     task: Literal["detect", "segment"]
@@ -295,13 +295,13 @@ class TrainingTaskDataset(_AAPModel):
     capabilities: TrainingTaskDatasetCapabilities
 
 
-class TrainingTaskDatasetPage(_AAPModel):
+class TrainingTaskDatasetPage(_SDKModel):
     items: list[TrainingTaskDataset]
     pending_membership_count: int
     unrecognized_version_count: int
 
 
-class UnrecognizedTrainingDatasetVersion(_AAPModel):
+class UnrecognizedTrainingDatasetVersion(_SDKModel):
     id: uuid.UUID
     name: str
     status: str
@@ -311,12 +311,12 @@ class UnrecognizedTrainingDatasetVersion(_AAPModel):
     reason: str = ""
 
 
-class UnrecognizedTrainingDatasetVersionPage(_AAPModel):
+class UnrecognizedTrainingDatasetVersionPage(_SDKModel):
     items: list[UnrecognizedTrainingDatasetVersion]
     total: int = Field(ge=0)
 
 
-class TrainingDatasetInsightOverview(_AAPModel):
+class TrainingDatasetInsightOverview(_SDKModel):
     version_id: uuid.UUID
     schema_version: int
     input_digest: str
@@ -325,7 +325,7 @@ class TrainingDatasetInsightOverview(_AAPModel):
     status: Literal["complete", "partial", "unavailable"]
 
 
-class TrainingDatasetClassStatistics(_AAPModel):
+class TrainingDatasetClassStatistics(_SDKModel):
     index: int
     name: str
     train_images: int
@@ -334,7 +334,7 @@ class TrainingDatasetClassStatistics(_AAPModel):
     val_instances: int
 
 
-class TrainingDatasetClassPage(_AAPModel):
+class TrainingDatasetClassPage(_SDKModel):
     items: list[TrainingDatasetClassStatistics]
     total: int
     limit: int
@@ -343,7 +343,7 @@ class TrainingDatasetClassPage(_AAPModel):
     split: Literal["train", "val"] | None = None
 
 
-class TrainingDatasetSample(_AAPModel):
+class TrainingDatasetSample(_SDKModel):
     version_id: uuid.UUID
     task_id: uuid.UUID
     included: bool
@@ -363,7 +363,7 @@ class TrainingDatasetSample(_AAPModel):
     media_checked_at: datetime | None
 
 
-class TrainingDatasetSamplePage(_AAPModel):
+class TrainingDatasetSamplePage(_SDKModel):
     source_version_id: uuid.UUID
     items: list[TrainingDatasetSample]
     total: int
@@ -371,7 +371,7 @@ class TrainingDatasetSamplePage(_AAPModel):
     offset: int
 
 
-class TrainingDatasetSampleDetail(_AAPModel):
+class TrainingDatasetSampleDetail(_SDKModel):
     sample: TrainingDatasetSample
     labels: list[dict[str, Any]]
     total: int | None
@@ -379,7 +379,7 @@ class TrainingDatasetSampleDetail(_AAPModel):
     offset: int
 
 
-class TrainingDatasetInsightComparison(_AAPModel):
+class TrainingDatasetInsightComparison(_SDKModel):
     baseline_id: uuid.UUID
     version_id: uuid.UUID
     status: Literal["complete", "partial", "unavailable"]
@@ -389,14 +389,14 @@ class TrainingDatasetInsightComparison(_AAPModel):
     target_members: int
 
 
-class TrainingCapabilities(_AAPModel):
+class TrainingCapabilities(_SDKModel):
     tasks: list[str]
     resume: bool
     artifact_download: bool
     model_registration: bool
 
 
-class TrainingBaseModel(_AAPModel):
+class TrainingBaseModel(_SDKModel):
     id: str
     sha256: str
     filename: str
@@ -404,7 +404,7 @@ class TrainingBaseModel(_AAPModel):
     capabilities: TrainingCapabilities | None = None
 
 
-class TrainingParameterField(_AAPModel):
+class TrainingParameterField(_SDKModel):
     key: str
     label: str
     group: str
@@ -418,7 +418,7 @@ class TrainingParameterField(_AAPModel):
     aliases: list[str]
 
 
-class TrainingSchemaSummary(_AAPModel):
+class TrainingSchemaSummary(_SDKModel):
     schema_id: str
     schema_digest: str
     framework: str
@@ -431,7 +431,7 @@ class TrainingSchemaSummary(_AAPModel):
     compatible: bool | None = None
 
 
-class TrainingParameterSchema(_AAPModel):
+class TrainingParameterSchema(_SDKModel):
     schema_id: str
     schema_digest: str
     framework: str
@@ -445,7 +445,7 @@ class TrainingParameterSchema(_AAPModel):
     fields: list[TrainingParameterField]
 
 
-class TrainingTemplate(_AAPModel):
+class TrainingTemplate(_SDKModel):
     framework: Literal["ultralytics", "libreyolo"]
     version: str
     image_digest: str
@@ -455,7 +455,7 @@ class TrainingTemplate(_AAPModel):
     parameter_schemas: list[TrainingSchemaSummary] = Field(default_factory=list)
 
 
-class TrainingHubCatalog(_AAPModel):
+class TrainingHubCatalog(_SDKModel):
     enabled: bool
     online: bool
     busy: bool
@@ -465,7 +465,7 @@ class TrainingHubCatalog(_AAPModel):
     items: list[TrainingTemplate]
 
 
-class TrainingProjectSummary(_AAPModel):
+class TrainingProjectSummary(_SDKModel):
     id: uuid.UUID
     name: str
     display_id: str | None
@@ -477,12 +477,12 @@ class TrainingProjectSummary(_AAPModel):
     active_run_count: int
 
 
-class TrainingProjectPage(_AAPModel):
+class TrainingProjectPage(_SDKModel):
     total: int
     items: list[TrainingProjectSummary]
 
 
-class TrainingQueueCounts(_AAPModel):
+class TrainingQueueCounts(_SDKModel):
     active: int
     queued: int
     running: int
@@ -491,19 +491,19 @@ class TrainingQueueCounts(_AAPModel):
     cancelled: int
 
 
-class TrainingQueueItem(_AAPModel):
+class TrainingQueueItem(_SDKModel):
     run: "TrainingRunOut"
     project_name: str
     project_display_id: str | None
 
 
-class TrainingQueuePage(_AAPModel):
+class TrainingQueuePage(_SDKModel):
     total: int
     counts: TrainingQueueCounts
     items: list[TrainingQueueItem]
 
 
-class TrainingRunOut(_AAPModel):
+class TrainingRunOut(_SDKModel):
     id: uuid.UUID
     project_id: uuid.UUID
     creator_id: uuid.UUID | None
@@ -526,7 +526,7 @@ class TrainingRunOut(_AAPModel):
     completed_at: datetime | None
 
 
-class TrainingFailure(_AAPModel):
+class TrainingFailure(_SDKModel):
     code: str
     stage: str
     config_digest: str
@@ -535,7 +535,7 @@ class TrainingFailure(_AAPModel):
     source: str
 
 
-class TrainingAttemptOut(_AAPModel):
+class TrainingAttemptOut(_SDKModel):
     id: uuid.UUID
     ordinal: int
     status: str
@@ -553,30 +553,30 @@ class TrainingAttemptOut(_AAPModel):
     native_accounting: dict[str, Any] | None = None
 
 
-class TrainingModelReturnEligibility(_AAPModel):
+class TrainingModelReturnEligibility(_SDKModel):
     qualified: bool
     reason: str | None
     qualification: dict[str, JsonValue] | None
 
 
-class TrainingRunDetail(_AAPModel):
+class TrainingRunDetail(_SDKModel):
     run: TrainingRunOut
     attempts: list[TrainingAttemptOut]
     registration_eligibility: TrainingModelReturnEligibility | None = None
 
 
-class TrainingRunPage(_AAPModel):
+class TrainingRunPage(_SDKModel):
     total: int
     items: list[TrainingRunOut]
 
 
-class TrainingRunPreflight(_AAPModel):
+class TrainingRunPreflight(_SDKModel):
     config: dict[str, Any]
     config_digest: str
     origin: dict[str, Any] | None
 
 
-class TrainingInitializationEligibility(_AAPModel):
+class TrainingInitializationEligibility(_SDKModel):
     model_version_id: uuid.UUID
     eligible: bool
     reasons: list[str]
@@ -584,17 +584,17 @@ class TrainingInitializationEligibility(_AAPModel):
     storage_verified: bool = False
 
 
-class TrainingRunEvent(_AAPModel):
+class TrainingRunEvent(_SDKModel):
     sequence: int
     kind: str
 
 
-class TrainingRunEvents(_AAPModel):
+class TrainingRunEvents(_SDKModel):
     attempt_id: uuid.UUID
     items: list[TrainingRunEvent]
 
 
-class TrainingEvaluation(_AAPModel):
+class TrainingEvaluation(_SDKModel):
     task: Literal["detect", "segment"] = "detect"
     identity_status: Literal["verified", "unknown"]
     reasons: list[str]
@@ -607,13 +607,13 @@ class TrainingEvaluation(_AAPModel):
     provenance: dict[str, JsonValue]
 
 
-class TrainingCursorGap(_AAPModel):
+class TrainingCursorGap(_SDKModel):
     after: int
     through: int
     reason: Literal["retention", "producer_retention"]
 
 
-class TrainingObservationPage(_AAPModel):
+class TrainingObservationPage(_SDKModel):
     attempt_id: uuid.UUID
     stream_id: uuid.UUID | None
     earliest_cursor: int | None
@@ -624,7 +624,7 @@ class TrainingObservationPage(_AAPModel):
     summary: dict[str, Any] | None
 
 
-class TrainingTelemetryItem(_AAPModel):
+class TrainingTelemetryItem(_SDKModel):
     sequence: int
     producer_boot_id: uuid.UUID
     captured_at: datetime
@@ -641,7 +641,7 @@ class TrainingTelemetryPage(TrainingObservationPage):
     metric_definitions: dict[str, dict[str, str]]
 
 
-class TrainingLogItem(_AAPModel):
+class TrainingLogItem(_SDKModel):
     sequence: int
     producer_boot_id: uuid.UUID
     captured_at: datetime
@@ -653,7 +653,7 @@ class TrainingLogPage(TrainingObservationPage):
     items: list[TrainingLogItem]
 
 
-class TrainingRecovery(_AAPModel):
+class TrainingRecovery(_SDKModel):
     attempt_id: uuid.UUID | None
     eligible: bool
     reasons: list[str]
@@ -662,18 +662,18 @@ class TrainingRecovery(_AAPModel):
     checkpoint_epoch: int | None
 
 
-class TrainingArtifactDownload(_AAPModel):
+class TrainingArtifactDownload(_SDKModel):
     url: str
     sha256: str | None = None
     size_bytes: int | None = None
 
 
-class TrainingDatasetDownload(_AAPModel):
+class TrainingDatasetDownload(_SDKModel):
     url: str
     sha256: str
 
 
-class TrainingRecipeRevisionOut(_AAPModel):
+class TrainingRecipeRevisionOut(_SDKModel):
     id: uuid.UUID
     recipe_id: uuid.UUID
     project_id: uuid.UUID
@@ -688,7 +688,7 @@ class TrainingRecipeRevisionOut(_AAPModel):
     created_at: datetime
 
 
-class TrainingRecipeOut(_AAPModel):
+class TrainingRecipeOut(_SDKModel):
     id: uuid.UUID
     project_id: uuid.UUID
     head_revision: int
@@ -699,12 +699,12 @@ class TrainingRecipeOut(_AAPModel):
     source_available: bool
 
 
-class TrainingRecipePage(_AAPModel):
+class TrainingRecipePage(_SDKModel):
     total: int
     items: list[TrainingRecipeOut]
 
 
-class TrainingReuseCandidate(_AAPModel):
+class TrainingReuseCandidate(_SDKModel):
     snapshot: dict[str, Any]
     snapshot_digest: str
     origin: TrainingOrigin
@@ -714,7 +714,7 @@ class TrainingReuseCandidate(_AAPModel):
     source_dataset_id: uuid.UUID | None = None
 
 
-class TrainingConfigurationSnapshot(_AAPModel):
+class TrainingConfigurationSnapshot(_SDKModel):
     framework: Literal["ultralytics", "libreyolo"]
     framework_version: str
     image_digest: str
@@ -723,7 +723,7 @@ class TrainingConfigurationSnapshot(_AAPModel):
     initialization: dict[str, Any] | None = None
 
 
-class TrainingPreviewCapabilities(_AAPModel):
+class TrainingPreviewCapabilities(_SDKModel):
     qualified: bool
     online: bool
     busy: bool
@@ -733,7 +733,7 @@ class TrainingPreviewCapabilities(_AAPModel):
     policy: dict[str, JsonValue]
 
 
-class TrainingPreviewOut(_AAPModel):
+class TrainingPreviewOut(_SDKModel):
     id: uuid.UUID
     project_id: uuid.UUID
     async_job_id: uuid.UUID | None
