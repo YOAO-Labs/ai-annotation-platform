@@ -508,19 +508,23 @@ class LocalPluginDeployment:
                     for key, value in LIBRE_CUDA_RUNTIME.items()
                 }
             )
+        expected_topology = {
+            "registry_id": str(result.registry_id),
+            "gpu_resource_id": resource.gpu_resource_id,
+            "pools": {
+                name: pool.model_dump(mode="json")
+                for name, pool in item.manifest.pools.items()
+            },
+        }
+        if "onnxruntime" in versions:
+            expected_topology["session_counts"] = deployment["pool_topology"][
+                "session_counts"
+            ]
         if (
             report["backend_name"] != item.manifest.plugin_id
             or deployment["image_id"] != image_id
             or gpu["uuid"] != resource.physical_gpu_uuid
-            or deployment["pool_topology"]
-            != {
-                "registry_id": str(result.registry_id),
-                "gpu_resource_id": resource.gpu_resource_id,
-                "pools": {
-                    name: pool.model_dump(mode="json")
-                    for name, pool in item.manifest.pools.items()
-                },
-            }
+            or deployment["pool_topology"] != expected_topology
             or any(versions.get(key) != value for key, value in required.items())
             or (
                 "cuda_build" in required

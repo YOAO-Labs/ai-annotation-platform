@@ -58,10 +58,15 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_control_token_header_values,
 )
 from aap_backend_runtime.backend_auth import install_backend_auth
+from aap_backend_runtime.gpu import (
+    observed_cuda_runtime_version,
+    observed_single_nvidia_gpu,
+)
 from aap_backend_runtime.plugin_service import (
     install_plugin_service,
     plugin_lifecycle_options,
     plugin_setup_fields,
+    plugin_verified_lifecycle,
 )
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import ValidationError
@@ -110,6 +115,26 @@ _predictor: RapidOCRPredictor | None = None
 _gpu_lifecycle: RapidOcrGpuLifecycle | None = None
 _idle_task: asyncio.Task[None] | None = None
 _strict_cuda_enforced = False
+_plugin_gpu_facts: dict[str, Any] | None = None
+_cuda_runtime: str | None = None
+_plugin_managed_lifecycle_verified = False
+
+
+def _plugin_runtime_versions() -> dict[str, str]:
+    import onnxruntime
+
+    result = {
+        "python": platform.python_version(),
+        "onnxruntime": str(onnxruntime.__version__),
+        "onnxruntime_device": str(onnxruntime.get_device()),
+        "rapidocr": version("rapidocr"),
+        "backend": BACKEND_VERSION,
+    }
+    if _cuda_runtime is not None:
+        result["cuda"] = _cuda_runtime
+        if image_cuda := os.environ.get("CUDA_VERSION"):
+            result["cuda_image"] = image_cuda
+    return result
 
 
 async def _idle_watcher() -> None:
@@ -133,12 +158,14 @@ async def _idle_watcher() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _engine_factory, _engine_pool, _predictor, _gpu_lifecycle, _idle_task
-    global _strict_cuda_enforced
+    global _strict_cuda_enforced, _plugin_gpu_facts, _cuda_runtime
+    global _plugin_managed_lifecycle_verified
 
     validate_single_gpu_device_set()
     plugin_options = plugin_lifecycle_options()
+    weights = []
     if plugin_options:
-        verify_assets(
+        weights = verify_assets(
             Path(os.environ["AAP_PLUGIN_DATA_DIR"]),
             os.environ["AAP_PLUGIN_ASSET_MANIFEST_SHA256"],
         )
@@ -153,6 +180,28 @@ async def lifespan(_app: FastAPI):
     )
     verify_keyring = load_verify_keyring(raw_keyring) if raw_keyring else {}
     strict_cuda = bool(plugin_options) and os.environ["AAP_PLUGIN_DEVICE"] == "cuda:0"
+    _plugin_gpu_facts = (
+        observed_single_nvidia_gpu(os.environ["AAP_PLUGIN_GPU_UUID"])
+        if strict_cuda
+        else None
+    )
+    _cuda_runtime = observed_cuda_runtime_version() if strict_cuda else None
+    _plugin_managed_lifecycle_verified = (
+        plugin_verified_lifecycle(
+            pool_topology={"engines": {"cap": POOL_CAP}},
+            runtime_versions=_plugin_runtime_versions(),
+            gpu_facts=_plugin_gpu_facts or {},
+            expected_weights=weights,
+            session_counts={"engines": len(COMPONENTS) * POOL_CAP},
+        )
+        if plugin_options
+        else False
+    )
+    managed_verified = (
+        _plugin_managed_lifecycle_verified
+        if plugin_options
+        else MANAGED_LIFECYCLE_VERIFIED
+    )
     _engine_factory = (
         RapidOCREngineFactory(strict_cuda=True)
         if strict_cuda
@@ -169,7 +218,7 @@ async def lifespan(_app: FastAPI):
     _gpu_lifecycle = RapidOcrGpuLifecycle(
         _engine_pool,
         verify_keyring=verify_keyring,
-        evictable_verified=MANAGED_LIFECYCLE_VERIFIED and not plugin_options,
+        evictable_verified=managed_verified,
         **plugin_options,
     )
     _strict_cuda_enforced = strict_cuda
@@ -181,12 +230,15 @@ async def lifespan(_app: FastAPI):
         POOL_CAP,
         _engine_factory.configured_device(),
         IDLE_UNLOAD_SECONDS,
-        MANAGED_LIFECYCLE_VERIFIED and not plugin_options,
+        managed_verified,
     )
     try:
         yield
     finally:
         _strict_cuda_enforced = False
+        _plugin_gpu_facts = None
+        _cuda_runtime = None
+        _plugin_managed_lifecycle_verified = False
         if _idle_task is not None:
             _idle_task.cancel()
             try:
@@ -254,7 +306,7 @@ async def health() -> dict[str, Any]:
             "effective_provider": pool_snapshot["provider"],
             "cpu_fallback_supported": not _strict_cuda_enforced,
         },
-        "gpu_info": physical_gpu_identity() or None,
+        "gpu_info": _plugin_gpu_facts or physical_gpu_identity() or None,
         "residency": residency_payload,
     }
     if plugin_lifecycle_options():
@@ -285,23 +337,23 @@ def setup() -> dict[str, Any]:
         "models": catalog.model_entries(),
     }
     if plugin_lifecycle_options():
-        import onnxruntime
-
-        runtime_versions = {
-            "python": platform.python_version(),
-            "onnxruntime": str(onnxruntime.__version__),
-            "onnxruntime_device": str(onnxruntime.get_device()),
-            "rapidocr": version("rapidocr"),
-            "backend": BACKEND_VERSION,
-        }
         payload.update(
-            plugin_setup_fields({"engines": {"cap": POOL_CAP}}, runtime_versions)
+            plugin_setup_fields(
+                {"engines": {"cap": POOL_CAP}}, _plugin_runtime_versions()
+            )
         )
         if _strict_cuda_enforced:
+            payload["runtime_info"].update(
+                driver_version=_plugin_gpu_facts["driver_version"],
+                total_memory_mb=_plugin_gpu_facts["total_memory_mb"],
+                cuda_build=_cuda_runtime,
+            )
             payload["runtime_info"]["ort_session_counts"] = {
                 "engines": len(COMPONENTS) * POOL_CAP
             }
-    if MANAGED_LIFECYCLE_VERIFIED and not plugin_lifecycle_options():
+    if _plugin_managed_lifecycle_verified or (
+        MANAGED_LIFECYCLE_VERIFIED and not plugin_lifecycle_options()
+    ):
         payload["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(
             mode="json"
         )

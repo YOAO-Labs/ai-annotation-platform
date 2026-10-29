@@ -324,6 +324,23 @@ class LocalDocker:
         return self.verify_running(config)
 
 
+def test_install_accepts_qualified_ort_factory_session_counts(tmp_path):
+    core = Core()
+    deployment = LocalPluginDeployment(
+        core, "https://api.example", tmp_path / "state", LocalDocker(core.events)
+    )
+    deployment.prepare(config())
+    path = report_file(tmp_path)
+    report = json.loads(path.read_text())
+    report["deployment"]["runtime_versions"]["onnxruntime"] = "1.23.2"
+    report["deployment"]["pool_topology"]["session_counts"] = {"models": 1}
+    for cycle in report["cycles"]:
+        cycle["session_observations"] = {"models": [["CUDAExecutionProvider"]]}
+    path.write_text(json.dumps(report))
+
+    assert deployment.install(path).installation.status == "active"
+
+
 def test_restart_quiesces_replaces_and_keeps_history_and_data(tmp_path):
     core = Core()
     docker = LocalDocker(core.events)

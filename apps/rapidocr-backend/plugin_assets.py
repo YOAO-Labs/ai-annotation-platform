@@ -26,8 +26,10 @@ def _digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_assets(data_dir: Path, expected_manifest_sha256: str) -> None:
-    """Verify the administrator-approved manifest and every selected model file."""
+def verify_assets(
+    data_dir: Path, expected_manifest_sha256: str
+) -> list[dict[str, str | int]]:
+    """Verify the approved manifest and return measured selected model identities."""
     raw_manifest = (data_dir / "assets.json").read_bytes()
     if hashlib.sha256(raw_manifest).hexdigest() != expected_manifest_sha256:
         raise RuntimeError(
@@ -41,6 +43,7 @@ def verify_assets(data_dir: Path, expected_manifest_sha256: str) -> None:
         raise ValueError("RapidOCR asset manifest must select at least one file")
     known = _known_assets()
     seen: set[str] = set()
+    weights: list[dict[str, str | int]] = []
     root = (data_dir / "models").resolve()
     for entry in files:
         if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
@@ -56,6 +59,7 @@ def verify_assets(data_dir: Path, expected_manifest_sha256: str) -> None:
         path = (root / relative).resolve()
         if not path.is_relative_to(root) or _digest(path) != entry["sha256"]:
             raise ValueError("RapidOCR asset digest differs from the pinned model")
+        weights.append({"sha256": entry["sha256"], "size_bytes": path.stat().st_size})
     present = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*.onnx")
@@ -65,6 +69,7 @@ def verify_assets(data_dir: Path, expected_manifest_sha256: str) -> None:
         raise ValueError(
             "RapidOCR model directory contains unapproved or missing assets"
         )
+    return weights
 
 
 def main() -> int:
