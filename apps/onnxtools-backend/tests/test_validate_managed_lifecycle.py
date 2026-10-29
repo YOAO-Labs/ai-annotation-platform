@@ -48,6 +48,28 @@ def test_artifact_gate_accepts_only_approved_model_hashes(
     assert artifacts["vehicle_attribute"]["sha256"] == _sha256(classifier.read_bytes())
 
 
+def test_plugin_artifacts_use_controlled_data_directory(tmp_path, monkeypatch) -> None:
+    _approved_fixtures(tmp_path, monkeypatch)
+    models = tmp_path / "controlled" / "models"
+    models.mkdir(parents=True)
+    detector = models / "det.onnx"
+    classifier = models / "va.onnx"
+    detector.write_bytes(b"approved-detector")
+    classifier.write_bytes(b"approved-classifier")
+    monkeypatch.setenv("AAP_PLUGIN_TOKEN_FILE", str(tmp_path / "token"))
+    monkeypatch.setenv("AAP_PLUGIN_DATA_DIR", str(models.parent))
+    monkeypatch.setenv("ONNXTOOLS_MODEL_DIR", str(tmp_path / "uncontrolled"))
+    monkeypatch.setenv("ONNXTOOLS_DET_MODEL", detector.name)
+    monkeypatch.setenv("ONNXTOOLS_VA_MODEL", classifier.name)
+    monkeypatch.setenv("VALIDATION_DET_SHA256", _sha256(detector.read_bytes()))
+    monkeypatch.setenv("VALIDATION_VA_SHA256", _sha256(classifier.read_bytes()))
+    monkeypatch.setenv("VALIDATION_MODEL_APPROVAL_REF", "approval:test")
+
+    artifacts = validator._validate_artifacts()
+    assert artifacts["detector"]["path"] == str(detector)
+    assert artifacts["vehicle_attribute"]["path"] == str(classifier)
+
+
 def test_artifact_gate_rejects_unapproved_model_hash(tmp_path, monkeypatch) -> None:
     detector = tmp_path / "det.onnx"
     classifier = tmp_path / "va.onnx"

@@ -78,6 +78,7 @@ docker run --rm --gpus "device=$VALIDATION_GPU_UUID" --entrypoint python3 \
   -e AAP_PLUGIN_GPU_RESOURCE_ID="$VALIDATION_GPU_RESOURCE_ID" \
   -e AAP_PLUGIN_GPU_UUID="$VALIDATION_GPU_UUID" \
   -e AAP_PLUGIN_TOKEN_FILE=/validation/plugin-token \
+  -e AAP_PLUGIN_DATA_DIR=/var/lib/aap-plugin \
   -e NVIDIA_VISIBLE_DEVICES="$VALIDATION_GPU_UUID" \
   -e VALIDATION_DET_SHA256 \
   -e VALIDATION_VA_SHA256 \
@@ -91,7 +92,7 @@ docker run --rm --gpus "device=$VALIDATION_GPU_UUID" --entrypoint python3 \
   -e VALIDATION_EMPTY_IMAGE_PATH=/validation/empty.jpg \
   -e VALIDATION_BOUNDARY_IMAGE_PATH=/validation/edge.jpg \
   -e VALIDATION_IMAGE_ID="$(docker image inspect "$VALIDATION_IMAGE" --format '{{.Id}}')" \
-  -v "$PWD/apps/onnxtools-backend/models:/app/models:ro" \
+  -v "$PWD/apps/onnxtools-backend/models:/var/lib/aap-plugin/models:ro" \
   --mount "type=bind,src=$AAP_PLUGIN_TOKEN_FILE,dst=/validation/plugin-token,readonly" \
   -v "$VALIDATION_IMAGE_PATH:/validation/vehicle.jpg:ro" \
   -v "$VALIDATION_EMPTY_IMAGE_PATH:/validation/empty.jpg:ro" \
@@ -111,18 +112,18 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 
 ## 环境变量
 
-| 变量                                   | 默认                     | 说明                                                  |
-| -------------------------------------- | ------------------------ | ----------------------------------------------------- |
-| `ONNXTOOLS_MODEL_DIR`                  | `/app/models`            | 模型目录                                              |
-| `ONNXTOOLS_DET_MODEL`                  | `rtdetr-2024080100.onnx` | 检测模型文件名                                        |
-| `ONNXTOOLS_VA_MODEL`                   | `va_260612.onnx`         | 属性分类模型文件名                                    |
-| `ONNXTOOLS_CONF_THRES`                 | `0.5`                    | 检测置信度阈值                                        |
-| `ONNXTOOLS_BUILD_TIMEOUT`              | `30`                     | 调用方等待冷启动的秒数；超时后真实 builder 继续受跟踪 |
-| `ONNXTOOLS_IDLE_UNLOAD_SECONDS`        | `600`                    | 全池空闲卸载阈值；非正数关闭                          |
-| `ONNXTOOLS_IDLE_CHECK_INTERVAL`        | `60`                     | 空闲检查周期                                          |
-| `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` | `0`                      | 真实 GPU 全池卸载验证门槛                             |
-| `GPU_LIFECYCLE_VERIFY_KEYS_JSON`       | 空                       | Ed25519 公钥 keyring；空值保持 legacy gate            |
-| `ONNXTOOLS_LOG_LEVEL`                  | `INFO`                   | 日志级别                                              |
+| 变量                                   | 默认                     | 说明                                                    |
+| -------------------------------------- | ------------------------ | ------------------------------------------------------- |
+| `ONNXTOOLS_MODEL_DIR`                  | `/app/models`            | 内置服务模型目录；插件使用 `AAP_PLUGIN_DATA_DIR/models` |
+| `ONNXTOOLS_DET_MODEL`                  | `rtdetr-2024080100.onnx` | 检测模型文件名                                          |
+| `ONNXTOOLS_VA_MODEL`                   | `va_260612.onnx`         | 属性分类模型文件名                                      |
+| `ONNXTOOLS_CONF_THRES`                 | `0.5`                    | 检测置信度阈值                                          |
+| `ONNXTOOLS_BUILD_TIMEOUT`              | `30`                     | 调用方等待冷启动的秒数；超时后真实 builder 继续受跟踪   |
+| `ONNXTOOLS_IDLE_UNLOAD_SECONDS`        | `600`                    | 全池空闲卸载阈值；非正数关闭                            |
+| `ONNXTOOLS_IDLE_CHECK_INTERVAL`        | `60`                     | 空闲检查周期                                            |
+| `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` | `0`                      | 真实 GPU 全池卸载验证门槛                               |
+| `GPU_LIFECYCLE_VERIFY_KEYS_JSON`       | 空                       | Ed25519 公钥 keyring；空值保持 legacy gate              |
+| `ONNXTOOLS_LOG_LEVEL`                  | `INFO`                   | 日志级别                                                |
 
 ## 模型放置与启动
 

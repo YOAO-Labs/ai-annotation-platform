@@ -134,7 +134,11 @@ VEHICLE_TYPES = [
     "school_bus",
 ]
 
-MODEL_DIR = os.environ.get("ONNXTOOLS_MODEL_DIR", "/app/models")
+MODEL_DIR = (
+    os.path.join(os.environ["AAP_PLUGIN_DATA_DIR"], "models")
+    if os.environ.get("AAP_PLUGIN_TOKEN_FILE")
+    else os.environ.get("ONNXTOOLS_MODEL_DIR", "/app/models")
+)
 DET_MODEL = os.environ.get("ONNXTOOLS_DET_MODEL", "rtdetr-2024080100.onnx")
 VA_MODEL = os.environ.get("ONNXTOOLS_VA_MODEL", "va_260612.onnx")
 CONF_THRES = float(os.environ.get("ONNXTOOLS_CONF_THRES", "0.5"))

@@ -111,7 +111,11 @@ def _approved_artifact(
 
 def _validate_artifacts() -> dict[str, Any]:
     approval_ref = _required_env("VALIDATION_MODEL_APPROVAL_REF")
-    model_dir = Path(os.getenv("ONNXTOOLS_MODEL_DIR", "/app/models"))
+    model_dir = (
+        Path(_required_env("AAP_PLUGIN_DATA_DIR")) / "models"
+        if os.environ.get("AAP_PLUGIN_TOKEN_FILE")
+        else Path(os.getenv("ONNXTOOLS_MODEL_DIR", "/app/models"))
+    )
     det_path = model_dir / os.getenv("ONNXTOOLS_DET_MODEL", "rtdetr-2024080100.onnx")
     va_path = model_dir / os.getenv("ONNXTOOLS_VA_MODEL", "va_260612.onnx")
     images = {
