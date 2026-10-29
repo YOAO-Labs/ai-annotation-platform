@@ -39,7 +39,7 @@ from app.services.labeling_prediction_contract import ApplyPredictionResultReque
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.predictions_import import (
-    import_aap_json,
+    import_native_json,
     import_coco,
     internal_geometry_to_ls_shape,
 )
@@ -656,7 +656,7 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
     monkeypatch.setattr("app.services.raster_mask_storage.store_coco_rle", store)
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
 
-    dry_run = await import_aap_json(
+    dry_run = await import_native_json(
         db_session,
         project.id,
         payload,
@@ -677,7 +677,7 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
     )
     store.assert_not_awaited()
 
-    imported = await import_aap_json(
+    imported = await import_native_json(
         db_session, project.id, payload, actor_id=user.id, job_id=None
     )
     assert imported.imported == 3
@@ -821,7 +821,7 @@ async def test_import_aap_json_video_prediction_contract_errors(
         schema_version="1.3",
     )
 
-    result = await import_aap_json(
+    result = await import_native_json(
         db_session,
         project.id,
         payload,
@@ -867,7 +867,7 @@ async def test_import_aap_json_video_prediction_requires_video_context(
         "class_name": "car",
     }
 
-    missing_media_type = await import_aap_json(
+    missing_media_type = await import_native_json(
         db_session,
         project.id,
         _aap_envelope(
@@ -889,7 +889,7 @@ async def test_import_aap_json_video_prediction_requires_video_context(
     item = await db_session.get(DatasetItem, task.dataset_item_id)
     assert item is not None
     item.metadata_ = {"video": {"width": 4, "height": 2}}
-    missing_frame_count = await import_aap_json(
+    missing_frame_count = await import_native_json(
         db_session,
         project.id,
         _aap_envelope(
@@ -910,7 +910,7 @@ async def test_import_aap_json_video_prediction_requires_video_context(
     assert "frame_count is required" in missing_frame_count.errors[0].reason
 
     task.file_type = "image"
-    wrong_task_type = await import_aap_json(
+    wrong_task_type = await import_native_json(
         db_session,
         project.id,
         _aap_envelope(

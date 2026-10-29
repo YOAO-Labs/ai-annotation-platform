@@ -379,9 +379,9 @@ async def test_aap_import_records_operator(db_session, super_admin):
         ]
     )
 
-    from app.services.annotations_import import import_aap_json_annotations
+    from app.services.annotations_import import import_native_json_annotations
 
-    result = await import_aap_json_annotations(
+    result = await import_native_json_annotations(
         db_session,
         project.id,
         envelope,

@@ -497,7 +497,7 @@ class FeedbackThreadPage(_AAPModel):
 
 
 class ImportResult(_AAPModel):
-    """predictions.import_file 响应 (后端 AAPImportResult)。"""
+    """predictions.import_file 响应 (后端 ImportResult)。"""
 
     imported: int = 0
     skipped: int = 0

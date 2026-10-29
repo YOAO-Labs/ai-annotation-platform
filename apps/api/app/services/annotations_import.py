@@ -18,10 +18,10 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_access import get_workspace_project
-from app.schemas.aap_json import (
-    AAPImportErrorEntry,
-    AAPImportResult,
-    AAPJsonV1Envelope,
+from app.schemas.native_json import (
+    ImportErrorEntry,
+    ImportResult,
+    NativeJsonEnvelope,
     check_schema_major,
 )
 from app.schemas._jsonb_types import Geometry
@@ -74,13 +74,6 @@ _GEOMETRY_TO_TOOL_UNIT: dict[str, str] = {
 _GEOMETRY_ADAPTER = TypeAdapter(Geometry)
 
 
-def _validate_aap_mask_objects(
-    geometry: Any,
-    mask_objects: dict[str, dict[str, Any]],
-) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    return resolve_mask_reference_objects(geometry, mask_objects)
-
-
 def _derive_tool_unit(geometry_type: str | None) -> str:
     """按 geometry.type 派生 tool_unit_id; 其余 kind（含 bbox）→ bbox."""
     if geometry_type is None:
@@ -110,9 +103,9 @@ async def _apply_imported_scene_tracks(
     db: AsyncSession,
     *,
     project_id: uuid.UUID,
-    envelope: AAPJsonV1Envelope,
+    envelope: NativeJsonEnvelope,
     operator_user_id: uuid.UUID,
-    result: AAPImportResult,
+    result: ImportResult,
 ) -> None:
     """Replace member-derived envelopes with exported authoritative intervals."""
     for entry in envelope.scene_tracks:
@@ -142,7 +135,7 @@ async def _apply_imported_scene_tracks(
         assert data.scene_track is not None
         if not data.scene_track.updated:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match={
                         "scene_name": entry.scene_name,
                         "track_id": entry.track_id,
@@ -155,7 +148,7 @@ async def _apply_imported_scene_tracks(
 # ── AAP JSON annotations 导入主函数 ──────────────────────────────────
 
 
-async def import_aap_json_annotations(
+async def import_native_json_annotations(
     db: AsyncSession,
     project_id: uuid.UUID,
     file_bytes: bytes,
@@ -163,7 +156,7 @@ async def import_aap_json_annotations(
     operator_user_id: uuid.UUID,
     overwrite: bool = False,
     dry_run: bool = False,
-) -> AAPImportResult:
+) -> ImportResult:
     """导入 AAP JSON envelope 里的 annotations[] 数组。
 
     语义决策见 ADR-0028:
@@ -184,11 +177,11 @@ async def import_aap_json_annotations(
     check_schema_major(schema_version)
 
     try:
-        envelope = AAPJsonV1Envelope.model_validate(raw)
+        envelope = NativeJsonEnvelope.model_validate(raw)
     except ValidationError as exc:
         raise ValueError(f"AAP JSON envelope 校验失败: {exc.errors()[:3]}") from exc
 
-    result = AAPImportResult(dry_run=dry_run)
+    result = ImportResult(dry_run=dry_run)
     purged_tasks: set[uuid.UUID] = set()
     affected_tasks: set[uuid.UUID] = set()
     stored_mask_keys: set[str] = set()
@@ -216,7 +209,7 @@ async def import_aap_json_annotations(
         if task is None:
             for _ in block.annotations:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason="task not found in project",
                     )
@@ -239,7 +232,7 @@ async def import_aap_json_annotations(
             # 1. class_name 缺失检查
             if not entry.class_name:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason="missing class_name",
                     )
@@ -250,7 +243,7 @@ async def import_aap_json_annotations(
             # 2. geometry 有效性检查
             if not isinstance(entry.geometry, dict) or not entry.geometry.get("type"):
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason="invalid geometry: must be dict with 'type' field",
                     )
@@ -263,7 +256,7 @@ async def import_aap_json_annotations(
                 entry.geometry = validated_geometry.model_dump(
                     mode="json", by_alias=True, exclude_unset=True
                 )
-                mask_objects = _validate_aap_mask_objects(
+                mask_objects = resolve_mask_reference_objects(
                     entry.geometry, envelope.mask_objects
                 )
                 await validate_mask_geometry_for_task(db, task, entry.geometry)
@@ -275,7 +268,7 @@ async def import_aap_json_annotations(
                     assert_raster_mask_write_enabled(project)
             except ValidationError as exc:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason=f"invalid geometry: {exc.errors()[:2]}",
                     )
@@ -284,7 +277,7 @@ async def import_aap_json_annotations(
                 continue
             except ValueError as exc:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict, reason=f"invalid geometry: {exc}"
                     )
                 )
@@ -304,7 +297,7 @@ async def import_aap_json_annotations(
                 and entry.class_name not in allowed
             ):
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason=(
                             f"class_name '{entry.class_name}' 不在工具单位 "
@@ -375,7 +368,7 @@ async def import_aap_json_annotations(
                 sensor_item_id = facts.sensor_dataset_item_id
                 if sensor_item_id is None:
                     result.errors.append(
-                        AAPImportErrorEntry(
+                        ImportErrorEntry(
                             task_match=match_dict,
                             reason=f"camera role '{entry.sensor_role}' is not linked to task",
                         )
@@ -392,7 +385,7 @@ async def import_aap_json_annotations(
                     not in dry_run_primary_tracks
                 ):
                     result.errors.append(
-                        AAPImportErrorEntry(
+                        ImportErrorEntry(
                             task_match=match_dict,
                             reason=(
                                 f"camera member track '{track_id}' has no primary 3D annotation"
@@ -404,7 +397,7 @@ async def import_aap_json_annotations(
                 camera_member_key = (task.id, track_id, entry.sensor_role)
                 if dry_run and camera_member_key in dry_run_camera_members:
                     result.errors.append(
-                        AAPImportErrorEntry(
+                        ImportErrorEntry(
                             task_match=match_dict,
                             reason=(
                                 f"camera member for role '{entry.sensor_role}' already exists"
@@ -415,7 +408,7 @@ async def import_aap_json_annotations(
                     continue
                 if facts.member_exists:
                     result.errors.append(
-                        AAPImportErrorEntry(
+                        ImportErrorEntry(
                             task_match=match_dict,
                             reason=f"camera member for role '{entry.sensor_role}' already exists",
                         )
@@ -476,7 +469,7 @@ async def import_aap_json_annotations(
                 raise
             except SceneTrackIntegrityError as exc:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason=f"scene track conflict ({exc.code}): {exc}",
                     )

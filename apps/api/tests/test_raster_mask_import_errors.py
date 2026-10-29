@@ -12,7 +12,7 @@ import pytest
 from starlette.requests import Request
 
 from app.api.v1 import annotations, predictions
-from app.schemas.aap_json import AAPImportResult
+from app.schemas.native_json import ImportResult
 from app.services import (
     annotations_import,
     async_job,
@@ -54,7 +54,7 @@ def _route(
         db.pending.extend((f"purge-{index}", f"insert-{index}"))
         if index == fail_at:
             raise error
-        return AAPImportResult(imported=1)
+        return ImportResult(imported=1)
 
     importer.side_effect = import_file
 
@@ -88,7 +88,7 @@ def _route(
     async def invoke():
         if name == "annotations":
             monkeypatch.setattr(
-                annotations_import, "import_aap_json_annotations", importer
+                annotations_import, "import_native_json_annotations", importer
             )
             return await annotations.import_annotations(
                 request=request,

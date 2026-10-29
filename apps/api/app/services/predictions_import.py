@@ -32,11 +32,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_access import get_workspace_project
-from app.schemas.aap_json import (
-    AAPImportErrorEntry,
-    AAPImportResult,
-    AAPJsonV1Envelope,
-    AAPPredictionEntry,
+from app.schemas.native_json import (
+    ImportErrorEntry,
+    ImportResult,
+    NativeJsonEnvelope,
+    PredictionEntry,
     check_schema_major,
 )
 from app.schemas._jsonb_types import Geometry
@@ -372,7 +372,7 @@ async def _hold_import_authority(
 # ── AAP JSON importer ──────────────────────────────────────────────
 
 
-async def import_aap_json(
+async def import_native_json(
     db: AsyncSession,
     project_id: uuid.UUID,
     file_bytes: bytes,
@@ -383,7 +383,7 @@ async def import_aap_json(
     overwrite_existing: bool = False,
     dry_run: bool = False,
     purged_tasks: set[uuid.UUID] | None = None,
-) -> AAPImportResult:
+) -> ImportResult:
     try:
         raw = json.loads(file_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -395,13 +395,13 @@ async def import_aap_json(
     check_schema_major(schema_version)
 
     try:
-        envelope = AAPJsonV1Envelope.model_validate(raw)
+        envelope = NativeJsonEnvelope.model_validate(raw)
     except ValidationError as exc:
         raise ValueError(f"AAP JSON envelope 校验失败: {exc.errors()[:3]}") from exc
     if not dry_run:
         await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
-    result = AAPImportResult(dry_run=dry_run)
+    result = ImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
     stored_mask_keys: set[str] = set()
     project = await get_workspace_project(db, project_id=project_id)
@@ -430,7 +430,7 @@ async def import_aap_json(
         if task is None:
             for _ in block.predictions:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason="task not found in project",
                     )
@@ -491,7 +491,7 @@ async def import_aap_json(
                     assert_raster_mask_write_enabled(project)
             except (ValidationError, ValueError) as exc:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason=f"invalid geometry: {exc}",
                     )
@@ -507,14 +507,14 @@ async def import_aap_json(
                 errors.append("prediction entry shapes must use one tool unit")
             for reason in errors:
                 result.errors.append(
-                    AAPImportErrorEntry(task_match=match_dict, reason=reason)
+                    ImportErrorEntry(task_match=match_dict, reason=reason)
                 )
                 result.skipped += 1
 
             if not ls_shapes:
                 if not errors:
                     result.errors.append(
-                        AAPImportErrorEntry(
+                        ImportErrorEntry(
                             task_match=match_dict,
                             reason="prediction entry has no shapes",
                         )
@@ -577,7 +577,7 @@ async def import_aap_json(
     return result
 
 
-def _entry_shape_sources(entry: AAPPredictionEntry) -> list[dict[str, Any]]:
+def _entry_shape_sources(entry: PredictionEntry) -> list[dict[str, Any]]:
     if entry.shapes is not None:
         return entry.shapes
     if isinstance(entry.geometry, dict):
@@ -592,14 +592,14 @@ def _shape_geometry(shape: dict[str, Any]) -> dict[str, Any]:
     return shape
 
 
-def _shape_class_name(shape: dict[str, Any], entry: AAPPredictionEntry) -> str | None:
+def _shape_class_name(shape: dict[str, Any], entry: PredictionEntry) -> str | None:
     raw = shape.get("class_name")
     if isinstance(raw, str) and raw:
         return raw
     return entry.class_name
 
 
-def _shape_confidence(shape: dict[str, Any], entry: AAPPredictionEntry) -> float | None:
+def _shape_confidence(shape: dict[str, Any], entry: PredictionEntry) -> float | None:
     raw = shape.get("confidence")
     if raw is None:
         return entry.confidence
@@ -610,7 +610,7 @@ def _shape_confidence(shape: dict[str, Any], entry: AAPPredictionEntry) -> float
 
 
 def _entry_to_ls_shapes(
-    entry: AAPPredictionEntry,
+    entry: PredictionEntry,
     shapes: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     ls_shapes: list[dict[str, Any]] = []
@@ -789,7 +789,7 @@ async def import_coco(
     dry_run: bool = False,
     image_size_hint: tuple[int, int] | None = None,
     purged_tasks: set[uuid.UUID] | None = None,
-) -> AAPImportResult:
+) -> ImportResult:
     """COCO detection / polygon / compressed or uncompressed RLE importer.
 
     bbox 保持历史行为；polygon-only annotation 转内部 polygon；uncompressed RLE
@@ -829,7 +829,7 @@ async def import_coco(
         if isinstance(img_id, int):
             image_map[img_id] = img
 
-    result = AAPImportResult(dry_run=dry_run)
+    result = ImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
     project = await get_workspace_project(db, project_id=project_id)
     purged_tasks = purged_tasks if purged_tasks is not None else set()
@@ -846,7 +846,7 @@ async def import_coco(
         img = image_map.get(img_id) if isinstance(img_id, int) else None
         if img is None:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match={"coco_image_id": img_id},
                     reason="invalid COCO annotation: image not found",
                 )
@@ -863,7 +863,7 @@ async def import_coco(
         )
         if img_w <= 0 or img_h <= 0:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match={"file_path": file_name},
                     reason="coco image missing width/height; image_size_hint not provided",
                 )
@@ -874,7 +874,7 @@ async def import_coco(
         class_name = cat_map.get(cat_id) if isinstance(cat_id, int) else None
         if not class_name:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match={"file_path": file_name},
                     reason=f"unknown category_id: {cat_id!r}",
                 )
@@ -887,7 +887,7 @@ async def import_coco(
         task = await resolve_task(db, project_id, match_dict)
         if task is None:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match=match_dict,
                     reason="task not found in project",
                 )
@@ -932,7 +932,7 @@ async def import_coco(
                 raise ValueError("annotation requires bbox or segmentation")
         except ValueError as exc:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match=match_dict,
                     reason=f"invalid COCO annotation: {exc}",
                 )
@@ -943,7 +943,7 @@ async def import_coco(
         ls_shape = internal_geometry_to_ls_shape(geometry, class_name, confidence)
         if ls_shape is None:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match=match_dict,
                     reason="failed to build prediction shape from COCO annotation",
                 )
@@ -1020,7 +1020,7 @@ async def import_yolo(
     overwrite_existing: bool = False,
     dry_run: bool = False,
     purged_tasks: set[uuid.UUID] | None = None,
-) -> AAPImportResult:
+) -> ImportResult:
     """YOLO label zip importer.
 
     One non-empty label file becomes one platform Prediction row containing all
@@ -1047,7 +1047,7 @@ async def import_yolo(
         await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
     project_class_set = set(project_classes)
-    result = AAPImportResult(dry_run=dry_run)
+    result = ImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
     purged_tasks = purged_tasks if purged_tasks is not None else set()
 
@@ -1057,7 +1057,7 @@ async def import_yolo(
             text = zf.read(label_name).decode("utf-8-sig")
         except UnicodeDecodeError:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match=match_dict,
                     reason="label file is not valid utf-8",
                 )
@@ -1076,7 +1076,7 @@ async def import_yolo(
         task, match_error = await resolve_task_by_file_stem(db, project_id, label_name)
         if task is None:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match=match_dict,
                     reason=match_error or "task not found in project",
                 )
@@ -1087,7 +1087,7 @@ async def import_yolo(
         image_size = await _task_image_size(db, task)
         if yolo_variant == "obb" and image_size is None:
             result.errors.append(
-                AAPImportErrorEntry(
+                ImportErrorEntry(
                     task_match=match_dict,
                     reason="dataset item width/height required for YOLO OBB",
                 )
@@ -1115,7 +1115,7 @@ async def import_yolo(
             )
             if error:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason=f"{label_name}:{line_no}: {error}",
                     )
@@ -1129,7 +1129,7 @@ async def import_yolo(
             ls_shape = internal_geometry_to_ls_shape(geometry, class_name, 1.0)
             if ls_shape is None:
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=match_dict,
                         reason=f"{label_name}:{line_no}: failed to build ls shape",
                     )

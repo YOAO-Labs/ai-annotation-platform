@@ -18,7 +18,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan, MaskFormatPlanItem
-from app.services.annotations_import import import_aap_json_annotations
+from app.services.annotations_import import import_native_json_annotations
 from app.services.labeling_core_read_relations import annotation_row
 from app.services.mask_formats.contracts import (
     MaskFormatDescriptor,
@@ -1052,7 +1052,7 @@ class VideoMaskFormatAdapter:
                 }
             ],
         }
-        result = await import_aap_json_annotations(
+        result = await import_native_json_annotations(
             db,
             project.id,
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(),
