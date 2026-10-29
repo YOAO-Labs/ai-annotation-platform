@@ -324,6 +324,40 @@ class LocalDocker:
         return self.verify_running(config)
 
 
+def test_cpu_libreyolo_denies_gpu_and_preserves_existing_drain_state(tmp_path):
+    body = config().model_dump(mode="json")
+    body["gpu_resource_id"] = None
+    body["physical_gpu_uuid"] = None
+    body["gpu_verify_keyring"] = {}
+    body["manifest"]["resource"] = {
+        "device": "cpu",
+        "memory_mb": 4096,
+        "gpu_memory_mb": 0,
+    }
+    core = Core()
+    deployment = LocalPluginDeployment(
+        core, "https://api.example", tmp_path / "state", LocalDocker(core.events)
+    )
+    result = deployment.prepare(LocalPluginConfig.model_validate(body))
+    receipt = deployment.store.load()
+    container = deployment._container(receipt, result)
+    env = container.env_file.read_text()
+    assert "\nNVIDIA_VISIBLE_DEVICES=void\n" in env
+    assert "\nCUDA_VISIBLE_DEVICES=\n" in env
+
+    # A historical CPU launch can still be inspected and drained, but a new
+    # launch must not silently reuse the old, unfenced environment.
+    old_env = env.replace("NVIDIA_VISIBLE_DEVICES=void\nCUDA_VISIBLE_DEVICES=\n", "")
+    container.env_file.write_text(old_env)
+    assert (
+        deployment._container(receipt, result, provision=False).identity()
+        == container.identity()
+    )
+    assert container.env_file.read_text() == old_env
+    with pytest.raises(AAPError, match="Existing deployment file does not match"):
+        deployment._container(receipt, result)
+
+
 def test_install_accepts_qualified_ort_factory_session_counts(tmp_path):
     core = Core()
     deployment = LocalPluginDeployment(

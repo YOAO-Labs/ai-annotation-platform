@@ -369,9 +369,9 @@ class LocalPluginDeployment:
                 ],
                 separators=(",", ":"),
             )
-            if config.manifest.resource.device == "cpu":
-                env["NVIDIA_VISIBLE_DEVICES"] = "void"
-                env["CUDA_VISIBLE_DEVICES"] = ""
+        if config.manifest.resource.device == "cpu":
+            env["NVIDIA_VISIBLE_DEVICES"] = "void"
+            env["CUDA_VISIBLE_DEVICES"] = ""
         qualification = receipt.get("qualification") if with_qualification else None
         qualification_file = (
             self.store.directory / "qualification.json" if qualification else None
