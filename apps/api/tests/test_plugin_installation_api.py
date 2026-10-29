@@ -52,6 +52,17 @@ def payload(installation_id):
             "sdk_compatibility": "1",
             "entrypoint": ["detector"],
             "capabilities": ["inference", "detection"],
+            "models": [
+                {
+                    "id": "detect",
+                    "task": "detect",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image", "crop"],
+                    "supported_geometric_outputs": ["bbox"],
+                }
+            ],
+            "pools": {"models": {"cap": 1}},
             "resource": {"device": "cpu", "memory_mb": 512, "gpu_memory_mb": 0},
             "asset_manifest_sha256": "b" * 64,
             "managed_model_compatibility": [],
@@ -99,6 +110,7 @@ def observation():
             "cpu_fallback_supported": False,
         },
         "gpu_info": {"device_uuid": None},
+        "pool_topology": {"models": {"cap": 1}},
         "residency": {
             "state": "unloaded",
             "gpu_loaded": False,
@@ -123,6 +135,7 @@ def observation():
         "physical_gpu_uuid": None,
         "runtime_info": {"device": "cpu"},
         "managed_model_compatibility": [],
+        "pool_topology": {"models": {"cap": 1}},
         "managed_lifecycle": ManagedLifecycleCapabilities().model_dump(mode="json"),
         "terminal_lifecycle": {"terminal_drain_endpoint": "/lifecycle/terminal-drain"},
         "models": [
@@ -130,6 +143,7 @@ def observation():
                 "id": "detect",
                 "task": "detect",
                 "is_interactive": False,
+                "supported_prompts": ["none"],
                 "supported_inputs": ["full_image", "crop"],
                 "supported_geometric_outputs": ["bbox"],
                 "resource_profile": {"device": "cpu"},
@@ -156,6 +170,8 @@ async def test_endpoint_observation_rejects_changed_or_untrusted_facts():
     for mutate in (
         lambda h, s: h.update({GPU_HEALTH_CHALLENGE_ECHO_MARKER: "f" * 64}),
         lambda h, s: h["compute"].update({"effective_device": "cuda:0"}),
+        lambda h, s: h["residency"].update({"gpu_loaded": True}),
+        lambda h, s: h["residency"].update({"control_epoch": "1"}),
         lambda h, s: h["residency"].update({"state": "unknown"}),
         lambda h, s: s["plugin_identity"].update({"version": "other"}),
         lambda h, s: s["models"][0].update({"supported_inputs": ["full_image"]}),
@@ -178,6 +194,68 @@ async def test_endpoint_observation_rejects_changed_or_untrusted_facts():
             ),
             **kwargs,
         )
+
+
+async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_and_pools():
+    installation, receipt, challenge, health, setup = observation()
+    data = installation.model_dump(mode="json")
+    models = [
+        {
+            "id": "ocr",
+            "task": "ocr",
+            "is_interactive": False,
+            "supported_prompts": ["none"],
+            "supported_inputs": ["crop"],
+            "supported_geometric_outputs": ["polygon"],
+        },
+        {
+            "id": "classify",
+            "task": "classify",
+            "is_interactive": False,
+            "supported_prompts": ["none"],
+            "supported_inputs": ["crop"],
+            "supported_geometric_outputs": [],
+        },
+    ]
+    pools = {"engines": {"cap": 2}, "classifier": {"cap": 1}}
+    data["installation"]["manifest"].update(models=models, pools=pools)
+    installation = PluginInstallationResponse.model_validate(data)
+    setup["models"] = [
+        {**model, "resource_profile": {"device": "cpu"}} for model in models
+    ]
+    setup["pool_topology"] = pools
+    health["pool_topology"] = deepcopy(pools)
+    health["gpu_info"] = None
+    health["compute"]["cpu_fallback_supported"] = True
+    health["residency"]["pools"] = {
+        name: {"resident": False, "device": None, "provider": None} for name in pools
+    }
+    kwargs = dict(
+        endpoint="http://cpu.example.test",
+        challenge=challenge,
+        healthy=True,
+        health=health,
+        setup=setup,
+    )
+    assert (
+        verify_endpoint_observation(installation, receipt, **kwargs)["boot_id"]
+        == "runtime-boot"
+    )
+    for change in (
+        lambda h, s: s["models"][0].update(supported_geometric_outputs=["bbox"]),
+        lambda h, s: s["models"][0].update(supported_inputs=["unknown"]),
+        lambda h, s: s["pool_topology"]["engines"].update(cap=1),
+        lambda h, s: h["residency"]["pools"].pop("classifier"),
+        lambda h, s: s["models"].pop(),
+    ):
+        changed_health, changed_setup = deepcopy(health), deepcopy(setup)
+        change(changed_health, changed_setup)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                installation,
+                receipt,
+                **{**kwargs, "health": changed_health, "setup": changed_setup},
+            )
 
 
 async def test_prepare_requires_super_admin_and_replay_matches_intent(
@@ -355,6 +433,123 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         qualification=qualification,
     )
     verify_endpoint_observation(installation, receipt, **kwargs)
+    multi = deepcopy(model)
+    pools = {"pipeline": {"cap": 1}, "detector": {"cap": 1}}
+    multi["installation"]["manifest"]["pools"] = pools
+    multi_installation = PluginInstallationResponse.model_validate(multi)
+    multi_setup, multi_health, multi_report = (
+        deepcopy(setup),
+        deepcopy(health),
+        deepcopy(report),
+    )
+    multi_setup["pool_topology"] = pools
+    multi_health["pool_topology"] = deepcopy(pools)
+    multi_health["residency"]["pools"] = {
+        name: {"resident": False, "device": None, "provider": None} for name in pools
+    }
+    multi_report["deployment"]["pool_topology"]["pools"] = pools
+    multi_report["final_residency"]["pools"] = deepcopy(
+        multi_health["residency"]["pools"]
+    )
+
+    def signed_report(value):
+        digest = hashlib.sha256(
+            json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        return PluginLifecycleQualification(report=value, sha256=digest)
+
+    multi_kwargs = {
+        **kwargs,
+        "setup": multi_setup,
+        "health": multi_health,
+        "qualification": signed_report(multi_report),
+    }
+    verify_endpoint_observation(multi_installation, receipt, **multi_kwargs)
+    for mutate in (
+        lambda value: value["deployment"]["pool_topology"]["pools"]["pipeline"].update(
+            cap=2
+        ),
+        lambda value: value["final_residency"]["pools"].pop("detector"),
+        lambda value: value["deployment"]["pool_topology"].update(
+            registry_id=str(uuid4())
+        ),
+        lambda value: value["final_residency"]["identity"].update(
+            gpu_resource_id="other"
+        ),
+    ):
+        bad_report = deepcopy(multi_report)
+        mutate(bad_report)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                multi_installation,
+                receipt,
+                **{**multi_kwargs, "qualification": signed_report(bad_report)},
+            )
+    ort_data = deepcopy(multi)
+    ort_data["installation"]["manifest"].update(
+        plugin_id="onnxtools",
+        capabilities=["inference", "detection"],
+        managed_model_compatibility=[],
+    )
+    ort_installation = PluginInstallationResponse.model_validate(ort_data)
+    ort_setup, ort_health, ort_report = (
+        deepcopy(multi_setup),
+        deepcopy(multi_health),
+        deepcopy(multi_report),
+    )
+    ort_setup.update(
+        infra="onnx",
+        plugin_identity={"plugin_id": "onnxtools", "version": "1.0"},
+        managed_model_compatibility=[],
+    )
+    ort_setup["runtime_info"]["runtime_versions"] = {"onnxruntime": "1.22"}
+    ort_report["backend_name"] = "onnxtools"
+    ort_report["deployment"]["runtime_versions"].update(
+        plugin_id="onnxtools", onnxruntime="1.22"
+    )
+    expected = {"pipeline": 2, "detector": 1}
+    session = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    observed = {
+        name: [list(session) for _ in range(count)] for name, count in expected.items()
+    }
+    for cycle in ort_report["cycles"]:
+        cycle["session_observations"] = deepcopy(observed)
+    ort_kwargs = {
+        **multi_kwargs,
+        "setup": ort_setup,
+        "health": ort_health,
+        "qualification": signed_report(ort_report),
+    }
+    verify_endpoint_observation(ort_installation, receipt, **ort_kwargs)
+    for mutate in (
+        lambda value: value["cycles"][0]["session_observations"]["pipeline"].pop(),
+        lambda value: value["cycles"][1]["session_observations"]["detector"][0].clear(),
+        lambda value: value["cycles"][0]["session_observations"]["detector"][
+            0
+        ].__setitem__(0, "CPUExecutionProvider"),
+        lambda value: value["cycles"][0]["session_observations"].pop("detector"),
+        lambda value: value["cycles"][1].pop("session_observations"),
+    ):
+        bad_report = deepcopy(ort_report)
+        mutate(bad_report)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                ort_installation,
+                receipt,
+                **{**ort_kwargs, "qualification": signed_report(bad_report)},
+            )
+    wrong_runtime = deepcopy(ort_setup)
+    wrong_runtime["runtime_info"]["runtime_versions"]["onnxruntime"] = "different"
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation, receipt, **{**ort_kwargs, "setup": wrong_runtime}
+        )
     with pytest.raises(PluginObservationRejected):
         verify_endpoint_observation(
             installation, receipt, **{**kwargs, "qualification": None}
@@ -411,6 +606,20 @@ async def test_prepare_validation_never_echoes_token(httpx_client, super_admin):
     )
     assert result.status_code == 422
     assert body["auth_token"] not in result.text
+
+
+async def test_prepare_rejects_unknown_protocol_capabilities(httpx_client, super_admin):
+    _, token = super_admin
+    body = payload(uuid4())
+    body["manifest"]["models"][0]["supported_geometric_outputs"] = ["invented"]
+    result = await httpx_client.post(
+        BASE, json=body, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert result.status_code == 422
+    assert (
+        result.json()["detail"]["error_code"]
+        == "plugin_installation_invalid_capabilities"
+    )
 
 
 async def test_activate_and_disable_are_revision_fenced(

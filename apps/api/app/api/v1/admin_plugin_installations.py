@@ -37,6 +37,7 @@ from app.services.ml_routing.contracts import MLBackendQuiescenceError
 from app.services.plugin_installation_observation import (
     PluginObservationRejected,
     observe_plugin_endpoint,
+    validate_manifest_capabilities,
     verify_launch_receipt,
 )
 
@@ -75,7 +76,7 @@ def _gpu_control_request(installation, launch, evidence, action):
             action,
         ),
         container_id=launch.container_id,
-        pool_ids=["models"],
+        pool_ids=sorted(installation.installation.manifest.pools),
     )
 
 
@@ -122,6 +123,13 @@ async def prepare(
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     data = data.model_copy(update={"url": data.url.rstrip("/")})
+    try:
+        validate_manifest_capabilities(data.manifest)
+    except PluginObservationRejected:
+        raise HTTPException(
+            status_code=422,
+            detail={"error_code": "plugin_installation_invalid_capabilities"},
+        ) from None
     try:
         _validate_ml_backend_url(data.url)
         BackendRequestOnlyEndpoint(

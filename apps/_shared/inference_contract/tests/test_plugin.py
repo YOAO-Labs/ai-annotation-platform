@@ -159,9 +159,21 @@ def test_artifact_accepts_digest_pinned_registry_and_image(reference):
     assert validate_oci_digest_reference(reference) == reference
 
 
-def test_cuda_binding_requires_physical_device():
+@pytest.mark.parametrize(
+    "binding",
+    [
+        {"physical_gpu_uuid": None},
+        {"physical_gpu_uuid": "GPU-"},
+        {"physical_gpu_uuid": " GPU-123"},
+        {"gpu_resource_id": " node/gpu"},
+        {"logical_device": "cuda:"},
+        {"logical_device": "cuda:01"},
+        {"logical_device": "cuda:other"},
+    ],
+)
+def test_cuda_binding_requires_canonical_device_identity(binding):
     value = installation()
-    value["resource"]["physical_gpu_uuid"] = None
+    value["resource"].update(binding)
     with pytest.raises(ValidationError):
         PluginInstallation.model_validate(value)
 
