@@ -162,9 +162,13 @@ def test_each_obligation_is_required_for_passing_evidence(name, missing) -> None
     with pytest.raises(ValueError):
         validate_managed_lifecycle_evidence(forged)
 
-def test_omitted_pool_set_cannot_pass() -> None:
+@pytest.mark.parametrize("missing", [True, False], ids=["absent", "empty"])
+def test_omitted_pool_set_cannot_pass(missing) -> None:
     residency = _residency()
-    residency["pools"] = {}
+    if missing:
+        del residency["pools"]
+    else:
+        residency["pools"] = {}
     evidence = _evidence(final_residency=residency)
     assert evidence["passed"] is False
     assert any(item["code"] == "final_residency_invalid" for item in evidence["blockers"])

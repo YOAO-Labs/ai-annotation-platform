@@ -62,6 +62,14 @@ def test_report_requires_exact_digest_and_deployment_identity(tmp_path, monkeypa
     ):
         with pytest.raises(ValueError):
             qualification.verify_qualification(path, **{**args, **changed})
+    # The consumer checks its declared pool inventory, not just report syntax.
+    evidence["deployment"]["pool_topology"]["pools"] = {}
+    missing_pool = json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    path.write_bytes(missing_pool)
+    with pytest.raises(ValueError, match="does not match this GPU deployment"):
+        qualification.verify_qualification(
+            path, **{**args, "report_sha256": hashlib.sha256(missing_pool).hexdigest()}
+        )
     path.write_bytes(raw + b"\n")
     with pytest.raises(ValueError):
         qualification.verify_qualification(path, **args)
