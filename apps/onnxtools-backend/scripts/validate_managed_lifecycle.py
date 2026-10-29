@@ -884,6 +884,9 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
                     raise AssertionError(
                         "busy unload changed the borrowed ORT sessions"
                     )
+            # Exiting the borrow context does not clear the lease's strong handle
+            # reference; release it before measuring actual ORT session teardown.
+            del lease
             unloaded = await checked_post(
                 client,
                 "/unload",
