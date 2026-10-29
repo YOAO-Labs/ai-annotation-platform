@@ -5,9 +5,9 @@ status: stable
 last_reviewed: 2026-10-21
 ---
 
-# ML Backend 注册（全局注册表）
+# 模型服务注册（全局注册表） {#ml-backend-注册-全局注册表}
 
-ML Backend 是平台调用的推理服务。注册表是**全局**的：一个物理 backend 对应一行 `ml_backend_registry` 记录，同一 URL 只注册一次，所有项目共享该记录。项目侧从全局注册表里**勾选启用**，详见 [启用 ML 后端](../projects/ml-backends)。模型权重、服务实例和服务池的区别，以及 Token 的基本用途，见[模型服务接入、路由与认证](../../dev/concepts/ml-backend-routing-and-auth)。
+模型服务是平台调用的推理服务。注册表是**全局**的：一个物理服务实例对应一行 `ml_backend_registry` 记录，同一 URL 只注册一次，所有项目共享该记录。项目侧从全局注册表里**勾选启用**，详见 [启用模型服务](../projects/ml-backends)。模型权重、服务实例和服务池的区别，以及 Token 的基本用途，见[模型服务接入、路由与认证](../../dev/concepts/ml-backend-routing-and-auth)。
 
 ## 入口
 
@@ -42,7 +42,7 @@ ML Backend 是平台调用的推理服务。注册表是**全局**的：一个�
 - `0.0.0.0`
 - `::1`
 
-错误消息会指引你填正确的地址。背后原因：容器内 `localhost` 指向容器自身，不可能连到宿主机的 ML Backend。详见 [容器网络与 loopback](../../dev/troubleshooting/container-networking)。
+错误消息会指引你填正确的地址。背后原因：容器内 `localhost` 指向容器自身，不可能连到宿主机的模型服务。详见 [容器网络与 loopback](../../dev/troubleshooting/container-networking)。
 
 **正确填法：**
 
@@ -220,11 +220,11 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 
 注册仅是创建可选项。真正生效需要项目把它启用：
 
-1. 项目设置 → **ML 模型** → 点「管理 backend」在全局 backend 清单里**勾选启用**该 backend（推理参数运行时按 backend 自报的 `/setup.params` 调，不在此预设）
-2. 同一页在 **项目主后端** 下拉里选一个**已启用**的 backend（设了主后端即视为启用 AI 预标注）
+1. 项目设置 → **ML 模型** → 点「管理模型服务」在全局模型服务清单里**勾选启用**该服务（推理参数运行时按服务自报的 `/setup.params` 调，不在此预设）
+2. 同一页在 **项目主后端** 下拉里选一个**已启用**的模型服务（设了主后端即视为启用 AI 预标注）
 3. 保存 AI 设置
 
-未设项目主后端直接跑预标会报错，并在前端给出配置引导。详见 [启用 ML 后端](../projects/ml-backends)。
+未设项目主后端直接跑预标会报错，并在前端给出配置引导。详见 [启用模型服务](../projects/ml-backends)。
 
 ## 引用全局注册项（不复制）
 
@@ -259,7 +259,7 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 
 ## 相关操作
 
-- **观测（observe）**：`GET /admin/ml-integrations/observe` 直连 env 配的 ML Backend 容器，不需要项目注册即可看健康 / 变体目录。
+- **观测（observe）**：`GET /admin/ml-integrations/observe` 直连 env 配的模型服务容器，不需要项目注册即可看健康 / 变体目录。
 - **试启动（smoke-test）**：`POST /admin/ml-integrations/observe/smoke-test`，只有新协议 residency 能严格证明所有 pool / builder / borrower 已空时才预热指定变体并自动还原；旧协议会同时保守检查图像池、视频池与活跃会话。
 - **GPU 资源诊断**：超管可查看逐卡容量、静态预算、desired → effective mode 及配置 blocker。`observe` 仅记录影子决策，不会拒绝、排队或驱逐请求。
 - **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由持久路由 owner 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。

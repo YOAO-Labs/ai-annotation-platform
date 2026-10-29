@@ -59,7 +59,7 @@ last_reviewed: 2026-10-26
   <DocLinkCard title="标注员" desc="接收任务、在工作台完成标注并提交" href="/user-guide/getting-started" />
   <DocLinkCard title="数据管理员 / 项目管理员" desc="管理数据集与来源、创建项目、分配任务并跟进进度" href="/user-guide/projects/" />
   <DocLinkCard title="审核员 / 质检员" desc="检查标注质量，通过或退回给标注员修正" href="/user-guide/review/" />
-  <DocLinkCard title="超级管理员" desc="治理存储位置与站点 Agent、管理用户、注册 ML Backend 并查看系统状态" href="/user-guide/superadmin/" />
+  <DocLinkCard title="超级管理员" desc="治理存储位置与站点 Agent、管理用户、注册模型服务并查看系统状态" href="/user-guide/superadmin/" />
   <DocLinkCard title="观察者 Viewer" desc="查看平台公开内容，需要升级权限后参与标注" href="/user-guide/concepts" />
 </div>
 ### 设置与支持

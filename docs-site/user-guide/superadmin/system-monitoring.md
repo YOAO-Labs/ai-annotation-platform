@@ -36,13 +36,13 @@ last_reviewed: 2026-10-26
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `celery_queue_length{queue}`                               | 各队列待处理 + 在执行任务数（Gauge）                                                   |
 | `celery_worker_heartbeat_seconds{worker}`                  | worker 上次心跳距今秒数（Gauge，越小越新鲜）                                           |
-| `ml_backend_request_duration_seconds{backend_id, outcome}` | ML backend predict / interactive 单次调用耗时（Histogram，outcome="success"\|"error"） |
+| `ml_backend_request_duration_seconds{backend_id, outcome}` | 模型服务 predict / interactive 单次调用耗时（Histogram，outcome="success"\|"error"） |
 
 > 上述三个指标均在 `apps/api/app/observability/metrics.py` 注册。平台不暴露 `celery_tasks_total` 或 `celery_task_duration_seconds`；预标 job 状态分布通过 `async_jobs` 表查询，不以 Prometheus Counter 形式暴露。
 
-### ML Backend（grounded-sam2-backend 容器）
+### 模型服务（grounded-sam2-backend 容器） {#ml-backend-grounded-sam2-backend-容器}
 
-ML backend 容器的自定义指标由 backend 自身暴露，不经过平台 API。常见可观测信号（视 backend 实现而定）：
+模型服务容器的自定义指标由服务自身暴露，不经过平台 API。常见可观测信号（视服务实现而定）：
 
 - GPU 使用率 / 显存 / 温度（通过 `/health.gpu_info` 字段聚合到平台健康面板）
 - 模型加载缓存命中率（通过 `/health.cache` 字段聚合）

@@ -6,11 +6,11 @@ status: stable
 last_reviewed: 2026-07-20
 ---
 
-# 启用 ML 后端
+# 启用模型服务 {#启用-ml-后端}
 
 > 适用角色：项目管理员 / 超级管理员
 
-每个项目从**全局 ML backend 注册表**里勾选启用一个或多个 backend，用于工作台交互式 AI 工具（智能点 / 智能框 / Exemplar，均为画布手势驱动）和批量预标注（文本「找全图」/ 几何 / OCR / 版面）。本页解释项目侧的**启用、设主后端**两件事。物理 backend 的全局注册（新增 / 编辑 / 删除）是超管在[模型市场](../superadmin/model-market.md)的职责；项目侧只做启用，不复制 backend。推理参数（如检测阈值）不在项目设置预设，而是在工作台 / 预标**运行时**按 backend 自报的 `/setup.params` 调整（详见下）。
+每个项目从**全局模型服务注册表**里勾选启用一个或多个模型服务，用于工作台交互式 AI 工具（智能点 / 智能框 / Exemplar，均为画布手势驱动）和批量预标注（文本「找全图」/ 几何 / OCR / 版面）。本页解释项目侧的**启用、设主后端**两件事。物理服务实例的全局注册（新增 / 编辑 / 删除）是超管在[模型市场](../superadmin/model-market.md)的职责；项目侧只做启用，不复制实例。推理参数（如检测阈值）不在项目设置预设，而是在工作台 / 预标**运行时**按服务自报的 `/setup.params` 调整（详见下）。
 
 > **项目绑定的是服务池**：项目启用与主后端下拉在底层绑定的是**服务池**（`ml_backend_pool_id`，ADR-0050 的逻辑路由边界），不再是单个物理实例。每个全局 backend 注册后自动得到一个 singleton 服务池，off 模式下项目体验与单实例完全一致；当超管把多个等价实例加入同一池并切到 `observe|enforce` 模式时，平台会在池内自动选择实例，项目侧无需改动。`/projects/:id/ml-backends/pools/available` 与 `/pools/:pool_id/enablement` 是项目侧的服务池启用 API；旧 `ml_backend_id`（实例 id）字段仍被公共 schema 接受以兼容老前端 / SDK，内部解析回 singleton 池。
 
@@ -23,19 +23,19 @@ last_reviewed: 2026-07-20
   caption="同一项目的两条 AI 路由：YOLO 作为当前题批量主后端，Smart Point 按 point 能力自动命中 SAM3。"
 />
 
-## 启用一个全局 backend
+## 启用一个全局模型服务 {#启用一个全局-backend}
 
-![ML 模型 tab：全局 backend 启用清单](../images/projects/ml-backends/register-form.png)
+![ML 模型 tab：全局模型服务启用清单](../images/projects/ml-backends/register-form.png)
 
-进入 **项目设置 → ML 模型** 标签。页面上方是 AI 预标注设置，下方是**全局 backend 启用清单**——列出注册表里全部 backend（含 env 自动注册项），点「管理 backend」在悬浮面板里逐个勾选「启用」：
+进入 **项目设置 → ML 模型** 标签。页面上方是 AI 预标注设置，下方是**全局模型服务启用清单**——列出注册表里全部服务（含 env 自动注册项），点「管理模型服务」在悬浮面板里逐个勾选「启用」：
 
-- **启用开关**：勾选后该 backend 对本项目可用（成为工作台 AI 与批量预标的可选项）。取消勾选即对本项目停用，不影响其它项目，也不删除全局注册项。
+- **启用开关**：勾选后该模型服务对本项目可用（成为工作台 AI 与批量预标的可选项）。取消勾选即对本项目停用，不影响其它项目，也不删除全局注册项。
 
 > **推理参数不在此预设**：检测阈值（如 `box_threshold` / `text_threshold`）这类参数因 backend 而异（由协议 `/setup.params` 自描述），统一在工作台「单图／单帧 AI」面板与 `/ai-pre` 跑批配置里**运行时**按所选 backend 动态渲染调整、即调即生效；项目级 `box_threshold`（默认 0.35）仅作 `/setup` 拉取失败时的兜底。
 
 每行还展示全局注册项自带的能力快照（`supported_prompts` / `supported_trackers`）、URL、鉴权方式与 `max_concurrency` 并发闸——这些由超管在全局注册时设定，项目侧只读。
 
-> **没有可启用的 backend？** 说明超管还没在全局注册表注册任何物理 backend。env 配置的 backend 启动后会自动成为全局注册项（`source=env`），无需手动注册即可在清单里看到并启用；其余 backend 由超管在[模型市场 → 注册管理](../superadmin/model-market.md)注册。
+> **没有可启用的模型服务？** 说明超管还没在全局注册表注册任何物理服务实例。env 配置的服务启动后会自动成为全局注册项（`source=env`），无需手动注册即可在清单里看到并启用；其余服务由超管在[模型市场 → 注册管理](../superadmin/model-market.md)注册。
 
 独立推理插件即使已由超管安装，也不会自动对新项目或现有项目启用；请在此显式勾选对应服务池。安装身份、排空和安全停容器由超管管理，项目停用不等于物理实例安全退役。见[插件安装](/user-guide/superadmin/ml-backend-registry#可安装推理插件)。
 

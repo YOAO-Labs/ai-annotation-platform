@@ -135,7 +135,7 @@ last_reviewed: 2026-10-21
 
 对应后端端点：`GET /admin/ml-integrations/topology`（角色裁剪读模型）、`GET /admin/ml-integrations/runtime-snapshot`（仅超管）、`/admin/ml-integrations/service-pools/*`（pool/member CRUD + drain/resume，仅超管）、`POST/PUT/DELETE /admin/ml-integrations/registry/:id`（实例增删改）、`POST /admin/ml-integrations/registry/:id/health`（健康检查）。
 
-> **角色门控**：超管看到全部五个 tab 与所有 mutation。项目管理员只看到「服务池 + 实例」两个只读视图，不显示 GPU 资源 / 项目绑定 / 问题中心，也看不到 `routing_policy` / 权重 / GPU UUID / 预算 / 内部 reason / 诊断拓扑——这些字段在服务端响应中已裁剪为 `unknown` / `null`（非前端隐藏）。项目管理员对自己项目的 backend 启用仍在项目设置里做（详见 [启用 ML 后端](../projects/ml-backends)）。
+> **角色门控**：超管看到全部五个 tab 与所有 mutation。项目管理员只看到「服务池 + 实例」两个只读视图，不显示 GPU 资源 / 项目绑定 / 问题中心，也看不到 `routing_policy` / 权重 / GPU UUID / 预算 / 内部 reason / 诊断拓扑——这些字段在服务端响应中已裁剪为 `unknown` / `null`（非前端隐藏）。项目管理员对自己项目的模型服务启用仍在项目设置里做（详见 [启用模型服务](../projects/ml-backends)）。
 
 ## 视频追踪观测与任务监控
 
@@ -167,13 +167,13 @@ backend 的变体面板拆成两组：
 <!-- 注：「能力目录」完整双层架构已在 ## 1. 能力目录 节描述，此处不再重复。 -->
 <!-- 如需实例层细节请参见 ADR-0037 与 ML Backend 协议文档。 -->
 
-## 新建 / 编辑 Backend
+## 新建 / 编辑模型服务实例 {#新建-编辑-backend}
 
-点「注册管理」实例子视图（或服务池视图）工具栏的 **「注册实例」** 即可新增一条全局 backend 记录；点某行的「编辑」可改其 URL / 名称 / 鉴权 / GPU 资源与预算 / 驱逐优先级 / `max_concurrency` 及其他 `extra_params`。注册表单字段与校验详见 [ML Backend 注册](./ml-backend-registry)。env 配置的 backend 启动后会自动出现在列表里（来源 `env`），无需手动注册。
+点「注册管理」实例子视图（或服务池视图）工具栏的 **「注册实例」** 即可新增一条全局服务实例记录；点某行的「编辑」可改其 URL / 名称 / 鉴权 / GPU 资源与预算 / 驱逐优先级 / `max_concurrency` 及其他 `extra_params`。注册表单字段与校验详见 [模型服务注册](./ml-backend-registry)。env 配置的服务启动后会自动出现在列表里（来源 `env`），无需手动注册。
 
 ## 删除
 
-「注册管理」列表支持逐条删除全局 backend（**仅超管**）。删除会从注册表移除该记录，所有引用它的项目 `ml_backend_id` 自动置空（ON DELETE SET NULL）。若有正在运行的预测 job 会返回 `HTTP 409` 阻断。项目管理员若只想让某 backend 对本项目失效，应在项目设置取消勾选启用，而非删除。删除规则详见 [ML Backend 注册](./ml-backend-registry#删除)。
+「注册管理」列表支持逐条删除全局服务实例（**仅超管**）。删除会从注册表移除该记录，所有引用它的项目 `ml_backend_id` 自动置空（ON DELETE SET NULL）。若有正在运行的预测 job 会返回 `HTTP 409` 阻断。项目管理员若只想让某模型服务对本项目失效，应在项目设置取消勾选启用，而非删除。删除规则详见 [模型服务注册](./ml-backend-registry#删除)。
 
 ## 路由历史
 
