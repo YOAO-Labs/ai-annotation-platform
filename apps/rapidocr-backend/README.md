@@ -50,7 +50,8 @@ uv export --locked --extra cuda --extra build --no-emit-local \
 和 backend。RapidOCR 的原始 metadata 要求 `opencv-python`，运行时刻意替换为唯一的
 `opencv-python-headless`；因此 stock metadata 的 `pip check` 会报告缺少 GUI 包，
 普通 `pip install` 或 `uv sync` 也不能保证此 headless 布局。不要补装 GUI 包，
-两者会覆盖同一 `cv2` 文件。`nvidia-cublas-cu12` 同样不从 wheel 安装，以免覆盖基础镜像的 CUDA 库。
+两者会覆盖同一 `cv2` 文件。`nvidia-cublas-cu12` 同样不从 wheel 安装，以免覆盖基础镜像的 CUDA 库；
+`pip check` 也会报告 cuDNN metadata 所要求的这个 Python distribution 缺失。该布局不是 metadata 全绿的普通 pip 安装。
 
 ## 运行（dev）
 

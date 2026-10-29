@@ -1,6 +1,6 @@
 # 推理后端插件化与 YOAO-Plugins 独立仓库规划
 
-> 状态：已启动首批并行实施，多后端插件迁移尚未交付。LibreYOLO 试点已按原计划完成限定单卡验收；不因首个插件或依赖准备通过而宣称其他后端、通用装配或独立仓库分发完成。
+> 状态：首批并行准备切片已合入并通过限定的本地验收，多后端插件迁移尚未交付。LibreYOLO 试点已按原计划完成限定单卡验收；不因首个插件或依赖准备通过而宣称其他后端、通用装配或独立仓库分发完成。
 >
 > 日期：规划于 2026-10-28，实施记录更新于 2026-10-29。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，已核验为 **Private**；未推送当前工作区代码。
 >
@@ -251,3 +251,7 @@ Orca run 为 `run_1e86c5259b79`，基线为 `1d6573b2a2e8c28b4e9c0c92d30456ac7d1
 - 本地独立插件仓库已克隆到 `plugins/YOAO-plugins/`，平台根 `.gitignore` 忽略整个嵌套仓库；未搬迁算法源码、创建 submodule 或推送代码。
 - API SDK 与插件 SDK 保持分包、独立版本及共享必要契约。生命周期纯校验的实现与消费者已在契约提交 `8ddcd65be` 中收口并合入；正式规则见 `docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk`。
 - 并行的 Learning 反馈读取提交 `47b5eec70` 已审核合入；其无 Audit 父表读取权限和 HTTP 快照重放证据记在核心模块台账，不计作插件迁移完成。
+- RapidOCR／ONNXTools 依赖准备提交 `f1cf6e37b` 已审核合入：真实运行依赖、共享契约输入、锁文件与 hash-locked 导出已对齐，ONNXTools 上游 Git 身份和 RapidOCR cuDNN 修复保持。两套独立 wheel 的真实 HTTP 启动通过；主进程另构建了两个镜像，在禁网、只读、无 GPU 的容器内验证 `/health`、认证 `/setup`、未认证拒绝、唯一 headless OpenCV 和 PNG 编解码。模型池保持 unloaded，不计作模型推理或 GPU 验收。
+- 主进程验证生命周期证据 11 项、管理员 SDK 43 项、隔离 PostgreSQL 反馈两案及 API 准入一案；当前 API 镜像在未安装模型运行时和 Torch 的情况下接受合法证明、拒绝四类损坏证明。执行者的 ONNXTools 定向 CPU 检查为 25 项通过，重复层级的检查不叠加成独立案例数。
+- RapidOCR 全套检查出现失败并在 1800 秒后超时，不能记作通过。执行者将首个失败定位为 `test_warmup_timeout_keeps_active_until_real_builder_finishes`，在原基线归档中复现 `active_requests` 为 0、预期为 1；调度根因和后续挂起尚未确定，本轮未修改生命周期算法或放宽测试。两后端 stock metadata 的 `pip check` 仍按 README 报告有意替换／由基础镜像提供的分发包缺失，不宣称普通 pip／uv 安装全绿。
+- 文档全站构建被与基线字节相同的 `docs-site/dev/reference/env-vars.md` Vue 标签错误阻断，未扩修无关文件；受影响架构／用户指南页面的 Markdown 与 Vue 编译及计划渲染单独通过。集成收据和三个执行者交接保存在 `.worktree/orca/run_1e86c5259b79/`，记录实际制品、检查与限制；日常服务、远程仓库和既有主工作树测试基础设施未切换或删除。
