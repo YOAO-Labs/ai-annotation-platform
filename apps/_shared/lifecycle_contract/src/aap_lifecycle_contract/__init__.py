@@ -262,9 +262,20 @@ def _validate_passing_qualification(value: Mapping[str, Any]) -> None:
         raise ValueError("passing evidence does not meet memory recovery gates")
     if "onnxruntime" in deployment["runtime_versions"]:
         pools = deployment["pool_topology"].get("pools")
-        if not isinstance(pools, dict) or not pools:
-            raise ValueError("ORT qualification requires named pool topology")
-        expected_counts = None
+        expected_counts = deployment["pool_topology"].get("session_counts")
+        if (
+            not isinstance(pools, dict)
+            or not pools
+            or not isinstance(expected_counts, dict)
+            or set(expected_counts) != set(pools)
+            or any(
+                type(count) is not int or not 1 <= count <= 128
+                for count in expected_counts.values()
+            )
+        ):
+            raise ValueError(
+                "ORT qualification requires complete factory session counts"
+            )
         for cycle in cycles:
             observations = cycle.get("session_observations")
             if not isinstance(observations, dict) or set(observations) != set(pools):
@@ -272,9 +283,8 @@ def _validate_passing_qualification(value: Mapping[str, Any]) -> None:
                     "ORT qualification requires observations for every pool"
                 )
             counts = {name: len(chains) for name, chains in observations.items()}
-            if expected_counts is not None and counts != expected_counts:
-                raise ValueError("ORT session counts must agree across cycles")
-            expected_counts = counts
+            if counts != expected_counts:
+                raise ValueError("ORT session observations differ from factory counts")
             if any(
                 chain[0] != "CUDAExecutionProvider"
                 for chains in observations.values()

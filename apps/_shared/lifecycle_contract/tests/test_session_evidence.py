@@ -39,7 +39,10 @@ def evidence():
             "git_commit": "abc",
             "image_id": "sha256:" + "a" * 64,
             "runtime_versions": {"onnxruntime": "1.22"},
-            "pool_topology": {"pools": pools},
+            "pool_topology": {
+                "pools": pools,
+                "session_counts": {"pipeline": 2, "detector": 1},
+            },
         },
         "artifacts": [
             {
@@ -82,6 +85,10 @@ def test_ort_qualification_accepts_measured_sessions_for_every_cycle():
     "change",
     [
         lambda value: value["cycles"][0].pop("session_observations"),
+        lambda value: value["deployment"]["pool_topology"].pop("session_counts"),
+        lambda value: value["deployment"]["pool_topology"]["session_counts"].update(
+            pipeline=True
+        ),
         lambda value: value["cycles"][0]["session_observations"].pop("detector"),
         lambda value: value["cycles"][0]["session_observations"]["pipeline"].pop(),
         lambda value: value["cycles"][1]["session_observations"]["pipeline"][0].clear(),
@@ -98,9 +105,18 @@ def test_ort_qualification_rejects_missing_or_unqualified_session_evidence(chang
         validate_managed_lifecycle_evidence(value)
 
 
+def test_ort_rejects_same_missing_session_in_every_cycle():
+    value = evidence()
+    for cycle in value["cycles"]:
+        cycle["session_observations"]["pipeline"].pop()
+    with pytest.raises(ValueError):
+        validate_managed_lifecycle_evidence(value)
+
+
 def test_non_ort_report_remains_unchanged_without_session_observations():
     value = evidence()
     value["deployment"]["runtime_versions"] = {"torch": "qualified"}
+    del value["deployment"]["pool_topology"]["session_counts"]
     for cycle in value["cycles"]:
         del cycle["session_observations"]
     assert validate_managed_lifecycle_evidence(value) == value
