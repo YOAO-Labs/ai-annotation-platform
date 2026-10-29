@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -83,7 +84,19 @@ def test_empty_and_edge_fixture_outputs_are_checked() -> None:
     def payload(x, width):
         return {
             "results": [
-                {"result": [{"value": {"x": x, "y": 20, "width": width, "height": 40}}]}
+                {
+                    "result": [
+                        {
+                            "value": {
+                                "x": x,
+                                "y": 20,
+                                "width": width,
+                                "height": 40,
+                                "rectanglelabels": ["car"],
+                            }
+                        }
+                    ]
+                }
             ]
         }
 
@@ -92,6 +105,10 @@ def test_empty_and_edge_fixture_outputs_are_checked() -> None:
         validator._assert_boundary_result("vehicle-detect", payload(20, 30))
     with pytest.raises(AssertionError):
         validator._assert_boundary_result("vehicle-detect", payload(95, 10))
+    not_car = payload(0, 30)
+    not_car["results"][0]["result"][0]["value"]["rectanglelabels"] = ["plate"]
+    with pytest.raises(AssertionError):
+        validator._assert_boundary_result("vehicle-detect", not_car)
 
 
 def test_positive_classification_requires_meaningful_attributes() -> None:
@@ -123,6 +140,64 @@ def test_gpu_identity_rejects_wrong_or_multiple_visible_devices(monkeypatch) -> 
     )
     with pytest.raises(RuntimeError, match="exactly one visible GPU"):
         validator._gpu_row("GPU-a")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [None, "fallback", "wrong_device", "missing"])
+async def test_provider_evidence_checks_each_composite_session(invalid) -> None:
+    from handle_pool import HANDLE_SESSION_COUNTS, HandlePool
+
+    class Session:
+        def __init__(self, bad):
+            self.bad = bad
+
+        def get_providers(self):
+            return (
+                ["CPUExecutionProvider"]
+                if self.bad == "fallback"
+                else ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            )
+
+        def get_provider_options(self):
+            return {
+                "CUDAExecutionProvider": {
+                    "device_id": "1" if self.bad == "wrong_device" else "0"
+                }
+            }
+
+    def owner(bad=None):
+        return SimpleNamespace(_onnx_session=None if bad == "missing" else Session(bad))
+
+    pool = HandlePool(
+        {
+            "pipeline": lambda: SimpleNamespace(
+                detector=owner(), va_classifier=owner(invalid)
+            ),
+            "detector": owner,
+            "va": owner,
+        },
+        lambda _name, _handle: None,
+    )
+    main = SimpleNamespace(_handle_pool=pool)
+    try:
+        if invalid:
+            with pytest.raises(AssertionError):
+                await validator._provider_evidence(main, HANDLE_SESSION_COUNTS)
+        else:
+            evidence = await validator._provider_evidence(main, HANDLE_SESSION_COUNTS)
+            assert {name: len(sessions) for name, sessions in evidence.items()} == {
+                "pipeline": 2,
+                "detector": 1,
+                "va": 1,
+            }
+            assert all(
+                session["device_id"] == "0"
+                and session["providers"][0] == "CUDAExecutionProvider"
+                for sessions in evidence.values()
+                for session in sessions
+            )
+    finally:
+        await pool.shutdown()
 
 
 def test_memory_gate_requires_ninety_percent_working_set_recovery() -> None:

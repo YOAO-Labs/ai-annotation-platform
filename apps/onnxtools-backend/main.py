@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from aap_backend_runtime import (
+    artifact_evidence,
     deployment_verified_flag,
     physical_gpu_identity,
     validate_single_gpu_device_set,
@@ -48,6 +49,7 @@ from aap_backend_runtime.plugin_service import (
     install_plugin_service,
     plugin_lifecycle_options,
     plugin_setup_fields,
+    plugin_verified_lifecycle,
 )
 from aap_protocol_v2 import (
     COMPAT_PROTOCOL_VERSIONS,
@@ -333,6 +335,10 @@ async def lifespan(app: FastAPI):
             "backend": BACKEND_VERSION,
         }
     if strict_cuda:
+        cuda_image = os.environ.get("CUDA_VERSION", "").strip()
+        if not cuda_image:
+            raise RuntimeError("CUDA image version is unavailable")
+        app.state.runtime_versions["cuda_image"] = cuda_image
         app.state.runtime_versions["cuda"] = observed_cuda_runtime_version()
         app.state.gpu_facts = observed_single_nvidia_gpu(
             os.environ["AAP_PLUGIN_GPU_UUID"]
@@ -351,6 +357,23 @@ async def lifespan(app: FastAPI):
     verify_keyring = load_verify_keyring(raw_keyring) if raw_keyring else {}
     if strict_cuda and not verify_keyring:
         raise RuntimeError("CUDA plugin lifecycle keyring has no verification keys")
+    if plugin_mode:
+        expected_weights = []
+        if strict_cuda and os.environ.get("AAP_PLUGIN_QUALIFICATION_FILE"):
+            for name in (DET_MODEL, VA_MODEL):
+                weight = artifact_evidence(Path(MODEL_DIR) / name, kind="weight")
+                expected_weights.append(
+                    {"sha256": weight["sha256"], "size_bytes": weight["size_bytes"]}
+                )
+        app.state.lifecycle_verified = plugin_verified_lifecycle(
+            pool_topology={name: {"cap": 1} for name in HANDLE_ORDER},
+            runtime_versions=app.state.runtime_versions,
+            gpu_facts=app.state.gpu_facts or {},
+            expected_weights=expected_weights,
+            session_counts=HANDLE_SESSION_COUNTS,
+        )
+    else:
+        app.state.lifecycle_verified = MANAGED_LIFECYCLE_VERIFIED
     # 懒加载:不在启动时加载模型,首次 predict 按 model_id 构造对应句柄。
     _handle_pool = HandlePool(
         {
@@ -366,7 +389,7 @@ async def lifespan(app: FastAPI):
     _gpu_lifecycle = OnnxToolsGpuLifecycle(
         _handle_pool,
         verify_keyring=verify_keyring,
-        evictable_verified=MANAGED_LIFECYCLE_VERIFIED,
+        evictable_verified=app.state.lifecycle_verified,
         **plugin_options,
     )
     # 启动期预热 provider 构造偏好；业务 session 的实际 provider 另由 /health 实时读取。
@@ -381,7 +404,7 @@ async def lifespan(app: FastAPI):
         CONF_THRES,
         IDLE_UNLOAD_SECONDS,
         probed[0],
-        MANAGED_LIFECYCLE_VERIFIED,
+        app.state.lifecycle_verified,
     )
     try:
         yield
@@ -583,7 +606,7 @@ def setup() -> dict[str, Any]:
             _classify_model_entry(),
         ],
     }
-    if MANAGED_LIFECYCLE_VERIFIED:
+    if getattr(app.state, "lifecycle_verified", MANAGED_LIFECYCLE_VERIFIED):
         payload["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(
             mode="json"
         )

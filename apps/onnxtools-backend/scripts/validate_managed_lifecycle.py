@@ -8,6 +8,7 @@ real inference; evidence is emitted to stdout without changing deployment flags.
 from __future__ import annotations
 
 import asyncio
+import base64
 import gc
 import hashlib
 import json
@@ -15,9 +16,11 @@ import math
 import os
 import platform
 import re
+import secrets
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager, redirect_stdout
@@ -26,6 +29,7 @@ from statistics import median
 from typing import Any
 
 import httpx
+import jwt
 import uvicorn
 from aap_backend_runtime.backend_auth import backend_auth_headers
 from aap_backend_runtime import (
@@ -33,14 +37,24 @@ from aap_backend_runtime import (
     build_managed_lifecycle_evidence,
     exercise_lifecycle_fault_matrix,
 )
+from aap_backend_runtime.gpu import observed_cuda_runtime_version
 from aap_lifecycle_contract import REQUIRED_CONTRACT_CHECKS, memory_cycle_evidence
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,
     GPU_ADMISSION_TOKEN_HEADER,
     GPU_GENERATION_HEADER,
+    GPU_HEALTH_CHALLENGE_HEADER,
+    GPU_HEALTH_CHALLENGE_QUERY_PARAM,
     encode_ed25519_public_key,
     sign_admission_token,
+)
+from aap_protocol_v2.routing import (
+    ROUTE_ADMISSION_AUDIENCE,
+    ROUTE_ADMISSION_HEADER,
+    ROUTE_ADMISSION_PROTOCOL,
+    ROUTE_CONTROL_PATH,
+    ROUTE_CONTROL_PROTOCOL,
 )
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -52,9 +66,6 @@ CONTROL_SCOPES = {
     AdmissionScope.MODE,
     AdmissionScope.RESET,
 }
-REGISTRY_ID = "onnxtools-validation"
-RESOURCE_ID = "local-validation-gpu"
-EXPECTED_SESSIONS = {"pipeline": 2, "detector": 1, "va": 1}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -341,25 +352,47 @@ def _assert_boundary_result(model_id: str, payload: dict[str, Any]) -> None:
             or y + height > 100
         ):
             raise AssertionError(f"{model_id} returned an out-of-bounds boundary box")
-        touches_edge |= min(x, y, 100 - x - width, 100 - y - height) <= 5
+        labels = box.get("rectanglelabels")
+        touches_edge |= (
+            isinstance(labels, list)
+            and "car" in labels
+            and min(x, y, 100 - x - width, 100 - y - height) <= 5
+        )
     if not touches_edge:
         raise AssertionError(f"{model_id} did not detect the edge-of-image vehicle")
 
 
-async def _provider_evidence(main_module: Any) -> dict[str, list[list[str]]]:
+async def _provider_evidence(
+    main_module: Any, expected_sessions: dict[str, int]
+) -> dict[str, list[dict[str, Any]]]:
+    from predictor import inspect_handle_sessions
+
     assert main_module._handle_pool is not None  # noqa: SLF001
-    evidence: dict[str, list[list[str]]] = {}
-    for name, expected_count in EXPECTED_SESSIONS.items():
+    evidence: dict[str, list[dict[str, Any]]] = {}
+    for name, expected_count in expected_sessions.items():
         async with main_module._handle_pool.borrow(name) as lease:  # noqa: SLF001
-            chains = main_module.inspect_handle_providers(name, lease.handle)
-        if chains is None or len(chains) != expected_count:
-            raise AssertionError(
-                f"{name} provider evidence is incomplete: expected "
-                f"{expected_count}, got {chains}"
-            )
-        if any(not chain or chain[0] != "CUDAExecutionProvider" for chain in chains):
-            raise AssertionError(f"{name} silently fell back from CUDA: {chains}")
-        evidence[name] = chains
+            sessions = inspect_handle_sessions(name, lease.handle)
+            if (
+                sessions is None
+                or len(sessions) != expected_count
+                or any(s is None for s in sessions)
+            ):
+                raise AssertionError(f"{name} business session evidence is incomplete")
+            observed = []
+            for session in sessions:
+                providers = session.get_providers()
+                if not providers or providers[0] != "CUDAExecutionProvider":
+                    raise AssertionError(
+                        f"{name} silently fell back from CUDA: {providers}"
+                    )
+                options = session.get_provider_options()
+                device_id = options.get("CUDAExecutionProvider", {}).get("device_id")
+                if device_id != "0":
+                    raise AssertionError(
+                        f"{name} did not report CUDA device 0: {device_id!r}"
+                    )
+                observed.append({"providers": list(providers), "device_id": device_id})
+            evidence[name] = observed
     return evidence
 
 
@@ -381,8 +414,14 @@ async def _http_client(app: Any):
                 await server_task
                 raise RuntimeError("qualification HTTP server exited before startup")
             await asyncio.sleep(0.01)
+        plugin_token_path = os.environ.get("AAP_PLUGIN_TOKEN_FILE")
+        headers = (
+            {"Authorization": "Bearer " + Path(plugin_token_path).read_text().strip()}
+            if plugin_token_path
+            else backend_auth_headers("onnxtools")
+        )
         async with httpx.AsyncClient(
-            headers=backend_auth_headers("onnxtools"),
+            headers=headers,
             base_url=f"http://127.0.0.1:{port}",
             timeout=600,
         ) as client:
@@ -395,27 +434,127 @@ async def _http_client(app: Any):
             sock.close()
 
 
-async def _run() -> dict[str, Any]:
+async def _bind_operator_routes(
+    client: httpx.AsyncClient, *, registry_id: str, route_secret: str
+) -> None:
+    """Bind an isolated operator authority through the actual HTTP control endpoint."""
+    signing_key = secrets.token_bytes(32)
+    command = {
+        "schema": ROUTE_CONTROL_PROTOCOL,
+        "command_id": str(uuid.uuid4()),
+        "registry_id": registry_id,
+        "authority_epoch": str(uuid.uuid4()),
+        "retired_epoch": None,
+        "challenge": secrets.token_hex(32),
+        "action": "drain",
+        "signing_key": None,
+    }
+    headers = {"Authorization": f"Bearer {route_secret}"}
+    drained = await client.post(ROUTE_CONTROL_PATH, json=command, headers=headers)
+    drained.raise_for_status()
+    observed = drained.json()
+    if (
+        observed.get("registry_id") != registry_id
+        or observed.get("command_id") != command["command_id"]
+        or observed.get("challenge") != command["challenge"]
+        or observed.get("authority_epoch") != command["authority_epoch"]
+        or observed.get("phase") != "drained"
+        or observed.get("active_requests") != 0
+    ):
+        raise RuntimeError("operator route drain did not bind the reserved registry")
+    command["action"] = "bind"
+    command["signing_key"] = base64.urlsafe_b64encode(signing_key).decode().rstrip("=")
+    bound = await client.post(ROUTE_CONTROL_PATH, json=command, headers=headers)
+    bound.raise_for_status()
+    reply = bound.json()
+    if (
+        reply.get("registry_id") != registry_id
+        or reply.get("command_id") != command["command_id"]
+        or reply.get("challenge") != command["challenge"]
+        or reply.get("authority_epoch") != command["authority_epoch"]
+        or reply.get("backend_incarnation") != observed.get("backend_incarnation")
+        or reply.get("phase") != "bound"
+    ):
+        raise RuntimeError("operator route bind did not match the drained backend")
+    incarnation = reply["backend_incarnation"]
+
+    async def authorize(request: httpx.Request) -> None:
+        if request.method == "GET":
+            return
+        operation = "gpu:unload" if request.url.path == "/unload" else "validation"
+        now = int(time.time())
+        claims = {
+            "schema": ROUTE_ADMISSION_PROTOCOL,
+            "aud": ROUTE_ADMISSION_AUDIENCE,
+            "registry_id": registry_id,
+            "backend_incarnation": incarnation,
+            "authority_epoch": command["authority_epoch"],
+            "scope_id": str(uuid.uuid4()),
+            "attempt_id": str(uuid.uuid4()),
+            "operation": operation,
+            "method": request.method,
+            "path": request.url.path,
+            "iat": now,
+            "exp": now + 60,
+        }
+        request.headers[ROUTE_ADMISSION_HEADER] = jwt.encode(
+            claims, signing_key, algorithm="HS256", headers={"typ": "JWT"}
+        )
+
+    client.event_hooks["request"].append(authorize)
+
+
+async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
     git_commit = _required_env("VALIDATION_GIT_COMMIT")
     image_id = _required_env("VALIDATION_IMAGE_ID")
+    registry_id = _required_env("VALIDATION_BACKEND_REGISTRY_ID")
+    resource_id = _required_env("VALIDATION_GPU_RESOURCE_ID")
     fixture_approval_ref = _required_env("VALIDATION_FIXTURE_APPROVAL_REF")
+    plugin_id = _required_env("AAP_PLUGIN_ID")
+    plugin_version = _required_env("AAP_PLUGIN_VERSION")
+    artifact = _required_env("AAP_PLUGIN_OCI_ARTIFACT")
+    asset_manifest_sha256 = _required_env("AAP_PLUGIN_ASSET_MANIFEST_SHA256")
+    if SHA256_PATTERN.fullmatch(asset_manifest_sha256) is None:
+        raise RuntimeError("AAP_PLUGIN_ASSET_MANIFEST_SHA256 must be a SHA-256 digest")
+    if (
+        _required_env("AAP_PLUGIN_REGISTRY_ID") != registry_id
+        or _required_env("AAP_ROUTE_REGISTRY_ID") != registry_id
+        or _required_env("AAP_PLUGIN_GPU_RESOURCE_ID") != resource_id
+        or _required_env("AAP_PLUGIN_DEVICE") != "cuda:0"
+    ):
+        raise RuntimeError("qualification and plugin deployment identities differ")
     artifacts = _validate_artifacts()
+    _required_env("AAP_PLUGIN_TOKEN_FILE")
     requested_uuid = _required_env("VALIDATION_GPU_UUID")
+    if _required_env("AAP_PLUGIN_GPU_UUID") != requested_uuid:
+        raise RuntimeError("qualification and plugin GPU identities differ")
     gpu = _gpu_metadata(requested_uuid)
     target_uuid = gpu["uuid"]
     cold_baseline = _assert_isolated_before_start(target_uuid)
+    cuda_version = observed_cuda_runtime_version()
 
     private_key = Ed25519PrivateKey.generate()
-    os.environ["GPU_LIFECYCLE_VERIFY_KEYS_JSON"] = json.dumps(
-        {"validation": encode_ed25519_public_key(private_key.public_key())}
+    route_secret = secrets.token_urlsafe(48)
+    route_file = private_dir / "route-token"
+    keyring_file = private_dir / "gpu-keyring.json"
+    route_file.write_text(route_secret, encoding="utf-8")
+    keyring_file.write_text(
+        json.dumps({"validation": encode_ed25519_public_key(private_key.public_key())}),
+        encoding="utf-8",
     )
-    os.environ["ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED"] = "1"
+    route_file.chmod(0o600)
+    keyring_file.chmod(0o600)
+    os.environ["AAP_ROUTE_CONTROL_TOKEN_FILE"] = str(route_file)
+    os.environ["AAP_PLUGIN_GPU_KEYRING_FILE"] = str(keyring_file)
     os.environ["ONNXTOOLS_IDLE_UNLOAD_SECONDS"] = "0"
     os.environ["ONNXTOOLS_BUILD_TIMEOUT"] = "300"
 
     app_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(app_root))
     import main  # noqa: PLC0415
+    from handle_pool import HANDLE_SESSION_COUNTS  # noqa: PLC0415
+
+    expected_sessions = HANDLE_SESSION_COUNTS
 
     contract_checks = {name: False for name in REQUIRED_CONTRACT_CHECKS}
     memory: dict[str, Any] = {
@@ -427,6 +566,15 @@ async def _run() -> dict[str, Any]:
     async with main.lifespan(main.app):
         assert main._gpu_lifecycle is not None  # noqa: SLF001
         assert main._handle_pool is not None  # noqa: SLF001
+        # This loopback-only operator process measures the real lifecycle before
+        # a report exists. Normal plugin startup never receives this authority.
+        main._gpu_lifecycle = main.OnnxToolsGpuLifecycle(  # noqa: SLF001
+            main._handle_pool,  # noqa: SLF001
+            verify_keyring=main.load_verify_keyring(keyring_file.read_text()),
+            evictable_verified=True,
+            **main.plugin_lifecycle_options(),
+        )
+        main.app.state.lifecycle_verified = True
         boot_id = main._gpu_lifecycle.boot_id  # noqa: SLF001
 
         def token(
@@ -440,8 +588,8 @@ async def _run() -> dict[str, Any]:
         ) -> str:
             control = scope in CONTROL_SCOPES
             claims = AdmissionTokenClaims(
-                backend_registry_id=REGISTRY_ID,
-                gpu_resource_id=RESOURCE_ID,
+                backend_registry_id=registry_id,
+                gpu_resource_id=resource_id,
                 boot_id=boot_id,
                 generation=generation,
                 control_epoch=control_epoch,
@@ -481,7 +629,27 @@ async def _run() -> dict[str, Any]:
                 )
             return response.json()
 
+        async def checked_health(client: httpx.AsyncClient) -> dict[str, Any]:
+            challenge = secrets.token_hex(32)
+            response = await client.get(
+                "/health",
+                headers={GPU_HEALTH_CHALLENGE_HEADER: challenge},
+                params={GPU_HEALTH_CHALLENGE_QUERY_PARAM: challenge},
+            )
+            response.raise_for_status()
+            if response.headers.get(GPU_HEALTH_CHALLENGE_HEADER) != challenge:
+                raise AssertionError("health challenge was not echoed")
+            health = response.json()
+            if health["residency"]["boot_id"] != boot_id:
+                raise AssertionError("health boot identity changed")
+            if health.get("ort_session_counts") != expected_sessions:
+                raise AssertionError("live ORT session counts differ from factories")
+            return health
+
         async with _http_client(main.app) as client:
+            await _bind_operator_routes(
+                client, registry_id=registry_id, route_secret=route_secret
+            )
             reset = await checked_post(
                 client,
                 "/lifecycle/reset",
@@ -518,7 +686,24 @@ async def _run() -> dict[str, Any]:
                 },
             )
             assert mode["gate"] == "enforce"
-            setup = (await client.get("/setup")).json()
+            setup_response = await client.get("/setup")
+            setup_response.raise_for_status()
+            setup = setup_response.json()
+            if (
+                setup.get("registry_id") != registry_id
+                or setup.get("gpu_resource_id") != resource_id
+                or setup.get("physical_gpu_uuid") != target_uuid
+                or setup.get("runtime_info", {}).get("ort_session_counts")
+                != expected_sessions
+                or setup.get("pool_topology")
+                != {name: {"cap": 1} for name in expected_sessions}
+                or setup.get("runtime_info", {}).get("driver_version")
+                != gpu["driver_version"]
+                or setup.get("runtime_info", {}).get("total_memory_mb")
+                != gpu["total_memory_mb"]
+                or setup.get("runtime_info", {}).get("cuda_build") != cuda_version
+            ):
+                raise AssertionError("live plugin identity or factory topology differs")
             if "managed_lifecycle" not in setup:
                 raise AssertionError("managed lifecycle capability was not advertised")
             contract_checks["managed_lifecycle_advertised"] = True
@@ -528,11 +713,16 @@ async def _run() -> dict[str, Any]:
                 "vehicle-detect",
                 "vehicle-attr-classify",
             ):
+                input_path = (
+                    artifacts["fixtures"]["boundary"]["path"]
+                    if model_id == "vehicle-attr-classify"
+                    else image_path
+                )
                 payload = await checked_post(
                     client,
                     "/predict",
                     json_body={
-                        "tasks": [{"id": model_id, "file_path": image_path}],
+                        "tasks": [{"id": model_id, "file_path": input_path}],
                         "context": {"model_id": model_id},
                     },
                     request_headers=workload_headers(AdmissionScope.PREDICT, "1"),
@@ -560,14 +750,16 @@ async def _run() -> dict[str, Any]:
                     check(model_id, payload)
             contract_checks["real_inference"] = True
 
-            provider_evidence = await _provider_evidence(main)
+            provider_evidence = await _provider_evidence(main, expected_sessions)
             snapshot = await main._handle_pool.snapshot()  # noqa: SLF001
             assert snapshot["current_size"] == 3
             assert snapshot["session_count"] == 4
             assert snapshot["provider"] == "CUDAExecutionProvider"
-            health = (await client.get("/health")).json()
+            health = await checked_health(client)
             residency = health["residency"]
-            assert health["compute"]["configured_device"] == "cuda"
+            assert health["compute"]["configured_device"] == "cuda:0"
+            assert health["compute"]["effective_device"] == "cuda:0"
+            assert health["compute"]["cpu_fallback_supported"] is False
             assert health["compute"]["effective_provider"] == "CUDAExecutionProvider"
             assert residency["state"] == "resident"
             assert residency["gpu_loaded"] is True
@@ -575,7 +767,7 @@ async def _run() -> dict[str, Any]:
             assert all(
                 residency["pools"][name]["resident"] is True
                 and residency["pools"][name]["provider"] == "CUDAExecutionProvider"
-                for name in EXPECTED_SESSIONS
+                for name in expected_sessions
             )
             contract_checks["provider_or_device_gpu"] = True
             memory["cycle_1_loaded_mb"] = _gpu_memory_samples(target_uuid, count=3)
@@ -626,32 +818,72 @@ async def _run() -> dict[str, Any]:
                     json_body={"model_id": model_id},
                     request_headers=workload_headers(AdmissionScope.WARMUP, "3"),
                 )
-            second_providers = await _provider_evidence(main)
+            second_providers = await _provider_evidence(main, expected_sessions)
             if second_providers != provider_evidence:
                 raise AssertionError(
                     "provider chains changed across load generations: "
                     f"first={provider_evidence}, second={second_providers}"
                 )
+            second_health = await checked_health(client)
+            if not all(
+                second_health["residency"]["pools"][name]["resident"] is True
+                and second_health["residency"]["pools"][name]["provider"]
+                == "CUDAExecutionProvider"
+                for name in expected_sessions
+            ):
+                raise AssertionError("second cold load did not restore every CUDA pool")
             memory["cycle_2_loaded_mb"] = _gpu_memory_samples(target_uuid, count=3)
 
             warmup_body = {"model_id": "vehicle-detect"}
             drain_owner = "cycle-2"
-            contract_checks.update(
-                await exercise_lifecycle_fault_matrix(
-                    client=client,
-                    lifecycle=main._gpu_lifecycle,  # noqa: SLF001
-                    token=token,
-                    workload_scope=AdmissionScope.WARMUP,
-                    drain_scope=AdmissionScope.DRAIN,
-                    unload_scope=AdmissionScope.UNLOAD,
-                    workload_path="/warmup",
-                    workload_body=warmup_body,
-                    current_generation="3",
-                    stale_generation="1",
-                    next_generation="4",
-                    drain_owner=drain_owner,
+            async with main._handle_pool.borrow("pipeline") as lease:  # noqa: SLF001
+                contract_checks.update(
+                    await exercise_lifecycle_fault_matrix(
+                        client=client,
+                        lifecycle=main._gpu_lifecycle,  # noqa: SLF001
+                        token=token,
+                        workload_scope=AdmissionScope.WARMUP,
+                        drain_scope=AdmissionScope.DRAIN,
+                        unload_scope=AdmissionScope.UNLOAD,
+                        workload_path="/warmup",
+                        workload_body=warmup_body,
+                        current_generation="3",
+                        stale_generation="1",
+                        next_generation="4",
+                        drain_owner=drain_owner,
+                    )
                 )
-            )
+                busy_unload = await client.post(
+                    "/unload",
+                    json={"generation": "4"},
+                    headers={
+                        GPU_GENERATION_HEADER: "4",
+                        GPU_ADMISSION_TOKEN_HEADER: token(
+                            AdmissionScope.UNLOAD,
+                            generation="4",
+                            operation=drain_owner,
+                        ),
+                    },
+                )
+                if busy_unload.status_code != 409:
+                    raise AssertionError(
+                        "unload did not reject the active pipeline borrower"
+                    )
+                busy_health = await checked_health(client)
+                if (
+                    busy_health["residency"]["active_requests"] != 0
+                    or busy_health["residency"]["borrowers"] != 1
+                    or (await main._handle_pool.snapshot())["current_size"] != 3  # noqa: SLF001
+                ):
+                    raise AssertionError(
+                        "busy unload did not preserve the borrowed handles"
+                    )
+                if main.inspect_handle_providers("pipeline", lease.handle) != [
+                    session["providers"] for session in second_providers["pipeline"]
+                ]:
+                    raise AssertionError(
+                        "busy unload changed the borrowed ORT sessions"
+                    )
             unloaded = await checked_post(
                 client,
                 "/unload",
@@ -666,7 +898,7 @@ async def _run() -> dict[str, Any]:
                 },
             )
             assert unloaded["unloaded_count"] == 3
-            final_health = (await client.get("/health")).json()
+            final_health = await checked_health(client)
             memory["cycle_2_unloaded_mb"] = _gpu_memory_samples(target_uuid)
             final_snapshot = await main._handle_pool.snapshot()  # noqa: SLF001
             _assert_unloaded(
@@ -697,9 +929,8 @@ async def _run() -> dict[str, Any]:
             ),
         ]
         onnxruntime_version = str(__import__("onnxruntime").__version__)
-        cuda_version = os.getenv("CUDA_VERSION", "").strip()
-        if not cuda_version:
-            raise RuntimeError("CUDA_VERSION is required from the deployment image")
+        if setup["runtime_info"]["runtime_versions"]["cuda"] != cuda_version:
+            raise AssertionError("live CUDA runtime version differs from measurement")
         gpu["runtime_version"] = cuda_version
         cycles = [
             memory_cycle_evidence(
@@ -717,8 +948,24 @@ async def _run() -> dict[str, Any]:
                 unloaded_samples_mb=memory["cycle_2_unloaded_mb"],
             ),
         ]
+        for cycle, observations in zip(cycles, (provider_evidence, second_providers)):
+            cycle["session_observations"] = {
+                name: [session["providers"] for session in sessions]
+                for name, sessions in observations.items()
+            }
+        print(
+            json.dumps(
+                {
+                    "event": "onnx_session_device_options",
+                    "gpu_uuid": target_uuid,
+                    "cycles": [provider_evidence, second_providers],
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
         return build_managed_lifecycle_evidence(
-            backend_name="onnxtools-backend",
+            backend_name=plugin_id,
             deployment={
                 "git_commit": git_commit,
                 "image_id": image_id,
@@ -726,11 +973,22 @@ async def _run() -> dict[str, Any]:
                     "python": platform.python_version(),
                     "onnxruntime": onnxruntime_version,
                     "cuda": cuda_version,
+                    "cuda_image": _required_env("CUDA_VERSION"),
                     "backend": str(main.BACKEND_VERSION),
+                    "plugin_id": plugin_id,
+                    "plugin_version": plugin_version,
+                    "artifact": artifact,
+                    "asset_manifest_sha256": asset_manifest_sha256,
+                    "registry_id": registry_id,
+                    "gpu_resource_id": resource_id,
+                    "driver_version": gpu["driver_version"],
+                    "qualification_authority": "operator-ephemeral",
                 },
                 "pool_topology": {
-                    name: {"handle_cap": 1, "expected_sessions": count}
-                    for name, count in EXPECTED_SESSIONS.items()
+                    "registry_id": registry_id,
+                    "gpu_resource_id": resource_id,
+                    "pools": {name: {"cap": 1} for name in expected_sessions},
+                    "session_counts": dict(expected_sessions),
                 },
             },
             artifacts=artifact_records,
@@ -740,6 +998,11 @@ async def _run() -> dict[str, Any]:
             final_residency=final_health["residency"],
             runtime_ephemera_clean=True,
         )
+
+
+async def _run() -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="onnxtools-qualification-") as private_dir:
+        return await _run_with_authority(Path(private_dir))
 
 
 def _failed_evidence(exc: Exception) -> dict[str, Any]:
@@ -778,9 +1041,27 @@ def main() -> None:
             evidence = asyncio.run(_run())
     except Exception as exc:  # noqa: BLE001 - emit fail-closed evidence before exit
         print(f"managed lifecycle validation failed: {exc}", file=sys.stderr)
-        print(json.dumps(_failed_evidence(exc), ensure_ascii=False, sort_keys=True))
+        print(
+            json.dumps(
+                _failed_evidence(exc),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ),
+            end="",
+        )
         raise SystemExit(1) from exc
-    print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
+    print(
+        json.dumps(
+            evidence,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ),
+        end="",
+    )
 
 
 if __name__ == "__main__":

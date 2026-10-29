@@ -214,6 +214,8 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
     monkeypatch.delenv("AAP_PLUGIN_GPU_RESOURCE_ID", raising=False)
     monkeypatch.delenv("AAP_PLUGIN_GPU_UUID", raising=False)
+    monkeypatch.delenv("AAP_PLUGIN_QUALIFICATION_FILE", raising=False)
+    monkeypatch.setattr(backend_main, "MANAGED_LIFECYCLE_VERIFIED", True)
     monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(__version__="test"))
     monkeypatch.setattr(
         backend_main, "_probe_providers", lambda: ["CPUExecutionProvider"]
@@ -231,7 +233,13 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
         "_provider_preference",
     ):
         monkeypatch.setattr(backend_main, name, getattr(backend_main, name))
-    for name in ("plugin_mode", "strict_cuda", "gpu_facts", "runtime_versions"):
+    for name in (
+        "plugin_mode",
+        "strict_cuda",
+        "gpu_facts",
+        "runtime_versions",
+        "lifecycle_verified",
+    ):
         monkeypatch.setattr(backend_main.app.state, name, None, raising=False)
 
     if device == "cuda:0":
@@ -243,6 +251,7 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
         monkeypatch.setenv("AAP_PLUGIN_GPU_KEYRING_FILE", str(keyring))
         monkeypatch.setenv("AAP_PLUGIN_GPU_RESOURCE_ID", "test-resource")
         monkeypatch.setenv("AAP_PLUGIN_GPU_UUID", gpu_uuid)
+        monkeypatch.setenv("CUDA_VERSION", "12.8.1")
         monkeypatch.setattr(
             backend_main, "observed_cuda_runtime_version", lambda: "12.8.0"
         )
@@ -260,6 +269,8 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
         health = await backend_main.health()
         setup = backend_main.setup()
         counts = {"pipeline": 2, "detector": 1, "va": 1}
+        assert "managed_lifecycle" not in setup
+        assert health["residency"]["evictable"] is False
         assert health["compute"]["configured_device"] == device
         assert health["compute"]["cpu_fallback_supported"] is (device == "cpu")
         assert (
