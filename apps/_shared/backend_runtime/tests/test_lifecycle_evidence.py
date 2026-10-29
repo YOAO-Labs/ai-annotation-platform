@@ -6,11 +6,16 @@ import hashlib
 import pytest
 
 from aap_backend_runtime.lifecycle_evidence import (
-    REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
     build_managed_lifecycle_evidence,
     memory_cycle_evidence,
     validate_managed_lifecycle_evidence,
+)
+
+OBLIGATIONS = (
+    "managed_lifecycle_advertised", "real_inference", "provider_or_device_gpu",
+    "busy_unload_rejected", "cancel_accounting", "stale_generation_rejected",
+    "token_replay_rejected", "partial_headers_rejected", "full_cleanup",
 )
 
 
@@ -69,7 +74,7 @@ def _evidence(**overrides) -> dict:
             "visible_device_count": 1,
         },
         "cycles": [_cycle(1), _cycle(2)],
-        "contract_checks": {name: True for name in REQUIRED_CONTRACT_CHECKS},
+        "contract_checks": dict.fromkeys(OBLIGATIONS, True),
         "final_residency": _residency(),
         "runtime_ephemera_clean": True,
         "generated_at": "2026-07-30T12:00:00Z",
@@ -114,7 +119,7 @@ def test_build_evidence_derives_passed_from_full_qualification() -> None:
 
 
 def test_build_evidence_emits_structured_blockers_for_failed_gates() -> None:
-    failed_checks = {name: True for name in REQUIRED_CONTRACT_CHECKS}
+    failed_checks = dict.fromkeys(OBLIGATIONS, True)
     failed_checks["token_replay_rejected"] = False
     weak_cycle = memory_cycle_evidence(
         cycle=1,
@@ -136,6 +141,38 @@ def test_build_evidence_emits_structured_blockers_for_failed_gates() -> None:
         "memory_recovery_insufficient",
         "runtime_ephemera_dirty",
     }
+
+@pytest.mark.parametrize("name", OBLIGATIONS)
+@pytest.mark.parametrize("missing", [True, False], ids=["missing", "false"])
+def test_each_obligation_is_required_for_passing_evidence(name, missing) -> None:
+    checks = dict.fromkeys(OBLIGATIONS, True)
+    if missing:
+        del checks[name]
+    else:
+        checks[name] = False
+    evidence = _evidence(contract_checks=checks)
+    assert evidence["passed"] is False
+    assert any(
+        item["code"] == ("contract_checks_missing" if missing else "contract_checks_failed")
+        for item in evidence["blockers"]
+    )
+    forged = copy.deepcopy(evidence)
+    forged["passed"] = True
+    forged["blockers"] = []
+    with pytest.raises(ValueError):
+        validate_managed_lifecycle_evidence(forged)
+
+def test_omitted_pool_set_cannot_pass() -> None:
+    residency = _residency()
+    residency["pools"] = {}
+    evidence = _evidence(final_residency=residency)
+    assert evidence["passed"] is False
+    assert any(item["code"] == "final_residency_invalid" for item in evidence["blockers"])
+    evidence["passed"] = True
+    evidence["blockers"] = []
+    with pytest.raises(ValueError):
+        validate_managed_lifecycle_evidence(evidence)
+
 
 
 @pytest.mark.parametrize(

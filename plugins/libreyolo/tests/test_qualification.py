@@ -3,7 +3,7 @@ import json
 
 import pytest
 from aap_backend_runtime.lifecycle_evidence import (
-    REQUIRED_CONTRACT_CHECKS, build_managed_lifecycle_evidence, memory_cycle_evidence,
+    build_managed_lifecycle_evidence, memory_cycle_evidence,
 )
 from aap_libreyolo_plugin import qualification
 
@@ -35,7 +35,11 @@ def test_report_requires_exact_digest_and_deployment_identity(tmp_path, monkeypa
                     "sha256": "e" * 64, "approval_ref": "approved"}],
         gpu={"uuid": gpu_uuid, "driver_version": "595.99", "runtime_version": "13.2",
              "total_memory_mb": 24576, "visible_device_count": 1}, cycles=cycles,
-        contract_checks={name: True for name in REQUIRED_CONTRACT_CHECKS},
+        contract_checks=dict.fromkeys((
+            "managed_lifecycle_advertised", "real_inference", "provider_or_device_gpu",
+            "busy_unload_rejected", "cancel_accounting", "stale_generation_rejected",
+            "token_replay_rejected", "partial_headers_rejected", "full_cleanup",
+        ), True),
         final_residency={"state": "unloaded", "gpu_loaded": False, "evictable": False,
                          "active_requests": 0, "builders": 0, "borrowers": 0,
                          "pools": {"models": {"resident": False}}}, runtime_ephemera_clean=True)
@@ -46,8 +50,16 @@ def test_report_requires_exact_digest_and_deployment_identity(tmp_path, monkeypa
                 registry_id="registry", gpu_resource_id="resource", gpu_uuid=gpu_uuid,
                 runtime_qualification=profile, expected_weight=weight, gpu_facts=("595.99", 24576))
     assert qualification.verify_qualification(path, **args)
-    for changed in ({"registry_id": "other"}, {"artifact": "registry.example/libre@sha256:" + "f" * 64},
-                    {"gpu_facts": ("different", 24576)}, {"report_sha256": "0" * 64}):
+    for changed in (
+        {"registry_id": "other"},
+        {"gpu_resource_id": "other"},
+        {"gpu_uuid": "GPU-other"},
+        {"image_id": "sha256:" + "f" * 64},
+        {"artifact": "registry.example/libre@sha256:" + "f" * 64},
+        {"expected_weight": {"sha256": "0" * 64, "size_bytes": 12}},
+        {"gpu_facts": ("different", 24576)},
+        {"report_sha256": "0" * 64},
+    ):
         with pytest.raises(ValueError):
             qualification.verify_qualification(path, **{**args, **changed})
     path.write_bytes(raw + b"\n")

@@ -219,7 +219,6 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
     import hashlib
     import json
     from aap_backend_runtime.lifecycle_evidence import (
-        REQUIRED_CONTRACT_CHECKS,
         build_managed_lifecycle_evidence,
         memory_cycle_evidence,
     )
@@ -335,7 +334,11 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
             "visible_device_count": 1,
         },
         cycles=cycles,
-        contract_checks={key: True for key in REQUIRED_CONTRACT_CHECKS},
+        contract_checks=dict.fromkeys((
+            "managed_lifecycle_advertised", "real_inference", "provider_or_device_gpu",
+            "busy_unload_rejected", "cancel_accounting", "stale_generation_rejected",
+            "token_replay_rejected", "partial_headers_rejected", "full_cleanup",
+        ), True),
         final_residency=health["residency"],
         runtime_ephemera_clean=True,
     )

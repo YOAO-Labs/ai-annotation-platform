@@ -53,7 +53,6 @@ def config():
 
 def report_file(tmp_path):
     from aap_backend_runtime.lifecycle_evidence import (
-        REQUIRED_CONTRACT_CHECKS,
         build_managed_lifecycle_evidence,
         memory_cycle_evidence,
     )
@@ -116,7 +115,11 @@ def report_file(tmp_path):
             "visible_device_count": 1,
         },
         cycles=cycles,
-        contract_checks={name: True for name in REQUIRED_CONTRACT_CHECKS},
+        contract_checks=dict.fromkeys((
+            "managed_lifecycle_advertised", "real_inference", "provider_or_device_gpu",
+            "busy_unload_rejected", "cancel_accounting", "stale_generation_rejected",
+            "token_replay_rejected", "partial_headers_rejected", "full_cleanup",
+        ), True),
         final_residency={
             "state": "unloaded",
             "gpu_loaded": False,
