@@ -93,6 +93,7 @@ JOBS_DOMAIN_QUERY_FUNCTIONS = (
 JOBS_ROW_LOCK_FUNCTIONS = (
     "aap_jobs_v1.read_job_for_update(uuid)",
     "aap_jobs_v1.read_job_for_share_nowait(uuid)",
+    "aap_jobs_v1.read_job_for_update_nowait(uuid)",
 )
 JOBS_LIFECYCLE_FUNCTIONS = (
     "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
@@ -191,6 +192,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)": "0396_labeling_original_relations.sql",
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)": "0401_export_core_locks.sql",
+    "aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)": "0401_export_core_locks.sql",
+    "aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)": "0401_export_core_locks.sql",
+    "aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)": "0401_export_core_locks.sql",
     "aap_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
     "aap_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
     "aap_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
@@ -234,6 +239,7 @@ FUNCTION_BODY_ARTIFACTS = {
     },
     "aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)": "0389_learning_deployment_retirement.sql",
     **{signature: "0328_jobs_row_locks.sql" for signature in JOBS_ROW_LOCK_FUNCTIONS},
+    "aap_jobs_v1.read_job_for_update_nowait(uuid)": "0402_export_job_nowait.sql",
     **{
         signature: "0327_jobs_lifecycle.sql"
         for signature in (
@@ -1212,6 +1218,8 @@ SQL_ARTIFACTS = (
     "0398_gpu_terminal_owner_recovery.sql",
     "0399_plugin_terminal_hold.sql",
     "0400_plugin_routing_replacement.sql",
+    "0401_export_core_locks.sql",
+    "0402_export_job_nowait.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",
@@ -1379,6 +1387,7 @@ SCHEMA_ARTIFACTS = (
     "0326_jobs_list_query.schema.json",
     "0327_jobs_lifecycle.schema.json",
     "0328_jobs_row_locks.schema.json",
+    "0402_jobs_row_locks.schema.json",
     "0329_jobs_domain_queries.schema.json",
     "0330_jobs_fixture_cleanup.schema.json",
     "0331_jobs_filter_fixtures.schema.json",
@@ -1414,6 +1423,7 @@ TEST_FILES = (
     "tests/test_labeling_video_control_native.py",
     "tests/test_labeling_annotation_transfer_native.py",
     "tests/test_labeling_core_read_native.py",
+    "tests/test_labeling_export_core_locks_native.py",
     "tests/test_labeling_mask_quality_native.py",
     "tests/test_labeling_spatial_quality_native.py",
     "tests/test_labeling_task_maintenance_native.py",

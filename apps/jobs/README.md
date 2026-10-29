@@ -77,12 +77,15 @@ record-edit capability, runtime role or credential selector was added.
 ## Transactional row locks and refreshes
 
 `aap-jobs-row-locks/v1` defines the same fifteen native row columns for
-`read_job_for_update(uuid)` and `read_job_for_share_nowait(uuid)`. They retain
-the original waiting `FOR UPDATE` and immediate `FOR SHARE NOWAIT` locks in
-the caller's transaction. Missing rows return no rows; PostgreSQL errors pass
-through without retries or transaction changes. Domain authorization remains
-with each caller. The ordinary API/worker profiles receive these two functions;
-the strict lifecycle LOGIN keeps its existing eight capabilities.
+`read_job_for_update(uuid)`, `read_job_for_update_nowait(uuid)` and
+`read_job_for_share_nowait(uuid)`. They retain waiting `FOR UPDATE`, immediate
+`FOR UPDATE NOWAIT` and `FOR SHARE NOWAIT` fences in the caller's transaction.
+The frozen export worker uses the immediate update fence before claiming,
+checking or publishing its exact attempt. Missing rows return no rows;
+PostgreSQL errors pass through without retries or transaction changes.
+Domain authorization remains with each caller. Ordinary API/worker profiles
+receive these functions; the strict lifecycle LOGIN keeps its existing eight
+capabilities.
 
 The API routes ordinary domain reads and supported unlocked ORM column refreshes
 through `read_job`. Partial refreshes retain their selected fields, dirty cache,

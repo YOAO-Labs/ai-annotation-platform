@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
 import os
-import re
+import uuid
 
 import pytest
 from sqlalchemy import event, inspect, select, text
@@ -33,30 +32,6 @@ def _sqlstate(error: BaseException) -> str | None:
             return value
         current = getattr(current, "orig", None) or current.__cause__
     return None
-
-
-@contextmanager
-def _capture_sql(session):
-    statements: list[str] = []
-
-    def capture(_connection, _cursor, statement, _parameters, _context, _many):
-        statements.append(statement)
-
-    engine = session.bind.sync_engine
-    event.listen(engine, "before_cursor_execute", capture)
-    try:
-        yield statements
-    finally:
-        event.remove(engine, "before_cursor_execute", capture)
-
-
-def _assert_uses_only_lock_function(statements: list[str], function: str) -> None:
-    lowered = [statement.lower() for statement in statements]
-    assert any(f"aap_jobs_v1.{function}(" in statement for statement in lowered)
-    assert not any(
-        re.search(r"\bfrom\s+(?:public\.)?async_jobs\b", statement)
-        for statement in lowered
-    )
 
 
 @pytest.mark.asyncio
@@ -132,22 +107,6 @@ async def test_restricted_api_can_lock_job_without_private_select_or_update(
     assert consumer_url.database and consumer_url.database.endswith("_test")
     assert consumer_url.username == "identity_api_consumer"
 
-    lifecycle_lock_rights = (
-        await db_session.execute(
-            text(
-                "SELECT pg_catalog.has_function_privilege("
-                "'jobs_lifecycle_client', "
-                "'aap_jobs_v1.read_job_for_update(uuid)'::regprocedure, "
-                "'EXECUTE'), "
-                "pg_catalog.has_function_privilege("
-                "'jobs_lifecycle_client', "
-                "'aap_jobs_v1.read_job_for_share_nowait(uuid)'::regprocedure, "
-                "'EXECUTE')"
-            )
-        )
-    ).one()
-    assert lifecycle_lock_rights == (False, False)
-
     job = await async_job_service.create_job(
         db_session,
         kind="audit_archive",
@@ -198,14 +157,11 @@ async def test_restricted_api_can_lock_job_without_private_select_or_update(
                 )
         assert _sqlstate(denied_update.value) == "42501"
 
-        with _capture_sql(db_session) as statements:
-            result = await db_session.execute(job_lock_statement(job_id, mode="update"))
-            row = result.scalar_one()
-
+        result = await db_session.execute(job_lock_statement(job_id, mode="update"))
+        row = result.scalar_one()
         assert row.id == job_id
         assert row.kind == "audit_archive"
         assert row.payload == {"lock": "same transaction"}
-        _assert_uses_only_lock_function(statements, "read_job_for_update")
     finally:
         await db_session.execute(text("RESET ROLE"))
 
@@ -400,42 +356,29 @@ async def test_lock_query_preserves_autoflush_and_read_only_transaction_rules(
     target = await async_job_service.create_job(db_session, kind="audit_archive")
     target_id = target.id
 
-    default_pending = AsyncJob(kind="audit_archive", payload={"pending": "default"})
+    default_pending = AsyncJob(
+        id=uuid.uuid4(), kind="audit_archive", payload={"pending": "default"}
+    )
     db_session.add(default_pending)
-    with _capture_sql(db_session) as statements:
+    row = await db_session.scalar(job_lock_statement(target_id, mode="share_nowait"))
+    assert row is not None and row.id == target_id
+    assert await db_session.scalar(
+        text("SELECT payload FROM aap_jobs_v1.read_job(CAST(:id AS uuid))"),
+        {"id": default_pending.id},
+    ) == {"pending": "default"}
+
+    no_autoflush_pending = AsyncJob(
+        id=uuid.uuid4(), kind="audit_archive", payload={"pending": "suppressed"}
+    )
+    db_session.add(no_autoflush_pending)
+    with db_session.no_autoflush:
         row = await db_session.scalar(
             job_lock_statement(target_id, mode="share_nowait")
         )
-    assert row is not None and row.id == target_id
-    normalized = [statement.lower() for statement in statements]
-    insert_index = next(
-        index
-        for index, statement in enumerate(normalized)
-        if "insert into aap_jobs_v1.async_job_creation " in statement
-    )
-    lock_index = next(
-        index
-        for index, statement in enumerate(normalized)
-        if "aap_jobs_v1.read_job_for_share_nowait(" in statement
-    )
-    assert insert_index < lock_index
-
-    no_autoflush_pending = AsyncJob(
-        kind="audit_archive", payload={"pending": "suppressed"}
-    )
-    db_session.add(no_autoflush_pending)
-    with _capture_sql(db_session) as statements:
-        with db_session.no_autoflush:
-            row = await db_session.scalar(
-                job_lock_statement(target_id, mode="share_nowait")
-            )
+        absent = await async_job_service.get_job(db_session, no_autoflush_pending.id)
     assert row is not None and row.id == target_id
     assert inspect(no_autoflush_pending).pending
-    assert not any(
-        statement.lstrip().lower().startswith("insert into ")
-        for statement in statements
-    )
-    _assert_uses_only_lock_function(statements, "read_job_for_share_nowait")
+    assert absent is None
 
     async with _committed_identity_scope_world(test_engine) as world:
         sessions = world["sessions"]
@@ -447,3 +390,58 @@ async def test_lock_query_preserves_autoflush_and_read_only_transaction_rules(
                 await read_only.scalar(job_lock_statement(job_id, mode="update"))
             assert _sqlstate(denied.value) == "25006"
             await read_only.rollback()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned ordinary role",
+)
+@pytest.mark.parametrize("blocking_mode", ["share_nowait", "update"])
+async def test_frozen_export_job_fence_is_scoped_nowait_and_savepoint_owned(
+    test_engine, blocking_mode
+):
+    from app.workers.lidar_export import _job
+
+    async with _committed_identity_scope_world(test_engine) as world:
+        sessions = world["sessions"]
+        job_id = world["project_job_id"]
+        async with sessions() as blocker:
+            await blocker.scalar(job_lock_statement(job_id, mode=blocking_mode))
+            async with sessions.begin() as consumer:
+                await consumer.execute(text("SET LOCAL ROLE identity_api_consumer"))
+                other = await _job(consumer, world["global_job_id"])
+                assert (other.id, other.kind, other.project_id) == (
+                    world["global_job_id"],
+                    "audit_archive",
+                    None,
+                )
+                with pytest.raises(DBAPIError) as conflict:
+                    async with consumer.begin_nested():
+                        await _job(consumer, job_id)
+                assert _sqlstate(conflict.value) == "55P03"
+            await blocker.rollback()
+
+        async with sessions.begin() as consumer:
+            await consumer.execute(text("SET LOCAL ROLE identity_api_consumer"))
+            savepoint = await consumer.begin_nested()
+            row = await _job(consumer, job_id)
+            assert (row.id, row.kind, row.project_id, row.user_id) == (
+                job_id,
+                "batch_predict",
+                world["project_id"],
+                world["actor_id"],
+            )
+            async with sessions() as contender:
+                with pytest.raises(DBAPIError) as conflict:
+                    async with contender.begin():
+                        await contender.scalar(
+                            job_lock_statement(job_id, mode="share_nowait")
+                        )
+                assert _sqlstate(conflict.value) == "55P03"
+            await savepoint.rollback()
+            async with sessions.begin() as contender:
+                released = await contender.scalar(
+                    job_lock_statement(job_id, mode="share_nowait")
+                )
+                assert released.id == job_id

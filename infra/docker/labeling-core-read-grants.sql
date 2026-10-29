@@ -53,12 +53,16 @@ BEGIN
     FOREACH v_signature IN ARRAY ARRAY[
         'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)',
         'aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)',
+        'aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)',
         'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)',
         'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)',
         'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)',
         'aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)',
         'aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)',
         'aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)',
+        'aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)',
+        'aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)',
+        'aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)',
         'aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)',
         'aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)',
         'aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])',
@@ -76,12 +80,16 @@ BEGIN
           AND function.prorettype = CASE v_signature
               WHEN 'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)' THEN 'aap_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)' THEN 'aap_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)' THEN 'aap_labeling_v1.batch_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)' THEN 'aap_labeling_v1.annotation_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)' THEN 'aap_labeling_v1.prediction_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)' THEN 'aap_labeling_v1.prediction_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)' THEN 'aap_labeling_v1.scene_track_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)' THEN 'aap_labeling_v1.scene_track_interval_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)' THEN 'aap_labeling_v1.prediction_meta_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
@@ -125,12 +133,16 @@ $revoke$;
 
 REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
     aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
+    aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer),
     aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
     aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
     aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
     aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
     aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
     aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
+    aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer),
+    aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer),
+    aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
     aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
     aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
     aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
@@ -139,12 +151,16 @@ REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean
 GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"core_read_role";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
     aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
+    aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer),
     aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
     aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
     aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
     aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
     aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
     aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
+    aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer),
+    aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer),
+    aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
     aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
     aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
     aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
@@ -172,12 +188,16 @@ DECLARE
     v_allowed oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])'),

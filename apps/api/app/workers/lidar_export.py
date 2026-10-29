@@ -13,7 +13,6 @@ import uuid
 
 from sqlalchemy import delete, select
 
-from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
@@ -29,6 +28,7 @@ from app.services.exporting import cache, lidar_jobs
 from app.services.exporting.media_protocol import for_snapshot, protocol
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.reference_media import ExportCancelled, check_cancelled
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.original_read_plan import ReadRoute
 
 log = logging.getLogger(__name__)
@@ -44,10 +44,7 @@ def reject(code="lidar_export_attempt_changed"):
 
 async def _job(db, identifier):
     return await db.scalar(
-        select(AsyncJob)
-        .where(AsyncJob.id == identifier)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True)
+        job_lock_statement(identifier, mode="update_nowait", populate_existing=True)
     )
 
 
@@ -526,7 +523,7 @@ async def _finish_cache(db, receipt, hit, previous, *, task_id, name):
     await _published(db, previous, lock=True)
     if hit.media_reads is not None:
         await _check_media_reads(db, previous, hit.media_reads, lock=True)
-    job = await db.get(AsyncJob, receipt.job_id)
+    job = await jobs.get_job(db, receipt.job_id)
     from app.services.exporting import output_authority
 
     url = await export_outputs.sign_cached(
@@ -871,7 +868,7 @@ async def run_owned(
             )
         url = await _sign_export_output(
             db,
-            await db.get(AsyncJob, receipt.job_id),
+            await jobs.get_job(db, receipt.job_id),
             candidate,
             name,
             **({"prepared": prepared} if prepared is not None else {}),

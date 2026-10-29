@@ -1,6 +1,6 @@
 # 面向后端模组解耦与能力插件化的测试治理计划草案
 
-> 状态：首批实施与验收中；本轮范围为 G0＋G1、G6a／G6b 稳定性样板和 G2 有界清理样板。实现与实际证据见文末 Outcome；不表示全计划完成，不授权拆仓、发布或生产采用。
+> 状态：首批实施与验收中；本轮范围为 G0＋G1、G6a／G6b 稳定性样板、G2 有界清理样板及 N1 所需的 G3 冻结图像导出合同切片。实现与实际证据见文末 Outcome；不表示全计划完成，不授权拆仓、发布或生产采用。
 >
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
@@ -576,3 +576,21 @@ G3 随核心 owner 切片接入；G5 跟随原拆仓计划逐插件授权与验�
 - 任务自有普通 runtime、构建产物和 Chromium 实际执行：Native **21 通过**、readonly **2 通过**；真实源码 Worker **1 通过**。三份报告均无失败、skip、flaky 或 not-run，并由严格报告消费者核对。Worker 的一项 case 内验证真实完成／取消及受控错误；侵蚀面积使用独立矩形几何期望，不依赖仅非空、上下文转发或 mock 错误文案回声。
 
 原始证据分别为 `.artifacts/test-results/mask-product-native-final.json`、`mask-product-readonly-final.json`、`mask-worker-browser-integration.json`。失败前报告及 `annotation-write-diagnostic.json` 保留，未重生 golden 或改写几何 expected。上述结果不授予真实设备 GPU、模型权重、六个插件或完整模组部署资格；后续 G6b／G3–G5 沿各自切片推进。
+
+### 12.5 G3：冻结图像导出的公开 owner 合同
+
+**状态：N1 必需的同事务图像导出切片通过；不是完整核心模块或替代语言资格。**
+
+- Workspace 项目与 Labeling 核心行改用现有公开关系；新增四项有界精确锁覆盖预测、轨迹、区间及链接集合。保留 UPDATE／SHARE NOWAIT、全局 ID 顺序、父级插入围栏及 `max_rows + 1`，不按当前无轨迹夹具特判。完整行在数据库测量后才加载，最终预算和加载共享同一语句快照。
+- Jobs 增加十五列原生 ABI 的 `read_job_for_update_nowait`，冻结 worker 的领取／发布检查及相关 Job 读取不再访问私表。原等待锁仍保留等待语义；新锁不建立 RPC、独立 commit、重试或私表授权。owner、生产／worktree grants、迁移与当前包资源同步；历史 SQL／Schema 不改写。
+- 删除重复核对 Schema／SQL 文字和函数个数的纯用例。Jobs 的 autoflush 改为从公开能力观察实际已写／未写记录；新增实际冻结 worker 在普通受限角色下的 NOWAIT、范围及 savepoint 回滚回归，保留原行 ABI、缺失行、等待锁和只读事务证据。
+- 隔离 PostgreSQL 的 Labeling 选定 **2 项通过**，Jobs **9 项通过**，均无失败、错误或跳过；两个 verifier 自有数据库、容器和对象资源均已清理，零清理错误。原始记录为 `.artifacts/test-results/g3-core-locks.json`、`g3-core-locks.junit.xml`、`g3-jobs-nowait.json` 和 `g3-jobs-nowait.junit.xml`。
+- 本任务 e2e 库应用至 `bo0402`，普通 API 和实际 export worker 刷新后，以 `aap_json` 受理任务，后台完成并由浏览器下载 ZIP；包内未修改的 `annotations.json` 以原选择器预览、导入均返回 200，写入 2 条、错误 0。API 读回确认 0.73 多边形几何一致，原模型预测身份保留；输出仍为 `format: "aap"`、原生 schema `1.7`。证据为 `.artifacts/test-results/branding/native-roundtrip-proof.json`。
+
+失败前证据保留：旧 collector 的私表 500、首次普通 runtime 缺少新函数 EXECUTE 的 500，以及 worker 私表读取造成的领取前失败。后者的精确任务已通过普通取消 API 结束，不计通过。主服务恢复的 503 是隔离环境缺少 probe owner 配置；配置现有函数专用 owner 后，实际设置返回 200，刷新及 API 读回均保留绑定，未使用 owner 写业务结果兜底。
+
+权限核对同时记录了 worktree 原有 Jobs 兼容读权限；没有用它证明本切片。随后仅在自有验收库临时撤销 `async_jobs` 表和列的全部 CRUD，在 Workspace／Labeling 六项私表及 Jobs 均无直接 SELECT 的普通账号下，再次完成**非缓存**导出、精确任务下载及未修改 JSON 的预览／导入，写入 3 条、错误 0，原多边形与模型预测仍由普通 API 读回。严格证据为 `.artifacts/test-results/branding/native-strict-roundtrip-proof.json`；生产权限配置未扩展。
+
+Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资源均在归档内，摘要及成员记录于 `.artifacts/test-results/g3-package-resources.json`。这只是构建与归档资源核验，不替代完整独立安装／运行资格。
+
+既有点云内容身份／视频 FPS 失败报告未由本切片关闭；本轮不宣称它们通过，也不继承旧冷镜像、完整恢复、Node 替代提供方、真实模型或 GPU 资格。Assets 原有范围未提前撤权，模型端点仍是本任务的假夹具，不是推理资格证明。

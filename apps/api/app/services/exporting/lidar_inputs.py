@@ -19,16 +19,20 @@ from sqlalchemy import Text, and_, bindparam, case, cast, func, inspect, or_, se
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene, SensorCalibrationRevision
-from app.db.models.project import Project
-from app.db.models.prediction import Prediction
 from app.db.models.scene_pose import SceneFramePose
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import original_sources, storage_access
+from app.services.exporting import core_reads
+from app.services.exporting.core_reads import Project
+from app.services.labeling_core_read_relations import (
+    annotation_row as Annotation,
+    batch_row as TaskBatch,
+    prediction_row as Prediction,
+    scene_track_interval_row as SceneTrackInterval,
+    scene_track_row as SceneTrack,
+    task_dataset_item_link_row as TaskDatasetItemLink,
+    task_row as Task,
+)
 from app.services.content_snapshot import ContentError
 from app.services.task_scope import ids_clause
 from aap_workspace_contract import derive_classes_list
@@ -201,7 +205,9 @@ class _Budget:
     async def measure(self, db, model, predicate, max_rows):
         # Aggregate in PostgreSQL before materializing any potentially large
         # JSONB row. Include all stored columns as a conservative read budget.
-        encoded_row = cast(func.to_jsonb(model.__table__.table_valued()), Text)
+        encoded_row = cast(
+            func.to_jsonb(inspect(model).selectable.table_valued()), Text
+        )
         count, size = (
             await db.execute(
                 select(
@@ -246,27 +252,31 @@ async def _rows(
     lock=False,
     write=False,
     order=None,
+    lock_query=None,
 ):
     if lock:
         # Lock only small IDs before measuring JSONB. Writers cannot enlarge a
         # measured row before hydration. Caller-owned parent locks fence inserts.
-        identities = list(
-            await db.scalars(
-                _locked(
-                    select(model.id)
-                    .where(predicate)
-                    .order_by(model.id)
-                    .limit(max_rows + 1),
-                    True,
-                    write=write,
-                )
+        query = lock_query
+        if query is None:
+            query = core_reads.row_lock_query(
+                model, predicate, max_rows + 1, write=write
             )
-        )
+        if query is None:
+            query = _locked(
+                select(model.id)
+                .where(predicate)
+                .order_by(model.id)
+                .limit(max_rows + 1),
+                True,
+                write=write,
+            )
+        identities = list(await db.scalars(query))
         if len(identities) > max_rows:
             reject("lidar_export_input_budget_exceeded", 422)
     prior_size = budget.read_bytes
     count = await budget.measure(db, model, predicate, max_rows)
-    encoded_row = cast(func.to_jsonb(model.__table__.table_valued()), Text)
+    encoded_row = cast(func.to_jsonb(inspect(model).selectable.table_valued()), Text)
     aggregate = (
         select(
             func.count().label("count"),
@@ -575,16 +585,20 @@ async def _collect(
         if track_ids or (scene_ids and "nuscenes" in targets)
         else []
     )
+    frozen_track_ids = [track.id for track in tracks]
     intervals = (
         await _rows(
             db,
             SceneTrackInterval,
-            ids_clause(
-                SceneTrackInterval.scene_track_id, [track.id for track in tracks]
-            ),
+            ids_clause(SceneTrackInterval.scene_track_id, frozen_track_ids),
             budget=budget,
             max_rows=MAX_ANNOTATIONS,
             lock=lock,
+            lock_query=core_reads.lock_ids(
+                func.aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(
+                    frozen_track_ids, MAX_ANNOTATIONS + 1
+                )
+            ),
         )
         if tracks
         else []
@@ -609,6 +623,11 @@ async def _collect(
             budget=budget,
             max_rows=MAX_ANNOTATIONS,
             lock=lock,
+            lock_query=core_reads.lock_ids(
+                func.aap_labeling_v1.lock_prediction_rows_for_core_read_share(
+                    project_id, task_ids, MAX_ANNOTATIONS + 1
+                )
+            ),
             order=[Prediction.created_at, Prediction.id],
         )
         if "aap_json" in targets

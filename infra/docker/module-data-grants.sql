@@ -3855,6 +3855,7 @@ ALTER FUNCTION aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text) OWNE
 ALTER FUNCTION aap_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_update(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_share_nowait(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.read_job_for_update_nowait(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.lock_cross_frame_singleflight(uuid,text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.active_cross_frame_job(uuid,text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.cross_frame_job_page(uuid,text,integer) OWNER TO :"jobs_owner";
@@ -4039,7 +4040,15 @@ ALTER FUNCTION aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,te
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)
+    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)
     OWNER TO :"labeling_owner";

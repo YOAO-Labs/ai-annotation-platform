@@ -5,11 +5,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 import uuid
 
-from sqlalchemy import bindparam, cast, select
+from sqlalchemy import bindparam, cast, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_source import (
@@ -17,16 +16,20 @@ from app.db.models.dataset_source import (
     DatasetSource,
     DatasetSourceRevision,
 )
-from app.db.models.prediction import Prediction
-from app.db.models.project import Project
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.storage_connection import StorageConnection
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import original_sources, storage_access
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS
-from app.services.exporting import lidar_inputs
+from app.services.exporting import core_reads, lidar_inputs
+from app.services.exporting.core_reads import Project
+from app.services.labeling_core_read_relations import (
+    annotation_row as Annotation,
+    batch_row as TaskBatch,
+    prediction_row as Prediction,
+    scene_track_interval_row as SceneTrackInterval,
+    scene_track_row as SceneTrack,
+    task_dataset_item_link_row as TaskDatasetItemLink,
+    task_row as Task,
+)
 from app.services.exporting.image_media_paths import TARGETS
 from app.services.raster_mask_storage import collect_mask_references
 from app.services.reference_keys import is_reference
@@ -165,6 +168,7 @@ async def _rows(
     lock=False,
     write=False,
     order=None,
+    lock_query=None,
 ):
     # Reuse the same-statement MVCC size guard. The shared helper meters full
     # stored rows conservatively; only consumed facts enter the image snapshot.
@@ -178,6 +182,7 @@ async def _rows(
             lock=lock,
             write=write,
             order=order,
+            lock_query=lock_query,
         )
     except ContentError as exc:
         _translate(exc)
@@ -511,6 +516,11 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
                 budget=budget,
                 max_rows=MAX_PREDICTIONS,
                 lock=lock,
+                lock_query=core_reads.lock_ids(
+                    func.aap_labeling_v1.lock_prediction_rows_for_core_read_share(
+                        project_id, identities, MAX_PREDICTIONS + 1
+                    )
+                ),
                 order=[Prediction.created_at, Prediction.id],
             )
             if identities
@@ -561,6 +571,11 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
                 budget=budget,
                 max_rows=MAX_ANNOTATIONS,
                 lock=lock,
+                lock_query=core_reads.lock_ids(
+                    func.aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(
+                        list(track_ids), MAX_ANNOTATIONS + 1
+                    )
+                ),
                 order=[
                     SceneTrackInterval.scene_track_id,
                     SceneTrackInterval.start_frame,

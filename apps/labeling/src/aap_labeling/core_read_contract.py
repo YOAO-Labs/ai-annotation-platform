@@ -274,9 +274,13 @@ CORE_READ_COLUMNS = {
 CORE_READ_LOCK_FUNCTIONS = (
     "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)",
     "aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)",
+    "aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)",
     "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)",
     "aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)",
     "aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)",
+    "aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)",
+    "aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)",
+    "aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)",
     "aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)",
     "aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)",
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)",
