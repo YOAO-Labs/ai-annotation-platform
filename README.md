@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./apps/web/public/ai-annotation-platform-icon.svg" alt="AI Annotation Platform" width="112">
+<img src="./apps/web/public/ai-annotation-platform-icon.svg" alt="YOAO" width="112">
 
-<h1>AI Annotation Platform</h1>
+<h1>YOAO — You Only Annotate Once</h1>
 
 <p><strong>A production-grade labeling control plane for image, video, point-cloud, and AI-assisted dataset operations.</strong></p>
 
@@ -26,7 +26,7 @@
 
 </div>
 
-AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台、AI 预标注、审核、导出、后台任务与可观测性放在同一条产品链路里。它不是一个只画框的 Demo，而是一个用于持续迭代标注生产系统的全栈仓库。
+YOAO 把项目管理、Data Manager、多模态标注工作台、AI 预标注、审核、导出、后台任务与可观测性放在同一条产品链路里。它不是一个只画框的 Demo，而是一个用于持续迭代标注生产系统的全栈仓库。
 
 ## 数据集与存储
 

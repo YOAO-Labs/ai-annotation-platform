@@ -20,7 +20,7 @@ last_reviewed: 2026-07-11
 - 不同工具下的同名类是两条**独立**记录，可同名不同色。例如 bbox 工具下的「人」（红色）与 region 工具下的「人」（蓝色）互不干扰。
 - 工作台切换工具时，左侧调色板会自动切换为对应工具单位的类别集；当前激活类别若不在新工具的类别集里，会自动切到该工具的首个类。
 
-底层存储是 `Project.tool_bindings`，形状大致为 `{ 工具单位: { enabled, classes, attribute_schema, ... } }`，这是类别 / 属性配置的**唯一存储真值**。导出（COCO / YOLO / AAP JSON）时再从这里按工具单位拍平。详细架构决策见 [ADR-0026](../../dev/adr/archive/0026-tool-unit-class-and-attribute-binding)。
+底层存储是 `Project.tool_bindings`，形状大致为 `{ 工具单位: { enabled, classes, attribute_schema, ... } }`，这是类别 / 属性配置的**唯一存储真值**。导出（COCO / YOLO / 原生 JSON）时再从这里按工具单位拍平。详细架构决策见 [ADR-0026](../../dev/adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
 工具单位枚举（可在向导 / 项目设置勾选，与后端 `ToolUnitId` 对齐）：`bbox`、`region`（polygon + mask 打包）、`polyline`、`rotated_bbox`、`keypoint`、`lidar_box_3d`、`point_mask_3d`。每个工具单位的具体含义见 [创建项目 · 工具集](./index.md)。
 

@@ -108,8 +108,8 @@ export function LoginPage() {
             className="size-8 shrink-0 rounded-md"
           />
           <div>
-            <div className="text-base font-bold">标注中心</div>
-            <div className="text-xs text-muted-foreground">AI Annotation Platform</div>
+            <div className="text-base font-bold">YOAO</div>
+            <div className="text-xs text-muted-foreground">You Only Annotate Once</div>
           </div>
         </div>
 

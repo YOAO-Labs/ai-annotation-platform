@@ -118,7 +118,7 @@ function isCurrentOwner(owner: AuthOwner): boolean {
 }
 
 const EXPORT_TARGET_LABELS: Record<string, string> = {
-  aap_json: "AAP JSON",
+  aap_json: "原生 JSON",
   "yolo-det": "YOLO DET",
   "yolo-obb": "YOLO OBB",
   "yolo-seg": "YOLO SEG",

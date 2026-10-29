@@ -123,7 +123,7 @@ WHERE name = 'scene-001';
 - ✓ 三视图 (Top / Side / Front) 视角与车身真实长 / 宽 / 高对齐
 - ✓ 相机投影联动方向正确
 - ✓ 新建 3D 框和点云分割标注会记录当时的 `convention_at_create`
-- ✓ AAP 导出可通过 `axis_frame=source` 把 3D 框反向映射回数据源坐标系;默认 `iso` 保持平台内部坐标。参数语义与适用格式见 [导出 · 3D box 坐标系](../../api/guides/export.md#export-axis-frame)
+- ✓ 原生 JSON 导出可通过 `axis_frame=source` 把 3D 框反向映射回数据源坐标系;默认 `iso` 保持平台内部坐标。参数语义与适用格式见 [导出 · 3D box 坐标系](../../api/guides/export.md#export-axis-frame)
 
 ### 历史标注
 

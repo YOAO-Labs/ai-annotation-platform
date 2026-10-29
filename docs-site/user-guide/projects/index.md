@@ -205,7 +205,7 @@ scene 模式适合“一个连续场景被拆成多个 task”的项目，例如
 
 ## 导入 / 清理外部预测
 
-把客户自训模型、第三方推理服务的产物以 AAP JSON / COCO Detection / YOLO zip 形式导入为待采纳预测，或按来源（外部导入 / ML Backend 预标 / 全部）清理已有预测。入口、各格式最小 payload、YOLO 变体与替换 / 清理规则详见 [导入 / 导出外部预测](../datasets/prediction-import-export.md)。
+把客户自训模型、第三方推理服务的产物以 原生 JSON / COCO Detection / YOLO zip 形式导入为待采纳预测，或按来源（外部导入 / 模型服务预标 / 全部）清理已有预测。入口、各格式最小 payload、YOLO 变体与替换 / 清理规则详见 [导入 / 导出外部预测](../datasets/prediction-import-export.md)。
 
 项目中的 AI 流程按任务分为交互式辅助、批量 / 多阶段预标、视频追踪、外部预测和候选审阅；从[AI 辅助标注](../ai/)进入可避免把项目配置页当作全部操作手册。
 

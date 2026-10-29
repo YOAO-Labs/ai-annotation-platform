@@ -520,8 +520,8 @@ function Brand() {
         className={styles.brandIcon}
       />
       <div>
-        <div className={styles.brandTitle}>标注中心</div>
-        <div className={styles.brandSubtitle}>AI Annotation Platform</div>
+        <div className={styles.brandTitle}>YOAO</div>
+        <div className={styles.brandSubtitle}>You Only Annotate Once</div>
       </div>
     </div>
   );

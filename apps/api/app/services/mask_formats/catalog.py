@@ -30,7 +30,7 @@ def _capability(
 _DESCRIPTORS = [
     MaskFormatDescriptor(
         format_id="aap_json",
-        label="AAP JSON",
+        label="原生 JSON",
         adapter_version="1.0.0",
         manifest_version="1.3",
         media_types=frozenset({"image", "video", "lidar"}),

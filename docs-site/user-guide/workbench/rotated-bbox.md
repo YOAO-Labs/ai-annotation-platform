@@ -60,7 +60,7 @@ last_reviewed: 2026-09-10
 | `coco`     | 旋转框**不进 COCO**，导出时跳过                                                   |
 | `aap_json` | 原始 `{cx, cy, w, h, angle}` 保留                                                 |
 
-视频单帧旋转框使用 `video_rotated_bbox`，额外保存 `frame_index`。AAP JSON 与 Video JSON 原样保留中心、尺寸和角度；逐帧检测、分割和跟踪格式没有 OBB 对应表示时，导出预检会明确报告不支持。
+视频单帧旋转框使用 `video_rotated_bbox`，额外保存 `frame_index`。原生 JSON 与 Video JSON 原样保留中心、尺寸和角度；逐帧检测、分割和跟踪格式没有 OBB 对应表示时，导出预检会明确报告不支持。
 
 ### 导入预测（YOLO OBB）
 

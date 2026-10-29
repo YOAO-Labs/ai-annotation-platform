@@ -259,7 +259,7 @@ AI 结果无需先落库就能核对，画布与右栏统一用 **violet** 表�
 
 ## 导出格式结构
 
-视频导出支持 Video JSON、YOLO / COCO 逐帧、MOT、KITTI、DAVIS 与 AAP JSON。单帧 OBB 和关键点在 Video JSON / AAP JSON 中保真；其它专业格式没有对应表示时，预检会明确报告不支持。Mask 轨迹在 Video JSON / AAP JSON 中保真，在 COCO 中输出标准 RLE，在 bbox-only 格式中按非空像素外接框降级，在 DAVIS 中输出 palette PNG；章节信息暂不进这些导出格式。
+视频导出支持 Video JSON、YOLO / COCO 逐帧、MOT、KITTI、DAVIS 与 原生 JSON。单帧 OBB 和关键点在 Video JSON / 原生 JSON 中保真；其它专业格式没有对应表示时，预检会明确报告不支持。Mask 轨迹在 Video JSON / 原生 JSON 中保真，在 COCO 中输出标准 RLE，在 bbox-only 格式中按非空像素外接框降级，在 DAVIS 中输出 palette PNG；章节信息暂不进这些导出格式。
 
 ### Video Tracks JSON 顶层字段
 

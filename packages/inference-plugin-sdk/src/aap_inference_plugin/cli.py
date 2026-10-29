@@ -28,6 +28,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "my-libreyolo-plugin"
 version = "0.1.0"
+description = "YOAO LibreYOLO detection inference plugin"
 requires-python = ">=3.11"
 dependencies = ["aap-libreyolo-plugin==0.1.0"]
 
@@ -194,7 +195,7 @@ def dev_server(args) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="aap-plugin")
+    parser = argparse.ArgumentParser(prog="aap-plugin", description="YOAO detection inference plugin authoring tools")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     init.add_argument("directory", type=Path)

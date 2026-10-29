@@ -775,7 +775,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
           size="sm"
           variant="ghost"
           onClick={() => setImportOpen(true)}
-          title="上传 COCO / AAP JSON 把外部模型预测灌进本项目"
+          title="上传 COCO / 原生 JSON，将外部模型预测导入项目供人工审阅"
         >
           <Icon name="upload" size={11} /> 导入预测
         </Button>

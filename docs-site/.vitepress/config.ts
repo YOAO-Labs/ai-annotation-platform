@@ -24,7 +24,7 @@ const roadmapSidebarItems = loadSidebar("../roadmap/sidebar.generated.json");
 
 export default withMermaid(
   defineConfig({
-    title: "AI Annotation Platform",
+    title: "YOAO",
     description: "标注平台文档（用户 / 开发 / API）",
     lang: "zh-CN",
     base: process.env.DOCS_BASE ?? "/",
@@ -162,7 +162,7 @@ export default withMermaid(
 
       footer: {
         message: "Released under the MIT License.",
-        copyright: "© 2026 AI Annotation Platform",
+        copyright: "© 2026 YOAO",
       },
 
       editLink: {

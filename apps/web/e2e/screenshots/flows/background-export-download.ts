@@ -44,7 +44,7 @@ export async function runBackgroundExportDownload(
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   const coco = dialog.getByRole("button", { name: /^COCO/ });
   await expect(coco).toHaveAttribute("aria-pressed", "true");
-  const aapJson = dialog.getByRole("button", { name: /^AAP JSON/ });
+  const aapJson = dialog.getByRole("button", { name: /^原生 JSON/ });
   await moveTo(page, aapJson);
   await aapJson.click();
   await expect(aapJson).toHaveAttribute("aria-pressed", "true");
@@ -81,7 +81,7 @@ export async function runBackgroundExportDownload(
   await expect(jobsDialog).toBeVisible();
   const jobRow = page.getByTestId(`job-row-${body.job_id}`);
   await expect(jobRow).toBeVisible({ timeout: 10_000 });
-  await expect(jobRow).toContainText(`${project.name} · COCO + AAP JSON`);
+  await expect(jobRow).toContainText(`${project.name} · COCO + 原生 JSON`);
   await expect(jobRow).toContainText("等待中");
   await page.waitForTimeout(1_200);
 

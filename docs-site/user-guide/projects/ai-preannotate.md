@@ -240,7 +240,7 @@ OCR 识别原子（`task=ocr`、`composition=atom`、吃 `crop` 输入,如 rapid
 
 ## 导入外部预测
 
-除了通过 ML Backend 批量预标，也可以把客户自训模型的推理结果以 AAP JSON / COCO Detection / YOLO zip 形式直接导入为候选预测。详见 [导入 / 导出外部预测](../datasets/prediction-import-export.md)。
+除了通过模型服务批量预标，也可以把客户自训模型的推理结果以 原生 JSON / COCO Detection / YOLO zip 形式直接导入为候选预测。详见 [导入 / 导出外部预测](../datasets/prediction-import-export.md)。
 
 ## 3D 点云项目
 

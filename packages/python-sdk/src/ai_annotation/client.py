@@ -926,7 +926,7 @@ class Annotations:
         dry_run: bool = False,
         overwrite: bool = False,
     ) -> AnnotationImportResult:
-        """Import AAP JSON annotations into an owned project.
+        """Import native JSON annotations into an owned project.
 
         The server accepts files up to 64 MiB; API-key callers require
         ``annotations:write`` plus current project management authority. A non-dry-run may write annotations and an audit
@@ -2086,7 +2086,7 @@ class ApiKeys:
 
 
 class Client:
-    """AI 标注平台同步客户端。
+    """YOAO 同步客户端。
 
     认证: Authorization: Bearer <api_key> (ak_ 开头的 API key 或 JWT, SDK 不区分)。
     base_url / api_key 缺省时依次回落环境变量 AAP_BASE_URL / AAP_API_KEY

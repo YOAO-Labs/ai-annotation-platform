@@ -393,7 +393,7 @@ describe("ExportModal", () => {
     );
   });
 
-  it("点云项目展示标准 3D 目标并默认导出 AAP JSON", async () => {
+  it("点云项目展示标准 3D 目标并默认导出 原生 JSON", async () => {
     render(<ExportModalHarness projectId="p5" projectTypeKey="lidar" />);
 
     expect(screen.getByText("KITTI 3D")).toBeInTheDocument();
@@ -426,7 +426,7 @@ describe("ExportModal", () => {
   it("nuScenes 单独选中时自动预检并可入队", async () => {
     render(<ExportModalHarness projectId="p-nuscenes" projectTypeKey="lidar" />);
 
-    fireEvent.click(screen.getByText("AAP JSON"));
+    fireEvent.click(screen.getByText("原生 JSON"));
     fireEvent.click(screen.getByText("nuScenes"));
     await screen.findByText("预检通过 · 39 帧");
     expect(screen.queryByLabelText("KITTI 投影相机")).not.toBeInTheDocument();
@@ -446,7 +446,7 @@ describe("ExportModal", () => {
   it("多相机 COCO 单独选中时自动预检且不要求 KITTI 相机", async () => {
     render(<ExportModalHarness projectId="p-multicamera-coco" projectTypeKey="lidar" />);
 
-    fireEvent.click(screen.getByText("AAP JSON"));
+    fireEvent.click(screen.getByText("原生 JSON"));
     fireEvent.click(screen.getByText("Multi-camera COCO"));
     await screen.findByText("预检通过 · 39 帧");
     expect(screen.queryByLabelText("KITTI 投影相机")).not.toBeInTheDocument();

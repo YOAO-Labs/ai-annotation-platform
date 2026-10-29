@@ -123,17 +123,17 @@ _EXPORT_TARGETS: dict[str, list[tuple[str, str]]] = {
         ("yolo-det", "YOLO 检测"),
         ("yolo-obb", "YOLO 旋转框"),
         ("yolo-seg", "YOLO 分割"),
-        ("aap_json", "AAP JSON"),
+        ("aap_json", "原生 JSON"),
     ],
     "video": [
         ("video_json", "Video JSON"),
         ("yolo-frames-det", "YOLO 逐帧"),
-        ("aap_json", "AAP JSON"),
+        ("aap_json", "原生 JSON"),
         ("mot", "MOT"),
         ("kitti", "KITTI"),
     ],
     "lidar": [
-        ("aap_json", "AAP JSON"),
+        ("aap_json", "原生 JSON"),
         ("kitti", "KITTI 3D"),
         ("nuscenes", "nuScenes"),
         ("pointmask", "Point Mask"),
@@ -737,7 +737,7 @@ class DetailScreen(Screen[None]):
         self._on_action = on_action
 
     def compose(self) -> ComposeResult:
-        yield Static(f"aap tui ▸ {self._crumb}", classes="breadcrumb")
+        yield Static(f"YOAO ▸ {self._crumb}", classes="breadcrumb")
         with VerticalScroll(classes="detail-body") as box:
             box.border_title = self._dtitle
             yield Static(self._body, id="detail-body")
@@ -794,7 +794,7 @@ class BatchDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"aap tui ▸ 批次 {self._batch.display_id} · {self._batch.name}",
+            f"YOAO ▸ 批次 {self._batch.display_id} · {self._batch.name}",
             classes="breadcrumb",
         )
         with VerticalScroll(classes="detail-body") as box:
@@ -866,7 +866,7 @@ class DatasetDetailScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         d = self._dataset
         yield Static(
-            f"aap tui ▸ 数据集 {d.display_id} · {d.name}", classes="breadcrumb"
+            f"YOAO ▸ 数据集 {d.display_id} · {d.name}", classes="breadcrumb"
         )
         with TabbedContent(id="dd-tabs"):
             with TabPane("📋 Overview", id="dd-overview"):
@@ -1100,7 +1100,7 @@ class MlBackendDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"aap tui ▸ Backend {self._backend.name} · 实时", classes="breadcrumb"
+            f"YOAO ▸ Backend {self._backend.name} · 实时", classes="breadcrumb"
         )
         with VerticalScroll(classes="detail-body") as box:
             box.border_title = "Backend 实时监控 (WS 1s)"
@@ -1240,7 +1240,7 @@ class ProjectDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         p = self._project
-        yield Static(f"aap tui ▸ 项目 {p.display_id} · {p.name}", classes="breadcrumb")
+        yield Static(f"YOAO ▸ 项目 {p.display_id} · {p.name}", classes="breadcrumb")
         with TabbedContent(id="pd-tabs"):
             with TabPane("📋 概览", id="pd-overview"):
                 yield Static(
@@ -1936,8 +1936,8 @@ class TrainingRunDetailScreen(Screen[None]):
 class AapTuiApp(App[None]):
     """监控面板主 App。client 由构造方注入 (测试可传 stub)。"""
 
-    TITLE = "aap tui"
-    SUB_TITLE = "标注平台监控面板"
+    TITLE = "YOAO"
+    SUB_TITLE = "监控面板"
     HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]
     # 内置 nord 主题做基线配色, 不自造调色板; 全程走主题变量 ($accent/$panel/$text-muted)
     theme = "nord"

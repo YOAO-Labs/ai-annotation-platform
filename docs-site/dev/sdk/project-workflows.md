@@ -125,4 +125,4 @@ aap project-performance export "$PROJECT_ID" performance.csv --json
 
 failed-predictions 列表另要求 API key 的 `predictions:read`；修改仍按管理角色和目标项目归属校验，没有单独 write scope。retry 最多三次，返回 queued 与 failed_id，不是可直接传给 jobs.get 的 Job ID；dismiss/restore 是可恢复的软状态操作。API key 的读 scope 不等于所有接口的只读隔离。
 
-predictions.purge 默认只清 `external_import`，all 还可覆盖 ML 与未知来源。先 dry-run 核对计数，再明确删除。annotation import 使用单个 multipart `file`，只接受 AAP JSON，最多 64 MiB，要求项目管理权限及 API key 的 `annotations:write`。overwrite 只替换导入标注，保留人工标注；返回同步部分回执，CLI 输出完整 JSON 后在 errors 非空时退出 1，不创建可轮询的 AsyncJob。
+predictions.purge 默认只清 `external_import`，all 还可覆盖 ML 与未知来源。先 dry-run 核对计数，再明确删除。annotation import 使用单个 multipart `file`，只接受 原生 JSON，最多 64 MiB，要求项目管理权限及 API key 的 `annotations:write`。overwrite 只替换导入标注，保留人工标注；返回同步部分回执，CLI 输出完整 JSON 后在 errors 非空时退出 1，不创建可轮询的 AsyncJob。
