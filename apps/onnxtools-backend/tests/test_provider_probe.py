@@ -192,3 +192,85 @@ def test_upstream_pipeline_shim_contract():
     pipeline_module.VehicleAttributePipeline.__new__(
         pipeline_module.VehicleAttributePipeline
     )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"])
+@pytest.mark.asyncio
+async def test_plugin_profile_reports_factory_topology_and_enforces_device(
+    monkeypatch, tmp_path, device
+):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from aap_protocol_v2.lifecycle import encode_ed25519_public_key
+
+    registry = "bf7fcc5e-3be5-4ab0-a1d8-d009b4b2baaa"
+    gpu_uuid = "GPU-78f02e07-08db-42cc-8758-68942a54443f"
+    monkeypatch.setenv("AAP_PLUGIN_TOKEN_FILE", str(tmp_path / "token"))
+    monkeypatch.setenv("AAP_PLUGIN_REGISTRY_ID", registry)
+    monkeypatch.setenv("AAP_ROUTE_REGISTRY_ID", registry)
+    monkeypatch.setenv("AAP_PLUGIN_DEVICE", device)
+    monkeypatch.setenv("AAP_PLUGIN_ID", "test")
+    monkeypatch.setenv("AAP_PLUGIN_VERSION", "test")
+    monkeypatch.setenv("NVIDIA_VISIBLE_DEVICES", "none")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    monkeypatch.delenv("AAP_PLUGIN_GPU_RESOURCE_ID", raising=False)
+    monkeypatch.delenv("AAP_PLUGIN_GPU_UUID", raising=False)
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(__version__="test"))
+    monkeypatch.setattr(
+        backend_main, "_probe_providers", lambda: ["CPUExecutionProvider"]
+    )
+    monkeypatch.setattr(
+        backend_main,
+        "_make_detector",
+        lambda: SimpleNamespace(_onnx_session=_FakeSession(["CPUExecutionProvider"])),
+    )
+    for name in (
+        "_handle_pool",
+        "_predictor",
+        "_gpu_lifecycle",
+        "_idle_task",
+        "_provider_preference",
+    ):
+        monkeypatch.setattr(backend_main, name, getattr(backend_main, name))
+    for name in ("plugin_mode", "strict_cuda", "gpu_facts", "runtime_versions"):
+        monkeypatch.setattr(backend_main.app.state, name, None, raising=False)
+
+    if device == "cuda:0":
+        key = Ed25519PrivateKey.generate()
+        keyring = tmp_path / "keyring.json"
+        keyring.write_text(
+            '{"test": "' + encode_ed25519_public_key(key.public_key()) + '"}'
+        )
+        monkeypatch.setenv("AAP_PLUGIN_GPU_KEYRING_FILE", str(keyring))
+        monkeypatch.setenv("AAP_PLUGIN_GPU_RESOURCE_ID", "test-resource")
+        monkeypatch.setenv("AAP_PLUGIN_GPU_UUID", gpu_uuid)
+        monkeypatch.setenv("CUDA_VERSION", "test-cuda")
+        monkeypatch.setattr(
+            backend_main,
+            "observed_single_nvidia_gpu",
+            lambda _uuid: {
+                "device_uuid": gpu_uuid,
+                "driver_version": "test-driver",
+                "total_memory_mb": 1000,
+            },
+        )
+
+    async with backend_main.lifespan(backend_main.app):
+        health = await backend_main.health()
+        setup = backend_main.setup()
+        counts = {"pipeline": 2, "detector": 1, "va": 1}
+        assert health["compute"]["configured_device"] == device
+        assert health["compute"]["cpu_fallback_supported"] is (device == "cpu")
+        assert (
+            health["ort_session_counts"]
+            == setup["runtime_info"]["ort_session_counts"]
+            == counts
+        )
+        if device == "cuda:0":
+            with pytest.raises(backend_main.HandleDeviceError):
+                async with backend_main._handle_pool.borrow("detector"):
+                    pytest.fail("CPU session must not be published in a CUDA plugin")
+            assert (await backend_main._handle_pool.snapshot())["current_size"] == 0
+        else:
+            async with backend_main._handle_pool.borrow("detector"):
+                pass
+            assert (await backend_main.health())["compute"]["effective_device"] == "cpu"
