@@ -35,7 +35,7 @@ const SHARED_CONTRACT_SUITES = {
     scope: "specialty",
     built: false,
     wired: false,
-    triggers: ["apps/_shared/backend_runtime/"],
+    triggers: ["apps/_shared/backend_runtime/", "apps/_shared/lifecycle_contract/"],
     reason: "shared pool/runtime contract tests; 99 tests, torch only stubbed via sys.modules",
     dependencies: "pytest + package extras (httpx, pillow); CPU only",
   },

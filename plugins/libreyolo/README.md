@@ -4,7 +4,7 @@ This service uses the native LibreYOLO 1.6.0 loader, not Ultralytics, and the ex
 
 ## Build and prepare
 
-Build dependency wheels for `apps/_shared/libreyolo_native`, training/task/protocol/backend contracts, and `packages/inference-plugin-sdk`, together with their locked transitive dependencies. Build the plugin wheel from the checkout:
+Build dependency wheels for `apps/_shared/libreyolo_native`, training/task/protocol/backend contracts, `apps/_shared/lifecycle_contract`, and `packages/inference-plugin-sdk`, together with their locked transitive dependencies. Build the plugin wheel from the checkout:
 
 ```sh
 python plugins/libreyolo/build-wheel.py /absolute/path/to/wheelhouse

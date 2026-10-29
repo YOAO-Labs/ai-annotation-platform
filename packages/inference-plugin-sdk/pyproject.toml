@@ -22,4 +22,5 @@ where = ["src"]
 [tool.uv.sources]
 aap-protocol-v2 = { path = "../../apps/_shared/protocol_v2", editable = true }
 aap-backend-runtime = { path = "../../apps/_shared/backend_runtime", editable = true }
+aap-lifecycle-contract = { path = "../../apps/_shared/lifecycle_contract", editable = true }
 aap-inference-contract = { path = "../../apps/_shared/inference_contract", editable = true }

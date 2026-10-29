@@ -21,11 +21,11 @@ ML backend 运行时共享组件 (无状态叶子函数 + 取消安全的 LRU �
   `AAP_GPU_PHYSICAL_DEVICE_TOKEN` 解析宿主物理卡 token；它未设置时才回落
   runtime 可见设备配置，避免把重映射后的逻辑 `cuda:0` 误当宿主卡 0。
 - `validate_single_gpu_device_set()` — backend 启动门禁，拒绝逗号多卡列表和已暴露 GPU 的无界 `all` 可见集合。
-- `build_managed_lifecycle_evidence()` / `validate_managed_lifecycle_evidence()` — 五个 Backend
-  共用的部署级受管生命周期验收证据外壳；严格校验部署与 GPU 身份、制品摘要、两轮显存回落、
-  必做故障合同、最终空池状态和运行时中间产物，并从 blockers 自动推导 `passed`。
-- `artifact_evidence()` / `memory_cycle_evidence()` — 生成不含本地路径的权重/fixture 摘要，
-  以及 64 MiB 稳定窗口与 90% 工作集回收率指标。
+- `build_managed_lifecycle_evidence()` — 从部署级采集结果生成受管生命周期验收报告，
+  从 blockers 自动推导 `passed` 并调用共享契约验证。
+- `artifact_evidence()` — 生成不含本地路径的权重/fixture 摘要。
+- `aap-lifecycle-contract` 提供独立于模型运行时的严格报告验证、必做检查常量与
+  `memory_cycle_evidence()`；稳定窗口为 64 MiB，工作集回收率至少 90%。
 - `ManagedLruPool` / `BuildArtifact` / `ManagedBuildTimeout` / `ManagedPoolBusyError` /
   `ResourceLease` — 取消安全的 LRU 所有权内核 (builder 单飞、borrower 串行、租约、
   quarantine 清理与强制回收)。每个消费方通过 `logger_name` 传入自己的 logger 名称,
@@ -33,8 +33,8 @@ ML backend 运行时共享组件 (无状态叶子函数 + 取消安全的 LRU �
   之前 `grounded-sam2-backend/managed_pool.py` 与 `sam3-backend/managed_pool.py` 仅差
   docstring 与 logger 名, 现由本包统一提供。
 - `gpu_lifecycle.ManagedGpuLifecycle(pool, *, verify_keyring, evictable_verified=False,
-  boot_id=None, expected_registry_id=None, expected_gpu_resource_id=None,
-  terminal_cpu_enabled=False, allow_legacy_workloads=True)` — 签名控制、generation、JTI、
+boot_id=None, expected_registry_id=None, expected_gpu_resource_id=None,
+terminal_cpu_enabled=False, allow_legacy_workloads=True)` — 签名控制、generation、JTI、
   取消与池排空状态机；`allow_legacy_workloads=False` 拒绝 LEGACY 状态下所有工作请求
   （即使提供签名头），但不阻止签名启动控制。受管 CUDA 服务须设置为 False，直到
   合格实例完成签名切换至 ENFORCE 才能接收持有效许可的工作；独占本地开发和旧调用方

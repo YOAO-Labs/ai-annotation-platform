@@ -17,14 +17,8 @@ from aap_backend_runtime.gpu import (
 )
 from aap_backend_runtime.image import fetch_image
 from aap_backend_runtime.lifecycle_evidence import (
-    EVIDENCE_SCHEMA_VERSION,
-    MAX_UNLOADED_SPREAD_MB,
-    MIN_WORKING_SET_RECOVERY_RATIO,
-    REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
     build_managed_lifecycle_evidence,
-    memory_cycle_evidence,
-    validate_managed_lifecycle_evidence,
 )
 from aap_backend_runtime.lifecycle_validation import exercise_lifecycle_fault_matrix
 from aap_backend_runtime.managed_pool import (
@@ -43,13 +37,9 @@ from aap_backend_runtime.tracker_sessions import (
 __all__ = [
     "BuildArtifact",
     "DeviceUnavailableError",
-    "EVIDENCE_SCHEMA_VERSION",
-    "MAX_UNLOADED_SPREAD_MB",
-    "MIN_WORKING_SET_RECOVERY_RATIO",
     "ManagedBuildTimeout",
     "ManagedLruPool",
     "ManagedPoolBusyError",
-    "REQUIRED_CONTRACT_CHECKS",
     "ResourceLease",
     "artifact_evidence",
     "build_managed_lifecycle_evidence",
@@ -62,11 +52,9 @@ __all__ = [
     "gpu_info_snapshot",
     "is_device_error",
     "latch_cpu",
-    "memory_cycle_evidence",
     "physical_gpu_identity",
     "require_gpu_device",
     "validate_single_gpu_device_set",
-    "validate_managed_lifecycle_evidence",
     "versions_payload",
     "TrackerSessionLost",
     "TrackerSessionManager",

@@ -7,7 +7,7 @@ import json
 import secrets
 from typing import Any
 
-from aap_backend_runtime.lifecycle_evidence import validate_managed_lifecycle_evidence
+from aap_lifecycle_contract import validate_managed_lifecycle_evidence
 from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
 from aap_inference_contract.plugin import (
     PluginInstallationResponse,

@@ -157,7 +157,7 @@ run() {
   local suite="${1:?suite name required}"
   case "$suite" in
     shared-backend-runtime)
-      install_editable "apps/_shared/backend_runtime" "3.10" "test" -e "$ROOT/apps/_shared/protocol_v2"
+      install_editable "apps/_shared/backend_runtime" "3.10" "test" -e "$ROOT/apps/_shared/protocol_v2" -e "$ROOT/apps/_shared/lifecycle_contract"
       run_pytest "apps/_shared/backend_runtime" "$VENV_PATH"
       ;;
     shared-mask-utils)
@@ -180,6 +180,7 @@ run() {
         --extra-index-url https://download.pytorch.org/whl/cu132 \
         -e "$ROOT/apps/_shared/task_contract" \
         -e "$ROOT/apps/_shared/protocol_v2" \
+        -e "$ROOT/apps/_shared/lifecycle_contract" \
         -e "$ROOT/apps/_shared/backend_runtime" \
         -e "$ROOT/apps/_shared/inference_contract" \
         -e "$ROOT/apps/_shared/training_contract" \

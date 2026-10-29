@@ -48,7 +48,7 @@ py-modules = ["main", "predictor", "video_predictor", "pvs_video_predictor", "sc
 testpaths = ["tests"]
 # mask_utils 共享包从 apps/_shared/mask_utils 注入. Docker 容器内由
 # `pip install -e /app/mask_utils` 提供; 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = ["../_shared/task_contract/src", ".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src", "../_shared/lifecycle_contract/src"]
 
 [tool.uv.sources]
 aap-task-contract = { path = "../_shared/task_contract", editable = true }

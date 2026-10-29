@@ -15,6 +15,7 @@ name = "aap-backend-runtime"
 version = "0.1.0"
 source = { editable = "../_shared/backend_runtime" }
 dependencies = [
+    { name = "aap-lifecycle-contract" },
     { name = "aap-protocol-v2" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -24,6 +25,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-lifecycle-contract", editable = "../_shared/lifecycle_contract" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.110" },
@@ -32,6 +34,11 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
 ]
 provides-extras = ["test"]
+
+[[package]]
+name = "aap-lifecycle-contract"
+version = "0.1.0"
+source = { editable = "../_shared/lifecycle_contract" }
 
 [[package]]
 name = "aap-protocol-v2"

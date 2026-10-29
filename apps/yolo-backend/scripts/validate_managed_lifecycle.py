@@ -25,12 +25,11 @@ import numpy as np
 from PIL import Image, ImageDraw
 from aap_backend_runtime.backend_auth import backend_auth_headers
 from aap_backend_runtime import (
-    REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
     build_managed_lifecycle_evidence,
     exercise_lifecycle_fault_matrix,
-    memory_cycle_evidence,
 )
+from aap_lifecycle_contract import REQUIRED_CONTRACT_CHECKS, memory_cycle_evidence
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,

@@ -100,7 +100,7 @@ GPU 和已保存的资格报告创建新容器并重新激活。已禁用实例�
 安装器执行期间须独占该安装的 Docker 管理操作；Docker 不提供按进程启动时间原子条件停止的接口，
 不能与外部 `docker restart`、替换或删除操作并发执行。
 
-SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化安装动作。本机部署使用 `plugins` extra，须从发布 AAP 内部 wheel 的私有索引安装共享 runtime、协议及训练契约；不安装 Torch 或模型运行时。
+SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化安装动作。本机部署使用 `plugins` extra，须从发布 AAP 内部 wheel 的私有索引安装轻量生命周期契约和训练契约；验证报告不需要 backend runtime、FastAPI 或 Torch。
 
 ## 快速上手
 

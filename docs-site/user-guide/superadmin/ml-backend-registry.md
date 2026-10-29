@@ -94,7 +94,7 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 插件由超级管理员在可访问 Docker 的部署机用 `aap plugins` 安装，不自动发现插件；平台 API 不访问 Docker socket。当前本机安装器仅支持 LibreYOLO CUDA 插件和一张明确授权的 NVIDIA 物理 GPU，需要 NVIDIA Container Toolkit、非 host Docker 网络和已加载的固定 OCI 摘要镜像。服务运行在隔离 Docker 进程，不挂载核心数据库、Redis 或 GPU 签发私钥。业务 Bearer Token 与 GPU 验签公钥是不同凭据。
 
-使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse，或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 Torch 或模型框架：
+使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `aap-lifecycle-contract`），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架：
 
 ```bash
 python -m venv .venv

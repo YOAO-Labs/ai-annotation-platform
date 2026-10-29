@@ -218,11 +218,8 @@ async def test_prepare_requires_super_admin_and_replay_matches_intent(
 async def test_gpu_activation_checks_observed_physical_device_and_runtime():
     import hashlib
     import json
-    from aap_backend_runtime.lifecycle_evidence import (
-        REQUIRED_CONTRACT_CHECKS,
-        build_managed_lifecycle_evidence,
-        memory_cycle_evidence,
-    )
+    from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
+    from aap_lifecycle_contract import REQUIRED_CONTRACT_CHECKS, memory_cycle_evidence
     from aap_inference_contract.plugin import PluginLifecycleQualification
     from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
