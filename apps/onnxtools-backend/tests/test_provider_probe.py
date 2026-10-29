@@ -216,9 +216,21 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
     monkeypatch.delenv("AAP_PLUGIN_GPU_UUID", raising=False)
     monkeypatch.delenv("AAP_PLUGIN_QUALIFICATION_FILE", raising=False)
     monkeypatch.setattr(backend_main, "MANAGED_LIFECYCLE_VERIFIED", True)
-    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(__version__="test"))
-    monkeypatch.setattr(
-        backend_main, "_probe_providers", lambda: ["CPUExecutionProvider"]
+
+    def unexpected_probe(*_args, **_kwargs):
+        pytest.fail("plugin startup must not construct an untracked ORT session")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        SimpleNamespace(
+            __version__="test",
+            get_available_providers=lambda: [
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ],
+            InferenceSession=unexpected_probe,
+        ),
     )
     monkeypatch.setattr(
         backend_main,
@@ -287,3 +299,25 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
             async with backend_main._handle_pool.borrow("detector"):
                 pass
             assert (await backend_main.health())["compute"]["effective_device"] == "cpu"
+
+
+@pytest.mark.asyncio
+async def test_cuda_plugin_fails_closed_when_ort_has_no_cuda_provider(monkeypatch):
+    monkeypatch.setenv("AAP_PLUGIN_TOKEN_FILE", "/test/token")
+    monkeypatch.setenv("AAP_PLUGIN_REGISTRY_ID", "registry")
+    monkeypatch.setenv("AAP_ROUTE_REGISTRY_ID", "registry")
+    monkeypatch.setenv("AAP_PLUGIN_DEVICE", "cuda:0")
+    monkeypatch.setenv("AAP_PLUGIN_GPU_RESOURCE_ID", "resource")
+    monkeypatch.setenv("AAP_PLUGIN_GPU_UUID", "GPU-test")
+    monkeypatch.setenv("NVIDIA_VISIBLE_DEVICES", "none")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        SimpleNamespace(
+            __version__="test", get_available_providers=lambda: ["CPUExecutionProvider"]
+        ),
+    )
+    with pytest.raises(RuntimeError, match="requires the ONNX Runtime CUDA provider"):
+        async with backend_main.lifespan(backend_main.app):
+            pytest.fail("a CPU-only ORT must not start a CUDA plugin")

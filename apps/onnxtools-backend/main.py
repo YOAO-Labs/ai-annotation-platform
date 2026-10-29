@@ -339,6 +339,9 @@ async def lifespan(app: FastAPI):
             "backend": BACKEND_VERSION,
         }
     if strict_cuda:
+        if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
+            raise RuntimeError("CUDA plugin requires the ONNX Runtime CUDA provider")
+        _provider_preference = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         cuda_image = os.environ.get("CUDA_VERSION", "").strip()
         if not cuda_image:
             raise RuntimeError("CUDA image version is unavailable")
