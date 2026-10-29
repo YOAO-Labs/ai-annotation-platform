@@ -27,6 +27,10 @@ class EnginePoolBusyError(RuntimeError):
     """No pool slot or cleanup boundary is currently safe to use."""
 
 
+class EngineDeviceError(RuntimeError):
+    """A constructed engine does not satisfy the configured device policy."""
+
+
 class EngineBuildTimeout(RuntimeError):
     """The caller timed out while the real builder remains pool-owned."""
 
@@ -89,6 +93,7 @@ class EnginePool:
         inspect_providers: ProviderInspector,
         *,
         build_timeout: float = 30.0,
+        validate_engine: Callable[[Any], str | None] | None = None,
         strict_cleanup: Callable[[], None] | None = None,
     ) -> None:
         if cap <= 0:
@@ -99,6 +104,7 @@ class EnginePool:
         self._cap = cap
         self._build_engine = build_engine
         self._inspect_providers = inspect_providers
+        self._validate_engine = validate_engine
         self._build_timeout = build_timeout
         self._strict_cleanup = strict_cleanup or (lambda: None)
 
@@ -285,6 +291,12 @@ class EnginePool:
                 engine = built
             if build_cancelled:
                 raise asyncio.CancelledError
+            if self._validate_engine is not None:
+                if cleanup_uncertain:
+                    raise EngineDeviceError("engine construction has uncertain cleanup")
+                error = self._validate_engine(engine)
+                if error is not None:
+                    raise EngineDeviceError(error)
             load_ms = int((time.monotonic() - started) * 1000)
             loaded_at = datetime.now(UTC)
             entry = _EngineEntry(

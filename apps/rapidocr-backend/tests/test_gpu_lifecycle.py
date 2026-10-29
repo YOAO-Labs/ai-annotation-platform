@@ -126,6 +126,62 @@ async def _enforce(lifecycle, private_key, *, epoch: str = "1"):
 
 
 @pytest.mark.asyncio
+async def test_cpu_terminal_drain_waits_for_borrower_and_survives_caller_cancel() -> (
+    None
+):
+    from engine_pool import EnginePool
+    from gpu_lifecycle import RapidOcrGpuLifecycle
+
+    pool = EnginePool(
+        1,
+        lambda _resolved: _Engine(),
+        lambda _engine: {
+            name: ["CPUExecutionProvider"] for name in ("det", "cls", "rec")
+        },
+    )
+    lifecycle = RapidOcrGpuLifecycle(
+        pool,
+        verify_keyring={},
+        boot_id="boot-cpu",
+        expected_registry_id="backend-1",
+        terminal_cpu_enabled=True,
+    )
+    args = {"registry_id": "backend-1", "boot_id": "boot-cpu", "operation_id": "stop-1"}
+    operation = await lifecycle.begin_workload(
+        AdmissionScope.PREDICT, generation_header=None, token=None
+    )
+    async with pool.borrow(_resolved()) as lease:
+        stop = asyncio.create_task(lifecycle.terminal_drain(**args))
+        for _ in range(200):
+            if (await lifecycle.residency()).draining:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("terminal drain did not fence the pool")
+        with pytest.raises(LifecycleHTTPError):
+            await lifecycle.begin_workload(
+                AdmissionScope.PREDICT, generation_header=None, token=None
+            )
+        assert not stop.done()
+        stop.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await stop
+        assert lease.engine is not None
+        with pytest.raises(LifecycleHTTPError):
+            await lifecycle.terminal_drain(**{**args, "operation_id": "other"})
+        await operation.close()
+    proof = await asyncio.wait_for(lifecycle.terminal_drain(**args), timeout=2)
+    assert proof["pool_ids"] == ["engines"]
+    assert proof["unloaded"] is True
+    assert (await pool.snapshot())["current_size"] == 0
+    with pytest.raises(LifecycleHTTPError):
+        await lifecycle.begin_workload(
+            AdmissionScope.PREDICT, generation_header=None, token=None
+        )
+    await lifecycle.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_fresh_boot_reports_trusted_legacy_empty_residency() -> None:
     lifecycle, _pool, _key = _domain()
 

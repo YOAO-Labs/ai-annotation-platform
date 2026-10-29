@@ -35,60 +35,97 @@
 - 所有已加载 session 都可确认只使用 CPU，`gpu_loaded=false`。
 - 私有 session 路径不可读、构建/清理状态不确定或清理失败时返回 `null`。
 
-Dockerfile 固定到已审计的 onnxtools commit，避免 `_onnx_session` ownership 契约随上游 `main` 漂移。新部署完成“空池基线 → 四个业务 session 全部加载 → 全池卸载 → 回到稳定基线”的真实 GPU 验证前，必须保持 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED=0`。此时 `/setup` 不宣告 managed lifecycle，`/lifecycle/mode` 拒绝切入 enforce，residency 也不会成为自动驱逐依据。
+Dockerfile 固定到已审计的 onnxtools commit，避免 `_onnx_session` ownership 契约随上游 `main` 漂移。内置服务在真实 GPU 全池卸载验证完成前必须保持 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED=0`；CUDA 插件只能使用已批准且与镜像、资源、模型和实际 runtime 匹配的验收报告，不能用这个内置服务开关替代报告。
 
-验收器会在加载 CUDA 前校验两个模型的批准 SHA-256 与审批引用，不允许用“结构相似”的未批准模型代替业务模型关闭门禁。在独占验收卡上执行：
+验收器会在加载 CUDA 前校验两个模型和三张验收图的批准 SHA-256 与审批引用，不允许用未批准模型或图片代替业务资产。使用实际已注册的插件、registry、资源与镜像身份，在获准独占验收卡上执行：
 
 ```bash
 export VALIDATION_IMAGE_PATH=/absolute/path/to/representative-vehicle.jpg
+export VALIDATION_IMAGE_SHA256=<approved-positive-image-sha256>
+export VALIDATION_EMPTY_IMAGE_PATH=/absolute/path/to/empty-scene.jpg
+export VALIDATION_EMPTY_IMAGE_SHA256=<approved-empty-image-sha256>
+export VALIDATION_BOUNDARY_IMAGE_PATH=/absolute/path/to/edge-vehicle.jpg
+export VALIDATION_BOUNDARY_IMAGE_SHA256=<approved-boundary-image-sha256>
 export VALIDATION_DET_SHA256=<approved-rtdetr-sha256>
 export VALIDATION_VA_SHA256=<approved-va-sha256>
 export VALIDATION_MODEL_APPROVAL_REF=<approval-record-or-ticket>
 export VALIDATION_FIXTURE_APPROVAL_REF=<approved-fixture-record-or-ticket>
+export VALIDATION_BACKEND_REGISTRY_ID=<registered-backend-id>
+export VALIDATION_GPU_RESOURCE_ID=<registered-gpu-resource-id>
 export VALIDATION_GPU_UUID=GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+export AAP_PLUGIN_ID=<registered-plugin-id>
+export AAP_PLUGIN_VERSION=<registered-plugin-version>
+export AAP_PLUGIN_OCI_ARTIFACT=<digest-pinned-approved-image-reference>
+export AAP_PLUGIN_ASSET_MANIFEST_SHA256=<approved-asset-manifest-sha256>
+export AAP_PLUGIN_MANAGED_MODEL_COMPATIBILITY='<registered-compatibility-json>'
+export AAP_PLUGIN_TOKEN_FILE=/absolute/path/to/private-plugin-token
+export VALIDATION_IMAGE=<local-qualified-image-tag>
 export VALIDATION_GIT_COMMIT=$(git rev-parse HEAD)
 export EVIDENCE_DIR=/tmp/aap-gpu-acceptance
 install -d -m 700 "$EVIDENCE_DIR"
 set -o pipefail
 
-docker run --rm --gpus '"device=0"' --entrypoint python3 \
+docker run --rm --gpus "device=$VALIDATION_GPU_UUID" --entrypoint python3 \
   -e VALIDATION_GPU_UUID \
+  -e VALIDATION_BACKEND_REGISTRY_ID \
+  -e VALIDATION_GPU_RESOURCE_ID \
+  -e AAP_PLUGIN_ID -e AAP_PLUGIN_VERSION \
+  -e AAP_PLUGIN_OCI_ARTIFACT -e AAP_PLUGIN_ASSET_MANIFEST_SHA256 \
+  -e AAP_PLUGIN_MANAGED_MODEL_COMPATIBILITY \
+  -e AAP_PLUGIN_DEVICE=cuda:0 \
+  -e AAP_PLUGIN_REGISTRY_ID="$VALIDATION_BACKEND_REGISTRY_ID" \
+  -e AAP_ROUTE_REGISTRY_ID="$VALIDATION_BACKEND_REGISTRY_ID" \
+  -e AAP_PLUGIN_GPU_RESOURCE_ID="$VALIDATION_GPU_RESOURCE_ID" \
+  -e AAP_PLUGIN_GPU_UUID="$VALIDATION_GPU_UUID" \
+  -e AAP_PLUGIN_TOKEN_FILE=/validation/plugin-token \
+  -e AAP_PLUGIN_DATA_DIR=/var/lib/aap-plugin \
+  -e NVIDIA_VISIBLE_DEVICES="$VALIDATION_GPU_UUID" \
   -e VALIDATION_DET_SHA256 \
   -e VALIDATION_VA_SHA256 \
+  -e VALIDATION_IMAGE_SHA256 \
+  -e VALIDATION_EMPTY_IMAGE_SHA256 \
+  -e VALIDATION_BOUNDARY_IMAGE_SHA256 \
   -e VALIDATION_MODEL_APPROVAL_REF \
   -e VALIDATION_FIXTURE_APPROVAL_REF \
   -e VALIDATION_GIT_COMMIT \
   -e VALIDATION_IMAGE_PATH=/validation/vehicle.jpg \
-  -e VALIDATION_IMAGE_ID="$(docker image inspect \
-    ai-annotation-platform-onnxtools-backend:latest --format '{{.Id}}')" \
-  -v "$PWD/apps/onnxtools-backend/models:/app/models:ro" \
-  --mount "type=bind,src=$PWD/data/inference-auth/onnxtools,dst=/run/aap-inference-auth,readonly" \
+  -e VALIDATION_EMPTY_IMAGE_PATH=/validation/empty.jpg \
+  -e VALIDATION_BOUNDARY_IMAGE_PATH=/validation/edge.jpg \
+  -e VALIDATION_IMAGE_ID="$(docker image inspect "$VALIDATION_IMAGE" --format '{{.Id}}')" \
+  -v "$PWD/apps/onnxtools-backend/models:/var/lib/aap-plugin/models:ro" \
+  --mount "type=bind,src=$AAP_PLUGIN_TOKEN_FILE,dst=/validation/plugin-token,readonly" \
   -v "$VALIDATION_IMAGE_PATH:/validation/vehicle.jpg:ro" \
-  ai-annotation-platform-onnxtools-backend:latest \
-  /app/scripts/validate_managed_lifecycle.py \
+  -v "$VALIDATION_EMPTY_IMAGE_PATH:/validation/empty.jpg:ro" \
+  -v "$VALIDATION_BOUNDARY_IMAGE_PATH:/validation/edge.jpg:ro" \
+  "$VALIDATION_IMAGE" \
+  /app/scripts/validate_managed_lifecycle.py 2>"$EVIDENCE_DIR/onnxtools-managed-lifecycle-device.log" \
   | tee "$EVIDENCE_DIR/onnxtools-managed-lifecycle.json"
 jq -e '.passed == true and .runtime_ephemera_clean == true' \
   "$EVIDENCE_DIR/onnxtools-managed-lifecycle.json"
 ```
 
-运行前先由平台初始化内置服务默认凭据。独立验收容器只读挂载 ONNXTools 自己的凭据目录；缺少或损坏的凭据会明确拒绝验证。已有手动认证的部署可显式传入相同的 `AAP_BACKEND_AUTH_TOKEN`，脚本不会生成临时绕过凭据。
+验收器使用只读挂载的插件业务凭据，并仅在本机临时创建独立的 GPU 签名和 route-control 验收密钥；它们不是平台执行凭据。通过验收后，实际安装仍须使用平台凭据、经批准的报告和独立的激活验证。
 
-代表图必须让 `vehicle-attr` 复合管道实际产生检测与分类结果。验收器会执行两轮三句柄/四 session 加载与受签全池卸载，拒绝任一 session 退回 CPU，并要求每轮卸载后显存稳定、回收至上下文基线且至少回收 90% 的模型工作集。严格证据只保留路径无关的制品指纹、物理 GPU 身份、显存样本与最终 residency；仅在 `passed=true` 并完成复核后，才能在目标部署中把 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 设为 `1`。
+设备日志包含每轮每个真实 ORT session 的 provider 链、逻辑 device ID 与显存样本；失败报告保留已经完成的周期和观测事实，不补造缺失数据。日志需与 JSON 报告和授权卡 UUID 一起保存在私有验收目录；GPU 准入仍由平台校验证明，而不是由日志自行授予。
+
+冷卡基线采样后，验收进程只初始化并同步不加载模型的 CUDA context，再采样 context 基线；实际加载、卸载后的残余显存仍按相同回收门槛计算。
+
+代表图必须让 `vehicle-attr` 复合管道实际产生检测与分类结果；空场景必须不产生检测，边界图必须检测到接近画面边缘（5% 范围内）的汽车，且归一化框不能越界。独立分类器使用边界汽车裁剪图作为输入。验收器在拥有 session 的同一服务进程中通过本机 HTTP 执行两轮三句柄/四 session 加载与受签全池卸载，拒绝任一 session 整体退回 CPU，并要求每轮卸载后显存稳定、回收至上下文基线且至少回收 90% 的模型工作集。CUDA operator 可由 CPU provider 分区执行，但业务 session 的首选 provider 必须为 CUDA。报告包含路径无关的制品指纹、实际 provider 链、物理 GPU 身份、显存样本与最终 residency。
 
 ## 环境变量
 
-| 变量                                   | 默认                     | 说明                                                  |
-| -------------------------------------- | ------------------------ | ----------------------------------------------------- |
-| `ONNXTOOLS_MODEL_DIR`                  | `/app/models`            | 模型目录                                              |
-| `ONNXTOOLS_DET_MODEL`                  | `rtdetr-2024080100.onnx` | 检测模型文件名                                        |
-| `ONNXTOOLS_VA_MODEL`                   | `va_260612.onnx`         | 属性分类模型文件名                                    |
-| `ONNXTOOLS_CONF_THRES`                 | `0.5`                    | 检测置信度阈值                                        |
-| `ONNXTOOLS_BUILD_TIMEOUT`              | `30`                     | 调用方等待冷启动的秒数；超时后真实 builder 继续受跟踪 |
-| `ONNXTOOLS_IDLE_UNLOAD_SECONDS`        | `600`                    | 全池空闲卸载阈值；非正数关闭                          |
-| `ONNXTOOLS_IDLE_CHECK_INTERVAL`        | `60`                     | 空闲检查周期                                          |
-| `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` | `0`                      | 真实 GPU 全池卸载验证门槛                             |
-| `GPU_LIFECYCLE_VERIFY_KEYS_JSON`       | 空                       | Ed25519 公钥 keyring；空值保持 legacy gate            |
-| `ONNXTOOLS_LOG_LEVEL`                  | `INFO`                   | 日志级别                                              |
+| 变量                                   | 默认                     | 说明                                                    |
+| -------------------------------------- | ------------------------ | ------------------------------------------------------- |
+| `ONNXTOOLS_MODEL_DIR`                  | `/app/models`            | 内置服务模型目录；插件使用 `AAP_PLUGIN_DATA_DIR/models` |
+| `ONNXTOOLS_DET_MODEL`                  | `rtdetr-2024080100.onnx` | 检测模型文件名                                          |
+| `ONNXTOOLS_VA_MODEL`                   | `va_260612.onnx`         | 属性分类模型文件名                                      |
+| `ONNXTOOLS_CONF_THRES`                 | `0.5`                    | 检测置信度阈值                                          |
+| `ONNXTOOLS_BUILD_TIMEOUT`              | `30`                     | 调用方等待冷启动的秒数；超时后真实 builder 继续受跟踪   |
+| `ONNXTOOLS_IDLE_UNLOAD_SECONDS`        | `600`                    | 全池空闲卸载阈值；非正数关闭                            |
+| `ONNXTOOLS_IDLE_CHECK_INTERVAL`        | `60`                     | 空闲检查周期                                            |
+| `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` | `0`                      | 真实 GPU 全池卸载验证门槛                               |
+| `GPU_LIFECYCLE_VERIFY_KEYS_JSON`       | 空                       | Ed25519 公钥 keyring；空值保持 legacy gate              |
+| `ONNXTOOLS_LOG_LEVEL`                  | `INFO`                   | 日志级别                                                |
 
 ## 模型放置与启动
 
@@ -102,7 +139,7 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml \
 curl -s localhost:8004/health | python -m json.tool
 ```
 
-ONNX Runtime 缺少可用 GPU provider 时会退回 CPU；`compute` 报告实际 primary provider，`residency` 独立表达 GPU session 是否仍可能驻留。
+内置服务的 ONNX Runtime 在缺少可用 GPU provider 时可退回 CPU；严格 CUDA 插件拒绝将整个业务 session 退回 CPU。`compute` 报告实际 primary provider，`residency` 独立表达 GPU session 是否仍可能驻留。
 
 ## Python 依赖与镜像构建
 

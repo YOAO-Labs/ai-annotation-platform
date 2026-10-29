@@ -97,12 +97,9 @@ def _is_ort_device_error(exc: BaseException) -> bool:
     return any(marker in message for marker in provider_markers)
 
 
-def inspect_engine_providers(
-    engine: Any,
-) -> dict[str, list[str] | None] | None:
-    """Inspect RapidOCR 3.9.0's three business ORT ownership chains."""
-
-    chains: dict[str, list[str] | None] = {}
+def inspect_engine_sessions(engine: Any) -> dict[str, Any]:
+    """Return the three actual business ORT sessions owned by the engine."""
+    sessions = {}
     for name, attribute in (
         ("det", "text_det"),
         ("cls", "text_cls"),
@@ -110,9 +107,41 @@ def inspect_engine_providers(
     ):
         component = getattr(engine, attribute, None)
         wrapper = getattr(component, "session", None)
-        session = getattr(wrapper, "session", None)
-        chains[name] = _session_provider_chain(session)
-    return chains
+        sessions[name] = getattr(wrapper, "session", None)
+    return sessions
+
+
+def strict_cuda_engine_error(engine: Any) -> str | None:
+    """Reject whole-session CPU fallback while allowing ORT graph partitioning."""
+    for name, session in inspect_engine_sessions(engine).items():
+        if session is None:
+            return f"{name}: missing business session"
+        try:
+            providers = session.get_providers()
+            device_id = (
+                session.get_provider_options()
+                .get("CUDAExecutionProvider", {})
+                .get("device_id")
+            )
+            if not providers or providers[0] != "CUDAExecutionProvider":
+                return f"{name}: CUDA is not the primary session provider"
+            if device_id != "0":
+                return f"{name}: CUDA session did not select logical device 0"
+            session.disable_fallback()
+        except Exception:
+            return f"{name}: cannot verify device or disable session fallback"
+    return None
+
+
+def inspect_engine_providers(
+    engine: Any,
+) -> dict[str, list[str] | None] | None:
+    """Inspect RapidOCR 3.9.0's three business ORT ownership chains."""
+
+    return {
+        name: _session_provider_chain(session)
+        for name, session in inspect_engine_sessions(engine).items()
+    }
 
 
 class RapidOCREngineBuildError(RuntimeError):
@@ -122,11 +151,12 @@ class RapidOCREngineBuildError(RuntimeError):
 class RapidOCREngineFactory:
     """Process-wide, monotonic CUDA preference used only by admitted builders."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, strict_cuda: bool = False) -> None:
         self._configured_cuda = (
             os.environ.get("RAPIDOCR_DEVICE", "gpu").lower() == "gpu"
         )
         self._cuda_allowed = self._configured_cuda and _soft_ort_cuda_use()
+        self._strict_cuda = strict_cuda
         self._state_lock = threading.Lock()
 
     def configured_device(self) -> str:
@@ -146,6 +176,8 @@ class RapidOCREngineFactory:
 
     def build(self, resolved: ResolvedEngine) -> EngineBuildArtifact:
         prefer_cuda = self.use_cuda
+        if self._strict_cuda and not prefer_cuda:
+            raise RapidOCREngineBuildError("strict CUDA session provider unavailable")
         try:
             engine = self._construct(resolved, use_cuda=prefer_cuda)
         except Exception as exc:  # noqa: BLE001
@@ -153,7 +185,7 @@ class RapidOCREngineFactory:
             device_error = prefer_cuda and _is_ort_device_error(exc)
             exc.__traceback__ = None
             gc.collect()
-            if not device_error:
+            if self._strict_cuda or not device_error:
                 raise RapidOCREngineBuildError(summary) from None
             try:
                 engine = self._construct(resolved, use_cuda=False)

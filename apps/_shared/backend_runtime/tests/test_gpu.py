@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import sys
 import types
 
@@ -12,6 +13,10 @@ from aap_backend_runtime import (
     gpu_info_snapshot,
     physical_gpu_identity,
     validate_single_gpu_device_set,
+)
+from aap_backend_runtime.gpu import (
+    observed_cuda_runtime_version,
+    observed_single_nvidia_gpu,
 )
 
 
@@ -168,3 +173,68 @@ def test_physical_gpu_identity_prefers_container_runtime_selection(
 def test_explicit_physical_gpu_token_is_strict(value: str) -> None:
     with pytest.raises(RuntimeError, match="AAP_GPU_PHYSICAL_DEVICE_TOKEN"):
         physical_gpu_identity({"AAP_GPU_PHYSICAL_DEVICE_TOKEN": value})
+
+
+def test_observed_gpu_requires_exact_single_physical_identity(monkeypatch) -> None:
+    uuid = "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb"
+    monkeypatch.setattr(
+        "aap_backend_runtime.gpu.subprocess.check_output",
+        lambda *args, **kwargs: f"{uuid}, 24576, 560.35\n",
+    )
+    assert observed_single_nvidia_gpu(uuid) == {
+        "device_uuid": uuid,
+        "total_memory_mb": 24576,
+        "driver_version": "560.35",
+    }
+    with pytest.raises(RuntimeError, match="do not match"):
+        observed_single_nvidia_gpu("GPU-ac5e7f45-7a36-c3f8-1f65-a54f28bfcd31")
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, 0, 560.35",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, N/A, 560.35",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, 24576, ",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, 24576, 560.35\nGPU-other, 24576, 560.35",
+    ],
+)
+def test_observed_gpu_rejects_missing_or_ambiguous_facts(monkeypatch, output) -> None:
+    monkeypatch.setattr(
+        "aap_backend_runtime.gpu.subprocess.check_output",
+        lambda *args, **kwargs: output,
+    )
+    with pytest.raises(RuntimeError):
+        observed_single_nvidia_gpu("GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb")
+
+
+@pytest.mark.parametrize(
+    ("status", "version", "expected"),
+    [(0, 12080, "12.8.0"), (0, 12090, "12.9.0"), (1, 12080, None), (0, 0, None)],
+)
+def test_observed_cuda_runtime_uses_library_result(
+    monkeypatch, status, version, expected
+):
+    def get_version(pointer):
+        ctypes.cast(pointer, ctypes.POINTER(ctypes.c_int))[0] = version
+        return status
+
+    monkeypatch.setattr(
+        "aap_backend_runtime.gpu.ctypes.CDLL",
+        lambda name: types.SimpleNamespace(cudaRuntimeGetVersion=get_version),
+    )
+    if expected is None:
+        with pytest.raises(RuntimeError, match="did not report"):
+            observed_cuda_runtime_version()
+    else:
+        assert observed_cuda_runtime_version() == expected
+
+
+def test_observed_cuda_runtime_requires_library(monkeypatch):
+    def missing(_name):
+        raise OSError("not installed")
+
+    monkeypatch.setattr("aap_backend_runtime.gpu.ctypes.CDLL", missing)
+    with pytest.raises(RuntimeError, match="Cannot inspect"):
+        observed_cuda_runtime_version()

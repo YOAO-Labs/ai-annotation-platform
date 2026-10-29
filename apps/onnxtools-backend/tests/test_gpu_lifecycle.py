@@ -117,6 +117,107 @@ async def _enforce(lifecycle, private_key, *, epoch: str = "1"):
 
 
 @pytest.mark.asyncio
+async def test_cpu_terminal_drain_covers_all_handles_and_preserves_borrower() -> None:
+    from gpu_lifecycle import OnnxToolsGpuLifecycle
+    from handle_pool import HandlePool
+
+    pool = HandlePool(
+        _factories(),
+        lambda name, _handle: (
+            [["CPUExecutionProvider"]] * (2 if name == "pipeline" else 1)
+        ),
+    )
+    lifecycle = OnnxToolsGpuLifecycle(
+        pool,
+        verify_keyring={},
+        boot_id="boot-cpu",
+        expected_registry_id="backend-1",
+        terminal_cpu_enabled=True,
+    )
+    args = {"registry_id": "backend-1", "boot_id": "boot-cpu", "operation_id": "stop-1"}
+    await pool.warmup("pipeline")
+    await pool.warmup("va")
+    operation = await lifecycle.begin_workload(
+        AdmissionScope.PREDICT, generation_header=None, token=None
+    )
+    async with pool.borrow("detector") as lease:
+        stop = asyncio.create_task(lifecycle.terminal_drain(**args))
+        for _ in range(200):
+            if (await lifecycle.residency()).draining:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("terminal drain did not fence the pool")
+        assert not stop.done()
+        with pytest.raises(LifecycleHTTPError):
+            await lifecycle.begin_workload(
+                AdmissionScope.PREDICT, generation_header=None, token=None
+            )
+        stop.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await stop
+        assert lease.handle is not None
+        await operation.close()
+    proof = await asyncio.wait_for(lifecycle.terminal_drain(**args), timeout=2)
+    assert proof["pool_ids"] == ["pipeline", "detector", "va"]
+    assert proof["unloaded"] is True
+    assert (await pool.snapshot())["current_size"] == 0
+    await lifecycle.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_signed_terminal_drain_keeps_existing_drain_owner_and_pool_ids() -> None:
+    from gpu_lifecycle import OnnxToolsGpuLifecycle
+    from handle_pool import HandlePool
+
+    key = Ed25519PrivateKey.generate()
+    pool = HandlePool(_factories(), _inspect)
+    lifecycle = OnnxToolsGpuLifecycle(
+        pool,
+        verify_keyring={"current": key.public_key()},
+        evictable_verified=True,
+        boot_id="boot-1",
+        expected_registry_id="backend-1",
+        expected_gpu_resource_id="node-a/GPU-1",
+    )
+    await _enforce(lifecycle, key)
+    operation = await lifecycle.begin_workload(
+        AdmissionScope.WARMUP,
+        generation_header="1",
+        token=_token(lifecycle, key, AdmissionScope.WARMUP, generation="1", jti="load"),
+    )
+    await pool.warmup("pipeline")
+    await operation.close()
+    await lifecycle.drain(
+        "2",
+        generation_header="2",
+        token=_token(lifecycle, key, AdmissionScope.DRAIN, generation="2", jti="drain"),
+    )
+    signed = _token(
+        lifecycle, key, AdmissionScope.DRAIN, generation="2", jti="terminal"
+    )
+    proof = await lifecycle.terminal_drain_signed(
+        "2", generation_header="2", token=signed
+    )
+    assert proof["pool_ids"] == ["pipeline", "detector", "va"]
+    assert proof["unloaded"] is True
+    assert (await pool.snapshot())["current_size"] == 0
+    assert (
+        await lifecycle.terminal_drain_signed("2", generation_header="2", token=signed)
+        == proof
+    )
+    with pytest.raises(LifecycleHTTPError):
+        await lifecycle.cancel_drain(
+            "3",
+            generation_header="3",
+            token=_token(
+                lifecycle, key, AdmissionScope.RESUME, generation="3", jti="resume"
+            ),
+        )
+    await lifecycle.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_fresh_boot_reports_trusted_legacy_empty_residency() -> None:
     lifecycle, _pool, _key = _domain()
 

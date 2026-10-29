@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import sys
 import types
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -150,6 +151,36 @@ def test_composite_routes_cpu_preference_to_both_business_sessions(monkeypatch):
     assert pipeline.class_names == ["car"]
 
 
+def test_partial_composite_failure_releases_constructed_detector(monkeypatch):
+    references = []
+
+    class Detector:
+        pass
+
+    def make_detector(_providers):
+        detector = Detector()
+        references.append(weakref.ref(detector))
+        return detector
+
+    def fail_classifier(_providers):
+        raise RuntimeError("classifier construction failed")
+
+    class FakePipeline:
+        pass
+
+    pipeline_module = types.ModuleType("onnxtools.pipeline")
+    pipeline_module.VehicleAttributePipeline = FakePipeline
+    monkeypatch.setitem(sys.modules, "onnxtools.pipeline", pipeline_module)
+    monkeypatch.setattr(
+        backend_main, "_probe_providers", lambda: ["CPUExecutionProvider"]
+    )
+    monkeypatch.setattr(backend_main, "_make_detector", make_detector)
+    monkeypatch.setattr(backend_main, "_make_va_classifier", fail_classifier)
+    with pytest.raises(RuntimeError, match="classifier construction failed"):
+        backend_main._make_pipeline()
+    assert references[0]() is None
+
+
 def test_upstream_pipeline_shim_contract():
     onnxtools = pytest.importorskip("onnxtools")
     pipeline_module = pytest.importorskip("onnxtools.pipeline")
@@ -161,3 +192,132 @@ def test_upstream_pipeline_shim_contract():
     pipeline_module.VehicleAttributePipeline.__new__(
         pipeline_module.VehicleAttributePipeline
     )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"])
+@pytest.mark.asyncio
+async def test_plugin_profile_reports_factory_topology_and_enforces_device(
+    monkeypatch, tmp_path, device
+):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from aap_protocol_v2.lifecycle import encode_ed25519_public_key
+
+    registry = "bf7fcc5e-3be5-4ab0-a1d8-d009b4b2baaa"
+    gpu_uuid = "GPU-78f02e07-08db-42cc-8758-68942a54443f"
+    monkeypatch.setenv("AAP_PLUGIN_TOKEN_FILE", str(tmp_path / "token"))
+    monkeypatch.setenv("AAP_PLUGIN_REGISTRY_ID", registry)
+    monkeypatch.setenv("AAP_ROUTE_REGISTRY_ID", registry)
+    monkeypatch.setenv("AAP_PLUGIN_DEVICE", device)
+    monkeypatch.setenv("AAP_PLUGIN_ID", "test")
+    monkeypatch.setenv("AAP_PLUGIN_VERSION", "test")
+    monkeypatch.setenv("NVIDIA_VISIBLE_DEVICES", "none")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    monkeypatch.delenv("AAP_PLUGIN_GPU_RESOURCE_ID", raising=False)
+    monkeypatch.delenv("AAP_PLUGIN_GPU_UUID", raising=False)
+    monkeypatch.delenv("AAP_PLUGIN_QUALIFICATION_FILE", raising=False)
+    monkeypatch.setattr(backend_main, "MANAGED_LIFECYCLE_VERIFIED", True)
+
+    def unexpected_probe(*_args, **_kwargs):
+        pytest.fail("plugin startup must not construct an untracked ORT session")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        SimpleNamespace(
+            __version__="test",
+            get_available_providers=lambda: [
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ],
+            InferenceSession=unexpected_probe,
+        ),
+    )
+    monkeypatch.setattr(
+        backend_main,
+        "_make_detector",
+        lambda: SimpleNamespace(_onnx_session=_FakeSession(["CPUExecutionProvider"])),
+    )
+    for name in (
+        "_handle_pool",
+        "_predictor",
+        "_gpu_lifecycle",
+        "_idle_task",
+        "_provider_preference",
+    ):
+        monkeypatch.setattr(backend_main, name, getattr(backend_main, name))
+    for name in (
+        "plugin_mode",
+        "strict_cuda",
+        "gpu_facts",
+        "runtime_versions",
+        "lifecycle_verified",
+    ):
+        monkeypatch.setattr(backend_main.app.state, name, None, raising=False)
+
+    if device == "cuda:0":
+        key = Ed25519PrivateKey.generate()
+        keyring = tmp_path / "keyring.json"
+        keyring.write_text(
+            '{"test": "' + encode_ed25519_public_key(key.public_key()) + '"}'
+        )
+        monkeypatch.setenv("AAP_PLUGIN_GPU_KEYRING_FILE", str(keyring))
+        monkeypatch.setenv("AAP_PLUGIN_GPU_RESOURCE_ID", "test-resource")
+        monkeypatch.setenv("AAP_PLUGIN_GPU_UUID", gpu_uuid)
+        monkeypatch.setenv("CUDA_VERSION", "12.8.1")
+        monkeypatch.setattr(
+            backend_main, "observed_cuda_runtime_version", lambda: "12.8.0"
+        )
+        monkeypatch.setattr(
+            backend_main,
+            "observed_single_nvidia_gpu",
+            lambda _uuid: {
+                "device_uuid": gpu_uuid,
+                "driver_version": "test-driver",
+                "total_memory_mb": 1000,
+            },
+        )
+
+    async with backend_main.lifespan(backend_main.app):
+        health = await backend_main.health()
+        setup = backend_main.setup()
+        counts = {"pipeline": 2, "detector": 1, "va": 1}
+        assert "managed_lifecycle" not in setup
+        assert health["residency"]["evictable"] is False
+        assert health["compute"]["configured_device"] == device
+        assert health["compute"]["cpu_fallback_supported"] is (device == "cpu")
+        assert (
+            health["ort_session_counts"]
+            == setup["runtime_info"]["ort_session_counts"]
+            == counts
+        )
+        if device == "cuda:0":
+            with pytest.raises(backend_main.HandleDeviceError):
+                async with backend_main._handle_pool.borrow("detector"):
+                    pytest.fail("CPU session must not be published in a CUDA plugin")
+            assert (await backend_main._handle_pool.snapshot())["current_size"] == 0
+        else:
+            async with backend_main._handle_pool.borrow("detector"):
+                pass
+            assert (await backend_main.health())["compute"]["effective_device"] == "cpu"
+
+
+@pytest.mark.asyncio
+async def test_cuda_plugin_fails_closed_when_ort_has_no_cuda_provider(monkeypatch):
+    monkeypatch.setenv("AAP_PLUGIN_TOKEN_FILE", "/test/token")
+    monkeypatch.setenv("AAP_PLUGIN_REGISTRY_ID", "registry")
+    monkeypatch.setenv("AAP_ROUTE_REGISTRY_ID", "registry")
+    monkeypatch.setenv("AAP_PLUGIN_DEVICE", "cuda:0")
+    monkeypatch.setenv("AAP_PLUGIN_GPU_RESOURCE_ID", "resource")
+    monkeypatch.setenv("AAP_PLUGIN_GPU_UUID", "GPU-test")
+    monkeypatch.setenv("NVIDIA_VISIBLE_DEVICES", "none")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        SimpleNamespace(
+            __version__="test", get_available_providers=lambda: ["CPUExecutionProvider"]
+        ),
+    )
+    with pytest.raises(RuntimeError, match="requires the ONNX Runtime CUDA provider"):
+        async with backend_main.lifespan(backend_main.app):
+            pytest.fail("a CPU-only ORT must not start a CUDA plugin")

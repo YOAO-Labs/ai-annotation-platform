@@ -5,8 +5,11 @@ torch 故意惰性 import 在 try 内: onnx / 纯 CPU 环境无 torch 时降级�
 
 from __future__ import annotations
 
+import ctypes
 import gc
 import os
+import re
+import subprocess
 from collections.abc import Mapping
 from typing import Any
 
@@ -130,6 +133,63 @@ def physical_gpu_identity(
             continue
         return _physical_identity_from_token(token, name=name)
     return {}
+
+
+def observed_single_nvidia_gpu(expected_uuid: str) -> dict[str, str | int]:
+    """Read and bind actual visible hardware facts without a Torch dependency."""
+    if (
+        re.fullmatch(
+            r"GPU-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            expected_uuid,
+        )
+        is None
+    ):
+        raise RuntimeError("A physical NVIDIA GPU UUID is required")
+    try:
+        output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=uuid,memory.total,driver_version",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.PIPE,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Cannot inspect the allocated NVIDIA GPU") from exc
+    rows = [line.split(",") for line in output.splitlines() if line.strip()]
+    if len(rows) != 1 or len(rows[0]) != 3:
+        raise RuntimeError("Exactly one inspectable NVIDIA GPU is required")
+    uuid, memory, driver = (value.strip() for value in rows[0])
+    if (
+        uuid != expected_uuid
+        or not driver
+        or not memory.isdecimal()
+        or int(memory) <= 0
+    ):
+        raise RuntimeError("Observed NVIDIA GPU facts do not match the allocation")
+    return {
+        "device_uuid": uuid,
+        "total_memory_mb": int(memory),
+        "driver_version": driver,
+    }
+
+
+def observed_cuda_runtime_version() -> str:
+    """Read the CUDA runtime library version actually loaded by this process."""
+    try:
+        library = ctypes.CDLL("libcudart.so.12")
+        get_version = library.cudaRuntimeGetVersion
+    except (OSError, AttributeError) as exc:
+        raise RuntimeError("Cannot inspect the CUDA runtime library") from exc
+    get_version.argtypes = [ctypes.POINTER(ctypes.c_int)]
+    get_version.restype = ctypes.c_int
+    version = ctypes.c_int()
+    if get_version(ctypes.byref(version)) != 0 or version.value <= 0:
+        raise RuntimeError("CUDA runtime library did not report its version")
+    value = version.value
+    return f"{value // 1000}.{(value % 1000) // 10}.{value % 10}"
 
 
 def free_gpu_memory() -> None:
