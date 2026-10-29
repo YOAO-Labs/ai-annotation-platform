@@ -2,14 +2,14 @@
 
 > 这个文件位于 `docs-site/maintainers/image-checklist.md`，不参与文档站发布，仅作为 maintainer 的工作清单。
 >
-> 标 `[auto]` 的图由 `pnpm --filter @anno/web screenshots` 自动生成（脚本：`apps/web/e2e/screenshots/`），输出到 `docs-site/user-guide/images/`。
+> 标 `[auto]` 的图由 `pnpm --filter web screenshots` 自动生成（脚本：`apps/web/e2e/screenshots/`），输出到 `docs-site/user-guide/images/`。
 >
 > 正式流程素材先统一归档高清营销母版，再由 `pnpm docs:media:derive` 统一派生 GIF、文档 MP4、首页 WebM/MP4 和封面；`screenshots:flows` 只用于预演。历史标准源仅在明确要求复用时显式选择 `--quality standard` 并指定审阅过的 `--clip start:duration`，不能替代新高清母版。
 > 更新流程：
 >
 > 1. 启动 docker / api / dev 三件套（同 `pnpm test:e2e`）
 > 2. 核对隔离运行环境，修复截图 seed 并按能力绑定 live backend；协议 stub 仅用于支持它的静态截图或诊断，不代替真实 ML 母版
-> 3. 静态截图运行 `pnpm --filter @anno/web screenshots:matrix`；正式视频运行 `pnpm --filter @anno/web screenshots:record -- --flow <id>`，再执行 `pnpm docs:media:derive`；首页 Hero 源图有变化时再运行 `pnpm --filter @anno/docs-site media:home-hero`
+> 3. 静态截图运行 `pnpm --filter web screenshots:matrix`；正式视频运行 `pnpm --filter web screenshots:record -- --flow <id>`，再执行 `pnpm docs:media:derive`；首页 Hero 源图有变化时再运行 `pnpm --filter docs-site media:home-hero`
 > 4. 人眼审阅全部 PNG，并检查 MP4/GIF 的起点、核心动作、结果落地和终点
 > 5. 运行 `pnpm docs:media:audit -- --release`、manifest release gate 和 orphan strict gate 后再提交
 

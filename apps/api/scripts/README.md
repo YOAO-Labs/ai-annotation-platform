@@ -166,7 +166,7 @@ stub 默认复用 `ML_BACKEND_STORAGE_HOST` 的主机部分并使用 `9100`，�
 `apps/api` 导入当前开发栈：
 
 ```bash
-pnpm --filter @anno/web image:seeds
+pnpm --filter web image:seeds
 
 cd apps/api
 PYTHONPATH=. uv run python scripts/seed_large_images.py \

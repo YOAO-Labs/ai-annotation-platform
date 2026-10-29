@@ -162,8 +162,8 @@ npm run docs:build
 
 ```bash
 pnpm exec prettier --check docs-site/dev/how-to/write-documentation.md
-pnpm --filter @anno/docs-site check:frontmatter
-pnpm --filter @anno/docs-site check:codegen
+pnpm --filter docs-site check:frontmatter
+pnpm --filter docs-site check:codegen
 pnpm docs:build
 git diff --check
 ```

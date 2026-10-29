@@ -373,8 +373,8 @@ uv run celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
 uv run celery -A app.workers.celery_app beat -l info --schedule=/tmp/celerybeat-schedule
 
 # Web：构建静态产物后交给宿主机 nginx 托管
-pnpm install --filter @anno/web
-pnpm --filter @anno/web build
+pnpm install --filter web
+pnpm --filter web build
 # 把 apps/web/dist/ rsync 到 nginx 的 root 目录；nginx 反代 /api/ /ws/→后端（参考 infra/docker/nginx.conf）
 ```
 

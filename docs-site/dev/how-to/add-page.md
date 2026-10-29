@@ -115,8 +115,8 @@ it("有数据：渲染条目", async () => {
 - 局部复杂布局可使用同名 CSS Module（`Widgets.module.css`），内部仅消费 `--sc-*` 变量，严禁使用遗留 `--color-*`、裸色值或 JSX <code v-pre>style={{...}}</code>。
 - 完成后运行样式门禁验证：
   ```bash
-  pnpm --filter @anno/web lint:css-tokens
-  pnpm --filter @anno/web test
+  pnpm --filter web lint:css-tokens
+  pnpm --filter web test
   ```
 
 详见[设计系统参考](../reference/design-system)。

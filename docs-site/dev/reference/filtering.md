@@ -27,7 +27,7 @@ last_reviewed: 2026-10-19
 
 `components/filters/FilterTrigger` 固定使用项目页的漏斗图标；`FilterPanel` 提供按钮旁的非模态 Popover 与窄屏底部 Sheet，标题、正文滚动和底部操作区共用布局。它们只管理展示，不拥有业务草稿或请求参数。
 
-项目页通过 `ProjectFilterControl` 保持入口同步显示，首次展开时才加载 `ProjectFilterPanel` 及其浮层依赖；已应用摘要由独立的 `ProjectFilterSummary` 同步渲染，不能从重型面板模块反向导入。首次加载后保留面板组件，关闭和重新打开仍由 Radix 管理动画与焦点。生产构建后还需运行 `pnpm --filter @anno/web size`；仅构建成功不代表满足主包预算。
+项目页通过 `ProjectFilterControl` 保持入口同步显示，首次展开时才加载 `ProjectFilterPanel` 及其浮层依赖；已应用摘要由独立的 `ProjectFilterSummary` 同步渲染，不能从重型面板模块反向导入。首次加载后保留面板组件，关闭和重新打开仍由 Radix 管理动画与焦点。生产构建后还需运行 `pnpm --filter web size`；仅构建成功不代表满足主包预算。
 
 `FilterGroup`、`FilterToggle` 和 `FilterSelect` 统一常驻筛选的标识与控件样式，保留原生按钮/选择框语义。`ActiveFilterChip` 把编辑与移除拆成并列操作，并以可访问名称和可见文字标识无效条件。筛选组不用缺少 tabpanel 的 tablist 语义；真正的导航页签不受影响。
 

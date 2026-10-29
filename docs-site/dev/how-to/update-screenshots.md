@@ -16,7 +16,7 @@ last_reviewed: 2026-10-22
 修改浏览器启动参数后，可运行不依赖 API 或截图数据库的绘制检查：
 
 ```bash
-pnpm --filter @anno/web exec playwright test --config=playwright.screenshot-canvas.config.ts
+pnpm --filter web exec playwright test --config=playwright.screenshot-canvas.config.ts
 ```
 
 ## 高清母版统一采集与衍生
@@ -28,16 +28,16 @@ ML 与非 ML 流程遵循相同规则，不再单独录制低规格文档源。�
 
 ```bash
 # 仓库根目录：查看已登记场景、只预览依赖（不连接服务或写库）
-pnpm --filter @anno/web screenshots:record -- --list
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --plan
+pnpm --filter web screenshots:record -- --list
+pnpm --filter web screenshots:record -- --flow bbox-draw --plan
 
 # 准备好下文的隔离环境和素材缓存后采集高清母版（默认 marketing）
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw
-pnpm --filter @anno/web screenshots:record -- --flow ocr-inference
-pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point
+pnpm --filter web screenshots:record -- --flow bbox-draw
+pnpm --filter web screenshots:record -- --flow ocr-inference
+pnpm --filter web screenshots:record -- --flow sam-tool-smart-point
 
 # 流程预演：不生成视频或正式源归档
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile docs --validate-only
+pnpm --filter web screenshots:record -- --flow bbox-draw --profile docs --validate-only
 ```
 
 默认 `marketing` 规格在 Mac 选择原生 ScreenCaptureKit，在 Linux 使用 X11/NVIDIA。
@@ -65,7 +65,7 @@ Mac 需要 **macOS 14 或更新系统**、Xcode Command Line Tools（`xcrun swif
 而不是等开始写帧后才启用；命令退出即释放，不修改永久系统设置：
 
 ```bash
-caffeinate -dimsu pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile marketing
+caffeinate -dimsu pnpm --filter web screenshots:record -- --flow bbox-draw --profile marketing
 ```
 
 入口必须设置 `SCREENSHOT_DATABASE_URL`，以及完全相同、显式选择非零 Redis DB 的
@@ -104,7 +104,7 @@ Mac 可用 `--profile docs --validate-only` 预演已注册的远程 Linux 模�
 显式选择此流程录制，避免全量预演意外启动训练：
 
 ```bash
-pnpm --filter @anno/web screenshots:record -- --flow detection-online-training --headless-display
+pnpm --filter web screenshots:record -- --flow detection-online-training --headless-display
 
 # 私有交付：同一合格母版派生 1080p MP4 和封面，不修改公共素材或其清单。
 pnpm docs:media:derive -- --run <run-id> --asset detection-online-training \
@@ -226,7 +226,7 @@ SCREENSHOT_VALIDATE_ONLY=1 pnpm screenshots
 SCREENSHOT_VALIDATE_ONLY=1 SCREENSHOT_STATIC_PROFILE=non-ml pnpm screenshots:matrix
 
 # 首页 Hero 静态卡片源图更新后，按本轮范围生成轻量 WebP
-pnpm --filter @anno/docs-site media:home-hero --asset video-track --asset pointcloud --asset review
+pnpm --filter docs-site media:home-hero --asset video-track --asset pointcloud --asset review
 ```
 
 静态矩阵的 `SCREENSHOT_STATIC_PROFILE=non-ml` 会把运行限制在 `desktop-light`、`desktop-dark`
@@ -287,7 +287,7 @@ Linux 桌面至少需要 2700×1750，以容纳 2592×1458 内容区和浏览器
 无显示器的 Linux NVIDIA 主机可使用同一录制入口的 `--headless-display`：
 
 ```bash
-pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point --headless-display
+pnpm --filter web screenshots:record -- --flow sam-tool-smart-point --headless-display
 ```
 
 该选项在数据库准备前启动独立 NVIDIA Xorg，使用未占用的 display、独立 seat、3840×2160 虚拟屏幕、

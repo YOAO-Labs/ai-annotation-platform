@@ -26,16 +26,16 @@ The browser/encoder host and the inference host are independent. A Mac can rehea
 
 ```bash
 # Read-only selection and dependency preview, from the repository root.
-pnpm --filter @anno/web screenshots:record -- --list
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --plan
-pnpm --filter @anno/web screenshots:record -- --flow ocr-inference --plan
+pnpm --filter web screenshots:record -- --list
+pnpm --filter web screenshots:record -- --flow bbox-draw --plan
+pnpm --filter web screenshots:record -- --flow ocr-inference --plan
 
 # After preparing the isolated stack and verifying its process environment:
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw
-pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point
+pnpm --filter web screenshots:record -- --flow bbox-draw
+pnpm --filter web screenshots:record -- --flow sam-tool-smart-point
 # Linux without a monitor: own a separate NVIDIA Xorg display for this invocation.
-pnpm --filter @anno/web screenshots:record -- --flow sam-tool-smart-point --headless-display
-pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile docs --validate-only
+pnpm --filter web screenshots:record -- --flow sam-tool-smart-point --headless-display
+pnpm --filter web screenshots:record -- --flow bbox-draw --profile docs --validate-only
 ```
 
 - The launcher requires `SCREENSHOT_DATABASE_URL`, plus identical `REDIS_URL` and `CELERY_BROKER_URL` selecting an explicit nonzero Redis DB. It pins both database overrides for child processes. Verify the API and worker targets separately; a suffix check does not prove they use the same database. Real inference requires dedicated `screenshots@` workers and no unrelated workers on that broker.
@@ -53,7 +53,7 @@ pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --profile docs --
 - `--list` also reports profile restrictions. The billboard-label, camera-seed-3d-box, and crossframe-track point-cloud flows require the existing hardware WebGL/60Hz surface even though they do not need ML; selecting them under `docs` fails before seeding, rather than succeeding with a skipped recording.
 - Only explicitly enrolled flows are accepted; inspect `apps/web/e2e/screenshots/recording-plan.mjs`. To add a flow, trace its inference, fixture, and cleanup calls, declare its requirement, and test it. `smart-scribble` uses a stored native Mask as its input and requires real positive/negative scribble responses, changed candidate content, preserved source identity and saved-version readback; do not replace these responses with fixtures when recording live evidence. Complex pipeline/tracker flows remain on their existing full-profile commands until their dependencies are declared.
 
-Use `--validate-only` for interaction validation without writing video assets; it still prepares and mutates the isolated fixtures. `--plan` and `--list` do not contact services or seed data. Run `pnpm --filter @anno/web screenshots:record:test` for selector/encoding/manifest regression checks; these checks are not a product-flow or Linux GPU recording acceptance test.
+Use `--validate-only` for interaction validation without writing video assets; it still prepares and mutates the isolated fixtures. `--plan` and `--list` do not contact services or seed data. Run `pnpm --filter web screenshots:record:test` for selector/encoding/manifest regression checks; these checks are not a product-flow or Linux GPU recording acceptance test.
 
 ## One derivation pipeline
 
@@ -73,7 +73,7 @@ pnpm docs:media:derive -- --quality standard --run <run-id> --asset video-chapte
 
 # Article presets use the same validation, encoding, and provenance implementation.
 pnpm docs:media:derive -- --run /absolute/path/to/run --article 06-video-track --asset video-draw
-pnpm --filter @anno/web screenshots:docs-media:test
+pnpm --filter web screenshots:docs-media:test
 ```
 
 `--quality` defaults to `marketing`; never silently fall back to standard. New production refreshes use marketing sources; explicit `standard` examples above apply only to historical archives whose reuse was requested. `--run` accepts a run name under the selected archive root or an absolute run directory containing `manifest.json`. Without `--asset`, only registered assets present in that run and supported by the requested format are processed, not the complete asset catalog. `--format all` is the default; `video` includes video/poster outputs and `gif` uses recorded GIF recipes. Historical marketing manifests without GIF recipes still support video/posters; recapture before explicitly requesting their GIFs. Implicit GIF batches skip video-only assets.

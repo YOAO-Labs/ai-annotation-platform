@@ -13,8 +13,8 @@ last_reviewed: 2026-10-19
 ## 快速运行
 
 ```bash
-pnpm --filter @anno/web video:bench -- --dry-run
-pnpm --filter @anno/web video:bench
+pnpm --filter web video:bench -- --dry-run
+pnpm --filter web video:bench
 ```
 
 默认产物写到 `test-results/video-bench/<run-id>/`：
@@ -25,8 +25,8 @@ pnpm --filter @anno/web video:bench
 可选参数：
 
 ```bash
-pnpm --filter @anno/web video:bench -- --base-url http://localhost:3000
-pnpm --filter @anno/web video:bench -- --out /tmp/video-bench
+pnpm --filter web video:bench -- --base-url http://localhost:3000
+pnpm --filter web video:bench -- --out /tmp/video-bench
 ```
 
 ## Bench 矩阵
@@ -44,10 +44,10 @@ fixture 描述在 `apps/web/scripts/video-bench/fixtures.json`：
 ## WebCodecs 精确帧基准
 
 ```bash
-pnpm --filter @anno/web video:bench -- --scenario precise-frame --dry-run
+pnpm --filter web video:bench -- --scenario precise-frame --dry-run
 
 VIDEO_BENCH_CHROMIUM_CHANNEL=chrome \
-pnpm --filter @anno/web video:bench -- \
+pnpm --filter web video:bench -- \
   --scenario precise-frame --seed --headed --strict \
   --base-url http://127.0.0.1:3001
 ```
@@ -67,7 +67,7 @@ VIDEO_BENCH_CHROMIUM_CHANNEL=chrome \
 VIDEO_BENCH_TASK_1080P_30_URL=/projects/.../annotate?task=... \
 VIDEO_BENCH_TASK_1080P_60_URL=/projects/.../annotate?task=... \
 VIDEO_BENCH_TASK_4K_30_URL=/projects/.../annotate?task=... \
-pnpm --filter @anno/web video:bench -- --scenario precise-frame --headed --strict
+pnpm --filter web video:bench -- --scenario precise-frame --headed --strict
 ```
 
 `--dry-run` 只校验矩阵，不启动浏览器、不写报告，也不产生 Worker 结论。不使用 `--seed` 时必须提供

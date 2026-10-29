@@ -71,9 +71,9 @@ function cn(...xs: Array<string | false | null | undefined>): string {
 
 ### 5. 验证
 
-- `pnpm --filter @anno/web typecheck` 干净。
-- `pnpm --filter @anno/web lint:css-tokens` 与 `pnpm --filter @anno/web lint` 干净。
-- `pnpm --filter @anno/web test` 该模块既有测试全过（无视觉回归）。
+- `pnpm --filter web typecheck` 干净。
+- `pnpm --filter web lint:css-tokens` 与 `pnpm --filter web lint` 干净。
+- `pnpm --filter web test` 该模块既有测试全过（无视觉回归）。
 - `rg -n --glob '*.tsx' "style\\s*=|<style" apps/web/src` 无输出。
 - 本地预览实际渲染：进入该页面关键交互（创建 / 批量操作 / 看板切换 / Modal）确认亮/暗主题表现一致。
 

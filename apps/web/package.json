@@ -1,5 +1,5 @@
 {
-  "name": "@anno/web",
+  "name": "web",
   "private": true,
   "version": "0.26.2",
   "type": "module",

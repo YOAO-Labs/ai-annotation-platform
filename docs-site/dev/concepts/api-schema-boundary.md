@@ -60,7 +60,7 @@ pnpm codegen
 # 输出：apps/web/src/api/generated/types.gen.ts（gitignored）
 ```
 
-`pnpm --filter @anno/web build` 通过 `prebuild` 钩子（`apps/web/scripts/codegen-if-changed.mjs`）仅在 snapshot 比本地生成产物更新时执行 codegen，兼顾类型安全与构建速度。
+`pnpm --filter web build` 通过 `prebuild` 钩子（`apps/web/scripts/codegen-if-changed.mjs`）仅在 snapshot 比本地生成产物更新时执行 codegen，兼顾类型安全与构建速度。
 
 ## Capability Registry Codegen
 

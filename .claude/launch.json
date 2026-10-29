@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@anno/web", "dev"],
+      "runtimeArgs": ["--filter", "web", "dev"],
       "port": 3000,
       "autoPort": true
     },
@@ -29,7 +29,7 @@
     {
       "name": "docs",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@anno/docs-site", "dev", "--port", "5199"],
+      "runtimeArgs": ["--filter", "docs-site", "dev", "--port", "5199"],
       "port": 5199,
       "autoPort": true
     }

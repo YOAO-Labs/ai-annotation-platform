@@ -26,34 +26,34 @@ jobs:
       # Independent gates keep running after failures; a failed gate still fails the job.
       - name: Snippet anchor consistency
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:snippets
+        run: pnpm --filter docs-site check:snippets
       - name: ADR numbering and status
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:adr
+        run: pnpm --filter docs-site check:adr
       - name: Plans freshness
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:plans
+        run: pnpm --filter docs-site check:plans
       - name: Changelog consistency
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:changelog
+        run: pnpm --filter docs-site check:changelog
       - name: Frontmatter metadata
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:frontmatter
+        run: pnpm --filter docs-site check:frontmatter
       - name: Documentation freshness
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:freshness
+        run: pnpm --filter docs-site check:freshness
       - name: Media policy tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site media:test
+        run: pnpm --filter docs-site media:test
       - name: Diagram integrity
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:diagrams
+        run: pnpm --filter docs-site check:diagrams
       - name: Generated documentation consistency
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:codegen
+        run: pnpm --filter docs-site check:codegen
       - name: Navigation coverage
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site check:navigation -- --strict
+        run: pnpm --filter docs-site check:navigation -- --strict
       - name: Complete screenshot manifest
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node docs-site/scripts/check-image-manifest.mjs --release
@@ -70,13 +70,13 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           DOCS_BASE: /ai-annotation-platform/
-        run: pnpm --filter @anno/docs-site build
+        run: pnpm --filter docs-site build
       - name: Internal Markdown links
         if: ${{ !cancelled() && steps.link-targets.outcome == 'success' }}
         run: node scripts/check-dead-links.mjs docs-site
       - name: Release media review and provenance
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @anno/docs-site media:audit -- --release --output ../.artifacts/docs-acceptance.json
+        run: pnpm --filter docs-site media:audit -- --release --output ../.artifacts/docs-acceptance.json
       - name: Upload acceptance report
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         uses: actions/upload-artifact@v4

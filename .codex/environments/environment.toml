@@ -27,12 +27,12 @@ rm -rf -- .pytest_cache .ruff_cache apps/api/.pytest_cache apps/api/.ruff_cache 
 [[actions]]
 name = "Web typecheck"
 icon = "test"
-command = "pnpm --filter @anno/web typecheck"
+command = "pnpm --filter web typecheck"
 
 [[actions]]
 name = "Docs build"
 icon = "test"
-command = "pnpm --filter @anno/docs-site build"
+command = "pnpm --filter docs-site build"
 
 [[actions]]
 name = "API tests"

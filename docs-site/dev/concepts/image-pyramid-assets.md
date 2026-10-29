@@ -26,7 +26,7 @@ overscan。没有 ready pyramid 的小图继续使用原 single-image 路径。
 进入终态：
 
 ```bash
-pnpm --filter @anno/web image:seeds
+pnpm --filter web image:seeds
 cd apps/api
 PYTHONPATH=. uv run python scripts/seed_large_images.py \
   --enqueue-pyramids --wait-seconds 1800

@@ -38,7 +38,7 @@ jobs:
       - name: Build VitePress (predev/prebuild 会同步 openapi snapshot)
         env:
           DOCS_BASE: /ai-annotation-platform/
-        run: pnpm --filter @anno/docs-site build
+        run: pnpm --filter docs-site build
       - uses: actions/configure-pages@v5
         with:
           enablement: true
