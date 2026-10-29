@@ -243,7 +243,9 @@ async def test_plugin_profile_reports_factory_topology_and_enforces_device(
         monkeypatch.setenv("AAP_PLUGIN_GPU_KEYRING_FILE", str(keyring))
         monkeypatch.setenv("AAP_PLUGIN_GPU_RESOURCE_ID", "test-resource")
         monkeypatch.setenv("AAP_PLUGIN_GPU_UUID", gpu_uuid)
-        monkeypatch.setenv("CUDA_VERSION", "test-cuda")
+        monkeypatch.setattr(
+            backend_main, "observed_cuda_runtime_version", lambda: "12.8.0"
+        )
         monkeypatch.setattr(
             backend_main,
             "observed_single_nvidia_gpu",
