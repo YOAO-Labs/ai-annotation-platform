@@ -59,12 +59,20 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 
 ## 数据准备
 
-避免每个 spec 重复造数据：`e2e/fixtures/seed.ts` 通过
-`/api/v1/__test/seed/*` 创建 fixture。这组路由需要同时满足：
+`e2e/fixtures/seed.ts` 通过 worker 自有 Python 进程调用现有
+`/api/v1/__test/seed/*` router，准备和清理前置数据。只有该进程使用测试 owner
+凭据；普通产品 HTTP API 保持受限账号。进程复用导入，但每次响应前关闭数据库
+连接池，worker 结束时退出，不让夹具的连接或锁留到业务操作中。这不是独立 HTTP
+部署验收。这组路由与夹具通道需要同时满足：
 
 - `E2E_SEED_ENABLED=true`；
 - 当前数据库名以 `_e2e` 或 `_test` 结尾；
+- `PLAYWRIGHT_E2E_DATABASE_URL` 与 runtime `DATABASE_URL` 指向同一显式测试库；
 - `production` 环境永不挂载路由。
+
+截图配置从明确的 `SCREENSHOT_DATABASE_URL` 绑定这两个夹具选库值。仍须单独
+核对实际 API／worker 目标，不能以测试库后缀代替服务身份检查。真实创建／保存
+请求始终通过受限产品 API；夹具不能在保存失败后伪造结果。
 
 **默认使用私有命名空间 fixture**：`await seed.owned()` 按 spec 文件 + 测试标题
 确定性派生命名空间（`^[a-z0-9]{4,12}$`，重试稳定、跨测试唯一），由 `/seed/owned`

@@ -80,6 +80,8 @@ cd apps/web && pnpm exec playwright test --list --project=pointcloud
 
 对照发现的文件、每个入口的 nodeid、条件与实际 CI 路由，记录未收集、重复选择、skip 和 collection error；仅列出即使成功也不证明运行通过。Mask、视觉、压力及源码 Worker 必须使用各自配置／环境另行列出；真实性能、GPU、权重和工件验收须记录实际设备、资源及独立结果。
 
+夹具创建／清理由 `e2e/helpers/seed-owner-transport.ts` 在独立 Python 进程调用现有 seed router；夹具准备时仅该进程以测试 owner 身份连接数据库，并校验与 runtime 指向同一个显式 `_test`／`_e2e` 数据库。真实浏览器业务请求仍走受限 HTTP API，不恢复私表授权。该夹具通道是进程内 ASGI，不是独立 HTTP 部署资格证据。截图配置使用明确的 `SCREENSHOT_DATABASE_URL` 为夹具选库，不能指向日常开发或生产数据库。
+
 ---
 
 ## 后端：pytest (`apps/api`)

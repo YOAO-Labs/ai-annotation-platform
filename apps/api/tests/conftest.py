@@ -178,7 +178,10 @@ async def test_engine(test_db_url: str, apply_migrations):
 
 @pytest.fixture
 async def raster_owner_registry(test_engine):
-    from tests.raster_mask_isolation import remove_test_raster_owners, track_raster_owners
+    from tests.raster_mask_isolation import (
+        remove_test_raster_owners,
+        track_raster_owners,
+    )
 
     with track_raster_owners(test_engine) as created:
         try:

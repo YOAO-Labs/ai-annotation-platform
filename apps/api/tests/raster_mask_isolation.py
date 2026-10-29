@@ -37,7 +37,9 @@ def track_raster_owners(engine):
                 elif isinstance(row, RasterMaskPublication):
                     created.publications.add(row.id)
 
-    def register_operation(_connection, _cursor, _statement, _parameters, context, _many):
+    def register_operation(
+        _connection, _cursor, _statement, _parameters, context, _many
+    ):
         compiled = context.compiled
         if compiled is None or not getattr(compiled.statement, "is_insert", False):
             return
@@ -60,16 +62,18 @@ async def remove_test_raster_owners(engine, created):
     # Delete only registered operation and publication IDs, including guards
     # attached to reused owners. Never remove another test's guard.
     async with async_sessionmaker(engine)() as db:
-        await db.execute(delete(StorageOperation).where(StorageOperation.id.in_(created.operations)))
+        await db.execute(
+            delete(StorageOperation).where(StorageOperation.id.in_(created.operations))
+        )
         await db.execute(
             delete(RasterMaskPublication).where(
                 RasterMaskPublication.id.in_(created.publications)
             )
         )
         foreign_guard = await db.scalar(
-            select(RasterMaskPublication.id).where(
-                RasterMaskPublication.object_id.in_(created.objects)
-            ).limit(1)
+            select(RasterMaskPublication.id)
+            .where(RasterMaskPublication.object_id.in_(created.objects))
+            .limit(1)
         )
         if foreign_guard is not None:
             raise RuntimeError("raster owner still has an unowned publication")

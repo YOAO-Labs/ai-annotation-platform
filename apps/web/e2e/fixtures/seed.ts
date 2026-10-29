@@ -29,11 +29,15 @@ import {
   type Page,
   type Route,
   type APIRequestContext,
-  type APIResponse,
   type TestInfo,
 } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { screenshotCatalogPath } from "../screenshots/recording-plan.mjs";
+import {
+  closeFixtureTransport,
+  postFixture,
+  type SeedResponse,
+} from "../helpers/seed-owner-transport";
 
 export interface SeedData {
   admin_email: string;
@@ -359,23 +363,11 @@ export class SeedAPI {
     private testInfo?: TestInfo,
   ) {}
 
-  /**
-   * 录制时 4K 转码会让测试 API 连接空闲数十秒，Uvicorn 已关闭的 keep-alive socket
-   * 偶尔会被客户端复用并报 socket hang up。登录是幂等操作，遇到连接复位后用新连接重试。
-   */
-  private async seedLogin(email: string): Promise<APIResponse> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        return await this.request.post(`${API_BASE}/api/v1/__test/seed/login`, {
-          headers: { Connection: "close" },
-          data: { email },
-        });
-      } catch (error) {
-        if (attempt > 0 || !/socket hang up|ECONNRESET/i.test(String(error))) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    }
-    throw new Error("seed/login transient retry exhausted");
+  /** Seed setup runs outside the ordinary API credential boundary. */
+  private seedLogin(email: string): Promise<SeedResponse> {
+    return postFixture(`${API_BASE}/api/v1/__test/seed/login`, {
+      data: { email },
+    });
   }
 
   async accessToken(email: string): Promise<string> {
@@ -525,7 +517,7 @@ export class SeedAPI {
   async reset(): Promise<SeedData> {
     // Cleanup may remove WebCodecs objects in MinIO before rebuilding the fixture;
     // do not abandon that idempotent reset while the server is still completing it.
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/reset`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/reset`, {
       timeout: 60_000,
     });
     if (!res.ok()) {
@@ -555,7 +547,7 @@ export class SeedAPI {
    * seed-fixture teardown after the test.
    */
   async owned(namespace?: string): Promise<SeedData> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/owned`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned`, {
       data: { namespace: this.ownedNamespace(namespace) },
       timeout: 60_000,
     });
@@ -567,7 +559,7 @@ export class SeedAPI {
 
   /** Delete exactly one namespace's fixture; idempotent and neighbour-safe. */
   async cleanupOwned(namespace: string): Promise<void> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/owned-cleanup`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned-cleanup`, {
       data: { namespace },
       timeout: 60_000,
     });
@@ -606,7 +598,7 @@ export class SeedAPI {
   /** Build the multi-project employee-role acceptance fixture for this test's namespace. */
   async projectRoles(namespace?: string): Promise<ProjectRolesSeedData> {
     const token = this.ownedNamespace(namespace);
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/project-roles`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/project-roles`, {
       data: { namespace: token },
       timeout: 60_000,
     });
@@ -621,7 +613,7 @@ export class SeedAPI {
     options: { namespace?: string; videoReady?: boolean } = {},
   ): Promise<FilteringSeedManifest> {
     const token = this.ownedNamespace(options.namespace);
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/filtering`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/filtering`, {
       data: { namespace: token, video_ready: options.videoReady === true },
       timeout: 120_000,
     });
@@ -706,7 +698,7 @@ export class SeedAPI {
   /** Build the namespaced point-cloud fixture (reuses this namespace's users). */
   async seedLidar(namespace?: string): Promise<SeedLidarData> {
     const token = this.ownedNamespace(namespace);
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/lidar`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/lidar`, {
       data: { namespace: token },
     });
     if (!res.ok()) {
@@ -717,7 +709,7 @@ export class SeedAPI {
 
   /** 只切项目 opt-in；部署级 read/create 总闸由 API 进程环境决定。 */
   async configureRasterMask(projectId: string, enabled: boolean): Promise<void> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/configure-raster-mask`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/configure-raster-mask`, {
       data: { project_id: projectId, enabled },
     });
     if (!res.ok()) {
@@ -726,7 +718,7 @@ export class SeedAPI {
   }
 
   async videoTask(projectId: string): Promise<{ task_id: string }> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/video-task`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/video-task`, {
       data: { project_id: projectId },
     });
     if (!res.ok()) {
@@ -750,7 +742,7 @@ export class SeedAPI {
     chunk_size_frames: number;
     frame_expectations: Record<string, unknown>;
   }> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/video-webcodecs`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/video-webcodecs`, {
       data: {
         project_id: projectId,
         ...(options?.batchId ? { batch_id: options.batchId } : {}),
@@ -775,12 +767,9 @@ export class SeedAPI {
     feedback_id: string;
     anchor_position: Record<string, unknown>;
   }> {
-    const res = await this.request.post(
-      `${API_BASE}/api/v1/__test/seed/video-issue-context-history`,
-      {
-        data: { feedback_id: feedbackId },
-      },
-    );
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/video-issue-context-history`, {
+      data: { feedback_id: feedbackId },
+    });
     if (!res.ok()) {
       throw new Error(
         `seed/video-issue-context-history failed: ${res.status()} ${await res.text()}`,
@@ -794,7 +783,7 @@ export class SeedAPI {
     datasetItemId: string,
     chunkId = 0,
   ): Promise<{ status: "ready" | "pending" | "failed" }> {
-    const res = await this.request.post(
+    const res = await postFixture(
       `${API_BASE}/api/v1/__test/seed/video-webcodecs/transition-ready`,
       { data: { dataset_item_id: datasetItemId, chunk_id: chunkId } },
     );
@@ -807,7 +796,7 @@ export class SeedAPI {
   }
 
   async trackerReview(taskId: string, userEmail: string): Promise<SeedTrackerReviewData> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/tracker-review`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/tracker-review`, {
       data: { task_id: taskId, user_email: userEmail },
     });
     if (!res.ok()) {
@@ -829,7 +818,7 @@ export class SeedAPI {
       };
     },
   ): Promise<SeedNativeMaskCandidateData> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/native-mask-candidate`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/native-mask-candidate`, {
       data: {
         task_id: taskId,
         variant: options?.variant ?? "default",
@@ -859,7 +848,7 @@ export class SeedAPI {
     locked?: boolean;
     canvas?: RasterMaskFixtureCanvas;
   }): Promise<SeedRasterMaskData> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/inject-raster-mask`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/inject-raster-mask`, {
       data: {
         task_id: opts.taskId,
         user_email: opts.userEmail,
@@ -881,7 +870,7 @@ export class SeedAPI {
     userEmail: string;
     label?: string;
   }): Promise<SeedRasterPredictionData> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/inject-raster-prediction`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/inject-raster-prediction`, {
       data: {
         task_id: opts.taskId,
         user_email: opts.userEmail,
@@ -984,7 +973,7 @@ export class SeedAPI {
     polygon: [number, number][];
     score?: number;
   }): Promise<{ prediction_id: string }> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/inject-prediction`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/inject-prediction`, {
       headers: { Connection: "close" },
       data: {
         task_id: opts.taskId,
@@ -1010,7 +999,7 @@ export class SeedAPI {
     annotatorEmail?: string;
     reviewerEmail?: string;
   }): Promise<void> {
-    const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/advance_task`, {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/advance_task`, {
       data: {
         task_id: opts.taskId,
         to_status: opts.toStatus,
@@ -1028,7 +1017,19 @@ type Fixtures = {
   seed: SeedAPI;
 };
 
-export const test = base.extend<Fixtures>({
+export const test = base.extend<Fixtures, { fixtureOwner: void }>({
+  fixtureOwner: [
+    // Playwright requires destructuring even when a fixture has no dependencies.
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      try {
+        await use(undefined);
+      } finally {
+        await closeFixtureTransport();
+      }
+    },
+    { scope: "worker", auto: true },
+  ],
   seed: async ({ request }, use, testInfo) => {
     const api = new SeedAPI(request, testInfo);
     // playwright fixture 的 use 不是 React Hook

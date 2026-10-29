@@ -21,6 +21,11 @@ import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
 const MAC_CAPTURE = process.platform === "darwin";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
+// Fixture preparation uses the explicitly selected capture database, not API credentials.
+if (process.env.SCREENSHOT_DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.SCREENSHOT_DATABASE_URL;
+  process.env.PLAYWRIGHT_E2E_DATABASE_URL = process.env.SCREENSHOT_DATABASE_URL;
+}
 // One source archive identity must survive Playwright worker restarts.
 process.env.SCREENSHOT_RECORDING_RUN ??= `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 const BROWSER_ENV: Record<string, string> = {};

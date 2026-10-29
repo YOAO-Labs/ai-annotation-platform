@@ -554,3 +554,14 @@ G3 随核心 owner 切片接入；G5 跟随原拆仓计划逐插件授权与验�
 - 实际 ML runner 的 `inference-plugin-sdk` 冷环境执行为 33 通过／1 跳过，并生成独立 JUnit。跳过的是未安装 `aap_libreyolo_plugin` 时的真实 provider hook 用例，不是通过；SDK 最小环境不因这个用例引入算法框架，provider 资格另验。报告见 `.artifacts/test-results/ml-runner-artifact-smoke.json`。
 
 严格门的修复前后证据为 `.artifacts/test-results/empty-execution-regression-evidence.json`。新增接线实际揭示的问题继续保留：owner 根见 G0；共享 runtime 集中回归为 146 通过／1 失败，仓库 Python scripts 为 798 通过／24 失败，相关原始报告保存在 `.artifacts/test-results/`。这些结果不通过删测、修改合同或放宽权限处理；未验证的 GPU、真实权重与发行物不因治理接线获得资格。
+
+### 12.3 G2：owner 夹具隔离样板
+
+**状态：当前 Mask／Playwright owner 样板通过；不是全仓夹具迁移完成。**
+
+- 17 个前置准备／清理调用改由 worker 自有 Python 进程调用现有 seed router。普通产品创建／修改仍通过受限 HTTP API，不给 runtime 恢复私表权限。进程复用导入，每次响应前释放连接池，worker 与全局 teardown 显式结束进程；没有失败后改走 owner 写业务结果的 fallback。
+- 通道拒绝开发模式、非 PostgreSQL、非显式测试库、owner／runtime 目标不一致和 seed 路由外请求；截图配置从明确的 `SCREENSHOT_DATABASE_URL` 绑定夹具目标。实际子进程负例 6 项通过，错误不回显 DSN 或凭据。
+- 在任务自有 `aap_wt_2c9849816c479c7f_test` 实际运行 3 个清理回归：只移除本 engine 新分配的 owner；上传失败后仍能清理已提交分配；遇到其他 engine 的 publication 时拒绝删除并保留邻居 guard。连同通道负例共 9 项通过，JUnit 为 `.artifacts/test-results/g2-owner-isolation.xml`。
+- 真实 owner 通道准备／清理已执行；构建产物 Native 21 项及 readonly 2 项均经此夹具准备后，通过普通 API 完成业务与清理。浏览器证据归 G6a，不把夹具 ASGI 调用记作独立 HTTP 服务部署资格。
+
+本批保留 `seed.reset()` 的已记录全局串行例外；未迁移 workspace／Identity 的全部夹具，未改变原有数据库角色、存储归属或部署身份。

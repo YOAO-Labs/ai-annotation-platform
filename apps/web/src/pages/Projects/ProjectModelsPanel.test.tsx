@@ -75,7 +75,7 @@ const deployment = {
   id: "deployment-1",
   model_version_id: "model-1",
   registry_id: "backend-1",
-  status: "ready",
+  status: "ready" as const,
   receipt: {},
   trial: { result: [], inference_time_ms: 10 },
   error_message: null,
