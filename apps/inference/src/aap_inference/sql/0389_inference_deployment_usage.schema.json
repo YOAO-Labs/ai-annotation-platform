@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-deployment-usage/v1",
+  "type": "object",
+  "$defs": {},
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_snapshot_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "p_deployment_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "boolean"
+      },
+      "semantics": "Whether any immutable pipeline stage references the deployment; no snapshot payload is exposed."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)"
+  ]
+}

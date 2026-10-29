@@ -7,7 +7,7 @@ dependencies = [
   "aap-inference-plugin-sdk==0.1.0",
   "aap-backend-runtime==0.1.0",
   "aap-training-contract==0.1.0",
-  "aap-protocol-v2==0.1.0",
+  "aap-protocol-v2==0.2.0",
   "httpx>=0.27,<1",
   "uvicorn>=0.30,<1",
 ]
@@ -22,3 +22,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
 aap_libreyolo_plugin = ["controlled-model-assets.json"]
+
+[tool.uv.sources]
+aap-libreyolo-native = { path = "../../apps/_shared/libreyolo_native", editable = true }
+aap-inference-plugin-sdk = { path = "../../packages/inference-plugin-sdk", editable = true }
+aap-backend-runtime = { path = "../../apps/_shared/backend_runtime", editable = true }
+aap-training-contract = { path = "../../apps/_shared/training_contract", editable = true }
+aap-protocol-v2 = { path = "../../apps/_shared/protocol_v2", editable = true }

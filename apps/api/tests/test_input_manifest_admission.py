@@ -269,6 +269,8 @@ async def test_project_all_selection_uses_bulk_eligibility_before_frozen_counts(
     draft_task = await create_task(db_session, project_id=project.id)
     draft_task.batch_id = unassigned.id
     standalone = await create_task(db_session, project_id=project.id)
+    await managed_task(db_session, project, actor, task=draft_task)
+    await managed_task(db_session, project, actor, task=standalone)
     for kind, status in (
         ("assigned", "draft"),
         ("reviewer", "draft"),

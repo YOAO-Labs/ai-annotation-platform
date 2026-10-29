@@ -1,3 +1,16 @@
+DROP TRIGGER trg_sync_gpu_backend_membership_update ON public.ml_backend_registry;
+-- aap-statement-break
+CREATE TRIGGER trg_sync_gpu_backend_membership_update
+AFTER UPDATE OF gpu_resource_id, vram_budget_mb, eviction_priority,
+                extra_params, url ON public.ml_backend_registry
+FOR EACH ROW
+WHEN (OLD.gpu_resource_id IS DISTINCT FROM NEW.gpu_resource_id
+   OR OLD.vram_budget_mb IS DISTINCT FROM NEW.vram_budget_mb
+   OR OLD.eviction_priority IS DISTINCT FROM NEW.eviction_priority
+   OR OLD.extra_params IS DISTINCT FROM NEW.extra_params
+   OR OLD.url IS DISTINCT FROM NEW.url)
+EXECUTE FUNCTION public.sync_gpu_backend_membership();
+-- aap-statement-break
 CREATE OR REPLACE FUNCTION public.sync_gpu_backend_membership()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -384,4 +397,4 @@ BEGIN
 END;
 $function$;
 -- aap-statement-break
-DROP FUNCTION public.gpu_plugin_terminal_proof_valid(uuid,jsonb);
+DROP FUNCTION aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb);

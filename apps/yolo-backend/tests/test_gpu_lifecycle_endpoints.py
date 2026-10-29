@@ -7,6 +7,7 @@ import importlib
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from aap_protocol_v2.lifecycle import (
@@ -349,7 +350,7 @@ def test_warmup_drain_unload_happy_path_and_tombstone(managed_client) -> None:
     assert same_generation.json()["detail"]["error_code"] == "gpu_generation_conflict"
 
 
-def test_warmup_timeout_keeps_endpoint_operation_active_until_builder_finishes(
+def test_warmup_timeout_prevents_unload_until_real_builder_finishes(
     managed_client,
 ) -> None:
     main, client, private_key = managed_client
@@ -359,14 +360,15 @@ def test_warmup_timeout_keeps_endpoint_operation_active_until_builder_finishes(
 
     def build(_task: str, _series: str, _size: str) -> _Model:
         started.set()
-        assert release.wait(timeout=1.0)
+        assert release.wait(timeout=5.0)
         return _Model()
 
     assert main._model_pool is not None
     main._model_pool._build_model = build  # noqa: SLF001
     main._model_pool._build_timeout = 0.02  # noqa: SLF001
-    try:
-        response = client.post(
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(
+            client.post,
             "/warmup",
             headers=_workload_headers(
                 private_key,
@@ -380,24 +382,56 @@ def test_warmup_timeout_keeps_endpoint_operation_active_until_builder_finishes(
                 "variants": {"series": "yolo11", "size": "s"},
             },
         )
+        try:
+            assert started.wait(timeout=1.0)
+            with pytest.raises(TimeoutError):
+                pending.result(timeout=0.05)
+            drain = client.post(
+                "/drain",
+                headers=_workload_headers(
+                    private_key,
+                    boot_id,
+                    AdmissionScope.DRAIN,
+                    generation="2",
+                    jti="timeout-drain",
+                ),
+                json={"generation": "2"},
+            )
+            assert drain.status_code == 200, drain.text
+            assert drain.json()["ready_to_unload"] is False
+            busy = client.post(
+                "/unload",
+                headers=_workload_headers(
+                    private_key,
+                    boot_id,
+                    AdmissionScope.UNLOAD,
+                    generation="2",
+                    jti="timeout-unload-busy",
+                ),
+                json={"generation": "2"},
+            )
+            assert busy.status_code == 409, busy.text
+            assert busy.json()["detail"]["error_code"] == "gpu_backend_active"
+        finally:
+            release.set()
+        response = pending.result(timeout=5.0)
         assert response.status_code == 503, response.text
-        assert started.wait(timeout=1.0)
 
-        residency = client.get("/health").json()["residency"]
-        assert residency["active_requests"] == 1
-        assert residency["builders"] == 1
-
-        release.set()
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline:
-            residency = client.get("/health").json()["residency"]
-            if residency["active_requests"] == 0 and residency["builders"] == 0:
-                break
-            time.sleep(0.01)
-        assert residency["active_requests"] == 0
-        assert residency["builders"] == 0
-    finally:
-        release.set()
+    unloaded = client.post(
+        "/unload",
+        headers=_workload_headers(
+            private_key,
+            boot_id,
+            AdmissionScope.UNLOAD,
+            generation="2",
+            jti="timeout-unload-complete",
+        ),
+        json={"generation": "2"},
+    )
+    assert unloaded.status_code == 200, unloaded.text
+    residency = unloaded.json()["residency"]
+    assert residency["gpu_loaded"] is False
+    assert residency["active_requests"] == residency["builders"] == 0
 
 
 @pytest.mark.asyncio

@@ -683,13 +683,13 @@ class PipelineHttpServer:
                     request.resource_id, pending_only=request.pending_only
                 )
             elif path == gpu_contract.GPU_ADMIN_INSTALLATION_ACTIVATE_PATH:
-                request = gpu_contract.GPUInstallationControlRequest.model_validate_json(
-                    body
+                request = (
+                    gpu_contract.GPUInstallationControlRequest.model_validate_json(body)
                 )
                 reply = await self.gpu_manager.activate_installation(request)
             elif path == gpu_contract.GPU_ADMIN_INSTALLATION_QUIESCE_PATH:
-                request = gpu_contract.GPUInstallationControlRequest.model_validate_json(
-                    body
+                request = (
+                    gpu_contract.GPUInstallationControlRequest.model_validate_json(body)
                 )
                 reply = await self.gpu_manager.quiesce_installation(request)
             elif path == gpu_contract.GPU_ADMIN_ROLLOUT_PATH:
@@ -740,7 +740,7 @@ class PipelineHttpServer:
                 status_code=error.status_code,
                 detail=error.detail,
                 headers=error.headers or {},
-                error_code=error.error_code.value,
+                error_code=error.error_code,
                 retry_after_s=error.retry_after_s,
             )
             return error.status_code, _model_bytes(failure)

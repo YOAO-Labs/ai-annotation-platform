@@ -558,7 +558,7 @@ POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin
 
 发布包含 UUID `request_id`、`expected_generation`、`model_version_id`、`deployment_id` 和 `sample_confirmed=true`。回退增加 `rollback_from_id`，且模型与部署必须匹配该历史记录。清除时模型和部署均为 null。并发选择变动返回 `409`，应刷新。即使使用新的 `request_id`，目标模型版本与部署均未变化时也返回 `409`，不会追加历史或增加 generation；已停用时再次清除同样拒绝。切换到同一模型的其他已就绪部署仍是有效变更。丢失响应后的原请求重试返回同一发布。发布不会自动发生。
 
-既有 `/preannotate` 接受 `model_id="trained:<uuid>"` 或 `"project-release"`。服务端解析并冻结权重、类别绑定、部署与发布来源，客户不能提供冻结引用或权重 URL。`Idempotency-Key` 重放沿用原任务冻结身份。受控模型只接受单阶段整图图片检测，使用现有任务作用域和写入检查；不支持的范围在入队前拒绝，worker 再次校验。结果校验实际模型身份、任务身份及原生类别索引，来源保存在 Prediction 元数据中，失败重试继续使用原身份。
+既有 `/preannotate` 接受 `model_id="trained:<uuid>"` 或 `"project-release"`。服务端解析并冻结权重、类别绑定、部署与发布来源，客户不能提供冻结引用或权重 URL。`Idempotency-Key` 重放沿用原任务冻结身份。受控图片检测支持整图阶段与显式 `input.mode="crop"` 的裁剪阶段，每个阶段继续使用自己的冻结模型身份；当前任务和批量入口分别沿用其任务锁、授权、作用域及写入检查。不支持的范围在入队前拒绝，worker 再次校验。结果校验实际模型身份、任务身份及原生类别索引，来源保存在 Prediction 元数据中，失败重试继续使用原身份。
 
 YOLO 的 `POST /managed-models` 和 `GET /managed-models/{version_id}` 使用 `Bearer` 凭据，仅供平台部署且只接受 Ultralytics；LibreYOLO 使用独立插件实例。平台自行生成短期内部对象 URL；后端以大小、SHA-256、原生类别及框架版本校验后原子保存。有效版本不能被其他身份覆盖，损坏副本可按固定摘要重建；缺少版本直接失败，不降级到内置模型。
 

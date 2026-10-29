@@ -7,6 +7,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import signal
 import sys
 import time
 from types import SimpleNamespace
@@ -271,13 +272,12 @@ async def test_cancelled_transfer_cleans_staging_but_retains_other_installed_blo
             closed.append(True)
 
     transport(monkeypatch, lambda request: httpx.Response(200, content=RAW))
-    lightweight_inspection(monkeypatch)
-    store = ManagedModelStore(tmp_path)
-    await store.install(first)
-    transport(monkeypatch, lambda request: httpx.Response(200, stream=Delayed()))
     monkeypatch.setattr(
         ManagedModelStore, "inspect", staticmethod(lambda path, expected: None)
     )
+    store = ManagedModelStore(tmp_path)
+    await store.install(first)
+    transport(monkeypatch, lambda request: httpx.Response(200, stream=Delayed()))
     task = asyncio.create_task(store.install(second))
     await asyncio.wait_for(started.wait(), 2)
     task.cancel()
@@ -302,6 +302,7 @@ async def test_cancel_while_waiting_for_another_process_lock_keeps_loop_responsi
     tmp_path, monkeypatch
 ):
     body = installation()
+    lightweight_inspection(monkeypatch)
     directory = tmp_path / ".locks" / "sha256"
     directory.mkdir(parents=True)
     with (directory / f"{body.sha256}.lock").open("a+") as other_owner:
@@ -321,7 +322,6 @@ async def test_cancel_while_waiting_for_another_process_lock_keeps_loop_responsi
             await task
     assert not list(tmp_path.glob(".install-*"))
     transport(monkeypatch, lambda request: httpx.Response(200, content=RAW))
-    lightweight_inspection(monkeypatch)
     await store.install(body)
 
 
@@ -395,3 +395,57 @@ def test_cross_process_installation_deduplicates_gets_and_preserves_version_iden
                 child.join(5)
         result.close()
         result.join_thread()
+
+
+@pytest.mark.parametrize("crash_phase", ["before", "after"])
+def test_process_death_during_repair_cannot_hide_or_rebind_immutable_receipt(
+    tmp_path, monkeypatch, crash_phase
+):
+    transport(monkeypatch, lambda request: httpx.Response(200, content=RAW))
+    lightweight_inspection(monkeypatch)
+    body = installation()
+    store = ManagedModelStore(tmp_path)
+    receipt = asyncio.run(store.install(body))
+    directory = tmp_path / str(body.model_version_id)
+    receipt_path = directory / "receipt.json"
+    historical_bytes = (json.dumps(receipt, indent=3) + "\n").encode()
+    receipt_path.write_bytes(historical_bytes)
+    (directory / "weights.pt").unlink()
+
+    def repair_and_die():
+        replace_file = os.replace
+
+        def interrupted_replace(source, destination):
+            publishing = Path(source) == directory or Path(destination) in {
+                directory,
+                directory / "weights.pt",
+            }
+            if publishing and crash_phase == "before":
+                os.kill(os.getpid(), signal.SIGKILL)
+            replace_file(source, destination)
+            if publishing and crash_phase == "after":
+                os.kill(os.getpid(), signal.SIGKILL)
+
+        os.replace = interrupted_replace
+        asyncio.run(ManagedModelStore(tmp_path).install(body))
+
+    child = multiprocessing.get_context("fork").Process(target=repair_and_die)
+    try:
+        child.start()
+        child.join(15)
+        assert child.exitcode == -signal.SIGKILL
+    finally:
+        if child.is_alive():
+            child.kill()
+            child.join(5)
+
+    assert receipt_path.read_bytes() == historical_bytes
+    restarted = ManagedModelStore(tmp_path)
+    conflicting = body.model_copy(update={"framework_version": "8.4.61"})
+    with pytest.raises(HTTPException) as failure:
+        asyncio.run(restarted.install(conflicting))
+    assert failure.value.status_code == 409
+    asyncio.run(restarted.install(body))
+    assert restarted.receipt(str(body.model_version_id)) == receipt
+    assert (directory / "weights.pt").read_bytes() == RAW
+    assert receipt_path.read_bytes() == historical_bytes

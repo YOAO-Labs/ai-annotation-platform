@@ -1183,6 +1183,8 @@ async def test_workbench_annotator_execution_rechecks_authority_at_write(
         status="active",
         annotator_id=actor.id,
     )
+    db_session.add(batch)
+    await db_session.flush()
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,
@@ -1193,7 +1195,7 @@ async def test_workbench_annotator_execution_rechecks_authority_at_write(
         file_type="image",
         status="in_progress",
     )
-    db_session.add_all([batch, task])
+    db_session.add(task)
     await db_session.flush()
     db_session.add(
         TaskLock(
@@ -1277,7 +1279,9 @@ async def test_workbench_annotator_execution_rechecks_authority_at_write(
     await _run_batch(**kwargs)
     job = await db_session.get(AsyncJob, job_id, populate_existing=True)
     predictions = await db_session.scalar(
-        select(func.count()).select_from(Prediction).where(Prediction.task_id == task_id)
+        select(func.count())
+        .select_from(Prediction)
+        .where(Prediction.task_id == task_id)
     )
     if change == "none":
         assert job.status == "completed"
@@ -1326,6 +1330,7 @@ async def test_bulk_annotator_cannot_use_workbench_authority(
             user_id=str(actor.id),
             execution_scope="bulk",
         )
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["uploading", "review", "completed"])

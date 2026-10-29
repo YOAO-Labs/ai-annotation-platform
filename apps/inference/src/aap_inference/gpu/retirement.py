@@ -17,6 +17,7 @@ from aap_inference.gpu.ledger import (
 )
 from aap_inference.gpu.native import (
     GPUAuthorityData,
+    GPUAuthorityDataProvider,
     GPUCollectorDataProvider,
 )
 from aap_inference.gpu.policy import _MAX_POSITIVE_INT64
@@ -265,7 +266,7 @@ async def collect_gpu_backend_tombstone(
     *,
     proof: GPURetiredLiveProof | None,
 ) -> GPUTombstoneCollectionResult:
-    """Finalize a prior receipt or consume live proof within the collector UOW."""
+    """Finalize a receipt or collect with live or owner-verified closure evidence."""
 
     async with collector_data.transaction() as transaction:
         arguments: dict[str, object] = {
@@ -307,7 +308,7 @@ async def collect_gpu_backend_tombstone(
                 status,
                 reason,
             )
-        if status not in {"receipt_required", "proof_valid"}:
+        if status not in {"receipt_required", "proof_valid", "closure_valid"}:
             raise RuntimeError("GPU tombstone preparation response is malformed")
         domain = _parse_backend_domain(prepared.get("backend_memberships"))
         retirement_id = prepared.get("retirement_id")
@@ -344,7 +345,10 @@ async def collect_gpu_backend_tombstone(
                 "redis_receipt_finalized",
                 True,
             )
-        if proof is None:
+        if status == "closure_valid":
+            evidence_deadline_ms = prepared["evidence_deadline_ms"]
+            evidence_fingerprint = prepared["evidence_fingerprint"]
+        elif proof is None:
             return GPUTombstoneCollectionResult(
                 backend_id,
                 resource_id,
@@ -352,7 +356,7 @@ async def collect_gpu_backend_tombstone(
                 "blocked",
                 "redis_receipt_missing",
             )
-        if status != "proof_valid":
+        elif status != "proof_valid":
             return GPUTombstoneCollectionResult(
                 backend_id,
                 resource_id,
@@ -360,6 +364,9 @@ async def collect_gpu_backend_tombstone(
                 "blocked",
                 "live_proof_invalid",
             )
+        else:
+            evidence_deadline_ms = proof.evidence_deadline_ms
+            evidence_fingerprint = proof.evidence_fingerprint
         try:
             snapshot = await store.snapshot(resource_id)
         except GPUArbiterStoreError as exc:
@@ -387,8 +394,8 @@ async def collect_gpu_backend_tombstone(
             membership_epoch=membership_epoch,
             retirement_id=retirement_id,
             vram_budget_mb=prepared["vram_budget_mb"],
-            evidence_deadline_ms=proof.evidence_deadline_ms,
-            evidence_fingerprint=proof.evidence_fingerprint,
+            evidence_deadline_ms=evidence_deadline_ms,
+            evidence_fingerprint=evidence_fingerprint,
             collection_id=prepared["collection_id"],
         )
         if collection.status != "collected":
@@ -436,7 +443,7 @@ async def collect_gpu_backend_tombstone(
 
 
 async def retire_gpu_backend_membership(
-    data: GPUAuthorityData,
+    data: GPUAuthorityDataProvider,
     collector_data: GPUCollectorDataProvider,
     store: GPUArbiterStore,
     endpoint_source: OwnedBackendEndpointSource,
@@ -445,17 +452,23 @@ async def retire_gpu_backend_membership(
     resource_id: str,
     membership_epoch: int,
 ) -> GPUTombstoneCollectionResult:
-    """Probe and collect in the owner so private live evidence never crosses HTTP."""
+    """Prefer durable installation closure; keep any live probe inside its own UOW."""
 
     try:
-        probe = await probe_retired_gpu_membership(
-            data,
-            endpoint_source,
-            backend_transport,
-            backend_id,
-            resource_id,
-            membership_epoch,
+        existing = await collect_gpu_backend_tombstone(
+            collector_data, store, backend_id, resource_id, membership_epoch, proof=None
         )
+        if existing.reason != "redis_receipt_missing":
+            return existing
+        async with data.transaction() as transaction:
+            probe = await probe_retired_gpu_membership(
+                transaction,
+                endpoint_source,
+                backend_transport,
+                backend_id,
+                resource_id,
+                membership_epoch,
+            )
         return await collect_gpu_backend_tombstone(
             collector_data,
             store,

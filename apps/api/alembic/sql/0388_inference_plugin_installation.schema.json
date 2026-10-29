@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-plugin-installation-native/v1",
+  "title": "Inference plugin installation Native API",
+  "$comment": "Caller-owned transaction commands over reserved Registry metadata. Public facts and lifecycle evidence never expose endpoint credentials.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": [
+      "pg_catalog",
+      "pg_temp"
+    ]
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_inference_topology_v1.lock_plugin_registry(uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Lock the Registry until caller commit and return credential-free Registry facts."
+    },
+    {
+      "signature": "aap_inference_topology_v1.prepare_plugin_installation(text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_intent",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Reserve an immutable installation identity and endpoint; replay must match the original intent and credential."
+    },
+    {
+      "signature": "aap_inference_topology_v1.plugin_installation(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Return one public installation binding without credentials."
+    },
+    {
+      "signature": "aap_inference_topology_v1.plugin_installations()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Return public installation bindings ordered by Registry identity."
+    },
+    {
+      "signature": "aap_inference_topology_v1.plugin_installation_evidence(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Return lifecycle evidence for the privileged installation coordinator without endpoint credentials."
+    },
+    {
+      "signature": "aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_revision",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "p_action",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_evidence",
+          "type": "text",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Compare and advance the installation revision; bind launch, qualification, activation and terminal proof, preserve history, and revoke the credential at retirement. Exact validated launch and qualification replays return the current installation without advancing its revision."
+    },
+    {
+      "signature": "aap_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_id", "type": "uuid", "nullable": false },
+        { "name": "p_revision", "type": "integer", "nullable": false },
+        { "name": "p_control_id", "type": "uuid", "nullable": false },
+        { "name": "p_endpoint", "type": "text", "nullable": false },
+        { "name": "p_container_id", "type": "text", "nullable": false },
+        { "name": "p_boot_id", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Return authorized for an exact proven GPU replacement and prepare or retain its deterministic epoch control, not_replacement when no terminal intent exists, or rejected with reason otherwise. The private binding is immutable; only the control's expected incarnation is cleared."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_topology_v1.lock_plugin_registry(uuid)",
+    "aap_inference_topology_v1.prepare_plugin_installation(text)",
+    "aap_inference_topology_v1.plugin_installation(uuid)",
+    "aap_inference_topology_v1.plugin_installations()",
+    "aap_inference_topology_v1.plugin_installation_evidence(uuid)",
+    "aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)",
+    "aap_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)"
+  ]
+}

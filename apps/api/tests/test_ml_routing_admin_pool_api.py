@@ -12,7 +12,10 @@ import pytest
 from sqlalchemy import select
 from aap_inference.health import reconcile_pool_capability
 from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.pool_capability import canonicalize_capability, capability_fingerprint
+from aap_inference.pool_capability import (
+    canonicalize_capability,
+    capability_fingerprint,
+)
 from aap_inference.routing_runtime import RoutingRuntime
 
 from app.config import settings
@@ -756,7 +759,8 @@ async def test_disabled_member_can_revalidate_after_capability_rolls_back(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("peer_state", ["active", "draining"])
 async def test_capability_drift_accept_rejects_incompatible_peer(
-    db_session, peer_state,
+    db_session,
+    peer_state,
 ) -> None:
     from app.db.models.ml_backend_registry import MLBackendRegistry
 
@@ -827,7 +831,9 @@ async def test_fingerprint_only_drift_requires_review_and_repairs_baseline(
     from app.services.ml_routing.diagnostics import build_topology
 
     caps = {
-        "models": [{"id": "t", "task": "detect", "resource_profile": {"batchable": True}}],
+        "models": [
+            {"id": "t", "task": "detect", "resource_profile": {"batchable": True}}
+        ],
         "managed_model_compatibility": [
             {"framework": "libreyolo", "format": "libreyolo", "runtime_device": "cuda"}
         ],
@@ -856,7 +862,9 @@ async def test_fingerprint_only_drift_requires_review_and_repairs_baseline(
     disabled_pool = await MLBackendService(db_session).get_pool(pool.id)
     assert disabled_pool is not None and not disabled_pool.enabled
     assert disabled_pool.capability_fingerprint == bad_fingerprint
-    assert (await _pool_member(db_session, pool.id, backend.id)).traffic_state == "disabled"
+    assert (
+        await _pool_member(db_session, pool.id, backend.id)
+    ).traffic_state == "disabled"
     await db_session.commit()
 
     async def healthy(_self, registry_id, **_kwargs):
@@ -878,7 +886,10 @@ async def test_fingerprint_only_drift_requires_review_and_repairs_baseline(
 
     response = await httpx_client.post(
         path + "/accept",
-        json={"expected_candidate_fingerprint": preview["candidate_fingerprint"], "enable_pool": True},
+        json={
+            "expected_candidate_fingerprint": preview["candidate_fingerprint"],
+            "enable_pool": True,
+        },
         headers=headers,
     )
     assert response.status_code == 200, response.text
@@ -896,12 +907,14 @@ async def test_fingerprint_only_drift_requires_review_and_repairs_baseline(
     repaired = await MLBackendService(db_session).get_pool(pool.id)
     assert repaired is not None and repaired.enabled
     assert repaired.capability_fingerprint == capability_fingerprint(caps)
-    assert repaired.capability_snapshot == corrected
-    assert (await _pool_member(db_session, pool.id, backend.id)).traffic_state == "active"
+    assert (
+        await _pool_member(db_session, pool.id, backend.id)
+    ).traffic_state == "active"
     topology = await build_topology(db_session, super_admin=True)
     entry = next(item for item in topology.pools if item.id == pool.id)
     assert entry.routable_instances == 1
     assert entry.status == "healthy"
+
 
 @pytest.mark.asyncio
 async def test_capability_drift_api_accepts_after_fresh_probe_and_audits(

@@ -222,6 +222,29 @@ requires-dist = [
 provides-extras = ["test"]
 
 [[package]]
+name = "aap-backend-runtime"
+version = "0.1.0"
+source = { editable = "../_shared/backend_runtime" }
+dependencies = [
+    { name = "aap-protocol-v2" },
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
+    { name = "cryptography", specifier = ">=43.0.0" },
+    { name = "fastapi", specifier = ">=0.110" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "aap-filesystem-read"
 version = "0.1.0"
 source = { editable = "../_shared/filesystem_read" }
@@ -691,6 +714,7 @@ dependencies = [
     { name = "aap-assets-source" },
     { name = "aap-audit", extra = ["postgres"] },
     { name = "aap-audit-contract" },
+    { name = "aap-backend-runtime" },
     { name = "aap-filesystem-read" },
     { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-identity-admission", extra = ["http"] },
@@ -758,6 +782,7 @@ requires-dist = [
     { name = "aap-assets-source", editable = "../assets-source" },
     { name = "aap-audit", extras = ["postgres"], editable = "../audit" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
+    { name = "aap-backend-runtime", editable = "../_shared/backend_runtime" },
     { name = "aap-filesystem-read", editable = "../_shared/filesystem_read" },
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-identity-admission", extras = ["http"], editable = "../_shared/identity_admission" },

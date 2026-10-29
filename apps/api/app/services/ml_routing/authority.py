@@ -60,8 +60,8 @@ class RoutingAuthority:
         except (ValueError, OSError):
             raise RoutingUnavailable() from None
 
-    async def execute(self, operation, body):
-        command = make_routing_command(operation, body)
+    async def execute(self, operation, body, *, request_id=None):
+        command = make_routing_command(operation, body, request_id=request_id)
         try:
             reply = await self._http_client().execute(command)
             reply = decode_routing_result(command, reply)

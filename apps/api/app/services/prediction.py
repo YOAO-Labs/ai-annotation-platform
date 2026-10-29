@@ -1093,9 +1093,11 @@ class PredictionService:
             ) from None
 
         receipts = []
-        for request, result, (input_evidence, native_qualification, video_evidence) in zip(
-            requests, normalized_results, provenance, strict=True
-        ):
+        for request, result, (
+            input_evidence,
+            native_qualification,
+            video_evidence,
+        ) in zip(requests, normalized_results, provenance, strict=True):
             receipts.append(
                 await self._persist_prediction_result(
                     request,

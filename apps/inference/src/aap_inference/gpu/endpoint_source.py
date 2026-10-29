@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol
+from types import SimpleNamespace
 from uuid import UUID
 
 from aap_inference.backend_endpoint import BackendEndpointSnapshot, _snapshot
@@ -34,6 +35,10 @@ _ENDPOINT_OPEN_HEALTH_SQL = (
 _ENDPOINT_OPEN_GPU_CONTROL_SQL = (
     "SELECT aap_inference_backend_endpoint_v1.open_gpu_control_endpoint("
     "$1::text,$2::uuid,$3::uuid,$4::text)"
+)
+_ENDPOINT_OPEN_TERMINAL_SQL = (
+    "SELECT aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint("
+    "$1::uuid,$2::uuid,$3::text,$4::text,$5::text)"
 )
 _ENDPOINT_FUNCTIONS = {
     ("backend_endpoint_policy", ""),
@@ -73,6 +78,16 @@ class OwnedBackendEndpointSource(Protocol):
         request_id: UUID,
         purpose: BackendEndpointPurpose,
         binding: BackendEndpointBinding | None = None,
+    ) -> BackendEndpointSnapshot: ...
+
+    async def open_installation_terminal(
+        self,
+        registry_id: UUID,
+        *,
+        request_id: UUID,
+        request: dict[str, Any],
+        preparation: dict[str, Any],
+        endpoint_sha256: str,
     ) -> BackendEndpointSnapshot: ...
 
     async def readiness(self) -> bool: ...
@@ -168,6 +183,54 @@ class GPUOwnedBackendEndpointSource:
                     raise GPUOwnedEndpointUnavailable() from None
         return snapshot
 
+    async def open_installation_terminal(
+        self,
+        registry_id: UUID,
+        *,
+        request_id: UUID,
+        request: dict[str, Any],
+        preparation: dict[str, Any],
+        endpoint_sha256: str,
+    ) -> BackendEndpointSnapshot:
+        """Open the durable terminal intent under the GPU endpoint role."""
+        if not isinstance(registry_id, UUID) or not isinstance(request_id, UUID):
+            raise GPUOwnedEndpointUnavailable()
+        try:
+            request_json = _compact_object_json(request)
+            preparation_json = _compact_object_json(preparation)
+            async with self._pools["gpu_control"].acquire() as connection:
+                async with connection.transaction():
+                    await _verify_endpoint_profile(connection, "gpu_control")
+                    policy = _decode_object(
+                        await connection.fetchval(_ENDPOINT_POLICY_SQL)
+                    )
+                    if not backend_endpoint_policy_ready(policy):
+                        raise GPUOwnedEndpointUnavailable()
+                    raw = await connection.fetchval(
+                        _ENDPOINT_OPEN_TERMINAL_SQL,
+                        registry_id,
+                        request_id,
+                        request_json,
+                        preparation_json,
+                        endpoint_sha256,
+                    )
+                    if type(raw) is not str:
+                        raise GPUOwnedEndpointUnavailable()
+                    subject = SimpleNamespace(
+                        registry_id=registry_id,
+                        request_id=request_id,
+                        purpose="terminal_drain",
+                        authority=None,
+                    )
+                    snapshot = _snapshot(raw, subject)
+                    if snapshot.endpoint_sha256 != endpoint_sha256:
+                        raise GPUOwnedEndpointUnavailable()
+                    return snapshot
+        except GPUOwnedEndpointUnavailable:
+            raise
+        except Exception:
+            raise GPUOwnedEndpointUnavailable() from None
+
     async def readiness(self) -> bool:
         try:
             for purpose in _ENDPOINT_OPENERS:
@@ -198,12 +261,32 @@ async def _verify_endpoint_profile(
     opener = _ENDPOINT_OPENERS[purpose]
     from aap_owner_data.postgres import verify_function_only_role
 
+    functions = _ENDPOINT_FUNCTIONS | {(opener[0], opener[1])}
+    if purpose == "gpu_control":
+        functions.add(
+            ("open_installation_terminal_endpoint", "uuid, uuid, text, text, text")
+        )
     await verify_function_only_role(
         connection,
         schema=_ENDPOINT_SCHEMA,
-        functions=_ENDPOINT_FUNCTIONS | {(opener[0], opener[1])},
+        functions=functions,
         role=await connection.fetchval("SELECT session_user"),
     )
+
+
+def _compact_object_json(value: dict[str, Any]) -> str:
+    if type(value) is not dict:
+        raise ValueError("terminal endpoint input must be an object")
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if len(encoded.encode("utf-8", errors="strict")) > _MAX_ENDPOINT_JSON_BYTES:
+        raise ValueError("terminal endpoint input is too large")
+    return encoded
 
 
 def _compact_model_json(value: Any) -> str | None:

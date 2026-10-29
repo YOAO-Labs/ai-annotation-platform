@@ -41,13 +41,22 @@ _REGISTRY_FACTS = text(f"SELECT {_SCHEMA}.registry_facts(CAST(:registry_id AS uu
 _LOCK_PLUGIN_REGISTRY = text(
     f"SELECT {_SCHEMA}.lock_plugin_registry(CAST(:registry_id AS uuid))"
 )
-_PREPARE_PLUGIN = text(f"SELECT {_SCHEMA}.prepare_plugin_installation(CAST(:intent AS text))")
+_PREPARE_PLUGIN = text(
+    f"SELECT {_SCHEMA}.prepare_plugin_installation(CAST(:intent AS text))"
+)
 _GET_PLUGIN = text(f"SELECT {_SCHEMA}.plugin_installation(CAST(:id AS uuid))")
 _LIST_PLUGINS = text(f"SELECT {_SCHEMA}.plugin_installations()")
-_PLUGIN_EVIDENCE = text(f"SELECT {_SCHEMA}.plugin_installation_evidence(CAST(:id AS uuid))")
+_PLUGIN_EVIDENCE = text(
+    f"SELECT {_SCHEMA}.plugin_installation_evidence(CAST(:id AS uuid))"
+)
 _COMMAND_PLUGIN = text(
     f"SELECT {_SCHEMA}.command_plugin_installation("
     "CAST(:id AS uuid),CAST(:revision AS integer),CAST(:action AS text),CAST(:evidence AS text))"
+)
+_AUTHORIZE_PLUGIN_ROUTING_REPLACEMENT = text(
+    f"SELECT {_SCHEMA}.authorize_plugin_routing_replacement("
+    "CAST(:id AS uuid),CAST(:revision AS integer),CAST(:control_id AS uuid),"
+    "CAST(:endpoint AS text),CAST(:container_id AS text),CAST(:boot_id AS text))"
 )
 _REGISTRY_URL_OWNER = text(f"SELECT {_SCHEMA}.registry_url_owner(CAST(:url AS text))")
 _REGISTRY_CATALOG = text(f"SELECT {_SCHEMA}.registry_catalog()")
@@ -333,7 +342,9 @@ class InferenceTopologyData:
         row = _object(await self._scalar(_REGISTRY_FACTS, {"registry_id": registry_id}))
         return RegistryPublicFacts.from_record(row) if row is not None else None
 
-    async def lock_plugin_registry(self, registry_id: UUID) -> RegistryPublicFacts | None:
+    async def lock_plugin_registry(
+        self, registry_id: UUID
+    ) -> RegistryPublicFacts | None:
         row = _object(
             await self._scalar(_LOCK_PLUGIN_REGISTRY, {"registry_id": registry_id})
         )
@@ -343,7 +354,7 @@ class InferenceTopologyData:
         try:
             return await self._scalar(statement, parameters)
         except DBAPIError as error:
-            if _sqlstate(error) in {"22023", "22P02"}:
+            if _sqlstate(error) in {"22023", "22P02", "40001"}:
                 raise ValueError(_primary_message(error)) from error
             raise
 
@@ -353,6 +364,7 @@ class InferenceTopologyData:
         from aap_inference.gpu.policy import validate_gpu_claim
         from aap_inference.topology import BackendTopologyCoordinator
         from app.config import settings
+
         normalized_url = payload.url.rstrip("/")
         if not normalized_url:
             raise ValueError("invalid plugin endpoint URL")
@@ -367,14 +379,18 @@ class InferenceTopologyData:
             _PREPARE_PLUGIN, {"intent": payload.model_dump_json()}
         )
         response = PluginInstallationResponse.model_validate(_object(row))
-        await BackendTopologyCoordinator(self).ensure_singleton_pool(response.registry_id)
+        await BackendTopologyCoordinator(self).ensure_singleton_pool(
+            response.registry_id
+        )
         return response
 
     async def get_plugin_installation(
         self, installation_id: UUID
     ) -> PluginInstallationResponse | None:
         row = _object(await self._plugin_scalar(_GET_PLUGIN, {"id": installation_id}))
-        return PluginInstallationResponse.model_validate(row) if row is not None else None
+        return (
+            PluginInstallationResponse.model_validate(row) if row is not None else None
+        )
 
     async def list_plugin_installations(self) -> list[PluginInstallationResponse]:
         rows = _array(await self._plugin_scalar(_LIST_PLUGINS))
@@ -383,10 +399,15 @@ class InferenceTopologyData:
     async def get_plugin_installation_evidence(
         self, installation_id: UUID
     ) -> Mapping[str, Any] | None:
-        return _object(await self._plugin_scalar(_PLUGIN_EVIDENCE, {"id": installation_id}))
+        return _object(
+            await self._plugin_scalar(_PLUGIN_EVIDENCE, {"id": installation_id})
+        )
 
     async def command_plugin_installation(
-        self, installation_id: UUID, expected_revision: int, action: str,
+        self,
+        installation_id: UUID,
+        expected_revision: int,
+        action: str,
         evidence: Mapping[str, Any] | None = None,
     ) -> PluginInstallationResponse:
         validate_installation_command(expected_revision, action, evidence)
@@ -402,10 +423,48 @@ class InferenceTopologyData:
                 raise ValueError("plugin installation has active Learning dependencies")
         row = await self._plugin_scalar(
             _COMMAND_PLUGIN,
-            {"id": installation_id, "revision": expected_revision, "action": action,
-             "evidence": _json(evidence) if evidence is not None else None},
+            {
+                "id": installation_id,
+                "revision": expected_revision,
+                "action": action,
+                "evidence": _json(evidence) if evidence is not None else None,
+            },
         )
         return PluginInstallationResponse.model_validate(_object(row))
+
+    async def authorize_plugin_routing_replacement(
+        self,
+        installation_id: UUID,
+        expected_revision: int,
+        control_id: UUID,
+        *,
+        endpoint: str,
+        container_id: str,
+        boot_id: str,
+    ) -> None:
+        result = _object(
+            await self._plugin_scalar(
+                _AUTHORIZE_PLUGIN_ROUTING_REPLACEMENT,
+                {
+                    "id": installation_id,
+                    "revision": expected_revision,
+                    "control_id": control_id,
+                    "endpoint": endpoint,
+                    "container_id": container_id,
+                    "boot_id": boot_id,
+                },
+            )
+        )
+        if result is not None and result.get("status") in {
+            "authorized",
+            "not_replacement",
+        }:
+            return
+        if result is not None and result.get("status") == "rejected":
+            raise ValueError(result["reason"])
+        raise RuntimeError(
+            "Inference routing replacement Native returned malformed facts"
+        )
 
     async def registry_url_owner(self, url: str) -> RegistryName | None:
         row = _object(await self._scalar(_REGISTRY_URL_OWNER, {"url": url}))

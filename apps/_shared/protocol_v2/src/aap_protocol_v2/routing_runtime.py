@@ -813,7 +813,14 @@ class BackendRoutingMiddleware:
         if path in {ROUTE_CONTROL_PATH, ROUTE_STATUS_PATH, SCOPE_RETIREMENT_PATH}:
             await self._management_endpoint(method, path, scope, receive, send)
             return
-        if _readonly_get(method, path):
+        if _readonly_get(method, path) or (
+            method == "POST"
+            and path
+            in {
+                "/lifecycle/terminal-drain",
+                "/lifecycle/terminal-drain-signed",
+            }
+        ):
             await self.app(scope, receive, send)
             return
 

@@ -7,6 +7,7 @@ dependencies = [
     "aap-identity-admission[http]",
     "aap-inference",
     "aap-inference-contract[client]",
+    "aap-backend-runtime",
     "aap-mail-transport",
     "aap-assets-catalog",
     "aap-assets-media[client,runtime]",
@@ -71,6 +72,7 @@ aap-identity = { path = "../identity", editable = true }
 aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
 aap-inference = { path = "../inference", editable = true }
 aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
+aap-backend-runtime = { path = "../_shared/backend_runtime", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 aap-assets-catalog = { path = "../assets-catalog", editable = true }
 aap-assets-media = { path = "../assets-media", editable = true }

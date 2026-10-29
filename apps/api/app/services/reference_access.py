@@ -7,12 +7,16 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
-from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_current_user, get_db
 from app.services.dataset_content import content_http_error
 from app.services.dataset_references import reference_snapshot
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
 from app.services.reference_keys import is_reference, parse_reference, PREFIX
 
 
@@ -30,11 +34,13 @@ async def reject_reference_scope(
         if dataset_id is not None:
             stmt = stmt.where(DatasetItem.dataset_id == dataset_id)
     else:
-        stmt = select(Task.id).where(Task.file_path.startswith(PREFIX, autoescape=True))
+        stmt = select(task_row.id).where(
+            task_row.file_path.startswith(PREFIX, autoescape=True)
+        )
         if project_id is not None:
-            stmt = stmt.where(Task.project_id == project_id)
+            stmt = stmt.where(task_row.project_id == project_id)
         if task_ids is not None:
-            stmt = stmt.where(Task.id.in_(task_ids))
+            stmt = stmt.where(task_row.id.in_(task_ids))
     if await db.scalar(stmt.limit(1)):
         raise HTTPException(
             409,
@@ -55,7 +61,9 @@ async def reference_task_guard(
     task_id = request.path_params.get("task_id")
     try:
         task = (
-            await db.get(Task, uuid.UUID(str(task_id)), populate_existing=True)
+            await get_core_row(
+                db, task_row, uuid.UUID(str(task_id)), populate_existing=True
+            )
             if task_id
             else None
         )
@@ -70,9 +78,9 @@ async def reference_task_guard(
         except (TypeError, ValueError):
             return  # The endpoint's schema owns validation errors.
         task = await db.scalar(
-            select(Task)
-            .join(Annotation, Annotation.task_id == Task.id)
-            .where(Annotation.id.in_(ids))
+            select(task_row)
+            .join(annotation_row, annotation_row.task_id == task_row.id)
+            .where(annotation_row.id.in_(ids))
         )
     if task is None:
         return
@@ -261,12 +269,7 @@ async def reference_task_guard(
 
     # Dispatch also takes this advisory lock before TaskLock's Task FK lock.
     await TaskLockService(db)._lock_task_scope(task.id)
-    task = await db.scalar(
-        select(Task)
-        .where(Task.id == task.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(404, "Task not found")
     await _assert_task_visible(db, task, actor)

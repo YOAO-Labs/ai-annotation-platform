@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import media_cache_storage, media_cache_urls, original_sources
 from app.services import media_cache_accounting
@@ -21,6 +20,7 @@ from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage import storage_service
 
@@ -276,7 +276,7 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
 
 async def _business_pointer(db, owner_kind, owner_id, path):
     if owner_kind == "task":
-        task = await db.get(Task, owner_id, populate_existing=True)
+        task = await get_core_row(db, task_row, owner_id, populate_existing=True)
         if task is None:
             return None
         if task.dataset_item_id is not None:

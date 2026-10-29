@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # 环境变量参考
@@ -190,6 +190,8 @@ last_reviewed: 2026-10-27
 | `YOLO_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在当前部署完成 YOLO 多模型池真实 GPU load → full unload → baseline 验收后设为 1。 只接受字面量 0 或 1；其他值拒绝启动。未验证时 /setup 不发布 managed_lifecycle，且拒绝切入 enforce gate。 |
 | `YOLO_LOG_LEVEL` | `INFO` | — |
 | `GPU_LIFECYCLE_VERIFY_KEYS_JSON` | `—` | Managed GPU lifecycle Ed25519 public-key ring (kid -> unpadded base64url key). Empty keeps the backend in legacy-compatible mode; a non-empty invalid value fails startup. |
+| `GPU_LIFECYCLE_REGISTRY_ID` | `—` | YOLO signed admission/control requires these exact per-instance identities. Registry UUID and the platform's <node>/<physical-device-token>; never inferred from a claim. |
+| `GPU_LIFECYCLE_RESOURCE_ID` | `—` | — |
 
 ## ONNXTools 固定句柄池与受管生命周期
 

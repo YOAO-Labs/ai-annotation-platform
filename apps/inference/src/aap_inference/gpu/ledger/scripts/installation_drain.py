@@ -2,7 +2,9 @@
 
 from aap_inference.gpu.ledger.scripts.lua_sources import _LEDGER_INTEGRITY_LUA
 
-_INSTALLATION_DRAIN_LUA = _LEDGER_INTEGRITY_LUA + r"""
+_INSTALLATION_DRAIN_LUA = (
+    _LEDGER_INTEGRITY_LUA
+    + r"""
 local action, resource, backend, epoch, source, generation, owner =
   ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6], ARGV[7]
 local ledger, status = inspect_ledger(
@@ -68,6 +70,34 @@ if action == 'release' then
 end
 if not transition then return response('missing') end
 if not matches(transition) then return response('owner_mismatch') end
+if action == 'conclude' then
+  if ledger.ledger_incarnation ~= ARGV[15]
+     or ledger.ledger_revision ~= tonumber(ARGV[16]) then
+    return response('not_ready')
+  end
+  local probe_started = tonumber(ARGV[17])
+  if not probe_started or probe_started > ledger.now then return response('not_ready') end
+  if not integrity_has_revision_headroom(redis.call('HGET', KEYS[1], 'ledger_revision')) then
+    return response('not_ready')
+  end
+  for id, lease in pairs(ledger.leases[backend]) do
+    if lease.generation ~= transition.installation_source_generation
+       or lease.hard_deadline_ms >= probe_started
+       or (allocation and allocation.reservation_lease_id == id) then
+      return response('active_leases')
+    end
+  end
+  if leases == 0 then return response('owned', true) end
+  for id, _ in pairs(ledger.leases[backend]) do
+    redis.call('HDEL', ledger.lease_keys[backend], id)
+  end
+  ledger.lease_counts[backend] = 0
+  redis.call('HSET', KEYS[1], 'lease_counts', cjson.encode(ledger.lease_counts),
+    'updated_at_ms', tostring(ledger.now))
+  redis.call('HINCRBY', KEYS[1], 'ledger_revision', 1)
+  leases = 0
+  return response('owned')
+end
 if leases > 0 then return response('active_leases') end
 if not integrity_has_revision_headroom(redis.call('HGET', KEYS[1], 'ledger_revision')) then
   return response('not_ready')
@@ -119,3 +149,4 @@ elseif action == 'release' then
 end
 return redis.error_reply('unsupported installation drain operation')
 """
+)

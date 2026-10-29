@@ -1,5 +1,5 @@
 -- The proof is bound to the exact settled GPU owner intent and unchanged fence.
-CREATE OR REPLACE FUNCTION public.gpu_plugin_terminal_proof_valid(p_id uuid, p_extra jsonb)
+CREATE OR REPLACE FUNCTION aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(p_id uuid, p_extra jsonb)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
 BEGIN
@@ -38,7 +38,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
-AS $$
+AS $function$
 DECLARE
     new_max_concurrency integer := 4;
     runtime_epoch bigint := 0;
@@ -56,8 +56,8 @@ BEGIN
             OLD.eviction_priority IS DISTINCT FROM NEW.eviction_priority OR
             (COALESCE(OLD.extra_params, '{}'::jsonb) - 'plugin' - 'plugin_lifecycle') IS DISTINCT FROM
             (COALESCE(NEW.extra_params, '{}'::jsonb) - 'plugin' - 'plugin_lifecycle') OR
-            (OLD.extra_params->'plugin' - 'status' - 'revision') IS DISTINCT FROM
-            (NEW.extra_params->'plugin' - 'status' - 'revision') OR
+            ((OLD.extra_params->'plugin') - 'status' - 'revision') IS DISTINCT FROM
+            ((NEW.extra_params->'plugin') - 'status' - 'revision') OR
             OLD.url IS DISTINCT FROM NEW.url OR
             OLD.auth_method IS DISTINCT FROM NEW.auth_method OR
             (OLD.auth_token IS DISTINCT FROM NEW.auth_token AND NOT (
@@ -65,7 +65,7 @@ BEGIN
                     'retired-sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(OLD.auth_token, 'UTF8')), 'hex')
                 AND OLD.extra_params #>> '{plugin,status}' = 'disabled'
                 AND NEW.extra_params #>> '{plugin,status}' = 'retired'
-                AND public.gpu_plugin_terminal_proof_valid(OLD.id, OLD.extra_params)
+                AND aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(OLD.id, OLD.extra_params)
             ))
         );
         IF NOT protected_changed THEN
@@ -289,7 +289,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$;
+$function$;
 
 -- aap-statement-break
 CREATE OR REPLACE FUNCTION aap_inference_topology_v1.command_plugin_installation(
@@ -404,7 +404,7 @@ BEGIN
             'stopped',coalesce(lifecycle->'stopped','[]'::jsonb) || jsonb_build_array(
                 jsonb_build_object('container_id',evidence->'container_id','boot_id',evidence->'boot_id')));
         IF i->'manifest'->'resource'->>'device'='cuda'
-           AND NOT public.gpu_plugin_terminal_proof_valid(p_id, r.extra_params ||
+           AND NOT aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(p_id, r.extra_params ||
                jsonb_build_object('plugin',i || jsonb_build_object('revision',p_revision+1),
                                   'plugin_lifecycle',lifecycle)) THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='settled GPU terminal proof required for quiescence';
@@ -419,7 +419,7 @@ BEGIN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='valid quiescence proof required for retirement';
         END IF;
         IF i->'manifest'->'resource'->>'device'='cuda'
-           AND NOT public.gpu_plugin_terminal_proof_valid(p_id, r.extra_params) THEN
+           AND NOT aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(p_id, r.extra_params) THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='settled GPU terminal proof required for retirement';
         END IF;
         status := 'retired';
@@ -438,7 +438,7 @@ BEGIN
 END;
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION public.gpu_plugin_terminal_proof_valid(uuid,jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb) FROM PUBLIC;
 -- aap-statement-break
 DO $block$
 DECLARE v_gpu_owner name; v_topology_owner name;
@@ -447,7 +447,23 @@ BEGIN
     WHERE oid='aap_inference_gpu_v1.gpu_authority_step(text,text)'::regprocedure;
     SELECT pg_catalog.pg_get_userbyid(proowner) INTO v_topology_owner FROM pg_catalog.pg_proc
     WHERE oid='aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)'::regprocedure;
-    EXECUTE pg_catalog.format('ALTER FUNCTION public.gpu_plugin_terminal_proof_valid(uuid,jsonb) OWNER TO %I', v_gpu_owner);
-    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.gpu_plugin_terminal_proof_valid(uuid,jsonb) TO %I', v_topology_owner);
+    EXECUTE pg_catalog.format('ALTER FUNCTION aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb) OWNER TO %I', v_gpu_owner);
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb) TO %I', v_topology_owner);
 END
 $block$;
+-- aap-statement-break
+DROP TRIGGER trg_sync_gpu_backend_membership_update ON public.ml_backend_registry;
+-- aap-statement-break
+CREATE TRIGGER trg_sync_gpu_backend_membership_update
+AFTER UPDATE OF gpu_resource_id, vram_budget_mb, eviction_priority,
+                extra_params, url, auth_method, auth_token ON public.ml_backend_registry
+FOR EACH ROW
+WHEN (OLD.gpu_resource_id IS DISTINCT FROM NEW.gpu_resource_id
+   OR OLD.vram_budget_mb IS DISTINCT FROM NEW.vram_budget_mb
+   OR OLD.eviction_priority IS DISTINCT FROM NEW.eviction_priority
+   OR OLD.extra_params IS DISTINCT FROM NEW.extra_params
+   OR OLD.url IS DISTINCT FROM NEW.url
+   OR ((OLD.extra_params ? 'plugin' OR NEW.extra_params ? 'plugin')
+       AND (OLD.auth_method IS DISTINCT FROM NEW.auth_method
+            OR OLD.auth_token IS DISTINCT FROM NEW.auth_token)))
+EXECUTE FUNCTION public.sync_gpu_backend_membership();

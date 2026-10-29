@@ -12,15 +12,17 @@ last_reviewed: 2026-10-19
 
 ## 使用 LibreYOLO 检测插件
 
-从可信渠道取得**版本化、包含完整依赖闭包的 wheelhouse**；不要假定这些包已经发布到 PyPI。Python 3.11 及以上的新环境可直接安装 wheel，不需要 `../../apps` 或平台仓库的 editable 包：
+从可信渠道取得**版本化、包含完整依赖闭包的 wheelhouse**；不要假定这些包已经发布到 PyPI。除模型运行依赖外，wheelhouse 还须包含 `build`、生成项目声明的构建后端及各自依赖。Python 3.11 及以上的新环境可直接安装 wheel，不需要 `../../apps` 或平台仓库的 editable 包：
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install --no-index --find-links /path/to/wheelhouse \
-  build aap-inference-plugin-sdk aap-libreyolo-plugin
+export PIP_NO_INDEX=1
+export PIP_FIND_LINKS=/path/to/wheelhouse
+python -m pip install build aap-inference-plugin-sdk aap-libreyolo-plugin
 aap-plugin init my-detector --template libreyolo-yolov9
-python -m pip install --no-index --find-links /path/to/wheelhouse ./my-detector
+aap-plugin build my-detector
+python -m pip install my-detector/dist/*.whl
 aap-plugin prepare-assets --size t --asset-dir ./assets
 # token 文件须事先创建，内容为至少 32 字符的私密随机 token；不要提交到源码库
 aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./assets --token-file ./token
@@ -32,6 +34,8 @@ aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./as
 
 准备一个包含多检测和空检测真实图片的 fixture JSON。`box` 是相对于图片的 `[x, y, width, height]` 百分比；`box_tolerance` 同样以百分比计，`score_tolerance` 以 0–1 分数计。下面数值仅说明格式，必须替换为经人工确认的该模型实际期望，不能把示例当成验收结果：
 
+期望值须绑定权重、输入、参数和执行设备。CPU 开发可使用同权重的原生 CPU 输出作为独立基线；CUDA 检查使用对应的原生 CUDA 基线。保留检查失败记录，不从待测 HTTP 响应反向生成期望值，也不在失败后放宽容差。CPU／CUDA 跨设备数值对照是另一项验证，应在运行前确定容差，不能把任一设备的 HTTP 检查通过当成跨设备验证。
+
 ```json
 {
   "multi": {
@@ -39,11 +43,11 @@ aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./as
     "box_tolerance": 1.0,
     "score_tolerance": 0.05,
     "detections": [
-      {"native_class_index": 0, "label": "person", "box": [10, 10, 20, 40], "score": 0.9},
-      {"native_class_index": 1, "label": "bicycle", "box": [45, 20, 30, 40], "score": 0.8}
+      { "native_class_index": 0, "label": "person", "box": [10, 10, 20, 40], "score": 0.9 },
+      { "native_class_index": 1, "label": "bicycle", "box": [45, 20, 30, 40], "score": 0.8 }
     ]
   },
-  "empty": {"image": "empty.png", "box_tolerance": 1.0, "score_tolerance": 0.05, "detections": []}
+  "empty": { "image": "empty.png", "box_tolerance": 1.0, "score_tolerance": 0.05, "detections": [] }
 }
 ```
 
@@ -62,28 +66,25 @@ aap-plugin check --qualify-local --fixtures ./fixtures.json \
   --exclusive-gpu --report ./local-gpu-evidence.json
 ```
 
-另行构建作者 wheel，记录输出的 SHA-256：
-
-```bash
-aap-plugin build my-detector
-```
+修改模型实现后，重新运行前面的 `aap-plugin build my-detector`，安装新 wheel 并重启开发服务；记录命令输出的 SHA-256。镜像应使用已经检查过的作者 wheel，而不是依赖主仓库源码或 editable 安装。
 
 本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。看不到必要事实时失败而不虚报成功。平台图片 URL 主机须由部署管理员明确配置。
 
 检测 SDK 的窄 Python 合同由 `Detection`、`DetectionModel` 和 `DetectionProvider` 组成：provider 的 `load(model_id, device, config)` 返回持有 `classes` 的 model，model 的 `predict(image, parameters)` 返回原图像素坐标的检测，`close()` 释放模型。SDK 负责协议响应、类别索引和坐标转换；裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。通用 SDK 不依赖 ORM、Celery 或原生模型框架；具体模型运行时由 provider 提供，可选训练产物通过共享受控收据安装，不直接访问平台数据库。
 
-构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像的 pip 安装步骤禁网并使用 `--require-hashes`，不加载工作目录。系统包安装步骤仍需要可用的软件包源。以下命令从仓库根目录执行，运行环境须已安装上面的 SDK 及插件依赖：
+构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像的 pip 安装步骤禁网并使用 `--require-hashes`，不加载工作目录。系统包安装步骤仍需要可用的软件包源。以下命令使用已安装的 CLI，不要求当前目录位于平台仓库：
 
 ```bash
-python plugins/libreyolo/build-image.py --base-image image@sha256:<真实摘要> \
+aap-plugin build --base-image image@sha256:<真实摘要> \
   --wheelhouse /path/to/complete-wheelhouse --requirements-lock /path/to/requirements.lock \
   --entrypoint my-libreyolo-plugin --tag registry.example/my-detector:release --push
-python plugins/libreyolo/release-manifest.py registry.example/my-detector:release \
+aap-libreyolo manifest registry.example/my-detector:release \
+  --publisher "你的发布者名称" --license "审核后的 SPDX 许可证表达式" \
   --device cuda --memory-mb 16384 --gpu-memory-mb 8192 \
   --asset-origin https://assets.example --output manifest.json
 ```
 
-`--push` 可省略；生成 manifest 前镜像必须有恰好一个可检查的实际 RepoDigest。资产 origin 必须与受控资产清单的实际下载来源一致，并由管理员授权；多个来源可重复 `--asset-origin`。发布脚本目前写入固定的发布者和许可证声明，发布前须审核并在必要时修正生成 manifest 的相应字段，不能把示例声明视为许可证证明。上游当前 [9t](https://huggingface.co/LibreYOLO/LibreYOLO9t)、[9s](https://huggingface.co/LibreYOLO/LibreYOLO9s)、[9m](https://huggingface.co/LibreYOLO/LibreYOLO9m)、[9c](https://huggingface.co/LibreYOLO/LibreYOLO9c) 模型卡标为 MIT；代码及所用**具体权重**的许可证和来源仍须分别审核，这不表示固定版本的模型卡字节已核验。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格报告，安装不会自动为项目启用。
+`--push` 可省略；生成 manifest 前镜像必须有恰好一个可检查的实际 RepoDigest。资产 origin 必须与受控资产清单的实际下载来源一致，并由管理员授权；多个来源可重复 `--asset-origin`。发布者须显式提供 `--publisher` 和 `--license`，生成器不会代替作者审核许可。上游当前 [9t](https://huggingface.co/LibreYOLO/LibreYOLO9t)、[9s](https://huggingface.co/LibreYOLO/LibreYOLO9s)、[9m](https://huggingface.co/LibreYOLO/LibreYOLO9m)、[9c](https://huggingface.co/LibreYOLO/LibreYOLO9c) 模型卡标为 MIT；代码及所用**具体权重**的许可证和来源仍须分别审核，这不表示固定版本的模型卡字节已核验。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格报告，安装不会自动为项目启用。
 
 安装实例退役时，CPU 实例的不可逆终止排空使用认证的 `/lifecycle/terminal-drain`，并绑定注册实例和当前 boot；GPU 终止排空使用 `/lifecycle/terminal-drain-signed`，除业务 token 外还要求平台签发的 GPU DRAIN 许可。两种路径都等待真实模型借用和构建退出后卸载；业务 token 不能代替 GPU 许可，也不能重启已终止的实例。
 

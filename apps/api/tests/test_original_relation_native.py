@@ -2,7 +2,7 @@
 
 import os
 import uuid
-from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import pytest
 from sqlalchemy import delete, select, text, update
@@ -10,15 +10,13 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.task_original import TaskOriginal
 from app.db.models.user import User
 from app.services import original_sources as sources
+from app.services import thumbnail_outputs
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from tests.factory import create_project, create_task, create_user
 from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
 
@@ -38,7 +36,7 @@ async def exercise_original_relation_native(test_engine):
     )
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
     caller = async_sessionmaker(runtime, expire_on_commit=False)
-    actor_id = project_id = dataset_id = item_id = task_id = original_id = None
+    actor_id = project_id = dataset_id = item_id = task_id = other_item_id = None
     try:
         async with owner.begin() as db:
             actor = await create_user(
@@ -66,6 +64,7 @@ async def exercise_original_relation_native(test_engine):
                 file_name="relation.pcd",
                 file_path="relation/frame.pcd",
                 file_type="pointcloud",
+                thumbnail_path=f"thumbnails/item-{task_id}.webp",
             )
             db.add(item)
             await db.flush()
@@ -93,6 +92,22 @@ async def exercise_original_relation_native(test_engine):
                 text(
                     "SELECT has_table_privilege(current_user, 'public.task_dataset_item_links', 'SELECT')"
                 )
+            )
+            assert not await db.scalar(
+                text(
+                    "SELECT has_table_privilege(current_user, 'public.tasks', 'SELECT')"
+                )
+            )
+            url = await thumbnail_outputs.thumbnail_url(
+                db, "task", task_id, item.thumbnail_path
+            )
+            assert url is not None
+            assert urlsplit(url).path.endswith("/" + item.thumbnail_path)
+            assert (
+                await thumbnail_outputs.thumbnail_url(
+                    db, "task", task_id, "thumbnails/not-this-task.webp"
+                )
+                is None
             )
             for lock in (False, True):
                 relation = await sources.resolve_task_relation(db, task_id, lock=lock)
@@ -188,59 +203,22 @@ async def exercise_original_relation_native(test_engine):
                     await sources.resolve_task_relation(db, task_id, lock=True)
                 ).item_id == item_id
                 await db.rollback()
-        # Camera-only standalone original exercises the compact EXISTS conflict.
-        original_id = uuid.uuid4()
-        key = f"__aap_task_originals__/{task_id}/{original_id}/payload"
+        # Conflicting direct and primary-link identities must not select either original.
         async with owner.begin() as db:
-            await db.execute(
-                delete(TaskDatasetItemLink).where(TaskDatasetItemLink.id == primary_id)
+            other = DatasetItem(
+                id=uuid.uuid4(),
+                dataset_id=dataset_id,
+                file_name="different.pcd",
+                file_path="relation/different.pcd",
+                file_type="pointcloud",
             )
-            await db.execute(
-                update(Task).where(Task.id == task_id).values(dataset_item_id=None)
-            )
-            db.add(
-                ManagedOriginalCreation(
-                    id=original_id,
-                    owner_kind="task",
-                    project_id=project_id,
-                    task_id=task_id,
-                    location_id=LEGACY_LOCATION_ID,
-                    storage_identity="a" * 64,
-                    bucket="relation-test",
-                    object_key=key,
-                    logical_path="relation",
-                    origin="direct",
-                    max_bytes=1,
-                    timeout_seconds=60,
-                    content_type="application/octet-stream",
-                    authority={},
-                    configuration={},
-                    input_fingerprint="b" * 64,
-                    maintenance_revision=1,
-                    staging_bucket="relation-test",
-                    staging_key=f"staging/{original_id}",
-                )
-            )
+            db.add(other)
             await db.flush()
-            db.add(
-                TaskOriginal(
-                    id=original_id,
-                    creation_id=original_id,
-                    task_id=task_id,
-                    project_id=project_id,
-                    location_id=LEGACY_LOCATION_ID,
-                    storage_identity="a" * 64,
-                    bucket="relation-test",
-                    object_key=key,
-                    sha256="c" * 64,
-                    size_bytes=1,
-                    etag="etag",
-                    created_at=datetime.now(timezone.utc),
-                )
-            )
-            await db.flush()
+            other_item_id = other.id
             await db.execute(
-                update(Task).where(Task.id == task_id).values(original_id=original_id)
+                update(TaskDatasetItemLink)
+                .where(TaskDatasetItemLink.id == primary_id)
+                .values(dataset_item_id=other_item_id)
             )
         async with caller() as db:
             for lock in (False, True):
@@ -257,25 +235,17 @@ async def exercise_original_relation_native(test_engine):
         async with owner.begin() as db:
             if task_id:
                 await db.execute(
-                    update(Task).where(Task.id == task_id).values(original_id=None)
-                )
-                await db.execute(
                     delete(TaskDatasetItemLink).where(
                         TaskDatasetItemLink.task_id == task_id
                     )
                 )
                 await db.execute(delete(Task).where(Task.id == task_id))
-            if original_id:
-                await db.execute(
-                    delete(TaskOriginal).where(TaskOriginal.id == original_id)
-                )
-                await db.execute(
-                    delete(ManagedOriginalCreation).where(
-                        ManagedOriginalCreation.id == original_id
-                    )
-                )
             if item_id:
                 await db.execute(delete(DatasetItem).where(DatasetItem.id == item_id))
+            if other_item_id:
+                await db.execute(
+                    delete(DatasetItem).where(DatasetItem.id == other_item_id)
+                )
             if dataset_id:
                 await db.execute(delete(Dataset).where(Dataset.id == dataset_id))
             if project_id:

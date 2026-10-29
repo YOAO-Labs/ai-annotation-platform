@@ -20,7 +20,7 @@ from aap_protocol_v2.lifecycle import (
     LifecycleModeRequest,
 )
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
-from gpu_lifecycle import YoloGpuLifecycle
+from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
 from model_pool import ModelPool
 
 
@@ -30,13 +30,15 @@ class Model:
 
 
 pool = ModelPool(2, lambda *_args: Model(), lambda: None, build_timeout=1)
-lifecycle = YoloGpuLifecycle(
+lifecycle = ManagedGpuLifecycle(
     pool,
     verify_keyring={
         "fixture": load_pem_public_key(os.environ["AAP_FIXTURE_VERIFY_PEM"].encode())
     },
     evictable_verified=True,
     boot_id=os.environ["AAP_FIXTURE_BOOT_ID"],
+    expected_registry_id=os.environ["AAP_FIXTURE_REGISTRY_ID"],
+    expected_gpu_resource_id="fixture/GPU-1",
 )
 unloads = 0
 

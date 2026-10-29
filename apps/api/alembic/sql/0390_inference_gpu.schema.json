@@ -1516,12 +1516,15 @@
             "residency",
             "preparation",
             "token_expires_at",
-            "ledger_source_generation"
+            "ledger_source_generation",
+            "probe_started_at"
           ],
           "properties": {
             "phase": {
               "enum": [
-                "prepare",
+                "reserve",
+                "authorize",
+                "prove_idle",
                 "verify",
                 "commit"
               ]
@@ -1633,6 +1636,12 @@
             },
             "token_expires_at": {
               "type": "string"
+            },
+            "probe_started_at": {
+              "oneOf": [
+                {"type": "null"},
+                {"type": "string"}
+              ]
             },
             "ledger_source_generation": {
               "oneOf": [

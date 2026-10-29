@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 from importlib.metadata import version
 
 import numpy as np
@@ -77,16 +78,28 @@ def validate_pretrained_metadata(blob, size):
 
     if (
         not isinstance(blob, dict)
-        or set(blob) != {"model", "schema_version", "libreyolo_version", "model_family",
-                         "size", "task", "nc", "imgsz", "names"}
+        or set(blob)
+        != {
+            "model",
+            "schema_version",
+            "libreyolo_version",
+            "model_family",
+            "size",
+            "task",
+            "nc",
+            "imgsz",
+            "names",
+        }
         or blob["schema_version"] != "1.0"
         or blob["libreyolo_version"] != "1.1.1"
         or blob["model_family"] != "yolo9"
         or blob["size"] != size
         or size not in {"t", "s", "m", "c"}
         or blob["task"] != "detect"
-        or type(blob["nc"]) is not int or blob["nc"] != 80
-        or type(blob["imgsz"]) is not int or blob["imgsz"] != 640
+        or type(blob["nc"]) is not int
+        or blob["nc"] != 80
+        or type(blob["imgsz"]) is not int
+        or blob["imgsz"] != 640
     ):
         raise ValueError("Pretrained native metadata differs from verified profile")
     names = ordered_names(blob["names"], 80)
@@ -179,9 +192,13 @@ class LibreDetectionModel:
             expected_names = validate_pretrained_metadata(blob, pretrained_size)
         self._native = LibreYOLO(str(path), device=str(self._device), task="detect")
         self._native.model.float()
-        project = self._native.model.head.dfl.project if pretrained_size is not None else None
+        project = (
+            self._native.model.head.dfl.project if pretrained_size is not None else None
+        )
         verify_loaded_tensors(
-            blob["model"], self._native.model.state_dict(), pretrained_dfl_project=project
+            blob["model"],
+            self._native.model.state_dict(),
+            pretrained_dfl_project=project,
         )
         names = ordered_names(self._native.names, len(expected_names))
         if names != expected_names:
@@ -210,7 +227,9 @@ class LibreDetectionModel:
     def _verify_device(self):
         import torch
 
-        for tensor in list(self._native.model.parameters()) + list(self._native.model.buffers()):
+        for tensor in list(self._native.model.parameters()) + list(
+            self._native.model.buffers()
+        ):
             if tensor.device != self._device:
                 raise ValueError("Native model tensor is on the wrong device")
             if tensor.is_floating_point() and tensor.dtype != torch.float32:
@@ -239,7 +258,10 @@ class LibreDetectionModel:
         self._forward_seen = False
         self.execution_facts = None
         try:
-            with torch.inference_mode(), torch.autocast(device_type=self._device.type, enabled=False):
+            with (
+                torch.inference_mode(),
+                torch.autocast(device_type=self._device.type, enabled=False),
+            ):
                 result = self._native.predict(
                     image,
                     conf=conf,
@@ -265,7 +287,9 @@ class LibreDetectionModel:
         if not self._forward_seen:
             raise ValueError("Native prediction did not execute the verified model")
         self.execution_facts = {
-            "precision": "fp32", "half": False, "amp": False,
+            "precision": "fp32",
+            "half": False,
+            "amp": False,
             "tf32": False if self._device.type == "cuda" else None,
         }
         # Single-image LibreYOLO returns Results; [0] would drop all but one box.
@@ -278,6 +302,8 @@ class LibreDetectionModel:
             torch.cuda.synchronize(self._device)
         self._native = None
         if self._device.type == "cuda":
+            # Native modules and forward hooks can retain tensor reference cycles.
+            gc.collect()
             torch.cuda.empty_cache()
 
 

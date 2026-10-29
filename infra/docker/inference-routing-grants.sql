@@ -57,7 +57,8 @@ DECLARE
     actual_tables text[];
     expected_tables text[] := ARRAY[
         'attempts', 'authority_secret', 'command_receipts', 'control_attempts',
-        'controls', 'registry_state', 'scope_retirements', 'scopes',
+        'controls', 'plugin_replacement_bindings', 'plugin_terminal_update_guard',
+        'registry_state', 'scope_retirements', 'scopes',
         'video_execution_scope_permits', 'video_restore_attempts',
         'video_restore_contexts', 'video_restore_function_restore',
         'video_restore_no_scope_receipts', 'video_restore_records',

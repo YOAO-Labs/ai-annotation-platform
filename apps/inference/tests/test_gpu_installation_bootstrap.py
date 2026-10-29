@@ -9,10 +9,13 @@ import time
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from aap_protocol_v2.lifecycle import (
-    LifecycleModeResponse, LifecycleResetResponse, verify_admission_token,
+    LifecycleModeResponse,
+    LifecycleResetResponse,
+    verify_admission_token,
 )
 
 from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
 from aap_inference.gpu.installation_bootstrap import bootstrap_gpu_installation
 from aap_inference.gpu.signing import GPUAdmissionTokenSigner
 from aap_inference_contract.gpu import GPUInstallationControlRequest
@@ -20,7 +23,7 @@ from aap_inference_contract.gpu import GPUInstallationControlRequest
 
 class Clock:
     def __init__(self):
-        self.now = time.time()
+        self.now = float(int(time.time()))
         self.elapsed = 0.0
 
     def time(self):
@@ -36,12 +39,19 @@ class Clock:
 class BootstrapHarness:
     def __init__(self):
         self.request = GPUInstallationControlRequest(
-            registry_id=uuid4(), resource_id="node/GPU-a", endpoint="http://backend:8000",
-            boot_id="boot-1", operation_id=uuid4(), container_id="container-1",
+            registry_id=uuid4(),
+            resource_id="node/GPU-a",
+            endpoint="http://backend:8000",
+            boot_id="boot-1",
+            operation_id=uuid4(),
+            container_id="a" * 64,
             pool_ids=["embeddings", "models"],
         )
-        self.endpoint = SimpleNamespace(url=self.request.endpoint, gpu_resource_id=self.request.resource_id,
-                                        endpoint_sha256="prepared-endpoint")
+        self.endpoint = SimpleNamespace(
+            url=self.request.endpoint,
+            gpu_resource_id=self.request.resource_id,
+            endpoint_sha256="prepared-endpoint",
+        )
         self.clock = Clock()
         self.key = Ed25519PrivateKey.generate()
         self.signer = GPUAdmissionTokenSigner(active_kid="test", _private_key=self.key)
@@ -60,20 +70,35 @@ class BootstrapHarness:
     def residency(self):
         r = self.request
         return {
-            "state": "unloaded", "gpu_loaded": False, "active_requests": 0,
-            "builders": 0, "borrowers": 0, "draining": False, "evictable": False,
+            "state": "unloaded",
+            "gpu_loaded": False,
+            "active_requests": 0,
+            "builders": 0,
+            "borrowers": 0,
+            "draining": False,
+            "evictable": False,
             "generation": None,
-            "pools": {p: {"resident": False, "device": None, "provider": None} for p in r.pool_ids},
-            "boot_id": r.boot_id, "lifecycle_gate": self.gate, "control_epoch": self.epoch,
-            "identity": {"audience": "aap-gpu-lifecycle", "backend_registry_id": str(r.registry_id),
-                         "gpu_resource_id": r.resource_id},
+            "pools": {
+                p: {"resident": False, "device": None, "provider": None}
+                for p in r.pool_ids
+            },
+            "boot_id": r.boot_id,
+            "lifecycle_gate": self.gate,
+            "control_epoch": self.epoch,
+            "identity": {
+                "audience": "aap-gpu-lifecycle",
+                "backend_registry_id": str(r.registry_id),
+                "gpu_resource_id": r.resource_id,
+            },
         }
 
     async def open_owned(self, registry_id, *, request_id, purpose, binding):
         self.events.append(("open", purpose))
         return self.endpoint
 
-    async def health_meta(self, endpoint, *, request_id, gpu_health_challenge, timeout_seconds):
+    async def health_meta(
+        self, endpoint, *, request_id, gpu_health_challenge, timeout_seconds
+    ):
         index = sum(event[0] == "health" for event in self.events)
         self.events.append(("health", gpu_health_challenge))
         residency = self.residency()
@@ -97,7 +122,10 @@ class BootstrapHarness:
         self.events.append(("native", payload))
         assert payload["request"]["registry_id"] == str(self.request.registry_id)
         assert payload["request"]["boot_id"] == self.request.boot_id
-        assert datetime.fromisoformat(payload["probe_started_at"]).timestamp() <= self.clock.time()
+        assert (
+            datetime.fromisoformat(payload["probe_started_at"]).timestamp()
+            <= self.clock.time()
+        )
         if self.block_reason:
             return {"status": "blocked", "reason": self.block_reason}
         if self.complete:
@@ -105,11 +133,16 @@ class BootstrapHarness:
         if self.horizon_responses:
             self.horizon_responses -= 1
             return {"status": "blocked", "reason": "control_token_horizon"}
-        expiry = payload["probe_started_at"] if self.expired else payload["token_expires_at"]
-        return {"status": "prepared", "preparation": {
-            "control_epoch": "7" if payload["phase"] == "reset" else "8",
-            "token_expires_at": expiry,
-        }}
+        expiry = (
+            payload["probe_started_at"] if self.expired else payload["token_expires_at"]
+        )
+        return {
+            "status": "prepared",
+            "preparation": {
+                "control_epoch": "7" if payload["phase"] == "reset" else "8",
+                "token_expires_at": expiry,
+            },
+        }
 
     @asynccontextmanager
     async def control_binding(self, registry_id, *, request_id, operation):
@@ -124,28 +157,45 @@ class BootstrapHarness:
         assert claims.boot_id == self.request.boot_id
         assert claims.control_epoch == request.control_epoch
         assert claims.scope.value == ("reset" if phase == "reset" else "mode")
-        assert claims.operation == f"installation:{'reset' if phase == 'reset' else 'mode_enforce'}"
+        assert (
+            claims.operation
+            == f"installation:{'reset' if phase == 'reset' else 'mode_enforce'}"
+        )
         assert claims.owner == f"installation:{self.request.operation_id}"
         assert claims.generation is None
         if self.fail_phase == phase:
             raise RuntimeError("control unavailable")
         self.epoch = request.control_epoch
 
-    async def lifecycle_reset(self, endpoint, request, token, *, request_id, timeout_seconds):
+    async def lifecycle_reset(
+        self, endpoint, request, token, *, request_id, timeout_seconds
+    ):
         self.verify("reset", request, token)
         self.gate = "legacy"
-        return LifecycleResetResponse.model_validate({
-            "ok": True, "control_epoch": self.epoch, "unloaded": True,
-            "unloaded_count": 0, "residency": self.residency(),
-        })
+        return LifecycleResetResponse.model_validate(
+            {
+                "ok": True,
+                "control_epoch": self.epoch,
+                "unloaded": True,
+                "unloaded_count": 0,
+                "residency": self.residency(),
+            }
+        )
 
-    async def lifecycle_mode(self, endpoint, request, token, *, request_id, timeout_seconds):
+    async def lifecycle_mode(
+        self, endpoint, request, token, *, request_id, timeout_seconds
+    ):
         self.verify("mode", request, token)
         assert request.gate.value == "enforce"
         self.gate = "enforce"
-        return LifecycleModeResponse.model_validate({
-            "ok": True, "gate": "enforce", "control_epoch": self.epoch, "residency": self.residency(),
-        })
+        return LifecycleModeResponse.model_validate(
+            {
+                "ok": True,
+                "gate": "enforce",
+                "control_epoch": self.epoch,
+                "residency": self.residency(),
+            }
+        )
 
     async def demote(self, resource_id):
         assert resource_id == self.request.resource_id
@@ -155,8 +205,13 @@ class BootstrapHarness:
 
     async def bootstrap(self):
         return await bootstrap_gpu_installation(
-            self.request, data=self, signer_factory=lambda: self.signer, endpoint_source=self,
-            backend_transport=self, clock=self.clock, readiness_demoter=self.demote,
+            self.request,
+            data=self,
+            signer_factory=lambda: self.signer,
+            endpoint_source=self,
+            backend_transport=self,
+            clock=self.clock,
+            readiness_demoter=self.demote,
         )
 
 
@@ -166,15 +221,37 @@ def harness():
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_signs_reset_then_enforce_for_exact_inactive_installation(harness):
+async def test_bootstrap_signs_reset_then_enforce_for_exact_inactive_installation(
+    harness,
+):
     assert await harness.bootstrap() == "8"
     events = [event[0] for event in harness.events]
-    assert [event for event in events if event in {"health", "native", "reset", "mode"}] == [
-        "health", "native", "reset", "health", "native", "mode", "health",
+    assert [
+        event for event in events if event in {"health", "native", "reset", "mode"}
+    ] == [
+        "health",
+        "native",
+        "reset",
+        "health",
+        "native",
+        "mode",
+        "health",
     ]
-    assert [event for event in events if event in {"begin", "native", "demote", "commit", "reset", "mode"}] == [
-        "begin", "native", "demote", "commit", "reset",
-        "begin", "native", "demote", "commit", "mode",
+    assert [
+        event
+        for event in events
+        if event in {"begin", "native", "demote", "commit", "reset", "mode"}
+    ] == [
+        "begin",
+        "native",
+        "demote",
+        "commit",
+        "reset",
+        "begin",
+        "native",
+        "demote",
+        "commit",
+        "mode",
     ]
     native = [event[1] for event in harness.events if event[0] == "native"]
     assert [item["phase"] for item in native] == ["reset", "mode_enforce"]
@@ -189,8 +266,15 @@ async def test_demotion_failure_rolls_back_preparation_before_control(harness):
     with pytest.raises(RuntimeError, match="readiness demotion failed"):
         await harness.bootstrap()
     events = [event[0] for event in harness.events]
-    assert [event for event in events if event in {"begin", "native", "demote", "commit", "rollback", "reset", "mode"}] == [
-        "begin", "native", "demote", "rollback",
+    assert [
+        event
+        for event in events
+        if event in {"begin", "native", "demote", "commit", "rollback", "reset", "mode"}
+    ] == [
+        "begin",
+        "native",
+        "demote",
+        "rollback",
     ]
 
 
@@ -198,8 +282,13 @@ def already_enforced_busy(harness):
     harness.complete = True
     harness.gate, harness.epoch = "enforce", "8"
     resident = {
-        "state": "resident", "gpu_loaded": True, "generation": "12",
-        "evictable": True, "active_requests": 1, "builders": 1, "borrowers": 1,
+        "state": "resident",
+        "gpu_loaded": True,
+        "generation": "12",
+        "evictable": True,
+        "active_requests": 1,
+        "builders": 1,
+        "borrowers": 1,
         "pools": {
             "embeddings": {"resident": True, "device": "cuda:0", "provider": None},
             "models": {"resident": False, "device": None, "provider": None},
@@ -213,25 +302,40 @@ async def test_native_complete_reuses_matching_busy_enforced_installation(harnes
     already_enforced_busy(harness)
     assert await harness.bootstrap() == "8"
     events = [event[0] for event in harness.events]
-    assert [event for event in events if event in {"health", "native", "reset", "mode"}] == [
-        "health", "native", "health",
+    assert [
+        event for event in events if event in {"health", "native", "reset", "mode"}
+    ] == [
+        "health",
+        "native",
+        "health",
     ]
-    assert harness.events[events.index("native")][1]["residency"]["active_requests"] == 1
+    assert (
+        harness.events[events.index("native")][1]["residency"]["active_requests"] == 1
+    )
     assert "demote" not in events
     challenges = [event[1] for event in harness.events if event[0] == "health"]
     assert len(challenges) == 2 and challenges[0] != challenges[1]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mutation", [
-    {"boot_id": "wrong"}, {"control_epoch": "9"}, {"lifecycle_gate": "legacy"},
-    {"draining": True}, {"pools": {"models": {"resident": True}}},
-    {"gpu_loaded": False}, {"identity": {"audience": "other"}},
-])
-async def test_native_complete_still_requires_coherent_fresh_same_identity(harness, mutation):
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"boot_id": "wrong"},
+        {"control_epoch": "9"},
+        {"lifecycle_gate": "legacy"},
+        {"draining": True},
+        {"pools": {"models": {"resident": True}}},
+        {"gpu_loaded": False},
+        {"identity": {"audience": "other"}},
+    ],
+)
+async def test_native_complete_still_requires_coherent_fresh_same_identity(
+    harness, mutation
+):
     already_enforced_busy(harness)
     harness.health_mutations[1].update(mutation)
-    with pytest.raises(ValueError):
+    with pytest.raises(GPUArbiterDispatchError):
         await harness.bootstrap()
     assert not any(event[0] in {"reset", "mode"} for event in harness.events)
 
@@ -241,25 +345,58 @@ async def test_horizon_wait_reprobes_before_authorizing_reset(harness):
     harness.horizon_responses = 2
     assert await harness.bootstrap() == "8"
     native = [event[1] for event in harness.events if event[0] == "native"]
-    assert [item["phase"] for item in native] == ["reset", "reset", "reset", "mode_enforce"]
-    assert [item["probe_started_at"] for item in native[:3]] == sorted({item["probe_started_at"] for item in native[:3]})
+    assert [item["phase"] for item in native] == [
+        "reset",
+        "reset",
+        "reset",
+        "mode_enforce",
+    ]
+    assert [item["probe_started_at"] for item in native[:3]] == sorted(
+        {item["probe_started_at"] for item in native[:3]}
+    )
     challenges = [event[1] for event in harness.events if event[0] == "health"]
     assert len(challenges) == len(set(challenges)) == 5
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reason", ["stale_health", "registry_active", "identity_changed"])
+async def test_reset_horizon_wait_does_not_consume_enforce_phase_deadline(harness):
+    step = harness.step
+
+    async def distinct_horizons(operation, payload):
+        horizon = 239.5 if payload["phase"] == "reset" else 269.5
+        harness.block_reason = (
+            "control_token_horizon" if harness.clock.elapsed < horizon else None
+        )
+        return await step(operation, payload)
+
+    harness.step = distinct_horizons
+    assert await harness.bootstrap() == "8"
+    assert harness.clock.elapsed >= 269.5
+    assert harness.gate == "enforce"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason", ["stale_health", "registry_active", "identity_changed", "registry_busy"]
+)
 async def test_native_rejection_never_sends_signed_control(harness, reason):
     harness.block_reason = reason
-    with pytest.raises(ValueError, match="control unavailable"):
+    with pytest.raises(GPUArbiterDispatchError) as failure:
         await harness.bootstrap()
+    assert failure.value.status_code == 503
+    code = (
+        GPUArbiterErrorCode.CAPACITY_UNAVAILABLE
+        if reason == "registry_busy"
+        else GPUArbiterErrorCode.NOT_READY
+    )
+    assert failure.value.error_code == code.value
     assert not any(event[0] in {"reset", "mode"} for event in harness.events)
 
 
 @pytest.mark.asyncio
 async def test_expired_native_preparation_is_not_signed(harness):
     harness.expired = True
-    with pytest.raises(ValueError, match="token expired"):
+    with pytest.raises(GPUArbiterDispatchError):
         await harness.bootstrap()
     assert not any(event[0] in {"reset", "mode"} for event in harness.events)
 
@@ -267,7 +404,7 @@ async def test_expired_native_preparation_is_not_signed(harness):
 @pytest.mark.asyncio
 async def test_horizon_timeout_never_sends_control(harness):
     harness.horizon_responses = 1000
-    with pytest.raises(ValueError, match="control unavailable"):
+    with pytest.raises(GPUArbiterDispatchError):
         await harness.bootstrap()
     assert harness.clock.elapsed == 240.0
     assert not any(event[0] in {"reset", "mode"} for event in harness.events)
@@ -276,7 +413,7 @@ async def test_horizon_timeout_never_sends_control(harness):
 @pytest.mark.asyncio
 async def test_unmatched_challenge_never_reaches_native_preparation(harness):
     harness.replay_challenge = True
-    with pytest.raises(ValueError, match="health challenge failed"):
+    with pytest.raises(GPUArbiterDispatchError):
         await harness.bootstrap()
     assert not any(event[0] in {"native", "reset", "mode"} for event in harness.events)
 
@@ -292,16 +429,29 @@ async def test_control_failure_does_not_report_bootstrap_success(harness, phase)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mutation", [
-    {"boot_id": "wrong"}, {"control_epoch": "7"}, {"lifecycle_gate": "legacy"},
-    {"pools": {"models": {}}}, {"identity": {"audience": "other"}},
-    {"state": "resident"}, {"gpu_loaded": True}, {"generation": "1"},
-    {"evictable": True}, {"draining": True}, {"active_requests": 1},
-    {"builders": 1}, {"borrowers": 1},
-    {"pools": {"embeddings": {"resident": True}, "models": {"resident": False}}},
-])
-async def test_final_health_must_match_enforced_process_and_all_pools(harness, mutation):
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"boot_id": "wrong"},
+        {"control_epoch": "7"},
+        {"lifecycle_gate": "legacy"},
+        {"pools": {"models": {}}},
+        {"identity": {"audience": "other"}},
+        {"state": "resident"},
+        {"gpu_loaded": True},
+        {"generation": "1"},
+        {"evictable": True},
+        {"draining": True},
+        {"active_requests": 1},
+        {"builders": 1},
+        {"borrowers": 1},
+        {"pools": {"embeddings": {"resident": True}, "models": {"resident": False}}},
+    ],
+)
+async def test_final_health_must_match_enforced_process_and_all_pools(
+    harness, mutation
+):
     harness.health_mutations[2] = mutation
-    with pytest.raises(ValueError, match="live identity mismatch"):
+    with pytest.raises(GPUArbiterDispatchError):
         await harness.bootstrap()
     assert any(event[0] == "mode" for event in harness.events)

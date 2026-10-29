@@ -55,9 +55,9 @@ BEGIN
            OR r.name IS DISTINCT FROM v->>'name'
            OR r.url IS DISTINCT FROM v->>'url'
            OR r.auth_method IS DISTINCT FROM 'token'
-           OR r.auth_token IS DISTINCT FROM CASE WHEN i->>'status'='retired'
+           OR r.auth_token IS DISTINCT FROM (CASE WHEN i->>'status'='retired'
                 THEN 'retired-sha256:' || encode(sha256(convert_to(v->>'auth_token','UTF8')),'hex')
-                ELSE v->>'auth_token' END THEN
+                ELSE v->>'auth_token' END) THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='plugin installation intent conflicts with existing identity';
         END IF;
         RETURN jsonb_build_object('registry_id',k,'installation',i);

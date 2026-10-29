@@ -1681,7 +1681,9 @@ async def _execute_preannotation(
                 try:
                     proof_ids = [row["task_id"] for row in image_authority["tasks"]]
                 except (TypeError, KeyError):
-                    raise ValueError("manifest prediction authority is invalid") from None
+                    raise ValueError(
+                        "manifest prediction authority is invalid"
+                    ) from None
                 saved_ids = durable_payload.get("execution_task_ids", proof_ids)
                 if not isinstance(saved_ids, list) or any(
                     not isinstance(value, str) for value in saved_ids
@@ -1690,9 +1692,13 @@ async def _execute_preannotation(
                 try:
                     authority_task_ids = [uuid.UUID(value) for value in saved_ids]
                 except ValueError as exc:
-                    raise ValueError("manifest execution Task scope is invalid") from exc
+                    raise ValueError(
+                        "manifest execution Task scope is invalid"
+                    ) from exc
                 if len(set(authority_task_ids)) != len(authority_task_ids):
-                    raise ValueError("manifest execution Task scope contains duplicates")
+                    raise ValueError(
+                        "manifest execution Task scope contains duplicates"
+                    )
             if image_authority is not None and video_authority is not None:
                 raise ValueError("prediction authority is ambiguous")
             if image_authority is not None:
@@ -2740,6 +2746,7 @@ async def _execute_preannotation(
                         prompt_type=stage.get("prompt_type"),
                         model_variants=stage.get("model_variants"),
                         class_filter=stage.get("class_filter"),
+                        frozen_model_ref=stage.get("frozen_model_ref"),
                         box_threshold=box_thr,
                         text_threshold=text_thr,
                     )
@@ -2789,9 +2796,7 @@ async def _execute_preannotation(
             from aap_assets_input_manifests.contract import ManifestPageRequest
 
             remaining_authority_ids = (
-                set(authority_task_ids)
-                if reference_job is not None
-                else None
+                set(authority_task_ids) if reference_job is not None else None
             )
             cursor = 0
             while cursor < accepted_manifest.header.selected_count:
@@ -2819,7 +2824,9 @@ async def _execute_preannotation(
                     if remaining_authority_ids is not None:
                         for member in page.members:
                             if member.task_id not in remaining_authority_ids:
-                                raise ValueError("manifest page escaped frozen Task scope")
+                                raise ValueError(
+                                    "manifest page escaped frozen Task scope"
+                                )
                             remaining_authority_ids.remove(member.task_id)
                 except Exception as exc:
                     raise _ManifestPageReadFailure(cursor) from exc
@@ -2851,6 +2858,11 @@ async def _execute_preannotation(
                 )
             if remaining_authority_ids:
                 raise ValueError("manifest omitted frozen Tasks")
+
+        async def release_inference_locks(_stage, _dispatch):
+            # Model selection reacquires Registry locks after the write guard.
+            # Cold GPU settlement needs that row from the independent health owner.
+            await db.commit()
 
         if batch_results is not None:
             from decimal import Decimal
@@ -2955,6 +2967,7 @@ async def _execute_preannotation(
                         else _resolve_task_url
                     ),
                     upload_crop=crop_uploader,
+                    dispatch_boundary=release_inference_locks,
                     stage_modes=stage_modes,
                     input_image_path=(
                         retained.local_path if retained is not None else None
@@ -3093,7 +3106,9 @@ async def _execute_preannotation(
                 writer=pred_svc,
                 job_meta=job_meta_base,
                 result_extra=summary,
-                authorize=reference_job.authorize if reference_job is not None else None,
+                authorize=reference_job.authorize
+                if reference_job is not None
+                else None,
                 finish_batch=finish_durable_batch,
                 failure_context=lambda member, error=None: durable_failure_facts(
                     member.manifest_member,
@@ -3374,7 +3389,7 @@ async def _execute_preannotation(
                         task, SessionLocal
                     )
 
-                dispatch_boundary = None
+                dispatch_boundary = release_inference_locks
                 validate_video_results = None
                 if video_owner is not None:
 

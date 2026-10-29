@@ -394,6 +394,7 @@ async def _create_active_backends(
     budgets: tuple[int, ...],
     extra_params_factory=None,
     auth_token=None,
+    auth_method="none",
 ) -> tuple[_GPUAuthoritySessionProvider, tuple[uuid.UUID, ...]]:
     factory = await _open_gpu_authority_provider(test_engine)
     backend_ids = tuple(uuid.uuid4() for _ in budgets)
@@ -410,8 +411,13 @@ async def _create_active_backends(
                         gpu_resource_id=resource_id,
                         vram_budget_mb=budget,
                         eviction_priority=index,
-                        extra_params=(extra_params_factory(backend_id, index) if extra_params_factory else {"max_concurrency": index + 4}),
+                        extra_params=(
+                            extra_params_factory(backend_id, index)
+                            if extra_params_factory
+                            else {"max_concurrency": index + 4}
+                        ),
                         auth_token=auth_token,
+                        auth_method=auth_method,
                     )
                 )
         for backend_id in backend_ids:
@@ -1884,33 +1890,51 @@ async def test_repair_bootstraps_and_does_not_extend_with_same_health(
     finally:
         await _cleanup_backends(factory, backend_ids)
 
+
 @pytest.mark.asyncio
 async def test_ready_repair_renews_only_with_complete_fresh_idle_proof(
-    test_engine: AsyncEngine, proof_store: GPUArbiterStore,
+    test_engine: AsyncEngine,
+    proof_store: GPUArbiterStore,
 ) -> None:
     factory, backend_ids = await _create_active_backends(
-        test_engine, resource_id=_RESOURCE_A, budgets=(1024, 2048),
+        test_engine,
+        resource_id=_RESOURCE_A,
+        budgets=(1024, 2048),
     )
     resident = frozenset({backend_ids[1]})
     try:
-        await _install_live_health(factory, backend_ids, resource_id=_RESOURCE_A,
-                                   resident_backend_ids=resident)
+        await _install_live_health(
+            factory, backend_ids, resource_id=_RESOURCE_A, resident_backend_ids=resident
+        )
         first = await repair_gpu_resource(
-            factory, proof_store, _RESOURCE_A, 8192, config=_resource_config(_RESOURCE_A),
+            factory,
+            proof_store,
+            _RESOURCE_A,
+            8192,
+            config=_resource_config(_RESOURCE_A),
         )
         assert first.ready
         original = await proof_store.snapshot(_RESOURCE_A)
         # Advance the apparent card horizon without sleeping through production cadence.
         for _ in range(2):
             await proof_store._redis.hset(
-                proof_store.keys(_RESOURCE_A).card, "reconcile_deadline_ms",
+                proof_store.keys(_RESOURCE_A).card,
+                "reconcile_deadline_ms",
                 int(time.time() * 1000) + 60_000,
             )
             before = await proof_store.snapshot(_RESOURCE_A)
-            await _install_live_health(factory, backend_ids, resource_id=_RESOURCE_A,
-                                       resident_backend_ids=resident)
+            await _install_live_health(
+                factory,
+                backend_ids,
+                resource_id=_RESOURCE_A,
+                resident_backend_ids=resident,
+            )
             result = await repair_gpu_resource(
-                factory, proof_store, _RESOURCE_A, 8192, config=_resource_config(_RESOURCE_A),
+                factory,
+                proof_store,
+                _RESOURCE_A,
+                8192,
+                config=_resource_config(_RESOURCE_A),
             )
             after = await proof_store.snapshot(_RESOURCE_A)
             assert result.ready
@@ -1920,7 +1944,8 @@ async def test_ready_repair_renews_only_with_complete_fresh_idle_proof(
             assert after.allocations == original.allocations
 
         await proof_store._redis.hset(
-            proof_store.keys(_RESOURCE_A).card, "reconcile_deadline_ms",
+            proof_store.keys(_RESOURCE_A).card,
+            "reconcile_deadline_ms",
             int(time.time() * 1000) + 60_000,
         )
         before = await proof_store.snapshot(_RESOURCE_A)
@@ -1931,14 +1956,19 @@ async def test_ready_repair_renews_only_with_complete_fresh_idle_proof(
             health.pop("residency")
             backend.health_meta = health
         await repair_gpu_resource(
-            factory, proof_store, _RESOURCE_A, 8192, config=_resource_config(_RESOURCE_A),
+            factory,
+            proof_store,
+            _RESOURCE_A,
+            8192,
+            config=_resource_config(_RESOURCE_A),
         )
         after = await proof_store.snapshot(_RESOURCE_A)
         assert after.reconcile_deadline_ms == before.reconcile_deadline_ms
         assert after.ledger_revision == before.ledger_revision
 
-        await _install_live_health(factory, backend_ids, resource_id=_RESOURCE_A,
-                                   resident_backend_ids=resident)
+        await _install_live_health(
+            factory, backend_ids, resource_id=_RESOURCE_A, resident_backend_ids=resident
+        )
         async with factory.begin() as db:
             backend = await db.get(MLBackendRegistry, backend_ids[0])
             assert backend is not None
@@ -1952,20 +1982,33 @@ async def test_ready_repair_renews_only_with_complete_fresh_idle_proof(
             backend.health_meta = health
             backend.last_checked_at = observed
         await repair_gpu_resource(
-            factory, proof_store, _RESOURCE_A, 8192, config=_resource_config(_RESOURCE_A),
+            factory,
+            proof_store,
+            _RESOURCE_A,
+            8192,
+            config=_resource_config(_RESOURCE_A),
         )
-        assert (await proof_store.snapshot(_RESOURCE_A)).reconcile_deadline_ms == before.reconcile_deadline_ms
+        assert (
+            await proof_store.snapshot(_RESOURCE_A)
+        ).reconcile_deadline_ms == before.reconcile_deadline_ms
 
-        await _install_live_health(factory, backend_ids, resource_id=_RESOURCE_A,
-                                   resident_backend_ids=resident)
+        await _install_live_health(
+            factory, backend_ids, resource_id=_RESOURCE_A, resident_backend_ids=resident
+        )
         async with factory.begin() as db:
             fence = await db.get(GPUBackendFence, backend_ids[0])
             assert fence is not None
             fence.token_expiry_high_water = datetime.now(UTC) + timedelta(minutes=1)
         await repair_gpu_resource(
-            factory, proof_store, _RESOURCE_A, 8192, config=_resource_config(_RESOURCE_A),
+            factory,
+            proof_store,
+            _RESOURCE_A,
+            8192,
+            config=_resource_config(_RESOURCE_A),
         )
-        assert (await proof_store.snapshot(_RESOURCE_A)).reconcile_deadline_ms == before.reconcile_deadline_ms
+        assert (
+            await proof_store.snapshot(_RESOURCE_A)
+        ).reconcile_deadline_ms == before.reconcile_deadline_ms
     finally:
         await _cleanup_backends(factory, backend_ids)
 

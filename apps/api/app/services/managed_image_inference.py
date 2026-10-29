@@ -15,14 +15,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.services import prediction_inputs, prediction_originals as originals
 from app.services import storage_access
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS
 from app.services.dataset_content import content_http_error, key_authority
 from app.services.image_inference_authority import authorize_image_operation
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+)
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_actor_scope,
@@ -205,15 +207,16 @@ class ManagedImageOperation:
             raise ContentError("mask_prompt_source_changed")
 
     async def _parents(self, db):
-        await lock_actor_project_authority(db, self.actor_id, self.project_id)
+        actor = await lock_actor_project_authority(db, self.actor_id, self.project_id)
         await lock_actor_scope(db, self.actor_id, self.project_id)
+        return actor
 
     async def _task(self, db):
         task = await originals.locked_task(db, self.task_id)
         if is_reference(task.file_path):
             raise ContentError("content_binding_changed")
         if task.batch_id is not None:
-            await db.get(TaskBatch, task.batch_id, populate_existing=True)
+            await get_core_row(db, TaskBatch, task.batch_id, populate_existing=True)
         return task
 
     async def _business(self, db, task, actor):
@@ -269,8 +272,7 @@ class ManagedImageOperation:
         if self.binding is not None or self._closed:
             raise ContentError("prediction_input_already_open")
         self._annotations_read = annotations_read
-        await self._parents(self.db)
-        actor = await self.db.get(User, self.actor_id, populate_existing=True)
+        actor = await self._parents(self.db)
         if actor is None:
             raise ContentError("prediction_authority_revoked", 403)
         self.credentials = await originals.capture_credentials(
@@ -405,16 +407,15 @@ class ManagedImageOperation:
         except TaskLockConflictError:
             raise ContentError("managed_inference_busy") from None
         await lock_task_scope(self.db, [self.task_id])
-        task = await self.db.scalar(
-            select(Task)
-            .where(Task.id == self.task_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True)
+        task = await lock_task_for_core_read(
+            self.db, self.task_id, nowait=True, populate_existing=True
         )
         if task is None or is_reference(task.file_path):
             raise ContentError("content_binding_changed")
         if task.batch_id is not None:
-            await self.db.get(TaskBatch, task.batch_id, populate_existing=True)
+            await get_core_row(
+                self.db, TaskBatch, task.batch_id, populate_existing=True
+            )
         await self._bound(self.db, task, actor, final=True)
         if self.inputs is not None:
             await prediction_inputs.check_metadata(self.db, self.inputs)

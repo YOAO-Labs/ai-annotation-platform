@@ -60,6 +60,10 @@ BEGIN
             v_schema||'.open_'||CASE v_profile WHEN 'gpu_health_observation'
                 THEN 'health_observation' ELSE 'gpu_control' END||'_endpoint(text,uuid,uuid,text)'
         ];
+        IF v_profile='gpu_control' THEN
+            v_signatures := pg_catalog.array_append(v_signatures,
+                v_schema||'.open_installation_terminal_endpoint(uuid,uuid,text,text,text)');
+        END IF;
     ELSIF v_profile='backend_stats' THEN
         v_signatures := ARRAY[
             v_schema||'.backend_endpoint_policy()',

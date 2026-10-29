@@ -1583,7 +1583,6 @@ async def test_busy_eviction_owner_keeps_full_cancel_horizon(monkeypatch) -> Non
         _RecordingSigner(events),  # type: ignore[arg-type]
         requester,
         victim,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=lambda backend_id, challenge: asyncio.sleep(0, result=True),
         hard_ttl_ms=1_000,
@@ -1724,7 +1723,6 @@ async def test_busy_eviction_end_to_end_waits_then_unloads(monkeypatch) -> None:
         _ScopeSigner(events),  # type: ignore[arg-type]
         requester,
         victim,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=refresh_health,
         hard_ttl_ms=120_000,
@@ -1842,7 +1840,6 @@ async def test_busy_eviction_cancel_orders_durable_intent_arm_resume_and_proof(
         CancelStore(),  # type: ignore[arg-type]
         signer,  # type: ignore[arg-type]
         drain_subject,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=refresh_health,
         owner_id=cancel_subject.owner_id,
@@ -1922,7 +1919,6 @@ async def test_busy_eviction_cancel_never_sends_resume_after_unload_branch_wins(
         ConflictStore(),  # type: ignore[arg-type]
         signer,  # type: ignore[arg-type]
         drain_subject,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=no_health,
         owner_id=cancel_subject.owner_id,
@@ -3415,7 +3411,6 @@ async def test_cold_capacity_waits_for_cumulative_cooldown_with_exact_ticket(
         store,  # type: ignore[arg-type]
         _RecordingSigner(events),  # type: ignore[arg-type]
         requester,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=no_health,
         hard_ttl_ms=120_000,
@@ -3481,7 +3476,6 @@ async def test_cold_capacity_uses_busy_victim_only_when_idle_capacity_is_insuffi
         store,  # type: ignore[arg-type]
         _RecordingSigner(events),  # type: ignore[arg-type]
         requester,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=no_health,
         hard_ttl_ms=120_000,
@@ -3540,7 +3534,6 @@ async def test_cold_capacity_does_not_treat_not_ready_as_busy_fallback(
             store,  # type: ignore[arg-type]
             _RecordingSigner(events),  # type: ignore[arg-type]
             requester,
-            request_id=uuid.uuid4(),
             clock=_DispatchTestClock(),
             health_refresher=lambda backend_id, challenge: asyncio.sleep(
                 0,
@@ -3604,7 +3597,6 @@ async def test_cold_cooldown_wait_isolated_per_gpu_resource() -> None:
             waiting_store,  # type: ignore[arg-type]
             signer,  # type: ignore[arg-type]
             requester_a,
-            request_id=uuid.uuid4(),
             clock=_DispatchTestClock(),
             health_refresher=no_health,
             hard_ttl_ms=120_000,
@@ -3629,7 +3621,6 @@ async def test_cold_cooldown_wait_isolated_per_gpu_resource() -> None:
             free_store,  # type: ignore[arg-type]
             signer,  # type: ignore[arg-type]
             requester_b,
-            request_id=uuid.uuid4(),
             clock=_DispatchTestClock(),
             health_refresher=no_health,
             hard_ttl_ms=120_000,
@@ -3765,7 +3756,6 @@ async def test_cold_capacity_deadline_stops_before_next_victim(monkeypatch) -> N
             store,  # type: ignore[arg-type]
             signer,  # type: ignore[arg-type]
             subject,
-            request_id=uuid.uuid4(),
             clock=_DispatchTestClock(),
             health_refresher=lambda backend_id, challenge: asyncio.sleep(
                 0,
@@ -4536,7 +4526,6 @@ async def test_uncertain_begin_still_runs_conservative_owner_cleanup(
         signer,  # type: ignore[arg-type]
         subject,
         victim,
-        request_id=uuid.uuid4(),
         clock=_DispatchTestClock(),
         health_refresher=refresh_health,
         hard_ttl_ms=120_000,

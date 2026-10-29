@@ -7,3 +7,13 @@ dependencies = ["aap-training-contract", "numpy", "libreyolo==1.6.0", "torch==2.
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+aap-training-contract = { path = "../training_contract", editable = true }
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true

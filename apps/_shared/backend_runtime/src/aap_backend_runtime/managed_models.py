@@ -1,4 +1,5 @@
 """Immutable managed model installation mechanics, independent of model framework."""
+
 from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
@@ -12,12 +13,14 @@ from pathlib import Path
 import httpx
 from fastapi import HTTPException
 
+
 def file_digest(path):
     result = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             result.update(chunk)
     return result.hexdigest()
+
 
 class ManagedModelStore:
     def __init__(self, root: Path, *, inspect, validate_receipt):
@@ -171,7 +174,7 @@ class ManagedModelStore:
             raise FileNotFoundError("Controlled model weight digest differs")
         return self.root / str(uuid.UUID(version_id)) / "weights.pt", receipt
 
-    async def install(self, body: InstallRequest):
+    async def install(self, body):
         version_id = str(body.model_version_id)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         expected = body.model_dump(
@@ -194,24 +197,20 @@ class ManagedModelStore:
                 staging.mkdir()
                 path = staging / "weights.pt"
                 await self._materialize_blob(body, path, expected)
-                with (staging / "receipt.json").open("wb") as stream:
-                    stream.write(
-                        raw_receipt
-                        if raw_receipt is not None
-                        else json.dumps(
-                            expected, ensure_ascii=False, sort_keys=True
-                        ).encode()
-                    )
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                damaged = Path(temp) / "damaged"
-                if directory.exists():
-                    os.replace(directory, damaged)
-                try:
+                if raw_receipt is not None:
+                    # Repair only the artifact: the canonical immutable receipt must
+                    # remain discoverable even if this process dies during publication.
+                    os.replace(path, directory / "weights.pt")
+                    self._sync_directory(directory)
+                else:
+                    with (staging / "receipt.json").open("wb") as stream:
+                        stream.write(
+                            json.dumps(
+                                expected, ensure_ascii=False, sort_keys=True
+                            ).encode()
+                        )
+                        stream.flush()
+                        os.fsync(stream.fileno())
                     os.replace(staging, directory)
-                except Exception:
-                    if damaged.exists():
-                        os.replace(damaged, directory)
-                    raise
-                self._sync_directory(self.root)
+                    self._sync_directory(self.root)
             return expected

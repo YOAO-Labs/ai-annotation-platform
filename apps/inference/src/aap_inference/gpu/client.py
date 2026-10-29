@@ -59,6 +59,50 @@ from aap_inference_contract.gpu import (
 
 logger = logging.getLogger(__name__)
 
+# The public response has a newly serialized body and a different HTTP connection.
+_PRIVATE_RESPONSE_HEADERS = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "content-length",
+        "content-type",
+        "content-encoding",
+        "content-language",
+        "content-location",
+        "content-range",
+        "content-disposition",
+        "content-md5",
+        "digest",
+        "etag",
+        "last-modified",
+    }
+)
+
+
+def _project_error_headers(
+    transport_headers: Mapping[str, str], error_headers: Mapping[str, str]
+) -> dict[str, str]:
+    sources = (transport_headers, error_headers)
+    excluded = set(_PRIVATE_RESPONSE_HEADERS)
+    for source in sources:
+        for name, value in source.items():
+            if name.lower() == "connection":
+                excluded.update(token.strip().lower() for token in value.split(","))
+    # Error-body headers take precedence even when their casing differs.
+    projected: dict[str, tuple[str, str]] = {}
+    for source in sources:
+        for name, value in source.items():
+            if name.lower() not in excluded:
+                projected[name.lower()] = (name, value)
+    return dict(projected.values())
+
 
 class GPUHTTPResponse(Protocol):
     status_code: int
@@ -156,7 +200,10 @@ class GPUAuthorityHTTPClient:
         )
         reply = self._decode_success(response, GPUInstallationQuiesceReply)
         self._validate_installation_reply(request, reply)
-        if reply.operation_id != request.operation_id or reply.container_id != request.container_id:
+        if (
+            reply.operation_id != request.operation_id
+            or reply.container_id != request.container_id
+        ):
             raise GPUArbiterDispatchError(
                 GPUArbiterErrorCode.UNAVAILABLE,
                 message="GPU authority returned mismatched installation proof",
@@ -330,8 +377,7 @@ class GPUAuthorityHTTPClient:
             error = GPUAuthorityErrorReply.model_validate_json(response.content)
             if error.status_code != response.status_code:
                 raise ValueError("HTTP and GPU error status differ")
-            headers = {str(key): str(value) for key, value in response.headers.items()}
-            headers.update(error.headers)
+            headers = _project_error_headers(response.headers, error.headers)
             raise GPUArbiterDispatchError.from_remote(
                 status_code=error.status_code,
                 detail=error.detail,

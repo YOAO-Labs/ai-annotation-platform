@@ -2201,6 +2201,8 @@ ALTER TABLE aap_inference_routing_v1.weights OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.controls OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.control_attempts OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.command_receipts OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.plugin_terminal_update_guard OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.plugin_replacement_bindings OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.scope_retirements OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.video_execution_scope_permits
     OWNER TO :"inference_owner";
@@ -2909,6 +2911,7 @@ ALTER VIEW aap_labeling_v1.video_tracker_job_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_event_facts OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid) OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
@@ -3033,6 +3036,8 @@ ALTER FUNCTION aap_inference_pipelines_v1._cleanup_unfinished_state()
 ALTER FUNCTION aap_inference_pipelines_v1.pipeline_policy()
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_pipelines_v1 FROM :"inference_owner";
 
@@ -3855,6 +3860,7 @@ ALTER FUNCTION aap_jobs_v1.active_cross_frame_job(uuid,text) OWNER TO :"jobs_own
 ALTER FUNCTION aap_jobs_v1.cross_frame_job_page(uuid,text,integer) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.cross_frame_job_count(uuid,text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.latest_batch_prediction_times(uuid[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.jobs_by_execution_id(text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text) OWNER TO :"jobs_owner";
@@ -3904,6 +3910,8 @@ BEGIN
 END;
 $inference_owner$;
 ALTER TABLE aap_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_gpu_v1.installation_control_intents OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_gpu_v1.installation_terminal_intents OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_topology_v1,
     aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
     aap_inference_gpu_caller_v1, aap_inference_gpu_collector_v1 FROM :"inference_owner";
@@ -3918,8 +3926,15 @@ GRANT SELECT, UPDATE (id, state, retired_at)
     ON public.guide_asset_uploads TO :"workspace_owner";
 GRANT SELECT (id, bound_comment_id, state, created_at), UPDATE (id, state, retired_at)
     ON public.comment_attachment_uploads TO :"labeling_owner";
-GRANT INSERT (execution_snapshot_id) ON public.failed_predictions TO :"labeling_owner";
+GRANT SELECT (execution_snapshot_id), INSERT (execution_snapshot_id)
+    ON public.failed_predictions TO :"labeling_owner";
 GRANT SELECT (id, project_id) ON public.prediction_execution_snapshots TO :"jobs_owner";
+GRANT SELECT (id, payload) ON public.prediction_execution_snapshots TO :"inference_owner";
+GRANT USAGE ON SCHEMA aap_inference_pipelines_v1 TO :"jobs_owner", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)
+    TO :"jobs_owner", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)
+    TO :"jobs_owner";
 GRANT SELECT (execution_snapshot_id), UPDATE (execution_snapshot_id)
     ON public.async_jobs TO :"jobs_owner";
 

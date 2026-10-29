@@ -35,6 +35,7 @@ BACKEND_ENDPOINT_NATIVE_FUNCTIONS = (
     "aap_inference_backend_endpoint_v1.open_lifecycle_endpoint(text,uuid,uuid,text)",
     "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
     "aap_inference_backend_endpoint_v1.open_gpu_control_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)",
     "aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
     "aap_inference_backend_endpoint_v1.stats_endpoint_rows()",
     "aap_inference_backend_endpoint_v1.catalog_endpoint_rows()",
@@ -50,6 +51,7 @@ BackendEndpointPurpose = Literal[
     "lifecycle",
     "execution",
     "gpu_control",
+    "terminal_drain",
 ]
 
 
@@ -101,6 +103,8 @@ class BackendEndpointSubject(_EndpointModel):
 
     @model_validator(mode="after")
     def valid_subject(self) -> BackendEndpointSubject:
+        if self.purpose == "terminal_drain":
+            raise ValueError("Terminal drain endpoints cannot be captured as subjects")
         read_only = self.purpose in {
             "health_observation",
             "setup",

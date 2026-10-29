@@ -104,6 +104,7 @@ class GPUBackendControlTransport(Protocol):
         endpoint: BackendEndpointSnapshot,
         grant: GPUDispatchGrantPort,
         *,
+        registry_id: UUID,
         request_id: UUID,
         timeout_seconds: float,
     ) -> dict[str, object]: ...

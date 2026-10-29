@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from aap_inference.backend_transport import BackendTransportError
 from aap_inference.gpu.contracts import GPUDispatchGrant
+from aap_inference.gpu.dispatch import _call_eviction_lifecycle
 from aap_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
 from aap_inference.owner_transport import (
     BackendTransportGPUControlAdapter,
@@ -272,28 +273,16 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
             assert (await probe.get(base + "/health")).json()["residency"][
                 "gpu_loaded"
             ] is True
-            drain = GPUDispatchGrant(
-                "2",
-                token(AdmissionScope.DRAIN, generation="2"),
-            )
-            drain_request_id = uuid.uuid4()
-            async with adapter.control_binding(
+            drain_reply = await _call_eviction_lifecycle(
+                endpoint_source,
+                adapter,
                 registry_id,
-                request_id=drain_request_id,
-                operation="drain",
-            ) as binding:
-                endpoint = await endpoint_source.open_owned(
-                    registry_id,
-                    request_id=drain_request_id,
-                    purpose="gpu_control",
-                    binding=binding,
-                )
-                drain_reply = await adapter.lifecycle_drain(
-                    endpoint,
-                    drain,
-                    request_id=drain_request_id,
-                    timeout_seconds=5,
-                )
+                "drain",
+                clock=time,
+                generation="2",
+                admission_token=token(AdmissionScope.DRAIN, generation="2"),
+                hard_deadline_ms=int(time.time() * 1000) + 5_000,
+            )
             assert drain_reply.generation == "2"
             bad = GPUDispatchGrant(
                 "2",
@@ -329,28 +318,16 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
                 state["successful_unloads"] == 0
                 and state["residency"]["gpu_loaded"] is True
             )
-            unload = GPUDispatchGrant(
-                "2",
-                token(AdmissionScope.UNLOAD, generation="2"),
-            )
-            unload_request_id = uuid.uuid4()
-            async with adapter.control_binding(
+            unload_reply = await _call_eviction_lifecycle(
+                endpoint_source,
+                adapter,
                 registry_id,
-                request_id=unload_request_id,
-                operation="unload",
-            ) as binding:
-                endpoint = await endpoint_source.open_owned(
-                    registry_id,
-                    request_id=unload_request_id,
-                    purpose="gpu_control",
-                    binding=binding,
-                )
-                unload_reply = await adapter.lifecycle_unload(
-                    endpoint,
-                    unload,
-                    request_id=unload_request_id,
-                    timeout_seconds=5,
-                )
+                "unload",
+                clock=time,
+                generation="2",
+                admission_token=token(AdmissionScope.UNLOAD, generation="2"),
+                hard_deadline_ms=int(time.time() * 1000) + 5_000,
+            )
             assert unload_reply.unloaded is True
             state = (await probe.get(base + "/health")).json()
             assert (

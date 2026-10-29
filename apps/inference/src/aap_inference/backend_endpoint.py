@@ -179,9 +179,16 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
 
 
+class _SnapshotIdentity(Protocol):
+    registry_id: UUID
+    request_id: UUID
+    purpose: BackendEndpointPurpose
+    authority: BackendEndpointAuthority | None
+
+
 def _snapshot(
     raw_json: str,
-    request: BackendEndpointSubject,
+    request: _SnapshotIdentity,
 ) -> BackendEndpointSnapshot:
     try:
         value = json.loads(raw_json, parse_constant=_reject_json_constant)
@@ -275,7 +282,7 @@ class BackendEndpointManager:
         purpose: BackendEndpointPurpose,
         binding: BackendEndpointBinding | None = None,
     ) -> BackendEndpointSubject:
-        if type(registry_id) is not UUID or type(request_id) is not UUID:
+        if not isinstance(registry_id, UUID) or not isinstance(request_id, UUID):
             raise BackendEndpointUnavailable()
         try:
             typed_binding = (

@@ -15,11 +15,7 @@
       "uow": "Runs inside and borrows the caller's transaction; never commits or opens a transaction",
       "response": {
         "type": "object",
-        "required": [
-          "protocol",
-          "action",
-          "result"
-        ],
+        "required": ["protocol", "action", "result"],
         "properties": {
           "protocol": {
             "const": "aap-inference-gpu-native/v1"
@@ -92,10 +88,7 @@
               "$ref": "#/$defs/uuid"
             },
             "counter": {
-              "enum": [
-                "generation",
-                "control_epoch"
-              ]
+              "enum": ["generation", "control_epoch"]
             },
             "gpu_resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -113,10 +106,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status",
-                "value"
-              ],
+              "required": ["status", "value"],
               "properties": {
                 "status": {
                   "const": "advanced"
@@ -169,10 +159,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status",
-                "token_expires_at"
-              ],
+              "required": ["status", "token_expires_at"],
               "properties": {
                 "status": {
                   "const": "recorded"
@@ -196,11 +183,7 @@
         "name": "fence_activate_membership",
         "arguments": {
           "type": "object",
-          "required": [
-            "backend_registry_id",
-            "gpu_resource_id",
-            "membership_epoch"
-          ],
+          "required": ["backend_registry_id", "gpu_resource_id", "membership_epoch"],
           "properties": {
             "backend_registry_id": {
               "$ref": "#/$defs/uuid"
@@ -218,10 +201,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status",
-                "runtime_epoch_high_water"
-              ],
+              "required": ["status", "runtime_epoch_high_water"],
               "properties": {
                 "status": {
                   "const": "activated"
@@ -248,9 +228,7 @@
         "name": "fence_read",
         "arguments": {
           "type": "object",
-          "required": [
-            "backend_registry_id"
-          ],
+          "required": ["backend_registry_id"],
           "properties": {
             "backend_registry_id": {
               "$ref": "#/$defs/uuid"
@@ -260,9 +238,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "fence"
-          ],
+          "required": ["fence"],
           "properties": {
             "fence": {
               "oneOf": [
@@ -282,9 +258,7 @@
         "name": "rollout_read",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id"
-          ],
+          "required": ["resource_id"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -294,9 +268,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "snapshot"
-          ],
+          "required": ["snapshot"],
           "properties": {
             "snapshot": {
               "oneOf": [
@@ -320,9 +292,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "snapshots"
-          ],
+          "required": ["snapshots"],
           "properties": {
             "snapshots": {
               "type": "array",
@@ -342,9 +312,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "active"
-          ],
+          "required": ["active"],
           "properties": {
             "active": {
               "type": "boolean"
@@ -357,21 +325,13 @@
         "name": "rollout_begin",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "target_mode",
-            "candidate_transition_id"
-          ],
+          "required": ["resource_id", "target_mode", "candidate_transition_id"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
             },
             "target_mode": {
-              "enum": [
-                "off",
-                "observe",
-                "enforce"
-              ]
+              "enum": ["off", "observe", "enforce"]
             },
             "candidate_transition_id": {
               "$ref": "#/$defs/uuid"
@@ -386,10 +346,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "outcome",
-                "reason"
-              ],
+              "required": ["outcome", "reason"],
               "properties": {
                 "outcome": {
                   "const": "conflict"
@@ -403,9 +360,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "outcome"
-              ],
+              "required": ["outcome"],
               "properties": {
                 "outcome": {
                   "const": "unavailable"
@@ -420,10 +375,7 @@
         "name": "rollout_complete",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "transition_id"
-          ],
+          "required": ["resource_id", "transition_id"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -449,11 +401,7 @@
         "name": "rollout_block",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "transition_id",
-            "reason"
-          ],
+          "required": ["resource_id", "transition_id", "reason"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -484,10 +432,7 @@
         "name": "runtime_subject",
         "arguments": {
           "type": "object",
-          "required": [
-            "backend_registry_id",
-            "gpu_resource_id"
-          ],
+          "required": ["backend_registry_id", "gpu_resource_id"],
           "properties": {
             "backend_registry_id": {
               "$ref": "#/$defs/uuid"
@@ -506,11 +451,7 @@
         "name": "cold_runtime_subject",
         "arguments": {
           "type": "object",
-          "required": [
-            "backend_registry_id",
-            "gpu_resource_id",
-            "expected_challenge"
-          ],
+          "required": ["backend_registry_id", "gpu_resource_id", "expected_challenge"],
           "properties": {
             "backend_registry_id": {
               "$ref": "#/$defs/uuid"
@@ -599,10 +540,7 @@
         "name": "eviction_drain_health",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "challenge"
-          ],
+          "required": ["expected_subject", "challenge"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/prepared_idle_subject"
@@ -621,10 +559,7 @@
         "name": "prepare_cold_generation",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "token_expires_at"
-          ],
+          "required": ["expected_subject", "token_expires_at"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/cold_subject"
@@ -643,10 +578,7 @@
         "name": "prepare_idle_eviction_generation",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "token_expires_at"
-          ],
+          "required": ["expected_subject", "token_expires_at"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/idle_subject"
@@ -697,12 +629,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "phase",
-                "backend_registry_id",
-                "gpu_resource_id",
-                "owner_id"
-              ],
+              "required": ["phase", "backend_registry_id", "gpu_resource_id", "owner_id"],
               "properties": {
                 "phase": {
                   "const": "recover"
@@ -731,10 +658,7 @@
         "name": "record_runtime_token_expiry",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "token_expires_at"
-          ],
+          "required": ["expected_subject", "token_expires_at"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/resident_subject"
@@ -749,10 +673,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status",
-                "token_expires_at"
-              ],
+              "required": ["status", "token_expires_at"],
               "properties": {
                 "status": {
                   "const": "recorded"
@@ -773,10 +694,7 @@
         "name": "cold_terminal_from_health",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "challenge"
-          ],
+          "required": ["expected_subject", "challenge"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/prepared_cold_subject"
@@ -802,11 +720,7 @@
         "name": "eviction_cancel_from_health",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "ack_confirmed",
-            "challenge"
-          ],
+          "required": ["expected_subject", "ack_confirmed", "challenge"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/prepared_cancel_subject"
@@ -835,20 +749,13 @@
         "name": "eviction_phase_from_health",
         "arguments": {
           "type": "object",
-          "required": [
-            "expected_subject",
-            "phase",
-            "challenge"
-          ],
+          "required": ["expected_subject", "phase", "challenge"],
           "properties": {
             "expected_subject": {
               "$ref": "#/$defs/prepared_idle_subject"
             },
             "phase": {
-              "enum": [
-                "drain",
-                "unload"
-              ]
+              "enum": ["drain", "unload"]
             },
             "challenge": {
               "oneOf": [
@@ -871,10 +778,7 @@
         "name": "proof_domain",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "wait_for_lock"
-          ],
+          "required": ["resource_id", "wait_for_lock"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -893,11 +797,7 @@
         "name": "proof_reset_from_health",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "expected_backend_memberships",
-            "wait_for_lock"
-          ],
+          "required": ["resource_id", "expected_backend_memberships", "wait_for_lock"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -921,10 +821,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "status",
-                "reason"
-              ],
+              "required": ["status", "reason"],
               "properties": {
                 "status": {
                   "const": "blocked"
@@ -942,10 +839,7 @@
         "name": "reconcile_resource",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "allocatable_mb"
-          ],
+          "required": ["resource_id", "allocatable_mb"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -966,12 +860,7 @@
         "name": "repair_resource",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "allocatable_mb",
-            "force_proof_reset",
-            "readiness_blocker"
-          ],
+          "required": ["resource_id", "allocatable_mb", "force_proof_reset", "readiness_blocker"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -1067,10 +956,7 @@
               "$ref": "#/$defs/uuid"
             },
             "target_gate": {
-              "enum": [
-                "legacy",
-                "enforce"
-              ]
+              "enum": ["legacy", "enforce"]
             },
             "token_ttl_seconds": {
               "type": "integer",
@@ -1093,10 +979,7 @@
         "name": "membership_candidates",
         "arguments": {
           "type": "object",
-          "required": [
-            "gpu_resource_id",
-            "states"
-          ],
+          "required": ["gpu_resource_id", "states"],
           "properties": {
             "gpu_resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -1104,20 +987,13 @@
             "states": {
               "oneOf": [
                 {
-                  "const": [
-                    "pending"
-                  ]
+                  "const": ["pending"]
                 },
                 {
-                  "const": [
-                    "pending",
-                    "active"
-                  ]
+                  "const": ["pending", "active"]
                 },
                 {
-                  "const": [
-                    "retiring"
-                  ]
+                  "const": ["retiring"]
                 }
               ]
             }
@@ -1126,19 +1002,13 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "candidates"
-          ],
+          "required": ["candidates"],
           "properties": {
             "candidates": {
               "type": "array",
               "items": {
                 "type": "object",
-                "required": [
-                  "backend_id",
-                  "membership_epoch",
-                  "state"
-                ],
+                "required": ["backend_id", "membership_epoch", "state"],
                 "properties": {
                   "backend_id": {
                     "$ref": "#/$defs/uuid"
@@ -1147,11 +1017,7 @@
                     "$ref": "#/$defs/positive_int64"
                   },
                   "state": {
-                    "enum": [
-                      "pending",
-                      "active",
-                      "retiring"
-                    ]
+                    "enum": ["pending", "active", "retiring"]
                   }
                 },
                 "additionalProperties": false
@@ -1165,9 +1031,7 @@
         "name": "membership_max_concurrency",
         "arguments": {
           "type": "object",
-          "required": [
-            "backend_registry_id"
-          ],
+          "required": ["backend_registry_id"],
           "properties": {
             "backend_registry_id": {
               "$ref": "#/$defs/uuid"
@@ -1177,9 +1041,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "max_concurrency"
-          ],
+          "required": ["max_concurrency"],
           "properties": {
             "max_concurrency": {
               "oneOf": [
@@ -1201,11 +1063,7 @@
         "name": "retired_probe_subject",
         "arguments": {
           "type": "object",
-          "required": [
-            "backend_id",
-            "resource_id",
-            "membership_epoch"
-          ],
+          "required": ["backend_id", "resource_id", "membership_epoch"],
           "properties": {
             "backend_id": {
               "$ref": "#/$defs/uuid"
@@ -1221,17 +1079,10 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "status",
-            "reason",
-            "subject"
-          ],
+          "required": ["status", "reason", "subject"],
           "properties": {
             "status": {
-              "enum": [
-                "ready",
-                "blocked"
-              ]
+              "enum": ["ready", "blocked"]
             },
             "reason": {
               "type": "string"
@@ -1243,10 +1094,7 @@
                 },
                 {
                   "type": "object",
-                  "required": [
-                    "challenge",
-                    "probe_started_at"
-                  ],
+                  "required": ["challenge", "probe_started_at"],
                   "properties": {
                     "challenge": {
                       "$ref": "#/$defs/sha256"
@@ -1305,11 +1153,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status",
-                "reason",
-                "proof"
-              ],
+              "required": ["status", "reason", "proof"],
               "properties": {
                 "status": {
                   "const": "live_unloaded"
@@ -1346,10 +1190,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "status",
-                "reason"
-              ],
+              "required": ["status", "reason"],
               "properties": {
                 "status": {
                   "const": "blocked"
@@ -1368,10 +1209,7 @@
         "name": "shadow_snapshot",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id",
-            "backend_id"
-          ],
+          "required": ["resource_id", "backend_id"],
           "properties": {
             "resource_id": {
               "oneOf": [
@@ -1399,9 +1237,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "backends"
-          ],
+          "required": ["backends"],
           "properties": {
             "backends": {
               "type": "array",
@@ -1476,9 +1312,7 @@
         "name": "resource_runtime_observation",
         "arguments": {
           "type": "object",
-          "required": [
-            "resource_id"
-          ],
+          "required": ["resource_id"],
           "properties": {
             "resource_id": {
               "$ref": "#/$defs/resource_id"
@@ -1488,10 +1322,7 @@
         },
         "result": {
           "type": "object",
-          "required": [
-            "status",
-            "memberships"
-          ],
+          "required": ["status", "memberships"],
           "properties": {
             "status": {
               "const": "ok"
@@ -1516,15 +1347,12 @@
             "residency",
             "preparation",
             "token_expires_at",
-            "ledger_source_generation"
+            "ledger_source_generation",
+            "probe_started_at"
           ],
           "properties": {
             "phase": {
-              "enum": [
-                "prepare",
-                "verify",
-                "commit"
-              ]
+              "enum": ["reserve", "authorize", "prove_idle", "verify", "commit"]
             },
             "request": {
               "type": "object",
@@ -1634,6 +1462,9 @@
             "token_expires_at": {
               "type": "string"
             },
+            "probe_started_at": {
+              "oneOf": [{ "type": "null" }, { "type": "string" }]
+            },
             "ledger_source_generation": {
               "oneOf": [
                 {
@@ -1651,10 +1482,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status",
-                "preparation"
-              ],
+              "required": ["status", "preparation"],
               "properties": {
                 "status": {
                   "const": "prepared"
@@ -1712,9 +1540,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "status"
-              ],
+              "required": ["status"],
               "properties": {
                 "status": {
                   "const": "verified"
@@ -1736,7 +1562,15 @@
           "properties": {
             "request": {
               "type": "object",
-              "required": ["registry_id", "resource_id", "endpoint", "boot_id", "operation_id", "container_id", "pool_ids"],
+              "required": [
+                "registry_id",
+                "resource_id",
+                "endpoint",
+                "boot_id",
+                "operation_id",
+                "container_id",
+                "pool_ids"
+              ],
               "properties": {
                 "registry_id": { "$ref": "#/$defs/uuid" },
                 "resource_id": { "$ref": "#/$defs/resource_id" },
@@ -1744,7 +1578,12 @@
                 "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                 "operation_id": { "$ref": "#/$defs/uuid" },
                 "container_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-                "pool_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+                "pool_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                }
               },
               "additionalProperties": false
             },
@@ -1829,18 +1668,8 @@
         "request_id": "outer request UUID for owner correlation",
         "backend_id": "canonical registry UUID",
         "gpu_resource_id": "physical GPU resource identifier",
-        "operation": [
-          "predict",
-          "predict_interactive",
-          "warmup",
-          "reload",
-          "unload"
-        ],
-        "scope": [
-          "predict",
-          "warmup",
-          "reload"
-        ]
+        "operation": ["predict", "predict_interactive", "warmup", "reload", "unload"],
+        "scope": ["predict", "warmup", "reload"]
       },
       "reply": {
         "session_id": "one-shot 32-byte URL-safe session capability",
@@ -1853,11 +1682,7 @@
       "path": "/internal/inference/gpu/v1/dispatch/settle",
       "request": {
         "session_id": "one-shot session capability",
-        "outcome": [
-          "response_received",
-          "not_sent",
-          "uncertain"
-        ],
+        "outcome": ["response_received", "not_sent", "uncertain"],
         "status_code": "required only for response_received",
         "reason": "request_aborted or response_not_reported for uncertain"
       },
@@ -1981,13 +1806,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "phase",
-                "backend_id",
-                "resource_id",
-                "membership_epoch",
-                "proof"
-              ],
+              "required": ["phase", "backend_id", "resource_id", "membership_epoch", "proof"],
               "properties": {
                 "phase": {
                   "const": "prepare"
@@ -2089,9 +1908,7 @@
           "oneOf": [
             {
               "type": "object",
-              "required": [
-                "status"
-              ],
+              "required": ["status"],
               "properties": {
                 "status": {
                   "const": "already_absent"
@@ -2101,16 +1918,10 @@
             },
             {
               "type": "object",
-              "required": [
-                "status",
-                "reason"
-              ],
+              "required": ["status", "reason"],
               "properties": {
                 "status": {
-                  "enum": [
-                    "blocked",
-                    "stale"
-                  ]
+                  "enum": ["blocked", "stale"]
                 },
                 "reason": {
                   "type": "string",
@@ -2121,12 +1932,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "status",
-                "backend_memberships",
-                "retirement_id",
-                "registry_exists"
-              ],
+              "required": ["status", "backend_memberships", "retirement_id", "registry_exists"],
               "properties": {
                 "status": {
                   "const": "receipt_required"
@@ -2184,9 +1990,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "status"
-              ],
+              "required": ["status"],
               "properties": {
                 "status": {
                   "const": "collected"
@@ -2201,11 +2005,7 @@
     "http_protocol": "aap-inference-gpu-collector/v1",
     "http_request": {
       "type": "object",
-      "required": [
-        "protocol",
-        "action",
-        "arguments"
-      ],
+      "required": ["protocol", "action", "arguments"],
       "properties": {
         "protocol": {
           "const": "aap-inference-gpu-collector/v1"
@@ -2228,11 +2028,7 @@
     },
     "http_response": {
       "type": "object",
-      "required": [
-        "protocol",
-        "action",
-        "result"
-      ],
+      "required": ["protocol", "action", "result"],
       "properties": {
         "protocol": {
           "const": "aap-inference-gpu-collector/v1"
@@ -2312,9 +2108,7 @@
     },
     "membership_changed": {
       "type": "object",
-      "required": [
-        "status"
-      ],
+      "required": ["status"],
       "properties": {
         "status": {
           "const": "membership_changed"
@@ -2324,9 +2118,7 @@
     },
     "fence_missing": {
       "type": "object",
-      "required": [
-        "status"
-      ],
+      "required": ["status"],
       "properties": {
         "status": {
           "const": "fence_missing"
@@ -2336,9 +2128,7 @@
     },
     "high_water_exhausted": {
       "type": "object",
-      "required": [
-        "status"
-      ],
+      "required": ["status"],
       "properties": {
         "status": {
           "const": "high_water_exhausted"
@@ -2348,10 +2138,7 @@
     },
     "blocked": {
       "type": "object",
-      "required": [
-        "status",
-        "reason"
-      ],
+      "required": ["status", "reason"],
       "properties": {
         "status": {
           "const": "blocked"
@@ -2365,10 +2152,7 @@
     },
     "operation_conflict": {
       "type": "object",
-      "required": [
-        "outcome",
-        "reason"
-      ],
+      "required": ["outcome", "reason"],
       "properties": {
         "outcome": {
           "const": "conflict"
@@ -2397,26 +2181,13 @@
           "$ref": "#/$defs/resource_id"
         },
         "state": {
-          "enum": [
-            "off",
-            "promoting",
-            "enforcing",
-            "demoting",
-            "blocked"
-          ]
+          "enum": ["off", "promoting", "enforcing", "demoting", "blocked"]
         },
         "effective_mode": {
-          "enum": [
-            "off",
-            "enforce"
-          ]
+          "enum": ["off", "enforce"]
         },
         "target_mode": {
-          "enum": [
-            "off",
-            "observe",
-            "enforce"
-          ]
+          "enum": ["off", "observe", "enforce"]
         },
         "transition_id": {
           "oneOf": [
@@ -2483,11 +2254,7 @@
           "$ref": "#/$defs/positive_int64"
         },
         "state": {
-          "enum": [
-            "pending",
-            "active",
-            "retiring"
-          ]
+          "enum": ["pending", "active", "retiring"]
         },
         "vram_budget_mb": {
           "type": "integer",
@@ -2508,10 +2275,7 @@
           "$ref": "#/$defs/nullable_timestamp"
         },
         "retire_reason": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 32
         },
         "retired_generation_high_water": {
@@ -2674,20 +2438,10 @@
     },
     "domain_result": {
       "type": "object",
-      "required": [
-        "status",
-        "db_now",
-        "memberships",
-        "fences",
-        "registries"
-      ],
+      "required": ["status", "db_now", "memberships", "fences", "registries"],
       "properties": {
         "status": {
-          "enum": [
-            "ok",
-            "matched",
-            "domain_changed"
-          ]
+          "enum": ["ok", "matched", "domain_changed"]
         },
         "db_now": {
           "$ref": "#/$defs/timestamp"
@@ -2715,11 +2469,7 @@
     },
     "expected_membership": {
       "type": "object",
-      "required": [
-        "backend_id",
-        "membership_epoch",
-        "state"
-      ],
+      "required": ["backend_id", "membership_epoch", "state"],
       "properties": {
         "backend_id": {
           "$ref": "#/$defs/uuid"
@@ -2728,22 +2478,14 @@
           "$ref": "#/$defs/positive_decimal"
         },
         "state": {
-          "enum": [
-            "pending",
-            "active",
-            "retiring"
-          ]
+          "enum": ["pending", "active", "retiring"]
         }
       },
       "additionalProperties": false
     },
     "runtime_membership": {
       "type": "object",
-      "required": [
-        "backend_id",
-        "membership_epoch",
-        "state"
-      ],
+      "required": ["backend_id", "membership_epoch", "state"],
       "properties": {
         "backend_id": {
           "$ref": "#/$defs/uuid"
@@ -2752,11 +2494,7 @@
           "$ref": "#/$defs/positive_int64"
         },
         "state": {
-          "enum": [
-            "pending",
-            "active",
-            "retiring"
-          ]
+          "enum": ["pending", "active", "retiring"]
         }
       },
       "additionalProperties": false
@@ -2765,11 +2503,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "subject",
-            "proof"
-          ],
+          "required": ["status", "subject", "proof"],
           "properties": {
             "status": {
               "const": "ready"
@@ -2792,11 +2526,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "subject",
-            "proof"
-          ],
+          "required": ["status", "subject", "proof"],
           "properties": {
             "status": {
               "const": "ready"
@@ -3019,12 +2749,7 @@
     },
     "proof": {
       "type": "object",
-      "required": [
-        "membership",
-        "fence",
-        "registry",
-        "db_now"
-      ],
+      "required": ["membership", "fence", "registry", "db_now"],
       "properties": {
         "membership": {
           "$ref": "#/$defs/membership"
@@ -3045,11 +2770,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "subject",
-            "proof"
-          ],
+          "required": ["status", "subject", "proof"],
           "properties": {
             "status": {
               "const": "ready"
@@ -3315,10 +3036,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "preparation"
-          ],
+          "required": ["status", "preparation"],
           "properties": {
             "status": {
               "const": "prepared"
@@ -3338,10 +3056,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "preparation"
-          ],
+          "required": ["status", "preparation"],
           "properties": {
             "status": {
               "const": "prepared"
@@ -3361,10 +3076,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "preparation"
-          ],
+          "required": ["status", "preparation"],
           "properties": {
             "status": {
               "const": "prepared"
@@ -3384,10 +3096,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "subject"
-          ],
+          "required": ["status", "subject"],
           "properties": {
             "status": {
               "const": "ready"
@@ -3407,10 +3116,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "preparation"
-          ],
+          "required": ["status", "preparation"],
           "properties": {
             "status": {
               "const": "ok"
@@ -3430,10 +3136,7 @@
               ],
               "properties": {
                 "action": {
-                  "enum": [
-                    "issue",
-                    "acknowledged"
-                  ]
+                  "enum": ["issue", "acknowledged"]
                 },
                 "backend_id": {
                   "$ref": "#/$defs/uuid"
@@ -3476,10 +3179,7 @@
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "status",
-            "preparation"
-          ],
+          "required": ["status", "preparation"],
           "properties": {
             "status": {
               "const": "ok"
@@ -3501,24 +3201,13 @@
               ],
               "properties": {
                 "action": {
-                  "enum": [
-                    "issue",
-                    "acknowledged",
-                    "awaiting_health"
-                  ]
+                  "enum": ["issue", "acknowledged", "awaiting_health"]
                 },
                 "operation": {
-                  "enum": [
-                    "reset",
-                    "mode_enforce",
-                    "mode_legacy"
-                  ]
+                  "enum": ["reset", "mode_enforce", "mode_legacy"]
                 },
                 "target_gate": {
-                  "enum": [
-                    "legacy",
-                    "enforce"
-                  ]
+                  "enum": ["legacy", "enforce"]
                 },
                 "backend_id": {
                   "$ref": "#/$defs/uuid"
@@ -3568,9 +3257,7 @@
     },
     "activate_memberships_request": {
       "type": "object",
-      "required": [
-        "resource_id"
-      ],
+      "required": ["resource_id"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -3608,13 +3295,7 @@
           "$ref": "#/$defs/positive_int64"
         },
         "status": {
-          "enum": [
-            "promoted",
-            "acknowledged",
-            "blocked",
-            "active_unacked",
-            "unavailable"
-          ]
+          "enum": ["promoted", "acknowledged", "blocked", "active_unacked", "unavailable"]
         },
         "reason": {
           "type": "string",
@@ -3649,10 +3330,7 @@
     },
     "activate_memberships_reply": {
       "type": "object",
-      "required": [
-        "protocol",
-        "results"
-      ],
+      "required": ["protocol", "results"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -3668,11 +3346,7 @@
     },
     "rollout_control_request": {
       "type": "object",
-      "required": [
-        "resource_id",
-        "transition_id",
-        "target_gate"
-      ],
+      "required": ["resource_id", "transition_id", "target_gate"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -3684,10 +3358,7 @@
           "$ref": "#/$defs/uuid"
         },
         "target_gate": {
-          "enum": [
-            "legacy",
-            "enforce"
-          ]
+          "enum": ["legacy", "enforce"]
         }
       },
       "additionalProperties": false
@@ -3723,22 +3394,12 @@
               "type": "null"
             },
             {
-              "enum": [
-                "reset",
-                "mode_enforce",
-                "mode_legacy"
-              ]
+              "enum": ["reset", "mode_enforce", "mode_legacy"]
             }
           ]
         },
         "status": {
-          "enum": [
-            "acknowledged",
-            "issued",
-            "pending",
-            "blocked",
-            "unavailable"
-          ]
+          "enum": ["acknowledged", "issued", "pending", "blocked", "unavailable"]
         },
         "reason": {
           "type": "string",
@@ -3760,10 +3421,7 @@
     },
     "rollout_control_reply": {
       "type": "object",
-      "required": [
-        "protocol",
-        "results"
-      ],
+      "required": ["protocol", "results"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -3779,9 +3437,7 @@
     },
     "resource_observation_request": {
       "type": "object",
-      "required": [
-        "resource_id"
-      ],
+      "required": ["resource_id"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -3936,26 +3592,17 @@
           ]
         },
         "transition_present": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": ["boolean", "null"]
         },
         "durable_domain_matches": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": ["boolean", "null"]
         }
       },
       "additionalProperties": false
     },
     "resource_repair_request": {
       "type": "object",
-      "required": [
-        "resource_id",
-        "allocatable_mb"
-      ],
+      "required": ["resource_id", "allocatable_mb"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -4006,12 +3653,7 @@
           "$ref": "#/$defs/public_resource_id"
         },
         "action": {
-          "enum": [
-            "already_ready",
-            "bootstrap",
-            "repair",
-            "resume_prepared"
-          ]
+          "enum": ["already_ready", "bootstrap", "repair", "resume_prepared"]
         },
         "status": {
           "type": "string"
@@ -4039,11 +3681,7 @@
     },
     "retired_membership_request": {
       "type": "object",
-      "required": [
-        "backend_id",
-        "resource_id",
-        "membership_epoch"
-      ],
+      "required": ["backend_id", "resource_id", "membership_epoch"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -4119,12 +3757,7 @@
           "$ref": "#/$defs/positive_int64"
         },
         "status": {
-          "enum": [
-            "collected",
-            "blocked",
-            "stale",
-            "error"
-          ]
+          "enum": ["collected", "blocked", "stale", "error"]
         },
         "reason": {
           "type": "string",
@@ -4158,10 +3791,7 @@
     },
     "admin_diagnostics_reply": {
       "type": "object",
-      "required": [
-        "protocol",
-        "result"
-      ],
+      "required": ["protocol", "result"],
       "properties": {
         "protocol": {
           "$ref": "#/$defs/admin_protocol"
@@ -4192,20 +3822,10 @@
       ],
       "properties": {
         "state": {
-          "enum": [
-            "unloaded",
-            "loading",
-            "resident",
-            "draining",
-            "unloading",
-            "unknown"
-          ]
+          "enum": ["unloaded", "loading", "resident", "draining", "unloading", "unknown"]
         },
         "gpu_loaded": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": ["boolean", "null"]
         },
         "active_requests": {
           "type": "integer",
@@ -4244,10 +3864,7 @@
           "maxLength": 128
         },
         "lifecycle_gate": {
-          "enum": [
-            "legacy",
-            "enforce"
-          ]
+          "enum": ["legacy", "enforce"]
         },
         "control_epoch": {
           "oneOf": [
@@ -4264,29 +3881,16 @@
           "minProperties": 1,
           "additionalProperties": {
             "type": "object",
-            "required": [
-              "resident",
-              "device",
-              "provider"
-            ],
+            "required": ["resident", "device", "provider"],
             "properties": {
               "resident": {
-                "type": [
-                  "boolean",
-                  "null"
-                ]
+                "type": ["boolean", "null"]
               },
               "device": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "provider": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               }
             },
             "additionalProperties": false
@@ -4299,11 +3903,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "audience",
-                "backend_registry_id",
-                "gpu_resource_id"
-              ],
+              "required": ["audience", "backend_registry_id", "gpu_resource_id"],
               "properties": {
                 "audience": {
                   "const": "aap-gpu-lifecycle"

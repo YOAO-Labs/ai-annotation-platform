@@ -100,6 +100,7 @@ class HttpTransport:
         headers: dict[str, str] | None = None,
         root_path: bool = False,
         accepted_statuses: tuple[int, ...] = (),
+        timeout: float | None = None,
     ) -> httpx.Response:
         if root_path and (not path.startswith("/") or path.startswith("//")):
             raise ValueError("root path must be an absolute same-origin path")
@@ -115,6 +116,7 @@ class HttpTransport:
                 data=data,
                 files=files,
                 headers=headers,
+                timeout=self._timeout if timeout is None else timeout,
             )
             if (
                 resp.status_code in _RETRYABLE_STATUS

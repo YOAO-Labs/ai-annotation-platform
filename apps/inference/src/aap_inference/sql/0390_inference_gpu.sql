@@ -924,8 +924,8 @@ BEGIN
         END IF;
 
     ELSIF p_action='installation_terminal' THEN
-        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['phase','request','residency','preparation','token_expires_at','ledger_source_generation'])
-           OR v_args->>'phase' NOT IN ('prepare','verify','commit')
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['phase','request','residency','preparation','token_expires_at','ledger_source_generation','probe_started_at'])
+           OR v_args->>'phase' NOT IN ('reserve','authorize','prove_idle','verify','commit')
            OR NOT aap_inference_gpu_v1._exact_keys(v_args->'request',ARRAY['registry_id','resource_id','endpoint','boot_id','operation_id','container_id','pool_ids'])
            OR pg_catalog.jsonb_typeof(v_args->'request'->'pool_ids') IS DISTINCT FROM 'array'
            OR pg_catalog.jsonb_array_length(v_args->'request'->'pool_ids')=0
@@ -955,9 +955,14 @@ BEGIN
               (SELECT pg_catalog.jsonb_agg(k ORDER BY k) FROM pg_catalog.jsonb_object_keys(v_residency->'pools') p(k)) THEN
             PERFORM aap_inference_gpu_v1._fail();
         END IF;
-        IF v_args->>'phase'='prepare' THEN
+        IF v_args->>'phase'='reserve' THEN
             IF v_args->'preparation' IS DISTINCT FROM 'null'::jsonb THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
         ELSIF NOT aap_inference_gpu_v1._exact_keys(v_args->'preparation',ARRAY['membership_epoch','revision','generation','source_generation','control_epoch','runtime_epoch','token_expires_at','settled']) OR pg_catalog.jsonb_typeof(v_args->'preparation'->'settled') IS DISTINCT FROM 'boolean' THEN
+            PERFORM aap_inference_gpu_v1._fail();
+        END IF;
+        IF v_args->>'phase'='prove_idle' THEN
+            v_probe_started:=aap_inference_gpu_v1._timestamp(v_args->'probe_started_at');
+        ELSIF v_args->'probe_started_at' IS DISTINCT FROM 'null'::jsonb THEN
             PERFORM aap_inference_gpu_v1._fail();
         END IF;
         PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
@@ -987,7 +992,7 @@ BEGIN
            OR (v_registry.extra_params #>> '{plugin_lifecycle,activation,boot_id}' IS NOT NULL AND v_registry.extra_params #>> '{plugin_lifecycle,activation,boot_id}' IS DISTINCT FROM v_boot)
            OR v_residency->>'boot_id' IS DISTINCT FROM v_boot
            OR NOT COALESCE((
-               (v_args->>'phase'='prepare' AND v_residency->'identity'='null'::jsonb
+               (v_args->>'phase' IN ('reserve','authorize') AND v_residency->'identity'='null'::jsonb
                 AND v_residency->'control_epoch'='null'::jsonb AND v_residency->>'lifecycle_gate'='legacy'
                 AND ((v_membership.state='pending' AND v_fence.runtime_epoch_high_water=v_membership.runtime_epoch_baseline)
                      OR (v_membership.state='active' AND v_fence.runtime_epoch_high_water>v_membership.runtime_epoch_baseline)))
@@ -997,9 +1002,10 @@ BEGIN
                    AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text
                    AND v_fence.control_epoch_high_water>0
                    AND v_membership.state='active' AND v_fence.runtime_epoch_high_water>v_membership.runtime_epoch_baseline)), false)
-           OR v_time<=v_now OR v_time>v_now+interval '5 minutes' THEN
+           OR (v_args->>'phase' IN ('reserve','authorize','verify','commit')
+               AND (v_time<=v_now OR v_time>v_now+interval '5 minutes')) THEN
             v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','installation_changed');
-        ELSIF v_args->>'phase'='prepare' THEN
+        ELSIF v_args->>'phase'='reserve' THEN
             IF v_terminal_intent.backend_registry_id IS NOT NULL
                AND v_terminal_intent.request IS DISTINCT FROM v_expected
                AND (NOT v_terminal_intent.settled OR v_terminal_intent.revision IS NOT DISTINCT FROM v_registry.extra_params #> '{plugin,revision}') THEN
@@ -1042,13 +1048,50 @@ BEGIN
             END IF;
             IF v_result IS NULL THEN
                 UPDATE public.gpu_backend_fences SET generation_high_water=v_terminal_intent.generation,
-                    token_expiry_high_water=GREATEST(COALESCE(token_expiry_high_water,v_time),v_time),
                     updated_at=v_now WHERE backend_registry_id=v_id;
                 v_result:=pg_catalog.jsonb_build_object('status','prepared','preparation',
                     pg_catalog.jsonb_build_object('membership_epoch',v_terminal_intent.membership_epoch,
                         'revision',v_terminal_intent.revision,'generation',v_terminal_intent.generation::text,
                         'source_generation',v_terminal_intent.source_generation,'control_epoch',v_terminal_intent.control_epoch::text,
                         'runtime_epoch',v_terminal_intent.runtime_epoch::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'settled',v_terminal_intent.settled));
+            END IF;
+        ELSIF v_args->>'phase' IN ('authorize','prove_idle') THEN
+            IF v_terminal_intent.backend_registry_id IS NULL OR v_terminal_intent.request IS DISTINCT FROM v_expected
+               OR v_terminal_intent.revision IS DISTINCT FROM v_registry.extra_params #> '{plugin,revision}'
+               OR v_terminal_intent.revision IS DISTINCT FROM v_args->'preparation'->'revision'
+               OR v_terminal_intent.membership_epoch IS DISTINCT FROM v_membership.membership_epoch
+               OR v_terminal_intent.membership_epoch IS DISTINCT FROM aap_inference_gpu_v1._int(v_args->'preparation'->'membership_epoch',1,9223372036854775807)
+               OR v_terminal_intent.generation::text IS DISTINCT FROM v_args->'preparation'->>'generation'
+               OR v_terminal_intent.source_generation IS DISTINCT FROM v_args->'preparation'->>'source_generation'
+               OR v_terminal_intent.source_generation IS DISTINCT FROM v_args->>'ledger_source_generation'
+               OR v_terminal_intent.control_epoch::text IS DISTINCT FROM v_args->'preparation'->>'control_epoch'
+               OR v_terminal_intent.runtime_epoch::text IS DISTINCT FROM v_args->'preparation'->>'runtime_epoch'
+               OR v_terminal_intent.settled IS DISTINCT FROM (v_args->'preparation'->>'settled')::boolean
+               OR v_fence.generation_high_water IS DISTINCT FROM v_terminal_intent.generation
+               OR v_fence.control_epoch_high_water IS DISTINCT FROM v_terminal_intent.control_epoch
+               OR v_fence.runtime_epoch_high_water IS DISTINCT FROM v_terminal_intent.runtime_epoch THEN
+                v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','terminal_intent_changed');
+            ELSIF v_args->>'phase'='prove_idle' THEN
+                IF v_terminal_intent.settled OR v_probe_started>v_now
+                   OR v_probe_started<v_now-interval '3 minutes'
+                   OR (v_fence.token_expiry_high_water IS NOT NULL AND v_probe_started<=v_fence.token_expiry_high_water)
+                   OR v_residency->>'generation' IS DISTINCT FROM v_terminal_intent.source_generation
+                   OR v_residency->>'active_requests' IS DISTINCT FROM '0'
+                   OR v_residency->>'lifecycle_gate' IS DISTINCT FROM 'enforce'
+                   OR v_residency->>'state' NOT IN ('resident','unloaded')
+                   OR v_residency->'draining' IS DISTINCT FROM 'false'::jsonb
+                   OR v_residency->>'builders' IS DISTINCT FROM '0'
+                   OR v_residency->>'borrowers' IS DISTINCT FROM '0' THEN
+                    v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','terminal_idle_unproven');
+                ELSE
+                    v_result:=pg_catalog.jsonb_build_object('status','verified');
+                END IF;
+            ELSE
+                UPDATE public.gpu_backend_fences SET
+                    token_expiry_high_water=GREATEST(COALESCE(token_expiry_high_water,v_time),v_time),
+                    updated_at=v_now WHERE backend_registry_id=v_id;
+                v_result:=pg_catalog.jsonb_build_object('status','prepared','preparation',
+                    pg_catalog.jsonb_set(v_args->'preparation','{token_expires_at}',pg_catalog.to_jsonb(aap_inference_gpu_v1._iso(v_time))));
             END IF;
         ELSIF v_terminal_intent.backend_registry_id IS NULL OR v_terminal_intent.request IS DISTINCT FROM v_expected
            OR v_terminal_intent.generation::text IS DISTINCT FROM v_args->'preparation'->>'generation'

@@ -170,6 +170,97 @@ async def cancel(world, *, pid=None):
         )
 
 
+async def test_model_selection_does_not_block_independent_health_settlement(
+    managed_worker_world, monkeypatch
+):
+    from app.application import preannotation_execution
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    factory = managed_worker_world.factory
+    async with factory() as db:
+        user = await create_user(
+            db, "super_admin", f"health-{uuid.uuid4()}@example.test", "Health"
+        )
+        project = await create_project(db, owner_id=user.id)
+        batch = await create_batch(db, project_id=project.id, status="active")
+        backend = MLBackendRegistry(
+            name="health-fixture", url="http://owned.invalid", state="connected"
+        )
+        db.add(backend)
+        await db.flush()
+        task = await create_task(db, project_id=project.id)
+        task.batch_id = batch.id
+        task.file_path = "http://owned.invalid/image.png"
+        job = await jobs.create_job(
+            db,
+            kind="batch_predict",
+            user_id=user.id,
+            project_id=project.id,
+            payload={
+                "total_tasks": 1,
+                "task_ids": [str(task.id)],
+                "execution_scope": "bulk",
+                "batch_id": str(batch.id),
+            },
+        )
+        job.celery_task_id = str(job.id)
+        await db.commit()
+        world = SimpleNamespace(
+            factory=factory,
+            worker_world=managed_worker_world,
+            user=user.id,
+            project=project.id,
+            batch=batch.id,
+            backend=backend.id,
+            task=task.id,
+            job=job.id,
+        )
+
+    class HealthSettlingClient:
+        async def predict(self, inputs, context=None):
+            # The model response waits for a different owner's real row lock,
+            # as a cold GPU result does before terminal health settlement.
+            async with world.factory() as health:
+                await health.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                await health.get(MLBackendRegistry, world.backend, with_for_update=True)
+                await health.commit()
+            return [
+                PredictionResult(
+                    task_id=inputs[0]["id"], result=[], model_version="new"
+                )
+            ]
+
+    class SelectingExecutionPort(PredictionClientExecutionPort):
+        def __init__(self, db):
+            super().__init__(HealthSettlingClient(), instance_id=world.backend)
+            self.db = db
+
+        async def execute(self, request, *, before_dispatch=None):
+            await InferenceTopologyData(self.db).lock_plugin_registry(world.backend)
+            return await super().execute(request, before_dispatch=before_dispatch)
+
+    monkeypatch.setattr(
+        preannotation_execution,
+        "_model_execution_port",
+        lambda db, **kwargs: SelectingExecutionPort(db),
+    )
+    await run(world)
+    async with world.factory() as db:
+        job = await db.get(AsyncJob, world.job)
+        failures = (
+            await db.scalars(
+                select(FailedPrediction).where(FailedPrediction.task_id == world.task)
+            )
+        ).all()
+        if job.status != "completed":
+            pytest.fail(
+                (job.error_message or "prediction failed")
+                + "\n"
+                + "\n".join(row.message for row in failures)
+            )
+        assert not failures
+
+
 @pytest.mark.parametrize("mode", ["overwrite", "append"])
 @pytest.mark.parametrize(
     "failure",

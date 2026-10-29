@@ -176,6 +176,7 @@ JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.cross_frame_job_page(uuid,text,integer)",
     "aap_jobs_v1.cross_frame_job_count(uuid,text)",
     "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
+    "aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)",
 )
 JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)",

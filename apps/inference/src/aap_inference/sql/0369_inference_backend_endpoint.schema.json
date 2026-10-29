@@ -161,6 +161,20 @@
       "semantics": "Open GPU-control subjects only with the exact live control, current endpoint, and unused request attempt before owner begin."
     },
     {
+      "signature": "aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_request", "type": "text", "nullable": false },
+        { "name": "p_preparation", "type": "text", "nullable": false },
+        { "name": "p_endpoint_sha256", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open only the exact authorized, unsettled GPU terminal intent and unchanged endpoint under the current membership and fence."
+    },
+    {
       "signature": "aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
       "language": "plpgsql",
       "volatility": "VOLATILE",
@@ -246,6 +260,7 @@
     "aap_inference_backend_endpoint_v1.open_lifecycle_endpoint(text,uuid,uuid,text)",
     "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
     "aap_inference_backend_endpoint_v1.open_gpu_control_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)",
     "aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
     "aap_inference_backend_endpoint_v1.stats_endpoint_rows()",
     "aap_inference_backend_endpoint_v1.catalog_endpoint_rows()",

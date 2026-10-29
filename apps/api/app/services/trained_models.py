@@ -22,7 +22,6 @@ from fastapi import HTTPException
 from sqlalchemy import case, func, select
 from training_contract.model_return import registration_eligibility
 
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.trained_model import (
     ModelDeployment,
     ModelRelease,
@@ -344,12 +343,14 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
     from aap_jobs.domain_query_contract import FrozenDeploymentUsageRequest
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
-    deployments = (await db.scalars(
-        select(ModelDeployment)
-        .where(ModelDeployment.registry_id == registry_id)
-        .order_by(ModelDeployment.id)
-        .with_for_update()
-    )).all()
+    deployments = (
+        await db.scalars(
+            select(ModelDeployment)
+            .where(ModelDeployment.registry_id == registry_id)
+            .order_by(ModelDeployment.id)
+            .with_for_update()
+        )
+    ).all()
     ids = [deployment.id for deployment in deployments]
     if not ids:
         return RegistryLearningUsage(active_releases=0, frozen_executions=0)
@@ -363,12 +364,15 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
     for deployment in deployments:
         usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
             FrozenDeploymentUsageRequest(
-                deployment_id=deployment.id, registry_id=deployment.registry_id,
+                deployment_id=deployment.id,
+                registry_id=deployment.registry_id,
                 model_version_id=deployment.model_version_id,
             )
         )
         frozen += usage.active_jobs + usage.retryable_failures
-    return RegistryLearningUsage(active_releases=int(active_releases), frozen_executions=frozen)
+    return RegistryLearningUsage(
+        active_releases=int(active_releases), frozen_executions=frozen
+    )
 
 
 async def retire_deployment(db, project_id, version_id, deployment_id, *, terminal):
@@ -383,11 +387,16 @@ async def retire_deployment(db, project_id, version_id, deployment_id, *, termin
     candidate = await db.get(ModelDeployment, deployment_id)
     if candidate is None or candidate.model_version_id != version.id:
         raise HTTPException(status_code=404, detail="模型部署不存在")
-    if await InferenceTopologyData(db).lock_plugin_registry(candidate.registry_id) is None:
+    if (
+        await InferenceTopologyData(db).lock_plugin_registry(candidate.registry_id)
+        is None
+    ):
         raise HTTPException(status_code=404, detail="推理实例不存在")
     deployment = await db.scalar(
-        select(ModelDeployment).where(ModelDeployment.id == deployment_id)
-        .with_for_update().execution_options(populate_existing=True)
+        select(ModelDeployment)
+        .where(ModelDeployment.id == deployment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if deployment is None or deployment.model_version_id != version.id:
         raise HTTPException(status_code=404, detail="模型部署不存在")
@@ -397,23 +406,28 @@ async def retire_deployment(db, project_id, version_id, deployment_id, *, termin
         if deployment.status != "draining":
             raise HTTPException(status_code=409, detail="须先停止创建新引用")
         release_count = await db.scalar(
-            select(func.count()).select_from(ProjectModelSelection)
+            select(func.count())
+            .select_from(ProjectModelSelection)
             .join(ModelRelease, ModelRelease.id == ProjectModelSelection.release_id)
             .where(ModelRelease.deployment_id == deployment.id)
         )
         usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
             FrozenDeploymentUsageRequest(
-                deployment_id=deployment.id, registry_id=deployment.registry_id,
+                deployment_id=deployment.id,
+                registry_id=deployment.registry_id,
                 model_version_id=deployment.model_version_id,
             )
         )
         if release_count or usage.active_jobs or usage.retryable_failures:
-            raise HTTPException(status_code=409, detail={
-                "code": "deployment_in_use",
-                "active_releases": int(release_count),
-                "active_jobs": usage.active_jobs,
-                "retryable_failures": usage.retryable_failures,
-            })
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "deployment_in_use",
+                    "active_releases": int(release_count),
+                    "active_jobs": usage.active_jobs,
+                    "retryable_failures": usage.retryable_failures,
+                },
+            )
         deployment.status = "retired"
     elif deployment.status == "ready":
         deployment.status = "draining"
@@ -552,11 +566,15 @@ def check_trial_runtime(version, deployment, receipt):
 
         try:
             expected = expected_receipt(version)
-            pinned = inference_runtime(expected, version.framework_version, device="cpu")
+            pinned = inference_runtime(
+                expected, version.framework_version, device="cpu"
+            )
         except (TypeError, ValueError):
             pinned = None
     if pinned != live:
-        raise HTTPException(status_code=409, detail="推理实例运行时与已试用的部署不一致")
+        raise HTTPException(
+            status_code=409, detail="推理实例运行时与已试用的部署不一致"
+        )
 
 
 def check_install_runtime(version, deployment, receipt):
@@ -568,7 +586,10 @@ def check_install_runtime(version, deployment, receipt):
         raise PinnedRuntimeConflict("已固定运行时不可原地更改，请使用新部署")
     if deployment.receipt and pinned is None and runtime is not None:
         # A legacy trial without a profile has CPU semantics, not a GPU trial.
-        if version.framework == "libreyolo" and runtime.get("qualification", {}).get("device") != "cpu":
+        if (
+            version.framework == "libreyolo"
+            and runtime.get("qualification", {}).get("device") != "cpu"
+        ):
             raise PinnedRuntimeConflict("旧 CPU 部署不可原地切换运行时")
 
 
@@ -591,7 +612,8 @@ def check_declared_compatibility(backend, version, runtime=None):
     if not isinstance(approved, list) or not isinstance(observed, list):
         raise HTTPException(status_code=409, detail="插件未声明受控模型兼容性")
     matches = [
-        entry for entry in approved
+        entry
+        for entry in approved
         if isinstance(entry, dict)
         and entry.get("framework") == version.framework
         and entry.get("format") == artifact_format
@@ -600,7 +622,9 @@ def check_declared_compatibility(backend, version, runtime=None):
         and entry in observed
     ]
     if not matches:
-        raise HTTPException(status_code=409, detail="插件未声明兼容的框架、格式与运行时")
+        raise HTTPException(
+            status_code=409, detail="插件未声明兼容的框架、格式与运行时"
+        )
 
 
 def backend_control_http_exception(error):
@@ -651,19 +675,13 @@ async def enabled_backend(db, project_id, registry_id):
         raise HTTPException(status_code=404, detail="推理实例不存在")
     if not plugin_is_active(facts.extra_params):
         raise HTTPException(status_code=409, detail="推理插件安装未启用")
-    backend = await db.get(MLBackendRegistry, registry_id)
-    if not backend or not await MLBackendService(db).is_enabled(
-        project_id, registry_id
-    ):
+    backend = facts
+    if not await MLBackendService(db).is_enabled(project_id, registry_id):
         raise HTTPException(status_code=404, detail="推理实例未在当前项目启用")
     if (
-        (
-            backend.auth_method != "token"
-            and managed_provider(backend.auth_method) != "yolo"
-        )
-        or not backend.auth_token
-        or len(backend.auth_token) < 32
-    ):
+        backend.auth_method != "token"
+        and managed_provider(backend.auth_method) != "yolo"
+    ) or not backend.credential_configured:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -677,12 +695,11 @@ async def enabled_backend(db, project_id, registry_id):
 
 
 async def assert_routable_backend(db, project_id, registry_id):
-    from app.db.models.ml_backend_pool import MLBackendServicePool
+    from app.services.inference_topology_data import InferenceTopologyData
     from app.services.ml_routing.contracts import RouterMode
     from app.services.ml_routing.router import MLBackendRouter, _router_mode
 
-    pool_id = await MLBackendService(db).pool_id_for_registry(registry_id)
-    pool = await db.get(MLBackendServicePool, pool_id) if pool_id else None
+    pool = await InferenceTopologyData(db).pool_for_registry(registry_id)
     mode = _router_mode()
     if (
         not pool
@@ -977,11 +994,13 @@ async def resolve_reference(
     validate_bindings(project, version.classes, version.bindings, model_task(version))
     backend = await enabled_backend(db, project.id, registry_id)
     deployment = await db.scalar(
-        select(ModelDeployment).where(
+        select(ModelDeployment)
+        .where(
             ModelDeployment.model_version_id == version.id,
             ModelDeployment.registry_id == registry_id,
             ModelDeployment.status == "ready",
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if not deployment or (release and release.deployment_id != deployment.id):
         raise HTTPException(status_code=409, detail="所选实例没有该模型版本的就绪部署")
@@ -1008,8 +1027,10 @@ async def validate_frozen_reference(db, project_id, ref):
     registry_id = uuid.UUID(ref["registry_id"])
     await enabled_backend(db, project_id, registry_id)
     deployment = await db.scalar(
-        select(ModelDeployment).where(ModelDeployment.id == uuid.UUID(ref["deployment_id"]))
-        .with_for_update().execution_options(populate_existing=True)
+        select(ModelDeployment)
+        .where(ModelDeployment.id == uuid.UUID(ref["deployment_id"]))
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if (
         not deployment
@@ -1164,10 +1185,13 @@ async def publish(db, project, user, body):
         )
         candidate = await db.get(ModelDeployment, body.deployment_id)
         if candidate is None:
-            raise HTTPException(status_code=409, detail="模型尚未完成加载检查与样本试用")
+            raise HTTPException(
+                status_code=409, detail="模型尚未完成加载检查与样本试用"
+            )
         backend = await enabled_backend(db, project.id, candidate.registry_id)
         deployment = await db.scalar(
-            select(ModelDeployment).where(ModelDeployment.id == body.deployment_id)
+            select(ModelDeployment)
+            .where(ModelDeployment.id == body.deployment_id)
             .with_for_update()
         )
         if (

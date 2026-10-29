@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-deployment-usage/v1",
+  "type": "object",
+  "$defs": {},
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_deployment_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_model_version_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "bigint"
+      },
+      "semantics": "Count distinct undismissed failure rows referencing frozen stages or legacy exact-instance trained versions; malformed legacy snapshot text does not match."
+    }
+  ],
+  "x-postgresql-functions": ["aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)"]
+}

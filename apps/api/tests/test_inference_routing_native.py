@@ -602,3 +602,120 @@ async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scope
             await _cleanup(owner, world)
         finally:
             await owner.close()
+
+
+async def test_stateful_endpoint_capture_keeps_routing_shape_and_auth_revision(
+    test_engine,
+):
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    world = await _seed(owner)
+    client = await _connect(test_engine, role=_ROLE)
+    caller = await _connect(test_engine, role="legacy_runtime")
+    registry_id = world["registry_id"]
+    scope_id, request_id = uuid.uuid4(), uuid.uuid4()
+    try:
+        async with client.transaction():
+            snapshot = await _step(
+                client,
+                "admission_snapshot",
+                {
+                    "pool_id": None,
+                    "registry_id": str(registry_id),
+                    "project_id": None,
+                    "mode": "direct",
+                    "required_instance_id": None,
+                    "health_max_age_seconds": 60,
+                },
+            )
+            assert snapshot["status"] == "ok"
+            reserved = await _step(
+                client,
+                "reserve_scope",
+                {
+                    "snapshot": snapshot["snapshot"],
+                    "candidate_ids": [str(registry_id)],
+                    "scope_id": str(scope_id),
+                    "command_sha256": "e" * 64,
+                    "owner": "api:endpoint-native-test",
+                    "operation": "backend_http",
+                    "ttl_ms": 30000,
+                },
+            )
+            assert reserved["status"] == "ok"
+        binding = {
+            "kind": "scope",
+            "scope_id": str(scope_id),
+            "control_id": None,
+            "attempt_id": str(request_id),
+            "capability": reserved["scope"]["capability"],
+        }
+        async with caller.transaction():
+            captured = json.loads(
+                await caller.fetchval(
+                    "SELECT aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
+                    "$1::uuid,$2::uuid,'execution',$3::text)",
+                    registry_id,
+                    request_id,
+                    json.dumps(binding),
+                )
+            )
+            assert captured["status"] == "ok"
+        authority = json.dumps(
+            {key: value for key, value in binding.items() if key != "capability"}
+        )
+        open_sql = (
+            "SELECT aap_inference_backend_endpoint_v1.open_execution_endpoint("
+            "$1::text,$2::uuid,$3::uuid,$4::text)"
+        )
+        opened = json.loads(
+            await owner.fetchval(
+                open_sql,
+                captured["subject"],
+                registry_id,
+                request_id,
+                authority,
+            )
+        )
+        assert opened["registry_id"] == str(registry_id)
+        revision = await owner.fetchval(
+            "SELECT auth_revision FROM public.ml_backend_registry WHERE id=$1",
+            registry_id,
+        )
+        assert opened["auth_revision"] == revision
+        closed = await _step(
+            client,
+            "close_scope",
+            {
+                "scope_id": str(scope_id),
+                "capability": binding["capability"],
+                "outcome": "success",
+            },
+        )
+        assert closed["status"] == "ok"
+        original_token = await owner.fetchval(
+            "SELECT auth_token FROM public.ml_backend_registry WHERE id=$1",
+            registry_id,
+        )
+        for token in (f"rotated-{uuid.uuid4().hex}", original_token):
+            await owner.execute(
+                "UPDATE public.ml_backend_registry SET auth_token=$2 WHERE id=$1",
+                registry_id,
+                token,
+            )
+        with pytest.raises(asyncpg.PostgresError) as changed:
+            await owner.fetchval(
+                open_sql,
+                captured["subject"],
+                registry_id,
+                request_id,
+                authority,
+            )
+        assert changed.value.sqlstate == "40001"
+    finally:
+        await caller.close()
+        await client.close()
+        try:
+            await _cleanup(owner, world)
+        finally:
+            await owner.close()

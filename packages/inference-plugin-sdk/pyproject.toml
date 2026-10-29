@@ -13,7 +13,13 @@ dependencies = ["aap-protocol-v2", "aap-backend-runtime", "aap-inference-contrac
 aap-plugin = "aap_inference_plugin.cli:main"
 
 [project.optional-dependencies]
+dev = ["build>=1.2,<2"]
 test = ["pytest>=8", "pytest-asyncio>=0.24"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+aap-protocol-v2 = { path = "../../apps/_shared/protocol_v2", editable = true }
+aap-backend-runtime = { path = "../../apps/_shared/backend_runtime", editable = true }
+aap-inference-contract = { path = "../../apps/_shared/inference_contract", editable = true }

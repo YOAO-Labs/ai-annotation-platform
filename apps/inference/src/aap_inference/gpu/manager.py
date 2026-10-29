@@ -15,11 +15,16 @@ import uuid
 
 from aap_protocol_v2.lifecycle import AdmissionScope
 
-from aap_inference.gpu.endpoint_source import OwnedBackendEndpointSource
+from aap_inference.gpu.endpoint_source import (
+    GPUOwnedEndpointUnavailable,
+    OwnedBackendEndpointSource,
+)
 from aap_inference.gpu.installation_activation import activate_gpu_installation
 from aap_inference.gpu.installation_quiescence import quiesce_gpu_installation
 from aap_inference.gpu.control_preparation import GPUReadinessDemoter
 from aap_inference.gpu.contracts import (
+    GPUArbiterDispatchError,
+    GPUArbiterErrorCode,
     GPUBackendConfigStatus,
     GPUConfigDiagnostic,
     GPUDispatchContextFactory,
@@ -65,7 +70,9 @@ from aap_inference.gpu.settings import GPUAuthoritySettings, GPUArbiterMode
 from aap_inference.gpu.signing import GPUAdmissionTokenSigner
 from aap_inference.gpu.transport import GPUBackendControlTransport
 from aap_inference_contract.plugin import PluginInstallation
+from aap_inference_contract.routing import RoutingUnavailable
 from aap_inference_contract.gpu import (
+    GPUAuthorityUnavailable,
     GPUInstallationControlRequest,
     GPUInstallationQuiesceReply,
     GPUInstallationActivationReply,
@@ -295,16 +302,28 @@ class GPUAuthorityManager:
     async def activate_installation(
         self, request: GPUInstallationControlRequest
     ) -> GPUInstallationActivationReply:
-        return await activate_gpu_installation(
-            request,
-            data=self._data,
-            signer_factory=self._signer_factory,
-            endpoint_source=self._endpoint_source,
-            backend_transport=self._backend_transport,
-            readiness_demoter=self._readiness_demoter,
-            enforce=self._config.gpu_arbiter_desired_mode(request.resource_id) is GPUArbiterMode.ENFORCE,
-            clock=self._clock,
-        )
+        try:
+            return await activate_gpu_installation(
+                request,
+                data=self._data,
+                signer_factory=self._signer_factory,
+                endpoint_source=self._endpoint_source,
+                backend_transport=self._backend_transport,
+                readiness_demoter=self._readiness_demoter,
+                enforce=self._config.gpu_arbiter_desired_mode(request.resource_id)
+                is GPUArbiterMode.ENFORCE,
+                clock=self._clock,
+            )
+        except (
+            GPUAuthorityUnavailable,
+            GPUOwnedEndpointUnavailable,
+            RoutingUnavailable,
+        ) as error:
+            raise GPUArbiterDispatchError(
+                GPUArbiterErrorCode.UNAVAILABLE,
+                message="GPU installation activation authority is unavailable",
+                retry_after_s=1,
+            ) from error
 
     async def quiesce_installation(
         self, request: GPUInstallationControlRequest
@@ -518,9 +537,15 @@ class GPUAuthorityManager:
             ):
                 raise ValueError("GPU diagnostics backend fact is malformed")
             retired_installation = False
-            if backend_resource_id is None and budget is None and "plugin" in extra_params:
+            if (
+                backend_resource_id is None
+                and budget is None
+                and "plugin" in extra_params
+            ):
                 try:
-                    installation = PluginInstallation.model_validate(extra_params["plugin"])
+                    installation = PluginInstallation.model_validate(
+                        extra_params["plugin"]
+                    )
                     retired_installation = (
                         installation.installation_id == parsed_id
                         and installation.status == "retired"
@@ -548,7 +573,8 @@ class GPUAuthorityManager:
                 row for row in resources if row["gpu_resource_id"] == resource_id
             ]
         diagnostics = [
-            item for item in diagnostics
+            item
+            for item in diagnostics
             if item.resource_id is None and item.backend_id is None
         ]
 
@@ -591,9 +617,12 @@ class GPUAuthorityManager:
             current_resource_id = row["gpu_resource_id"]
             status = GPUBackendConfigStatus(diagnostics=row["diagnostics"])
             apply_backend_rollout_status(
-                status, current_resource_id, decisions[current_resource_id],
+                status,
+                current_resource_id,
+                decisions[current_resource_id],
                 rollout_by_resource.get(current_resource_id),
-                config=self._config, backend_id=None,
+                config=self._config,
+                backend_id=None,
             )
             row["effective_mode"] = status.effective_mode
             row["status"] = status.status
@@ -623,7 +652,8 @@ class GPUAuthorityManager:
                     backend_id=fact.backend_id,
                 )
             diagnostics.extend(
-                item for item in status.diagnostics
+                item
+                for item in status.diagnostics
                 if item.code != "gpu_resource_oversubscribed"
                 and (resource_id is None or item.resource_id in {None, resource_id})
             )

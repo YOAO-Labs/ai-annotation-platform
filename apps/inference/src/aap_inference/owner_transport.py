@@ -179,6 +179,19 @@ class _ReadOnlyGrant:
         return None
 
 
+class _TerminalDrainGrant:
+    """No routing headers or route outcome for the signed terminal operation."""
+
+    __slots__ = ()
+    headers = MappingProxyType({})
+
+    async def response(self, _status_code: int) -> None:
+        return None
+
+    async def uncertain(self, _reason: str) -> None:
+        return None
+
+
 class _RoutingRequestGrant:
     __slots__ = ("_runtime", "_scope_id", "_capability", "_attempt_id", "headers")
 
@@ -705,6 +718,7 @@ class BackendTransportGPUControlAdapter:
             type(registry_id) is not uuid.UUID
             or type(request_id) is not uuid.UUID
             or operation not in _GPU_CONTROL_PATHS
+            or operation == "terminal_drain"
         ):
             raise RoutingUnavailable()
         route_operation = "gpu:unload" if operation == "unload" else "backend_http"
@@ -905,22 +919,55 @@ class BackendTransportGPUControlAdapter:
             timeout_seconds=timeout_seconds,
         )
         return await transport.lifecycle_drain(grant)
+
     async def lifecycle_terminal_drain(
         self,
         endpoint: BackendEndpointSnapshot,
         grant: GPUDispatchGrantPort,
         *,
+        registry_id: uuid.UUID,
         request_id: uuid.UUID,
         timeout_seconds: float,
     ) -> dict[str, object]:
-        transport = self._bound_transport(
-            endpoint,
-            request_id=request_id,
-            operation="terminal_drain",
-            timeout_seconds=timeout_seconds,
+        if (
+            not isinstance(endpoint, BackendEndpointSnapshot)
+            or type(registry_id) is not uuid.UUID
+            or type(request_id) is not uuid.UUID
+            or endpoint.registry_id != registry_id
+            or endpoint.request_id != request_id
+            or endpoint.purpose != "terminal_drain"
+            or endpoint.authority is not None
+        ):
+            raise RoutingUnavailable()
+
+        @asynccontextmanager
+        async def terminal_context(http_request):
+            target_url = httpx.URL(
+                f"{endpoint.url.rstrip('/')}/lifecycle/terminal-drain-signed"
+            )
+            if (
+                not _matches_backend_control_target(
+                    http_request,
+                    ("POST", "/lifecycle/terminal-drain-signed", None),
+                    base_url=endpoint.url,
+                )
+                or http_request.url.scheme != target_url.scheme
+                or http_request.url.host != target_url.host
+                or http_request.url.port != target_url.port
+                or http_request.extensions.get(GPU_UNLOAD_ROUTE_EXTENSION) is True
+            ):
+                raise RoutingUnavailable()
+            yield _TerminalDrainGrant()
+
+        transport = BackendTransport(
+            endpoint.transport_configuration(),
+            options=_timeout_options(timeout_seconds),
+            dispatch_context=_reject_gpu_dispatch,
+            observe=self._observe,
+            error_factory=self._error_factory,
+            request_context=terminal_context,
         )
         return await transport.lifecycle_terminal_drain(grant)
-
 
     async def lifecycle_cancel_drain(
         self,
