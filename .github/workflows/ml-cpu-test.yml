@@ -6,14 +6,14 @@ on:
   workflow_call:
     inputs:
       suites:
-        description: 'Suite IDs from scripts/test-suites.json, comma/space separated, or all'
+        description: "Suite IDs from scripts/test-suites.json, comma/space separated, or all"
         required: false
         default: all
         type: string
   workflow_dispatch:
     inputs:
       suites:
-        description: 'Suite IDs from scripts/test-suites.json, comma/space separated, or all'
+        description: "Suite IDs from scripts/test-suites.json, comma/space separated, or all"
         required: false
         default: all
         type: string
@@ -36,7 +36,7 @@ jobs:
         run: bash scripts/run-ml-cpu-tests.sh plan "$SUITES" >> "$GITHUB_OUTPUT"
 
   test:
-    name: ML CPU ${{ matrix.suite }}
+    name: ML CPU suite execution
     needs: plan
     runs-on: ubuntu-latest
     strategy:

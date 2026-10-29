@@ -323,7 +323,7 @@ def test_node_consumes_values_and_recomputes_streamed_timebase_and_plan_digests(
     }
     fixture = Path(__file__).parent / "fixtures/video-input-values-peer.mjs"
     result = subprocess.run(
-        ["rtk", "proxy", "node", str(fixture)],
+        ["node", str(fixture)],
         input=json.dumps(payload),
         text=True,
         capture_output=True,

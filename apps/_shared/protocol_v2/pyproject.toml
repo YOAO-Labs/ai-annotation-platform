@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # numpy 仅 mask_codec 编解码用 (惰性 import); 其余 schema/vocab 不依赖它, 故只进 test extras。
-test = ["pytest>=8.0", "numpy>=1.24"]
+test = ["pytest>=8.0", "pytest-asyncio>=0.23", "numpy>=1.24"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
