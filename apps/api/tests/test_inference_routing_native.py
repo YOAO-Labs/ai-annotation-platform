@@ -293,6 +293,109 @@ async def test_epoch_without_control_auth_does_not_leave_an_unrecoverable_hold(
             await owner.close()
 
 
+async def test_terminal_drain_uses_scoped_native_unload_control(test_engine):
+    import base64
+
+    from aap_inference.routing_runtime import RoutingRuntime
+    from aap_inference_contract.routing import (
+        RoutingRejectedResult,
+        make_routing_command,
+    )
+
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    world = await _seed(owner)
+    client = await _connect(test_engine, role=_ROLE)
+    runtime = RoutingRuntime(os.environ["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"])
+    request_ids = []
+    try:
+        registry_id = world["registry_id"]
+        await owner.execute(
+            "UPDATE aap_inference_routing_v1.registry_state "
+            "SET continuity='ready', backend_incarnation=$2 WHERE registry_id=$1",
+            registry_id,
+            uuid.uuid4(),
+        )
+        await owner.execute(
+            "UPDATE public.ml_backend_pool_members SET traffic_state='draining' "
+            "WHERE registry_id=$1",
+            registry_id,
+        )
+        control_id = uuid.uuid4()
+        prepared = await _step(
+            client,
+            "prepare_control",
+            {
+                "control_id": str(control_id),
+                "registry_id": str(registry_id),
+                "kind": "unload",
+                "expected_topology": None,
+            },
+        )
+        assert prepared["status"] == "ok", prepared
+        identity = dict(
+            await owner.fetchrow(
+                "SELECT url, auth_method, auth_token, gpu_resource_id, extra_params "
+                "FROM public.ml_backend_registry WHERE id=$1",
+                registry_id,
+            )
+        )
+        identity["extra_params"] = json.loads(identity["extra_params"])
+        attempt_id = uuid.uuid4()
+        async with runtime.transport_subject_issuer(
+            parent_kind="control",
+            parent_id=control_id,
+            capability=prepared["capability"],
+            attempt_id=attempt_id,
+            transport_identity=identity,
+        ) as subject:
+            for method, path in (
+                ("GET", "/lifecycle/terminal-drain"),
+                ("POST", "/lifecycle/terminal-drain-signed"),
+                ("POST", "/lifecycle/terminal-drain"),
+            ):
+                command = make_routing_command(
+                    "begin_control",
+                    {
+                        "control_id": str(control_id),
+                        "capability": prepared["capability"],
+                        "attempt_id": str(attempt_id),
+                        "method": method,
+                        "path": path,
+                        "transport_subject": subject,
+                    },
+                )
+                request_ids.append(command.request_id)
+                result = (await runtime.execute(command)).result
+                if method != "POST" or path != "/lifecycle/terminal-drain":
+                    assert isinstance(result, RoutingRejectedResult)
+                    assert result.reason == "invalid_command"
+                else:
+                    token = result.headers["X-AAP-Route-Admission"]
+                    payload = token.split(".")[1]
+                    claims = json.loads(
+                        base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+                    )
+                    assert claims["registry_id"] == str(registry_id)
+                    assert claims["scope_id"] == str(control_id)
+                    assert claims["attempt_id"] == str(attempt_id)
+                    assert claims["operation"] == "control:unload"
+                    assert claims["method"] == method
+                    assert claims["path"] == path
+    finally:
+        await runtime.close()
+        await client.close()
+        try:
+            if request_ids:
+                await owner.execute(
+                    "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                    request_ids,
+                )
+            await _cleanup(owner, world)
+        finally:
+            await owner.close()
+
+
 async def test_scope_cannot_issue_a_management_operation_token(test_engine):
     await assert_owned_test_database(test_engine)
     owner = await _connect(test_engine)
