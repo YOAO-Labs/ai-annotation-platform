@@ -373,7 +373,7 @@ async def test_prepare_requires_super_admin_and_replay_matches_intent(
     assert fetched.status_code == 200 and fetched.json() == first.json()
 
 
-async def test_gpu_activation_checks_observed_physical_device_and_runtime():
+async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkeypatch):
     import hashlib
     import json
     from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
@@ -610,6 +610,96 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         "qualification": signed_report(ort_report),
     }
     verify_endpoint_observation(ort_installation, receipt, **ort_kwargs)
+    # Exercise the owner transport's real HTTP projection at the admission boundary.
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    from types import SimpleNamespace
+    from urllib.parse import parse_qs, urlsplit
+
+    from aap_inference.health_observation_manager import _default_client_factory
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        def log_message(self, _format, *args):
+            pass
+
+        def do_GET(self):
+            request = urlsplit(self.path)
+            if (
+                request.path != "/health"
+                or self.headers.get("Authorization") != "Bearer test-token"
+                or self.headers.get("X-AAP-GPU-Health-Challenge") != challenge
+                or parse_qs(request.query).get("aap_gpu_health_challenge")
+                != [challenge]
+            ):
+                self.send_response(403)
+                self.end_headers()
+                return
+            body = json.dumps(self.server.health).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-AAP-GPU-Health-Challenge", challenge)
+            self.end_headers()
+            self.wfile.write(body)
+
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), HealthHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_port}"
+        transport = _default_client_factory(
+            SimpleNamespace(
+                url=endpoint,
+                auth_method="token",
+                auth_token="test-token",
+                id=None,
+                gpu_resource_id=resource["gpu_resource_id"],
+                vram_budget_mb=None,
+                extra_params={},
+                health_meta=None,
+            ),
+            3,
+        )
+        for change in (
+            None,
+            "missing_pool",
+            "pool_drift",
+            "missing_counts",
+            "count_drift",
+        ):
+            server.health = deepcopy(ort_health)
+            server.health.pop(GPU_HEALTH_CHALLENGE_ECHO_MARKER)
+            if change == "missing_pool":
+                server.health.pop("pool_topology")
+            elif change == "pool_drift":
+                server.health["pool_topology"]["pipeline"]["cap"] = 2
+            elif change == "missing_counts":
+                server.health.pop("ort_session_counts")
+            elif change == "count_drift":
+                server.health["ort_session_counts"]["pipeline"] = 1
+            healthy, observed_health = await transport.health_meta(
+                gpu_health_challenge=challenge
+            )
+            live_kwargs = {
+                **ort_kwargs,
+                "endpoint": endpoint,
+                "healthy": healthy,
+                "health": observed_health,
+            }
+            if change is None:
+                verify_endpoint_observation(ort_installation, receipt, **live_kwargs)
+            else:
+                with pytest.raises(PluginObservationRejected):
+                    verify_endpoint_observation(
+                        ort_installation, receipt, **live_kwargs
+                    )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
     for mutate in (
         lambda value: value["cycles"][0]["session_observations"]["pipeline"].pop(),
         lambda value: value["cycles"][1]["session_observations"]["detector"][0].clear(),
