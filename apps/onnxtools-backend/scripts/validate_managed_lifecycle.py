@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ctypes
 import gc
 import hashlib
 import json
@@ -244,6 +245,26 @@ def _assert_isolated_before_start(target_uuid: str | None) -> dict[str, Any]:
         "used_memory_mb": _gpu_memory_mb(target_uuid),
         "compute_processes": processes,
     }
+
+
+def _initialize_cuda_context() -> ctypes.CDLL:
+    """Establish the no-model CUDA baseline in this operator process."""
+    library = ctypes.CDLL("libcudart.so.12")
+    library.cudaSetDevice.argtypes = [ctypes.c_int]
+    library.cudaSetDevice.restype = ctypes.c_int
+    library.cudaFree.argtypes = [ctypes.c_void_p]
+    library.cudaFree.restype = ctypes.c_int
+    library.cudaDeviceSynchronize.argtypes = []
+    library.cudaDeviceSynchronize.restype = ctypes.c_int
+    for name, call in (
+        ("cudaSetDevice", lambda: library.cudaSetDevice(0)),
+        ("cudaFree", lambda: library.cudaFree(None)),
+        ("cudaDeviceSynchronize", library.cudaDeviceSynchronize),
+    ):
+        result = call()
+        if result != 0:
+            raise RuntimeError(f"{name} failed with CUDA status {result}")
+    return library
 
 
 def _assert_unloaded(
@@ -508,13 +529,19 @@ async def _bind_operator_routes(
     client.event_hooks["request"].append(authorize)
 
 
-async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
+async def _run_with_authority(
+    private_dir: Path, progress: dict[str, Any]
+) -> dict[str, Any]:
     git_commit = _required_env("VALIDATION_GIT_COMMIT")
+    progress["deployment"]["git_commit"] = git_commit
     image_id = _required_env("VALIDATION_IMAGE_ID")
+    progress["deployment"]["image_id"] = image_id
     registry_id = _required_env("VALIDATION_BACKEND_REGISTRY_ID")
     resource_id = _required_env("VALIDATION_GPU_RESOURCE_ID")
     fixture_approval_ref = _required_env("VALIDATION_FIXTURE_APPROVAL_REF")
+    progress["stage"] = "deployment_identity"
     plugin_id = _required_env("AAP_PLUGIN_ID")
+    progress["backend_name"] = plugin_id
     plugin_version = _required_env("AAP_PLUGIN_VERSION")
     artifact = _required_env("AAP_PLUGIN_OCI_ARTIFACT")
     asset_manifest_sha256 = _required_env("AAP_PLUGIN_ASSET_MANIFEST_SHA256")
@@ -527,15 +554,56 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
         or _required_env("AAP_PLUGIN_DEVICE") != "cuda:0"
     ):
         raise RuntimeError("qualification and plugin deployment identities differ")
+    progress["stage"] = "artifact_validation"
     artifacts = _validate_artifacts()
+    artifact_records = [
+        artifact_evidence(
+            artifacts["detector"]["path"],
+            kind="weight",
+            approval_ref=artifacts["approval_ref"],
+        ),
+        artifact_evidence(
+            artifacts["vehicle_attribute"]["path"],
+            kind="weight",
+            approval_ref=artifacts["approval_ref"],
+        ),
+        *(
+            artifact_evidence(
+                item["path"], kind="fixture", approval_ref=fixture_approval_ref
+            )
+            for item in artifacts["fixtures"].values()
+        ),
+    ]
+    approved_inputs = [
+        artifacts["detector"],
+        artifacts["vehicle_attribute"],
+        *artifacts["fixtures"].values(),
+    ]
+    if any(
+        record["sha256"] != approved["sha256"]
+        or record["size_bytes"] != approved["size"]
+        for record, approved in zip(artifact_records, approved_inputs)
+    ):
+        raise RuntimeError("approved artifact changed during evidence collection")
+    progress["artifacts"] = artifact_records
+    progress["stage"] = "hardware_identity"
     _required_env("AAP_PLUGIN_TOKEN_FILE")
     requested_uuid = _required_env("VALIDATION_GPU_UUID")
     if _required_env("AAP_PLUGIN_GPU_UUID") != requested_uuid:
         raise RuntimeError("qualification and plugin GPU identities differ")
     gpu = _gpu_metadata(requested_uuid)
+    progress["gpu"] = {**gpu, "runtime_version": None}
     target_uuid = gpu["uuid"]
     cold_baseline = _assert_isolated_before_start(target_uuid)
+    print(
+        json.dumps(
+            {"event": "cold_card_baseline", "gpu_uuid": target_uuid, **cold_baseline},
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
     cuda_version = observed_cuda_runtime_version()
+    progress["gpu"] = {**gpu, "runtime_version": cuda_version}
 
     private_key = Ed25519PrivateKey.generate()
     route_secret = secrets.token_urlsafe(48)
@@ -560,7 +628,33 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
 
     expected_sessions = HANDLE_SESSION_COUNTS
 
-    contract_checks = {name: False for name in REQUIRED_CONTRACT_CHECKS}
+    contract_checks = progress["contract_checks"]
+    progress["deployment"] = {
+        "git_commit": git_commit,
+        "image_id": image_id,
+        "runtime_versions": {
+            "python": platform.python_version(),
+            "onnxruntime": str(__import__("onnxruntime").__version__),
+            "cuda": cuda_version,
+            "cuda_image": _required_env("CUDA_VERSION"),
+            "backend": str(main.BACKEND_VERSION),
+            "plugin_id": plugin_id,
+            "plugin_version": plugin_version,
+            "artifact": artifact,
+            "asset_manifest_sha256": asset_manifest_sha256,
+            "registry_id": registry_id,
+            "gpu_resource_id": resource_id,
+            "driver_version": gpu["driver_version"],
+            "qualification_authority": "operator-ephemeral",
+        },
+        "pool_topology": {
+            "registry_id": registry_id,
+            "gpu_resource_id": resource_id,
+            "pools": {name: {"cap": 1} for name in expected_sessions},
+            "session_counts": dict(expected_sessions),
+        },
+    }
+    progress["stage"] = "plugin_startup"
     memory: dict[str, Any] = {
         "cold_card_baseline": cold_baseline,
         "gpu_total_mb": _gpu_total_memory_mb(target_uuid),
@@ -650,6 +744,7 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
                 raise AssertionError("live ORT session counts differ from factories")
             return health
 
+        progress["stage"] = "route_and_lifecycle_admission"
         async with _http_client(main.app) as client:
             await _bind_operator_routes(
                 client, registry_id=registry_id, route_secret=route_secret
@@ -668,14 +763,28 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
             )
             assert reset["residency"]["gpu_loaded"] is False
             gc.collect()
+            progress["stage"] = "cuda_context_baseline"
+            _cuda_context = _initialize_cuda_context()
             memory["context_baseline_mb"] = _gpu_memory_samples(target_uuid)
             context_processes = _gpu_compute_processes(target_uuid)
-            if len(context_processes) > 1:
+            if len(context_processes) != 1:
                 raise RuntimeError(
-                    "validation process is not isolated after ORT provider probe: "
+                    "validation requires exactly one no-model CUDA context process: "
                     f"{context_processes}"
                 )
             memory["context_compute_processes"] = context_processes
+            print(
+                json.dumps(
+                    {
+                        "event": "cuda_context_baseline",
+                        "gpu_uuid": target_uuid,
+                        "memory_samples_mb": memory["context_baseline_mb"],
+                        "compute_processes": context_processes,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
 
             mode = await checked_post(
                 client,
@@ -712,6 +821,7 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
                 raise AssertionError("managed lifecycle capability was not advertised")
             contract_checks["managed_lifecycle_advertised"] = True
 
+            progress["stage"] = "business_inference"
             for model_id in (
                 "vehicle-attr",
                 "vehicle-detect",
@@ -755,6 +865,18 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
             contract_checks["real_inference"] = True
 
             provider_evidence = await _provider_evidence(main, expected_sessions)
+            print(
+                json.dumps(
+                    {
+                        "event": "onnx_session_device_options",
+                        "cycle": 1,
+                        "gpu_uuid": target_uuid,
+                        "pools": provider_evidence,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
             snapshot = await main._handle_pool.snapshot()  # noqa: SLF001
             assert snapshot["current_size"] == 3
             assert snapshot["session_count"] == 4
@@ -774,6 +896,7 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
                 for name in expected_sessions
             )
             contract_checks["provider_or_device_gpu"] = True
+            progress["stage"] = "first_unload"
             memory["cycle_1_loaded_mb"] = _gpu_memory_samples(target_uuid, count=3)
 
             drain_owner = "cycle-1"
@@ -805,11 +928,24 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
             )
             assert unloaded["unloaded_count"] == 3
             memory["cycle_1_unloaded_mb"] = _gpu_memory_samples(target_uuid)
+            first_cycle = memory_cycle_evidence(
+                cycle=1,
+                generation="2",
+                context_samples_mb=memory["context_baseline_mb"],
+                loaded_samples_mb=memory["cycle_1_loaded_mb"],
+                unloaded_samples_mb=memory["cycle_1_unloaded_mb"],
+            )
+            first_cycle["session_observations"] = {
+                name: [session["providers"] for session in sessions]
+                for name, sessions in provider_evidence.items()
+            }
+            progress["cycles"].append(first_cycle)
             _assert_unloaded(
                 residency=unloaded["residency"],
                 snapshot=await main._handle_pool.snapshot(),  # noqa: SLF001
                 samples=memory["cycle_1_unloaded_mb"],
             )
+            progress["stage"] = "second_load_and_faults"
 
             for model_id in (
                 "vehicle-attr",
@@ -823,6 +959,18 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
                     request_headers=workload_headers(AdmissionScope.WARMUP, "3"),
                 )
             second_providers = await _provider_evidence(main, expected_sessions)
+            print(
+                json.dumps(
+                    {
+                        "event": "onnx_session_device_options",
+                        "cycle": 2,
+                        "gpu_uuid": target_uuid,
+                        "pools": second_providers,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
             if second_providers != provider_evidence:
                 raise AssertionError(
                     "provider chains changed across load generations: "
@@ -891,6 +1039,7 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
             # Exiting the borrow context does not clear the lease's strong handle
             # reference; release it before measuring actual ORT session teardown.
             del lease
+            progress["stage"] = "second_unload"
             unloaded = await checked_post(
                 client,
                 "/unload",
@@ -906,7 +1055,20 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
             )
             assert unloaded["unloaded_count"] == 3
             final_health = await checked_health(client)
+            progress["final_residency"] = final_health["residency"]
             memory["cycle_2_unloaded_mb"] = _gpu_memory_samples(target_uuid)
+            second_cycle = memory_cycle_evidence(
+                cycle=2,
+                generation="4",
+                context_samples_mb=memory["context_baseline_mb"],
+                loaded_samples_mb=memory["cycle_2_loaded_mb"],
+                unloaded_samples_mb=memory["cycle_2_unloaded_mb"],
+            )
+            second_cycle["session_observations"] = {
+                name: [session["providers"] for session in sessions]
+                for name, sessions in second_providers.items()
+            }
+            progress["cycles"].append(second_cycle)
             final_snapshot = await main._handle_pool.snapshot()  # noqa: SLF001
             _assert_unloaded(
                 residency=final_health["residency"],
@@ -915,142 +1077,95 @@ async def _run_with_authority(private_dir: Path) -> dict[str, Any]:
             )
             contract_checks["full_cleanup"] = True
 
-        _assert_memory_recovery(memory)
-        approval_ref = artifacts["approval_ref"]
-        artifact_records = [
-            artifact_evidence(
-                artifacts["detector"]["path"],
-                kind="weight",
-                approval_ref=approval_ref,
-            ),
-            artifact_evidence(
-                artifacts["vehicle_attribute"]["path"],
-                kind="weight",
-                approval_ref=approval_ref,
-            ),
-            *(
-                artifact_evidence(
-                    item["path"], kind="fixture", approval_ref=fixture_approval_ref
-                )
-                for item in artifacts["fixtures"].values()
-            ),
-        ]
-        onnxruntime_version = str(__import__("onnxruntime").__version__)
-        if setup["runtime_info"]["runtime_versions"]["cuda"] != cuda_version:
-            raise AssertionError("live CUDA runtime version differs from measurement")
-        gpu["runtime_version"] = cuda_version
-        cycles = [
-            memory_cycle_evidence(
-                cycle=1,
-                generation="2",
-                context_samples_mb=memory["context_baseline_mb"],
-                loaded_samples_mb=memory["cycle_1_loaded_mb"],
-                unloaded_samples_mb=memory["cycle_1_unloaded_mb"],
-            ),
-            memory_cycle_evidence(
-                cycle=2,
-                generation="4",
-                context_samples_mb=memory["context_baseline_mb"],
-                loaded_samples_mb=memory["cycle_2_loaded_mb"],
-                unloaded_samples_mb=memory["cycle_2_unloaded_mb"],
-            ),
-        ]
-        for cycle, observations in zip(cycles, (provider_evidence, second_providers)):
-            cycle["session_observations"] = {
-                name: [session["providers"] for session in sessions]
-                for name, sessions in observations.items()
-            }
         print(
             json.dumps(
                 {
-                    "event": "onnx_session_device_options",
+                    "event": "onnx_memory_samples",
                     "gpu_uuid": target_uuid,
-                    "cycles": [provider_evidence, second_providers],
+                    "memory_samples_mb": memory,
                 },
                 sort_keys=True,
             ),
             file=sys.stderr,
         )
+        progress["stage"] = "memory_recovery"
+        _assert_memory_recovery(memory)
+        progress["stage"] = "report_validation"
+        if setup["runtime_info"]["runtime_versions"]["cuda"] != cuda_version:
+            raise AssertionError("live CUDA runtime version differs from measurement")
         return build_managed_lifecycle_evidence(
-            backend_name=plugin_id,
-            deployment={
-                "git_commit": git_commit,
-                "image_id": image_id,
-                "runtime_versions": {
-                    "python": platform.python_version(),
-                    "onnxruntime": onnxruntime_version,
-                    "cuda": cuda_version,
-                    "cuda_image": _required_env("CUDA_VERSION"),
-                    "backend": str(main.BACKEND_VERSION),
-                    "plugin_id": plugin_id,
-                    "plugin_version": plugin_version,
-                    "artifact": artifact,
-                    "asset_manifest_sha256": asset_manifest_sha256,
-                    "registry_id": registry_id,
-                    "gpu_resource_id": resource_id,
-                    "driver_version": gpu["driver_version"],
-                    "qualification_authority": "operator-ephemeral",
-                },
-                "pool_topology": {
-                    "registry_id": registry_id,
-                    "gpu_resource_id": resource_id,
-                    "pools": {name: {"cap": 1} for name in expected_sessions},
-                    "session_counts": dict(expected_sessions),
-                },
-            },
-            artifacts=artifact_records,
-            gpu=gpu,
-            cycles=cycles,
+            backend_name=progress["backend_name"],
+            deployment=progress["deployment"],
+            artifacts=progress["artifacts"],
+            gpu=progress["gpu"],
+            cycles=progress["cycles"],
             contract_checks=contract_checks,
-            final_residency=final_health["residency"],
+            final_residency=progress["final_residency"],
             runtime_ephemera_clean=True,
         )
 
 
-async def _run() -> dict[str, Any]:
+async def _run(progress: dict[str, Any]) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="onnxtools-qualification-") as private_dir:
-        return await _run_with_authority(Path(private_dir))
+        return await _run_with_authority(Path(private_dir), progress)
 
 
-def _failed_evidence(exc: Exception) -> dict[str, Any]:
-    return build_managed_lifecycle_evidence(
-        backend_name="onnxtools-backend",
-        deployment={
-            "git_commit": os.getenv("VALIDATION_GIT_COMMIT") or None,
-            "image_id": os.getenv("VALIDATION_IMAGE_ID") or None,
+def _initial_evidence() -> dict[str, Any]:
+    return {
+        "stage": "configuration",
+        "backend_name": "onnxtools-backend",
+        "deployment": {
+            "git_commit": None,
+            "image_id": None,
             "runtime_versions": {"python": platform.python_version()},
             "pool_topology": {},
         },
-        artifacts=[],
-        gpu={
-            "uuid": os.getenv("VALIDATION_GPU_UUID") or None,
+        "artifacts": [],
+        "gpu": {
+            "uuid": None,
             "total_memory_mb": None,
             "driver_version": None,
             "runtime_version": None,
             "visible_device_count": None,
         },
-        cycles=[],
-        contract_checks={name: False for name in REQUIRED_CONTRACT_CHECKS},
-        final_residency=None,
+        "cycles": [],
+        "contract_checks": {name: False for name in REQUIRED_CONTRACT_CHECKS},
+        "final_residency": None,
+    }
+
+
+def _failed_evidence(exc: Exception, progress: dict[str, Any]) -> dict[str, Any]:
+    return build_managed_lifecycle_evidence(
+        backend_name=progress["backend_name"],
+        deployment=progress["deployment"],
+        artifacts=progress["artifacts"],
+        gpu=progress["gpu"],
+        cycles=progress["cycles"],
+        contract_checks=progress["contract_checks"],
+        final_residency=progress["final_residency"],
         runtime_ephemera_clean=False,
         blockers=[
             {
                 "code": "validation_exception",
-                "message": f"validation failed with {type(exc).__name__}",
+                "message": f"validation failed at {progress['stage']} with {type(exc).__name__}",
             }
         ],
     )
 
 
 def main() -> None:
+    progress = _initial_evidence()
     try:
         with redirect_stdout(sys.stderr):
-            evidence = asyncio.run(_run())
+            evidence = asyncio.run(_run(progress))
     except Exception as exc:  # noqa: BLE001 - emit fail-closed evidence before exit
-        print(f"managed lifecycle validation failed: {exc}", file=sys.stderr)
+        print(
+            f"managed lifecycle validation failed at {progress['stage']}: {type(exc).__name__}",
+            file=sys.stderr,
+        )
         print(
             json.dumps(
-                _failed_evidence(exc),
+                _failed_evidence(exc, progress),
                 sort_keys=True,
                 separators=(",", ":"),
                 ensure_ascii=True,
@@ -1058,7 +1173,7 @@ def main() -> None:
             ),
             end="",
         )
-        raise SystemExit(1) from exc
+        raise SystemExit(1) from None
     print(
         json.dumps(
             evidence,

@@ -106,7 +106,9 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 
 验收器使用只读挂载的插件业务凭据，并仅在本机临时创建独立的 GPU 签名和 route-control 验收密钥；它们不是平台执行凭据。通过验收后，实际安装仍须使用平台凭据、经批准的报告和独立的激活验证。
 
-设备日志包含每轮每个真实 ORT session 的 provider 链与逻辑 device ID，需与 JSON 报告和授权卡 UUID 一起保存在私有验收目录；GPU 准入仍由平台校验证明，而不是由日志自行授予。
+设备日志包含每轮每个真实 ORT session 的 provider 链、逻辑 device ID 与显存样本；失败报告保留已经完成的周期和观测事实，不补造缺失数据。日志需与 JSON 报告和授权卡 UUID 一起保存在私有验收目录；GPU 准入仍由平台校验证明，而不是由日志自行授予。
+
+冷卡基线采样后，验收进程只初始化并同步不加载模型的 CUDA context，再采样 context 基线；实际加载、卸载后的残余显存仍按相同回收门槛计算。
 
 代表图必须让 `vehicle-attr` 复合管道实际产生检测与分类结果；空场景必须不产生检测，边界图必须检测到接近画面边缘（5% 范围内）的汽车，且归一化框不能越界。独立分类器使用边界汽车裁剪图作为输入。验收器在拥有 session 的同一服务进程中通过本机 HTTP 执行两轮三句柄/四 session 加载与受签全池卸载，拒绝任一 session 整体退回 CPU，并要求每轮卸载后显存稳定、回收至上下文基线且至少回收 90% 的模型工作集。CUDA operator 可由 CPU provider 分区执行，但业务 session 的首选 provider 必须为 CUDA。报告包含路径无关的制品指纹、实际 provider 链、物理 GPU 身份、显存样本与最终 residency。
 

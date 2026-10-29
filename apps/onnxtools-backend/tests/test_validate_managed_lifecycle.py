@@ -243,8 +243,68 @@ def test_memory_gate_requires_ninety_percent_working_set_recovery() -> None:
 
 
 def test_failure_path_emits_strict_nonpassing_evidence() -> None:
-    evidence = validator._failed_evidence(RuntimeError("local path must not leak"))
+    evidence = validator._failed_evidence(
+        RuntimeError("local path must not leak"), validator._initial_evidence()
+    )
 
     assert evidence["schema_version"] == "1"
     assert evidence["passed"] is False
     assert "local path" not in str(evidence)
+
+
+def test_failed_memory_gate_preserves_completed_cycle_evidence() -> None:
+    from aap_lifecycle_contract import memory_cycle_evidence
+
+    progress = validator._initial_evidence()
+    progress["stage"] = "memory_recovery"
+    progress["contract_checks"]["real_inference"] = True
+    progress["deployment"]["pool_topology"] = {
+        "registry_id": "actual-registry",
+        "gpu_resource_id": "actual-resource",
+        "pools": {"pipeline": {"cap": 1}},
+    }
+    for index in (1, 2):
+        cycle = memory_cycle_evidence(
+            cycle=index,
+            generation=str(index),
+            context_samples_mb=[18] * 5,
+            loaded_samples_mb=[1439] * 3,
+            unloaded_samples_mb=[303] * 5,
+        )
+        cycle["session_observations"] = {
+            "pipeline": [["CUDAExecutionProvider", "CPUExecutionProvider"]]
+        }
+        progress["cycles"].append(cycle)
+
+    evidence = validator._failed_evidence(AssertionError("private detail"), progress)
+    assert evidence["passed"] is False
+    assert len(evidence["cycles"]) == 2
+    assert evidence["cycles"][0]["unloaded_samples_mb"] == [303] * 5
+    assert evidence["cycles"][0]["working_set_recovery_ratio"] < 0.9
+    assert evidence["contract_checks"]["real_inference"] is True
+    assert evidence["deployment"]["pool_topology"]["registry_id"] == "actual-registry"
+    assert "private detail" not in str(evidence)
+    assert any(
+        item["code"] == "memory_recovery_insufficient" for item in evidence["blockers"]
+    )
+
+
+@pytest.mark.parametrize(
+    "failed", ["cudaSetDevice", "cudaFree", "cudaDeviceSynchronize"]
+)
+def test_context_initialization_fails_closed(monkeypatch, failed) -> None:
+    class Call:
+        def __init__(self, name):
+            self.name = name
+
+        def __call__(self, *_args):
+            return 1 if self.name == failed else 0
+
+    library = SimpleNamespace(
+        cudaSetDevice=Call("cudaSetDevice"),
+        cudaFree=Call("cudaFree"),
+        cudaDeviceSynchronize=Call("cudaDeviceSynchronize"),
+    )
+    monkeypatch.setattr(validator.ctypes, "CDLL", lambda _name: library)
+    with pytest.raises(RuntimeError, match=failed):
+        validator._initialize_cuda_context()
