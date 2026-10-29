@@ -6,7 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from aap_inference_contract.execution import freeze_json
-from aap_inference_contract.plugin import PluginActivateRequest, PluginInstallation, PluginLifecycleQualification, PluginManifest, plugin_is_active
+from aap_inference_contract.plugin import (
+    PluginActivateRequest,
+    PluginInstallation,
+    PluginLifecycleQualification,
+    PluginManifest,
+    plugin_is_active,
+)
 
 
 def manifest():
@@ -19,10 +25,23 @@ def manifest():
         "sdk_compatibility": ">=1",
         "entrypoint": ["python", "-m", "plugin"],
         "capabilities": ["inference", "detection", "managed_models"],
+        "models": [
+            {
+                "id": "detect",
+                "task": "detect",
+                "is_interactive": False,
+                "supported_prompts": ["none"],
+                "supported_inputs": ["full_image", "crop"],
+                "supported_geometric_outputs": ["bbox"],
+            }
+        ],
+        "pools": {"models": {"cap": 1, "sessions": 1}},
         "resource": {"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 2048},
         "asset_manifest_sha256": "b" * 64,
         "allowed_asset_sources": ["https://example.com/assets"],
-        "managed_model_compatibility": [{"framework": "libreyolo", "format": "libreyolo", "runtime_device": "cuda"}],
+        "managed_model_compatibility": [
+            {"framework": "libreyolo", "format": "libreyolo", "runtime_device": "cuda"}
+        ],
     }
 
 
@@ -32,7 +51,11 @@ def installation(status="active"):
         "manifest": manifest(),
         "status": status,
         "revision": 1,
-        "resource": {"gpu_resource_id": "node/gpu", "physical_gpu_uuid": "GPU-123", "logical_device": "cuda:0"},
+        "resource": {
+            "gpu_resource_id": "node/gpu",
+            "physical_gpu_uuid": "GPU-123",
+            "logical_device": "cuda:0",
+        },
     }
 
 
@@ -51,14 +74,67 @@ def test_manifest_requires_fixed_digest_and_bounded_capabilities():
         PluginManifest.model_validate(value)
 
 
-@pytest.mark.parametrize("reference", [
-    "--mount=type=bind,src=/tmp,dst=/x@sha256:" + "a" * 64,
-    "image,other@sha256:" + "a" * 64,
-    "image=other@sha256:" + "a" * 64,
-    "image name@sha256:" + "a" * 64,
-    "-image@sha256:" + "a" * 64,
-    "registry.example:5000/@sha256:" + "a" * 64,
-])
+def test_manifest_supports_multiple_models_and_named_pools():
+    value = manifest()
+    value["models"] = [
+        {
+            "id": "text",
+            "task": "ocr",
+            "is_interactive": False,
+            "supported_prompts": ["none"],
+            "supported_inputs": ["crop"],
+            "supported_geometric_outputs": ["polygon"],
+        },
+        {
+            "id": "classify",
+            "task": "classify",
+            "is_interactive": False,
+            "supported_prompts": ["none"],
+            "supported_inputs": ["crop"],
+            "supported_geometric_outputs": [],
+        },
+    ]
+    value["pools"] = {
+        "text": {"cap": 2, "sessions": 3},
+        "classify": {"cap": 1, "sessions": 1},
+    }
+    parsed = PluginManifest.model_validate(value)
+    assert parsed.model_dump(mode="json")["models"] == value["models"]
+    assert parsed.model_dump(mode="json")["pools"] == value["pools"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda value: value["models"].append(value["models"][0]),
+        lambda value: value["models"][0].update(task="invented"),
+        lambda value: value["models"][0].update(is_interactive=1),
+        lambda value: value["models"][0].update(supported_inputs=["crop", "crop"]),
+        lambda value: value["models"][0].update(supported_prompts=[]),
+        lambda value: value["pools"]["models"].update(cap=True),
+        lambda value: value["pools"]["models"].update(sessions=0),
+        lambda value: value.update(pools={}),
+        lambda value: value.update(models=[]),
+    ],
+)
+def test_manifest_rejects_malformed_model_or_pool_declarations(change):
+    value = manifest()
+    change(value)
+    with pytest.raises(ValidationError):
+        PluginManifest.model_validate(value)
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "--mount=type=bind,src=/tmp,dst=/x@sha256:" + "a" * 64,
+        "image,other@sha256:" + "a" * 64,
+        "image=other@sha256:" + "a" * 64,
+        "image name@sha256:" + "a" * 64,
+        "-image@sha256:" + "a" * 64,
+        "registry.example:5000/@sha256:" + "a" * 64,
+    ],
+)
 def test_artifact_rejects_option_and_invalid_reference_forms(reference):
     value = manifest()
     value["artifact"] = reference
@@ -66,10 +142,13 @@ def test_artifact_rejects_option_and_invalid_reference_forms(reference):
         PluginManifest.model_validate(value)
 
 
-@pytest.mark.parametrize("reference", [
-    "registry.example:5000/team/model:stable@sha256:" + "a" * 64,
-    "model@sha256:" + "a" * 64,
-])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "registry.example:5000/team/model:stable@sha256:" + "a" * 64,
+        "model@sha256:" + "a" * 64,
+    ],
+)
 def test_artifact_accepts_digest_pinned_registry_and_image(reference):
     value = manifest()
     value["artifact"] = reference
@@ -99,12 +178,18 @@ def test_activation_requires_exact_administrator_inspection_identity():
     value = {
         "expected_revision": 1,
         "receipt": {
-            "installation_id": str(uuid4()), "registry_id": str(uuid4()),
-            "artifact": manifest()["artifact"], "image_id": "sha256:" + "c" * 64,
-            "container_id": "d" * 64, "resource": installation()["resource"],
+            "installation_id": str(uuid4()),
+            "registry_id": str(uuid4()),
+            "artifact": manifest()["artifact"],
+            "image_id": "sha256:" + "c" * 64,
+            "container_id": "d" * 64,
+            "resource": installation()["resource"],
         },
     }
-    assert PluginActivateRequest.model_validate(value).receipt.artifact == manifest()["artifact"]
+    assert (
+        PluginActivateRequest.model_validate(value).receipt.artifact
+        == manifest()["artifact"]
+    )
     value["receipt"]["container_id"] = "short"
     with pytest.raises(ValidationError):
         PluginActivateRequest.model_validate(value)
@@ -120,7 +205,13 @@ def test_activation_requires_exact_administrator_inspection_identity():
 
 def test_lifecycle_qualification_hashes_canonical_ascii_json():
     report = {"name": "检测", "cycle": 1}
-    payload = json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
+    payload = json.dumps(
+        report,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
     digest = hashlib.sha256(payload).hexdigest()
     assert PluginLifecycleQualification(report=report, sha256=digest).sha256 == digest
     with pytest.raises(ValidationError):
