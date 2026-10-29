@@ -13,6 +13,7 @@ from aap_backend_runtime import (
     physical_gpu_identity,
     validate_single_gpu_device_set,
 )
+from aap_backend_runtime.gpu import observed_single_nvidia_gpu
 
 
 def test_free_gpu_memory_no_raise() -> None:
@@ -168,3 +169,37 @@ def test_physical_gpu_identity_prefers_container_runtime_selection(
 def test_explicit_physical_gpu_token_is_strict(value: str) -> None:
     with pytest.raises(RuntimeError, match="AAP_GPU_PHYSICAL_DEVICE_TOKEN"):
         physical_gpu_identity({"AAP_GPU_PHYSICAL_DEVICE_TOKEN": value})
+
+
+def test_observed_gpu_requires_exact_single_physical_identity(monkeypatch) -> None:
+    uuid = "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb"
+    monkeypatch.setattr(
+        "aap_backend_runtime.gpu.subprocess.check_output",
+        lambda *args, **kwargs: f"{uuid}, 24576, 560.35\n",
+    )
+    assert observed_single_nvidia_gpu(uuid) == {
+        "device_uuid": uuid,
+        "total_memory_mb": 24576,
+        "driver_version": "560.35",
+    }
+    with pytest.raises(RuntimeError, match="do not match"):
+        observed_single_nvidia_gpu("GPU-ac5e7f45-7a36-c3f8-1f65-a54f28bfcd31")
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, 0, 560.35",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, N/A, 560.35",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, 24576, ",
+        "GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb, 24576, 560.35\nGPU-other, 24576, 560.35",
+    ],
+)
+def test_observed_gpu_rejects_missing_or_ambiguous_facts(monkeypatch, output) -> None:
+    monkeypatch.setattr(
+        "aap_backend_runtime.gpu.subprocess.check_output",
+        lambda *args, **kwargs: output,
+    )
+    with pytest.raises(RuntimeError):
+        observed_single_nvidia_gpu("GPU-0d0ff398-3fa6-778c-8611-a45fbadecabb")
