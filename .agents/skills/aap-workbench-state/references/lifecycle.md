@@ -9,6 +9,8 @@
 - Keep project overrides separate from personal preferences. A display override must not be persisted as the user's own value.
 - Exercise load failure/retry, rapid edits, save failure, unmount flush, and cross-user transitions when changing these paths.
 
+- Named presets and automatic current-layout persistence have separate writers: `useWorkbenchNamedPresets.ts` owns `workspace.namedPresets`, while `useWorkbenchWorkspaceLayout.ts` owns current contexts. Preserve the preset revision check and unknown entries during whole-map replacement; omission can delete another saved preset.
+
 ## Editing and playback
 
 - Trace keyboard, buttons, camera edits, numeric inputs, and propagation through the shared write guards. Disabled visible controls do not protect alternate entry points.
@@ -22,6 +24,13 @@
 - Cancellation/rollback belongs to the current transaction owner; a child must not restore an old object's geometry into a newly selected object.
 - Shared-query consumers should use the query lifecycle's cancellation signal rather than one consumer's private AbortController cancelling everyone.
 
+- Capture the selected object and operation scope, not just the visible card: single-track and multi-target actions differ. Exercise each affected geometry's real edit/delete path; bbox parity does not prove polygon, mask or track behavior.
+
+## Discussion and asynchronous decisions
+
+- `shell/CommentInput.tsx` owns contentEditable text, mention chips and IME composition. Do not synchronize React editor state or submit Enter during active composition; preserve the caret around mention boundaries and commit final text at composition end. Verify Chinese input and the first typed character, not only Latin text or a programmatic input event.
+- Decision dialogs can outlive their account, task, queue or checked selection. Capture the initiating scope, recheck it after the await, and do not apply the old answer to a new selection. For an inert action, first check whether the browser suppressed a native prompt and whether a request was actually sent.
+
 ## Tracker restoration
 
 Refresh may begin before token hydration. Restoration must retry when authentication becomes usable, reconnect running jobs, and avoid duplicate subscriptions. Task switching during an in-flight preview/review request must not resurrect old candidates or emit old-task notifications.
@@ -31,3 +40,9 @@ Check socket/timer teardown and generation/task identity after awaits, including
 ## Shared renderer and floating panels
 
 One point-cloud renderer serves the main viewport and tri-views. Floating DOM layers, backgrounds, render overlays, clipping and pointer hit-testing must agree with the shared canvas. Do not introduce a second renderer to cover a layering bug. Inspect panel close/reopen and multiple overlapping floating groups as applicable.
+
+## Authenticated original resources
+
+- Use `apps/web/src/api/originals.ts` for authenticated original identity and bytes. It validates the exact platform download path; never attach the account Bearer to a guessed or provider-supplied URL.
+- Own Blob URLs, ImageBitmaps, decoded frames, caches and GPU resources by account/session plus resource/content identity. A task change, logout/login as the same user, or content revision retires the old owner. Token refresh within the same owner is not a new content identity; retain the existing bounded retry rather than inventing cross-account fallbacks.
+- Await actual readiness before accepting edits. A screenshot or mocked bitmap-construction call does not prove the committed production preview is visible. Verify the changed interaction, stale-response rejection, resource disposal, and saved/readback state when persistence is affected.

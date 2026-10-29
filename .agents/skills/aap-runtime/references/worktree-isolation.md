@@ -24,7 +24,9 @@ Use `pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/py
 
 Keep the generated `AAP_WORKTREE_MODE` marker intact. Test entry points reject `dev` before database preparation, and dev processes intentionally receive unusable test DSNs rather than aliases into another mode. API/ordinary workers exclude the migration/test owner credentials. The maintenance worker receives the same database's owner connection as `DATABASE_URL`, with migration/test DSN variables cleared; frontend processes receive only public/system configuration.
 
-Redis logical databases do not isolate Pub/Sub. Keep the dedicated Redis instance and all Celery broker/read/write/result overrides together. Redis AOF and DuckDB/temp files belong to the selected mode. Override all nine storage buckets, because cleanup and lifecycle settings are bucket-scoped.
+When this checkout supports per-mode runtime LOGIN provisioning, preserve its role ownership marker and private runtime-credentials file. Doctor is read-only; do not provision credentials during inspection, bypass destroy ownership checks, or fall back to the migration owner when an ordinary LOGIN cannot be prepared. Preserve the launcher's clearing of capability-specific URL/file selectors so inherited Identity or module-owner credentials cannot leak into an ordinary child.
+
+Redis logical databases do not isolate Pub/Sub. Keep the dedicated Redis instance and all Celery broker/read/write/result overrides together. Redis AOF and DuckDB/temp files belong to the selected mode. Derive the complete bucket/purpose set from this checkout's launcher and `PURPOSE_BUCKET_ATTRIBUTES` in `apps/api/app/services/dataset_assets.py`, not a remembered bucket count. Branches with accepted-input storage additionally require its separate versioned bucket; never alias it to source or media-cache storage.
 
 `Ctrl+C` stops the launched processes but retains resources. `stop` also stops the owned Redis container while preserving AOF and business data. Wait for important active tasks before stopping; arbitrary in-flight tasks are not guaranteed resumable.
 

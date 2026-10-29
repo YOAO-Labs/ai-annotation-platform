@@ -5,7 +5,7 @@ description: Change or diagnose preannotation pipeline payloads and execution ac
 
 # Preannotation pipeline contracts
 
-Trace the requested operation from the frontend composer through `apps/api/app/api/v1/projects.py`, `app/services/pipeline_validation.py`, `app/workers/tasks.py`, `app/workers/roi.py`, and the selected backend's advertised capabilities. Backend paths after the first are relative to `apps/api/`.
+Trace the requested operation from the frontend composer through `apps/api/app/api/v1/projects.py`, the current pipeline validator and worker entrypoint, ROI/context processing, and the selected backend's advertised capabilities. The integrated API path uses `app/services/pipeline_validation.py`, `app/workers/tasks.py`, and `app/workers/roi.py` under `apps/api/`; module branches may move ROI/context and execution into services or `apps/inference`. Discover this checkout's owners instead of recreating an obsolete path.
 
 UI support and execution support must agree. A payload accepted by the composer can still be rejected by crop/attributes-only API validation. Check supported output types and stage relationships at the shared validation boundary before adding per-entrypoint exceptions.
 
@@ -13,8 +13,12 @@ Keep execution scopes distinct in `projects.py`: workbench current-task requests
 
 When changing those rules, align the project-card count, batch/task selectors, API canonicalization, queued payload, and worker revalidation. Test both scopes explicitly, including draft-to-assigned races, another user's edit lock, terminal tasks, and persisted predictions after later assignment/activation.
 
+For original/reference input receipts, native masks, video results, secondary inference or late writes, read [input and write boundaries](references/write-boundaries.md). Keep immutable execution facts separate from current permission and final transaction ownership; qualify the input/result pair before persistence.
+
 Root identity is structural: inspect `parent_stage is None`, not an assumed stage ID of zero. Trace geometry and index lineage through intermediate stages; an index into intermediate results is not automatically an index into root boxes. Cover nonzero root IDs and multi-level geometry chains when modifying fan-out or merging.
 
 Preserve capability/device queue selection, project/library scopes, failure recording, and retry context. Reuse the existing pipeline validator and worker entrypoints. After execution changes, use [aap-runtime](../aap-runtime/SKILL.md) to refresh the actual affected workers.
+
+Model artifact installation, trial and project release are separate from payload acceptance; use [aap-online-learning](../aap-online-learning/SKILL.md) for those transitions. For module/plugin or physical GPU lifecycle changes, use [aap-backend-boundaries](../aap-backend-boundaries/SKILL.md), not a pipeline-only success as deployment proof.
 
 Run `apps/api/tests/test_pipeline_validation.py` and the affected worker/endpoint tests, including a payload through the route that originally failed. Consult [prediction pipeline](../../../docs-site/dev/concepts/prediction-pipeline.md) for the architecture and [ML backend protocol](../../../docs-site/dev/reference/ml-backend-protocol.md) when changing capability contracts. Update changed UI entry-point and ownership documentation alongside implementation.

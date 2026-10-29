@@ -1,6 +1,6 @@
 ---
 name: aap-workbench-state
-description: Change or diagnose Workbench layout, preferences, task/scene switching, tracker restoration, or editing guards where asynchronous state can outlive its owner.
+description: Change or diagnose Workbench layout/presets, task/scene switching, tracker restoration, authenticated media, discussion drafts/IME, or asynchronous editing and decision guards.
 ---
 
 # Workbench state ownership
@@ -11,6 +11,8 @@ Trace the affected lifecycle through the existing owner before editing. Read onl
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Dock layout and persistence     | `layout/WorkbenchDockWorkspace.tsx`, `state/useWorkbenchWorkspaceLayout.ts`, `layout/workbenchLayoutSnapshot.ts`          |
 | Settings and preference storage | `shell/WorkbenchSettingsDialog.tsx`, `state/useUserPreferences.ts`                                                        |
+| Named layout presets            | `state/useWorkbenchNamedPresets.ts`                                                                                        |
+| Discussion drafts and IME        | `shell/CommentInput.tsx`, `state/DiscussionDraftProvider.tsx`                                                               |
 | Task navigation and leave guard | `state/taskNavigation.ts`, assembled by `state/useWorkbenchShellModel.tsx`                                                |
 | Native Mask mutations           | `state/useMaskMutationWorkflows.ts`, `state/maskMutationPolicy.ts`                                                        |
 | Video Mask correction           | `state/useVideoMaskCorrection.ts`, `state/videoMaskCorrectionFlow.ts`                                                     |
