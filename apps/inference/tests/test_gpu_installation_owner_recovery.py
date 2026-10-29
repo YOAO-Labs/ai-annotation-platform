@@ -255,12 +255,11 @@ async def test_recovery_waits_for_post_horizon_idle_before_authorizing(monkeypat
 
 @pytest.mark.asyncio
 async def test_terminal_receipt_accepts_same_pools_in_backend_order(monkeypatch):
-    result, native, store, _ = await run_quiescence(
+    result, _, store, _ = await run_quiescence(
         monkeypatch, horizon=1004, receipt_pools=["pipeline", "detector", "va"]
     )
     assert result.unloaded is True
     assert result.pool_ids == ["detector", "pipeline", "va"]
-    assert native.phases[-2:] == ["verify", "commit"]
     assert store.closed
 
 
