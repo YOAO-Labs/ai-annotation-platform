@@ -414,6 +414,8 @@ class BackendTransport:
                         "pool",
                         "video_pool",
                         "compute",
+                        "pool_topology",
+                        "ort_session_counts",
                         # ADR-0049 · 全 pool/session 驻留真值，与 compute 配置意图分离。
                         "residency",
                     )
@@ -831,7 +833,12 @@ class BackendTransport:
         endpoint: str,
         grant: BackendDispatchGrant,
     ) -> httpx.Response:
-        if endpoint not in {"/drain", "/drain/cancel", "/unload", "/lifecycle/terminal-drain-signed"}:
+        if endpoint not in {
+            "/drain",
+            "/drain/cancel",
+            "/unload",
+            "/lifecycle/terminal-drain-signed",
+        }:
             raise ValueError("managed GPU transition endpoint is invalid")
         request = GenerationTransitionRequest(generation=grant.generation)
         try:
