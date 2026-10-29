@@ -387,7 +387,13 @@ async def quiesce_gpu_installation(
             "pool_ids": document["pool_ids"],
             "unloaded": True,
         }
-        if not isinstance(receipt, dict) or receipt != expected:
+        if (
+            type(receipt) is not dict
+            or type(receipt.get("pool_ids")) is not list
+            or any(type(pool_id) is not str for pool_id in receipt["pool_ids"])
+            or sorted(receipt["pool_ids"]) != document["pool_ids"]
+            or receipt != {**expected, "pool_ids": receipt["pool_ids"]}
+        ):
             raise ValueError("GPU installation terminal receipt mismatch")
         current = await endpoint_source.open_owned(
             request.registry_id,
