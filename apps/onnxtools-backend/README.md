@@ -104,16 +104,41 @@ curl -s localhost:8004/health | python -m json.tool
 
 ONNX Runtime 缺少可用 GPU provider 时会退回 CPU；`compute` 报告实际 primary provider，`residency` 独立表达 GPU session 是否仍可能驻留。
 
+## Python 依赖与镜像构建
+
+`pyproject.toml` 声明三个共享包、固定提交的 `onnxtools[inference]`、ONNX Runtime
+GPU 1.22.0、NumPy 2.2.6 和 headless contrib OpenCV。ORT GPU wheel 也可在 CPU 上运行。
+共享 runtime 还依赖 `aap-lifecycle-contract`；共享包仍从本仓库构建，这不是独立插件迁移或 GPU 验收声明。
+
+`uv.lock` 记录依赖图和 registry artifact 哈希，`requirements-runtime.txt` 是镜像使用的
+hash-locked 导出，`requirements-build.txt` 固定构建工具 wheel。`requirements-vcs.txt`
+记录从 lock 导出的不可变 Git commit（Git 依赖不能用 pip 的 artifact hash 模式安装）。
+更新后在本目录运行：
+
+```bash
+uv lock
+uv export --locked --extra build --no-emit-local \
+  --no-emit-package opencv-python --no-emit-package opencv-contrib-python \
+  --no-emit-package onnxtools --output-file requirements-runtime.txt
+uv export --locked --extra build --no-emit-local --no-hashes --no-annotate \
+  | python3 -c 'import sys; print("# Exported from uv.lock; Git commit is the immutable upstream source identity."); print(next(line for line in sys.stdin if line.startswith("onnxtools @ git+")), end="")' \
+  > requirements-vcs.txt
+```
+
+镜像以 `--no-deps --require-hashes` 安装 registry 导出，再以 `--no-deps` 安装固定提交和
+本地构建的共享包与 backend。上游 inference extra 要求 `opencv-contrib-python`，
+`supervision` 要求 `opencv-python`；运行时刻意用唯一的 `opencv-contrib-python-headless`
+替代两者。原始 metadata 不因此改变，`pip check` 会报告 GUI 包缺失；普通 `pip install`
+或 `uv sync` 不保证此布局。不要再安装 GUI OpenCV，它们会覆盖同一个 `cv2` 文件。
+
 ## 测试
 
-`onnxtools[inference]` 与 OpenCV 由 Dockerfile 按审计提交安装，未写入本地项目依赖；干净的 `uv sync` 环境不足以运行测试。优先在刚构建的真实后端镜像中验证，并只读挂载测试目录：
+可在刚构建的真实后端镜像中验证，并只读挂载测试目录：
 
 ```bash
 docker run --rm --entrypoint sh \
   -v "$PWD/apps/onnxtools-backend/tests:/tests:ro" \
   -w /app ai-annotation-platform-onnxtools-backend:latest \
   -c 'python3 -m pip install -q "pytest>=8" "pytest-asyncio>=0.23" && \
-      PYTHONPATH=/app python3 -m pytest -q -p no:cacheprovider /tests'
+      python3 -m pytest -q -p no:cacheprovider /tests'
 ```
-
-若使用本地虚拟环境，需先安装 Dockerfile 中固定提交的 `onnxtools[inference]`，再执行 `uv sync --extra dev` 与测试。

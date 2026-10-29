@@ -29,6 +29,29 @@ cls（文本行方向 0/180）语言/版本无关，内化进 rec 与 e2e、不�
 python3 apps/rapidocr-backend/download_models.py   # SHA256 校验、幂等
 ```
 
+## Python 依赖与镜像构建
+
+`pyproject.toml` 声明 RapidOCR 3.9.0、ONNX Runtime GPU 1.23.2、NumPy 2.2.6、
+headless OpenCV 和三个直接使用的共享包。ORT GPU wheel 也可在 CPU 上运行；CUDA 镜像额外使用
+`cuda` extra 中的 cuDNN 9.10.2，CUDA/cuBLAS 由基础镜像提供。共享 runtime 还依赖
+`aap-lifecycle-contract`。共享包仍是本仓库构建输入，这不是独立插件迁移或 GPU 验收声明。
+
+`uv.lock` 固定完整依赖图，镜像安装的 `requirements-runtime.txt` 固定各 registry
+artifact 的哈希；`requirements-build.txt` 固定构建工具 wheel。更新 lock 后，在本目录运行：
+
+```bash
+uv lock
+uv export --locked --extra cuda --extra build --no-emit-local \
+  --no-emit-package opencv-python --no-emit-package nvidia-cublas-cu12 \
+  --output-file requirements-runtime.txt
+```
+
+镜像以 `--no-deps --require-hashes` 安装导出结果，再以 `--no-deps` 安装实际构建的共享包
+和 backend。RapidOCR 的原始 metadata 要求 `opencv-python`，运行时刻意替换为唯一的
+`opencv-python-headless`；因此 stock metadata 的 `pip check` 会报告缺少 GUI 包，
+普通 `pip install` 或 `uv sync` 也不能保证此 headless 布局。不要补装 GUI 包，
+两者会覆盖同一 `cv2` 文件。`nvidia-cublas-cu12` 同样不从 wheel 安装，以免覆盖基础镜像的 CUDA 库。
+
 ## 运行（dev）
 
 ```bash

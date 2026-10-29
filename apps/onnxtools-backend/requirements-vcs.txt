@@ -1,0 +1,2 @@
+# Exported from uv.lock; Git commit is the immutable upstream source identity.
+onnxtools @ git+https://github.com/yyq19990828/onnxtools.git@102fcfeb08fc00f865c334a181bfd0bb518e5ed8
