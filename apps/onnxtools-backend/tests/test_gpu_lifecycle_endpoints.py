@@ -7,6 +7,7 @@ import importlib
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from aap_protocol_v2.lifecycle import (
@@ -358,22 +359,33 @@ def test_warmup_drain_unload_and_generation_tombstone(managed_client) -> None:
 
 def test_warmup_timeout_keeps_active_until_real_builder_finishes(
     managed_client,
+    monkeypatch,
 ) -> None:
     main, client, private_key = managed_client
     boot_id = _promote(client, private_key)
     started = threading.Event()
     release = threading.Event()
+    tracked = threading.Event()
+    track_future = main.WorkloadOperation.track_future
+
+    def observe_future(operation, future) -> None:
+        track_future(operation, future)
+        if future is not None:
+            tracked.set()
+
+    monkeypatch.setattr(main.WorkloadOperation, "track_future", observe_future)
 
     def build() -> _Detector:
         started.set()
-        assert release.wait(timeout=2)
+        release.wait()
         return _Detector()
 
     assert main._handle_pool is not None
     main._handle_pool._factories["detector"] = build  # noqa: SLF001
     main._handle_pool._build_timeout = 0.02  # noqa: SLF001
-    try:
-        response = client.post(
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        response_future = executor.submit(
+            client.post,
             "/warmup",
             headers=_workload_headers(
                 private_key,
@@ -384,13 +396,17 @@ def test_warmup_timeout_keeps_active_until_real_builder_finishes(
             ),
             json={"model_id": "vehicle-detect"},
         )
+        try:
+            assert started.wait(timeout=1)
+            assert tracked.wait(timeout=1)
+            assert not response_future.done()
+            residency = client.get("/health").json()["residency"]
+            assert residency["active_requests"] == 1
+            assert residency["builders"] == 1
+        finally:
+            release.set()
+        response = response_future.result(timeout=5)
         assert response.status_code == 503, response.text
-        assert started.wait(timeout=1)
-        residency = client.get("/health").json()["residency"]
-        assert residency["active_requests"] == 1
-        assert residency["builders"] == 1
-
-        release.set()
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
             residency = client.get("/health").json()["residency"]
@@ -399,8 +415,6 @@ def test_warmup_timeout_keeps_active_until_real_builder_finishes(
             time.sleep(0.01)
         assert residency["active_requests"] == 0
         assert residency["builders"] == 0
-    finally:
-        release.set()
 
 
 @pytest.mark.asyncio
@@ -445,6 +459,7 @@ async def test_repeated_cancel_keeps_warmup_active_until_real_builder_finishes(
 
     class _Request:
         headers = Headers()
+        app = main.app
 
         async def body(self) -> bytes:
             return b'{"model_id":"vehicle-detect"}'

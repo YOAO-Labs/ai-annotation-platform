@@ -33,6 +33,7 @@ from aap_protocol_v2.lifecycle import (
     validate_canonical_positive_int64,
     verify_admission_token,
 )
+from aap_backend_runtime.gpu_lifecycle import TerminalDrainMixin
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from handle_pool import HANDLE_ORDER, HandlePool
@@ -137,7 +138,7 @@ class WorkloadOperation:
             raise asyncio.CancelledError
 
 
-class OnnxToolsGpuLifecycle:
+class OnnxToolsGpuLifecycle(TerminalDrainMixin):
     """Single-process managed lifecycle guard for the ONNXTools handle pool."""
 
     def __init__(
@@ -147,7 +148,26 @@ class OnnxToolsGpuLifecycle:
         verify_keyring: Mapping[str, Ed25519PublicKey],
         evictable_verified: bool = False,
         boot_id: str | None = None,
+        expected_registry_id: str | None = None,
+        expected_gpu_resource_id: str | None = None,
+        terminal_cpu_enabled: bool = False,
+        allow_legacy_workloads: bool = True,
     ) -> None:
+        if expected_gpu_resource_id and not expected_registry_id:
+            raise ValueError("GPU lifecycle identity requires a registry identity")
+        self._expected_registry_id = expected_registry_id
+        self._expected_gpu_resource_id = expected_gpu_resource_id
+        self._expected_identity = (
+            BoundLifecycleIdentity(
+                backend_registry_id=expected_registry_id,
+                gpu_resource_id=expected_gpu_resource_id,
+            )
+            if expected_registry_id and expected_gpu_resource_id
+            else None
+        )
+        self._terminal_cpu_enabled = terminal_cpu_enabled
+        self._terminal_pool_ids = HANDLE_ORDER
+        self._allow_legacy_workloads = allow_legacy_workloads
         self._pool = pool
         self._verify_keyring = dict(verify_keyring)
         self._evictable_verified = evictable_verified
@@ -170,6 +190,8 @@ class OnnxToolsGpuLifecycle:
         self._last_reset: _CleanupRecord | None = None
         self._last_unload: _CleanupRecord | None = None
         self._shutdown_task: asyncio.Task[None] | None = None
+        self._terminal_identity: tuple[str, ...] | None = None
+        self._terminal_task: asyncio.Task[dict[str, Any]] | None = None
 
     @property
     def boot_id(self) -> str:
@@ -199,6 +221,7 @@ class OnnxToolsGpuLifecycle:
 
         async with self._lock:
             self._prune_jtis_locked()
+            self._require_not_terminal_locked()
             if self._phase in {"draining", "unloading"}:
                 raise LifecycleHTTPError(
                     LifecycleErrorCode.BACKEND_DRAINING,
@@ -209,6 +232,8 @@ class OnnxToolsGpuLifecycle:
                     LifecycleErrorCode.TRANSITION_CONFLICT,
                     message="backend residency is unknown; signed reset is required",
                 )
+            if self._gate is LifecycleGate.LEGACY and not self._allow_legacy_workloads:
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
 
             pool_snapshot = await self._pool.snapshot()
             if self._gate is LifecycleGate.ENFORCE and pool_snapshot["cleanup_failed"]:
@@ -345,6 +370,7 @@ class OnnxToolsGpuLifecycle:
         )
 
         async with self._lock:
+            self._require_not_terminal_locked()
             self._validate_control_claim_locked(claims, AdmissionScope.MODE)
             if request.gate is LifecycleGate.ENFORCE and not self._evictable_verified:
                 raise LifecycleHTTPError(
@@ -416,6 +442,7 @@ class OnnxToolsGpuLifecycle:
         )
 
         async with self._lock:
+            self._require_not_terminal_locked()
             self._validate_control_claim_locked(claims, AdmissionScope.RESET)
             self._consume_jti_locked(claims, fingerprint, workload=False)
             incoming = int(request.control_epoch)
@@ -486,6 +513,7 @@ class OnnxToolsGpuLifecycle:
         )
         fingerprint = self._fingerprint("/drain", canonical, claims)
         async with self._lock:
+            self._require_not_terminal_locked()
             self._validate_enforced_transition_locked(claims, AdmissionScope.DRAIN)
             self._consume_jti_locked(claims, fingerprint, workload=False)
             if self._generation == canonical:
@@ -531,6 +559,7 @@ class OnnxToolsGpuLifecycle:
         )
         fingerprint = self._fingerprint("/drain/cancel", canonical, claims)
         async with self._lock:
+            self._require_not_terminal_locked()
             self._validate_enforced_transition_locked(claims, AdmissionScope.RESUME)
             self._consume_jti_locked(claims, fingerprint, workload=False)
             expected_resume = _ResumeRecord(
@@ -576,6 +605,7 @@ class OnnxToolsGpuLifecycle:
         )
         fingerprint = self._fingerprint("/unload", canonical, claims)
         async with self._lock:
+            self._require_not_terminal_locked()
             self._validate_enforced_transition_locked(claims, AdmissionScope.UNLOAD)
             self._consume_jti_locked(claims, fingerprint, workload=False)
             if canonical != self._generation:
@@ -619,6 +649,7 @@ class OnnxToolsGpuLifecycle:
 
     async def legacy_unload(self) -> dict[str, Any]:
         async with self._lock:
+            self._require_not_terminal_locked()
             if self._gate is LifecycleGate.ENFORCE:
                 raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
             if self._phase != "normal":
@@ -706,7 +737,13 @@ class OnnxToolsGpuLifecycle:
 
     async def _shutdown_impl(self) -> None:
         async with self._lock:
-            self._phase = "unloading"
+            terminal_task = self._terminal_task
+            if terminal_task is None:
+                self._phase = "unloading"
+        if terminal_task is not None:
+            await asyncio.shield(terminal_task)
+            async with self._lock:
+                self._phase = "unloading"
         while True:
             async with self._lock:
                 if not self._active:
@@ -935,6 +972,13 @@ class OnnxToolsGpuLifecycle:
         claims: AdmissionTokenClaims,
         scope: AdmissionScope,
     ) -> None:
+        if self._expected_registry_id is not None and self._expected_identity != (
+            BoundLifecycleIdentity(
+                backend_registry_id=claims.backend_registry_id,
+                gpu_resource_id=claims.gpu_resource_id,
+            )
+        ):
+            raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
         if claims.scope is not scope or claims.boot_id != self._boot_id:
             raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
         if self._identity is not None and not self._identity_matches(claims):
