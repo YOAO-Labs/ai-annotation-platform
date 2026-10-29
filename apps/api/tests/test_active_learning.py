@@ -1,6 +1,7 @@
 """Manager-only replay, ordinary human batches and immutable observed feedback."""
 
 import copy
+import os
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.db.models.active_learning import ActiveLearningFeedback as Feedback
 from app.db.models.annotation import Annotation
@@ -303,8 +304,21 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
     assert service.decision_output(decision)["snapshot"] == saved
 
 
+@pytest.mark.parametrize(
+    "restricted_audit",
+    [
+        False,
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+                reason="requires a disposable database with role creation privileges",
+            ),
+        ),
+    ],
+)
 async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_corrections_unknown(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, restricted_audit
 ):
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
@@ -356,18 +370,85 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
                 collector_version="session-v2",
             )
         )
-    db_session.add(
-        AuditLog(
-            actor_id=owner.id,
-            action="task.reject",
-            target_type="task",
-            target_id=str(task.id),
-            status_code=200,
-            detail_json={"reason_type": "incomplete"},
-            created_at=start,
+    cutoff = service.now()
+    monkeypatch.setattr(service, "now", lambda: cutoff)
+    other_task = next(candidate for candidate in world.tasks if candidate.id != task.id)
+    cases = [
+        (task.id, "task.reject", 200, cutoff, "incomplete"),
+        (other_task.id, "task.reject", 200, start, "other-task"),
+        (task.id, "task.reject", 409, start, "failed"),
+        (task.id, "task.approve", 200, start, "other-action"),
+        (task.id, "task.reject", 200, cutoff + timedelta(seconds=1), "future"),
+        (
+            task.id,
+            "task.reject",
+            200,
+            decision.created_at - timedelta(seconds=1),
+            "before-accept",
+        ),
+        (
+            task.id,
+            "task.reject",
+            200,
+            decision.created_at - timedelta(seconds=2),
+            "earlier",
+        ),
+        (task.id, "task.reject", 200, decision.created_at, "second"),
+    ]
+    for task_id, action, status, created_at, reason in cases:
+        db_session.add(
+            AuditLog(
+                actor_id=owner.id,
+                action=action,
+                target_type="task",
+                target_id=str(task_id),
+                status_code=status,
+                detail_json={"reason_type": reason},
+                created_at=created_at,
+            )
         )
-    )
     await db_session.flush()
+    if restricted_audit:
+        # A transaction-owned role isolates Audit while retaining the existing
+        # in-process Learning transaction and its other dependencies.
+        role = "feedback_probe_" + uuid.uuid4().hex
+        await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+        await db_session.execute(
+            text(
+                f"""
+                DO $grant$
+                DECLARE item record;
+                BEGIN
+                  GRANT USAGE ON SCHEMA public TO "{role}";
+                  FOR item IN
+                    SELECT c.oid::regclass AS relation
+                    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
+                      AND c.oid NOT IN (
+                        SELECT relid FROM pg_partition_tree('public.audit_logs')
+                      )
+                  LOOP
+                    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO %I',
+                                   item.relation, '{role}');
+                  END LOOP;
+                  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}";
+                  FOR item IN SELECT nspname FROM pg_namespace
+                              WHERE nspname LIKE 'aap\\_%' ESCAPE '\\'
+                  LOOP
+                    EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', item.nspname, '{role}');
+                    EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', item.nspname, '{role}');
+                    EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA %I TO %I', item.nspname, '{role}');
+                  END LOOP;
+                END $grant$
+                """
+            )
+        )
+        await db_session.execute(text(f'SET LOCAL ROLE "{role}"'))
+        assert not await db_session.scalar(
+            text(
+                "SELECT has_any_column_privilege(current_user, 'public.audit_logs', 'SELECT')"
+            )
+        )
     body = FeedbackCreate(request_id=uuid.uuid4())
     row = await feedback.snapshot(
         db_session,
@@ -379,7 +460,14 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
     )
     snapshot = copy.deepcopy(row.snapshot)
     active, control = snapshot["arms"]
-    assert active["reviewed_tasks"] == 1 and active["reviewer_rejection_count"] == 1
+    assert active["reviewed_tasks"] == 1 and active["reviewer_rejection_count"] == 2
+    assert [event["reason_type"] for event in active["reviewer_rejections"]] == [
+        "incomplete",
+        "second",
+    ]
+    assert [event["audit_id"] for event in active["reviewer_rejections"]] == sorted(
+        event["audit_id"] for event in active["reviewer_rejections"]
+    )
     assert active["effort"]["annotate"] == {"recorded_ms": 90000, "coverage": "partial"}
     assert active["effort"]["review"]["recorded_ms"] is None
     assert active["correction_count"] is None and control["accepted_tasks"] == 0
@@ -404,6 +492,34 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         )
         == 1
     )
+    with pytest.raises(HTTPException) as error:
+        await feedback.snapshot(
+            db_session,
+            world.project,
+            owner,
+            round.id,
+            FeedbackCreate(
+                request_id=body.request_id,
+                evaluations=[
+                    {"evaluation_id": uuid.uuid4(), "attempt_id": uuid.uuid4()}
+                ],
+            ),
+            training_authority=bind_training_authority(db_session),
+        )
+    assert error.value.detail["code"] == "request_conflict"
+    monkeypatch.setattr(feedback, "MAX_FACT_ROWS", 3)
+    with pytest.raises(HTTPException) as error:
+        await feedback.snapshot(
+            db_session,
+            world.project,
+            owner,
+            round.id,
+            FeedbackCreate(request_id=uuid.uuid4()),
+            training_authority=bind_training_authority(db_session),
+        )
+    assert error.value.detail["code"] == "feedback_limit"
+    if restricted_audit:
+        await db_session.execute(text("RESET ROLE"))
 
 
 async def test_repeated_cancel_and_old_job_signal_preserve_fences_and_failure(

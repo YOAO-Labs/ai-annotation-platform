@@ -10,7 +10,6 @@ from app.db.models.active_learning import (
     ActiveLearningDecision as Decision,
     ActiveLearningFeedback as Feedback,
 )
-from app.db.models.audit_log import AuditLog
 from app.db.models.sample_evaluation import (
     SampleEvaluationAttempt as EvaluationAttempt,
     SampleEvaluationRun as Evaluation,
@@ -18,6 +17,7 @@ from app.db.models.sample_evaluation import (
 from app.services import active_learning as rounds, active_learning_pool as pool
 from app.services import sample_evaluations
 from app.services import active_learning_references as source_references
+from app.services.audit_read_relations import audit_event
 from app.services.project_performance import _union_minutes
 from app.services.task_event_ingestion import validate_interval
 from app.services.training_dataset_bridge import content_digest
@@ -249,15 +249,15 @@ async def snapshot(
     )
     audits = await bounded(
         db,
-        select(AuditLog)
+        select(audit_event)
         .where(
-            AuditLog.target_type == "task",
-            AuditLog.target_id.in_([str(identity) for identity in accepted]),
-            AuditLog.action == "task.reject",
-            AuditLog.status_code == 200,
-            AuditLog.created_at <= cutoff,
+            audit_event.target_type == "task",
+            audit_event.target_id.in_([str(identity) for identity in accepted]),
+            audit_event.action == "task.reject",
+            audit_event.status_code == 200,
+            audit_event.created_at <= cutoff,
         )
-        .order_by(AuditLog.id),
+        .order_by(audit_event.id),
     )
     arms = []
     for arm in ("active", "random_control"):
