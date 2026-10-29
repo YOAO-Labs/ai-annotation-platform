@@ -28,6 +28,7 @@ from aap_protocol_v2.lifecycle import (
     ManagedLifecycleCapabilities,
     ManagedUnloadResponse,
     PoolResidency,
+    TerminalDrainRequest,
     canonical_managed_lifecycle_capabilities,
     encode_ed25519_public_key,
     load_verify_keyring,
@@ -44,6 +45,22 @@ from aap_protocol_v2.lifecycle import (
     validate_gpu_health_challenge,
     verify_admission_token,
 )
+
+
+def test_terminal_drain_request_rejects_incomplete_or_extra_identity() -> None:
+    identity = {
+        "registry_id": "registry",
+        "boot_id": "boot",
+        "operation_id": "operation",
+    }
+    assert TerminalDrainRequest.model_validate(identity).model_dump() == identity
+    for invalid in (
+        {**identity, "boot_id": ""},
+        {**identity, "operation_id": "x" * 257},
+        {**identity, "gpu_resource_id": "unexpected"},
+    ):
+        with pytest.raises(ValidationError):
+            TerminalDrainRequest.model_validate(invalid)
 
 
 @pytest.mark.parametrize(
