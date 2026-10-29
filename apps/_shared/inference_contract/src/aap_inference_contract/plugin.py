@@ -173,7 +173,12 @@ class PluginInstallation(BaseModel):
             if (
                 not resource.gpu_resource_id
                 or not resource.physical_gpu_uuid
-                or not resource.logical_device.startswith("cuda:")
+                or resource.gpu_resource_id.strip() != resource.gpu_resource_id
+                or not resource.physical_gpu_uuid.startswith("GPU-")
+                or len(resource.physical_gpu_uuid) <= 4
+                or resource.physical_gpu_uuid.strip() != resource.physical_gpu_uuid
+                or re.fullmatch(r"cuda:(0|[1-9][0-9]*)", resource.logical_device)
+                is None
             ):
                 raise ValueError(
                     "CUDA requires an explicit resource, physical UUID, and logical device"

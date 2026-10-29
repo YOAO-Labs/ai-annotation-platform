@@ -74,6 +74,17 @@ def run(args) -> None:
             "sdk_compatibility": version("aap-inference-plugin-sdk"),
             "entrypoint": entrypoint,
             "capabilities": ["inference", "detection", "managed_models"],
+            "models": [
+                {
+                    "id": "detect",
+                    "task": "detect",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image", "crop"],
+                    "supported_geometric_outputs": ["bbox"],
+                }
+            ],
+            "pools": {"models": {"cap": 1}},
             "resource": {
                 "device": args.device,
                 "memory_mb": args.memory_mb,

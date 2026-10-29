@@ -52,6 +52,17 @@ def _payload():
                 "sdk_compatibility": ">=1",
                 "entrypoint": ["python", "-m", "plugin"],
                 "capabilities": ["inference", "detection"],
+                "models": [
+                    {
+                        "id": "detect",
+                        "task": "detect",
+                        "is_interactive": False,
+                        "supported_prompts": ["none"],
+                        "supported_inputs": ["full_image", "crop"],
+                        "supported_geometric_outputs": ["bbox"],
+                    }
+                ],
+                "pools": {"models": {"cap": 1}},
                 "resource": {"device": "cpu", "memory_mb": 1024, "gpu_memory_mb": 0},
                 "asset_manifest_sha256": "b" * 64,
                 "allowed_asset_sources": [],

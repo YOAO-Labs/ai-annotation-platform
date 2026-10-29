@@ -89,6 +89,22 @@ def test_detection_protocol_and_cleanup():
         assert provider.models[0].closed
 
 
+def test_reported_pool_topology_uses_configured_capacity():
+    app = create_detection_app(
+        Provider(),
+        DetectionConfig(
+            token=TOKEN,
+            device="cpu",
+            catalog={"t": {}},
+            default_model="t",
+            pool_capacity=2,
+        ),
+    )
+    with TestClient(app, headers={"Authorization": "Bearer " + TOKEN}) as client:
+        assert client.get("/setup").json()["pool_topology"] == {"models": {"cap": 2}}
+        assert client.get("/health").json()["pool_topology"] == {"models": {"cap": 2}}
+
+
 def test_class_filter_applies_to_emitted_detections():
     app = create_detection_app(
         Provider(),
