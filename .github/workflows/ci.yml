@@ -130,6 +130,96 @@ jobs:
         working-directory: packages/python-sdk
         run: uv build
 
+  owner-contract-tests:
+    name: Owner contract ${{ matrix.directory }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - directory: apps/_shared/audit_contract
+            options: --extra test
+          - directory: apps/_shared/workspace_contract
+            options: --extra test
+          - directory: apps/_shared/inference_contract
+            options: --extra test
+          - directory: apps/_shared/training_contract
+            options: --with pytest
+          - directory: apps/_shared/mail_transport
+            options: --with pytest
+          - directory: apps/jobs
+            options: --extra test
+          - directory: apps/identity
+            options: --extra test
+          - directory: apps/workspace
+            options: --extra test
+          - directory: apps/inference
+            options: --extra test
+          - directory: apps/audit
+            options: --extra test
+          - directory: apps/notifications
+            options: --extra test
+          - directory: apps/labeling
+            options: --extra test
+          - directory: apps/labeling-mask-gc
+            options: --extra test
+          - directory: apps/preannotation-results
+            options: --extra test
+          - directory: apps/media-probe
+            options: --extra test
+          - directory: apps/assets-catalog
+            options: --group dev
+          - directory: apps/assets-cleanup
+            options: --group dev
+          - directory: apps/assets-source
+            options: --extra test
+          - directory: apps/assets-media
+            options: --extra test
+          - directory: apps/assets-mask-content
+            options: --extra test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Run owner tests in their own environment
+        working-directory: ${{ matrix.directory }}
+        run: uv run ${{ matrix.options }} pytest -q
+
+  storage-agent-tests:
+    name: Storage agent tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Run storage agent and portable contracts
+        env:
+          PYTHONPATH: apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src
+        run: >-
+          uv run --no-project --with pytest pytest -q
+          apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests
+          apps/storage-agent/tests
+
+  training-executor-tests:
+    name: Training executor tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Run training executor tests
+        working-directory: apps/training-executor
+        run: uv run --with pytest --with pytest-asyncio pytest -q
+
   vitest:
     name: Frontend verification
     runs-on: ubuntu-latest
@@ -197,11 +287,7 @@ jobs:
           uv tool run --from pre-commit==4.6.1 pre-commit run
           --all-files --hook-stage manual --show-diff-on-failure
       - name: Repository Node script tests
-        run: >-
-          node --test scripts/audit-e2e-requirements.test.mjs
-          scripts/check-workflow-names.test.mjs scripts/dev-worktree.test.mjs
-          scripts/image-reference-utils.test.mjs scripts/plan-e2e-suites.test.mjs
-          scripts/summarize-e2e-results.test.mjs
+        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs docs-site/scripts/*.test.mjs
       - name: Workflow naming
         run: node scripts/check-workflow-names.mjs --strict
 

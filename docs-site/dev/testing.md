@@ -36,11 +36,45 @@ last_reviewed: 2026-10-26
 | 在线学习全栈冒烟 | 数据集冻结、训练执行、评估、模型回传与在线推理             | [COCO8 夹具与界面验收](./tutorials/local-dev#_2-准备-coco8-检测夹具)                                                                                                                                                                                             | 真实本地服务栈 + MinIO        |
 | SDK / 示例       | 对外契约与文档示例                                         | `packages/python-sdk`、`docs-site/dev/examples/*`                                                                                                                                                                                                                | OpenAPI snapshot              |
 
-当前测试基线的两条重要事实：
+当前测试基线的重要事实：
 
-- **ML CPU 与共享契约套件**：PR 触及 `apps/_shared/**`（7 个共享包：`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor/`、`apps/storage-agent/` 或任一 `apps/*-backend/` 路径时，可在纯 CPU 虚拟环境中运行 pytest（其中 ML 与相关共享包由 `.github/workflows/ml-cpu-test.yml` 在独立一次性虚拟环境中自动执行：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
+- **ML CPU 与共享契约套件**：`.github/workflows/ml-cpu-test.yml` 通过 `scripts/run-ml-cpu-tests.sh` 按选中的 suite 使用独立一次性虚拟环境；`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，`yolo` 使用其锁定依赖，`onnxtools` 额外安装 `opencv-python-headless`。该 runner 的共享包范围与其他独立共享测试根不同，详见下方清单；CPU 测试不等于 GPU 或权重验收。
 - **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
 - **异步掩码预览按可见完成状态验收**：等待加载状态结束及原图画布尺寸提交，再检查像素与图层切换；`createImageBitmap` 被调用不代表异步解码、记录发布与 React 绘制 effect 已完成。不把 mock 调用次数当作画布就绪，也不扩大等待预算掩盖竞态。
+
+### G0：测试归属与入口清单
+
+本清单根据当前目录、配置与 runner 静态登记，**不是实际 collection 或执行结果**。文件存在不等于被默认入口收集；同一文件也可能由不同矩阵重复选择。变更时以各入口的实际收集结果、跳过原因和报告核对，不用历史测试总数证明完整性。以下路径均相对仓库根目录。
+
+| 责任边界／实际测试根 | 入口与资源 | 范围和遗漏边界 |
+| --- | --- | --- |
+| 平台 API 与跨 owner 消费者：`apps/api/tests` | `cd apps/api && uv run pytest`；集成需要隔离 PostgreSQL、Redis、MinIO，使用下文 worktree test 入口 | `pyproject.toml` 的默认 `testpaths` 只有 `tests`；CI 为该根按文件分四片。Learning／Insights 尚在现有 API 位置，不虚构独立包。纯规则与真实事务／独立进程验收不能互相替代。 |
+| 平台 owner：`apps/{identity,workspace,inference,jobs,audit,notifications,labeling,labeling-mask-gc,preannotation-results,media-probe}/tests`、`apps/{assets-catalog,assets-cleanup,assets-source,assets-media,assets-mask-content}/tests` | 每个包在自己的项目环境中显式以 `tests` 为入口；按该套件 fixture 准备数据库、对象存储、受限角色或进程 | 不是 API 默认 `testpaths` 的子目录；API 消费者测试不能证明这些独立根已收集。不要把源码相似的 owner 和消费者测试视为重复而删除。 |
+| 便携契约与运行库：`apps/_shared/{audit_contract,inference_contract,workspace_contract,mail_transport,training_contract,task_contract,protocol_v2,backend_runtime,mask_utils,filesystem_read,site_agent_contract}/tests` | 各包独立环境；`bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2` 包含 `task_contract` 与 `protocol_v2`，另有 `shared-backend-runtime`、`shared-mask-utils`；文件系统与站点协议入口见下文 | ML CPU runner 只覆盖列出的共享套件，不代表所有共享测试根已接线。`identity_admission`、`owner_data`、`libreyolo_native` 有包但此清单发现时没有各自的 `tests` 根；这不是无风险或已覆盖的结论。 |
+| 模型服务／插件：`apps/{yolo,rapidocr,onnxtools,grounded-sam2,sam3}-backend/tests`、`plugins/libreyolo/tests` | `bash scripts/run-ml-cpu-tests.sh run <suite>`；`libreyolo` 独立运行插件测试目录 | CPU 测试不证明真实权重、GPU 或发布工件资格；LibreYOLO 是独立插件，不是第六个 `apps/*-backend`。vendor 内测试不自动属于项目套件。 |
+| SDK：`packages/python-sdk/tests`、`packages/inference-plugin-sdk/tests` | Python SDK 在 `packages/python-sdk` 下运行 `uv run --extra test --extra plugins --with ../../apps/_shared/backend_runtime --with ../../apps/_shared/training_contract pytest -q`；插件 SDK 使用 `bash scripts/run-ml-cpu-tests.sh run inference-plugin-sdk` | Python SDK 的 CI 入口与插件 SDK 的独立根不同；模型插件测试使用 SDK 不等于 SDK 全套测试被执行。 |
+| 执行器与站点 Agent：`apps/training-executor/tests`、`apps/storage-agent/tests` | 执行器 `cd apps/training-executor && uv run pytest`；Agent 和两个共享根的组合命令见下文 | 临时目录、本机 TLS 等组件夹具与跨网络 Docker 拓扑演练分开；后者使用 `scripts/verify_site_agent.py`，不能由组件测试代替。 |
+| Web 源码测试：`apps/web/src` 中的 `*.test.ts(x)` | `pnpm --filter @anno/web test`；页面集成使用 MSW 和 providers | Vitest/jsdom 不证明真实浏览器 Worker、Canvas 或 GPU。 |
+| Web 浏览器：`apps/web/e2e/tests` | `pnpm test:e2e`；Mask、点云、视觉与压力入口见下文；需要浏览器及隔离服务 | 默认 `testMatch` 为 `tests/**/*.spec.ts`，排除 `@visual`／`@stress`，Chromium 排除点云 spec，点云项目单独选择。截图采集在 `apps/web/e2e/screenshots`，使用独立截图配置，不属于默认产品选集。 |
+| 仓库脚本与文档工具：`scripts/test_*.py`、`scripts/*.test.mjs`、`docs-site/scripts/*.test.mjs`、`docs-site/dev/examples/{echo-ml-backend,mock-v2-backend}/tests` | 脚本按具体入口运行；例如 `node --test scripts/plan-e2e-suites.test.mjs`、`cd apps/api && uv run python ../../scripts/test_alembic_migration_policy.py`；文档 `pnpm --filter @anno/docs-site check:all`，示例各自 `uv run --extra test pytest -q` | API 默认 pytest 不收集仓库 `scripts`；CI 只显式调用其中选定脚本，不能把目录中的所有文件视作 CI 已覆盖。文档检查与示例测试也各有入口。 |
+| 实验：`apps/api/experiments/tests`、`apps/audit-summary/*_test.go` | 手动工作流 `.github/workflows/backend-go-experiment.yml`：API 项目下 `uv run pytest -q experiments/tests`；Go 项目下 `go test -race ./...` | 不在 API 默认 `tests` 根内；手动工作流不是常规 API 分片的通过证据。 |
+
+浏览器要按**用例**而非仅按 spec 归类：产品 E2E 以真实服务、用户行为和持久结果为证据；浏览器集成可使用受控替身或源码入口；视觉／渲染资格另负责像素、renderer、资源与设备。1080p 真实 Worker 完成／取消／失败用例在 `e2e/browser-integration/mask-worker.spec.ts`，使用独立 `playwright.browser-integration.config.ts` 和 Vite 开发服务，不能计作构建产物黑盒通过。CI 非隔离常规套件使用 `vite preview`；分别报告入口，不混算。
+
+已知条件边界须保留在报告中：Mask native／readonly 用例按 `PLAYWRIGHT_RASTER_MASK_MATRIX` 分流；AI inspector 的真实请求场景需 `PLAYWRIGHT_AI_REQUEST_WORKER=1` 和专用 API/Celery broker；WebCodecs 用例在未强制要求精确解码时可因能力不足跳过；`workbench-video-media-smoke.spec.ts` 有显式跳过。共享 runtime 的图片测试使用 `pytest.importorskip("PIL.Image")`。这些是源码中的例子，并非全部 skip 清单；缺依赖、collection error、取消或未选择均不可记为通过。
+
+排查收集时，在**各自已准备依赖与安全环境**中分别运行下列只收集入口，并保留完整输出及退出状态；不要在仓库根混跑所有 Python 包，避免同名模块、不同 Python/Torch 版本与 `sys.modules` 桩互相污染：
+
+```bash
+cd apps/api && uv run pytest --collect-only -q
+# 每个 owner / shared / SDK 项目单独执行，按其项目依赖准备环境：
+cd <project-dir> && uv run pytest --collect-only -q tests
+cd apps/web && pnpm exec vitest list
+cd apps/web && pnpm exec playwright test --list --project=chromium
+cd apps/web && pnpm exec playwright test --list --project=pointcloud
+```
+
+对照发现的文件、每个入口的 nodeid、条件与实际 CI 路由，记录未收集、重复选择、skip 和 collection error；仅列出即使成功也不证明运行通过。Mask、视觉、压力及源码 Worker 必须使用各自配置／环境另行列出；真实性能、GPU、权重和工件验收须记录实际设备、资源及独立结果。
 
 ---
 

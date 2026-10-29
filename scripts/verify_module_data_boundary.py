@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -1889,11 +1890,79 @@ def _write_evidence(path: Path, document: dict) -> None:
     )
 
 
-def _passed_test_count(junit: Path) -> int:
-    return sum(
-        all(case.find(state) is None for state in ("skipped", "failure", "error"))
-        for case in ET.parse(junit).findall(".//testcase")
-    )
+def _passed_test_count(
+    junit: Path, selected: tuple[str, ...], collected: list[str]
+) -> int:
+    root = ET.parse(junit).getroot()
+    if root.tag not in ("testsuites", "testsuite"):
+        raise RuntimeError("Invalid acceptance JUnit report")
+    suites = ([root] if root.tag == "testsuite" else []) + root.findall(".//testsuite")
+    for suite in suites:
+        for state in ("failures", "errors", "skipped"):
+            if int(suite.get(state, "0")) != 0:
+                raise RuntimeError(f"Acceptance JUnit reports {state}")
+        if any(suite.find(state) is not None for state in ("failure", "error", "skipped")):
+            raise RuntimeError("Acceptance JUnit reports a suite-level failure")
+        if "tests" in suite.attrib and int(suite.attrib["tests"]) != len(
+            suite.findall(".//testcase")
+        ):
+            raise RuntimeError("Acceptance JUnit test count is incomplete")
+
+    cases = root.findall(".//testcase")
+    if not cases:
+        raise RuntimeError("Acceptance ran no test cases")
+    for case in cases:
+        if not case.get("classname") or not case.get("name"):
+            raise RuntimeError("Acceptance JUnit has an unidentified test case")
+        if any(case.find(state) is not None for state in ("skipped", "failure", "error")):
+            raise RuntimeError("Acceptance JUnit has a non-passing test case")
+
+    def matches(target: str, case: ET.Element) -> bool:
+        selector, bracket, parameter = target.partition("[")
+        path, *nodes = selector.split("::")
+        if bracket and nodes:
+            nodes[-1] += bracket + parameter
+        module = path.removesuffix(".py").replace("/", ".")
+        classname = case.get("classname", "")
+        name = case.get("name", "")
+        if not nodes:
+            return classname == module or classname.startswith(module + ".")
+        # A selected class may contain several tests; a selected function may
+        # expand into parameterized cases, unless a specific parameter was selected.
+        class_name = module + "." + ".".join(nodes)
+        if classname == class_name or classname.startswith(class_name + "."):
+            return True
+        expected_class = ".".join([module, *nodes[:-1]])
+        expected_name = nodes[-1]
+        return classname == expected_class and (
+            name == expected_name
+            or ("[" not in expected_name and name.startswith(expected_name + "["))
+        )
+
+    if not isinstance(collected, list) or not collected or any(
+        not isinstance(node, str) for node in collected
+    ):
+        raise RuntimeError("Acceptance collection manifest is empty or invalid")
+    expected = Counter()
+    for node in collected:
+        selector, bracket, parameter = node.partition("[")
+        path, *parts = selector.split("::")
+        if not parts:
+            raise RuntimeError("Acceptance collection manifest has an invalid node ID")
+        expected_name = parts[-1] + (bracket + parameter if bracket else "")
+        expected_class = ".".join([path.removesuffix(".py").replace("/", "."), *parts[:-1]])
+        expected[(expected_class, expected_name)] += 1
+    reported = Counter((case.get("classname"), case.get("name")) for case in cases)
+    if expected != reported:
+        missing_cases = list((expected - reported).elements())
+        extra_cases = list((reported - expected).elements())
+        raise RuntimeError(
+            f"Acceptance JUnit differs from collection: missing={missing_cases}, extra={extra_cases}"
+        )
+    missing = [target for target in selected if not any(matches(target, case) for case in cases)]
+    if missing:
+        raise RuntimeError(f"Acceptance JUnit is missing selected targets: {', '.join(missing)}")
+    return len(cases)
 
 
 def _node_failure_diagnostic(
@@ -4449,6 +4518,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--output and --junit-xml must be different paths")
     output.parent.mkdir(parents=True, exist_ok=True)
     junit.parent.mkdir(parents=True, exist_ok=True)
+    # A report from an earlier invocation must never stand in for this run.
+    junit.unlink(missing_ok=True)
 
     evidence = {
         "schema": 1,
@@ -9403,13 +9474,23 @@ SELECT pg_catalog.jsonb_build_object(
                         ],
                     }
                 )
+        collection_manifest = resource_root / "pytest-collection.json"
         command = [
             sys.executable,
             "-c",
-            "import os,sys; args=sys.argv[1:]; os.chdir(args.pop(0)); "
-            "sys.path.insert(0, os.getcwd()); sys.argv=['pytest', *args]; "
-            "from pytest import console_main; raise SystemExit(console_main())",
+            "import json,os,sys\n"
+            "args=sys.argv[1:]\n"
+            "os.chdir(args.pop(0))\n"
+            "manifest=args.pop(0)\n"
+            "sys.path.insert(0, os.getcwd())\n"
+            "import pytest\n"
+            "class CollectionManifest:\n"
+            "    def pytest_collection_finish(self, session):\n"
+            "        with open(manifest, 'w', encoding='utf-8') as output:\n"
+            "            json.dump([item.nodeid for item in session.items], output)\n"
+            "raise SystemExit(pytest.main(args, plugins=[CollectionManifest()]))\n",
             str(ROOT / "apps/api"),
+            str(collection_manifest),
             "-q",
             "--tb=short",
             f"--junitxml={junit}",
@@ -9501,22 +9582,31 @@ SELECT pg_catalog.jsonb_build_object(
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
-                exit_code = run_processes(backend, options)
-        evidence["test_exit_code"] = exit_code
-        evidence["passed_test_count"] = _passed_test_count(junit)
-        if exit_code == 0 and evidence["passed_test_count"] == 0:
-            raise RuntimeError("Acceptance ran no passing test cases")
+                test_exit_code = run_processes(backend, options)
+        evidence["test_exit_code"] = test_exit_code
+        if test_exit_code == 0:
+            collected = json.loads(collection_manifest.read_text(encoding="utf-8"))
+            evidence["collected_test_nodes"] = collected
+            evidence["passed_test_count"] = _passed_test_count(junit, test_files, collected)
+        exit_code = test_exit_code
         evidence["status"] = "passed" if exit_code == 0 else "failed"
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
-        if isinstance(error, RuntimeError) and str(error).startswith(
-            "psql acceptance phase failed with exit "
+        if isinstance(error, RuntimeError) and (
+            str(error).startswith("psql acceptance phase failed with exit ")
+            or (phase == "pytest" and str(error).startswith("Acceptance "))
         ):
             evidence["failure"]["diagnostic"] = str(error)
         if node_diagnostic is not None:
             evidence["failure"]["node_diagnostic"] = node_diagnostic
         exit_code = 1
+    except BaseException as error:
+        # Interruptions must not publish a passing result from a partial report.
+        exit_code = 1
+        evidence["status"] = "failed"
+        evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        raise
     finally:
         for label, scope in (
             ("audit_archive_writer", audit_archive_writer_storage),

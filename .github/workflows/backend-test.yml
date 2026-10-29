@@ -159,6 +159,10 @@ jobs:
       - name: Migration policy pure tests
         working-directory: apps/api
         run: uv run python ../../scripts/test_alembic_migration_policy.py
+      - name: Repository Python script tests
+        if: inputs.shard-index == 0
+        working-directory: apps/api
+        run: uv run pytest -q ../../scripts
       - name: Upload backend test results
         uses: actions/upload-artifact@v4
         if: always()

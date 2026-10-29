@@ -1,0 +1,14 @@
+{
+  "ml_cpu": [
+    {"id":"shared-backend-runtime","owner":"backend runtime","paths":["apps/_shared/backend_runtime/"],"python":"3.10","resources":"package test dependencies; CPU","skip_policy":"no GPU qualification"},
+    {"id":"shared-mask-utils","owner":"mask utilities","paths":["apps/_shared/mask_utils/"],"python":"3.10","resources":"native image libraries; CPU","skip_policy":"no browser rendering qualification"},
+    {"id":"shared-protocol-v2","owner":"protocol and task contracts","paths":["apps/_shared/protocol_v2/","apps/_shared/task_contract/"],"python":"3.10","resources":"package test dependencies; CPU","skip_policy":"no native model qualification"},
+    {"id":"yolo","owner":"Ultralytics YOLO","paths":["apps/yolo-backend/"],"python":"3.12","resources":"locked backend dependencies; CPU","skip_policy":"no GPU qualification"},
+    {"id":"libreyolo","owner":"LibreYOLO","paths":["plugins/libreyolo/","apps/_shared/libreyolo_native/","apps/_shared/training_contract/"],"python":"3.12","resources":"native torch and plugin dependencies; CPU","skip_policy":"CPU is not GPU qualification"},
+    {"id":"inference-plugin-sdk","owner":"inference plugin SDK","paths":["packages/inference-plugin-sdk/","apps/_shared/inference_contract/"],"python":"3.12","resources":"SDK test dependencies; CPU","skip_policy":"not a deployed plugin qualification"},
+    {"id":"rapidocr","owner":"RapidOCR","paths":["apps/rapidocr-backend/"],"python":"3.10","resources":"backend dev dependencies; CPU","skip_policy":"stubbed runtime is not native qualification"},
+    {"id":"onnxtools","owner":"ONNXTools","paths":["apps/onnxtools-backend/"],"python":"3.10","resources":"backend dev dependencies and OpenCV; CPU","skip_policy":"upstream optional imports may skip; no native qualification"},
+    {"id":"grounded-sam2","owner":"Grounded-SAM2","paths":["apps/grounded-sam2-backend/"],"python":"3.10","resources":"backend dev dependencies and CPU torch","skip_policy":"no GPU qualification"},
+    {"id":"sam3","owner":"SAM3","paths":["apps/sam3-backend/"],"python":"3.12","resources":"backend dev dependencies and CPU torch","skip_policy":"GPU-only model qualification remains separate"}
+  ]
+}

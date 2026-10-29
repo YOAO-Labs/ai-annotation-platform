@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -23,99 +23,23 @@ import { pathToFileURL } from "node:url";
  * visible alongside the selection.
  */
 
-// Per-test CPU wiring from the accepted P8 audit (/tmp/aap-opt-p8-cpu-audit.md):
-// all 89 not-wired files are CPU-compatible; 12 need CPU torch (9 grounded-sam2,
-// 3 sam3); none needs a GPU, real weights or network. Execution itself is
-// delegated to .github/workflows/ml-cpu-test.yml (scripts/run-ml-cpu-tests.sh);
-// this planner only owns the path triggers and the recorded contract entries.
-// `wired: false` means "runs via the ml-cpu workflow, not scheduled here".
-const SHARED_CONTRACT_SUITES = {
-  "shared-backend-runtime": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-backend-runtime",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/_shared/backend_runtime/"],
-    reason: "shared pool/runtime contract tests; 99 tests, torch only stubbed via sys.modules",
-    dependencies: "pytest + package extras (httpx, pillow); CPU only",
-  },
-  "shared-mask-utils": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-mask-utils",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/_shared/mask_utils/"],
-    reason: "shared mask→polygon conversion contracts; 41 tests",
-    dependencies: "pytest + numpy, opencv-python-headless, shapely; CPU only",
-  },
-  "shared-protocol-v2": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: [
-      "apps/_shared/protocol_v2/",
-      "apps/_shared/task_contract/",
-      "scripts/run-ml-cpu-tests.sh",
-      "scripts/ml-cpu-deps/",
-      ".github/workflows/ml-cpu-test.yml",
-    ],
-    reason: "protocol v2 schema/vocab/mask-codec contracts; 163 tests",
-    dependencies: "pytest + cryptography/fastapi/pydantic/PyJWT + numpy (test extra); CPU only",
-  },
-  "ml-grounded-sam2": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run grounded-sam2",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/grounded-sam2-backend/"],
-    reason:
-      "grounded-sam2 backend contract tests: 10 torch-free files (68 tests) + 9 CPU-torch files (82 tests); full directory runs clean with CPU torch",
-    dependencies: "backend dev extra + CPU torch (cpu wheel index); CPU only",
-  },
-  "ml-sam3": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run sam3",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/sam3-backend/"],
-    reason:
-      "sam3 backend contract tests: 17 torch-free files (153 tests) + 3 CPU-torch files (43 tests); full directory runs clean with CPU torch",
-    dependencies: "backend dev extra + CPU torch (cpu wheel index); CPU only",
-  },
-  "ml-yolo": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run yolo",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/yolo-backend/"],
-    reason:
-      "yolo backend contract tests: 16 files / 224 tests run entirely without torch or ultralytics (test-only dependency set)",
-    dependencies:
-      "pytest, pytest-asyncio, fastapi, httpx, numpy, pillow, opencv-headless, psutil, pynvml; CPU only",
-  },
-  "ml-rapidocr": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run rapidocr",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/rapidocr-backend/"],
-    reason:
-      "rapidocr backend contract tests: 7 files / 83 tests; rapidocr shimmed by conftest, onnxruntime faked, no cv2 needed",
-    dependencies:
-      "pytest, pytest-asyncio, fastapi, httpx, numpy, pillow, cryptography, PyJWT; CPU only",
-  },
-  "ml-onnxtools": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run onnxtools",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/onnxtools-backend/"],
-    reason:
-      "onnxtools backend contract tests: 8 files / 70 passed + 3 expected upstream importorskip skips; cv2 added explicitly (pyproject omits it)",
-    dependencies: "backend dev extra + opencv-python-headless; CPU only",
-  },
-};
+// The CPU runner and this planner share ownership and path inputs. E2E path
+// rules remain independent; these entries describe the delegated CPU workflow.
+const cpuSuites = JSON.parse(readFileSync(new URL("./test-suites.json", import.meta.url), "utf8")).ml_cpu;
+const SHARED_CONTRACT_SUITES = Object.fromEntries(
+  cpuSuites.map(({ id, owner, paths, resources }) => [
+    id.startsWith("shared-") ? id : `ml-${id}`,
+    {
+      command: `pnpm exec bash scripts/run-ml-cpu-tests.sh run ${id}`,
+      scope: "specialty",
+      built: false,
+      wired: false,
+      triggers: paths,
+      reason: `${owner} CPU suite`,
+      dependencies: resources,
+    },
+  ]),
+);
 
 const smoke = [
   {
@@ -728,6 +652,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   //   full scope runs them, extended-only does not; schedule: always.
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
+    "scripts/test-suites.json",
     "scripts/run-ml-cpu-tests.sh",
     "scripts/ml-cpu-deps/",
     ".github/workflows/ml-cpu-test.yml",
@@ -736,9 +661,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (eventName === "push" || eventName === "schedule") mlCpu = true;
   else if (eventName === "workflow_dispatch")
     mlCpu = (process.env.E2E_DISPATCH_SCOPE ?? "extended") === "full";
-  else if (eventName === "pull_request")
-    mlCpu = (paths ?? []).some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix)));
-  else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
+  else if (eventName === "pull_request") {
+    const changed = paths ?? [];
+    // A new or unmapped source path can add a suite or alter a shared input.
+    // Only the existing documentation-only classification is safe to omit.
+    mlCpu = changed.length === 0 ||
+      changed.some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix))) ||
+      !classifyPaths(changed).docsOnly;
+  } else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
 
   // The documented rollback retains pointcloud outside the chromium-only shards.
   // GitHub renders an unset repository variable as an empty string, so

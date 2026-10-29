@@ -158,35 +158,18 @@ test("single-domain frontend changes select core plus triggered specialties", ()
   assert.deepEqual(shadow.removed, [...core, "pointcloud", "visual", "layout-stress"]);
 });
 
-test("shared/ML contract entries carry the per-suite CPU audit facts", () => {
+test("shared/ML ownership includes the independently runnable plugin suites", () => {
   const shadow = shadowPlan("pull_request", [
-    "apps/_shared/protocol_v2/src/aap_protocol_v2/schemas.py",
-    "apps/sam3-backend/main.py",
+    "plugins/libreyolo/tests/test_probe.py",
+    "packages/inference-plugin-sdk/tests/test_check.py",
   ]);
   const contracts = shadow.sharedContracts.qualification;
   const bySuite = Object.fromEntries(contracts.map((suite) => [suite.suite, suite]));
-  assert.deepEqual(Object.keys(bySuite).sort(), [
-    "ml-grounded-sam2",
-    "ml-onnxtools",
-    "ml-rapidocr",
-    "ml-sam3",
-    "ml-yolo",
-    "shared-backend-runtime",
-    "shared-mask-utils",
-    "shared-protocol-v2",
-  ]);
-  // Per-audit facts: no GPU/weights/network anywhere; torch split is explicit.
-  assert.match(bySuite["shared-protocol-v2"].dependencies, /numpy/);
-  assert.match(bySuite["ml-yolo"].reason, /without torch or ultralytics/);
-  assert.match(
-    bySuite["ml-grounded-sam2"].reason,
-    /10 torch-free files \(68 tests\) \+ 9 CPU-torch files \(82 tests\)/,
-  );
-  assert.match(bySuite["ml-sam3"].reason, /3 CPU-torch files \(43 tests\)/);
+  assert.ok(bySuite["ml-libreyolo"].triggers.includes("plugins/libreyolo/"));
+  assert.ok(bySuite["ml-inference-plugin-sdk"].triggers.includes("packages/inference-plugin-sdk/"));
   for (const suite of contracts) {
     assert.match(suite.command, /run-ml-cpu-tests\.sh run /);
     assert.equal(suite.wired, false);
-    assert.match(suite.dependencies, /CPU only/);
   }
   // Execution is delegated to the ml-cpu workflow: the planner schedules none
   // of them, and the caller wiring lives in ci.yml.

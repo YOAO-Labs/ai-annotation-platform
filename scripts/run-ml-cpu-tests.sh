@@ -24,16 +24,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPS_DIR="$ROOT/scripts/ml-cpu-deps"
 TORCH_CPU_INDEX="https://download.pytorch.org/whl/cpu"
 
-SUITES=(
-  shared-backend-runtime
-  shared-mask-utils
-  shared-protocol-v2
-  yolo
-  rapidocr
-  onnxtools
-  grounded-sam2
-  sam3
-)
+mapfile -t SUITES < <(python3 -c 'import json,sys; print("\n".join(s["id"] for s in json.load(open(sys.argv[1]))["ml_cpu"]))' "$ROOT/scripts/test-suites.json")
+if [ "${#SUITES[@]}" -eq 0 ]; then
+  echo "CPU suite registry is empty or unreadable" >&2
+  exit 1
+fi
 
 VENV_DIRS=()
 cleanup_venvs() {
@@ -126,6 +121,7 @@ plan() {
     done
     printf '%s=%s\n' "${suite//-/_}" "$value"
   done
+  python3 -c 'import json,sys; suites=json.load(open(sys.argv[1]))["ml_cpu"]; wanted=set(sys.argv[2:]); print("matrix=" + json.dumps({"include":[{"suite":s["id"],"python":s["python"]} for s in suites if s["id"] in wanted]}, separators=(",",":")))' "$ROOT/scripts/test-suites.json" "${requested[@]}"
 }
 
 # Both installers set the global VENV_PATH and must be called as statements.
@@ -174,6 +170,8 @@ run() {
       new_venv "3.12"
       run_in "apps/yolo-backend" env UV_PROJECT_ENVIRONMENT="$VENV_PATH" uv sync --locked --extra dev
       run_pytest "apps/yolo-backend" "$VENV_PATH"
+      ;;
+    libreyolo)
       # Native plugin tests need real tensors and their own interpreter.
       new_venv "3.12"
       run_in "plugins/libreyolo" uv pip install --python "$VENV_PATH/bin/python" \
@@ -185,7 +183,16 @@ run() {
         -e "$ROOT/apps/_shared/training_contract" \
         -e "$ROOT/apps/_shared/libreyolo_native" \
         -e "$ROOT/packages/inference-plugin-sdk" -e . pytest pytest-asyncio
-      run_pytest "plugins/libreyolo" "$VENV_PATH" tests/test_native.py tests/test_provider.py
+      run_pytest "plugins/libreyolo" "$VENV_PATH"
+      ;;
+    inference-plugin-sdk)
+      new_venv "3.12"
+      run_in "packages/inference-plugin-sdk" uv pip install --python "$VENV_PATH/bin/python" \
+        -e "$ROOT/apps/_shared/task_contract" \
+        -e "$ROOT/apps/_shared/protocol_v2" \
+        -e "$ROOT/apps/_shared/backend_runtime" \
+        -e "$ROOT/apps/_shared/inference_contract" -e ".[test]"
+      run_pytest "packages/inference-plugin-sdk" "$VENV_PATH"
       ;;
     rapidocr)
       install_editable "apps/rapidocr-backend" "3.10" "dev"
@@ -218,7 +225,8 @@ run() {
 # wildcard case that must not glob. Exits nonzero on any mismatch.
 selftest() {
   local failures=0
-  local suite_list="shared_backend_runtime,shared_mask_utils,shared_protocol_v2,yolo,rapidocr,onnxtools,grounded_sam2,sam3"
+  local suite_list
+  suite_list="$(IFS=,; printf '%s' "${SUITES[*]//-/_}")"
 
   _selftest_plan() {
     local spec="$1"
