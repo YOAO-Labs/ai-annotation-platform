@@ -145,7 +145,182 @@ class WorkloadOperation:
             raise asyncio.CancelledError
 
 
-class ManagedGpuLifecycle:
+class TerminalDrainMixin:
+    """Irreversibly fence an installation and empty its owned pools."""
+
+    async def terminal_drain(
+        self,
+        *,
+        registry_id: str,
+        boot_id: str,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        """Permanently fence an explicitly configured CPU installation."""
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+        identity = ("cpu", registry_id, boot_id, operation_id)
+        async with self._lock:
+            if (
+                not self._terminal_cpu_enabled
+                or not self._expected_registry_id
+                or self._expected_gpu_resource_id
+                or registry_id != self._expected_registry_id
+                or boot_id != self._boot_id
+                or self._identity is not None
+                or self._gate is not LifecycleGate.LEGACY
+            ):
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+            proof = {
+                "registry_id": registry_id,
+                "boot_id": boot_id,
+                "operation_id": operation_id,
+                "control_epoch": None,
+                "generation": None,
+                "pool_ids": list(self._terminal_pool_ids),
+                "unloaded": True,
+            }
+            task = self._start_terminal_locked(identity, proof)
+        return {**await asyncio.shield(task), "pool_ids": list(self._terminal_pool_ids)}
+
+    async def terminal_drain_signed(
+        self,
+        generation: str,
+        *,
+        generation_header: str | None,
+        token: str | None,
+    ) -> dict[str, Any]:
+        """Permanently fence a GPU installation using signed drain authority."""
+        claims, canonical = self._transition_claims(
+            AdmissionScope.DRAIN,
+            generation,
+            generation_header,
+            token,
+        )
+        identity = (
+            "gpu",
+            claims.backend_registry_id,
+            claims.gpu_resource_id,
+            claims.boot_id,
+            claims.control_epoch,
+            canonical,
+            claims.owner or "",
+            claims.operation or "",
+        )
+        async with self._lock:
+            if self._expected_identity != BoundLifecycleIdentity(
+                backend_registry_id=claims.backend_registry_id,
+                gpu_resource_id=claims.gpu_resource_id,
+            ):
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+            self._validate_control_claim_locked(claims, AdmissionScope.DRAIN)
+            if (
+                self._identity is not None
+                and claims.control_epoch != self._control_epoch
+            ):
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+            if self._identity is None and (
+                self._gate is not LifecycleGate.LEGACY
+                or self._control_epoch is not None
+            ):
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+            if not claims.owner or not claims.operation:
+                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
+            self._consume_jti_locked(
+                claims,
+                self._fingerprint("/terminal-drain", canonical, claims),
+                workload=False,
+            )
+            if self._terminal_identity is None:
+                expected = _DrainRecord(canonical, claims.owner, claims.operation)
+                if self._phase == "draining" and self._generation == canonical:
+                    if self._current_drain is None or (
+                        self._current_drain.generation,
+                        self._current_drain.owner,
+                        self._current_drain.operation,
+                    ) != (canonical, claims.owner, claims.operation):
+                        raise LifecycleHTTPError(LifecycleErrorCode.TRANSITION_CONFLICT)
+                elif self._phase not in {"normal", "draining"} or (
+                    self._generation is not None
+                    and int(canonical) <= int(self._generation)
+                ):
+                    raise LifecycleHTTPError(LifecycleErrorCode.GENERATION_CONFLICT)
+                self._bind_identity_locked(claims)
+                self._control_epoch = claims.control_epoch
+                self._gate = LifecycleGate.ENFORCE
+                self._generation = canonical
+                self._generation_open = False
+                self._current_drain = expected
+            proof = {
+                "registry_id": claims.backend_registry_id,
+                "gpu_resource_id": claims.gpu_resource_id,
+                "boot_id": claims.boot_id,
+                "operation_id": claims.operation,
+                "control_epoch": claims.control_epoch,
+                "generation": canonical,
+                "pool_ids": list(self._terminal_pool_ids),
+                "unloaded": True,
+            }
+            task = self._start_terminal_locked(identity, proof)
+        return {**await asyncio.shield(task), "pool_ids": list(self._terminal_pool_ids)}
+
+    def _start_terminal_locked(
+        self,
+        identity: tuple[str, ...],
+        proof: dict[str, Any],
+    ) -> asyncio.Task[dict[str, Any]]:
+        if self._terminal_identity is not None:
+            if self._terminal_identity != identity:
+                raise LifecycleHTTPError(LifecycleErrorCode.TRANSITION_CONFLICT)
+            assert self._terminal_task is not None
+            return self._terminal_task
+        self._terminal_identity = identity
+        self._generation_open = False
+        if self._phase in {"normal", "unknown"}:
+            self._phase = "draining"
+        task = asyncio.create_task(self._execute_terminal_drain(proof))
+        task.add_done_callback(self._consume_task_result)
+        self._terminal_task = task
+        return task
+
+    async def _execute_terminal_drain(self, proof: dict[str, Any]) -> dict[str, Any]:
+        try:
+            while True:
+                async with self._lock:
+                    # A cleanup admitted before the terminal fence owns the pool
+                    # until it finishes; it must not race the terminal cleanup.
+                    if self._phase != "unloading":
+                        self._phase = "draining"
+                        snapshot = await self._pool.snapshot()
+                        if not self._active and not self._pool_is_active(snapshot):
+                            self._phase = "unloading"
+                            break
+                await asyncio.sleep(0.01)
+            await self._pool.unload_all(reason="manual", force_cleanup=True)
+            async with self._lock:
+                snapshot = await self._pool.snapshot()
+                if self._active or not self._pool_is_trusted_empty(snapshot):
+                    raise RuntimeError(
+                        "terminal drain did not produce trusted empty state"
+                    )
+                self._phase = "draining"
+            return proof
+        except BaseException as exc:
+            async with self._lock:
+                self._phase = "unknown"
+            raise LifecycleHTTPError(
+                LifecycleErrorCode.UNLOAD_FAILED,
+                message=str(exc),
+            ) from exc
+
+    def _require_not_terminal_locked(self) -> None:
+        if self._terminal_identity is not None:
+            raise LifecycleHTTPError(
+                LifecycleErrorCode.BACKEND_DRAINING,
+                message="installation is permanently draining",
+            )
+
+
+class ManagedGpuLifecycle(TerminalDrainMixin):
     """Single-process managed lifecycle guard for a model pool."""
 
     def __init__(
@@ -165,6 +340,7 @@ class ManagedGpuLifecycle:
         self._expected_registry_id = expected_registry_id
         self._expected_gpu_resource_id = expected_gpu_resource_id
         self._terminal_cpu_enabled = terminal_cpu_enabled
+        self._terminal_pool_ids = ("models",)
         self._allow_legacy_workloads = allow_legacy_workloads
         self._expected_identity = (
             BoundLifecycleIdentity(
@@ -652,168 +828,6 @@ class ManagedGpuLifecycle:
                     task,
                 )
         return await asyncio.shield(task)
-
-    async def terminal_drain(
-        self,
-        *,
-        registry_id: str,
-        boot_id: str,
-        operation_id: str,
-    ) -> dict[str, Any]:
-        """Permanently fence an explicitly configured CPU installation."""
-        if not isinstance(operation_id, str) or not operation_id.strip():
-            raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
-        identity = ("cpu", registry_id, boot_id, operation_id)
-        async with self._lock:
-            if (
-                not self._terminal_cpu_enabled
-                or not self._expected_registry_id
-                or self._expected_gpu_resource_id
-                or registry_id != self._expected_registry_id
-                or boot_id != self._boot_id
-                or self._identity is not None
-                or self._gate is not LifecycleGate.LEGACY
-            ):
-                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
-            proof = {
-                "registry_id": registry_id,
-                "boot_id": boot_id,
-                "operation_id": operation_id,
-                "control_epoch": None,
-                "generation": None,
-                "pool_ids": ["models"],
-                "unloaded": True,
-            }
-            task = self._start_terminal_locked(identity, proof)
-        return {**await asyncio.shield(task), "pool_ids": ["models"]}
-
-    async def terminal_drain_signed(
-        self,
-        generation: str,
-        *,
-        generation_header: str | None,
-        token: str | None,
-    ) -> dict[str, Any]:
-        """Permanently fence a GPU installation using signed drain authority."""
-        claims, canonical = self._transition_claims(
-            AdmissionScope.DRAIN,
-            generation,
-            generation_header,
-            token,
-        )
-        identity = (
-            "gpu",
-            claims.backend_registry_id,
-            claims.gpu_resource_id,
-            claims.boot_id,
-            claims.control_epoch,
-            canonical,
-            claims.owner or "",
-            claims.operation or "",
-        )
-        async with self._lock:
-            self._validate_control_claim_locked(claims, AdmissionScope.DRAIN)
-            if (
-                self._identity is not None
-                and claims.control_epoch != self._control_epoch
-            ):
-                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
-            if self._identity is None and (
-                self._gate is not LifecycleGate.LEGACY
-                or self._control_epoch is not None
-            ):
-                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
-            if not claims.owner or not claims.operation:
-                raise LifecycleHTTPError(LifecycleErrorCode.ADMISSION_DENIED)
-            self._consume_jti_locked(
-                claims,
-                self._fingerprint("/terminal-drain", canonical, claims),
-                workload=False,
-            )
-            if self._terminal_identity is None:
-                expected = _DrainRecord(canonical, claims.owner, claims.operation)
-                if self._phase == "draining" and self._generation == canonical:
-                    if self._current_drain != expected:
-                        raise LifecycleHTTPError(LifecycleErrorCode.TRANSITION_CONFLICT)
-                elif self._phase not in {"normal", "draining"} or (
-                    self._generation is not None
-                    and int(canonical) <= int(self._generation)
-                ):
-                    raise LifecycleHTTPError(LifecycleErrorCode.GENERATION_CONFLICT)
-                self._bind_identity_locked(claims)
-                self._control_epoch = claims.control_epoch
-                self._gate = LifecycleGate.ENFORCE
-                self._generation = canonical
-                self._generation_open = False
-                self._current_drain = expected
-            proof = {
-                "registry_id": claims.backend_registry_id,
-                "gpu_resource_id": claims.gpu_resource_id,
-                "boot_id": claims.boot_id,
-                "operation_id": claims.operation,
-                "control_epoch": claims.control_epoch,
-                "generation": canonical,
-                "pool_ids": ["models"],
-                "unloaded": True,
-            }
-            task = self._start_terminal_locked(identity, proof)
-        return {**await asyncio.shield(task), "pool_ids": ["models"]}
-
-    def _start_terminal_locked(
-        self,
-        identity: tuple[str, ...],
-        proof: dict[str, Any],
-    ) -> asyncio.Task[dict[str, Any]]:
-        if self._terminal_identity is not None:
-            if self._terminal_identity != identity:
-                raise LifecycleHTTPError(LifecycleErrorCode.TRANSITION_CONFLICT)
-            assert self._terminal_task is not None
-            return self._terminal_task
-        self._terminal_identity = identity
-        self._generation_open = False
-        if self._phase in {"normal", "unknown"}:
-            self._phase = "draining"
-        task = asyncio.create_task(self._execute_terminal_drain(proof))
-        task.add_done_callback(self._consume_task_result)
-        self._terminal_task = task
-        return task
-
-    async def _execute_terminal_drain(self, proof: dict[str, Any]) -> dict[str, Any]:
-        try:
-            while True:
-                async with self._lock:
-                    # A cleanup admitted before the terminal fence owns the pool
-                    # until it finishes; it must not race the terminal cleanup.
-                    if self._phase != "unloading":
-                        self._phase = "draining"
-                        snapshot = await self._pool.snapshot()
-                        if not self._active and not self._pool_is_active(snapshot):
-                            self._phase = "unloading"
-                            break
-                await asyncio.sleep(0.01)
-            await self._pool.unload_all(reason="manual", force_cleanup=True)
-            async with self._lock:
-                snapshot = await self._pool.snapshot()
-                if self._active or not self._pool_is_trusted_empty(snapshot):
-                    raise RuntimeError(
-                        "terminal drain did not produce trusted empty state"
-                    )
-                self._phase = "draining"
-            return proof
-        except BaseException as exc:
-            async with self._lock:
-                self._phase = "unknown"
-            raise LifecycleHTTPError(
-                LifecycleErrorCode.UNLOAD_FAILED,
-                message=str(exc),
-            ) from exc
-
-    def _require_not_terminal_locked(self) -> None:
-        if self._terminal_identity is not None:
-            raise LifecycleHTTPError(
-                LifecycleErrorCode.BACKEND_DRAINING,
-                message="installation is permanently draining",
-            )
 
     async def legacy_unload(self) -> dict[str, Any]:
         async with self._lock:
