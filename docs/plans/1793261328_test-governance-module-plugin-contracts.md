@@ -565,3 +565,14 @@ G3 随核心 owner 切片接入；G5 跟随原拆仓计划逐插件授权与验�
 - 真实 owner 通道准备／清理已执行；构建产物 Native 21 项及 readonly 2 项均经此夹具准备后，通过普通 API 完成业务与清理。浏览器证据归 G6a，不把夹具 ASGI 调用记作独立 HTTP 服务部署资格。
 
 本批保留 `seed.reset()` 的已记录全局串行例外；未迁移 workspace／Identity 的全部夹具，未改变原有数据库角色、存储归属或部署身份。
+
+### 12.4 G6a：构建产物 E2E 与源码 Worker 分层样板
+
+**状态：本轮 Mask 产品／Worker 切片通过；不是全部 E2E、真实 GPU 或插件资格完成。**
+
+- Native 入口先构建 Web，以独立 `playwright.mask-product.config.ts` 启动 `vite preview`；源码 Worker 转入单独配置及静态页面，只启动 Vite，不依赖 API、认证或数据库。配置不再合并重复的 webServer，也不把源码集成计入产品黑盒通过数。
+- Native／readonly 标签在 collection 时选择，不用条件 skip 掩盖未执行；持久化、RLE 像素、lineage 和刷新恢复断言保留。写入等待先匹配端点／方法，再核对状态与结果，错误响应不再伪装成超时。AI 精修用真实橡皮擦控制进入模式，专门的快捷键场景保留。
+- 实际失败暴露的窄生产前置问题已修复：创建／更新统一使用 JSON 模式几何序列化；提交后用 command 的不可变 annotation ID 读回，避免过期对象的异步属性加载；内容读取和预测接受前置检查使用现有公开只读关系，不扩大私表权限或放宽资格检查。
+- 任务自有普通 runtime、构建产物和 Chromium 实际执行：Native **21 通过**、readonly **2 通过**；真实源码 Worker **1 通过**。三份报告均无失败、skip、flaky 或 not-run，并由严格报告消费者核对。Worker 的一项 case 内验证真实完成／取消及受控错误；侵蚀面积使用独立矩形几何期望，不依赖仅非空、上下文转发或 mock 错误文案回声。
+
+原始证据分别为 `.artifacts/test-results/mask-product-native-final.json`、`mask-product-readonly-final.json`、`mask-worker-browser-integration.json`。失败前报告及 `annotation-write-diagnostic.json` 保留，未重生 golden 或改写几何 expected。上述结果不授予真实设备 GPU、模型权重、六个插件或完整模组部署资格；后续 G6b／G3–G5 沿各自切片推进。

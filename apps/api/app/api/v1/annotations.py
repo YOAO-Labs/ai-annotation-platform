@@ -86,6 +86,8 @@ from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
     lock_task_for_core_read,
+    prediction_meta_row,
+    prediction_row,
     task_row,
 )
 
@@ -137,17 +139,15 @@ async def _load_visible_mask_annotation(
 
         qualified_read = task.dataset_item_id is None
         if annotation.parent_prediction_id and task.file_type == "image":
-            from app.db.models.prediction import Prediction, PredictionMeta
-
             parent_prediction = await db.scalar(
-                select(Prediction).where(
-                    Prediction.id == annotation.parent_prediction_id,
-                    Prediction.task_id == task.id,
+                select(prediction_row).where(
+                    prediction_row.id == annotation.parent_prediction_id,
+                    prediction_row.task_id == task.id,
                 )
             )
             parent_meta = await db.scalar(
-                select(PredictionMeta).where(
-                    PredictionMeta.prediction_id == annotation.parent_prediction_id
+                select(prediction_meta_row).where(
+                    prediction_meta_row.prediction_id == annotation.parent_prediction_id
                 )
             )
             qualified_read = qualified_read or (

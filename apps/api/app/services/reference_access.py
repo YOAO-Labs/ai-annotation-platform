@@ -15,6 +15,7 @@ from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
     lock_task_for_core_read,
+    prediction_row,
     task_row,
 )
 from app.services.reference_keys import is_reference, parse_reference, PREFIX
@@ -177,7 +178,6 @@ async def reference_task_guard(
                 r"/api/v1/tasks/[^/]+/predictions/[^/]+/accept", request.url.path
             )
         ):
-            from app.db.models.prediction import Prediction
             from app.services.managed_repair_acceptance import qualify_acceptance
 
             try:
@@ -185,8 +185,9 @@ async def reference_task_guard(
             except (ValueError, TypeError):
                 return
             prediction = await db.scalar(
-                select(Prediction).where(
-                    Prediction.id == prediction_id, Prediction.task_id == task.id
+                select(prediction_row).where(
+                    prediction_row.id == prediction_id,
+                    prediction_row.task_id == task.id,
                 )
             )
             if prediction is not None and prediction.source == "mask_repair":

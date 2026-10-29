@@ -35,6 +35,13 @@ CI 功能用例最多重试一次；视觉基线不重试，压力用例最多�
 
 默认 `playwright.config.ts` 排除 `@visual`、`@stress`；扩展配置拆成两个入口，均复用相同项目、服务和数据隔离配置：`playwright.extended.config.ts` 只选择 `@visual`（零重试），`playwright.stress.config.ts` 选择 `@stress`（最多重试一次，用于区分确定性损坏与 runner 资源饥饿，重试通过仍标记 flaky）。不要在功能测试中混入整页或整个工作区的截图断言。给视觉测试添加 `{ tag: "@visual" }`，保持其标题、文件位置和项目名以复用既有基线；有意的外观变化经人工核对差异后，用 `pnpm test:e2e:visual --update-snapshots` 更新并提交基线，不能自动接受差异。
 
+Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
+`PLAYWRIGHT_RASTER_MASK_MATRIX` 选择，未指定矩阵时不选这两组标签；不要用条件
+`test.skip` 把另一部署开关下的场景混入当前选集。`test:e2e:mask-native` 先构建
+产品，再用 `playwright.mask-product.config.ts` 验证真实 API 和 `vite preview`；
+源码 Worker 由 `playwright.browser-integration.config.ts` 单独启动 Vite、独立报告，
+不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
+
 布局矩阵在图片/视频/点云 × 标注/审核六种上下文中都保留真实拖动、画布身份、上下文隔离、紧凑模式、保存与刷新恢复断言。功能集执行 14 次重排，`@stress` 执行完整 54 次；新增长循环必须放入压力集，并在功能集中保留覆盖关键状态转换的短流程。
 
 CI 调度规则由根目录 `scripts/plan-e2e-suites.mjs` 维护：

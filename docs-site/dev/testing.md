@@ -63,9 +63,9 @@ last_reviewed: 2026-10-26
 | 仓库脚本与文档工具：`scripts/test_*.py`、`scripts/*.test.mjs`、`docs-site/scripts/*.test.mjs`、`docs-site/dev/examples/{echo-ml-backend,mock-v2-backend}/tests`                                                                           | 后端 CI 在 API 环境显式执行 `python -m pytest ../../scripts` 并上传 JUnit；Node 按 workflow 中列出的入口执行；文档 `pnpm --filter docs-site check:all`，示例各自 `uv run --extra test pytest -q`                 | API 默认 pytest 不收集仓库 `scripts`；新增接线后的既有失败仍须报告，不用删测或 skip 变绿。文档检查与示例测试各有入口，手动执行不能记作远端 CI 通过。                                         |
 | 实验：`apps/api/experiments/tests`、`apps/audit-summary/*_test.go`                                                                                                                                                                        | 手动工作流 `.github/workflows/backend-go-experiment.yml`：API 项目下 `uv run pytest -q experiments/tests`；Go 项目下 `go test -race ./...`                                                                       | 不在 API 默认 `tests` 根内；手动工作流不是常规 API 分片的通过证据。                                                                                                                          |
 
-浏览器要按**用例**而非仅按 spec 归类：产品 E2E 以真实服务、用户行为和持久结果为证据；浏览器集成可使用受控替身或源码入口；视觉／渲染资格另负责像素、renderer、资源与设备。1080p 真实 Worker 完成／取消／失败用例在 `e2e/browser-integration/mask-worker.spec.ts`，使用独立 `playwright.browser-integration.config.ts` 和 Vite 开发服务，不能计作构建产物黑盒通过。CI 非隔离常规套件使用 `vite preview`；分别报告入口，不混算。
+浏览器要按**用例**而非仅按 spec 归类：产品 E2E 以真实服务、用户行为和持久结果为证据；浏览器集成可使用受控替身或源码入口；视觉／渲染资格另负责像素、renderer、资源与设备。Mask native 使用 `playwright.mask-product.config.ts` 及 `vite preview` 验证构建产物。1080p 真实 Worker 完成／取消／失败用例独立位于 `e2e/browser-integration/mask-worker.spec.ts`，其配置只启动 Vite 和静态测试页面，不需要 API、认证或数据库。两者分别生成报告，Worker 的 skip／not-run／空报告不能算通过，也不能计入构建产物黑盒成功。
 
-已知条件边界须保留在报告中：Mask native／readonly 用例按 `PLAYWRIGHT_RASTER_MASK_MATRIX` 分流；AI inspector 的真实请求场景需 `PLAYWRIGHT_AI_REQUEST_WORKER=1` 和专用 API/Celery broker；WebCodecs 用例在未强制要求精确解码时可因能力不足跳过；`workbench-video-media-smoke.spec.ts` 有显式跳过。共享 runtime 的图片测试使用 `pytest.importorskip("PIL.Image")`。这些是源码中的例子，并非全部 skip 清单；缺依赖、collection error、取消或未选择均不可记为通过。
+已知条件边界须保留在报告中：Mask 用 `@mask-native`／`@mask-readonly` 标签按 `PLAYWRIGHT_RASTER_MASK_MATRIX` 静态选择，默认功能集不选择这两组标签，不把另一开关下的场景混入选集并记作 skip；AI inspector 的真实请求场景需 `PLAYWRIGHT_AI_REQUEST_WORKER=1` 和专用 API/Celery broker；WebCodecs 用例在未强制要求精确解码时可因能力不足跳过。原先只有显式跳过的视频 smoke 已移除，精确视频验收仍走现有专用场景。共享 runtime 的图片测试使用 `pytest.importorskip("PIL.Image")`。这些是源码中的例子，并非全部 skip 清单；缺依赖、collection error、取消或未选择均不可记为通过。
 
 排查收集时，在**各自已准备依赖与安全环境**中分别运行下列只收集入口，并保留完整输出及退出状态；不要在仓库根混跑所有 Python 包，避免同名模块、不同 Python/Torch 版本与 `sys.modules` 桩互相污染：
 
@@ -79,6 +79,10 @@ cd apps/web && pnpm exec playwright test --list --project=pointcloud
 ```
 
 对照发现的文件、每个入口的 nodeid、条件与实际 CI 路由，记录未收集、重复选择、skip 和 collection error；仅列出即使成功也不证明运行通过。Mask、视觉、压力及源码 Worker 必须使用各自配置／环境另行列出；真实性能、GPU、权重和工件验收须记录实际设备、资源及独立结果。
+
+内部重构默认保持 E2E 的业务场景和 expected；仅可见文案变化可以同步相应 selector。删除或替换重复用例须指出相同风险的更强验收位置与实际执行证据，不能只证明 UI 出现了组件。源码 Worker、受控替身与真正产品持久化用例的移动要保留边界，不混算层级。
+
+写入响应按端点与方法匹配，随后独立断言成功状态和持久结果；不要在等待条件中先过滤掉错误响应，使真实的 4xx／5xx 只表现成超时。
 
 夹具创建／清理由 `e2e/helpers/seed-owner-transport.ts` 在独立 Python 进程调用现有 seed router；夹具准备时仅该进程以测试 owner 身份连接数据库，并校验与 runtime 指向同一个显式 `_test`／`_e2e` 数据库。真实浏览器业务请求仍走受限 HTTP API，不恢复私表授权。该夹具通道是进程内 ASGI，不是独立 HTTP 部署资格证据。截图配置使用明确的 `SCREENSHOT_DATABASE_URL` 为夹具选库，不能指向日常开发或生产数据库。
 

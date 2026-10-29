@@ -3,7 +3,6 @@ import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
 import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
-const MATRIX = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX;
 // The corrupt fixture pins its own saved object and then removes those bytes, so
 // the owned reader reports its stored-object code (classified as missing
 // content) instead of an unknown/unpinned key.
@@ -148,9 +147,7 @@ async function beginRasterEdit(page: Page, annotationId: string): Promise<void> 
   await expect(page.getByTestId("mask-toolbar")).toContainText("\u5c31\u7eea", { timeout: 15_000 });
 }
 
-test.describe("raster mask native write matrix", () => {
-  test.skip(MATRIX !== "native", "requires RASTER_MASK_CREATE_ENABLED=true");
-
+test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => {
   test("1. blank create, refresh and re-edit preserve the committed pixels", async ({
     page,
     request,
@@ -689,9 +686,7 @@ test.describe("raster mask native write matrix", () => {
   });
 });
 
-test.describe("raster mask read-only and closed-gate matrix", () => {
-  test.skip(MATRIX !== "readonly", "requires RASTER_MASK_CREATE_ENABLED=false");
-
+test.describe("raster mask read-only and closed-gate matrix", { tag: "@mask-readonly" }, () => {
   test("9. read-on/create-off renders existing content but exposes no native create or edit", async ({
     page,
     request,

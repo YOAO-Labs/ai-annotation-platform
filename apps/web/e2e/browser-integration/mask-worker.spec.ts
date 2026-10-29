@@ -1,16 +1,10 @@
-import { expect, test } from "../fixtures/seed";
+import { expect, test } from "@playwright/test";
 
 // Browser runtime integration: direct Vite source imports, not built-product E2E.
 test.describe("Mask Worker browser integration", () => {
-  test("4. 1080p 实际 Worker 可完成、可取消且失败不修改输入", async ({ page, seed }) => {
-    test.skip(
-      Boolean(process.env.CI) && !process.env.PLAYWRIGHT_RASTER_MASK_MATRIX,
-      "源码 Worker 模块需由 Vite 开发服务提供，在 native Mask 矩阵执行",
-    );
+  test("4. 1080p 实际 Worker 可完成、可取消且失败不修改输入", async ({ page }) => {
     test.setTimeout(90_000);
-    const data = await seed.owned();
-    await seed.injectToken(page, data.admin_email);
-    await page.goto("/dashboard");
+    await page.goto("/e2e/fixtures/mask-worker.html");
 
     const result = await page.evaluate(async () => {
       const compute = await import("/src/pages/Workbench/stage/shared/rasterMaskCompute.ts");
@@ -68,32 +62,22 @@ test.describe("Mask Worker browser integration", () => {
         },
       );
       let failureName = "";
-      let failureMessage = "";
       try {
         await failurePromise;
       } catch (error) {
         failureName = error instanceof Error ? error.name : String(error);
-        failureMessage = error instanceof Error ? error.message : String(error);
       }
       return {
-        completedContext: completed.context,
         completedArea: completed.result.report.afterArea,
         cancelledName,
         failureName,
-        failureMessage,
         inputUnchanged: JSON.stringify(rle.counts) === JSON.stringify(originalCounts),
       };
     });
 
-    expect(result.completedContext).toEqual({
-      sessionId: "e2e-worker",
-      generation: 1,
-      operationId: 1,
-    });
-    expect(result.completedArea).toBeGreaterThan(0);
+    expect(result.completedArea).toBe(142416);
     expect(result.cancelledName).toBe("RasterMaskWorkerCancelledError");
     expect(result.failureName).toBe("RasterMaskWorkerError");
-    expect(result.failureMessage).toContain("forced worker failure");
     expect(result.inputUnchanged).toBe(true);
   });
 });

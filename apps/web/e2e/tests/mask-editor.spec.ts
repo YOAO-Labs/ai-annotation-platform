@@ -35,7 +35,9 @@ async function maskContent(request: APIRequestContext, id: string, token: string
   const response = await request.get(`${API_BASE}/api/v1/annotations/${id}/mask-content`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  expect(response.ok()).toBe(true);
+  if (!response.ok()) {
+    throw new Error(`Mask content failed: ${response.status()} ${await response.text()}`);
+  }
   return (await response.json()) as MaskContent;
 }
 
@@ -50,7 +52,7 @@ function pixel(content: MaskContent, x: number, y: number): number {
   throw new Error("RLE does not cover requested pixel");
 }
 
-test.describe("mask editor (I11)", () => {
+test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
   test("AI prediction polygon 精修 → 确认后新原生 Mask 入库", async ({ page, request, seed }) => {
     const data = await seed.owned();
     const taskId = data.task_ids[0];
@@ -82,14 +84,9 @@ test.describe("mask editor (I11)", () => {
     // mask 工具应激活 + buffer 已 from polygon 初始化
     await expect(page.getByTestId("mask-tool-capsule")).toBeVisible();
     await expect(page.getByTestId("mask-settings-trigger")).toHaveAttribute("title", /· 就绪 ·/);
-    // 候选 mask 的 dirty 在 initFromPolygon 后为 false（尚未涂改）
-    // 用 erase 擦一块小区域使其变 dirty
-    await page.keyboard.press("e");
-    await expect(page.getByTestId("mask-settings-trigger")).toHaveAttribute(
-      "aria-label",
-      "Mask 常用工具：橡皮",
-    );
+    // This case selects the real eraser control; keyboard behavior has its own case.
     await openMaskSettings(page);
+    await page.getByTestId("mask-toolbar").getByLabel("橡皮", { exact: true }).click();
 
     const stage = page.getByTestId("workbench-stage");
     await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 10_000 });
@@ -116,7 +113,16 @@ test.describe("mask editor (I11)", () => {
 
     await openMaskSettings(page);
     await page.getByTestId("mask-toolbar").getByTestId("mask-primary-action").click();
-    await confirmMaskRefinement(page);
+    const createdResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/tasks/${taskId}/annotations`) &&
+        response.request().method() === "POST",
+    );
+    await confirmMaskRefinement(page, true);
+    const createdResult = await createdResponse;
+    expect(createdResult.ok(), `${createdResult.status()} ${await createdResult.text()}`).toBe(
+      true,
+    );
 
     await expect.poll(async () => (await savedMasks(request, taskId, token)).length).toBe(1);
     const [saved] = await savedMasks(request, taskId, token);
@@ -133,7 +139,6 @@ test.describe("mask editor (I11)", () => {
     expect(pixel(content, 0, 0)).toBe(0);
     expect(pixel(content, 32, 22)).toBe(1);
     const foreground = content.counts.reduce((sum, count, i) => sum + (i % 2 ? count : 0), 0);
-    expect(foreground).toBeGreaterThan(0);
     expect(foreground).toBeLessThan(285);
 
     await page.reload();
@@ -150,8 +155,8 @@ test.describe("mask editor (I11)", () => {
       annotatorEmail: data.annotator_email,
     });
     await seed.injectToken(page, data.annotator_email);
-    await page.goto(`/projects/${data.project_id}/annotate`);
-    await page.waitForLoadState("networkidle");
+    await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
 
     await page.keyboard.press("m");
     await expect(page.getByTestId("mask-tool-capsule")).toBeVisible({ timeout: 10_000 });

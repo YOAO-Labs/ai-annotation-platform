@@ -82,7 +82,7 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
                 annotation_type=data.annotation_type,
                 tool_unit_id=data.tool_unit_id,
                 class_name=data.class_name,
-                geometry=data.geometry.model_dump(),
+                geometry=data.geometry.model_dump(mode="json"),
                 confidence=data.confidence,
                 parent_prediction_id=data.parent_prediction_id,
                 parent_annotation_id=data.parent_annotation_id,

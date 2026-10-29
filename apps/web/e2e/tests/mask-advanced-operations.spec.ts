@@ -173,7 +173,7 @@ async function applyPreview(page: Page): Promise<void> {
   await page.getByTestId("mask-toolbar").getByTestId("mask-primary-action").click();
 }
 
-test.describe("v0.23.9 Mask 高级编辑发布矩阵", () => {
+test.describe("v0.23.9 Mask 高级编辑发布矩阵", { tag: "@mask-native" }, () => {
   test.use({ viewport: { width: 1440, height: 1080 } });
   test("1. 非正方形图片的方笔刷、圆橡皮、lasso 与 undo/redo 刷新后逐像素一致", async ({
     page,
@@ -232,11 +232,11 @@ test.describe("v0.23.9 Mask 高级编辑发布矩阵", () => {
     const savedResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith(`/tasks/${taskId}/annotations/${fixture.annotation_id}`) &&
-        response.request().method() === "PATCH" &&
-        response.ok(),
+        response.request().method() === "PATCH",
     );
     await toolbar.getByTestId("mask-primary-action").click();
-    await savedResponse;
+    const saveResult = await savedResponse;
+    expect(saveResult.ok(), `${saveResult.status()} ${await saveResult.text()}`).toBe(true);
     const saved = await maskContent(request, fixture.annotation_id, token);
     expect(saved.counts).not.toEqual(before.counts);
 
@@ -328,7 +328,6 @@ test.describe("v0.23.9 Mask 高级编辑发布矩阵", () => {
     await expect(page.getByTestId("mask-tool-capsule")).toHaveCount(0);
     expect(await maskContent(request, fixture.annotation_id, token)).toEqual(persisted);
   });
-
 
   test("5. split 冲突整批 409 无部分写入，刷新后原子提交并保留 lineage", async ({
     page,
