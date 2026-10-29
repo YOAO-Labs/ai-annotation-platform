@@ -57,6 +57,9 @@ package-lock.json
 third-party/
 .hermes/
 
+# Independent plugin repository checkout; versioned in YOAO-Labs/YOAO-Plugins.
+/plugins/YOAO-plugins/
+
 # Pyright/IDE 本地类型检查配置（指向本机 .venv 路径，因机器而异，不入库）
 pyrightconfig.json
 
