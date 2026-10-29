@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from aap_lifecycle_contract import validate_managed_lifecycle_evidence
 from aap_backend_runtime.backend_auth import require_external_bearer
 from aap_protocol_v2.errors import LifecycleErrorCode, LifecycleHTTPError
 from aap_protocol_v2.lifecycle import (
@@ -82,6 +85,112 @@ def plugin_setup_fields(
         },
         "terminal_lifecycle": terminal,
     }
+
+
+def plugin_verified_lifecycle(
+    *,
+    pool_topology: Mapping[str, Mapping[str, int]],
+    runtime_versions: Mapping[str, str],
+    gpu_facts: Mapping[str, Any],
+    expected_weights: Sequence[Mapping[str, Any]],
+    session_counts: Mapping[str, int],
+) -> bool:
+    """Bind approved GPU lifecycle evidence to the measured native deployment."""
+    options = plugin_lifecycle_options()
+    if not options:
+        return False
+    path = os.environ.get("AAP_PLUGIN_QUALIFICATION_FILE")
+    digest = os.environ.get("AAP_PLUGIN_QUALIFICATION_SHA256")
+    if bool(path) != bool(digest):
+        raise ValueError(
+            "Lifecycle report and approved digest must be supplied together"
+        )
+    if options["terminal_cpu_enabled"]:
+        if path:
+            raise ValueError("CPU plugins cannot use GPU lifecycle evidence")
+        return False
+    if not path:
+        return False
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("An approved lifecycle report digest is required")
+    with Path(path).open("rb") as source:
+        raw = source.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024 or hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("Lifecycle report differs from the approved digest")
+    report = json.loads(raw)
+    canonical = json.dumps(
+        report,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode()
+    if raw != canonical:
+        raise ValueError("Lifecycle report must use canonical JSON")
+    report = validate_managed_lifecycle_evidence(report)
+    artifact = os.environ.get("AAP_PLUGIN_OCI_ARTIFACT", "")
+    image_id = os.environ.get("AAP_PLUGIN_IMAGE_ID", "")
+    asset_digest = os.environ.get("AAP_PLUGIN_ASSET_MANIFEST_SHA256", "")
+    plugin_id = os.environ.get("AAP_PLUGIN_ID", "")
+    plugin_version = os.environ.get("AAP_PLUGIN_VERSION", "")
+    if (
+        not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", artifact)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+        or not re.fullmatch(r"[0-9a-f]{64}", asset_digest)
+        or not plugin_id
+        or not plugin_version
+    ):
+        raise ValueError("Lifecycle report requires a complete installation binding")
+    registry = options["expected_registry_id"]
+    resource = options["expected_gpu_resource_id"]
+    uuid = os.environ["AAP_PLUGIN_GPU_UUID"]
+    versions = {
+        **runtime_versions,
+        "plugin_id": plugin_id,
+        "plugin_version": plugin_version,
+        "artifact": artifact,
+        "asset_manifest_sha256": asset_digest,
+        "registry_id": registry,
+        "gpu_resource_id": resource,
+        "driver_version": gpu_facts.get("driver_version"),
+    }
+    topology = {
+        "registry_id": registry,
+        "gpu_resource_id": resource,
+        "pools": dict(pool_topology),
+        "session_counts": dict(session_counts),
+    }
+    weight_set = {
+        (item.get("sha256"), item.get("size_bytes")) for item in expected_weights
+    }
+    report_weights = {
+        (item["sha256"], item["size_bytes"])
+        for item in report["artifacts"]
+        if item["kind"] == "weight"
+    }
+    gpu = report["gpu"]
+    final_identity = (report["final_residency"] or {}).get("identity") or {}
+    if (
+        not report["passed"]
+        or report["backend_name"] != plugin_id
+        or report["deployment"]["image_id"] != image_id
+        or report["deployment"]["pool_topology"] != topology
+        or any(
+            report["deployment"]["runtime_versions"].get(k) != v
+            for k, v in versions.items()
+        )
+        or gpu_facts.get("device_uuid") != uuid
+        or gpu["uuid"] != uuid
+        or gpu["driver_version"] != gpu_facts.get("driver_version")
+        or gpu["total_memory_mb"] != gpu_facts.get("total_memory_mb")
+        or gpu["runtime_version"] != runtime_versions.get("cuda")
+        or not weight_set
+        or weight_set != report_weights
+        or final_identity.get("backend_registry_id") != registry
+        or final_identity.get("gpu_resource_id") != resource
+    ):
+        raise ValueError("Lifecycle report differs from the measured plugin deployment")
+    return True
 
 
 def install_plugin_service(app: FastAPI, lifecycle_getter: Callable[[], Any]) -> bool:
