@@ -60,3 +60,10 @@ jobs:
         env:
           SUITE: ${{ matrix.suite }}
         run: bash scripts/run-ml-cpu-tests.sh run "$SUITE"
+      - name: Upload suite results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-cpu-results-${{ matrix.suite }}
+          path: .artifacts/test-results/ml-cpu/${{ matrix.suite }}/
+          if-no-files-found: error

@@ -260,10 +260,15 @@ jobs:
           E2E_SUITE: ${{ matrix.suite }}
           E2E_OUTCOME: ${{ steps.e2e.outcome }}
           E2E_BUILD_SECONDS: ${{ needs.build.outputs.build-seconds }}
+          E2E_REQUIRE_ALL_TESTS: ${{ (matrix.suite == 'mask-native' || matrix.suite == 'mask-readonly') && '1' || '0' }}
           E2E_STATUS_OUT: apps/web/suite-status/${{ matrix.suite }}.json
         run: |
           mkdir -p apps/web/suite-status
           node scripts/summarize-e2e-results.mjs "$E2E_SUITE" "$E2E_OUTCOME" apps/web/e2e-results.json
+          if [ "$E2E_SUITE" = "mask-native" ]; then
+            E2E_REQUIRE_ALL_TESTS=1 E2E_STATUS_OUT=apps/web/suite-status/mask-worker.json \
+              node scripts/summarize-e2e-results.mjs mask-worker "$E2E_OUTCOME" apps/web/e2e-browser-integration-results.json
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -272,6 +277,7 @@ jobs:
             apps/web/playwright-report/
             apps/web/test-results/
             apps/web/e2e-results.json
+            apps/web/e2e-browser-integration-results.json
             apps/web/suite-status/
             apps/web/e2e-api.log
           retention-days: 7

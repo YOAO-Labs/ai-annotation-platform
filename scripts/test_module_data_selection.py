@@ -45,9 +45,11 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 with self.subTest(target=target), self.assertRaises(RuntimeError):
                     _passed_test_count(path, ("tests/test_first.py", target), collected)
             with self.assertRaisesRegex(RuntimeError, "differs from collection"):
-                _passed_test_count(path, ("tests/test_first.py",), collected + [
-                    "tests/test_second.py::TestGroup::test_two[missing]"
-                ])
+                _passed_test_count(
+                    path,
+                    ("tests/test_first.py",),
+                    collected + ["tests/test_second.py::TestGroup::test_two[missing]"],
+                )
             with self.assertRaisesRegex(RuntimeError, "differs from collection"):
                 _passed_test_count(path, ("tests/test_first.py",), collected[:-1])
             with self.assertRaisesRegex(RuntimeError, "collection manifest"):
@@ -60,19 +62,28 @@ class ModuleDataSelectionTests(unittest.TestCase):
             collected = ["tests/test_first.py::test_one"]
             for body in (
                 "",
-                good + '<testcase classname="tests.test_first" name="test_two"><skipped/></testcase>',
-                good + '<testcase classname="tests.test_first" name="test_two"><failure/></testcase>',
-                good + '<testcase classname="tests.test_first" name="test_two"><error/></testcase>',
+                good
+                + '<testcase classname="tests.test_first" name="test_two"><skipped/></testcase>',
+                good
+                + '<testcase classname="tests.test_first" name="test_two"><failure/></testcase>',
+                good
+                + '<testcase classname="tests.test_first" name="test_two"><error/></testcase>',
                 good + "<error/>",
                 "<testcase/>",
             ):
-                path.write_text(f"<testsuites><testsuite>{body}</testsuite></testsuites>")
+                path.write_text(
+                    f"<testsuites><testsuite>{body}</testsuite></testsuites>"
+                )
                 with self.subTest(body=body), self.assertRaises(RuntimeError):
                     _passed_test_count(path, ("tests/test_first.py",), collected)
-            path.write_text(f'<testsuites><testsuite errors="1">{good}</testsuite></testsuites>')
+            path.write_text(
+                f'<testsuites><testsuite errors="1">{good}</testsuite></testsuites>'
+            )
             with self.assertRaises(RuntimeError):
                 _passed_test_count(path, ("tests/test_first.py",), collected)
-            path.write_text(f'<testsuites><testsuite tests="2">{good}</testsuite></testsuites>')
+            path.write_text(
+                f'<testsuites><testsuite tests="2">{good}</testsuite></testsuites>'
+            )
             with self.assertRaises(RuntimeError):
                 _passed_test_count(path, ("tests/test_first.py",), collected)
             path.write_text("<testsuites>")
@@ -84,10 +95,22 @@ class ModuleDataSelectionTests(unittest.TestCase):
             output = Path(directory) / "evidence.json"
             junit = Path(directory) / "evidence.junit.xml"
             junit.write_text("<testsuites><testsuite/></testsuites>")
-            with patch(
-                "scripts.verify_module_data_boundary.shutil.which", side_effect=KeyboardInterrupt
-            ), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
-                main(["--output", str(output), "--test-file", "tests/test_identity_recovery.py"])
+            with (
+                patch(
+                    "scripts.verify_module_data_boundary.shutil.which",
+                    side_effect=KeyboardInterrupt,
+                ),
+                redirect_stdout(io.StringIO()),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                main(
+                    [
+                        "--output",
+                        str(output),
+                        "--test-file",
+                        "tests/test_identity_recovery.py",
+                    ]
+                )
             evidence = json.loads(output.read_text())
             self.assertEqual(evidence["status"], "failed")
             self.assertEqual(evidence["failure"]["error_type"], "KeyboardInterrupt")

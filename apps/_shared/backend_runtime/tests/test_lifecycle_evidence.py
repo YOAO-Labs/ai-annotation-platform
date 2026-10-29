@@ -13,9 +13,15 @@ from aap_backend_runtime.lifecycle_evidence import (
 )
 
 OBLIGATIONS = (
-    "managed_lifecycle_advertised", "real_inference", "provider_or_device_gpu",
-    "busy_unload_rejected", "cancel_accounting", "stale_generation_rejected",
-    "token_replay_rejected", "partial_headers_rejected", "full_cleanup",
+    "managed_lifecycle_advertised",
+    "real_inference",
+    "provider_or_device_gpu",
+    "busy_unload_rejected",
+    "cancel_accounting",
+    "stale_generation_rejected",
+    "token_replay_rejected",
+    "partial_headers_rejected",
+    "full_cleanup",
 )
 
 
@@ -142,6 +148,7 @@ def test_build_evidence_emits_structured_blockers_for_failed_gates() -> None:
         "runtime_ephemera_dirty",
     }
 
+
 @pytest.mark.parametrize("name", OBLIGATIONS)
 @pytest.mark.parametrize("missing", [True, False], ids=["missing", "false"])
 def test_each_obligation_is_required_for_passing_evidence(name, missing) -> None:
@@ -153,7 +160,8 @@ def test_each_obligation_is_required_for_passing_evidence(name, missing) -> None
     evidence = _evidence(contract_checks=checks)
     assert evidence["passed"] is False
     assert any(
-        item["code"] == ("contract_checks_missing" if missing else "contract_checks_failed")
+        item["code"]
+        == ("contract_checks_missing" if missing else "contract_checks_failed")
         for item in evidence["blockers"]
     )
     forged = copy.deepcopy(evidence)
@@ -161,6 +169,7 @@ def test_each_obligation_is_required_for_passing_evidence(name, missing) -> None
     forged["blockers"] = []
     with pytest.raises(ValueError):
         validate_managed_lifecycle_evidence(forged)
+
 
 @pytest.mark.parametrize("missing", [True, False], ids=["absent", "empty"])
 def test_omitted_pool_set_cannot_pass(missing) -> None:
@@ -171,12 +180,13 @@ def test_omitted_pool_set_cannot_pass(missing) -> None:
         residency["pools"] = {}
     evidence = _evidence(final_residency=residency)
     assert evidence["passed"] is False
-    assert any(item["code"] == "final_residency_invalid" for item in evidence["blockers"])
+    assert any(
+        item["code"] == "final_residency_invalid" for item in evidence["blockers"]
+    )
     evidence["passed"] = True
     evidence["blockers"] = []
     with pytest.raises(ValueError):
         validate_managed_lifecycle_evidence(evidence)
-
 
 
 @pytest.mark.parametrize(

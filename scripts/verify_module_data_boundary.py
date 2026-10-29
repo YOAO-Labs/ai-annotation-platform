@@ -1901,7 +1901,9 @@ def _passed_test_count(
         for state in ("failures", "errors", "skipped"):
             if int(suite.get(state, "0")) != 0:
                 raise RuntimeError(f"Acceptance JUnit reports {state}")
-        if any(suite.find(state) is not None for state in ("failure", "error", "skipped")):
+        if any(
+            suite.find(state) is not None for state in ("failure", "error", "skipped")
+        ):
             raise RuntimeError("Acceptance JUnit reports a suite-level failure")
         if "tests" in suite.attrib and int(suite.attrib["tests"]) != len(
             suite.findall(".//testcase")
@@ -1914,7 +1916,9 @@ def _passed_test_count(
     for case in cases:
         if not case.get("classname") or not case.get("name"):
             raise RuntimeError("Acceptance JUnit has an unidentified test case")
-        if any(case.find(state) is not None for state in ("skipped", "failure", "error")):
+        if any(
+            case.find(state) is not None for state in ("skipped", "failure", "error")
+        ):
             raise RuntimeError("Acceptance JUnit has a non-passing test case")
 
     def matches(target: str, case: ET.Element) -> bool:
@@ -1939,8 +1943,10 @@ def _passed_test_count(
             or ("[" not in expected_name and name.startswith(expected_name + "["))
         )
 
-    if not isinstance(collected, list) or not collected or any(
-        not isinstance(node, str) for node in collected
+    if (
+        not isinstance(collected, list)
+        or not collected
+        or any(not isinstance(node, str) for node in collected)
     ):
         raise RuntimeError("Acceptance collection manifest is empty or invalid")
     expected = Counter()
@@ -1950,7 +1956,9 @@ def _passed_test_count(
         if not parts:
             raise RuntimeError("Acceptance collection manifest has an invalid node ID")
         expected_name = parts[-1] + (bracket + parameter if bracket else "")
-        expected_class = ".".join([path.removesuffix(".py").replace("/", "."), *parts[:-1]])
+        expected_class = ".".join(
+            [path.removesuffix(".py").replace("/", "."), *parts[:-1]]
+        )
         expected[(expected_class, expected_name)] += 1
     reported = Counter((case.get("classname"), case.get("name")) for case in cases)
     if expected != reported:
@@ -1959,9 +1967,15 @@ def _passed_test_count(
         raise RuntimeError(
             f"Acceptance JUnit differs from collection: missing={missing_cases}, extra={extra_cases}"
         )
-    missing = [target for target in selected if not any(matches(target, case) for case in cases)]
+    missing = [
+        target
+        for target in selected
+        if not any(matches(target, case) for case in cases)
+    ]
     if missing:
-        raise RuntimeError(f"Acceptance JUnit is missing selected targets: {', '.join(missing)}")
+        raise RuntimeError(
+            f"Acceptance JUnit is missing selected targets: {', '.join(missing)}"
+        )
     return len(cases)
 
 
@@ -9587,7 +9601,9 @@ SELECT pg_catalog.jsonb_build_object(
         if test_exit_code == 0:
             collected = json.loads(collection_manifest.read_text(encoding="utf-8"))
             evidence["collected_test_nodes"] = collected
-            evidence["passed_test_count"] = _passed_test_count(junit, test_files, collected)
+            evidence["passed_test_count"] = _passed_test_count(
+                junit, test_files, collected
+            )
         exit_code = test_exit_code
         evidence["status"] = "passed" if exit_code == 0 else "failed"
     except Exception as error:

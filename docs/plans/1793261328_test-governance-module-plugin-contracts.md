@@ -541,3 +541,16 @@ G3 随核心 owner 切片接入；G5 跟随原拆仓计划逐插件授权与验�
 | `apps/assets-media`               |          4 |
 
 逐项命令、退出状态、case 和原始 JUnit 保存在本地 `.artifacts/test-results/owner-execution/summary.json` 及同目录报告。现有合同、错误与冻结向量未为接线改写；上述失败保持真实失败门，交由对应 owner／G3 切片处理。未执行的真实硬件／发行物资格不在本里程碑结论中。
+
+### 12.2 G1：结果完整性与执行门
+
+**状态：本轮结果门与语义回归样板通过；全仓治理退出门仍未通过。**
+
+- ML CPU、owner、SDK 和仓库 Python 脚本分别保留真实 JUnit；缺失必需报告不能当作成功。SDK 测试的本地共享契约由项目 `tool.uv.sources` 解析，不依赖临时 `--with` 安装未发布制品。
+- 严格浏览器结果门核对实际 case 与通过统计。真实 CLI 已复现“统计为 1 个通过、case 为空”返回 0／success，修复后同一输入返回 1／failure；Markdown 和 JSON 同为失败。新增独立回归保护此边界，删除文案、计时转发与 mock I/O 回声断言，改用实际状态分类与失败尝试优先级。
+- 报告／选择回归 18 项通过，模块选择回归 5 项及 20 个 subtest 通过。真实 Native、readonly 和源码 Worker 报告分别通过严格消费者，未把 skip／not-run 改记成功。
+- 模块 verifier 已在任务自有 PostgreSQL 与 Node peer 下实际执行选定的两个分页 case，collection nodeid、JUnit 和通过数一致；已创建资源清理完成，报告无清理错误。证据为 `.artifacts/test-results/module-selected-cases-ready.json`，不等同整个模组部署或替代语言资格。
+- 独立语义样板保留多 round 分页、canonical／legacy 别名和生命周期必需义务。内存变体将 keypoints 错配为 detect 时出现 1 个失败；反转 round 过滤时出现 2 个失败，未改写生产文件或使用同源 expected。
+- 实际 ML runner 的 `inference-plugin-sdk` 冷环境执行为 33 通过／1 跳过，并生成独立 JUnit。跳过的是未安装 `aap_libreyolo_plugin` 时的真实 provider hook 用例，不是通过；SDK 最小环境不因这个用例引入算法框架，provider 资格另验。报告见 `.artifacts/test-results/ml-runner-artifact-smoke.json`。
+
+严格门的修复前后证据为 `.artifacts/test-results/empty-execution-regression-evidence.json`。新增接线实际揭示的问题继续保留：owner 根见 G0；共享 runtime 集中回归为 146 通过／1 失败，仓库 Python scripts 为 798 通过／24 失败，相关原始报告保存在 `.artifacts/test-results/`。这些结果不通过删测、修改合同或放宽权限处理；未验证的 GPU、真实权重与发行物不因治理接线获得资格。

@@ -25,7 +25,9 @@ import { pathToFileURL } from "node:url";
 
 // The CPU runner and this planner share ownership and path inputs. E2E path
 // rules remain independent; these entries describe the delegated CPU workflow.
-const cpuSuites = JSON.parse(readFileSync(new URL("./test-suites.json", import.meta.url), "utf8")).ml_cpu;
+const cpuSuites = JSON.parse(
+  readFileSync(new URL("./test-suites.json", import.meta.url), "utf8"),
+).ml_cpu;
 const SHARED_CONTRACT_SUITES = Object.fromEntries(
   cpuSuites.map(({ id, owner, paths, resources }) => [
     id.startsWith("shared-") ? id : `ml-${id}`,
@@ -665,7 +667,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const changed = paths ?? [];
     // A new or unmapped source path can add a suite or alter a shared input.
     // Only the existing documentation-only classification is safe to omit.
-    mlCpu = changed.length === 0 ||
+    mlCpu =
+      changed.length === 0 ||
       changed.some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix))) ||
       !classifyPaths(changed).docsOnly;
   } else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);

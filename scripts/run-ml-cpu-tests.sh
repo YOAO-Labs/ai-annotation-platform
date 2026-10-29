@@ -145,7 +145,8 @@ run_pytest() {
   local dir="$1" venv="$2"
   shift 2
   log "pytest $dir $*"
-  run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "$@"
+  local report="$ROOT/.artifacts/test-results/ml-cpu/$suite/${dir//\//-}.xml"
+  run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "--junitxml=$report" "$@"
 }
 
 # run: install the minimal dependencies for one suite and execute its tests.

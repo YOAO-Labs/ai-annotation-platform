@@ -52,7 +52,9 @@ async def test_round_lists_count_and_page_only_the_requested_round(
     db_session, super_admin, resource
 ):
     from app.db.models.active_learning import (
-        ActiveLearningDecision, ActiveLearningFeedback, ActiveLearningRound,
+        ActiveLearningDecision,
+        ActiveLearningFeedback,
+        ActiveLearningRound,
     )
     from app.services.training_dataset_bridge import content_digest
     from tests.sample_evaluation_fixtures import Objects, seed
@@ -61,23 +63,36 @@ async def test_round_lists_count_and_page_only_the_requested_round(
     world = await seed(db_session, actor, Objects())
     rounds = [
         ActiveLearningRound(
-            id=uuid.uuid4(), project_id=world.project.id, creator_id=actor.id,
-            model_version_id=world.model.id, deployment_id=world.deployment.id,
-            request_id=uuid.uuid4(), request_digest="a" * 64, name=f"round {i}",
-            status="failed", spec={"schema": 1, "pool": []}, spec_digest="b" * 64,
+            id=uuid.uuid4(),
+            project_id=world.project.id,
+            creator_id=actor.id,
+            model_version_id=world.model.id,
+            deployment_id=world.deployment.id,
+            request_id=uuid.uuid4(),
+            request_digest="a" * 64,
+            name=f"round {i}",
+            status="failed",
+            spec={"schema": 1, "pool": []},
+            spec_digest="b" * 64,
         )
         for i in range(2)
     ]
     db_session.add_all(rounds)
     await db_session.flush()
     ids = [uuid.uuid4() for _ in range(5)]
-    model = ActiveLearningDecision if resource == "decisions" else ActiveLearningFeedback
+    model = (
+        ActiveLearningDecision if resource == "decisions" else ActiveLearningFeedback
+    )
     for i, identity in enumerate(ids):
         snapshot = {}
         fields = dict(
-            id=identity, round_id=rounds[0 if i < 3 else 1].id,
-            actor_id=actor.id, request_id=uuid.uuid4(), request_digest="c" * 64,
-            snapshot=snapshot, snapshot_digest=content_digest(snapshot),
+            id=identity,
+            round_id=rounds[0 if i < 3 else 1].id,
+            actor_id=actor.id,
+            request_id=uuid.uuid4(),
+            request_digest="c" * 64,
+            snapshot=snapshot,
+            snapshot_digest=content_digest(snapshot),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=i),
         )
         if resource == "decisions":
@@ -115,7 +130,9 @@ async def test_round_lists_count_and_page_only_the_requested_round(
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == total
-            assert [item["id"] for item in payload["items"]] == [str(i) for i in expected]
+            assert [item["id"] for item in payload["items"]] == [
+                str(i) for i in expected
+            ]
 
         async def wrong_project():
             return SimpleNamespace(id=uuid.uuid4())

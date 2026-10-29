@@ -162,13 +162,15 @@ jobs:
       - name: Repository Python script tests
         if: inputs.shard-index == 0
         working-directory: apps/api
-        run: uv run pytest -q ../../scripts
+        run: uv run pytest -q ../../scripts --junitxml=script-test-results.xml
       - name: Upload backend test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-test-results-${{ inputs.shard-index }}
-          path: apps/api/pytest-results.xml
+          path: |
+            apps/api/pytest-results.xml
+            apps/api/script-test-results.xml
           retention-days: 7
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

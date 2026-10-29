@@ -103,20 +103,28 @@ function summarizeTests(report) {
   };
 }
 
-export function buildSummary({ suite, outcome, report, prepSeconds, runSeconds, buildSeconds }) {
-  const heading = `### ${suite}\n\nOutcome: ${outcome}\n\n`;
+export function buildSummary({
+  suite,
+  outcome,
+  report,
+  prepSeconds,
+  runSeconds,
+  buildSeconds,
+  requireAllTests = false,
+}) {
   if (!report) {
+    const missingOutcome =
+      outcome === "skipped" ? "setup-failure" : outcome === "success" ? "failure" : outcome;
     return {
       text:
-        heading +
+        `### ${suite}\n\nOutcome: ${missingOutcome}\n\n` +
         "No completed Playwright report. Inspect setup, server startup or timeout logs.\n",
       requiredMissing: true,
       status: {
         suite,
         // A skipped run after failed preparation is not an allowed suite skip.
         // Never publish a success artifact without the report that proves it.
-        outcome:
-          outcome === "skipped" ? "setup-failure" : outcome === "success" ? "failure" : outcome,
+        outcome: missingOutcome,
         runOutcome: outcome,
         reportMissing: true,
       },
@@ -124,6 +132,18 @@ export function buildSummary({ suite, outcome, report, prepSeconds, runSeconds, 
   }
   const { stats, errors } = report;
   const attempts = summarizeTests(report);
+  const executedPasses = attempts.firstAttemptPassed + attempts.retriedPassed;
+  const evidenceIncomplete =
+    requireAllTests &&
+    (executedPasses === 0 ||
+      executedPasses !== stats.expected + stats.flaky ||
+      stats.unexpected > 0 ||
+      stats.skipped > 0 ||
+      errors.length > 0 ||
+      attempts.notRun > 0 ||
+      attempts.interrupted > 0);
+  const effectiveOutcome = evidenceIncomplete && outcome === "success" ? "failure" : outcome;
+  const heading = `### ${suite}\n\nOutcome: ${effectiveOutcome}\n\n`;
   const duration = (stats.duration / 1000).toFixed(1);
   const timing =
     prepSeconds !== undefined && runSeconds !== undefined
@@ -141,9 +161,10 @@ export function buildSummary({ suite, outcome, report, prepSeconds, runSeconds, 
   return {
     text,
     requiredMissing: false,
+    evidenceIncomplete,
     status: {
       suite,
-      outcome,
+      outcome: effectiveOutcome,
       attempts,
       stats: {
         expected: stats.expected,
@@ -165,13 +186,14 @@ export function main(argv, env, io) {
   const reportPath = argv[2] ?? "apps/web/e2e-results.json";
   const statusOut = env.E2E_STATUS_OUT;
   const report = io.existsSync(reportPath) ? JSON.parse(io.readFileSync(reportPath, "utf8")) : null;
-  const { text, requiredMissing, status } = buildSummary({
+  const { text, requiredMissing, evidenceIncomplete, status } = buildSummary({
     suite,
     outcome,
     report,
     prepSeconds: env.E2E_PREP_SECONDS,
     runSeconds: env.E2E_RUN_SECONDS,
     buildSeconds: env.E2E_BUILD_SECONDS,
+    requireAllTests: env.E2E_REQUIRE_ALL_TESTS === "1",
   });
   if (statusOut && status)
     io.writeFileSync(statusOut, JSON.stringify({ suite, outcome, ...status }, null, 1));
@@ -181,6 +203,12 @@ export function main(argv, env, io) {
   // fail the step so the missing evidence is never read as a pass.
   if (requiredMissing && outcome === "success") {
     io.stderr.write(`required suite ${suite} reported success without a Playwright report\n`);
+    return 1;
+  }
+  if (evidenceIncomplete && outcome === "success") {
+    io.stderr.write(
+      `required suite ${suite} did not execute every browser-integration case successfully\n`,
+    );
     return 1;
   }
   return 0;

@@ -125,7 +125,14 @@ jobs:
         run: pip install uv
       - name: SDK / CLI / TUI tests
         working-directory: packages/python-sdk
-        run: uv run --extra test --extra plugins --with ../../apps/_shared/backend_runtime --with ../../apps/_shared/training_contract pytest -q
+        run: uv run --extra test --extra plugins pytest -q --junitxml=sdk-test-results.xml
+      - name: Upload SDK results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-sdk-test-results
+          path: packages/python-sdk/sdk-test-results.xml
+          if-no-files-found: error
       - name: Build SDK distribution
         working-directory: packages/python-sdk
         run: uv build

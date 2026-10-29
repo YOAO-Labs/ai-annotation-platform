@@ -115,11 +115,20 @@ def report_file(tmp_path):
             "visible_device_count": 1,
         },
         cycles=cycles,
-        contract_checks=dict.fromkeys((
-            "managed_lifecycle_advertised", "real_inference", "provider_or_device_gpu",
-            "busy_unload_rejected", "cancel_accounting", "stale_generation_rejected",
-            "token_replay_rejected", "partial_headers_rejected", "full_cleanup",
-        ), True),
+        contract_checks=dict.fromkeys(
+            (
+                "managed_lifecycle_advertised",
+                "real_inference",
+                "provider_or_device_gpu",
+                "busy_unload_rejected",
+                "cancel_accounting",
+                "stale_generation_rejected",
+                "token_replay_rejected",
+                "partial_headers_rejected",
+                "full_cleanup",
+            ),
+            True,
+        ),
         final_residency={
             "state": "unloaded",
             "gpu_loaded": False,
