@@ -3,6 +3,26 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
+name = "aap-inference-contract"
+version = "0.1.0"
+source = { editable = "../../apps/_shared/inference_contract" }
+dependencies = [
+    { name = "aap-task-contract" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-task-contract", editable = "../../apps/_shared/task_contract" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+]
+provides-extras = ["client", "test"]
+
+[[package]]
 name = "aap-lifecycle-contract"
 version = "0.1.0"
 source = { editable = "../../apps/_shared/lifecycle_contract" }
@@ -37,6 +57,7 @@ cli = [
     { name = "typer" },
 ]
 plugins = [
+    { name = "aap-inference-contract" },
     { name = "aap-lifecycle-contract" },
     { name = "aap-training-contract" },
     { name = "rich" },
@@ -63,6 +84,7 @@ tui = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-inference-contract", marker = "extra == 'plugins'", editable = "../../apps/_shared/inference_contract" },
     { name = "aap-lifecycle-contract", marker = "extra == 'plugins'", editable = "../../apps/_shared/lifecycle_contract" },
     { name = "aap-training-contract", marker = "extra == 'plugins'", editable = "../../apps/_shared/training_contract" },
     { name = "httpx", specifier = ">=0.27" },

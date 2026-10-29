@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Sequence
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,15 +19,36 @@ from pathlib import Path
 import httpx
 
 from ai_annotation.errors import AAPError
-from ai_annotation.plugin_models import _OCI_DIGEST_REFERENCE
+from aap_inference_contract.plugin import validate_oci_digest_reference
 
-_IMAGE = re.compile(_OCI_DIGEST_REFERENCE)
 _GPU = re.compile(
     r"^GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
 )
 _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _OWNER = re.compile(r"^[0-9a-f]{64}$")
 _QUALIFICATION_TARGET = "/var/lib/aap-libreyolo-qualification/report.json"
+
+
+def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None:
+    if (
+        not entrypoint
+        or any(
+            not isinstance(arg, str) or not arg or any(c in arg for c in "\x00\r\n")
+            for arg in entrypoint
+        )
+        or not _NAME.fullmatch(entrypoint[0])
+        or entrypoint[0] in {"sh", "bash", "dash", "ash", "zsh", "ksh", "fish"}
+        or (entrypoint[0].startswith("python") and "-c" in entrypoint[1:])
+    ):
+        raise ValueError("Invalid approved plugin entrypoint")
+    if "--port" in entrypoint:
+        index = entrypoint.index("--port")
+        if (
+            entrypoint.count("--port") != 1
+            or index + 1 >= len(entrypoint)
+            or entrypoint[index + 1] != str(container_port)
+        ):
+            raise ValueError("Plugin entrypoint port differs from the approved port")
 
 
 @dataclass(frozen=True)
@@ -36,7 +58,7 @@ class ContainerConfig:
     owner_hash: str
     image: str
     entrypoint: tuple[str, ...]
-    gpu_uuid: str
+    gpu_uuid: str | None
     network: str
     host_port: int
     container_port: int
@@ -57,17 +79,17 @@ class ContainerConfig:
             self.owner_hash
         ):
             raise AAPError("Invalid container ownership identity")
-        if not _IMAGE.fullmatch(self.image):
-            raise AAPError("Plugin image must be pinned to a sha256 digest")
-        if (
-            not isinstance(self.entrypoint, tuple)
-            or len(self.entrypoint) != 6
-            or not isinstance(self.entrypoint[0], str)
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", self.entrypoint[0])
-            or self.entrypoint[1:] != ("serve", "--host", "0.0.0.0", "--port", "8000")
-        ):
+        try:
+            validate_oci_digest_reference(self.image)
+        except ValueError as exc:
+            raise AAPError("Plugin image must be pinned to a sha256 digest") from exc
+        if not isinstance(self.entrypoint, tuple):
             raise AAPError("Invalid approved plugin entrypoint")
-        if not _GPU.fullmatch(self.gpu_uuid):
+        try:
+            _validate_entrypoint(self.entrypoint, self.container_port)
+        except ValueError as exc:
+            raise AAPError(str(exc)) from exc
+        if self.gpu_uuid is not None and not _GPU.fullmatch(self.gpu_uuid):
             raise AAPError("One physical NVIDIA GPU UUID is required")
         if not (1 <= self.host_port <= 65535 and 1 <= self.container_port <= 65535):
             raise AAPError("Invalid plugin port")
@@ -196,11 +218,17 @@ class Docker:
                 str(item).startswith("no-new-privileges")
                 for item in (host.get("SecurityOpt") or [])
             )
-            or not isinstance(devices, list)
-            or len(devices) != 1
-            or not isinstance(devices[0], dict)
-            or devices[0].get("DeviceIDs") != [config.gpu_uuid]
-            or devices[0].get("Capabilities") != [["gpu"]]
+            or (
+                devices not in (None, [])
+                if config.gpu_uuid is None
+                else (
+                    not isinstance(devices, list)
+                    or len(devices) != 1
+                    or not isinstance(devices[0], dict)
+                    or devices[0].get("DeviceIDs") != [config.gpu_uuid]
+                    or devices[0].get("Capabilities") != [["gpu"]]
+                )
+            )
         ):
             raise AAPError("Container resources do not match the approved installation")
         ports = host.get("PortBindings") or {}
@@ -221,12 +249,15 @@ class Docker:
             )
         expected_mounts = {
             (str(config.data_dir), config.data_target, True),
-            (
-                str(config.data_dir / "gpu-keyring.json"),
-                f"{config.data_target}/gpu-keyring.json",
-                False,
-            ),
         }
+        if config.gpu_uuid is not None:
+            expected_mounts.add(
+                (
+                    str(config.data_dir / "gpu-keyring.json"),
+                    f"{config.data_target}/gpu-keyring.json",
+                    False,
+                )
+            )
         if config.qualification_file is not None:
             expected_mounts.add(
                 (str(config.qualification_file), _QUALIFICATION_TARGET, False)
@@ -389,7 +420,7 @@ class Docker:
     def _create(self, config: ContainerConfig) -> dict:
         config.validate()
         self._verify_image(config)
-        if config.qualification_file is None:
+        if config.gpu_uuid is not None and config.qualification_file is None:
             raise AAPError("GPU qualification report is required before starting")
         candidate_label = (
             ["--label", f"aap.candidate={config.candidate_token}"]
@@ -412,8 +443,7 @@ class Docker:
             self._user(),
             "--network",
             config.network,
-            "--gpus",
-            f"device={config.gpu_uuid}",
+            *(["--gpus", f"device={config.gpu_uuid}"] if config.gpu_uuid else []),
             "--memory",
             f"{config.memory_mb}m",
             "--cpus",
@@ -430,10 +460,22 @@ class Docker:
             str(config.env_file),
             "--mount",
             f"type=bind,src={config.data_dir},dst={config.data_target}",
-            "--mount",
-            f"type=bind,src={config.data_dir / 'gpu-keyring.json'},dst={config.data_target}/gpu-keyring.json,readonly",
-            "--mount",
-            f"type=bind,src={config.qualification_file},dst={_QUALIFICATION_TARGET},readonly",
+            *(
+                [
+                    "--mount",
+                    f"type=bind,src={config.data_dir / 'gpu-keyring.json'},dst={config.data_target}/gpu-keyring.json,readonly",
+                ]
+                if config.gpu_uuid
+                else []
+            ),
+            *(
+                [
+                    "--mount",
+                    f"type=bind,src={config.qualification_file},dst={_QUALIFICATION_TARGET},readonly",
+                ]
+                if config.qualification_file
+                else []
+            ),
             "--",
             config.image,
         )
@@ -445,7 +487,7 @@ class Docker:
     def ensure_started(self, config: ContainerConfig) -> dict:
         config.validate()
         self._verify_image(config)
-        if config.qualification_file is None:
+        if config.gpu_uuid is not None and config.qualification_file is None:
             raise AAPError("GPU qualification report is required before starting")
         existing = self._inspect(config)
         if existing is None:

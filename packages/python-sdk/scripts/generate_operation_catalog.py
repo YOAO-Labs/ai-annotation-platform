@@ -1409,6 +1409,19 @@ def _client_namespaces() -> dict[str, str]:
                 and target.value.id == "self"
             ):
                 mapping[value.func.id] = target.attr
+    for function in client.body:
+        if not isinstance(function, ast.FunctionDef) or not any(
+            isinstance(decorator, ast.Name) and decorator.id == "cached_property"
+            for decorator in function.decorator_list
+        ):
+            continue
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Return)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+            ):
+                mapping[node.value.func.id] = function.name
     return mapping
 
 

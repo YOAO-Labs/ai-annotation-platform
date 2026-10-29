@@ -23,18 +23,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ai_annotation._plugin_docker import (
     ContainerConfig,
     Docker,
-    _IMAGE,
     _QUALIFICATION_TARGET,
+    _validate_entrypoint,
 )
 from ai_annotation._plugin_receipt import ReceiptStore, _check_private
 from ai_annotation.errors import AAPError, APIStatusError, InstallError
-from ai_annotation.plugin_models import (
+from aap_inference_contract.plugin import (
     PluginActivateRequest,
-    PluginInstallationResult,
+    PluginInstallationResponse,
     PluginLaunchReceipt,
     PluginManifest,
-    PluginPrepareRequest,
-    PluginQualification,
+    PreparePluginInstallation,
+    PluginLifecycleQualification,
     PluginResourceBinding,
 )
 from ai_annotation.plugins import PluginInstallations
@@ -47,12 +47,13 @@ class LocalPluginConfig(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     url: str
     manifest: PluginManifest
-    gpu_resource_id: str = Field(min_length=1)
-    physical_gpu_uuid: str = Field(min_length=1)
+    gpu_resource_id: str | None = Field(default=None, min_length=1)
+    physical_gpu_uuid: str | None = Field(default=None, min_length=1)
     network: str = Field(min_length=1)
     host_port: int = Field(ge=1, le=65535)
+    container_port: int = Field(default=8000, ge=1, le=65535)
     cpus: float = Field(gt=0, le=256, allow_inf_nan=False)
-    gpu_verify_keyring: dict[str, str] = Field(min_length=1)
+    gpu_verify_keyring: dict[str, str] = Field(default_factory=dict)
     image_hosts: list[str] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -69,22 +70,17 @@ class LocalPluginConfig(BaseModel):
             raise ValueError(
                 "url must be an HTTP(S) endpoint without credentials, query or fragment"
             )
-        if self.manifest.resource.device != "cuda":
-            raise ValueError("local managed installation requires CUDA")
-        if (
-            self.manifest.plugin_id != "libreyolo"
-            or self.manifest.entrypoint[1:]
-            != ["serve", "--host", "0.0.0.0", "--port", "8000"]
-            or not re.fullmatch(
-                r"[A-Za-z0-9][A-Za-z0-9._-]*", self.manifest.entrypoint[0]
-            )
-        ):
-            raise ValueError(
-                "local installer requires an approved console script with fixed LibreYOLO serving arguments"
-            )
-        if not _IMAGE.fullmatch(self.manifest.artifact):
-            raise ValueError("image must be a safe digest-pinned OCI reference")
-        if not re.fullmatch(
+        _validate_entrypoint(self.manifest.entrypoint, self.container_port)
+        if self.manifest.resource.device == "cuda":
+            if (
+                not self.gpu_resource_id
+                or not self.physical_gpu_uuid
+                or not self.gpu_verify_keyring
+            ):
+                raise ValueError("CUDA requires a GPU binding and verification keyring")
+        elif self.gpu_resource_id or self.physical_gpu_uuid or self.gpu_verify_keyring:
+            raise ValueError("CPU installation must not have GPU configuration")
+        if self.physical_gpu_uuid is not None and not re.fullmatch(
             r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}",
             self.physical_gpu_uuid,
         ):
@@ -94,7 +90,7 @@ class LocalPluginConfig(BaseModel):
             or self.network == "host"
         ):
             raise ValueError("an explicit non-host Docker network is required")
-        if any(c in self.gpu_resource_id for c in "\n\r"):
+        if self.gpu_resource_id and any(c in self.gpu_resource_id for c in "\n\r"):
             raise ValueError("invalid GPU resource identity")
         if any(
             not key or not value or "\n" in key or "\n" in value
@@ -159,28 +155,30 @@ class LocalPluginDeployment:
             )
         return receipt
 
-    def _request(self, receipt: dict) -> PluginPrepareRequest:
+    def _request(self, receipt: dict) -> PreparePluginInstallation:
         config = LocalPluginConfig.model_validate(receipt["config"])
-        return PluginPrepareRequest(
+        return PreparePluginInstallation(
             installation_id=receipt["installation_id"],
             name=config.name,
             url=config.url,
             auth_token=receipt["token"],
             manifest=config.manifest,
-            resource=PluginResourceBinding(
-                gpu_resource_id=config.gpu_resource_id,
-                physical_gpu_uuid=config.physical_gpu_uuid,
-                logical_device="cuda:0",
-            ),
+            resource=self._binding(config),
         )
 
-    def _verify(self, receipt: dict, result: PluginInstallationResult) -> None:
-        config = LocalPluginConfig.model_validate(receipt["config"])
-        binding = PluginResourceBinding(
+    @staticmethod
+    def _binding(config: LocalPluginConfig) -> PluginResourceBinding:
+        return PluginResourceBinding(
             gpu_resource_id=config.gpu_resource_id,
             physical_gpu_uuid=config.physical_gpu_uuid,
-            logical_device="cuda:0",
+            logical_device="cuda:0"
+            if config.manifest.resource.device == "cuda"
+            else "cpu",
         )
+
+    def _verify(self, receipt: dict, result: PluginInstallationResponse) -> None:
+        config = LocalPluginConfig.model_validate(receipt["config"])
+        binding = self._binding(config)
         installation = result.installation
         if (
             installation.installation_id != UUID(receipt["installation_id"])
@@ -195,7 +193,66 @@ class LocalPluginDeployment:
                 "Registry installation does not match the local ownership receipt"
             )
 
-    def prepare(self, config: LocalPluginConfig) -> PluginInstallationResult:
+    def migrate_state(
+        self, manifest: PluginManifest, approved_image_id: str
+    ) -> PluginInstallationResponse:
+        """Rebind a legacy local receipt to an explicitly migrated Registry manifest."""
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", approved_image_id):
+            raise AAPError("An approved immutable local image ID is required")
+        with self.store.locked():
+            receipt = self._load()
+            if receipt.get("restart_candidate") or receipt.get("restart_intent"):
+                raise AAPError("Finish the pending restart before migrating state")
+            if not receipt.get("registry_id"):
+                raise AAPError("Legacy receipt has no recorded Registry identity")
+            old_config = receipt.get("config")
+            old_manifest = (
+                old_config.get("manifest") if isinstance(old_config, dict) else None
+            )
+            if not isinstance(old_manifest, dict):
+                raise AAPError("Receipt has no valid manifest")
+            new_manifest = manifest.model_dump(mode="json")
+            preserved = {
+                key: value
+                for key, value in new_manifest.items()
+                if key not in {"models", "pools"}
+            }
+            migrated = "models" in old_manifest or "pools" in old_manifest
+            if (migrated and old_manifest != new_manifest) or (
+                not migrated and preserved != old_manifest
+            ):
+                raise AAPError(
+                    "Approved manifest changes immutable legacy installation facts"
+                )
+            candidate = {
+                **receipt,
+                "config": {**old_config, "manifest": new_manifest},
+            }
+            if not migrated:
+                candidate["legacy_receipt"] = {
+                    key: value for key, value in receipt.items() if key != "token"
+                }
+            result = self.plugins.get(receipt["installation_id"])
+            self._verify(candidate, result)
+            container = self._container(candidate, result, provision=False)
+            if self.docker.image_id(container) != approved_image_id:
+                raise AAPError("Local image differs from the approved image identity")
+            for evidence in (receipt.get("qualification"), receipt.get("launch")):
+                if evidence and evidence.get("image_id") != approved_image_id:
+                    raise AAPError(
+                        "Approved image differs from recorded local evidence"
+                    )
+            exists = self.docker.exists(container)
+            if result.installation.status == "active" or exists:
+                inspected = self.docker.verify_running(container)
+                self._verify_process(
+                    receipt.get("launch"), receipt.get("started_at"), inspected
+                )
+            if not migrated:
+                self.store.save(candidate)
+            return result
+
+    def prepare(self, config: LocalPluginConfig) -> PluginInstallationResponse:
         with self.store.locked(create=True):
             receipt = self.store.load()
             body = config.model_dump(mode="json")
@@ -211,7 +268,10 @@ class LocalPluginDeployment:
                 self.store.save(receipt)
             elif (
                 receipt.get("api_origin") != self.api_origin
-                or receipt.get("config") != body
+                or LocalPluginConfig.model_validate(receipt.get("config")).model_dump(
+                    mode="json"
+                )
+                != body
             ):
                 raise AAPError(
                     "Installation receipt already belongs to a different configuration"
@@ -224,7 +284,7 @@ class LocalPluginDeployment:
             self.store.save(receipt)
             return result
 
-    def status(self) -> PluginInstallationResult:
+    def status(self) -> PluginInstallationResponse:
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])
@@ -254,7 +314,7 @@ class LocalPluginDeployment:
     def _container(
         self,
         receipt: dict,
-        result: PluginInstallationResult,
+        result: PluginInstallationResponse,
         *,
         provision: bool = True,
         with_qualification: bool = True,
@@ -263,27 +323,53 @@ class LocalPluginDeployment:
         data = self.store.directory / "data"
         data.mkdir(mode=0o700, exist_ok=True)
         _check_private(data, directory=True)
+        data_target = (
+            _DATA_TARGET
+            if config.manifest.plugin_id == "libreyolo"
+            else "/var/lib/aap-plugin"
+        )
         if provision:
             self._private_file(data / "token", receipt["token"])
-            self._private_file(
-                data / "gpu-keyring.json",
-                json.dumps(config.gpu_verify_keyring, sort_keys=True),
-            )
+            if config.physical_gpu_uuid:
+                self._private_file(
+                    data / "gpu-keyring.json",
+                    json.dumps(config.gpu_verify_keyring, sort_keys=True),
+                )
         env = {
-            "AAP_PLUGIN_TOKEN_FILE": f"{_DATA_TARGET}/token",
-            "AAP_ROUTE_CONTROL_TOKEN_FILE": f"{_DATA_TARGET}/token",
-            "AAP_PLUGIN_DEVICE": "cuda:0",
+            "AAP_PLUGIN_TOKEN_FILE": f"{data_target}/token",
+            "AAP_ROUTE_CONTROL_TOKEN_FILE": f"{data_target}/token",
+            "AAP_PLUGIN_DEVICE": self._binding(config).logical_device,
             "AAP_PLUGIN_REGISTRY_ID": str(result.registry_id),
-            "AAP_PLUGIN_GPU_RESOURCE_ID": config.gpu_resource_id,
-            "AAP_PLUGIN_GPU_UUID": config.physical_gpu_uuid,
-            "AAP_PLUGIN_GPU_KEYRING_FILE": f"{_DATA_TARGET}/gpu-keyring.json",
+            **(
+                {
+                    "AAP_PLUGIN_GPU_RESOURCE_ID": config.gpu_resource_id,
+                    "AAP_PLUGIN_GPU_UUID": config.physical_gpu_uuid,
+                    "AAP_PLUGIN_GPU_KEYRING_FILE": f"{data_target}/gpu-keyring.json",
+                }
+                if config.physical_gpu_uuid
+                else {}
+            ),
             "AAP_PLUGIN_ASSET_ORIGINS": ",".join(config.manifest.allowed_asset_sources),
             "AAP_PLUGIN_IMAGE_HOSTS": ",".join(config.image_hosts),
-            "AAP_PLUGIN_DATA_DIR": _DATA_TARGET,
+            "AAP_PLUGIN_DATA_DIR": data_target,
             "OMP_NUM_THREADS": str(max(1, int(config.cpus))),
             "MKL_NUM_THREADS": str(max(1, int(config.cpus))),
             "OPENBLAS_NUM_THREADS": str(max(1, int(config.cpus))),
         }
+        if config.manifest.plugin_id != "libreyolo":
+            env["AAP_ROUTE_REGISTRY_ID"] = str(result.registry_id)
+            env["AAP_PLUGIN_ID"] = config.manifest.plugin_id
+            env["AAP_PLUGIN_VERSION"] = config.manifest.version
+            env["AAP_PLUGIN_ASSET_MANIFEST_SHA256"] = (
+                config.manifest.asset_manifest_sha256
+            )
+            env["AAP_PLUGIN_MANAGED_MODEL_COMPATIBILITY"] = json.dumps(
+                [
+                    entry.model_dump(mode="json")
+                    for entry in config.manifest.managed_model_compatibility
+                ],
+                separators=(",", ":"),
+            )
         qualification = receipt.get("qualification") if with_qualification else None
         qualification_file = (
             self.store.directory / "qualification.json" if qualification else None
@@ -323,17 +409,17 @@ class LocalPluginDeployment:
             gpu_uuid=config.physical_gpu_uuid,
             network=config.network,
             host_port=config.host_port,
-            container_port=8000,
+            container_port=config.container_port,
             memory_mb=config.manifest.resource.memory_mb,
             cpus=config.cpus,
             env_file=env_file,
             data_dir=data,
-            data_target=_DATA_TARGET,
+            data_target=data_target,
             qualification_file=qualification_file,
             candidate_token=token,
         )
 
-    def prepare_assets(self) -> PluginInstallationResult:
+    def prepare_assets(self) -> PluginInstallationResponse:
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])
@@ -342,14 +428,18 @@ class LocalPluginDeployment:
                 raise AAPError(
                     "Assets can only be prepared for a prepared installation"
                 )
+            if result.installation.manifest.plugin_id != "libreyolo":
+                raise AAPError(
+                    "This plugin does not provide an installer asset-preparation command"
+                )
             self.docker.prepare_assets(
                 self._container(receipt, result, with_qualification=False)
             )
             return result
 
     def _qualification(
-        self, receipt: dict, result: PluginInstallationResult, source: Path | None
-    ) -> PluginQualification:
+        self, receipt: dict, result: PluginInstallationResponse, source: Path | None
+    ) -> PluginLifecycleQualification:
         try:
             from aap_lifecycle_contract import (
                 validate_managed_lifecycle_evidence,
@@ -426,7 +516,10 @@ class LocalPluginDeployment:
             != {
                 "registry_id": str(result.registry_id),
                 "gpu_resource_id": resource.gpu_resource_id,
-                "pools": {"models": {"cap": 1}},
+                "pools": {
+                    name: pool.model_dump(mode="json")
+                    for name, pool in item.manifest.pools.items()
+                },
             }
             or any(versions.get(key) != value for key, value in required.items())
             or (
@@ -441,11 +534,20 @@ class LocalPluginDeployment:
         if not saved:
             receipt["qualification"] = {"sha256": digest, "image_id": image_id}
             self.store.save(receipt)
-        return PluginQualification(report=report, sha256=digest)
+        return PluginLifecycleQualification(report=report, sha256=digest)
+
+    def _qualification_for_device(
+        self, receipt: dict, result: PluginInstallationResponse, source: Path | None
+    ) -> PluginLifecycleQualification | None:
+        if result.installation.manifest.resource.device == "cuda":
+            return self._qualification(receipt, result, source)
+        if source is not None:
+            raise AAPError("CPU installations do not accept GPU qualification")
+        return None
 
     def install(
         self, qualification_path: Path | None = None
-    ) -> PluginInstallationResult:
+    ) -> PluginInstallationResponse:
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])
@@ -454,7 +556,9 @@ class LocalPluginDeployment:
                 raise AAPError("Finish the pending restart with plugins restart")
             if result.installation.status not in {"prepared", "active"}:
                 raise AAPError("Only a prepared or active installation can be started")
-            qualification = self._qualification(receipt, result, qualification_path)
+            qualification = self._qualification_for_device(
+                receipt, result, qualification_path
+            )
             container = self._container(receipt, result)
             if result.installation.status == "active":
                 inspected = self.docker.verify_running(container)
@@ -475,7 +579,10 @@ class LocalPluginDeployment:
                     self._verify_process(
                         receipt["launch"], receipt.get("started_at"), inspected
                     )
-                if inspected["image_id"] != receipt["qualification"]["image_id"]:
+                if (
+                    qualification
+                    and inspected["image_id"] != receipt["qualification"]["image_id"]
+                ):
                     raise AAPError("Container image changed after qualification")
                 evidence = PluginLaunchReceipt(
                     installation_id=result.installation.installation_id,
@@ -522,7 +629,7 @@ class LocalPluginDeployment:
                 "Container process identity is not the recorded activation; unexpected exits or external restarts require owner recovery"
             )
 
-    def restart(self) -> PluginInstallationResult:
+    def restart(self) -> PluginInstallationResponse:
         """Replace a proven-quiescent owned launch, retaining its data and history."""
         with self.store.locked():
             receipt = self._load()
@@ -579,7 +686,7 @@ class LocalPluginDeployment:
                 raise AAPError(
                     "Restart requires the matching committed local quiescence proof"
                 )
-            qualification = self._qualification(receipt, result, None)
+            qualification = self._qualification_for_device(receipt, result, None)
             container = self._container(receipt, result)
             if candidate is None:
                 self.docker.stop_and_remove(
@@ -610,7 +717,10 @@ class LocalPluginDeployment:
                 candidate["container_id"],
                 may_start=not candidate.get("started_at"),
             )
-            if inspected["image_id"] != receipt["qualification"]["image_id"]:
+            if (
+                qualification
+                and inspected["image_id"] != receipt["qualification"]["image_id"]
+            ):
                 raise AAPError("Container image changed after qualification")
             evidence = PluginLaunchReceipt(
                 installation_id=result.installation.installation_id,
@@ -652,7 +762,7 @@ class LocalPluginDeployment:
 
     @staticmethod
     def _verify_restart_intent(
-        receipt: dict, result: PluginInstallationResult, intent: dict, *, active: bool
+        receipt: dict, result: PluginInstallationResponse, intent: dict, *, active: bool
     ) -> None:
         revision = intent.get("revision")
         if (
@@ -669,7 +779,7 @@ class LocalPluginDeployment:
             )
 
     def _candidate_container(
-        self, receipt: dict, result: PluginInstallationResult, candidate: dict
+        self, receipt: dict, result: PluginInstallationResponse, candidate: dict
     ) -> ContainerConfig:
         token = candidate["token"]
         container = self._container(receipt, result)
@@ -680,8 +790,8 @@ class LocalPluginDeployment:
         )
 
     def _finish_restart(
-        self, receipt: dict, result: PluginInstallationResult
-    ) -> PluginInstallationResult:
+        self, receipt: dict, result: PluginInstallationResponse
+    ) -> PluginInstallationResponse:
         candidate = receipt.pop("restart_candidate")
         receipt.setdefault("launch_history", []).append(
             {
@@ -720,7 +830,7 @@ class LocalPluginDeployment:
         self.store.save(receipt)
 
     def _bind_active_process(
-        self, receipt: dict, result: PluginInstallationResult
+        self, receipt: dict, result: PluginInstallationResponse
     ) -> None:
         inspected = self.docker.verify_running(
             self._container(receipt, result, provision=False)
@@ -738,8 +848,8 @@ class LocalPluginDeployment:
             self._verify_process(launch, started_at, inspected)
 
     def _disable(
-        self, receipt: dict, result: PluginInstallationResult
-    ) -> PluginInstallationResult:
+        self, receipt: dict, result: PluginInstallationResponse
+    ) -> PluginInstallationResponse:
         if receipt.get("restart_candidate"):
             raise AAPError(
                 "Finish the pending restart before disabling or uninstalling"
@@ -769,14 +879,14 @@ class LocalPluginDeployment:
         )
         return proof
 
-    def disable(self) -> PluginInstallationResult:
+    def disable(self) -> PluginInstallationResponse:
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])
             self._verify(receipt, result)
             return self._disable(receipt, result)
 
-    def uninstall(self) -> PluginInstallationResult:
+    def uninstall(self) -> PluginInstallationResponse:
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])

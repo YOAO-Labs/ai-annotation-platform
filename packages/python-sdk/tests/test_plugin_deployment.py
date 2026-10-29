@@ -8,7 +8,10 @@ import pytest
 
 from ai_annotation.errors import AAPError, APIStatusError
 from ai_annotation.plugin_deployment import LocalPluginConfig, LocalPluginDeployment
-from ai_annotation.plugin_models import PluginInstallationResult, PluginQuiesceResult
+from aap_inference_contract.plugin import (
+    PluginInstallationResponse,
+    PluginQuiesceResponse,
+)
 
 
 def config():
@@ -39,6 +42,17 @@ def config():
                     "8000",
                 ],
                 "capabilities": ["inference", "detection"],
+                "models": [
+                    {
+                        "id": "detect",
+                        "task": "detect",
+                        "is_interactive": False,
+                        "supported_prompts": ["none"],
+                        "supported_inputs": ["full_image", "crop"],
+                        "supported_geometric_outputs": ["bbox"],
+                    }
+                ],
+                "pools": {"models": {"cap": 1}},
                 "resource": {
                     "device": "cuda",
                     "memory_mb": 4096,
@@ -144,7 +158,7 @@ class Core:
     def prepare(self, request):
         self.requests.append(request)
         if self.result is None:
-            self.result = PluginInstallationResult.model_validate(
+            self.result = PluginInstallationResponse.model_validate(
                 {
                     "registry_id": str(uuid4()),
                     "installation": {
@@ -167,7 +181,7 @@ class Core:
         payload = self.result.model_dump(mode="json")
         payload["installation"]["status"] = status
         payload["installation"]["revision"] += 1
-        self.result = PluginInstallationResult.model_validate(payload)
+        self.result = PluginInstallationResponse.model_validate(payload)
         return self.result
 
     def activate(self, installation_id, request):
@@ -207,7 +221,7 @@ class Core:
         if self.safe and self.proven_revision != revision:
             self._transition("disabled")
             self.proven_revision = self.result.installation.revision
-        return PluginQuiesceResult.model_validate(
+        return PluginQuiesceResponse.model_validate(
             {
                 **self.result.model_dump(mode="json"),
                 "safe_to_stop": self.safe,

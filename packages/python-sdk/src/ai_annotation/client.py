@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 import time
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, Sequence
 from uuid import UUID, uuid4
@@ -25,7 +26,7 @@ from ai_annotation.batch_operation_models import (
 )
 from ai_annotation.config import load_config
 from ai_annotation.data_manager import DataManager
-from ai_annotation.errors import AAPError, JobFailedError, JobTimeoutError
+from ai_annotation.errors import AAPError, InstallError, JobFailedError, JobTimeoutError
 from ai_annotation.dataset_operation_models import (
     DatasetBackfillDimensionsResult,
     DatasetBackfillMediaResult,
@@ -75,7 +76,6 @@ from ai_annotation.storage_connections import StorageConnections
 from ai_annotation.admin_operations import AdminOperations
 from ai_annotation.ml_diagnostics import MLDiagnostics
 from ai_annotation.project_ml import ProjectML
-from ai_annotation.plugins import PluginInstallations
 from ai_annotation.audit_logs import AuditLogs
 from ai_annotation.task_views import TaskViews
 from ai_annotation.pipelines import ProjectPipelines
@@ -2135,7 +2135,6 @@ class Client:
         self.admin_operations = AdminOperations(self._http)
         self.ml_diagnostics = MLDiagnostics(self._http)
         self.project_ml = ProjectML(self._http)
-        self.plugins = PluginInstallations(self._http)
         self.audit_logs = AuditLogs(self._http)
         self.guide_assets = GuideAssets(self._http)
         self.project_performance = ProjectPerformance(self._http)
@@ -2177,6 +2176,19 @@ class Client:
         self.sample_evaluations = SampleEvaluations(self._http)
         self.training_studies = TrainingStudies(self._http)
         self.active_learning = ActiveLearning(self._http)
+
+    @cached_property
+    def plugins(self):
+        """Administrator plugin operations require the plugins extra."""
+        try:
+            from ai_annotation.plugins import PluginInstallations
+        except ModuleNotFoundError as exc:
+            if exc.name != "aap_inference_contract":
+                raise
+            raise InstallError(
+                "Plugin administration requires 'ai-annotation-sdk[plugins]'"
+            ) from exc
+        return PluginInstallations(self._http)
 
     def me(self) -> Me:
         """当前认证主体 (GET /auth/me)。用于自检凭据 / 角色感知。"""

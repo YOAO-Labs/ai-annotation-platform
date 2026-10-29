@@ -63554,7 +63554,7 @@
           "default": null
         }
       ],
-      "return_type": "PluginInstallationResult",
+      "return_type": "PluginInstallationResponse",
       "python_only": false,
       "constructed_models": [
         "UUID",
@@ -63590,10 +63590,10 @@
           "default": null
         }
       ],
-      "return_type": "PluginInstallationResult",
+      "return_type": "PluginInstallationResponse",
       "python_only": false,
       "constructed_models": [
-        "PluginRevisionRequest"
+        "PluginInstallationCommand"
       ],
       "direct_api_operations": [
         "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/cancel-prepared"
@@ -63625,10 +63625,10 @@
           "default": null
         }
       ],
-      "return_type": "PluginInstallationResult",
+      "return_type": "PluginInstallationResponse",
       "python_only": false,
       "constructed_models": [
-        "PluginRevisionRequest"
+        "PluginInstallationCommand"
       ],
       "direct_api_operations": [
         "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable"
@@ -63653,7 +63653,7 @@
           "default": null
         }
       ],
-      "return_type": "PluginInstallationResult",
+      "return_type": "PluginInstallationResponse",
       "python_only": false,
       "constructed_models": [],
       "direct_api_operations": [
@@ -63671,7 +63671,7 @@
       "class": "PluginInstallations",
       "method": "list",
       "parameters": [],
-      "return_type": "list[PluginInstallationResult]",
+      "return_type": "list[PluginInstallationResponse]",
       "python_only": false,
       "constructed_models": [],
       "direct_api_operations": [
@@ -63692,12 +63692,12 @@
         {
           "name": "request",
           "kind": "positional_or_keyword",
-          "annotation": "PluginPrepareRequest",
+          "annotation": "PreparePluginInstallation",
           "required": true,
           "default": null
         }
       ],
-      "return_type": "PluginInstallationResult",
+      "return_type": "PluginInstallationResponse",
       "python_only": false,
       "constructed_models": [],
       "direct_api_operations": [
@@ -63730,10 +63730,10 @@
           "default": null
         }
       ],
-      "return_type": "PluginQuiesceResult",
+      "return_type": "PluginQuiesceResponse",
       "python_only": false,
       "constructed_models": [
-        "PluginRevisionRequest"
+        "PluginInstallationCommand"
       ],
       "direct_api_operations": [
         "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce"
@@ -63765,10 +63765,10 @@
           "default": null
         }
       ],
-      "return_type": "PluginInstallationResult",
+      "return_type": "PluginInstallationResponse",
       "python_only": false,
       "constructed_models": [
-        "PluginRevisionRequest"
+        "PluginInstallationCommand"
       ],
       "direct_api_operations": [
         "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire"
@@ -93301,6 +93301,70 @@
       "confirmation": true
     },
     {
+      "path": "aap plugins migrate-state",
+      "alias": "plugins.migrate-state",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "manifest",
+          "kind": "option",
+          "options": [
+            "--manifest"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Approved migrated manifest JSON"
+        },
+        {
+          "name": "image_id",
+          "kind": "option",
+          "options": [
+            "--image-id"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Approved immutable local image ID"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
+    },
+    {
       "path": "aap plugins prepare",
       "alias": "plugins.prepare",
       "parameters": [
@@ -93370,6 +93434,48 @@
       ],
       "sdk_methods": [],
       "confirmation": false
+    },
+    {
+      "path": "aap plugins restart",
+      "alias": "plugins.restart",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
     },
     {
       "path": "aap plugins status",
