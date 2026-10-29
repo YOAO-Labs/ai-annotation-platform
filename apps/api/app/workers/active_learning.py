@@ -19,7 +19,6 @@ from app.db.models.active_learning import (
     ActiveLearningCandidate as Candidate,
     ActiveLearningRound as Round,
 )
-from app.db.models.async_job import AsyncJob
 from app.services import (
     active_learning as service,
     async_job as jobs,
@@ -425,7 +424,7 @@ async def dispatch(db, round):
         return
     task_id = str(uuid.uuid4())
     service.record_dispatched(attempt)
-    job = await db.get(AsyncJob, attempt.async_job_id)
+    job = await jobs.get_job(db, attempt.async_job_id)
     if job:
         jobs.bind_execution_id(job, task_id)
     await db.commit()

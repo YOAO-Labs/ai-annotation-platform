@@ -12,7 +12,6 @@ from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -853,7 +852,7 @@ async def dispatch_dataset(
         version.async_job_id,
         version.attempt_id,
     )
-    job = await db.get(AsyncJob, version.async_job_id)
+    job = await jobs.get_job(db, version.async_job_id)
     jobs.bind_execution_id(job, task_id)
     await db.commit()
     try:
@@ -959,10 +958,7 @@ class SqlTrainingDatasetCancellation(TrainingDatasetCancellationPort):
                     .execution_options(populate_existing=True)
                 )
             ).scalar_one_or_none()
-            # The central composer holds the initial job in this same session,
-            # so reacquiring it is an identity-map hit before the refresh.
-            job = await self.__db.get(AsyncJob, job_id)
-            await self.__db.refresh(job)
+            job = await jobs.get_job(self.__db, job_id, populate_existing=True)
             if (
                 version is None
                 or version.status not in {"pending", "running"}
