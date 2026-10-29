@@ -1,9 +1,8 @@
 """Validate ONNXTools' managed lifecycle with approved models on a real GPU.
 
-The gate is intentionally fail-closed. Both model files must match separately
-approved SHA-256 digests, and the input must contain a vehicle that the composite
-pipeline can detect and classify. The script emits one JSON evidence document to
-stdout and leaves the service's deployment flags unchanged.
+The gate is intentionally fail-closed. Model and fixture files must match approved
+SHA-256 digests. Positive, empty, and edge-of-image vehicle fixtures must exercise
+real inference; evidence is emitted to stdout without changing deployment flags.
 """
 
 from __future__ import annotations
@@ -12,19 +11,22 @@ import asyncio
 import gc
 import hashlib
 import json
+import math
 import os
 import platform
 import re
+import socket
 import subprocess
 import sys
 import time
 import uuid
-from contextlib import redirect_stdout
+from contextlib import asynccontextmanager, redirect_stdout
 from pathlib import Path
 from statistics import median
 from typing import Any
 
 import httpx
+import uvicorn
 from aap_backend_runtime.backend_auth import backend_auth_headers
 from aap_backend_runtime import (
     artifact_evidence,
@@ -101,11 +103,24 @@ def _validate_artifacts() -> dict[str, Any]:
     model_dir = Path(os.getenv("ONNXTOOLS_MODEL_DIR", "/app/models"))
     det_path = model_dir / os.getenv("ONNXTOOLS_DET_MODEL", "rtdetr-2024080100.onnx")
     va_path = model_dir / os.getenv("ONNXTOOLS_VA_MODEL", "va_260612.onnx")
-    image_path = Path(_required_env("VALIDATION_IMAGE_PATH"))
-    if not image_path.is_file() or image_path.stat().st_size <= 0:
-        raise RuntimeError(
-            f"VALIDATION_IMAGE_PATH must be a non-empty file: {image_path}"
+    images = {
+        name: _approved_artifact(
+            label=f"{name} fixture",
+            path=Path(_required_env(path_env)),
+            expected_sha_env=sha_env,
         )
+        for name, path_env, sha_env in (
+            ("positive", "VALIDATION_IMAGE_PATH", "VALIDATION_IMAGE_SHA256"),
+            ("empty", "VALIDATION_EMPTY_IMAGE_PATH", "VALIDATION_EMPTY_IMAGE_SHA256"),
+            (
+                "boundary",
+                "VALIDATION_BOUNDARY_IMAGE_PATH",
+                "VALIDATION_BOUNDARY_IMAGE_SHA256",
+            ),
+        )
+    }
+    if len({item["sha256"] for item in images.values()}) != len(images):
+        raise RuntimeError("positive, empty and boundary fixtures must be distinct")
 
     det = _approved_artifact(
         label="detector model",
@@ -123,11 +138,7 @@ def _validate_artifacts() -> dict[str, Any]:
         "approval_ref": approval_ref,
         "detector": det,
         "vehicle_attribute": va,
-        "validation_image": {
-            "path": str(image_path),
-            "size": image_path.stat().st_size,
-            "sha256": _sha256(image_path),
-        },
+        "fixtures": images,
     }
 
 
@@ -149,15 +160,10 @@ def _gpu_query(fields: str) -> list[list[str]]:
 
 def _gpu_row(target_uuid: str | None) -> list[str]:
     rows = _gpu_query("uuid,memory.used,memory.total,driver_version")
-    if target_uuid:
-        for row in rows:
-            if row[0] == target_uuid:
-                return row
-        raise RuntimeError(f"GPU UUID {target_uuid!r} is not visible")
     if len(rows) != 1:
-        raise RuntimeError(
-            "VALIDATION_GPU_UUID is required when multiple GPUs are visible"
-        )
+        raise RuntimeError("qualification requires exactly one visible GPU")
+    if target_uuid and rows[0][0] != target_uuid:
+        raise RuntimeError(f"GPU UUID {target_uuid!r} is not the sole visible GPU")
     return rows[0]
 
 
@@ -289,9 +295,55 @@ def _assert_predict_results(model_id: str, payload: dict[str, Any]) -> None:
             f"{model_id} produced no result; use a representative vehicle image"
         )
     if model_id in {"vehicle-attr", "vehicle-attr-classify"} and not any(
-        isinstance(item.get("attributes"), dict) for item in items
+        isinstance(item.get("attributes"), dict)
+        and all(
+            isinstance(item["attributes"].get(key), str)
+            and bool(item["attributes"][key])
+            for key in ("vehicle_type", "color")
+        )
+        for item in items
     ):
         raise AssertionError(f"{model_id} did not execute vehicle classification")
+
+
+def _assert_empty_result(model_id: str, payload: dict[str, Any]) -> None:
+    results = payload.get("results")
+    if (
+        not isinstance(results, list)
+        or len(results) != 1
+        or results[0].get("result") != []
+    ):
+        raise AssertionError(f"{model_id} detected an object in the empty fixture")
+
+
+def _assert_boundary_result(model_id: str, payload: dict[str, Any]) -> None:
+    _assert_predict_results(model_id, payload)
+    touches_edge = False
+    for item in payload["results"][0]["result"]:
+        box = item.get("value")
+        if not isinstance(box, dict):
+            raise AssertionError(f"{model_id} returned a malformed boundary box")
+        values = [box.get(key) for key in ("x", "y", "width", "height")]
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            for value in values
+        ):
+            raise AssertionError(f"{model_id} returned non-finite boundary coordinates")
+        x, y, width, height = values
+        if (
+            x < 0
+            or y < 0
+            or width <= 0
+            or height <= 0
+            or x + width > 100
+            or y + height > 100
+        ):
+            raise AssertionError(f"{model_id} returned an out-of-bounds boundary box")
+        touches_edge |= min(x, y, 100 - x - width, 100 - y - height) <= 5
+    if not touches_edge:
+        raise AssertionError(f"{model_id} did not detect the edge-of-image vehicle")
 
 
 async def _provider_evidence(main_module: Any) -> dict[str, list[list[str]]]:
@@ -311,12 +363,44 @@ async def _provider_evidence(main_module: Any) -> dict[str, list[list[str]]]:
     return evidence
 
 
+@asynccontextmanager
+async def _http_client(app: Any):
+    """Serve the qualified app on an ephemeral loopback port in this process."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(128)
+    sock.setblocking(False)
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(
+        uvicorn.Config(app, lifespan="off", log_level="warning", access_log=False)
+    )
+    server_task = asyncio.create_task(server.serve(sockets=[sock]))
+    try:
+        while not server.started:
+            if server_task.done():
+                await server_task
+                raise RuntimeError("qualification HTTP server exited before startup")
+            await asyncio.sleep(0.01)
+        async with httpx.AsyncClient(
+            headers=backend_auth_headers("onnxtools"),
+            base_url=f"http://127.0.0.1:{port}",
+            timeout=600,
+        ) as client:
+            yield client
+    finally:
+        server.should_exit = True
+        try:
+            await server_task
+        finally:
+            sock.close()
+
+
 async def _run() -> dict[str, Any]:
     git_commit = _required_env("VALIDATION_GIT_COMMIT")
     image_id = _required_env("VALIDATION_IMAGE_ID")
     fixture_approval_ref = _required_env("VALIDATION_FIXTURE_APPROVAL_REF")
     artifacts = _validate_artifacts()
-    requested_uuid = os.getenv("VALIDATION_GPU_UUID", "").strip() or None
+    requested_uuid = _required_env("VALIDATION_GPU_UUID")
     gpu = _gpu_metadata(requested_uuid)
     target_uuid = gpu["uuid"]
     cold_baseline = _assert_isolated_before_start(target_uuid)
@@ -338,7 +422,7 @@ async def _run() -> dict[str, Any]:
         "cold_card_baseline": cold_baseline,
         "gpu_total_mb": _gpu_total_memory_mb(target_uuid),
     }
-    image_path = artifacts["validation_image"]["path"]
+    image_path = artifacts["fixtures"]["positive"]["path"]
 
     async with main.lifespan(main.app):
         assert main._gpu_lifecycle is not None  # noqa: SLF001
@@ -397,13 +481,7 @@ async def _run() -> dict[str, Any]:
                 )
             return response.json()
 
-        transport = httpx.ASGITransport(app=main.app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            headers=backend_auth_headers("onnxtools"),
-            base_url="http://onnxtools-validation",
-            timeout=600,
-        ) as client:
+        async with _http_client(main.app) as client:
             reset = await checked_post(
                 client,
                 "/lifecycle/reset",
@@ -460,6 +538,26 @@ async def _run() -> dict[str, Any]:
                     request_headers=workload_headers(AdmissionScope.PREDICT, "1"),
                 )
                 _assert_predict_results(model_id, payload)
+            for model_id in ("vehicle-attr", "vehicle-detect"):
+                for fixture, check in (
+                    ("empty", _assert_empty_result),
+                    ("boundary", _assert_boundary_result),
+                ):
+                    payload = await checked_post(
+                        client,
+                        "/predict",
+                        json_body={
+                            "tasks": [
+                                {
+                                    "id": fixture,
+                                    "file_path": artifacts["fixtures"][fixture]["path"],
+                                }
+                            ],
+                            "context": {"model_id": model_id},
+                        },
+                        request_headers=workload_headers(AdmissionScope.PREDICT, "1"),
+                    )
+                    check(model_id, payload)
             contract_checks["real_inference"] = True
 
             provider_evidence = await _provider_evidence(main)
@@ -591,10 +689,11 @@ async def _run() -> dict[str, Any]:
                 kind="weight",
                 approval_ref=approval_ref,
             ),
-            artifact_evidence(
-                artifacts["validation_image"]["path"],
-                kind="fixture",
-                approval_ref=fixture_approval_ref,
+            *(
+                artifact_evidence(
+                    item["path"], kind="fixture", approval_ref=fixture_approval_ref
+                )
+                for item in artifacts["fixtures"].values()
             ),
         ]
         onnxruntime_version = str(__import__("onnxruntime").__version__)

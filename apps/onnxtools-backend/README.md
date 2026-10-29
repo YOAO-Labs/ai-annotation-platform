@@ -37,10 +37,15 @@
 
 Dockerfile 固定到已审计的 onnxtools commit，避免 `_onnx_session` ownership 契约随上游 `main` 漂移。新部署完成“空池基线 → 四个业务 session 全部加载 → 全池卸载 → 回到稳定基线”的真实 GPU 验证前，必须保持 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED=0`。此时 `/setup` 不宣告 managed lifecycle，`/lifecycle/mode` 拒绝切入 enforce，residency 也不会成为自动驱逐依据。
 
-验收器会在加载 CUDA 前校验两个模型的批准 SHA-256 与审批引用，不允许用“结构相似”的未批准模型代替业务模型关闭门禁。在独占验收卡上执行：
+验收器会在加载 CUDA 前校验两个模型和三张验收图的批准 SHA-256 与审批引用，不允许用未批准模型或图片代替业务资产。在获准独占验收卡上执行：
 
 ```bash
 export VALIDATION_IMAGE_PATH=/absolute/path/to/representative-vehicle.jpg
+export VALIDATION_IMAGE_SHA256=<approved-positive-image-sha256>
+export VALIDATION_EMPTY_IMAGE_PATH=/absolute/path/to/empty-scene.jpg
+export VALIDATION_EMPTY_IMAGE_SHA256=<approved-empty-image-sha256>
+export VALIDATION_BOUNDARY_IMAGE_PATH=/absolute/path/to/edge-vehicle.jpg
+export VALIDATION_BOUNDARY_IMAGE_SHA256=<approved-boundary-image-sha256>
 export VALIDATION_DET_SHA256=<approved-rtdetr-sha256>
 export VALIDATION_VA_SHA256=<approved-va-sha256>
 export VALIDATION_MODEL_APPROVAL_REF=<approval-record-or-ticket>
@@ -51,19 +56,26 @@ export EVIDENCE_DIR=/tmp/aap-gpu-acceptance
 install -d -m 700 "$EVIDENCE_DIR"
 set -o pipefail
 
-docker run --rm --gpus '"device=0"' --entrypoint python3 \
+docker run --rm --gpus "device=$VALIDATION_GPU_UUID" --entrypoint python3 \
   -e VALIDATION_GPU_UUID \
   -e VALIDATION_DET_SHA256 \
   -e VALIDATION_VA_SHA256 \
+  -e VALIDATION_IMAGE_SHA256 \
+  -e VALIDATION_EMPTY_IMAGE_SHA256 \
+  -e VALIDATION_BOUNDARY_IMAGE_SHA256 \
   -e VALIDATION_MODEL_APPROVAL_REF \
   -e VALIDATION_FIXTURE_APPROVAL_REF \
   -e VALIDATION_GIT_COMMIT \
   -e VALIDATION_IMAGE_PATH=/validation/vehicle.jpg \
+  -e VALIDATION_EMPTY_IMAGE_PATH=/validation/empty.jpg \
+  -e VALIDATION_BOUNDARY_IMAGE_PATH=/validation/edge.jpg \
   -e VALIDATION_IMAGE_ID="$(docker image inspect \
     ai-annotation-platform-onnxtools-backend:latest --format '{{.Id}}')" \
   -v "$PWD/apps/onnxtools-backend/models:/app/models:ro" \
   --mount "type=bind,src=$PWD/data/inference-auth/onnxtools,dst=/run/aap-inference-auth,readonly" \
   -v "$VALIDATION_IMAGE_PATH:/validation/vehicle.jpg:ro" \
+  -v "$VALIDATION_EMPTY_IMAGE_PATH:/validation/empty.jpg:ro" \
+  -v "$VALIDATION_BOUNDARY_IMAGE_PATH:/validation/edge.jpg:ro" \
   ai-annotation-platform-onnxtools-backend:latest \
   /app/scripts/validate_managed_lifecycle.py \
   | tee "$EVIDENCE_DIR/onnxtools-managed-lifecycle.json"
@@ -73,7 +85,7 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 
 运行前先由平台初始化内置服务默认凭据。独立验收容器只读挂载 ONNXTools 自己的凭据目录；缺少或损坏的凭据会明确拒绝验证。已有手动认证的部署可显式传入相同的 `AAP_BACKEND_AUTH_TOKEN`，脚本不会生成临时绕过凭据。
 
-代表图必须让 `vehicle-attr` 复合管道实际产生检测与分类结果。验收器会执行两轮三句柄/四 session 加载与受签全池卸载，拒绝任一 session 退回 CPU，并要求每轮卸载后显存稳定、回收至上下文基线且至少回收 90% 的模型工作集。严格证据只保留路径无关的制品指纹、物理 GPU 身份、显存样本与最终 residency；仅在 `passed=true` 并完成复核后，才能在目标部署中把 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 设为 `1`。
+代表图必须让 `vehicle-attr` 复合管道实际产生检测与分类结果；空场景必须不产生检测，边界图必须检测到接近画面边缘（5% 范围内）的车辆，且归一化框不能越界。验收器在拥有 session 的同一服务进程中通过本机 HTTP 执行两轮三句柄/四 session 加载与受签全池卸载，拒绝任一 session 退回 CPU，并要求每轮卸载后显存稳定、回收至上下文基线且至少回收 90% 的模型工作集。严格证据只保留路径无关的制品指纹、物理 GPU 身份、显存样本与最终 residency；仅在 `passed=true` 并完成复核后，才能在目标部署中把 `ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 设为 `1`。
 
 ## 环境变量
 
