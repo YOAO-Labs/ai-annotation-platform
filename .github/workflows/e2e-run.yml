@@ -77,7 +77,7 @@ jobs:
 
   suites:
     name: Frontend E2E suites
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Fail-closed via the needs dependency: a failed shared build skips every
     # suite (the aggregate Frontend E2E then fails on the skipped result);
