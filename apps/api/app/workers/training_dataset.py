@@ -654,7 +654,7 @@ async def _build_dataset_contents(
             )
             accounting.permit = permit
             async with permit:
-                with originals.temporary_directory(prefix="aap-training-") as temporary:
+                with originals.temporary_directory(prefix="training-") as temporary:
                     directory = Path(temporary)
                     media = []
                     source_reads = []

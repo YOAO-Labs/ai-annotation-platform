@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-const OPEN_EVENT = "aap:shell-popover-open";
+const OPEN_EVENT = "shell:popover-open";
 
 export const SHELL_POPOVER_HEADER_CLASS =
   "flex h-11 shrink-0 items-center gap-2 border-b border-border px-3.5 text-xs";

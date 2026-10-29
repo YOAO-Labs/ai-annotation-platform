@@ -424,7 +424,7 @@ class ImageExecutor:
                 )
             self._validate_metadata_probe_size(claim, source.object_identity)
             with tempfile.TemporaryDirectory(
-                prefix="aap-image-dimensions-"
+                prefix="image-dimensions-"
             ) as temporary:
                 workspace = Path(temporary)
                 workspace.chmod(0o700)
@@ -481,7 +481,7 @@ class ImageExecutor:
                 self._validate_thumbnail_dimensions(claim, thumbnail_dimensions)
                 self._validate_known_dimensions(source, thumbnail_dimensions)
 
-        with tempfile.TemporaryDirectory(prefix="aap-image-job-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="image-job-") as temporary:
             workspace = Path(temporary)
             workspace.chmod(0o700)
             source_path = workspace / _source_filename(source.file_name)

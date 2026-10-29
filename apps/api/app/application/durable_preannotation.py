@@ -72,7 +72,7 @@ async def _retained_input(execution, member):
             if current.sha256 != actual.sha256 or current.byte_size != actual.byte_size:
                 raise ValueError("retained source changed")
             with tempfile.TemporaryDirectory(
-                prefix="aap-batch-result-input-"
+                prefix="batch-result-input-"
             ) as directory:
                 path = Path(directory) / "source"
                 await gateway.download(reference, path)

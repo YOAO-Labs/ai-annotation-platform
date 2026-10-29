@@ -264,7 +264,7 @@ def _capture(
 
     try:
         check()
-        temporary = tempfile.TemporaryFile(mode="w+b", prefix="aap-original-")
+        temporary = tempfile.TemporaryFile(mode="w+b", prefix="original-")
         client, context = None, None
         try:
             try:

@@ -784,7 +784,7 @@ async def probe_source_timetable(
     if source.object_identity is not None and identity != source.object_identity:
         raise MediaFailure("source_changed")
     captured = source.model_copy(update={"object_identity": identity})
-    with tempfile.TemporaryDirectory(prefix="aap-video-timetable-") as temp:
+    with tempfile.TemporaryDirectory(prefix="video-timetable-") as temp:
         suffix = Path(source.file_name).suffix or ".mp4"
         path = Path(temp) / f"source{suffix}"
         await storage.download_source(captured, path)

@@ -634,7 +634,7 @@ def plan(
         raise CopyError("invalid_handling")
     private_parent(Path(checkpoint).absolute())
     with tempfile.TemporaryDirectory(
-        prefix="aap-copy-plan-", dir=Path(checkpoint).parent
+        prefix="copy-plan-", dir=Path(checkpoint).parent
     ) as directory:
         budget = ReferenceBudget(
             ReferenceLimits(max_seconds=limits.max_seconds),

@@ -324,7 +324,7 @@ async def execute(db, job_id, task_id):
                 permits.append(await stack.enter_async_context(permit))
             await service.acquired(db, job_id, task_id, permits)
             access = await fresh()
-            with tempfile.TemporaryDirectory(prefix="aap-copy-attempt-") as directory:
+            with tempfile.TemporaryDirectory(prefix="copy-attempt-") as directory:
                 metadata, reference_limits = (
                     None,
                     ReferenceLimits(

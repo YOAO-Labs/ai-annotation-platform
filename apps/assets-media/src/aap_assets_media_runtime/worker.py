@@ -82,7 +82,7 @@ class VerifiedSourceCache:
 
     def __init__(self, *, directory: str | Path | None = None) -> None:
         self._temporary = (
-            tempfile.TemporaryDirectory(prefix="aap-video-source-")
+            tempfile.TemporaryDirectory(prefix="video-source-")
             if directory is None
             else None
         )
@@ -361,7 +361,7 @@ class MediaExecutor:
             raise MediaFailure("source_changed")
         async with self.source_cache.lease(source, self.storage) as verified:
             heartbeat.check()
-            with tempfile.TemporaryDirectory(prefix="aap-video-output-") as output:
+            with tempfile.TemporaryDirectory(prefix="video-output-") as output:
                 try:
                     processing = asyncio.create_task(
                         asyncio.to_thread(

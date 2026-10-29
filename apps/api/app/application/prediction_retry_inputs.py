@@ -397,7 +397,7 @@ async def _prepare_retry_input(
             )
             try:
                 temporary_directory = tempfile.TemporaryDirectory(
-                    prefix="aap-manifest-retry-"
+                    prefix="manifest-retry-"
                 )
             except OSError as exc:
                 raise FrozenInputRetryDeferred("storage_unavailable") from exc
@@ -529,7 +529,7 @@ async def _prepare_retry_input(
     async with input_gateway(session_factory=session_factory) as gateway:
         try:
             temporary_directory = tempfile.TemporaryDirectory(
-                prefix="aap-accepted-retry-"
+                prefix="accepted-retry-"
             )
         except OSError as exc:
             raise FrozenInputRetryDeferred("storage_unavailable") from exc

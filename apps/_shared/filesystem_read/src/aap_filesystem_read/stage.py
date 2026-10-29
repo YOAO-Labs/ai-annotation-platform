@@ -108,7 +108,7 @@ def stage_content(
     try:
         check()
         temporary = tempfile.TemporaryFile(
-            mode="w+b", dir=directory, prefix="aap-agent-stage-"
+            mode="w+b", dir=directory, prefix="agent-stage-"
         )
         digest, size = hashlib.sha256(), 0
         with factory() as (body, observation):

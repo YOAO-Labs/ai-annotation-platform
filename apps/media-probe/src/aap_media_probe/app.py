@@ -118,7 +118,7 @@ async def _save_upload(request: Request, max_file_bytes: int) -> str:
                 413, "file_too_large", "Uploaded file exceeds the configured limit"
             )
 
-    fd, path = tempfile.mkstemp(prefix="aap-media-probe-", suffix=".media")
+    fd, path = tempfile.mkstemp(prefix="media-probe-", suffix=".media")
     size = 0
     try:
         with os.fdopen(fd, "wb") as upload:

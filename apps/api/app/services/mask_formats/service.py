@@ -374,7 +374,7 @@ async def materialize_staged_object(
             revision = await storage_call(import_storage.check_location, reading, owner)
         await reading.rollback()
         # No caller authority or batch row lock is held during physical I/O.
-        with tempfile.TemporaryDirectory(prefix="aap-mask-format-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="mask-format-") as temp_dir:
             local_path = Path(temp_dir) / "staged-object"
             if read_route is None:
                 staged = await storage_call(

@@ -703,7 +703,7 @@ class BackendTransportGPUControlAdapter:
         self._error_factory = error_factory
         self._observe = observe or _ignore_observation
         self._active: contextvars.ContextVar[_ActiveGPUControl | None] = (
-            contextvars.ContextVar("aap_gpu_control_binding", default=None)
+            contextvars.ContextVar("gpu_control_binding", default=None)
         )
 
     @asynccontextmanager

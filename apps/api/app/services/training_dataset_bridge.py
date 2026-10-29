@@ -475,7 +475,7 @@ def build_instance_rle_package(snapshot, media, output, *, parent_manifest=None)
     """Spool encoded labels instead of retaining the whole dataset in RAM."""
     from app.services.training_dataset_originals import temporary_directory
 
-    with temporary_directory(prefix="aap-training-rle-") as temporary:
+    with temporary_directory(prefix="training-rle-") as temporary:
         return _build_instance_rle_package(
             snapshot, media, output, Path(temporary), parent_manifest=parent_manifest
         )
