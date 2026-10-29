@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from handle_pool import HandlePool, HandlePoolBusyError
+from handle_pool import HandleDeviceError, HandlePool, HandlePoolBusyError
+from predictor import strict_cuda_handle_error
 
 
 class _Session:
@@ -38,6 +39,82 @@ def _inspect(name: str, handle: object) -> list[list[str]] | None:
 
 def _factories(factory):
     return {"pipeline": factory, "detector": factory, "va": factory}
+
+
+@pytest.mark.parametrize(
+    "failure", ["cpu", "wrong-device", "missing", "unobservable", "disable-failed"]
+)
+def test_strict_cuda_rejects_each_bad_composite_session_and_recovers(failure) -> None:
+    async def scenario() -> None:
+        bad = failure
+        released = []
+        constructed = []
+
+        class Session:
+            def __init__(self, problem=None):
+                self.problem = problem
+                self.fallback_enabled = True
+
+            def get_providers(self):
+                if self.problem == "unobservable":
+                    raise RuntimeError("provider inspection failed")
+                return (
+                    ["CPUExecutionProvider"]
+                    if self.problem == "cpu"
+                    else ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                )
+
+            def get_provider_options(self):
+                return {
+                    "CUDAExecutionProvider": {
+                        "device_id": "1" if self.problem == "wrong-device" else "0"
+                    }
+                }
+
+            def disable_fallback(self):
+                if self.problem == "disable-failed":
+                    raise RuntimeError("fallback could not be disabled")
+                self.fallback_enabled = False
+
+        class Composite:
+            def __init__(self):
+                self.detector = SimpleNamespace(_onnx_session=Session())
+                self.va_classifier = SimpleNamespace(
+                    _onnx_session=None if bad == "missing" else Session(bad)
+                )
+
+        def build():
+            instance = Composite()
+            constructed.append(weakref.ref(instance))
+            return instance
+
+        pool = HandlePool(
+            {
+                "pipeline": build,
+                "detector": lambda: _handle(["CPUExecutionProvider"]),
+                "va": lambda: _handle(["CPUExecutionProvider"]),
+            },
+            _inspect,
+            validate_handle=strict_cuda_handle_error,
+            strict_cleanup=lambda: released.append(True),
+        )
+        with pytest.raises(HandleDeviceError):
+            await pool.warmup("pipeline")
+        failed = await pool.snapshot()
+        assert failed["current_size"] == 0
+        assert failed["cleanup_failed"] is True
+        assert constructed[0]() is None
+        assert released
+        await pool.unload_all(reason="manual", force_cleanup=True)
+        bad = None
+        await pool.warmup("pipeline")
+        assert (await pool.snapshot())["current_size"] == 1
+        async with pool.borrow("pipeline") as lease:
+            assert lease.handle.detector._onnx_session.fallback_enabled is False
+            assert lease.handle.va_classifier._onnx_session.fallback_enabled is False
+        await pool.shutdown()
+
+    asyncio.run(scenario())
 
 
 def test_same_handle_cold_start_is_single_flight() -> None:

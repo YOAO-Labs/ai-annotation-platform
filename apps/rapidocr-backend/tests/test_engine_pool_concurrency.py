@@ -7,6 +7,7 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,9 +15,11 @@ from catalog import ResolvedEngine
 from engine_pool import (
     EngineBuildArtifact,
     EngineBuildTimeout,
+    EngineDeviceError,
     EnginePool,
     EnginePoolBusyError,
 )
+from predictor import strict_cuda_engine_error
 
 
 @dataclass
@@ -64,6 +67,90 @@ def _inspect(engine: _FakeEngine) -> dict[str, list[str] | None]:
 async def _wait_for_thread_event(event: threading.Event) -> None:
     ready = await asyncio.wait_for(asyncio.to_thread(event.wait), timeout=1.0)
     assert ready
+
+
+@pytest.mark.parametrize(
+    "failure", ["cpu", "wrong-device", "missing", "unobservable", "disable-failed"]
+)
+def test_strict_cuda_rejects_bad_ocr_sessions_and_recovers(failure) -> None:
+    async def scenario() -> None:
+        bad = failure
+        released = []
+        constructed = []
+
+        class Session:
+            def __init__(self, problem=None):
+                self.problem = problem
+                self.fallback_enabled = True
+
+            def get_providers(self):
+                if self.problem == "unobservable":
+                    raise RuntimeError("provider inspection failed")
+                return (
+                    ["CPUExecutionProvider"]
+                    if self.problem == "cpu"
+                    else ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                )
+
+            def get_provider_options(self):
+                return {
+                    "CUDAExecutionProvider": {
+                        "device_id": "1" if self.problem == "wrong-device" else "0"
+                    }
+                }
+
+            def disable_fallback(self):
+                if self.problem == "disable-failed":
+                    raise RuntimeError("fallback could not be disabled")
+                self.fallback_enabled = False
+
+        class Engine:
+            def __init__(self):
+                self.text_det = SimpleNamespace(
+                    session=SimpleNamespace(session=Session())
+                )
+                self.text_cls = SimpleNamespace(
+                    session=SimpleNamespace(session=Session())
+                )
+                self.text_rec = SimpleNamespace(
+                    session=SimpleNamespace(
+                        session=None if bad == "missing" else Session(bad)
+                    )
+                )
+
+        def build(_resolved):
+            instance = Engine()
+            constructed.append(weakref.ref(instance))
+            return instance
+
+        from predictor import inspect_engine_providers
+
+        pool = EnginePool(
+            1,
+            build,
+            inspect_engine_providers,
+            validate_engine=strict_cuda_engine_error,
+            strict_cleanup=lambda: released.append(True),
+        )
+        with pytest.raises(EngineDeviceError):
+            await pool.warmup(_resolved("strict"))
+        failed = await pool.snapshot()
+        assert failed["current_size"] == 0
+        assert failed["cleanup_failed"] is True
+        assert constructed[0]() is None
+        assert released
+        await pool.unload_all(reason="manual", force_cleanup=True)
+        bad = None
+        await pool.warmup(_resolved("strict"))
+        async with pool.borrow(_resolved("strict")) as lease:
+            assert all(
+                getattr(lease.engine, component).session.session.fallback_enabled
+                is False
+                for component in ("text_det", "text_cls", "text_rec")
+            )
+        await pool.shutdown()
+
+    asyncio.run(scenario())
 
 
 async def _eventually(predicate, *, timeout: float = 1.0) -> None:

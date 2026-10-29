@@ -69,6 +69,7 @@ from attribute_schema import OUTPUT_ATTRIBUTE_SCHEMA
 from gpu_lifecycle import OnnxToolsGpuLifecycle, WorkloadOperation
 from handle_pool import (
     HandleBuildTimeout,
+    HandleDeviceError,
     HandlePool,
     HandlePoolBusyError,
 )
@@ -266,10 +267,16 @@ def _make_pipeline() -> Any:
     providers = _probe_providers()
     pipeline = VehicleAttributePipeline.__new__(VehicleAttributePipeline)
     pipeline.roi_pad_ratio = 0.1
-    pipeline.detector = _make_detector(providers)
-    pipeline.va_classifier = _make_va_classifier(providers)
-    pipeline.class_names = pipeline._resolve_class_names(None)
-    return pipeline
+    try:
+        pipeline.detector = _make_detector(providers)
+        pipeline.va_classifier = _make_va_classifier(providers)
+        pipeline.class_names = pipeline._resolve_class_names(None)
+        return pipeline
+    except BaseException:
+        # Do not leave an already-built sibling session in a failed composite frame.
+        pipeline.detector = None
+        pipeline.va_classifier = None
+        raise
 
 
 async def _idle_watcher() -> None:
@@ -611,7 +618,7 @@ async def warmup(request: Request) -> WarmupResponse:
         except HandleBuildTimeout as exc:
             _track_operation_future(operation, exc.builder)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except HandlePoolBusyError as exc:
+        except (HandlePoolBusyError, HandleDeviceError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except asyncio.CancelledError:
             _track_operation_future(
@@ -672,7 +679,7 @@ async def _run_predict(
         except HandleBuildTimeout as exc:
             _track_operation_future(operation, exc.builder)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except HandlePoolBusyError as exc:
+        except (HandlePoolBusyError, HandleDeviceError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except asyncio.CancelledError:
             _track_operation_future(
