@@ -5,6 +5,7 @@ torch 故意惰性 import 在 try 内: onnx / 纯 CPU 环境无 torch 时降级�
 
 from __future__ import annotations
 
+import ctypes
 import gc
 import os
 import re
@@ -173,6 +174,22 @@ def observed_single_nvidia_gpu(expected_uuid: str) -> dict[str, str | int]:
         "total_memory_mb": int(memory),
         "driver_version": driver,
     }
+
+
+def observed_cuda_runtime_version() -> str:
+    """Read the CUDA runtime library version actually loaded by this process."""
+    try:
+        library = ctypes.CDLL("libcudart.so.12")
+        get_version = library.cudaRuntimeGetVersion
+    except (OSError, AttributeError) as exc:
+        raise RuntimeError("Cannot inspect the CUDA runtime library") from exc
+    get_version.argtypes = [ctypes.POINTER(ctypes.c_int)]
+    get_version.restype = ctypes.c_int
+    version = ctypes.c_int()
+    if get_version(ctypes.byref(version)) != 0 or version.value <= 0:
+        raise RuntimeError("CUDA runtime library did not report its version")
+    value = version.value
+    return f"{value // 1000}.{(value % 1000) // 10}.{value % 10}"
 
 
 def free_gpu_memory() -> None:

@@ -40,7 +40,10 @@ from aap_backend_runtime import (
     validate_single_gpu_device_set,
     versions_payload,
 )
-from aap_backend_runtime.gpu import observed_single_nvidia_gpu
+from aap_backend_runtime.gpu import (
+    observed_cuda_runtime_version,
+    observed_single_nvidia_gpu,
+)
 from aap_backend_runtime.plugin_service import (
     install_plugin_service,
     plugin_lifecycle_options,
@@ -330,10 +333,7 @@ async def lifespan(app: FastAPI):
             "backend": BACKEND_VERSION,
         }
     if strict_cuda:
-        cuda_version = os.environ.get("CUDA_VERSION", "").strip()
-        if not cuda_version:
-            raise RuntimeError("CUDA_VERSION is required for a CUDA plugin")
-        app.state.runtime_versions["cuda"] = cuda_version
+        app.state.runtime_versions["cuda"] = observed_cuda_runtime_version()
         app.state.gpu_facts = observed_single_nvidia_gpu(
             os.environ["AAP_PLUGIN_GPU_UUID"]
         )
