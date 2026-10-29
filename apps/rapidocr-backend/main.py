@@ -21,8 +21,11 @@ from aap_task_contract import normalize_task
 import asyncio
 import logging
 import os
+import platform
 import time
 from contextlib import asynccontextmanager
+from importlib.metadata import version
+from pathlib import Path
 from typing import Any
 
 from aap_backend_runtime import (
@@ -55,17 +58,30 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_control_token_header_values,
 )
 from aap_backend_runtime.backend_auth import install_backend_auth
+from aap_backend_runtime.plugin_service import (
+    install_plugin_service,
+    plugin_lifecycle_options,
+    plugin_setup_fields,
+)
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import ValidationError
 
 import catalog
-from engine_pool import EngineBuildTimeout, EnginePool, EnginePoolBusyError
+from engine_pool import (
+    COMPONENTS,
+    EngineBuildTimeout,
+    EngineDeviceError,
+    EnginePool,
+    EnginePoolBusyError,
+)
 from gpu_lifecycle import RapidOcrGpuLifecycle, WorkloadOperation
+from plugin_assets import verify_assets
 from predictor import (
     RapidOCREngineBuildError,
     RapidOCREngineFactory,
     RapidOCRPredictor,
     inspect_engine_providers,
+    strict_cuda_engine_error,
 )
 from schemas import BatchPredictRequest
 
@@ -93,6 +109,7 @@ _engine_pool: EnginePool | None = None
 _predictor: RapidOCRPredictor | None = None
 _gpu_lifecycle: RapidOcrGpuLifecycle | None = None
 _idle_task: asyncio.Task[None] | None = None
+_strict_cuda_enforced = False
 
 
 async def _idle_watcher() -> None:
@@ -116,23 +133,46 @@ async def _idle_watcher() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _engine_factory, _engine_pool, _predictor, _gpu_lifecycle, _idle_task
+    global _strict_cuda_enforced
 
     validate_single_gpu_device_set()
-    raw_keyring = os.environ.get("GPU_LIFECYCLE_VERIFY_KEYS_JSON", "").strip()
+    plugin_options = plugin_lifecycle_options()
+    if plugin_options:
+        verify_assets(
+            Path(os.environ["AAP_PLUGIN_DATA_DIR"]),
+            os.environ["AAP_PLUGIN_ASSET_MANIFEST_SHA256"],
+        )
+        catalog.MODELS_DIR = str(Path(os.environ["AAP_PLUGIN_DATA_DIR"]) / "models")
+    keyring_file = (
+        os.environ.get("AAP_PLUGIN_GPU_KEYRING_FILE") if plugin_options else None
+    )
+    raw_keyring = (
+        Path(keyring_file).read_text(encoding="utf-8").strip()
+        if keyring_file
+        else os.environ.get("GPU_LIFECYCLE_VERIFY_KEYS_JSON", "").strip()
+    )
     verify_keyring = load_verify_keyring(raw_keyring) if raw_keyring else {}
-    _engine_factory = RapidOCREngineFactory()
+    strict_cuda = bool(plugin_options) and os.environ["AAP_PLUGIN_DEVICE"] == "cuda:0"
+    _engine_factory = (
+        RapidOCREngineFactory(strict_cuda=True)
+        if strict_cuda
+        else RapidOCREngineFactory()
+    )
     _engine_pool = EnginePool(
         POOL_CAP,
         _engine_factory.build,
         inspect_engine_providers,
         build_timeout=BUILD_TIMEOUT,
+        **({"validate_engine": strict_cuda_engine_error} if strict_cuda else {}),
     )
     _predictor = RapidOCRPredictor(_engine_pool)
     _gpu_lifecycle = RapidOcrGpuLifecycle(
         _engine_pool,
         verify_keyring=verify_keyring,
-        evictable_verified=MANAGED_LIFECYCLE_VERIFIED,
+        evictable_verified=MANAGED_LIFECYCLE_VERIFIED and not plugin_options,
+        **plugin_options,
     )
+    _strict_cuda_enforced = strict_cuda
     _idle_task = asyncio.create_task(_idle_watcher())
     logger.info(
         "rapidocr-backend ready (lazy): model_dir=%s cap=%d configured_device=%s "
@@ -141,11 +181,12 @@ async def lifespan(_app: FastAPI):
         POOL_CAP,
         _engine_factory.configured_device(),
         IDLE_UNLOAD_SECONDS,
-        MANAGED_LIFECYCLE_VERIFIED,
+        MANAGED_LIFECYCLE_VERIFIED and not plugin_options,
     )
     try:
         yield
     finally:
+        _strict_cuda_enforced = False
         if _idle_task is not None:
             _idle_task.cancel()
             try:
@@ -159,7 +200,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="rapidocr-backend", version=BACKEND_VERSION, lifespan=lifespan)
 install_backend_routing_controller(app)
 
-install_backend_auth(app, "rapidocr")
+if not install_plugin_service(app, lambda: _gpu_lifecycle):
+    install_backend_auth(app, "rapidocr")
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:
@@ -193,7 +235,7 @@ async def health() -> dict[str, Any]:
             "provider": None,
         }
         residency_payload = None
-    return {
+    payload = {
         "status": "ok",
         "service": "rapidocr-backend",
         "version": BACKEND_VERSION,
@@ -210,11 +252,20 @@ async def health() -> dict[str, Any]:
                 else "cpu"
             ),
             "effective_provider": pool_snapshot["provider"],
-            "cpu_fallback_supported": True,
+            "cpu_fallback_supported": not _strict_cuda_enforced,
         },
         "gpu_info": physical_gpu_identity() or None,
         "residency": residency_payload,
     }
+    if plugin_lifecycle_options():
+        if payload["compute"]["configured_device"] == "cuda":
+            payload["compute"]["configured_device"] = "cuda:0"
+        payload["pool_topology"] = {"engines": {"cap": pool_snapshot["cap"]}}
+        if _strict_cuda_enforced:
+            payload["ort_session_counts"] = {
+                "engines": len(COMPONENTS) * pool_snapshot["cap"]
+            }
+    return payload
 
 
 @app.get("/setup")
@@ -233,7 +284,24 @@ def setup() -> dict[str, Any]:
         "warmup_endpoint": True,
         "models": catalog.model_entries(),
     }
-    if MANAGED_LIFECYCLE_VERIFIED:
+    if plugin_lifecycle_options():
+        import onnxruntime
+
+        runtime_versions = {
+            "python": platform.python_version(),
+            "onnxruntime": str(onnxruntime.__version__),
+            "onnxruntime_device": str(onnxruntime.get_device()),
+            "rapidocr": version("rapidocr"),
+            "backend": BACKEND_VERSION,
+        }
+        payload.update(
+            plugin_setup_fields({"engines": {"cap": POOL_CAP}}, runtime_versions)
+        )
+        if _strict_cuda_enforced:
+            payload["runtime_info"]["ort_session_counts"] = {
+                "engines": len(COMPONENTS) * POOL_CAP
+            }
+    if MANAGED_LIFECYCLE_VERIFIED and not plugin_lifecycle_options():
         payload["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(
             mode="json"
         )
@@ -396,7 +464,7 @@ async def warmup(request: Request) -> WarmupResponse:
         except EngineBuildTimeout as exc:
             _track_operation_future(operation, exc.builder)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except EnginePoolBusyError as exc:
+        except (EnginePoolBusyError, EngineDeviceError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except RapidOCREngineBuildError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -474,7 +542,7 @@ async def _run_predict(
         except EngineBuildTimeout as exc:
             _track_operation_future(operation, exc.builder)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except EnginePoolBusyError as exc:
+        except (EnginePoolBusyError, EngineDeviceError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except RapidOCREngineBuildError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
