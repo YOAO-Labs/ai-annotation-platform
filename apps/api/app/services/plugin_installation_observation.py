@@ -241,16 +241,19 @@ def verify_endpoint_observation(
                 "CUDA build or execution configuration is not qualified"
             )
     validate_manifest_capabilities(manifest)
-    if not _model_capabilities_match(manifest, setup.get("models")):
-        raise PluginObservationRejected(
-            "model capabilities differ from approved intent"
-        )
-    if not _pool_topology_matches(manifest, setup.get("pool_topology")):
-        raise PluginObservationRejected("pool topology differs from approved intent")
-    if not _pool_topology_matches(manifest, health.get("pool_topology")):
-        raise PluginObservationRejected(
-            "live pool topology differs from approved intent"
-        )
+    if not for_drain:
+        if not _model_capabilities_match(manifest, setup.get("models")):
+            raise PluginObservationRejected(
+                "model capabilities differ from approved intent"
+            )
+        if not _pool_topology_matches(manifest, setup.get("pool_topology")):
+            raise PluginObservationRejected(
+                "pool topology differs from approved intent"
+            )
+        if not _pool_topology_matches(manifest, health.get("pool_topology")):
+            raise PluginObservationRejected(
+                "live pool topology differs from approved intent"
+            )
     if manifest.resource.device == "cpu" and setup.get("terminal_lifecycle") != {
         "terminal_drain_endpoint": "/lifecycle/terminal-drain",
     }:

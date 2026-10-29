@@ -196,6 +196,33 @@ async def test_endpoint_observation_rejects_changed_or_untrusted_facts():
         )
 
 
+async def test_old_image_can_only_drain_without_new_topology_declarations():
+    installation, receipt, challenge, health, setup = observation()
+    health.pop("pool_topology")
+    setup.pop("pool_topology")
+    setup.pop("models")
+    kwargs = dict(
+        endpoint="http://detector.example.test",
+        challenge=challenge,
+        healthy=True,
+        health=health,
+        setup=setup,
+    )
+    assert (
+        verify_endpoint_observation(installation, receipt, **kwargs, for_drain=True)[
+            "boot_id"
+        ]
+        == "runtime-boot"
+    )
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(installation, receipt, **kwargs)
+    health["residency"]["pools"] = {
+        "other": {"resident": False, "device": None, "provider": None}
+    }
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(installation, receipt, **kwargs, for_drain=True)
+
+
 async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_and_pools():
     installation, receipt, challenge, health, setup = observation()
     data = installation.model_dump(mode="json")
@@ -241,12 +268,65 @@ async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_an
         verify_endpoint_observation(installation, receipt, **kwargs)["boot_id"]
         == "runtime-boot"
     )
+    from hashlib import sha256
+    from aap_inference_contract.plugin import PluginLifecycleQualification
+
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation,
+            receipt,
+            **kwargs,
+            qualification=PluginLifecycleQualification(
+                report={}, sha256=sha256(b"{}").hexdigest()
+            ),
+        )
     for change in (
         lambda h, s: s["models"][0].update(supported_geometric_outputs=["bbox"]),
         lambda h, s: s["models"][0].update(supported_inputs=["unknown"]),
         lambda h, s: s["pool_topology"]["engines"].update(cap=1),
         lambda h, s: h["residency"]["pools"].pop("classifier"),
         lambda h, s: s["models"].pop(),
+    ):
+        changed_health, changed_setup = deepcopy(health), deepcopy(setup)
+        change(changed_health, changed_setup)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                installation,
+                receipt,
+                **{**kwargs, "health": changed_health, "setup": changed_setup},
+            )
+
+
+async def test_libreyolo_cpu_admission_keeps_runtime_and_fallback_pins():
+    from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME
+
+    installation, receipt, challenge, health, setup = observation()
+    data = installation.model_dump(mode="json")
+    compatibility = [
+        {"framework": "libreyolo", "format": LIBRE_FORMAT, "runtime_device": "cpu"}
+    ]
+    data["installation"]["manifest"].update(
+        plugin_id="libreyolo",
+        capabilities=["inference", "detection", "managed_models"],
+        managed_model_compatibility=compatibility,
+    )
+    installation = PluginInstallationResponse.model_validate(data)
+    setup.update(
+        plugin_identity={"plugin_id": "libreyolo", "version": "1.0"},
+        managed_model_compatibility=compatibility,
+        runtime_info=dict(LIBRE_RUNTIME),
+    )
+    kwargs = dict(
+        endpoint="http://cpu.example.test",
+        challenge=challenge,
+        healthy=True,
+        health=health,
+        setup=setup,
+    )
+    verify_endpoint_observation(installation, receipt, **kwargs)
+    for change in (
+        lambda h, s: s["runtime_info"].update(torch="different"),
+        lambda h, s: h["compute"].update(cpu_fallback_supported=True),
     ):
         changed_health, changed_setup = deepcopy(health), deepcopy(setup)
         change(changed_health, changed_setup)
@@ -556,6 +636,10 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         )
     unqualified_setup = deepcopy(setup)
     unqualified_setup.pop("managed_lifecycle")
+    unqualified_setup.pop("pool_topology")
+    unqualified_setup.pop("models")
+    unqualified_health = deepcopy(health)
+    unqualified_health.pop("pool_topology")
     unqualified_setup["runtime_info"]["torch"] = "unqualified"
     verify_endpoint_observation(
         installation,
@@ -563,6 +647,7 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         **{
             **kwargs,
             "setup": unqualified_setup,
+            "health": unqualified_health,
             "qualification": None,
             "for_drain": True,
         },
