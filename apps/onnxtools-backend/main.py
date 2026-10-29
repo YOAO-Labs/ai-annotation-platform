@@ -28,8 +28,10 @@ import asyncio
 import gc
 import logging
 import os
+import platform
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from aap_backend_runtime import (
@@ -37,6 +39,12 @@ from aap_backend_runtime import (
     physical_gpu_identity,
     validate_single_gpu_device_set,
     versions_payload,
+)
+from aap_backend_runtime.gpu import observed_single_nvidia_gpu
+from aap_backend_runtime.plugin_service import (
+    install_plugin_service,
+    plugin_lifecycle_options,
+    plugin_setup_fields,
 )
 from aap_protocol_v2 import (
     COMPAT_PROTOCOL_VERSIONS,
@@ -68,12 +76,18 @@ from pydantic import ValidationError
 from attribute_schema import OUTPUT_ATTRIBUTE_SCHEMA
 from gpu_lifecycle import OnnxToolsGpuLifecycle, WorkloadOperation
 from handle_pool import (
+    HANDLE_ORDER,
+    HANDLE_SESSION_COUNTS,
     HandleBuildTimeout,
     HandleDeviceError,
     HandlePool,
     HandlePoolBusyError,
 )
-from predictor import VehicleAttributePredictor, inspect_handle_providers
+from predictor import (
+    VehicleAttributePredictor,
+    inspect_handle_providers,
+    strict_cuda_handle_error,
+)
 from schemas import BatchPredictRequest
 
 logger = logging.getLogger("onnxtools-backend")
@@ -298,10 +312,45 @@ async def _idle_watcher() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _handle_pool, _predictor, _gpu_lifecycle, _idle_task
+    global _handle_pool, _predictor, _gpu_lifecycle, _idle_task, _provider_preference
     validate_single_gpu_device_set()
-    raw_keyring = os.environ.get("GPU_LIFECYCLE_VERIFY_KEYS_JSON", "").strip()
+    plugin_options = plugin_lifecycle_options()
+    plugin_mode = bool(plugin_options)
+    strict_cuda = plugin_mode and not plugin_options["terminal_cpu_enabled"]
+    app.state.plugin_mode = plugin_mode
+    app.state.strict_cuda = strict_cuda
+    app.state.gpu_facts = None
+    app.state.runtime_versions = {}
+    if plugin_mode:
+        import onnxruntime
+
+        app.state.runtime_versions = {
+            "python": platform.python_version(),
+            "onnxruntime": str(onnxruntime.__version__),
+            "backend": BACKEND_VERSION,
+        }
+    if strict_cuda:
+        cuda_version = os.environ.get("CUDA_VERSION", "").strip()
+        if not cuda_version:
+            raise RuntimeError("CUDA_VERSION is required for a CUDA plugin")
+        app.state.runtime_versions["cuda"] = cuda_version
+        app.state.gpu_facts = observed_single_nvidia_gpu(
+            os.environ["AAP_PLUGIN_GPU_UUID"]
+        )
+        keyring_path = os.environ.get("AAP_PLUGIN_GPU_KEYRING_FILE")
+        if not keyring_path:
+            raise RuntimeError("CUDA plugin lifecycle keyring is unavailable")
+        raw_keyring = Path(keyring_path).read_text(encoding="utf-8").strip()
+        if not raw_keyring:
+            raise RuntimeError("CUDA plugin lifecycle keyring is empty")
+    elif plugin_mode:
+        raw_keyring = ""
+        _provider_preference = ["CPUExecutionProvider"]
+    else:
+        raw_keyring = os.environ.get("GPU_LIFECYCLE_VERIFY_KEYS_JSON", "").strip()
     verify_keyring = load_verify_keyring(raw_keyring) if raw_keyring else {}
+    if strict_cuda and not verify_keyring:
+        raise RuntimeError("CUDA plugin lifecycle keyring has no verification keys")
     # 懒加载:不在启动时加载模型,首次 predict 按 model_id 构造对应句柄。
     _handle_pool = HandlePool(
         {
@@ -311,12 +360,14 @@ async def lifespan(app: FastAPI):
         },
         inspect_handle_providers,
         build_timeout=BUILD_TIMEOUT,
+        validate_handle=strict_cuda_handle_error if strict_cuda else None,
     )
     _predictor = VehicleAttributePredictor(_handle_pool)
     _gpu_lifecycle = OnnxToolsGpuLifecycle(
         _handle_pool,
         verify_keyring=verify_keyring,
         evictable_verified=MANAGED_LIFECYCLE_VERIFIED,
+        **plugin_options,
     )
     # 启动期预热 provider 构造偏好；业务 session 的实际 provider 另由 /health 实时读取。
     probed = _probe_providers()
@@ -346,9 +397,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="onnxtools-backend", version=BACKEND_VERSION, lifespan=lifespan)
-install_backend_routing_controller(app)
-
-install_backend_auth(app, "onnxtools")
+if not install_plugin_service(app, lambda: _gpu_lifecycle):
+    install_backend_routing_controller(app)
+    install_backend_auth(app, "onnxtools")
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:
@@ -387,7 +438,9 @@ async def health() -> dict[str, Any]:
             "provider": None,
         }
         residency_payload = None
-    return {
+    plugin_mode = getattr(app.state, "plugin_mode", False)
+    strict_cuda = getattr(app.state, "strict_cuda", False)
+    payload = {
         "status": "ok",
         "service": "onnxtools-backend",
         "version": BACKEND_VERSION,
@@ -399,15 +452,29 @@ async def health() -> dict[str, Any]:
         # effective_provider 只来自当前已加载业务 session；空池、无法完整检查
         # composite，或多 session provider 不一致时为 None。
         "compute": {
-            "configured_device": "cuda"
-            if "CUDAExecutionProvider" in _available_providers()
-            else "cpu",
+            "configured_device": ("cuda:0" if strict_cuda else "cpu")
+            if plugin_mode
+            else (
+                "cuda" if "CUDAExecutionProvider" in _available_providers() else "cpu"
+            ),
             "effective_provider": pool_snapshot["provider"],
-            "cpu_fallback_supported": True,
+            "cpu_fallback_supported": not strict_cuda,
         },
-        "gpu_info": physical_gpu_identity() or None,
+        "gpu_info": (
+            getattr(app.state, "gpu_facts", None)
+            if plugin_mode
+            else physical_gpu_identity() or None
+        ),
         "residency": residency_payload,
     }
+    if plugin_mode:
+        device = pool_snapshot.get("device")
+        payload["compute"]["effective_device"] = (
+            "cuda:0" if device == "cuda" else device
+        )
+        payload["pool_topology"] = {name: {"cap": 1} for name in HANDLE_ORDER}
+        payload["ort_session_counts"] = dict(HANDLE_SESSION_COUNTS)
+    return payload
 
 
 def _detect_model_entry() -> dict[str, Any]:
@@ -520,6 +587,21 @@ def setup() -> dict[str, Any]:
         payload["managed_lifecycle"] = ManagedLifecycleCapabilities().model_dump(
             mode="json"
         )
+    if getattr(app.state, "plugin_mode", False):
+        fields = plugin_setup_fields(
+            {name: {"cap": 1} for name in HANDLE_ORDER},
+            app.state.runtime_versions,
+        )
+        fields["runtime_info"]["ort_session_counts"] = dict(HANDLE_SESSION_COUNTS)
+        if app.state.strict_cuda:
+            fields["runtime_info"].update(
+                {
+                    "driver_version": app.state.gpu_facts["driver_version"],
+                    "total_memory_mb": app.state.gpu_facts["total_memory_mb"],
+                    "cuda_build": app.state.runtime_versions["cuda"],
+                }
+            )
+        payload.update(fields)
     return payload
 
 
