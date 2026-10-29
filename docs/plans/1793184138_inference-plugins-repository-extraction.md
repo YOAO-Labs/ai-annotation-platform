@@ -1,8 +1,8 @@
 # 推理后端插件化与 YOAO-Plugins 独立仓库规划
 
-> 状态：首批并行准备切片已合入并通过限定的本地验收，多后端插件迁移尚未交付。LibreYOLO 试点已按原计划完成限定单卡验收；不因首个插件或依赖准备通过而宣称其他后端、通用装配或独立仓库分发完成。
+> 状态：第二批通用准入、RapidOCR CPU、ONNXTools 多池 CUDA 及四处 Learning → Jobs 读取已验收并审核合入。LibreYOLO 原限定单卡资格保留；其他后端完整迁移、通用装配、版本化制品与独立仓库分发仍分别设门禁，不宣称阶段 B／C 整体完成。
 >
-> 日期：规划于 2026-10-28，实施记录更新于 2026-10-29。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，已核验为 **Private**；未推送当前工作区代码。
+> 日期：规划于 2026-10-28，实施记录更新于 2026-10-30。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，已核验为 **Private**；未推送当前工作区代码。
 >
 > 授权范围：按既定边界使用 Orca 在独立工作树实施，由主进程审核并合并提交。公开仓库、远程推送、发布版本和前端 SDK 不在本轮实施范围；不指定发布版本或发布日期。
 >
@@ -239,7 +239,28 @@ Orca run 为 `run_1e86c5259b79`，基线为 `1d6573b2a2e8c28b4e9c0c92d30456ac7d1
 
 执行者只提交所属切片，交接精确 commit、实际验证、失败和限制；主进程独立审核后以正常 Git merge 合入，再验证组合行为、维护正式台账。共享接口发生变化时只接入审核后的提交，不复制另一工作树的未提交文件。完成的执行者先释放终端，已合入且干净的工作树在保留证据后由 Orca 移除。
 
-这一批交付的是阶段 B 的依赖边界准备和一个独立的 Learning 读取切片，不代表整个阶段 B 或 C 完成。下一批仍以多模型／多结果、CPU／CUDA 与真实多池、可获取的版本化制品及干净跨仓构建门禁确定；不得凭锁文件或导入检查跳过真实插件业务验收。
+这一批交付的是阶段 B 的依赖边界准备和一个独立的 Learning 读取切片，不代表整个阶段 B 或 C 完成。第二批补足下述通用准入与真实 CPU／多池业务切片；可获取的版本化制品和干净跨仓构建仍是后续门禁，不得凭锁文件或导入检查替代。
+
+### 第二批：通用准入与真实非检测／多池切片
+
+Orca run 为 `run_ed041b0afdc5`，基线为 `8f9dd16f6bf55f7aff726450c3698127d2e749f7`。四个执行者仍使用 OMP `openai-codex/gpt-6.1-terra`、`xhigh` 和独立工作树；主进程负责共享合同审核、资源授权、正常合并与最终组合验收。
+
+| 工作包               | 独占范围与交付                                                                                                              | 合入／验收门禁                                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 通用准入契约         | `worktree-agent-plugin-contract-b`：完整模型能力投影、CPU／CUDA、命名池、ORT session 证据、历史 inventory 及共享 owner 控制 | 实际 setup／新鲜 health／获准意图一致；未知、漏报和身份漂移拒绝；历史身份不靠默认值补齐；共享 SQL 使用前向迁移                |
+| 安装器与 CPU 业务    | `worktree-agent-plugin-installer-b`：管理员 SDK／CLI、原生 HTTP 接入、RapidOCR CPU 工件与资产准备                           | 独立安装、CPU 无 GPU 依赖／设备、真实项目启用与持久化结果、正常停用／排空／退役；不以直连模型 HTTP 代替平台链路               |
+| 生命周期与多池资格   | `worktree-agent-plugin-lifecycle-b`：RapidOCR 挂起根因、共享终止围栏、ONNXTools 三池／四 session                            | 获准真实权重与正例／空例／边界输入；独占 GPU、实际 provider／设备、两轮冷加载与释放；失败报告保留，不能调低阈值或漏报 session |
+| Learning → Jobs 读取 | `worktree-agent-learning-jobs-b`：原计划指定的四处读取                                                                      | 复用既有 owner 与 caller UOW；受限角色、执行身份、越权、取消、回滚和重放；不撤销其他消费者仍需的私表权限                      |
+
+CPU 与接口工作可以并行；同一卡的 operator 资格和平台托管推理必须串行交接。共享合同只消费主进程审核后的提交，不跨工作树复制未提交代码。实际平台调用暴露的健康元数据丢失和终止控制路径缺口属于这一切片的前置，沿原 Inference owner 修复；既有 Labeling 上传 ACL 问题不借机扩修，也不扩大运行账号权限。
+
+本轮使用本机 OCI registry 和明确批准的内部验收权重，不构成公开分发授权。正式数据夹具若需隔离 operator 准备，须记录实际 Assets 字节校验与发布路径，并与普通上传 API 的失败分开；业务推理、结果读取和安装治理仍使用正常权限。实际拆仓继续留在阶段 C。
+
+第二批已按上述门禁收口。主进程正常合并了通用契约 `05ec83f04`、原生生命周期 `deec0a4fe`、通用安装器 `dfb266020` 及 Learning 读取 `f9fbcf7f2`；冲突保留最新严格 GPU 绑定、真实 HTTP 健康投影回归及已获准的 CUDA 启动／报告校验，不恢复早期弱校验或无追踪的 GPU 探测。
+
+主进程独立读取了五个已完成的平台业务作业、OCR／车辆持久化结果及三个已退役安装，并校验实际三池／四 session 资格报告和设备记录。合并后的 owner／契约定向检查 64 项、SDK／OpenAPI 检查 87 项通过，SDK wheel 构建及真实 CLI 入口通过；合并源码对实际平台的 SDK 读取与报告校验亦通过。新鲜的未启动取消安装由普通 Celery worker 自动收口，已启动实例在实际 Token 时限后回收，未直接修改账本或伪造健康证明。
+
+按用户授权清理了两处无依赖的旧实例；保留的主、备实例经原匹配 SDK／宿主恢复，原镜像、配置、GPU 绑定和启用路由权重均已核对，模型缓存为冷启动。第二批证据位于 `.worktree/orca/run_ed041b0afdc5/`；仅内部验收权重与本机 OCI 制品，不推送远程、不发布版本。
 
 ## Outcome
 
@@ -247,11 +268,12 @@ Orca run 为 `run_1e86c5259b79`，基线为 `1d6573b2a2e8c28b4e9c0c92d30456ac7d1
 - 已按用户指定创建并核验 `YOAO-Labs/YOAO-Plugins` 为私有仓库；未推送代码或权重。
 - 统一契约／分运行环境 SDK／前端信任分层为采用的目标方向；本期只推进推理与 Python 开发体验，不宣称通用插件框架或前端 SDK 已实现。
 - 正式架构入口：`docs-site/dev/concepts/module-deployment.md`。已实现的依赖边界影响记入 `CHANGELOG.md` 的 Unreleased；不据此指定发布版本或日期。
-- 实施与验收：LibreYOLO 原计划的限定单卡验收已完成；其余五个后端的插件化、实际拆仓与跨仓发布尚未实施。本轮静态盘点不计作这些后端的运行验收。
+- 实施与验收：LibreYOLO 原限定单卡资格，以及第二批 RapidOCR CPU、ONNXTools 多池 CUDA 的限定平台业务与正常退役已通过，细节与边界见[正式架构台账](../../docs-site/dev/concepts/module-deployment.md#inference-plugin-admission)。其他后端完整迁移、实际拆仓与跨仓发布尚未完成。
 - 本地独立插件仓库已克隆到 `plugins/YOAO-plugins/`，平台根 `.gitignore` 忽略整个嵌套仓库；未搬迁算法源码、创建 submodule 或推送代码。
 - API SDK 与插件 SDK 保持分包、独立版本及共享必要契约。生命周期纯校验的实现与消费者已在契约提交 `8ddcd65be` 中收口并合入；正式规则见 `docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk`。
 - 并行的 Learning 反馈读取提交 `47b5eec70` 已审核合入；其无 Audit 父表读取权限和 HTTP 快照重放证据记在核心模块台账，不计作插件迁移完成。
 - RapidOCR／ONNXTools 依赖准备提交 `f1cf6e37b` 已审核合入：真实运行依赖、共享契约输入、锁文件与 hash-locked 导出已对齐，ONNXTools 上游 Git 身份和 RapidOCR cuDNN 修复保持。两套独立 wheel 的真实 HTTP 启动通过；主进程另构建了两个镜像，在禁网、只读、无 GPU 的容器内验证 `/health`、认证 `/setup`、未认证拒绝、唯一 headless OpenCV 和 PNG 编解码。模型池保持 unloaded，不计作模型推理或 GPU 验收。
-- 主进程验证生命周期证据 11 项、管理员 SDK 43 项、隔离 PostgreSQL 反馈两案及 API 准入一案；当前 API 镜像在未安装模型运行时和 Torch 的情况下接受合法证明、拒绝四类损坏证明。执行者的 ONNXTools 定向 CPU 检查为 25 项通过，重复层级的检查不叠加成独立案例数。
-- RapidOCR 全套检查出现失败并在 1800 秒后超时，不能记作通过。执行者将首个失败定位为 `test_warmup_timeout_keeps_active_until_real_builder_finishes`，在原基线归档中复现 `active_requests` 为 0、预期为 1；调度根因和后续挂起尚未确定，本轮未修改生命周期算法或放宽测试。两后端 stock metadata 的 `pip check` 仍按 README 报告有意替换／由基础镜像提供的分发包缺失，不宣称普通 pip／uv 安装全绿。
-- 文档全站构建被与基线字节相同的 `docs-site/dev/reference/env-vars.md` Vue 标签错误阻断，未扩修无关文件；受影响架构／用户指南页面的 Markdown 与 Vue 编译及计划渲染单独通过。集成收据和三个执行者交接保存在 `.worktree/orca/run_1e86c5259b79/`，记录实际制品、检查与限制；日常服务、远程仓库和既有主工作树测试基础设施未切换或删除。
+- 首批主进程验证生命周期证据 11 项、管理员 SDK 43 项、隔离 PostgreSQL 反馈两案及 API 准入一案；当时的 API 镜像在未安装模型运行时和 Torch 的情况下接受合法证明、拒绝四类损坏证明。首批 ONNXTools 定向 CPU 检查为 25 项通过；第二批集成与实际业务证据见上文，重叠检查不累加成独立案例数。
+- 首批 RapidOCR 检查失败并超时的记录保留。第二批已定位为测试等待最终 HTTP 响应与真实 builder 释放的循环等待，以及合成 Request 缺少 `.app` 导致 admitted work 泄漏；按真实并发顺序和 Request 形状修复夹具，未放宽活动请求或超时不变量。执行者全套源代码检查与真实 HTTP 围栏验证通过，平台 CPU 业务另行验收。两后端 stock metadata 的 `pip check` 仍按 README 报告有意替换／由基础镜像提供的分发包缺失，不宣称普通 pip／uv 安装全绿。
+- 文档全站构建被已确认与首批基线字节相同的 `docs-site/dev/reference/env-vars.md` Vue 标签错误阻断，未扩修无关文件。首批页面校验证据保存在 `.worktree/orca/run_1e86c5259b79/`，第二批七份受影响文档的 Markdown／Vue 编译亦通过；不把已知全站失败记作通过。既有 Labeling 上传 ACL 问题保留为独立边界，不以扩大权限完成插件验收。
+- 前端 API 类型已从当前 snapshot 重新生成。`tsc --noEmit` 仍在 `ProjectModelsPanel.test.tsx` 报告五处 `status` 字符串宽化错误；该测试文件及 `ModelDeploymentOut` schema 与本批基线相同，未扩修或宣称全量类型检查通过。

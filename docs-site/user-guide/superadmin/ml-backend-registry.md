@@ -2,7 +2,7 @@
 audience: [super_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # ML Backend 注册（全局注册表）
@@ -92,9 +92,9 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 ## 可安装推理插件
 
-插件由超级管理员在可访问 Docker 的部署机用 `aap plugins` 安装，不自动发现插件；平台 API 不访问 Docker socket。当前本机安装器仅支持 LibreYOLO CUDA 插件和一张明确授权的 NVIDIA 物理 GPU，需要 NVIDIA Container Toolkit、非 host Docker 网络和已加载的固定 OCI 摘要镜像。服务运行在隔离 Docker 进程，不挂载核心数据库、Redis 或 GPU 签发私钥。业务 Bearer Token 与 GPU 验签公钥是不同凭据。
+插件由超级管理员在可访问 Docker 的部署机用 `aap plugins` 安装，不自动发现插件；平台 API 不访问 Docker socket。安装器支持显式 CPU 和单卡 CUDA 配置、多个模型及命名模型池，不再限定为检测服务。需要非 host Docker 网络和已加载的固定 OCI 摘要镜像；CUDA 另需 NVIDIA Container Toolkit 和明确授权的物理 GPU。服务运行在隔离 Docker 进程，不挂载核心数据库、Redis 或 GPU 签发私钥。
 
-使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `aap-lifecycle-contract`），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架：
+使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `aap-inference-contract`、`aap-task-contract`、`aap-lifecycle-contract` 和训练契约），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架；仅安装核心 SDK 或 `cli` extra 不会隐式安装插件管理依赖。
 
 ```bash
 python -m venv .venv
@@ -119,6 +119,17 @@ API 密钥使用私密方式注入，不要提交或写入镜像。以可访问 
     "sdk_compatibility": "0.1.0",
     "entrypoint": ["my-libreyolo-plugin", "serve", "--host", "0.0.0.0", "--port", "8000"],
     "capabilities": ["inference", "detection", "managed_models"],
+    "models": [
+      {
+        "id": "detect",
+        "task": "detect",
+        "is_interactive": false,
+        "supported_prompts": ["none"],
+        "supported_inputs": ["full_image", "crop"],
+        "supported_geometric_outputs": ["bbox"]
+      }
+    ],
+    "pools": { "models": { "cap": 1 } },
     "resource": { "device": "cuda", "memory_mb": 16384, "gpu_memory_mb": 8192 },
     "asset_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "managed_model_compatibility": [
@@ -134,6 +145,7 @@ API 密钥使用私密方式注入，不要提交或写入镜像。以可访问 
   "physical_gpu_uuid": "GPU-12345678-1234-1234-1234-123456789abc",
   "network": "aap-plugins",
   "host_port": 18000,
+  "container_port": 8000,
   "cpus": 4,
   "gpu_verify_keyring": { "key-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
   "image_hosts": ["media.example"]
@@ -142,19 +154,31 @@ API 密钥使用私密方式注入，不要提交或写入镜像。以可访问 
 
 `gpu_resource_id` 必须是平台配置的实际逐卡资源，`physical_gpu_uuid` 是该卡完整 UUID；安装器只将该卡暴露给容器，并绑定容器内逻辑 `cuda:0`，不按宿主机 ordinal 猜测。`memory_mb` 和 `gpu_memory_mb` 分别为 RAM 与显存预算（MiB），显存不得超过资源可分配量；`cpus` 为 CPU 上限。URL 必须从平台容器可达、指向该宿主端口，不能用 loopback；示例 bridge 地址须按实际网络替换。`image_hosts` 是可获取推理图片的主机名，`allowed_asset_sources` 是受控资产下载实际使用且获授权的完整 HTTP(S) origin，可含多个；二者不是同一白名单。公钥是 key ID 到 Ed25519 公钥的 unpadded base64url 映射，不能使用示例零值。安装器将其写入私有 `data/gpu-keyring.json`，并在可写数据目录之上独立只读挂载该文件；资格报告同样只读挂载。不要将签发私钥放入配置或状态目录。
 
+`models` 是获准能力的最小投影，不是第二份完整模型目录：模型 ID、任务、交互性、提示、输入和几何输出必须与实际 `/setup.models` 一致；分类可具有空的几何输出列表。`pools` 是命名池及正整数容量，须与 `/setup`、带新鲜挑战的 `/health` 和 CUDA 报告一致。未知能力、多报或漏报模型／池都会拒绝激活。
+
+| 运行配置 | 安装配置与证明                                                                                                                                                                                                                |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CPU      | `resource.device` 为 `cpu`，`gpu_memory_mb` 为 `0`；不配置 GPU 资源、UUID 或公钥，不提交 GPU 报告，也不申请 GPU 设备。安装器为所有 CPU 插件设置 `NVIDIA_VISIBLE_DEVICES=void` 和空的 `CUDA_VISIBLE_DEVICES`，不按插件名豁免。 |
+| CUDA     | 显式绑定一张物理卡、显存预算和验签公钥；提交与实际镜像、资产、驱动、运行时及全部命名池相符的报告。容器内设备为 `cuda:0`。                                                                                                     |
+
+ORT 报告还须记录每轮每个实际业务 session 的完整 provider 链，并使数量与 factory 拓扑及新鲜运行观测一致；两轮都漏报同一 session 也不能通过。严格 CUDA 插件拒绝整条 session 回退到 CPU，并关闭 ORT 的运行时整 session 重试回退；这不等于承诺所有算子都在 GPU 执行，合法的 CPU 算子分区仍可存在。Torch 报告不需要伪造 ORT session 字段。
+
 ```bash
 aap plugins prepare --config deployment.json --state-dir ./plugin-state --json
+# 仅 LibreYOLO 提供此安装器资产准备命令；其他插件按自己的获准资产流程准备
 aap plugins prepare-assets --state-dir ./plugin-state --json
 # 管理员先审核与该安装身份、镜像和 GPU 绑定的完整共享生命周期报告
 aap plugins install --state-dir ./plugin-state --qualification gpu-report.json --yes --json
 aap plugins status --state-dir ./plugin-state --json
 ```
 
-`prepare` 预留不可接流的安装身份、Registry 和资源绑定；`prepare-assets` 显式准备固定资产。使用相同状态目录和配置重试，勿另造身份。安装器检查真实 Docker 镜像摘要、镜像和容器 ID、启动身份及 GPU 绑定，再提交可信管理员的启动收据；这不是远程密码学证明。CUDA 必须另提交管理员审核通过的完整共享生命周期报告及摘要，绑定此次预留的 Registry、镜像、资产、实际 GPU、驱动、运行时和池拓扑，包含真实推理、取消和两次冷态释放。`--yes` 表示管理员批准提交报告，不替代审核；本地 `aap-plugin check --qualify-local` 的报告不等于平台托管资格报告。平台还会验证实际受认证端点。安装完成不会自动为任何项目启用或发布模型；项目负责人须显式启用该服务，部署候选模型、加载试用并人工发布，详见[模型回流与默认预标](../online-learning/models)。模型注册本身不会自动发布。
+`prepare` 预留不可接流的安装身份、Registry 和资源绑定；`prepare-assets` 只执行 LibreYOLO 提供的显式资产准备流程，不是所有插件的通用下载器。使用相同状态目录和配置重试，勿另造身份。安装器检查真实 Docker 镜像摘要、镜像和容器 ID、启动身份及资源绑定，再提交可信管理员的启动收据；这不是远程密码学证明。CUDA 必须另提交管理员审核通过的完整共享生命周期报告及摘要，绑定此次预留的 Registry、镜像、资产、实际 GPU、驱动、运行时和全部池，包含真实推理、取消和两次冷态释放。`--yes` 表示管理员批准安装及所提供的报告，不替代审核；本地 `aap-plugin check --qualify-local` 的报告不等于平台托管资格报告。平台还会验证实际受认证端点。安装完成不会自动为任何项目启用或发布模型；项目负责人须显式启用该服务，受控模型另行部署、加载试用并人工发布，详见[模型回流与默认预标](../online-learning/models)。
+
+RapidOCR CPU 镜像使用独立 CPU ORT 依赖，不安装 GPU ORT 或 NVIDIA wheel。按 `apps/rapidocr-backend/README.md` 中的资产流程核验并准备所需权重，用作者工具生成 manifest；该工具当前要求默认 `RAPIDOCR_POOL_CAP=3`，不默默为其他容量生成固定值。将 `container_port` 设为镜像实际监听的 `8005`，准备后直接执行 `aap plugins install --state-dir ./rapidocr-state --yes --json`，不传 `--qualification`。服务保留 det／rec／e2e 完整目录；未获准准备的变体明确失败，不自动下载其他权重。其 headless OpenCV 替代仍有上游 `pip check` metadata 不匹配，不能把真实运行通过描述为普通 pip 依赖检查全绿。
 
 托管 CUDA 实例应使用目标资源的 `enforce` GPU 准入配置；这与服务池 router 的 off／observe／enforce 模式是两套控制。签名初始化和排空可能等待旧控制 Token 的有效期结束，SDK 为激活和排空使用 300 秒请求超时。网络中断或超时不代表平台操作已回滚：先读取安装状态，再用原状态目录恢复，不能另建身份或直接停止容器。
 
-安装器等待健康端点就绪时，启动中的短暂断连或 503 不算启动成功；60 秒内仍未就绪便停止提交激活，保留启动身份供原目录恢复。平台激活会先完成受认证的持久路由控制绑定，再建立 GPU 准入并将安装标记为 active；绑定未确认时不会先开放接流。路由控制使用安装器配置的私有凭据文件，不要求插件作者另写鉴权或绑定逻辑。停用和卸载沿用已记录的启动文件，不为退出重写运行配置。
+安装器等待健康端点就绪时，启动中的短暂断连或 503 不算启动成功；60 秒内仍未就绪便停止提交激活，保留启动身份供原目录恢复。平台激活会先完成受认证的持久路由控制绑定；CUDA 再建立 GPU 准入，随后才将安装标记为 active。绑定未确认时不会先开放接流。路由控制和业务请求各自验证所属凭据，不能拿业务 Bearer 绕过控制权限。停用和卸载沿用已记录的启动文件，不为退出重写运行配置。
 
 安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
 
@@ -169,13 +193,30 @@ aap plugins uninstall --state-dir ./plugin-state --yes --json
 
 失败保留私有状态并查状态后重试，勿手工停止未知身份。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。对于仅预留且从未尝试启动的安装，直接执行上述 `uninstall`：仅在无启动尝试或启动收据、且确认本地不存在对应容器时，安装器才会使用 `cancel-prepared` 取消预留；未知容器或启动历史不能假定未执行。排空证明绑定完整容器 ID，同名替代实例不得使用旧证明；恢复检查拒绝共享或未知 PID 命名空间。无效资格报告和镜像检查失败不会固定候选，可修正后重试。
 
+GPU 资源修复任务可依据 owner 核验的“从未启动”闭合证明回收已取消的预留，不要求不存在的进程提供健康响应。真正启动过的实例仍须完成终止证明，并等待相关 Token 时限后收口；不要通过清空账本或重命名资源绕过等待。多池终止回执必须包含全部且不重复的获准池，顺序可以不同，其他身份、代际与卸载字段仍须匹配。
+
 需要保留同一安装及模型目录、仅替换运行进程时，使用 `aap plugins restart --state-dir ./plugin-state --yes --json`。它先完成上述终止证明及停止，再用原制品和资格创建新的容器与启动身份；历史证明保留。GPU 激活须等待既有签名许可有效期，reset 与 enforce 各自保留完整等待窗口；结构化超时不表示候选可以改换身份。中断后继续同一命令，不手工启动候选或替换容器。重启不会自动恢复已排空的服务池成员，须由管理员显式恢复。意外退出或外部重启不等于终止证明，无法核验原进程身份时拒绝自动接管；执行安装器期间应独占该安装的 Docker 管理操作。
 
 新进程的路由 incarnation 不能直接沿用旧进程。宿主只有在原终止证明已结算、旧容器与 boot 已记为停止，且新容器、boot、端点、资格和安装修订均匹配时，才授权这一次替换握手；存在未结束或不确定的路由执行时拒绝。失败重试保留原控制 ID、挑战和 epoch，完整握手后才能继续 GPU 初始化及激活，不把“新进程空闲”单独当作旧进程已退出。
 
 路由绑定失败留下的管理围栏不会因 GPU 排空而消失。GPU owner 可依据持久化安装终止意图取得仅用于签名终止排空的端点许可；此许可不能执行预测或普通生命周期请求。完成实际排空、账本结算和安装证明后可以退役并停止对应进程，未确认的路由控制及历史尝试仍保留，不宣称路由已恢复。
 
-升级须在新状态目录用新制品重新 `prepare`、`prepare-assets` 和审核报告，再使用 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state --qualification new-report.json --yes --json`。升级创建新的安装及 Registry 身份，旧身份保持不变。项目负责人显式启用新服务并完成模型部署、试用及人工发布；旧安装须满足依赖和排空条件才能退役。历史版本回滚也须在已验证的新插件部署上重新部署并人工发布，不能重新激活退役的旧 CPU 实例。
+升级须在新状态目录用新制品重新 `prepare`，按该插件自己的流程准备资产；CUDA 另需审核新报告。之后使用 `aap plugins upgrade --from-state ./old-state --state-dir ./new-state --qualification new-report.json --yes --json`，CPU 不传报告参数。升级创建新的安装及 Registry 身份，旧身份保持不变。项目负责人显式启用新服务并完成模型部署、试用及人工发布；旧安装须满足依赖和排空条件才能退役。历史模型版本回滚也须在已验证的新插件部署上重新部署并人工发布，不能重新激活退役的旧 CPU 实例。
+
+### 历史清单与本地收据迁移
+
+旧 manifest 没有完整的获准模型能力和池容量，不能根据插件名、已有文件或新的默认值自动补齐。迁移 `bo0401` 要求管理员逐项核对不可变镜像并批准 inventory；有未知、缺失或不匹配的历史记录时整次升级拒绝，不会先把它们改为无效记录。
+
+1. 在维护窗口停止旧版 API、Inference owner 和相关 worker，保存数据库及私有安装状态的受控备份；先安排仍依赖旧镜像的执行与恢复路径。
+2. 准备绝对路径 JSON 文件，顶层为 `{"schema":1,"installations":[...]}`。每项包含 `installation_id`、`registry_id`、`artifact`、`image_id`、完整 `old_manifest`、`old_manifest_sha256`、`asset_manifest_sha256`、获准 `models`、`pools` 和可追溯的 `approval_ref`。UUID、原 manifest、OCI 制品、资产摘要及已有启动镜像必须精确相符，清单须完整覆盖历史安装。
+3. `old_manifest_sha256` 使用 `json.dumps(old_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)` 的 ASCII 字节计算 SHA-256。通过部署原有的、已确认目标数据库的迁移入口执行 `alembic -x plugin_capabilities_inventory=/absolute/path/inventory.json upgrade head`。没有历史安装时不需要填造 inventory。
+4. Registry 迁移完成后，对每个本地状态目录显式执行 `aap plugins migrate-state --state-dir ./plugin-state --manifest approved-manifest.json --image-id sha256:<已核验镜像ID> --yes --json`。命令重新核验权威 Registry、镜像及已有容器／启动身份，只更新获准能力投影；不改 Docker 所有权标签、资源绑定、旧资格或数据目录。
+
+迁移保留原 manifest 及批准来源；本地收据只在同一私有文件内保存不含 Token 的旧状态快照，供协调回退核验，不生成第二份永久凭据。数据库降级遇到新增、删除或已改变的安装会拒绝，不能通过丢弃记录强行回退。
+
+**收据迁移不等于旧镜像取得新资格。** 旧不可变镜像缺少新运行声明时，仍可凭精确身份、新鲜挑战和完整 residency 安全停用／退役；新激活（包括重新创建进程后的激活）仍须满足当前声明和资格门禁。不要先停止仍需恢复的旧实例，再假定 `migrate-state` 能使旧镜像重新激活；应先完成经批准的新制品交接，或保留原先匹配的隔离宿主恢复环境。
+
+旧 CPU 状态目录若保存了未限制 GPU 可见性的环境文件，查询与按原身份排空不会改写该文件；重新创建进程则会拒绝配置不一致。完成受控退役后，使用新状态目录与安装身份部署，不手改旧文件来维持标签或启动摘要。
 
 ## 服务池管理（超管）
 

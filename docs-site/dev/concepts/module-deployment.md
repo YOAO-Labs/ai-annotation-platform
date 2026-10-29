@@ -2,12 +2,12 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 后端模块解耦、插件化与独立部署
 
-后端重构的目标是让核心能力成为随项目发布的内置插件，扩展能力成为可安装插件，而不只是拆分 Python 包或增加独立进程。当前已有 owner 契约、受限数据能力及部分独立运行工件；LibreYOLO 推理插件、开发 SDK 和安装治理已完成限定单卡 GPU 的托管端到端验收。面向全部扩展点的统一装配、依赖校验与启停机制仍未交付。独立部署与语言替换是能力边界的验收维度，不等同于插件化完成。本页按源码与运行证据记录进度，不使用百分比推算。
+后端重构的目标是让核心能力成为随项目发布的内置插件，扩展能力成为可安装插件，而不只是拆分 Python 包或增加独立进程。当前已有 owner 契约、受限数据能力及部分独立运行工件；LibreYOLO 已完成限定单卡 GPU 托管验收，通用推理准入、RapidOCR CPU 与 ONNXTools 多池 CUDA 已通过限定平台业务链路。面向全部扩展点的统一装配、依赖校验与启停机制仍未交付。独立部署与语言替换是能力边界的验收维度，不等同于插件化完成。本页按源码与运行证据记录进度，不使用百分比推算。
 
 ## 范围和判断口径
 
@@ -25,7 +25,7 @@ last_reviewed: 2026-10-29
 实际核心装配仍由 `apps/api/pyproject.toml`、`app/api/v1/router.py`、
 `app/workers/celery_app.py`、中心 Alembic 迁移和 Compose 静态列表维护。
 ML Backend 的 HTTP 能力协商与手工注册可复用；LibreYOLO 窄切片已验证制品安装、
-单卡 GPU 资格、训练回流及安全退役，尚不能据此宣称其他后端已插件化。
+单卡 GPU 资格、训练回流及安全退役；[通用准入与 CPU／CUDA 接入](#inference-plugin-admission)另行验收，不能据此宣称所有后端已迁移。
 Mask 格式的静态 registry 仍向适配器传入 Session／ORM，也不能直接视为可安装插件。
 
 先做实推理扩展点与 Python 开发体验，再按实际用例增加其他扩展契约。
@@ -68,11 +68,13 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 | 源码归属            | 留在平台的 `packages/python-sdk`             | 当前位于 `packages/inference-plugin-sdk`，计划迁入独立插件仓库 |
 | 兼容目标            | 平台公开 API                                 | 插件协议与宿主准入契约                                         |
 
-**管理插件不等于开发插件。** API SDK 核心安装只需要 HTTP 客户端与数据模型，不应因插件管理能力而要求安装 FastAPI、Uvicorn 或模型运行时。插件 SDK 不默认依赖 API SDK，也不把平台项目、标注和作业等全量 API DTO 纳入自己的接口。
+**管理插件不等于开发插件。** API SDK 核心安装只需要 HTTP 客户端与数据模型，不引入 FastAPI、Uvicorn 或模型运行时；`client.plugins` 按需加载 `plugins` extra，未安装时明确报错。插件 SDK 不默认依赖 API SDK，也不把平台项目、标注和作业等全量 API DTO 纳入自己的接口。
 
 跨边界必需的 manifest、安装身份、资源绑定、生命周期证明 schema 与纯校验规则沿用平台维护的公共契约。消费者使用版本化契约包，或从同一权威 schema 生成对应类型；不复制另一套字段定义、权限规则或准入判断。两套 SDK 独立发布，分别声明各自兼容范围；组合使用须验证兼容组合，不要求版本号同步。
 
 生命周期证明 schema、内存周期计算和纯校验由平台的 `aap-lifecycle-contract` 提供，支持 Python 3.10 及以上且无第三方运行依赖。生产 API 和 API SDK 的 `plugins` extra 使用该契约，不再安装 `aap-backend-runtime`；训练契约仍按实际用途保留，测试 extra 可使用运行时生成证据夹具。模型装载、文件摘要采集、证明生产和资源释放机制仍在插件运行时。独立 wheel 检查已通过，当前 API 镜像另通过禁网只读的导入与证明校验；这不等于公共制品渠道、独立插件仓库或实际 GPU 资格已经交付。
+
+安装管理类型直接消费 `aap_inference_contract.plugin`，API SDK 不再维护第二份插件模型定义；规范任务词表复用 `aap-task-contract`。核心、CLI 与管理员插件工具已分别在干净环境安装检查，不能把管理员工具的可选依赖扩散到普通 API 客户端。
 
 具体插件确需调用平台公开 API 时，可自行显式依赖 API SDK，并使用获准操作和作用域的凭据。插件 SDK 不自动注入平台客户端、管理员凭据或内部签名私钥，也不提供访问平台私有模块、数据库或绕过领域 owner 的通道。
 
@@ -202,9 +204,27 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
-| 插件装配与扩展安装 | 推理切片已有版本化 manifest、Python 开发 SDK 与安装治理；全扩展点统一装配、发现及依赖兼容机制仍未交付 | LibreYOLO 复用 Inference／Registry、GPU 仲裁及各业务 owner；API 路由、Celery、迁移与凭据总体仍静态装配 | [推理插件接入](/dev/tutorials/ml-backend-starter)与[安装生命周期](/user-guide/superadmin/ml-backend-registry)：真实训练回流、单卡 CUDA、人工发布、当前任务／批量／裁剪、CPU 冻结及 off／observe／enforce 在途重启已验收；不据此通过其他插件或双卡隔离 | 完成核心内置装配及其他扩展 SPI；其余五个推理后端迁移、独立仓库分发与许可门禁仍待实施，不恢复旧适配器或建立第二套业务实现 |
+| 插件装配与扩展安装 | 推理切片已有完整模型能力、CPU／CUDA、命名池及 ORT session 准入；开发 SDK、管理员安装器与原生 HTTP 适配分工明确；全扩展点装配仍未交付 | LibreYOLO、RapidOCR 与 ONNXTools 复用 Inference／Registry 和各业务 owner；API 路由、Celery、迁移与凭据总体仍静态装配 | LibreYOLO 原限定单卡资格保留；[通用准入与限定验收](#inference-plugin-admission)覆盖真实 OCR CPU、多池 ONNX CUDA 业务、持久化与安全退役；GPU 资格仍按插件报告独立判断 | 完成核心内置装配及其他扩展 SPI；其余后端完整迁移、独立仓库分发与许可门禁继续推进，不恢复旧适配器或建立第二套业务实现 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
+
+## 通用推理插件准入与限定验收 {#inference-plugin-admission}
+
+manifest 的 `models` 是完整获准模型目录的最小安全投影，`pools` 是命名容量；实际 setup、新鲜挑战绑定的 health 与资格报告必须一致。CPU 不绑定 GPU，也不携带 GPU generation／control epoch；CUDA 显式绑定单卡与获准报告。ORT 另核对 factory 的 session 数量和每轮每个实际 session 的 provider 链，不能两轮漏报同一 session。严格 CUDA 拒绝整 session 回退，不声称全部算子均在 GPU 上执行。
+
+复杂后端保留原生 HTTP 服务，不经过检测专用适配器。安装、项目启用、模型试用／人工发布仍是不同动作。路由控制与业务 Bearer 各自认证；终止排空只在原 unload 权限范围内开放精确路径，并校验全部声明池。历史 manifest 通过批准 inventory 迁移，保留原身份、制品及收据；缺少新声明的旧镜像不能凭收据迁移取得重新激活资格，具体步骤见[管理员指南](/user-guide/superadmin/ml-backend-registry#历史清单与本地收据迁移)。
+
+隔离平台中的 RapidOCR CPU 镜像没有 GPU ORT、NVIDIA wheel 或 GPU 设备。真实安装与项目启用后，通过 API 派发、worker 执行、独立 Inference 路由、插件推理和 Labeling 持久化，覆盖了检测、端到端 OCR，以及检测后对两个区域执行 crop-only 识别；最终结果包含 `HELLO`、`123`、多边形、语言和方向。两个实际 CPU 安装均通过原 CLI 的进程绑定排空与退役，容器和业务 Token 已移除。主进程使用独立安装的 SDK 再读取作业、预测和退役状态，而非只查看测试输出。
+
+ONNXTools 的 operator 资格已在独占单卡上实际通过：`pipeline` 两个、`detector` 和 `va` 各一个 ORT session，两轮均观察到 CUDA 为首选 provider、逻辑设备为 0，最终三个池及活动计数全部清零。显存基线在每次运行中实测无模型 CUDA context；不把该 context 误算成模型未释放，也不扣除卸载后仍残留的额外占用。首次失败报告保留，后续报告未降低回收比例或稳定性阈值。主进程独立校验报告规范字节、实际 session／设备记录与安装身份。
+
+该报告随后用于普通 SDK 安装与平台实际 CUDA 准入，而非继承 operator 临时权限。复合车辆推理与检测后仅针对 `car` 的裁剪分类均形成持久化结果：车辆框位于归一化边界内，车型为 `car`、颜色为 `gray`，非车辆结果未被写入分类属性。正常 CLI 在同一操作与进程身份下取得 `safe_to_stop` 后移除容器并退役；主进程独立读取作业、预测及最终状态。未启动安装的取消由原 owner 闭合证明自动回收，已启动实例仍等待实际 Token 时限；多池回执仅忽略顺序，不允许缺失、重复或身份漂移。
+
+本轮普通上传 API 在隔离 LAN 权限配置下另有两处已定位的 503：`upload-init` 直接使用被撤销的任务 display 序列，`upload-complete` 原件发布直接读取私有 `task_dataset_item_links`。验收夹具按明确授权，经真实 Assets 分配、签名上传、字节核验及限定 owner 发布准备；未扩大运行账号权限，也未将这两个上传接口记为通过。插件业务推理和安装治理使用正常 API／owner／worker 凭据；后续修复仍归原 Labeling 边界。
+
+当前证据只覆盖本机限定组合。模型权重仅获准内部验收，OCI 仅推送本机临时 registry；未实施源码拆仓、公开分发、生产部署或其余模型插件的完整迁移。
+
+这不是模型准确率或吞吐基准：选定 CPU 资源配额下，ONNXTools 的实际预检仍有大量 ORT 线程和较长延迟；限制 CPU affinity 的对照未改善，不据此推荐该调整。白色空例产生误检的记录保留，未通过降低阈值改写模型行为。
 
 ## Learning 的 Jobs 读取 {#learning-jobs-reads}
 

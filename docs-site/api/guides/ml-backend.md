@@ -1,9 +1,8 @@
 ---
 audience: [dev, ops]
 type: reference
-since: v0.9.0
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # ML Backend
@@ -32,10 +31,16 @@ POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/retire
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/cancel-prepared
 ```
 
-集合 `POST` 预留身份，不是 `/prepare`。管理员在 Docker 执行机使用 `aap plugins prepare`、`prepare-assets`、`install` 和 `status`；API 不访问 Docker socket。安装器使用批准的有界配置、独立私有 Bearer 与 GPU 验签公钥 keyring，检查实际镜像摘要和容器启动身份；CUDA 还须管理员批准完整共享生命周期报告。动作使用最新 `expected_revision`，并发冲突先读取状态。安装不会自动启用项目。
+集合 `POST` 预留身份，不是 `/prepare`，所有安装管理入口均要求超级管理员。管理员在 Docker 执行机使用 `aap plugins prepare`、`install` 和 `status`；API 不访问 Docker socket。`prepare-assets` 仅用于提供该命令的 LibreYOLO 插件，其他插件使用各自的获准资产流程。安装器检查实际固定摘要镜像、容器启动身份及资源绑定；CPU 不绑定 GPU 或提交 GPU 证明，CUDA 则需要物理 GPU、验签公钥及管理员批准的完整共享生命周期报告。动作使用最新 `expected_revision`，并发冲突先读取状态。安装不会自动启用项目。
+
+`manifest.models[]` 必须包含每个获准模型的 `id`、规范任务 `task`、`is_interactive`、`supported_prompts`、`supported_inputs` 和 `supported_geometric_outputs`；它是安全边界所需投影，不复制完整 `/setup` 参数目录。允许多模型、非 bbox 结果及分类的空几何输出，但未知词表、重复模型和实际能力不一致会被拒绝。`manifest.pools` 按池名声明严格正整数 `cap`，与实际 setup／新鲜 health 及资格拓扑一致，不固定为 `models` 池。
+
+ORT CUDA 报告另含 `deployment.pool_topology.session_counts` 及每轮 `session_observations`。平台将每个实际 session 的 provider 链和数量与 factory 拓扑、`setup.runtime_info.ort_session_counts`、挑战绑定的 `health.ort_session_counts` 核对；不能用可用 provider 列表替代实际 session，也不能两轮漏掉同一 session。严格 CUDA 拒绝整 session CPU 回退，仍允许合法算子分区。非 ORT 报告不新增这些字段或改写旧摘要。
+
+API SDK 的插件管理类型直接消费 `aap_inference_contract.plugin`；管理员安装使用 `ai-annotation-sdk[plugins]`，核心 SDK 不引入插件服务或模型运行时。旧持久清单通过管理员 inventory 和显式本地收据迁移补齐，不按插件名猜默认能力；升级限制见[历史清单与本地收据迁移](/user-guide/superadmin/ml-backend-registry#历史清单与本地收据迁移)。
 
 `disable` 关闭准入不代表 `safe_to_stop`；须完成 quiesce 并使用对应证明修订后才可停止容器或退役。未知状态和通信失败不构成证明。`aap plugins disable`／`uninstall` 编排这些门禁；`upgrade` 使用新安装及 Registry 身份，不替换旧身份。配置、报告与命令见[超管插件安装](/user-guide/superadmin/ml-backend-registry#可安装推理插件)。
-`quiesce` 返回经过排空证明绑定的完整 `launch`（含容器 ID），仅授权停止该实例；同名替代容器不能继承证明。`cancel-prepared` 仅取消无启动历史且无活动发布或冻结执行引用的预留，使用修订 CAS 和 GPU 持久状态检查；调用方须另外确认本地没有容器，Registry 不观察 Docker。
+`quiesce` 返回经过排空证明绑定的完整 `launch`（含容器 ID），仅授权停止该实例；同名替代容器不能继承证明。CPU 证明须完整匹配 manifest 声明的排序池集合，且不携带 GPU generation／control epoch；未知、重复或缺失池不能授权停止。独立 Inference owner 只在既有 unload 控制范围内授权精确的 `POST /lifecycle/terminal-drain`，需要前向迁移 `bo0402`，不放开任意管理路径。`cancel-prepared` 仅取消无启动历史且无活动发布或冻结执行引用的预留，使用修订 CAS 和 GPU 持久状态检查；调用方须另外确认本地没有容器，Registry 不观察 Docker。
 
 ## 注册请求
 
