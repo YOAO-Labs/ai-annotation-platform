@@ -19,7 +19,9 @@ from aap_protocol_v2.lifecycle import (
     TerminalDrainRequest,
     parse_gpu_admission_header_values,
 )
+from aap_protocol_v2.routing import ROUTE_CONTROL_PATH, ROUTE_STATUS_PATH
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from aap_protocol_v2.scope_retirement import SCOPE_RETIREMENT_PATH
 
 
 def plugin_lifecycle_options() -> dict[str, Any]:
@@ -96,7 +98,12 @@ def install_plugin_service(app: FastAPI, lifecycle_getter: Callable[[], Any]) ->
 
     @app.middleware("http")
     async def authentication(request: Request, call_next):
-        if request.url.path != "/health":
+        if request.url.path not in {
+            "/health",
+            ROUTE_CONTROL_PATH,
+            ROUTE_STATUS_PATH,
+            SCOPE_RETIREMENT_PATH,
+        }:
             try:
                 require_external_bearer(request, token)
             except HTTPException as exc:
