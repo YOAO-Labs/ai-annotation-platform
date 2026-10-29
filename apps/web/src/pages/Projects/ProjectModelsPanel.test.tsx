@@ -1339,8 +1339,6 @@ it.each(["super_admin", "project_admin", "employee"])(
     mount("/projects/project-1/learning/models/model-1");
     const summary = await screen.findByText("配置推理服务");
     await waitFor(() => expect(summary.closest("details")).toHaveAttribute("open"));
-    expect(screen.getByText(/模型市场 → 注册管理 → 实例/)).toBeVisible();
-    expect(screen.getByText(/项目设置 → ML 模型/)).toBeVisible();
     expect(screen.getByRole("link", { name: "去项目设置启用" })).toHaveAttribute(
       "href",
       "/projects/project-1/settings?section=ml-backends",

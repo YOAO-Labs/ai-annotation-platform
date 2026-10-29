@@ -173,28 +173,28 @@ export function PrefillFromBackendDialog({
   const pickedCount = checkedClasses.size + checkedKeys.size;
 
   return (
-    <Modal open={open} onClose={onClose} title="从 ML Backend 预填配置" width={640}>
+    <Modal open={open} onClose={onClose} title="从模型服务预填配置" width={640}>
       <div className="flex flex-col gap-3">
         <p className="m-0 text-xs leading-normal text-muted-foreground">
-          backend 会自报它产出的类别（如 YOLO 的 COCO 类）与写入的属性字段（如车型 /
-          颜色，含下拉选项）。 选择一个模型，勾选要预填的类别 / 属性，即可合并进「{targetUnitLabel}
+          模型服务会报告支持的类别（如 YOLO 的 COCO 类）与属性字段（如车型 / 颜色，含下拉选项）。
+          选择一个模型，勾选要预填的类别 / 属性，即可合并进「{targetUnitLabel}
           」工具单位 （类别同名跳过、属性同 key 覆盖）。
         </p>
 
         {capsLoading && (
           <div className="rounded-md border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-            正在加载本项目 ML Backend 能力…
+            正在加载本项目模型服务能力…
           </div>
         )}
         {capsError && (
           <div className="rounded-md border border-dashed border-border p-6 text-center text-xs text-status-danger">
-            加载 ML Backend 能力失败，请稍后重试。
+            加载模型服务能力失败，请稍后重试。
           </div>
         )}
         {!capsLoading && !capsError && entries.length === 0 && (
           <div className="rounded-md border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-            本项目已接入的 backend 都没有自报类别或输出属性 schema。需要接入会自报类别（如 YOLO
-            检测、 onnxtools 车辆属性）的在线 backend 后才能预填。
+            已接入的模型服务均未声明类别或输出属性。需要接入提供类别（如 YOLO 检测）或属性（如
+            ONNXTools 车辆属性）的模型服务后才能预填。
           </div>
         )}
 

@@ -93,10 +93,10 @@ export async function runProjectMlRouting(
   const drawStartMs = Date.now();
   await page.waitForTimeout(2_200);
 
-  const manageButton = page.getByRole("button", { name: /管理 backend/ });
+  const manageButton = page.getByRole("button", { name: /管理模型服务/ });
   await moveTo(page, manageButton);
   await manageButton.click();
-  const dialog = page.getByRole("dialog", { name: "管理项目 ML backend" });
+  const dialog = page.getByRole("dialog", { name: "管理项目模型服务" });
   await expect(dialog).toBeVisible();
   const batchToggle = dialog.getByRole("checkbox", {
     name: `启用 ${BATCH_BACKEND_NAME}`,
@@ -135,7 +135,7 @@ export async function runProjectMlRouting(
   await expect(quota).toContainText("已启用 2 /");
   await page.waitForTimeout(2_400);
 
-  const setMain = batchRow.getByRole("button", { name: "设为主后端", exact: true });
+  const setMain = batchRow.getByRole("button", { name: "设为主服务", exact: true });
   const projectResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH" &&
@@ -146,14 +146,14 @@ export async function runProjectMlRouting(
   await setMain.click();
   const updated = await projectResponse;
   if (!updated.ok()) {
-    throw new Error(`[project-ml-routing] 设置项目主后端失败: HTTP ${updated.status()}`);
+    throw new Error(`[project-ml-routing] 设置项目主模型服务失败: HTTP ${updated.status()}`);
   }
   await expect(
-    page.getByText(`已设为项目主后端「${BATCH_BACKEND_NAME}」`, { exact: true }),
+    page.getByText(`已设为项目主模型服务「${BATCH_BACKEND_NAME}」`, { exact: true }),
   ).toBeVisible();
-  const mainBackendSelect = page.locator("select").first();
+  const mainBackendSelect = page.getByRole("combobox", { name: "项目主模型服务", exact: true });
   await expect(mainBackendSelect).toHaveValue(batchBackendId);
-  await expect(batchRow.getByText("主后端", { exact: true })).toBeVisible();
+  await expect(batchRow.getByText("主服务", { exact: true })).toBeVisible();
 
   // 在同一 page 打开工作台，确保设置和后续能力分流都进入同一份录制。
   const openWorkbench = page.getByRole("button", { name: "打开工作台", exact: true });
@@ -172,10 +172,10 @@ export async function runProjectMlRouting(
   const aiPanel = page.getByTestId("ai-prediction-popover");
   await expect(aiPanel).toBeVisible();
   await aiPanel.getByTestId("ai-prediction-advanced-toggle").click();
-  const batchSelector = aiPanel.getByLabel("本次后端");
+  const batchSelector = aiPanel.getByLabel("本次模型服务");
   await expect(batchSelector).toHaveValue(batchBackendId);
   await expect(batchSelector.locator("option:checked")).toHaveText(
-    `${BATCH_BACKEND_NAME}（项目主后端）`,
+    `${BATCH_BACKEND_NAME}（主服务）`,
   );
   await page.waitForTimeout(3_000);
 

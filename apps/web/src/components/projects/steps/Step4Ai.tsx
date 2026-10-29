@@ -27,7 +27,7 @@ export function Step4Ai({
         <Icon name="sparkles" size={14} className={styles.aiIcon} />
         <div className={styles.aiToggleText}>
           <span className={styles.aiToggleTitle}>启用 AI 预标注</span>
-          <span className={styles.aiToggleHint}>创建后可在项目内挂接真实 ML Backend 推理服务</span>
+          <span className={styles.aiToggleHint}>创建后可在项目内接入模型服务</span>
         </div>
       </label>
 
@@ -81,7 +81,7 @@ function BackendSourceSelect({
   return (
     <div>
       <label className={styles.label}>
-        ML Backend <span className={styles.labelNote}>（可选, 复用其它项目已注册的 backend）</span>
+        模型服务 <span className={styles.labelNote}>（可选，复用其他项目已注册的服务）</span>
       </label>
       {q.isLoading ? (
         <div className={clsx(styles.input, styles.readonlyInput)}>加载中…</div>
@@ -108,7 +108,7 @@ function BackendSourceSelect({
         </select>
       )}
       {!selected && items.length > 0 && (
-        <p className={styles.helpText}>创建项目后，可到项目设置注册 ML Backend。</p>
+        <p className={styles.helpText}>创建项目后，可到项目设置启用模型服务。</p>
       )}
       {selected && (
         <div className={styles.helpText}>

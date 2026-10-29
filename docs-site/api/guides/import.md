@@ -53,15 +53,15 @@ image_height=<optional COCO fallback height>
 }
 ```
 
-OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。
+OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。界面中的“原生 JSON”仍对应 `format=aap_json`，文件内的 `format: "aap"` 不因显示名称改变。
 
 错误是逐 entry / shape 累计，不让整批挂。多文件上传时后端合并响应，并在 errors[].reason 前缀文件名。单文件 schema_version 不兼容 / JSON 不可解析会整体 422；多文件中的坏文件会作为一条错误累计，其他文件继续处理。
 
 多文件导入是 best-effort 语义：整批在一个事务内提交，但**不具备原子性**——若某个文件失败被累计为错误，已成功文件写入的预测仍会保留，不会因后续文件失败而回滚。
 
-## 原生 JSON 格式
+## 原生 JSON 格式 {#aap-json-格式}
 
-详见 [用户文档 · 原生 JSON](../../user-guide/reference/export-formats#aap-json-15无损) + [ADR-0024](../../dev/adr/archive/0024-aap-json-format)。预测导入消费 `predictions[]`；标注导入接口消费 `annotations[]`。图片 `raster_mask` 和视频 `video_track_mask` 都通过 `mask_objects` 恢复内容寻址正文；导入会先校验引用、摘要与尺寸，再写对象并挂载 Prediction 或 Annotation。
+详见 [用户文档 · 原生 JSON](../../user-guide/reference/export-formats#aap-json-1-5-无损) + [ADR-0024](../../dev/adr/archive/0024-aap-json-format)。预测导入消费 `predictions[]`；标注导入接口消费 `annotations[]`。图片 `raster_mask` 和视频 `video_track_mask` 都通过 `mask_objects` 恢复内容寻址正文；导入会先校验引用、摘要与尺寸，再写对象并挂载 Prediction 或 Annotation。
 
 COCO 导入同时识别 bbox、polygon segmentation 与 uncompressed RLE segmentation。RLE 会先写入共享内容层，再形成 `raster_mask` 候选；非法、空前景或尺寸不匹配的 segmentation 作为逐 annotation 错误返回，不会静默降级成 bbox。
 

@@ -39,7 +39,7 @@ last_reviewed: 2026-10-24
 | 图像         | Label Studio Brush | `label-studio-brush`          | 与 Label Studio BrushLabels 交换实例 Mask                           |
 | 图像         | 逐实例 Binary PNG  | `binary-png`                  | 以独立 0/255 PNG 无损保留重叠实例                                   |
 | 图像         | Indexed PNG        | `indexed-png`                 | 交换单张 palette instance map；重叠时需显式 winner 策略             |
-| 图像         | 原生 JSON           | `aap_json`                    | 跨实例迁移 / 导入外部模型预测供人工审阅 / 备份                        |
+| 图像         | 原生 JSON          | `aap_json`                    | 跨实例迁移 / 导入外部模型预测供人工审阅 / 备份                      |
 | **视频轨迹** | Video JSON         | `video_json`                  | 轨迹备份 / 质检 / 继续编辑                                          |
 | 视频轨迹     | YOLO 逐帧检测      | `yolo-frames-det`             | 视频逐帧检测训练（polygon / polyline 降级为顶点外接框）             |
 | 视频轨迹     | YOLO 逐帧分割      | `yolo-frames-seg`             | 视频逐帧分割训练（保留多边形顶点；bbox / polyline 跳过）            |
@@ -47,10 +47,10 @@ last_reviewed: 2026-10-24
 | 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（序列级 palette PNG）                       |
 | 视频轨迹     | YouTube-VOS        | `youtube-vos`                 | 稀疏关键帧对象分割数据交换                                          |
 | 视频轨迹     | MOTS               | `mots`                        | compressed RLE 多对象跟踪与分割数据交换                             |
-| 视频轨迹     | 原生 JSON           | `aap_json`                    | 视频跨实例迁移                                                  |
+| 视频轨迹     | 原生 JSON          | `aap_json`                    | 视频跨实例迁移                                                      |
 | 视频轨迹     | MOT 16/17/20       | `mot`                         | 多目标跟踪评测（trackeval）                                         |
 | 视频轨迹     | KITTI Tracking     | `kitti`                       | KITTI 跟踪工具链                                                    |
-| **点云**     | 原生 JSON           | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                           |
+| **点云**     | 原生 JSON          | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                               |
 | 点云         | Multi-camera COCO  | `coco-multicamera`            | 把全部相机的持久化人工 2D 框合并为 COCO 训练集                      |
 | 点云         | KITTI 3D           | `kitti`                       | KITTI 3D 检测训练前处理（KITTI camera 坐标）                        |
 | 点云         | nuScenes           | `nuscenes`                    | 官方 devkit 可加载的完整 Scene 关键帧表集                           |
@@ -274,7 +274,7 @@ names:
 
 > 单目标且只选 COCO / 原生 JSON（无 YOLO）时，包根仍补一份 `data.yaml`（兼容旧布局），COCO/AAP 的标注落包根 `annotations.json`。
 
-## 原生 JSON 1.5 {#aap-json-15无损}
+## 原生 JSON {#aap-json-1-5-无损}
 
 > 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。原生格式的文件标识为 `aap`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
 
@@ -536,8 +536,8 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 | 训练 YOLOv8 旋转框 (OBB)                              | YOLO 旋转框          |
 | 训练 YOLOv8 分割                                      | YOLO 分割            |
 | 训练 Detectron2 / MMDetection（检测 / 分割 / 关键点） | COCO                 |
-| **跨实例迁移 / 导入外部模型预测供人工审阅**             | **原生 JSON**         |
-| 数据迁移 / 备份                                       | 原生 JSON             |
+| **跨实例迁移 / 导入外部模型预测供人工审阅**           | **原生 JSON**        |
+| 数据迁移 / 备份                                       | 原生 JSON            |
 | 视频轨迹备份 / 质检                                   | Video JSON（关键帧） |
 | 视频逐帧训练（目标检测）                              | YOLO 逐帧            |
 | 视频逐帧质检 / 自定义脚本处理                         | Video JSON（所有帧） |
@@ -546,4 +546,4 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 | 多对象跟踪与分割数据交换                              | MOTS                 |
 | 视频多目标跟踪评测（trackeval）                       | MOT 16/17/20         |
 | 视频跟踪（KITTI 工具链）                              | KITTI Tracking       |
-| 视频跨实例迁移                                    | 原生 JSON             |
+| 视频跨实例迁移                                        | 原生 JSON            |

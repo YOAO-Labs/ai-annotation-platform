@@ -43,7 +43,7 @@ last_reviewed: 2026-10-26
 | 管理九用途映射与受控切换   | [九用途映射与受控切换](../datasets/purpose-bindings)                                                                   |
 | 执行容量盘点与原件保留回收 | [存储诊断与容量账目](../datasets/storage-operations) / [原件访问、归档与保留回收](../datasets/lifecycle-and-retention) |
 | 准备对象存储迁移           | [对象存储迁移准备](../datasets/storage-migration)                                                                      |
-| 注册 / 维护模型服务        | [模型服务注册](./ml-backend-registry)                                                                                 |
+| 注册 / 维护模型服务        | [模型服务注册](./ml-backend-registry)                                                                                  |
 | 跨项目管理 AI 模型         | [模型市场](./model-market)                                                                                             |
 | 排查失败预标               | [失败预测排查](./failed-predictions)                                                                                   |
 | 管理 BUG 反馈              | [BUG 反馈管理](./bug-management)                                                                                       |
@@ -62,7 +62,7 @@ last_reviewed: 2026-10-26
 | 登记受控服务器目录与站点 Agent           | ❌                               | ✅             |
 | 切换存储九用途映射                       | ❌                               | ✅             |
 | 执行全站存储容量盘点、原件回收与迁移准备 | ❌                               | ✅             |
-| 启用 / 停用项目模型服务                 | ✅（自己项目中已注册的服务）    | ✅（任意项目） |
+| 启用 / 停用项目模型服务                  | ✅（自己项目中已注册的服务）     | ✅（任意项目） |
 | 注册 / 编辑 / 删除全局模型服务           | ❌                               | ✅             |
 | 模型市场页面                             | ✅（可访问）                     | ✅             |
 | 全局 ML 观测 / Smoke Test                | ❌                               | ✅             |

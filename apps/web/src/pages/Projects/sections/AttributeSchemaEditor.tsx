@@ -232,7 +232,7 @@ export function AttributeSchemaEditor({
         </Button>
         {recommendedFields.length > 0 && (
           <>
-            <span className="text-2xs text-muted-foreground">推荐（来自 ML Backend）：</span>
+            <span className="text-2xs text-muted-foreground">推荐（来自模型服务）：</span>
             {recommendedFields.map((rf) => (
               <button
                 key={rf.key}

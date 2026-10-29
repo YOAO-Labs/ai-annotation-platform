@@ -763,7 +763,7 @@ export function DataManagerTaskActions({
         <div className="flex flex-col gap-4">
           <ActionError message={actionError} />
           <p className="text-sm text-muted-foreground">
-            使用项目当前启用的 ML Backend 和预标注配置；运行范围固定为当前选择。
+            使用项目当前启用的模型服务和预标注配置；运行范围固定为当前选择。
           </p>
           <PreannotateConfigForm
             cfg={cfg}

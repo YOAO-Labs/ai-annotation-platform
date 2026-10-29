@@ -32,10 +32,10 @@ last_reviewed: 2026-10-26
 
 ### Worker 层
 
-| 指标                                                       | 含义                                                                                   |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `celery_queue_length{queue}`                               | 各队列待处理 + 在执行任务数（Gauge）                                                   |
-| `celery_worker_heartbeat_seconds{worker}`                  | worker 上次心跳距今秒数（Gauge，越小越新鲜）                                           |
+| 指标                                                       | 含义                                                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `celery_queue_length{queue}`                               | 各队列待处理 + 在执行任务数（Gauge）                                                 |
+| `celery_worker_heartbeat_seconds{worker}`                  | worker 上次心跳距今秒数（Gauge，越小越新鲜）                                         |
 | `ml_backend_request_duration_seconds{backend_id, outcome}` | 模型服务 predict / interactive 单次调用耗时（Histogram，outcome="success"\|"error"） |
 
 > 上述三个指标均在 `apps/api/app/observability/metrics.py` 注册。平台不暴露 `celery_tasks_total` 或 `celery_task_duration_seconds`；预标 job 状态分布通过 `async_jobs` 表查询，不以 Prometheus Counter 形式暴露。

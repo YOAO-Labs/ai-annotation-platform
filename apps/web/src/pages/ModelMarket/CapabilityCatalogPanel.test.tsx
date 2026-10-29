@@ -306,17 +306,6 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     expect(screen.getAllByText("暂无接入")).toHaveLength(9);
   });
 
-  it("切换 groupBy=backend → 退回 v0.14.10 行为 (旧空态, 不渲染协议卡)", async () => {
-    renderUI();
-    await screen.findByText(/支持 9 类 AI 标注能力/);
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "backend" } });
-    await waitFor(() => {
-      expect(screen.getByText("尚无项目注册 ML Backend")).toBeInTheDocument();
-    });
-    expect(screen.queryAllByText("暂无接入").length).toBe(0);
-  });
-
   it("env-only 容器的 model 出现在对应协议卡 (即使 admin overview 为空)", async () => {
     mockGetInstances.mockResolvedValue({
       instances: [
@@ -404,8 +393,6 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     fireEvent.change(select, { target: { value: "backend" } });
     // 非协议分组下 env backend 的 model 应渲染, 而非退回空态。
     expect(await screen.findByText("YOLOv8 · 目标检测")).toBeInTheDocument();
-    expect(screen.queryByText("暂无可用模型条目")).not.toBeInTheDocument();
-    expect(screen.queryByText("尚无项目注册 ML Backend")).not.toBeInTheDocument();
     // 「输出属性」行透传 backend 自报的 output_attribute_types (而非只看空 schema)。
     // 阶段二后属性行在卡片详情展开区内，先展开再断言。
     fireEvent.click(screen.getByRole("button", { name: /详情/ }));

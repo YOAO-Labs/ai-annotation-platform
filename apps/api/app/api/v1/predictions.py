@@ -306,7 +306,7 @@ async def import_predictions(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> ImportResult:
-    """外部模型预测结果导入端点 (v0.10.15).
+    """导入外部模型预测结果。
 
     支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的
     Prediction 行 source='external_import', ml_backend_id=NULL.

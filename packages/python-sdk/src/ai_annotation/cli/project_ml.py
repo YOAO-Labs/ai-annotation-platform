@@ -22,7 +22,7 @@ from ai_annotation.project_ml_models import (
 )
 
 app = typer.Typer(
-    help="项目范围的 ML backend 配置、推理与运行时控制。",
+    help="项目模型服务配置、推理与运行控制。",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -40,7 +40,7 @@ def create_backend(
     """登记或复用一个全局 registry backend，并在此项目启用。"""
     with cli_errors(json_output):
         body = read_json_body(body_file, ProjectMLBackendCreateRequest)
-        confirm_destructive("确认登记或启用该项目的 ML backend?", yes, json_output)
+        confirm_destructive("确认登记或启用该项目的模型服务？", yes, json_output)
         with get_client(json_output) as client:
             result = client.project_ml.create_backend(project_id, body)
     print_learning_result(result, json_output)
@@ -61,7 +61,7 @@ def update_backend(
     """修改 registry backend 的共享属性；可能影响其他启用该 backend 的项目。"""
     with cli_errors(json_output):
         body = read_json_body(body_file, ProjectMLBackendUpdateRequest)
-        confirm_destructive("确认修改共享全局 ML backend 配置?", yes, json_output)
+        confirm_destructive("确认修改共享模型服务的全局配置？", yes, json_output)
         with get_client(json_output) as client:
             result = client.project_ml.update_backend(project_id, backend_id, body)
     print_learning_result(result, json_output)
@@ -76,7 +76,7 @@ def disable_backend(
 ) -> None:
     """停用本项目对 backend 的关联；不删除全局 registry 记录。"""
     with cli_errors(json_output):
-        confirm_destructive("确认在该项目停用 ML backend?", yes, json_output)
+        confirm_destructive("确认在该项目停用模型服务？", yes, json_output)
         with get_client(json_output) as client:
             result = client.project_ml.disable_backend(project_id, backend_id)
     print_learning_result(result, json_output)

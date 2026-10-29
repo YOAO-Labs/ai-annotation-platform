@@ -32,7 +32,7 @@ interface TargetOption {
   disabled?: boolean;
 }
 
-// v0.10.43 · 多目标导出。图像项目：COCO / AAP 单选卡 + YOLO 三变体分组（几何映射不同）。
+// 图像多目标导出：COCO／原生 JSON 单选卡与可多选的 YOLO 几何变体。
 type ImageOption =
   | ({ kind: "single" } & TargetOption)
   | { kind: "group"; label: string; description: string; members: TargetOption[] };
@@ -126,7 +126,11 @@ const VIDEO_OPTIONS: TargetOption[] = [
 ];
 
 const LIDAR_OPTIONS: TargetOption[] = [
-  { value: "aap_json", label: "原生 JSON", description: "YOAO 原生交换格式，保留 3D 几何与项目配置。" },
+  {
+    value: "aap_json",
+    label: "原生 JSON",
+    description: "YOAO 原生交换格式，保留 3D 几何与项目配置。",
+  },
   {
     value: "kitti",
     label: "KITTI 3D",

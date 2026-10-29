@@ -96,7 +96,7 @@ last_reviewed: 2026-10-29
 | `TRAINING_EXECUTOR_TOKEN` | `—` | — |
 | `TRAINING_NODE_ID` | `local` | — |
 | `TRAINING_GPU_UUID` | `—` | — |
-| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Current adapters: ultralytics 8.4.183 / libreyolo 1.6.0; entries share the same shape. Explicitly list verified YOLOv8/11/26 n/s/m/l/x detect/segment or LibreYOLO9 t/s/m/c detect assets. A bucket-backed entry also pins size_bytes and object_key=model-assets/sha256/SHA256/weights.pt. Prepare that digest on each target node before accepting experiments; bucket existence alone is insufficient. Historical 8.4.177 experiments require their original qualified runtime, not an implicit version rewrite. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
+| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Current adapters: ultralytics 8.4.183 / libreyolo 1.6.0; entries share the same shape. Explicitly list verified YOLOv8/11/26 n/s/m/l/x detect/segment or LibreYOLO9 t/s/m/c detect assets. A bucket-backed entry also pins size_bytes and object_key=model-assets/sha256/SHA256/weights.pt. Prepare that digest on each target node before accepting experiments; bucket existence alone is insufficient. Historical 8.4.177 experiments require their original qualified runtime, not an implicit version rewrite. Revision-2 detection image upgrades require a qualified source-image -&gt; complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
 | `TRAINING_HEARTBEAT_TIMEOUT_SECONDS` | `60` | — |
 | `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：先准备已发布镜像，Compose 不构建镜像。 TRAINING_IMAGE 为仓库名（可带标签），不得包含 @digest；凭据文件不进入镜像。 TRAINING_IMAGE_DIGEST 必须为 registry manifest digest（RepoDigests），不能用镜像 .Id。 Compose 用同一 repository@sha256 引用选择镜像并生成 TRAINING_IMAGE_REFERENCE。 |
 | `TRAINING_IMAGE_DIGEST` | `—` | — |
@@ -189,8 +189,8 @@ last_reviewed: 2026-10-29
 | `YOLO_STRICT_OFFLINE` | `0` | — |
 | `YOLO_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在当前部署完成 YOLO 多模型池真实 GPU load → full unload → baseline 验收后设为 1。 只接受字面量 0 或 1；其他值拒绝启动。未验证时 /setup 不发布 managed_lifecycle，且拒绝切入 enforce gate。 |
 | `YOLO_LOG_LEVEL` | `INFO` | — |
-| `GPU_LIFECYCLE_VERIFY_KEYS_JSON` | `—` | Managed GPU lifecycle Ed25519 public-key ring (kid -> unpadded base64url key). Empty keeps the backend in legacy-compatible mode; a non-empty invalid value fails startup. |
-| `GPU_LIFECYCLE_REGISTRY_ID` | `—` | YOLO signed admission/control requires these exact per-instance identities. Registry UUID and the platform's <node>/<physical-device-token>; never inferred from a claim. |
+| `GPU_LIFECYCLE_VERIFY_KEYS_JSON` | `—` | Managed GPU lifecycle Ed25519 public-key ring (kid -&gt; unpadded base64url key). Empty keeps the backend in legacy-compatible mode; a non-empty invalid value fails startup. |
+| `GPU_LIFECYCLE_REGISTRY_ID` | `—` | YOLO signed admission/control requires these exact per-instance identities. Registry UUID and the platform's &lt;node&gt;/&lt;physical-device-token&gt;; never inferred from a claim. |
 | `GPU_LIFECYCLE_RESOURCE_ID` | `—` | — |
 
 ## ONNXTools 固定句柄池与受管生命周期
@@ -328,7 +328,7 @@ last_reviewed: 2026-10-29
 | `MASK_FORMAT_MAX_ENTRY_BYTES` | `536870912` | 安全 archive 单 entry 展开字节、文件数与压缩比上限。 |
 | `MASK_FORMAT_MAX_ARCHIVE_FILES` | `200000` | — |
 | `MASK_FORMAT_MAX_COMPRESSION_RATIO` | `100` | — |
-| `TASK_CREATE_SYNC_THRESHOLD` | `2000` | dataset link 建 task 同步阈值：dataset item 数 ≤ 阈值走同步快路径， > 阈值改入 Celery 异步建 task（带进度），避免大 dataset link 在 HTTP 单事务里超时 + 长事务锁。 |
+| `TASK_CREATE_SYNC_THRESHOLD` | `2000` | dataset link 建 task 同步阈值：dataset item 数 ≤ 阈值走同步快路径， &gt; 阈值改入 Celery 异步建 task（带进度），避免大 dataset link 在 HTTP 单事务里超时 + 长事务锁。 |
 
 ## 是否允许开放注册
 
@@ -411,7 +411,7 @@ last_reviewed: 2026-10-29
 | `BOX_THRESHOLD` | `0.35` | DINO 检测阈值; 业务图召回不足可下调到 0.25, 误检多则上调到 0.45. |
 | `TEXT_THRESHOLD` | `0.25` | DINO 文本-标签匹配阈值; 短语 prompt 通常 0.25 即可. |
 | `GSAM2_LOG_LEVEL` | `INFO` | Backend 日志级别 (DEBUG / INFO / WARNING). |
-| `IDLE_UNLOAD_SECONDS` | `600` | B-28+ · 空闲多少秒后自动卸载模型释放显存 (默认 600s); <=0 关闭定时卸载, 仍可手动 /unload. |
+| `IDLE_UNLOAD_SECONDS` | `600` | B-28+ · 空闲多少秒后自动卸载模型释放显存 (默认 600s); &lt;=0 关闭定时卸载, 仍可手动 /unload. |
 | `IDLE_CHECK_INTERVAL` | `60` | B-28+ · idle 检查器轮询间隔 (默认 60s). |
 | `MODEL_POOL_CAP` | `1` | ModelPool 同容器内并存的变体数上限 (LRU 驱逐). 显存预算: 4060(8G) 用 1, 3090(24G) 1-2, A100 2-4. 默认 1 = 维持单变体常驻行为, 切变体走"驱逐旧+冷启新". |
 | `MODEL_POOL_BUILD_TIMEOUT` | `30` | pool 满 + 并发 miss 时排队等待显存的超时 (秒), 超时返回 503 "显存繁忙". |
@@ -421,7 +421,7 @@ last_reviewed: 2026-10-29
 | `VIDEO_MODEL_POOL_BUILD_TIMEOUT` | `60` | video 池满 + 并发 miss 排队等显存的超时 (秒), 超时 503; video build 比图片慢, 默认 60. |
 | `VIDEO_TRACKER_MAX_WINDOW_FRAMES` | `300` | 单次 init_state 一次性加载的最大帧数 (安全上限, 防超长窗口灌爆显存); 超此值的窗口拒绝. |
 | `VIDEO_TRACKER_MAX_CONTEXT_FRAMES` | `300` | 同一 SAM2 predictor session 可覆盖的最大源帧数。大于 window 才启用跨窗 context；提高前需按目标 GPU 验收峰值。 |
-| `VIDEO_IDLE_UNLOAD_SECONDS` | `600` | video 池独立 idle 卸载 (与图片池 IDLE_UNLOAD_SECONDS 各自计时); <=0 关闭. |
+| `VIDEO_IDLE_UNLOAD_SECONDS` | `600` | video 池独立 idle 卸载 (与图片池 IDLE_UNLOAD_SECONDS 各自计时); &lt;=0 关闭. |
 | `GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在 Grounded-SAM2 完成实卡 image/video/双池/full-unload 验收后设为 1。 只接受字面量 0 或 1；其他值拒绝启动。未验证时 /setup 不发布 managed_lifecycle，且拒绝切入 enforce gate。 |
 
 ## SAM 3 ML Backend
@@ -437,7 +437,7 @@ last_reviewed: 2026-10-29
 | `SAM3_EMBEDDING_CACHE_SIZE` | `32` | Embedding cache LRU 容量; A100 充裕可调到 64, 4060 别部 sam3. |
 | `SAM3_SCORE_THRESHOLD` | `0.5` | SAM 3 PCS text / exemplar 路径 score 过滤阈值; 召回不足下调到 0.3, 误检多调到 0.6. |
 | `SAM3_LOG_LEVEL` | `INFO` | Backend 日志级别 (DEBUG / INFO / WARNING). |
-| `SAM3_IDLE_UNLOAD_SECONDS` | `600` | 空闲 N 秒后自动卸载模型释放显存 (sam3 开 inst FP16 ~5.8GB, 与 grounded-sam2 并存强烈建议保留); <=0 关闭定时卸载, 仍可通过 POST /unload 手动卸载. 下次 /predict 自动懒重载 (冷启动 ~8-12s). |
+| `SAM3_IDLE_UNLOAD_SECONDS` | `600` | 空闲 N 秒后自动卸载模型释放显存 (sam3 开 inst FP16 ~5.8GB, 与 grounded-sam2 并存强烈建议保留); &lt;=0 关闭定时卸载, 仍可通过 POST /unload 手动卸载. 下次 /predict 自动懒重载 (冷启动 ~8-12s). |
 | `SAM3_IDLE_CHECK_INTERVAL` | `60` | idle 检查器轮询间隔 (默认 60s). |
 | `SAM3_MODEL_POOL_BUILD_TIMEOUT` | `120` | 三个模型池等待冷构建的超时 (秒); 超时后真实 builder 仍由 backend 跟踪至结束。 |
 | `SAM3_PVS_MAX_WINDOW_FRAMES` | `16` | SAM3 interactive PVS 单窗与同一 session context 的帧数上限。context 大于 window 才启用跨窗续追。 |

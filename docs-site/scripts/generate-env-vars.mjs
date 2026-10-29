@@ -145,7 +145,10 @@ function renderSections(sections) {
   return sections
     .map((section) => {
       const rows = section.rows
-        .map((r) => `| \`${r.key}\` | \`${r.defaultVal || "—"}\` | ${r.desc || "—"} |`)
+        .map((r) => {
+          const description = (r.desc || "—").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+          return `| \`${r.key}\` | \`${r.defaultVal || "—"}\` | ${description} |`;
+        })
         .join("\n");
       return `## ${section.title}\n\n| 变量 | 默认值 | 说明 |\n|---|---|---|\n${rows}\n`;
     })

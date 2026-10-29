@@ -363,7 +363,7 @@ def _main(
 
 @app.command(rich_help_panel=PANEL_CONFIG)
 def tui() -> None:
-    """启动终端监控面板 (Projects / Datasets / Jobs / ML Backends / Training)。
+    """启动终端监控面板 (Projects / Datasets / Jobs / 模型服务 / Training)。
 
     安装: [bold]pip install 'ai-annotation-sdk\\[tui]'[/]
     """

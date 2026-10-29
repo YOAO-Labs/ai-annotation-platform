@@ -66,7 +66,7 @@ export function PreannotateConfigForm({
   selectedBackendId,
   onSelectBackend,
   projectMlBackendId,
-  backendSelectorLabel = "ML Backend",
+  backendSelectorLabel = "模型服务",
   hideModelTaskSelector = false,
   hideClassWhitelist = false,
 }: Props) {
@@ -99,7 +99,7 @@ export function PreannotateConfigForm({
             {backends.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
-                {b.id === projectMlBackendId ? "（项目主后端）" : ""}
+                {b.id === projectMlBackendId ? "（主服务）" : ""}
               </option>
             ))}
           </select>
@@ -117,8 +117,8 @@ export function PreannotateConfigForm({
           <Icon name="info" size={12} />
           <span>
             {backends && backends.length > 1
-              ? "请先在上方选择 ML 后端，再配置预标参数。"
-              : "该项目尚未接入 ML 后端，请先在项目设置中接入模型后再配置预标参数。"}
+              ? "请先在上方选择模型服务，再配置预标参数。"
+              : "该项目尚未接入模型服务，请先在项目设置中接入模型后再配置预标参数。"}
           </span>
         </div>
       ) : (

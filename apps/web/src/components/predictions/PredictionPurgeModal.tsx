@@ -23,7 +23,7 @@ const SOURCE_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "external_import", label: "外部导入预测" },
-  { value: "ml_backend", label: "ML Backend 预标" },
+  { value: "ml_backend", label: "模型服务预标" },
   { value: "all", label: "全部预测" },
 ];
 
@@ -142,7 +142,7 @@ export function PredictionPurgeModal({ open, projectId, onClose, onComplete }: P
               <span className={styles.previewStatValue}>{loadingPreview ? "..." : total}</span>
             </div>
             <div className={styles.previewStat}>
-              <span className={styles.previewStatLabel}>ML Backend</span>
+              <span className={styles.previewStatLabel}>模型服务</span>
               <span className={styles.previewStatValue}>{preview?.counts.ml_backend ?? 0}</span>
             </div>
             <div className={styles.previewStat}>
@@ -171,7 +171,7 @@ export function PredictionPurgeModal({ open, projectId, onClose, onComplete }: P
               onChange={(e) => setAcknowledged(e.target.checked)}
               disabled={submitting}
             />
-            清理 ML Backend 预标后需要重新运行模型才能恢复。
+            清理模型服务预标后需要重新运行模型才能恢复。
           </label>
         )}
 

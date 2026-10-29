@@ -748,7 +748,7 @@ export function AIPredictionPopover({
                   <p className="my-1 text-2xs leading-normal text-muted-foreground">
                     {cfg.backendId
                       ? "使用当前模型与输入配置，可在高级配置中调整。"
-                      : "请在高级配置中选择已接入的 ML 后端。"}
+                      : "请在高级配置中选择已接入的模型服务。"}
                   </p>
                 )}
               </div>

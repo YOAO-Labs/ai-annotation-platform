@@ -37809,7 +37809,7 @@
       "path": "/api/v1/projects/{project_id}/annotations/import",
       "operation_id": "import_annotations_api_v1_projects__project_id__annotations_import_post",
       "summary": "Import Annotations",
-      "description": "导入原生 JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
+      "description": "导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
       "tags": [
         "annotations"
       ],
@@ -42150,7 +42150,7 @@
       "path": "/api/v1/projects/{project_id}/predictions/import",
       "operation_id": "import_predictions_api_v1_projects__project_id__predictions_import_post",
       "summary": "Import Predictions",
-      "description": "外部模型预测结果导入端点 (v0.10.15).\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
+      "description": "导入外部模型预测结果。\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
       "tags": [
         "predictions"
       ],
@@ -91762,7 +91762,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "ML Backend ID"
+          "description": "模型服务 ID"
         },
         {
           "name": "project_id",

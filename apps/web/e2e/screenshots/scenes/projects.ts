@@ -145,7 +145,7 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     prepare: async (page) => {
       await page.waitForLoadState("networkidle");
       await page.waitForTimeout(300);
-      const reg = page.getByRole("button", { name: /管理 backend/ });
+      const reg = page.getByRole("button", { name: /管理模型服务/ });
       await reg.click();
       await page.waitForTimeout(300);
       await page.waitForSelector('[role="dialog"]', { timeout: 3000 });

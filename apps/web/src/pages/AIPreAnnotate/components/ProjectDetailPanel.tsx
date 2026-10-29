@@ -756,7 +756,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         {selectedBackend ? (
           <Badge variant="ai">{selectedBackend.name}</Badge>
         ) : (
-          <Badge variant="warning">未绑定 ML backend</Badge>
+          <Badge variant="warning">未绑定模型服务</Badge>
         )}
         {summary?.ml_backend_max_concurrency != null && (
           <span className={styles.backendLimit}>

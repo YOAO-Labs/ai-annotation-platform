@@ -26,7 +26,7 @@ last_reviewed: 2026-06-10
 | `Connection refused` / `Name resolution`     | [容器网络与 loopback](../../dev/troubleshooting/container-networking)                                 |
 | `TypeError: ... unexpected keyword argument` | [Docker rebuild vs restart](../../dev/troubleshooting/docker-rebuild-vs-restart)（worker stale code） |
 | 模型服务 `422` / `400`                       | prompt 格式问题；工作台一键预标会自动用项目 alias 拼 prompt，避免空 prompt 导致 DINO 422              |
-| `Timeout`                                    | 模型服务推理太慢；看监控 P95                                                                           |
+| `Timeout`                                    | 模型服务推理太慢；看监控 P95                                                                          |
 | `403` / `401`                                | API Key 配置错误                                                                                      |
 | 前端看不到候选但 job=succeeded               | [Schema 适配器陷阱](../../dev/troubleshooting/schema-adapter-pitfalls)                                |
 

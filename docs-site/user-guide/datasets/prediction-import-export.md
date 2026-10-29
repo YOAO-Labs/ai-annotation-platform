@@ -46,7 +46,7 @@ last_reviewed: 2026-08-15
 
 向导支持三种输入格式，对应 `format=aap_json|coco|yolo`。
 
-#### 原生 JSON
+#### 原生 JSON {#aap-json-平台无损}
 
 YOAO 原生交换格式。预测导入向导消费 `predictions[]`；独立的标注导入 API 消费 `annotations[]`。两条路径都能通过 `mask_objects` 恢复视频栅格 mask track。最小预测 payload：
 
@@ -76,7 +76,7 @@ YOAO 原生交换格式。预测导入向导消费 `predictions[]`；独立的�
 - 视频 Mask 正文放在 `mask_objects`，向导会在预览时校验引用、尺寸和内容；`dry_run` 不会写 Prediction 或对象存储。正式导入后，Mask 仍是待审候选，不会直接成为标注。
 - 一条 `predictions[i]` 可以用 `shapes[]` 把多个 shape 合并写入同一条预测；`shapes` 与单 `geometry` 同时存在时 `shapes` 优先。同一 entry 的 shapes 必须同属 bbox、region（polygon / mask）或 polyline 中的一个工具单位，不能混合。
 
-坐标用归一化 `[0, 1]`。完整格式规范（含 `tool_bindings` / `attribute_schema` / `mask_objects` / `scene_tracks` / 各几何字段）见 [导出格式 · 原生 JSON](../reference/export-formats#aap-json-15无损)，本页不重复展开。
+坐标用归一化 `[0, 1]`。完整格式规范（含 `tool_bindings` / `attribute_schema` / `mask_objects` / `scene_tracks` / 各几何字段）见 [导出格式 · 原生 JSON](../reference/export-formats#aap-json-1-5-无损)，本页不重复展开。
 
 #### COCO Detection
 

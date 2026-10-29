@@ -69178,7 +69178,7 @@
     }
   },
   "info": {
-    "title": "AI 标注平台 API",
+    "title": "YOAO API",
     "version": "0.26.2"
   },
   "openapi": "3.1.0",
@@ -88236,7 +88236,7 @@
     },
     "/api/v1/projects/{project_id}/annotations/import": {
       "post": {
-        "description": "导入原生 JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
+        "description": "导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
         "operationId": "import_annotations_api_v1_projects__project_id__annotations_import_post",
         "parameters": [
           {
@@ -96231,7 +96231,7 @@
     },
     "/api/v1/projects/{project_id}/predictions/import": {
       "post": {
-        "description": "外部模型预测结果导入端点 (v0.10.15).\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
+        "description": "导入外部模型预测结果。\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
         "operationId": "import_predictions_api_v1_projects__project_id__predictions_import_post",
         "parameters": [
           {

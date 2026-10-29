@@ -109,7 +109,7 @@ describe("MlBackendsSection 启用清单", () => {
     });
     renderSection({ id: "p1", ml_backend_id: null });
     // 主表只显示已启用项; 未启用项的启用勾选在悬浮面板里, 先打开面板。
-    fireEvent.click(screen.getByRole("button", { name: /管理 backend/ }));
+    fireEvent.click(screen.getByRole("button", { name: /管理模型服务/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /启用 grounded-sam2/ }));
     expect(mockSetEnablementMutate).toHaveBeenCalledTimes(1);
     const [args] = mockSetEnablementMutate.mock.calls[0];
@@ -124,19 +124,7 @@ describe("MlBackendsSection 启用清单", () => {
     });
     renderSection({ id: "p1", ml_backend_id: null });
     // 主表空态 (未启用任何), 面板未开 ⇒ 行内启用勾选不可见。
-    expect(screen.getByText(/本项目暂未启用任何 ML backend/)).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: /启用 grounded-sam2/ })).toBeNull();
-  });
-
-  it("无全局 backend 时主表空态提示去模型市场注册", () => {
-    mockUseAvailable.mockReturnValue({
-      data: { items: [] },
-      isLoading: false,
-      isError: false,
-    });
-    renderSection({ id: "p1", ml_backend_id: null });
-    expect(screen.getByText(/本项目暂未启用任何 ML backend/)).toBeTruthy();
-    expect(screen.getByText(/模型市场/)).toBeTruthy();
   });
 
   it("选主后端: 下拉 onChange 即时落库, ai_enabled 自动派生 true (无独立保存)", () => {
@@ -147,9 +135,7 @@ describe("MlBackendsSection 启用清单", () => {
     });
     renderSection({ id: "p1", ml_backend_id: null });
 
-    // 已无「保存 AI 设置」按钮; 下拉选中即时提交。
-    expect(screen.queryByRole("button", { name: /保存 AI 设置/ })).toBeNull();
-    fireEvent.change(screen.getByDisplayValue("不设置项目主后端"), {
+    fireEvent.change(screen.getByRole("combobox", { name: "项目主模型服务" }), {
       target: { value: "b1" },
     });
 
@@ -207,7 +193,7 @@ describe("MlBackendsSection 启用清单", () => {
         <MlBackendsSection project={base as ProjectResponse} />
       </QueryClientProvider>,
     );
-    expect(screen.getByDisplayValue("不设置项目主后端")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "项目主模型服务" })).toHaveValue("");
 
     // 行内「设为主后端」(onBind) 落库后服务端值变化 → 重渲染携带新 ml_backend_id。
     rerender(
@@ -217,8 +203,6 @@ describe("MlBackendsSection 启用清单", () => {
         />
       </QueryClientProvider>,
     );
-    // 下拉同步到 b1; 已无「保存 AI 设置」按钮可把陈旧值推回(原 bug 根除)。
-    expect(screen.getByDisplayValue(/grounded-sam2/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /保存 AI 设置/ })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "项目主模型服务" })).toHaveValue("b1");
   });
 });

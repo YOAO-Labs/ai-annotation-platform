@@ -9,7 +9,7 @@ from ai_annotation.cli._output import cli_errors, console, get_client, print_jso
 from ai_annotation.models import MLBackend
 
 app = typer.Typer(
-    help="ML Backend 项目启用与健康监控。",
+    help="项目模型服务启用与健康监控。",
     no_args_is_help=True,
     rich_markup_mode="rich",
     epilog=(
@@ -34,7 +34,7 @@ def list_(
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """列出某项目挂载的 ML Backend 及健康状态。"""
+    """列出项目接入的模型服务及健康状态。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             backends = client.ml_backends.list(project_id)
@@ -61,11 +61,11 @@ def list_(
 
 @app.command("get")
 def get(
-    backend_id: str = typer.Argument(..., help="ML Backend ID"),
+    backend_id: str = typer.Argument(..., help="模型服务 ID"),
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """查看单个 ML Backend 详情 (含 health_meta)。"""
+    """查看单个模型服务详情（含 health_meta）。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             backend = client.ml_backends.get(project_id, backend_id)

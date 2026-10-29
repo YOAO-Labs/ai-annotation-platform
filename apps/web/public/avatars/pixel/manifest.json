@@ -5,7 +5,7 @@
   "creator": "DiceBear",
   "license": "CC0 1.0",
   "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-  "command": "pnpm --filter @anno/web gen:avatars",
+  "command": "pnpm --filter web gen:avatars",
   "idPolicy": "pixel-NN 为永久 id,已入库的 users.avatar_ref 指向它;只能追加,不得重排或复用。",
   "items": [
     {

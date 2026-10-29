@@ -83,7 +83,7 @@ class SftpReferenceRoot(BaseModel):
 
 
 class Settings(BaseSettings):
-    app_name: str = "AI 标注平台 API"
+    app_name: str = "YOAO API"
     # v0.10.24 · 版本号单源真值。FastAPI title version 与 /health version 都读它，
     # 发版只改这一处（+ pyproject.toml / package.json）。运维 scrape /health 拿到的
     # 版本号此前长期 stale（曾硬编码 0.7.6），故收口到 settings。

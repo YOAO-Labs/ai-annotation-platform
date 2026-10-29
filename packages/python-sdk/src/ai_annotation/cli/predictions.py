@@ -87,6 +87,6 @@ def purge(
         prefix = "[yellow](dry-run)[/yellow] " if result.dry_run else ""
         console.print(
             f"{prefix}范围 {result.source_scope}: 删除 {result.counts.total} 条 "
-            f"(ML backend={result.counts.ml_backend}, 外部导入={result.counts.external_import}, "
+            f"(模型服务={result.counts.ml_backend}, 外部导入={result.counts.external_import}, "
             f"未知={result.counts.unknown})"
         )

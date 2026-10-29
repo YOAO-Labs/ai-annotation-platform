@@ -533,7 +533,7 @@ async def import_annotations(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> ImportResult:
-    """导入原生 JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).
+    """导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。
 
     geometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，
     source 保留原值，attributes._imported=true 溯源标记。

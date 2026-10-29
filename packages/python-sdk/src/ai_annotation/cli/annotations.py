@@ -96,7 +96,9 @@ def bulk_update(
 @app.command("import")
 def import_file(
     project_id: str = typer.Argument(..., help="项目 ID (需项目负责人或 super_admin)"),
-    file: Path = typer.Argument(..., exists=True, dir_okay=False, help="原生 JSON 文件"),
+    file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, help="原生 JSON 文件"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="只校验不写入"),
     overwrite: bool = typer.Option(
         False,

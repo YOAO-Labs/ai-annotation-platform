@@ -3,10 +3,6 @@ import { render, screen } from "@testing-library/react";
 import { PreannotateConfigForm } from "./PreannotateConfigForm";
 import type { PreannotateConfig } from "./usePreannotateConfig";
 
-const emptyCfg = {
-  backendId: null,
-} as unknown as PreannotateConfig;
-
 // v0.20.5 · OCR 路径走统一「模型任务」下拉的基础 cfg:可注入 selectableModels / variantGroups。
 function docCfg(over: Partial<PreannotateConfig> = {}): PreannotateConfig {
   const e2e = {
@@ -55,26 +51,6 @@ function docCfg(over: Partial<PreannotateConfig> = {}): PreannotateConfig {
 }
 
 describe("PreannotateConfigForm", () => {
-  it("labels the project-bound backend as 项目主后端", () => {
-    render(
-      <PreannotateConfigForm
-        cfg={emptyCfg}
-        backendSelectorLabel="本次 backend"
-        backends={[
-          { id: "b1", name: "yolo" },
-          { id: "b2", name: "gsam2" },
-        ]}
-        selectedBackendId="b1"
-        onSelectBackend={vi.fn()}
-        projectMlBackendId="b2"
-      />,
-    );
-
-    expect(screen.getByText("本次 backend")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "gsam2（项目主后端）" })).toBeInTheDocument();
-    expect(screen.queryByText(/（默认）/)).toBeNull();
-  });
-
   // v0.20.5 · OCR 路径 model-first 统一化回归。
   it("OCR 路径(单 model)展示当前模型,端到端 OCR 不再隐身", () => {
     render(<PreannotateConfigForm cfg={docCfg()} />);

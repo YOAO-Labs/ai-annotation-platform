@@ -195,7 +195,9 @@ def dev_server(args) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="aap-plugin", description="YOAO detection inference plugin authoring tools")
+    parser = argparse.ArgumentParser(
+        prog="aap-plugin", description="YOAO detection inference plugin authoring tools"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     init.add_argument("directory", type=Path)

@@ -1,6 +1,6 @@
 # YOAO 产品语言与命名优化计划草案
 
-> 状态：首批 N0＋N1＋N2 已进入实施与验收。实现、保留边界与实际证据见文末 Outcome；N3–N6 的分发、公开协议与持久状态／部署迁移不混入本批。
+> 状态：首批 N0＋N1＋N2 已完成下述限定实施与验收。实现、保留边界与实际证据见文末 Outcome；N3–N6 的分发、公开协议与持久状态／部署迁移不混入本批。
 >
 > 日期：2026-10-29。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
 >
@@ -400,4 +400,23 @@ UI 验证使用实际构建和隔离环境；文档／计划阶段不虚构浏�
 - 两个公开 OpenAPI 组件名称单独审阅：`AAPImportResult`／`AAPImportErrorEntry` 改为 `ImportResult`／`ImportErrorEntry`。归一化这两个名称后的差异只有 API 显示标题及两段导入说明，没有 wire 字段、selector 或 operation ID 改动；生成客户端与 SDK 操作目录沿现有生成器同步。
 - SDK 全套现有回归 **1250 通过，0 失败／错误／跳过**，原始 JUnit 为 `.artifacts/test-results/sdk-model-consumers.xml`。动态 importer 的 5 项定向回归通过；实际 CLI 从普通 runtime 读取本任务项目与 5 个任务，证明新模型基类的真实响应解析。Web 构建／类型检查、契约生成和文档构建通过；无 GPU 或分发渠道资格结论。
 
-冻结导出集中数据库回归仍保留既有 9 通过／8 失败的边界（LiDAR 内容身份及视频 FPS）；未用新 expected 掩盖这些问题。N1 的真实 UI 导出另暴露旧 collector 的私表锁定路径，且现有公开 Labeling 合同缺少完整等价锁能力；不能以内部重命名 smoke 成功替代 N1 往返验收。该前置能力按 G3 切片决定，不恢复私表授权，也不为当前无 scene-track 的夹具特判。
+冻结导出集中数据库回归仍保留既有 9 通过／8 失败的边界（LiDAR 内容身份及视频 FPS）；未用新 expected 掩盖这些问题。N1 的真实 UI 导出另暴露旧 collector 的私表锁定路径，现有公开 Labeling 合同当时缺少完整等价锁能力。该图像往返前置已由 G3 必需切片关闭，见下节；不是以内部重命名 smoke 替代往返验收，也未恢复私表授权或为无 scene-track 夹具特判。前述 LiDAR／视频失败不因此关闭。
+
+### 12.3 N1：产品语言与实际入口
+
+**状态：首批产品语言切片完成。** 显示名与机器身份分离；没有切换公开发行入口、原生文件协议、持久状态或部署资源。
+
+- Web、API 标题、文档站及现有 SDK／CLI／TUI 帮助使用 YOAO；普通项目与预标操作使用“模型服务”“项目主模型服务”和“原生 JSON”。选择器补齐关联 label／hint，窄屏导入向导与主服务选择控件不再裁切；预览、确认和即时保存仍走原流程。
+- `aap_json`、文件 `format: "aap"`、已有 schema 版本和来源、API 路由、服务 ID、公共包／命令及现有版本元数据均保留。实际 `aap --version` 仍为 `aap 0.20.0@AAP0.26.1`；这不是 N3 发行入口改名完成。
+- 实际 CLI 帮助、版本与只读项目／任务查询通过；TUI 实际启动，显示 YOAO 与模型服务页签，读取本任务项目后正常退出。作者 SDK 帮助可执行；不将源码环境的成功记为仓外 wheel／sdist 或发布渠道资格。
+- Web 类型检查与实际构建、文档站构建通过。最终受影响消费者回归 **114 通过，0 失败／错误／跳过**，原始报告为 `.artifacts/test-results/n1-final-consumers.junit.xml`；删除只固定旧文案的用例，保留无服务不发请求、项目切换和真实数据／状态断言。SDK 的 1250 项既有结果沿用 N2，不重复计数。现有 React Router／act、构建分包及 CSS token 警告仍保留。
+
+**浏览器证据：** 使用本工作树实际构建产物和任务自有 e2e 环境。登录、注册关闭态、项目模型服务、原生导入／导出与后台任务均检查桌面／窄屏和日／夜主题；最终截图清单为 `.artifacts/test-results/branding/current-browser-checks.json`。导入格式、预览、确认和主服务清除／恢复均实际操作，恢复请求成功后重新加载核对持久值；四张最终模型服务截图包含已恢复的服务与新分页可访问名称。窄屏控件边界证据见 `responsive-controls-proof.json`，后续恢复与往返以最终成功报告为准，不覆盖其中早期 503。
+
+文档旧书签保留显式锚点；最终构建中 `#aap-json-1-5-无损` 仍定位到“原生 JSON”，不再把旧版本号当作当前章节标题。旧锚点核对与日／夜、桌面／窄屏文档检查见 `legacy-heading-target-audit-after.json`、`final-guide-checks.json`，最终标题和真实书签截图见 `final-native-format-bookmark.json`；这些文件均位于 `.artifacts/test-results/branding/`。
+
+**原生往返：** 历史 schema 1.5 输入已通过实际导入。随后从普通 UI 提交全新图像导出，普通 worker 将作业执行为 `completed`、`cache_hit: false`，浏览器实际下载 ZIP，再把其中 schema 1.7 的 `annotations.json` 原样交回向导，预览与确认均返回 200，导入 3 条且无错误。普通 API 读回核对多边形坐标、类别、分数与原模型预测保留；不是只检查 202、下载链接或新 writer 自造的输入。
+
+严格轮次中，API／普通 worker 的 `aap_app` 对项目、任务、标注、预测、轨迹、区间及作业七张私表均没有表级或列级 SELECT；测试夹具撤除了该一次性库既有的 Jobs 兼容读取授权后重新执行完整往返。业务路径不使用 owner fallback，不扩大源码权限。完整证据为 `.artifacts/test-results/branding/native-strict-roundtrip-proof.json`；最初私表 500、缺少公开函数授权、领取前失败作业及 probe 未配置的 503 均保留为先前失败，未改写为通过，先前失败作业已正常取消。所需公开锁能力、独立角色验证及 wheel 资源证据归 G3 Outcome，不继承为整个模块资格。
+
+**限制与清理：** 模型服务使用明确的假服务，最终 `/setup` 仍返回 502；最终页面没有 console error 或未捕获异常，该失败请求单独记录于 `final-window-checks.json`，不宣称真实模型、权重或 GPU 验收。注册仅验证关闭态，正式媒体没有重录。任务自有浏览器、预览、API、普通／维护 worker 与 probe 已停止；临时 probe 角色与凭据已按精确 owner 删除，两处 agent worktree 及其分支已回收，`2c9849816c479c7f:e2e`／`:test` 资源已通过管理命令销毁。主工作树环境、未知资源与既有正式媒体未被接管或删除。
