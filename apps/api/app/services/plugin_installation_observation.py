@@ -356,7 +356,12 @@ def verify_qualification(
     )
     final_residency = report["final_residency"]
     if (
-        set(topology) != {"registry_id", "gpu_resource_id", "pools"}
+        set(topology)
+        != (
+            {"registry_id", "gpu_resource_id", "pools", "session_counts"}
+            if is_onnx
+            else {"registry_id", "gpu_resource_id", "pools"}
+        )
         or topology["registry_id"] != str(installation.registry_id)
         or topology["gpu_resource_id"] != resource.gpu_resource_id
         or not _pool_topology_matches(item.manifest, topology["pools"])
@@ -368,6 +373,20 @@ def verify_qualification(
         raise PluginObservationRejected(
             "qualification pool topology differs from endpoint"
         )
+    if is_onnx:
+        expected_counts = topology["session_counts"]
+        for observed_counts in (
+            runtime.get("ort_session_counts"),
+            health.get("ort_session_counts"),
+        ):
+            if (
+                type(observed_counts) is not dict
+                or observed_counts != expected_counts
+                or any(type(count) is not int for count in observed_counts.values())
+            ):
+                raise PluginObservationRejected(
+                    "ORT session counts differ from live factory"
+                )
     try:
         final_snapshot = _parse_residency(final_residency)
     except (TypeError, ValueError):
