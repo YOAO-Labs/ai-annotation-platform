@@ -12,6 +12,7 @@ from aap_inference_contract.plugin import (
     PluginLifecycleQualification,
     PluginManifest,
     plugin_is_active,
+    validate_oci_digest_reference,
 )
 
 
@@ -35,7 +36,7 @@ def manifest():
                 "supported_geometric_outputs": ["bbox"],
             }
         ],
-        "pools": {"models": {"cap": 1, "sessions": 1}},
+        "pools": {"models": {"cap": 1}},
         "resource": {"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 2048},
         "asset_manifest_sha256": "b" * 64,
         "allowed_asset_sources": ["https://example.com/assets"],
@@ -95,8 +96,8 @@ def test_manifest_supports_multiple_models_and_named_pools():
         },
     ]
     value["pools"] = {
-        "text": {"cap": 2, "sessions": 3},
-        "classify": {"cap": 1, "sessions": 1},
+        "text": {"cap": 2},
+        "classify": {"cap": 1},
     }
     parsed = PluginManifest.model_validate(value)
     assert parsed.model_dump(mode="json")["models"] == value["models"]
@@ -112,7 +113,7 @@ def test_manifest_supports_multiple_models_and_named_pools():
         lambda value: value["models"][0].update(supported_inputs=["crop", "crop"]),
         lambda value: value["models"][0].update(supported_prompts=[]),
         lambda value: value["pools"]["models"].update(cap=True),
-        lambda value: value["pools"]["models"].update(sessions=0),
+        lambda value: value["pools"]["models"].update(cap=0),
         lambda value: value.update(pools={}),
         lambda value: value.update(models=[]),
     ],
@@ -140,6 +141,8 @@ def test_artifact_rejects_option_and_invalid_reference_forms(reference):
     value["artifact"] = reference
     with pytest.raises(ValidationError):
         PluginManifest.model_validate(value)
+    with pytest.raises(ValueError):
+        validate_oci_digest_reference(reference)
 
 
 @pytest.mark.parametrize(
@@ -153,6 +156,7 @@ def test_artifact_accepts_digest_pinned_registry_and_image(reference):
     value = manifest()
     value["artifact"] = reference
     assert PluginManifest.model_validate(value).artifact == reference
+    assert validate_oci_digest_reference(reference) == reference
 
 
 def test_cuda_binding_requires_physical_device():

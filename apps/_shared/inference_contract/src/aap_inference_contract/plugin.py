@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
@@ -29,6 +30,13 @@ _OCI_DIGEST_REFERENCE = (
     r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
     r"(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$"
 )
+
+
+def validate_oci_digest_reference(value: str) -> str:
+    """Validate a digest-pinned image reference before passing it to a runtime."""
+    if not isinstance(value, str) or re.fullmatch(_OCI_DIGEST_REFERENCE, value) is None:
+        raise ValueError("invalid OCI digest-pinned image reference")
+    return value
 
 
 class PluginResourceRequirements(BaseModel):
@@ -82,12 +90,11 @@ class PluginModelCapability(BaseModel):
 
 
 class PluginPoolTopology(BaseModel):
-    """Approved maximum handles and business sessions per handle."""
+    """Approved maximum handles for one named pool."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     cap: int = Field(gt=0, strict=True)
-    sessions: int = Field(gt=0, strict=True)
 
 
 class PluginManifest(BaseModel):
