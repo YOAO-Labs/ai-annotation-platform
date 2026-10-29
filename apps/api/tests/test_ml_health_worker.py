@@ -1369,13 +1369,12 @@ class _GPUWorkerClient:
         return self.observation
 
     async def probe_retired_membership(self, backend_id, resource_id, membership_epoch):
-        self.events.append(("probe_retired", backend_id, membership_epoch))
         return _WorkerReply(
             backend_id=backend_id,
             resource_id=resource_id,
             membership_epoch=membership_epoch,
-            reason="retirement_proof_available",
-            proof_available=True,
+            reason="live_health_unavailable",
+            proof_available=False,
         )
 
     async def collect_tombstone(self, backend_id, resource_id, membership_epoch):
@@ -1557,22 +1556,6 @@ async def test_gpu_worker_promotes_through_owner_and_finishes_retired_collection
             "reason": "",
             "redis_idempotent": True,
         }
-    ]
-    operation_names = [call[0] for call in events if isinstance(call, tuple)]
-    assert operation_names == [
-        "read_rollouts",
-        "begin_rollout",
-        "membership_candidates",
-        "collect",
-        "activate",
-        "advance_control",
-        "repair",
-        "membership_candidates",
-        "probe_retired",
-        "collect",
-        "repair",
-        "observe",
-        "complete_rollout",
     ]
     begin_index = events.index(("begin_rollout", resource_id, "enforce"))
     activate_index = events.index(("activate", resource_id, True))

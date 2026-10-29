@@ -11,10 +11,12 @@ from tests.test_plugin_installation_api import BASE, allow_routing_binding, payl
 pytestmark = pytest.mark.asyncio
 
 
-async def prepared_launch(httpx_client, super_admin, monkeypatch):
+async def prepared_launch(httpx_client, super_admin, monkeypatch, *, pools=None):
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = payload(uuid4())
+    if pools is not None:
+        body["manifest"]["pools"] = pools
     first = await httpx_client.post(BASE, json=body, headers=headers)
     assert first.status_code == 200, first.text
     path = BASE + "/" + body["installation_id"]
@@ -101,6 +103,46 @@ async def test_cpu_quiescence_commits_terminal_proof_and_fences_reactivation(
         retired.status_code == 200
         and retired.json()["installation"]["status"] == "retired"
     )
+
+
+async def test_cpu_quiescence_requires_all_declared_pool_ids(
+    httpx_client, super_admin, monkeypatch
+):
+    pools = {"engines": {"cap": 3}, "recognizer": {"cap": 1}}
+    path, headers, _, revision = await prepared_launch(
+        httpx_client, super_admin, monkeypatch, pools=pools
+    )
+
+    class Control:
+        pool_ids = []
+
+        async def terminal_drain(self, registry_id, *, boot_id, operation_id):
+            return {
+                "registry_id": str(registry_id),
+                "boot_id": boot_id,
+                "operation_id": str(operation_id),
+                "control_epoch": None,
+                "generation": None,
+                "pool_ids": self.pool_ids,
+                "unloaded": True,
+            }
+
+    control = Control()
+    monkeypatch.setattr(routes, "backend_control_service", lambda db: control)
+    for invalid in ([], ["engines"], ["engines", "other"], ["engines", "engines"]):
+        control.pool_ids = invalid
+        response = await httpx_client.post(
+            path + "/quiesce", headers=headers, json={"expected_revision": revision}
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"]["error_code"] == "plugin_control_invalid"
+        assert "safe_to_stop" not in response.json()
+    control.pool_ids = sorted(pools)
+    response = await httpx_client.post(
+        path + "/quiesce", headers=headers, json={"expected_revision": revision}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["safe_to_stop"] is True
 
 
 async def test_revision_change_during_drain_never_authorizes_stop(

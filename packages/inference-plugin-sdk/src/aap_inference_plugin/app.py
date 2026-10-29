@@ -22,6 +22,7 @@ from aap_protocol_v2.lifecycle import (
     LifecycleModeRequest,
     LifecycleResetRequest,
     ManagedLifecycleCapabilities,
+    TerminalDrainRequest,
     GPU_GENERATION_HEADER,
     GPU_ADMISSION_TOKEN_HEADER,
     GPU_HEALTH_CHALLENGE_HEADER,
@@ -43,13 +44,6 @@ class Params(BaseModel):
     conf: float = Field(default=0.25, ge=0, le=1, allow_inf_nan=False)
     iou: float = Field(default=0.7, ge=0, le=1, allow_inf_nan=False)
     max_det: int = Field(default=300, ge=1, le=1000)
-
-
-class TerminalDrainRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    registry_id: str = Field(min_length=1, max_length=128)
-    boot_id: str = Field(min_length=1, max_length=128)
-    operation_id: str = Field(min_length=1, max_length=256)
 
 
 def receipt_digest(receipt: dict) -> str:
@@ -270,6 +264,7 @@ def create_detection_app(
                 "cpu_fallback_supported": False,
             },
             "pool": snapshot,
+            "pool_topology": {"models": {"cap": snapshot["cap"]}},
             "gpu_info": {
                 "device_uuid": config.physical_gpu_uuid,
                 "driver_version": facts.get("driver_version"),
@@ -325,6 +320,7 @@ def create_detection_app(
             "supported_prompts": ["none"],
             "supported_geometric_outputs": ["bbox"],
             "models": [model],
+            "pool_topology": {"models": {"cap": config.pool_capacity}},
             "warmup_endpoint": True,
             "params": Params.model_json_schema(),
             "managed_model_compatibility": list(config.managed_model_compatibility),

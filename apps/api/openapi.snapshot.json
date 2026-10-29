@@ -36019,11 +36019,29 @@
             "title": "Managed Model Compatibility",
             "type": "array"
           },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/PluginModelCapability"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Models",
+            "type": "array"
+          },
           "plugin_id": {
             "maxLength": 128,
             "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
             "title": "Plugin Id",
             "type": "string"
+          },
+          "pools": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PluginPoolTopology"
+            },
+            "maxProperties": 128,
+            "minProperties": 1,
+            "title": "Pools",
+            "type": "object"
           },
           "publisher": {
             "maxLength": 255,
@@ -36056,11 +36074,93 @@
           "sdk_compatibility",
           "entrypoint",
           "capabilities",
+          "models",
+          "pools",
           "resource",
           "asset_manifest_sha256",
           "allowed_asset_sources"
         ],
         "title": "PluginManifest",
+        "type": "object"
+      },
+      "PluginModelCapability": {
+        "additionalProperties": false,
+        "description": "The security-relevant projection of one advertised protocol model.",
+        "properties": {
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "is_interactive": {
+            "title": "Is Interactive",
+            "type": "boolean"
+          },
+          "supported_geometric_outputs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Geometric Outputs",
+            "type": "array"
+          },
+          "supported_inputs": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supported Inputs",
+            "type": "array"
+          },
+          "supported_prompts": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supported Prompts",
+            "type": "array"
+          },
+          "task": {
+            "enum": [
+              "detect",
+              "segment",
+              "classify",
+              "pose",
+              "obb",
+              "ocr",
+              "doc_layout",
+              "tracker",
+              "interactive_seg"
+            ],
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "task",
+          "is_interactive",
+          "supported_prompts",
+          "supported_inputs",
+          "supported_geometric_outputs"
+        ],
+        "title": "PluginModelCapability",
+        "type": "object"
+      },
+      "PluginPoolTopology": {
+        "additionalProperties": false,
+        "description": "Approved maximum handles for one named pool.",
+        "properties": {
+          "cap": {
+            "exclusiveMinimum": 0.0,
+            "title": "Cap",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cap"
+        ],
+        "title": "PluginPoolTopology",
         "type": "object"
       },
       "PluginQuiesceResponse": {

@@ -125,9 +125,11 @@ class Store:
 
 
 class Transport:
-    def __init__(self, request, clock):
+    def __init__(self, request, clock, receipt_pools=None, receipt_updates=None):
         self.request = request
         self.clock = clock
+        self.receipt_pools = receipt_pools
+        self.receipt_updates = receipt_updates or {}
         self.terminal = False
 
     async def health_meta(
@@ -157,12 +159,17 @@ class Transport:
             "operation_id": str(self.request.operation_id),
             "control_epoch": "1",
             "generation": "2",
-            "pool_ids": self.request.pool_ids,
+            "pool_ids": self.request.pool_ids
+            if self.receipt_pools is None
+            else self.receipt_pools,
             "unloaded": True,
+            **self.receipt_updates,
         }
 
 
-async def run_quiescence(monkeypatch, *, horizon, domain_ready=True):
+async def run_quiescence(
+    monkeypatch, *, horizon, domain_ready=True, receipt_pools=None, receipt_updates=None
+):
     request = GPUInstallationControlRequest(
         registry_id=uuid4(),
         resource_id="gpu-1",
@@ -170,7 +177,7 @@ async def run_quiescence(monkeypatch, *, horizon, domain_ready=True):
         boot_id="boot",
         operation_id=uuid4(),
         container_id="a" * 64,
-        pool_ids=["pool"],
+        pool_ids=["detector", "pipeline", "va"],
     )
     native_request = request.model_dump(mode="json", exclude={"protocol"})
     native_request["pool_ids"] = sorted(native_request["pool_ids"])
@@ -178,7 +185,7 @@ async def run_quiescence(monkeypatch, *, horizon, domain_ready=True):
     native = Native(clock, request.registry_id, horizon=horizon)
     store = Store(request.registry_id, clock)
     store.owner = f"installation:{request.operation_id}"
-    transport = Transport(request, clock)
+    transport = Transport(request, clock, receipt_pools, receipt_updates)
     endpoint = SimpleNamespace(
         registry_id=request.registry_id,
         url=request.endpoint,
@@ -244,6 +251,56 @@ async def test_recovery_waits_for_post_horizon_idle_before_authorizing(monkeypat
     assert store.conclusions[0]["probe_started_at_ms"] > 1004000
     assert native.phases[-2:] == ["verify", "commit"]
     assert transport.terminal and store.closed
+
+
+@pytest.mark.asyncio
+async def test_terminal_receipt_accepts_same_pools_in_backend_order(monkeypatch):
+    result, _, store, _ = await run_quiescence(
+        monkeypatch, horizon=1004, receipt_pools=["pipeline", "detector", "va"]
+    )
+    assert result.unloaded is True
+    assert result.pool_ids == ["detector", "pipeline", "va"]
+    assert store.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "receipt_pools",
+    [
+        ["detector", "pipeline"],
+        ["detector", "pipeline", "other"],
+        ["detector", "pipeline", "pipeline", "va"],
+        ["detector", "pipeline", 1],
+        "detector",
+    ],
+)
+async def test_terminal_receipt_rejects_inexact_pool_set(monkeypatch, receipt_pools):
+    with pytest.raises(ValueError, match="terminal receipt mismatch"):
+        await run_quiescence(monkeypatch, horizon=1004, receipt_pools=receipt_pools)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"registry_id": str(uuid4())},
+        {"gpu_resource_id": "other"},
+        {"boot_id": "other"},
+        {"operation_id": str(uuid4())},
+        {"control_epoch": "2"},
+        {"generation": "3"},
+        {"unloaded": False},
+        {"unexpected": True},
+    ],
+)
+async def test_terminal_receipt_rejects_identity_or_proof_drift(monkeypatch, change):
+    with pytest.raises(ValueError, match="terminal receipt mismatch"):
+        await run_quiescence(
+            monkeypatch,
+            horizon=1004,
+            receipt_pools=["pipeline", "detector", "va"],
+            receipt_updates=change,
+        )
 
 
 @pytest.mark.asyncio

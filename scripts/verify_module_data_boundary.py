@@ -1211,6 +1211,7 @@ SQL_ARTIFACTS = (
     "0398_gpu_terminal_owner_recovery.sql",
     "0399_plugin_terminal_hold.sql",
     "0400_plugin_routing_replacement.sql",
+    "0402_plugin_terminal_drain_route.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",

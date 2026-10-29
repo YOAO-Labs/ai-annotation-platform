@@ -52,6 +52,17 @@ def payload(installation_id):
             "sdk_compatibility": "1",
             "entrypoint": ["detector"],
             "capabilities": ["inference", "detection"],
+            "models": [
+                {
+                    "id": "detect",
+                    "task": "detect",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image", "crop"],
+                    "supported_geometric_outputs": ["bbox"],
+                }
+            ],
+            "pools": {"models": {"cap": 1}},
             "resource": {"device": "cpu", "memory_mb": 512, "gpu_memory_mb": 0},
             "asset_manifest_sha256": "b" * 64,
             "managed_model_compatibility": [],
@@ -99,6 +110,7 @@ def observation():
             "cpu_fallback_supported": False,
         },
         "gpu_info": {"device_uuid": None},
+        "pool_topology": {"models": {"cap": 1}},
         "residency": {
             "state": "unloaded",
             "gpu_loaded": False,
@@ -123,6 +135,7 @@ def observation():
         "physical_gpu_uuid": None,
         "runtime_info": {"device": "cpu"},
         "managed_model_compatibility": [],
+        "pool_topology": {"models": {"cap": 1}},
         "managed_lifecycle": ManagedLifecycleCapabilities().model_dump(mode="json"),
         "terminal_lifecycle": {"terminal_drain_endpoint": "/lifecycle/terminal-drain"},
         "models": [
@@ -130,6 +143,7 @@ def observation():
                 "id": "detect",
                 "task": "detect",
                 "is_interactive": False,
+                "supported_prompts": ["none"],
                 "supported_inputs": ["full_image", "crop"],
                 "supported_geometric_outputs": ["bbox"],
                 "resource_profile": {"device": "cpu"},
@@ -156,6 +170,8 @@ async def test_endpoint_observation_rejects_changed_or_untrusted_facts():
     for mutate in (
         lambda h, s: h.update({GPU_HEALTH_CHALLENGE_ECHO_MARKER: "f" * 64}),
         lambda h, s: h["compute"].update({"effective_device": "cuda:0"}),
+        lambda h, s: h["residency"].update({"gpu_loaded": True}),
+        lambda h, s: h["residency"].update({"control_epoch": "1"}),
         lambda h, s: h["residency"].update({"state": "unknown"}),
         lambda h, s: s["plugin_identity"].update({"version": "other"}),
         lambda h, s: s["models"][0].update({"supported_inputs": ["full_image"]}),
@@ -178,6 +194,148 @@ async def test_endpoint_observation_rejects_changed_or_untrusted_facts():
             ),
             **kwargs,
         )
+
+
+async def test_old_image_can_only_drain_without_new_topology_declarations():
+    installation, receipt, challenge, health, setup = observation()
+    health.pop("pool_topology")
+    setup.pop("pool_topology")
+    setup.pop("models")
+    kwargs = dict(
+        endpoint="http://detector.example.test",
+        challenge=challenge,
+        healthy=True,
+        health=health,
+        setup=setup,
+    )
+    assert (
+        verify_endpoint_observation(installation, receipt, **kwargs, for_drain=True)[
+            "boot_id"
+        ]
+        == "runtime-boot"
+    )
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(installation, receipt, **kwargs)
+    health["residency"]["pools"] = {
+        "other": {"resident": False, "device": None, "provider": None}
+    }
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(installation, receipt, **kwargs, for_drain=True)
+
+
+async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_and_pools():
+    installation, receipt, challenge, health, setup = observation()
+    data = installation.model_dump(mode="json")
+    models = [
+        {
+            "id": "ocr",
+            "task": "ocr",
+            "is_interactive": False,
+            "supported_prompts": ["none"],
+            "supported_inputs": ["crop"],
+            "supported_geometric_outputs": ["polygon"],
+        },
+        {
+            "id": "classify",
+            "task": "classify",
+            "is_interactive": False,
+            "supported_prompts": ["none"],
+            "supported_inputs": ["crop"],
+            "supported_geometric_outputs": [],
+        },
+    ]
+    pools = {"engines": {"cap": 2}, "classifier": {"cap": 1}}
+    data["installation"]["manifest"].update(models=models, pools=pools)
+    installation = PluginInstallationResponse.model_validate(data)
+    setup["models"] = [
+        {**model, "resource_profile": {"device": "cpu"}} for model in models
+    ]
+    setup["pool_topology"] = pools
+    health["pool_topology"] = deepcopy(pools)
+    health["gpu_info"] = None
+    health["compute"]["cpu_fallback_supported"] = True
+    health["residency"]["pools"] = {
+        name: {"resident": False, "device": None, "provider": None} for name in pools
+    }
+    kwargs = dict(
+        endpoint="http://cpu.example.test",
+        challenge=challenge,
+        healthy=True,
+        health=health,
+        setup=setup,
+    )
+    assert (
+        verify_endpoint_observation(installation, receipt, **kwargs)["boot_id"]
+        == "runtime-boot"
+    )
+    from hashlib import sha256
+    from aap_inference_contract.plugin import PluginLifecycleQualification
+
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation,
+            receipt,
+            **kwargs,
+            qualification=PluginLifecycleQualification(
+                report={}, sha256=sha256(b"{}").hexdigest()
+            ),
+        )
+    for change in (
+        lambda h, s: s["models"][0].update(supported_geometric_outputs=["bbox"]),
+        lambda h, s: s["models"][0].update(supported_inputs=["unknown"]),
+        lambda h, s: s["pool_topology"]["engines"].update(cap=1),
+        lambda h, s: h["residency"]["pools"].pop("classifier"),
+        lambda h, s: s["models"].pop(),
+    ):
+        changed_health, changed_setup = deepcopy(health), deepcopy(setup)
+        change(changed_health, changed_setup)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                installation,
+                receipt,
+                **{**kwargs, "health": changed_health, "setup": changed_setup},
+            )
+
+
+async def test_libreyolo_cpu_admission_keeps_runtime_and_fallback_pins():
+    from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME
+
+    installation, receipt, challenge, health, setup = observation()
+    data = installation.model_dump(mode="json")
+    compatibility = [
+        {"framework": "libreyolo", "format": LIBRE_FORMAT, "runtime_device": "cpu"}
+    ]
+    data["installation"]["manifest"].update(
+        plugin_id="libreyolo",
+        capabilities=["inference", "detection", "managed_models"],
+        managed_model_compatibility=compatibility,
+    )
+    installation = PluginInstallationResponse.model_validate(data)
+    setup.update(
+        plugin_identity={"plugin_id": "libreyolo", "version": "1.0"},
+        managed_model_compatibility=compatibility,
+        runtime_info=dict(LIBRE_RUNTIME),
+    )
+    kwargs = dict(
+        endpoint="http://cpu.example.test",
+        challenge=challenge,
+        healthy=True,
+        health=health,
+        setup=setup,
+    )
+    verify_endpoint_observation(installation, receipt, **kwargs)
+    for change in (
+        lambda h, s: s["runtime_info"].update(torch="different"),
+        lambda h, s: h["compute"].update(cpu_fallback_supported=True),
+    ):
+        changed_health, changed_setup = deepcopy(health), deepcopy(setup)
+        change(changed_health, changed_setup)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                installation,
+                receipt,
+                **{**kwargs, "health": changed_health, "setup": changed_setup},
+            )
 
 
 async def test_prepare_requires_super_admin_and_replay_matches_intent(
@@ -215,7 +373,7 @@ async def test_prepare_requires_super_admin_and_replay_matches_intent(
     assert fetched.status_code == 200 and fetched.json() == first.json()
 
 
-async def test_gpu_activation_checks_observed_physical_device_and_runtime():
+async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkeypatch):
     import hashlib
     import json
     from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
@@ -355,12 +513,247 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         qualification=qualification,
     )
     verify_endpoint_observation(installation, receipt, **kwargs)
+    multi = deepcopy(model)
+    pools = {"pipeline": {"cap": 1}, "detector": {"cap": 1}}
+    multi["installation"]["manifest"]["pools"] = pools
+    multi_installation = PluginInstallationResponse.model_validate(multi)
+    multi_setup, multi_health, multi_report = (
+        deepcopy(setup),
+        deepcopy(health),
+        deepcopy(report),
+    )
+    multi_setup["pool_topology"] = pools
+    multi_health["pool_topology"] = deepcopy(pools)
+    multi_health["residency"]["pools"] = {
+        name: {"resident": False, "device": None, "provider": None} for name in pools
+    }
+    multi_report["deployment"]["pool_topology"]["pools"] = pools
+    multi_report["final_residency"]["pools"] = deepcopy(
+        multi_health["residency"]["pools"]
+    )
+
+    def signed_report(value):
+        digest = hashlib.sha256(
+            json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        return PluginLifecycleQualification(report=value, sha256=digest)
+
+    multi_kwargs = {
+        **kwargs,
+        "setup": multi_setup,
+        "health": multi_health,
+        "qualification": signed_report(multi_report),
+    }
+    verify_endpoint_observation(multi_installation, receipt, **multi_kwargs)
+    for mutate in (
+        lambda value: value["deployment"]["pool_topology"]["pools"]["pipeline"].update(
+            cap=2
+        ),
+        lambda value: value["final_residency"]["pools"].pop("detector"),
+        lambda value: value["deployment"]["pool_topology"].update(
+            registry_id=str(uuid4())
+        ),
+        lambda value: value["final_residency"]["identity"].update(
+            gpu_resource_id="other"
+        ),
+    ):
+        bad_report = deepcopy(multi_report)
+        mutate(bad_report)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                multi_installation,
+                receipt,
+                **{**multi_kwargs, "qualification": signed_report(bad_report)},
+            )
+    ort_data = deepcopy(multi)
+    ort_data["installation"]["manifest"].update(
+        plugin_id="onnxtools",
+        capabilities=["inference", "detection"],
+        managed_model_compatibility=[],
+    )
+    ort_installation = PluginInstallationResponse.model_validate(ort_data)
+    ort_setup, ort_health, ort_report = (
+        deepcopy(multi_setup),
+        deepcopy(multi_health),
+        deepcopy(multi_report),
+    )
+    ort_setup.update(
+        infra="onnx",
+        plugin_identity={"plugin_id": "onnxtools", "version": "1.0"},
+        managed_model_compatibility=[],
+    )
+    ort_setup["runtime_info"]["runtime_versions"] = {"onnxruntime": "1.22"}
+    ort_report["backend_name"] = "onnxtools"
+    ort_report["deployment"]["runtime_versions"].update(
+        plugin_id="onnxtools", onnxruntime="1.22"
+    )
+    expected = {"pipeline": 2, "detector": 1}
+    ort_setup["runtime_info"]["ort_session_counts"] = deepcopy(expected)
+    ort_health["ort_session_counts"] = deepcopy(expected)
+    ort_report["deployment"]["pool_topology"]["session_counts"] = deepcopy(expected)
+    session = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    observed = {
+        name: [list(session) for _ in range(count)] for name, count in expected.items()
+    }
+    for cycle in ort_report["cycles"]:
+        cycle["session_observations"] = deepcopy(observed)
+    ort_kwargs = {
+        **multi_kwargs,
+        "setup": ort_setup,
+        "health": ort_health,
+        "qualification": signed_report(ort_report),
+    }
+    verify_endpoint_observation(ort_installation, receipt, **ort_kwargs)
+    # Exercise the owner transport's real HTTP projection at the admission boundary.
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    from types import SimpleNamespace
+    from urllib.parse import parse_qs, urlsplit
+
+    from aap_inference.health_observation_manager import _default_client_factory
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        def log_message(self, _format, *args):
+            pass
+
+        def do_GET(self):
+            request = urlsplit(self.path)
+            if (
+                request.path != "/health"
+                or self.headers.get("Authorization") != "Bearer test-token"
+                or self.headers.get("X-AAP-GPU-Health-Challenge") != challenge
+                or parse_qs(request.query).get("aap_gpu_health_challenge")
+                != [challenge]
+            ):
+                self.send_response(403)
+                self.end_headers()
+                return
+            body = json.dumps(self.server.health).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-AAP-GPU-Health-Challenge", challenge)
+            self.end_headers()
+            self.wfile.write(body)
+
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), HealthHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_port}"
+        transport = _default_client_factory(
+            SimpleNamespace(
+                url=endpoint,
+                auth_method="token",
+                auth_token="test-token",
+                id=None,
+                gpu_resource_id=resource["gpu_resource_id"],
+                vram_budget_mb=None,
+                extra_params={},
+                health_meta=None,
+            ),
+            3,
+        )
+        for change in (
+            None,
+            "missing_pool",
+            "pool_drift",
+            "missing_counts",
+            "count_drift",
+        ):
+            server.health = deepcopy(ort_health)
+            server.health.pop(GPU_HEALTH_CHALLENGE_ECHO_MARKER)
+            if change == "missing_pool":
+                server.health.pop("pool_topology")
+            elif change == "pool_drift":
+                server.health["pool_topology"]["pipeline"]["cap"] = 2
+            elif change == "missing_counts":
+                server.health.pop("ort_session_counts")
+            elif change == "count_drift":
+                server.health["ort_session_counts"]["pipeline"] = 1
+            healthy, observed_health = await transport.health_meta(
+                gpu_health_challenge=challenge
+            )
+            live_kwargs = {
+                **ort_kwargs,
+                "endpoint": endpoint,
+                "healthy": healthy,
+                "health": observed_health,
+            }
+            if change is None:
+                verify_endpoint_observation(ort_installation, receipt, **live_kwargs)
+            else:
+                with pytest.raises(PluginObservationRejected):
+                    verify_endpoint_observation(
+                        ort_installation, receipt, **live_kwargs
+                    )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+    for mutate in (
+        lambda value: value["cycles"][0]["session_observations"]["pipeline"].pop(),
+        lambda value: value["cycles"][1]["session_observations"]["detector"][0].clear(),
+        lambda value: value["cycles"][0]["session_observations"]["detector"][
+            0
+        ].__setitem__(0, "CPUExecutionProvider"),
+        lambda value: value["cycles"][0]["session_observations"].pop("detector"),
+        lambda value: value["cycles"][1].pop("session_observations"),
+    ):
+        bad_report = deepcopy(ort_report)
+        mutate(bad_report)
+        with pytest.raises(PluginObservationRejected):
+            verify_endpoint_observation(
+                ort_installation,
+                receipt,
+                **{**ort_kwargs, "qualification": signed_report(bad_report)},
+            )
+    truncated = deepcopy(ort_report)
+    for cycle in truncated["cycles"]:
+        cycle["session_observations"]["pipeline"].pop()
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation,
+            receipt,
+            **{**ort_kwargs, "qualification": signed_report(truncated)},
+        )
+    wrong_counts = deepcopy(ort_health)
+    wrong_counts["ort_session_counts"]["pipeline"] = 1
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation, receipt, **{**ort_kwargs, "health": wrong_counts}
+        )
+    wrong_setup_counts = deepcopy(ort_setup)
+    wrong_setup_counts["runtime_info"]["ort_session_counts"]["detector"] = True
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation, receipt, **{**ort_kwargs, "setup": wrong_setup_counts}
+        )
+    wrong_runtime = deepcopy(ort_setup)
+    wrong_runtime["runtime_info"]["runtime_versions"]["onnxruntime"] = "different"
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            ort_installation, receipt, **{**ort_kwargs, "setup": wrong_runtime}
+        )
     with pytest.raises(PluginObservationRejected):
         verify_endpoint_observation(
             installation, receipt, **{**kwargs, "qualification": None}
         )
     unqualified_setup = deepcopy(setup)
     unqualified_setup.pop("managed_lifecycle")
+    unqualified_setup.pop("pool_topology")
+    unqualified_setup.pop("models")
+    unqualified_health = deepcopy(health)
+    unqualified_health.pop("pool_topology")
     unqualified_setup["runtime_info"]["torch"] = "unqualified"
     verify_endpoint_observation(
         installation,
@@ -368,6 +761,7 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime():
         **{
             **kwargs,
             "setup": unqualified_setup,
+            "health": unqualified_health,
             "qualification": None,
             "for_drain": True,
         },
@@ -411,6 +805,20 @@ async def test_prepare_validation_never_echoes_token(httpx_client, super_admin):
     )
     assert result.status_code == 422
     assert body["auth_token"] not in result.text
+
+
+async def test_prepare_rejects_unknown_protocol_capabilities(httpx_client, super_admin):
+    _, token = super_admin
+    body = payload(uuid4())
+    body["manifest"]["models"][0]["supported_geometric_outputs"] = ["invented"]
+    result = await httpx_client.post(
+        BASE, json=body, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert result.status_code == 422
+    assert (
+        result.json()["detail"]["error_code"]
+        == "plugin_installation_invalid_capabilities"
+    )
 
 
 async def test_activate_and_disable_are_revision_fenced(

@@ -1831,7 +1831,14 @@ async def test_enablement_unknown_backend_404(httpx_client, db_session, super_ad
         ("enforcing", True, True, True, True, None),
         ("enforcing", True, True, False, False, "gpu_arbiter_domain_mismatch"),
         ("enforcing", True, False, True, False, "gpu_arbiter_runtime_not_ready"),
-        ("enforcing", True, "unavailable", True, False, "gpu_arbiter_runtime_not_ready"),
+        (
+            "enforcing",
+            True,
+            "unavailable",
+            True,
+            False,
+            "gpu_arbiter_runtime_not_ready",
+        ),
         ("blocked", True, True, True, False, "gpu_rollout_not_ready"),
         ("promoting", True, True, True, False, "gpu_rollout_not_ready"),
         ("demoting", True, True, True, False, "gpu_rollout_not_ready"),
@@ -1846,37 +1853,67 @@ async def test_manager_to_public_gpu_readiness(
     from unittest.mock import AsyncMock
     from aap_inference.gpu.manager import GPUAuthorityManager
     from aap_inference.gpu.settings import (
-        GPUArbiterMode as Mode, GPUAuthoritySettings, GPUResourceSettings,
+        GPUArbiterMode as Mode,
+        GPUAuthoritySettings,
+        GPUResourceSettings,
     )
     from app.api.v1.admin_ml_integrations import list_gpu_resources
 
-    resource_id = _configure_gpu(monkeypatch, global_mode=GPUArbiterMode.ENFORCE, resource_mode="enforce")
+    resource_id = _configure_gpu(
+        monkeypatch, global_mode=GPUArbiterMode.ENFORCE, resource_mode="enforce"
+    )
     monkeypatch.setattr(settings, "gpu_arbiter_rollout_enabled", enabled)
     config = GPUAuthoritySettings(
         gpu_arbiter_mode=Mode.ENFORCE,
         gpu_arbiter_rollout_enabled=enabled,
-        gpu_arbiter_resources={resource_id: GPUResourceSettings(
-            resource_id, "node-a", "GPU-test", 22000, Mode.ENFORCE
-        )},
+        gpu_arbiter_resources={
+            resource_id: GPUResourceSettings(
+                resource_id, "node-a", "GPU-test", 22000, Mode.ENFORCE
+            )
+        },
     )
-    rows = [{
-        "backend_id": str(uuid.uuid4()), "gpu_resource_id": resource_id,
-        "vram_budget_mb": 12000, "eviction_priority": 0, "extra_params": {},
-        "state": "connected", "last_checked_at": datetime.now(UTC).isoformat(),
-        "health_meta": {},
-    } for _ in range(2)]
-    snapshots = [] if state is None else [{
-        "resource_id": resource_id, "state": "enforcing" if state == "extra" else state, "effective_mode": "enforce",
-        "target_mode": "enforce", "transition_id": None, "last_transition_id": None,
-        "blocker_reason": "test_blocker" if state == "blocked" else None, "revision": 1,
-    }]
+    rows = [
+        {
+            "backend_id": str(uuid.uuid4()),
+            "gpu_resource_id": resource_id,
+            "vram_budget_mb": 12000,
+            "eviction_priority": 0,
+            "extra_params": {},
+            "state": "connected",
+            "last_checked_at": datetime.now(UTC).isoformat(),
+            "health_meta": {},
+        }
+        for _ in range(2)
+    ]
+    snapshots = (
+        []
+        if state is None
+        else [
+            {
+                "resource_id": resource_id,
+                "state": "enforcing" if state == "extra" else state,
+                "effective_mode": "enforce",
+                "target_mode": "enforce",
+                "transition_id": None,
+                "last_transition_id": None,
+                "blocker_reason": "test_blocker" if state == "blocked" else None,
+                "revision": 1,
+            }
+        ]
+    )
     if state == "extra":
-        snapshots.append({
-            "resource_id": "node-b/GPU-other", "state": "enforcing",
-            "effective_mode": "enforce", "target_mode": "enforce",
-            "transition_id": None, "last_transition_id": None,
-            "blocker_reason": None, "revision": 1,
-        })
+        snapshots.append(
+            {
+                "resource_id": "node-b/GPU-other",
+                "state": "enforcing",
+                "effective_mode": "enforce",
+                "target_mode": "enforce",
+                "transition_id": None,
+                "last_transition_id": None,
+                "blocker_reason": None,
+                "revision": 1,
+            }
+        )
 
     class Data:
         async def step(self, action, arguments):
@@ -1894,10 +1931,16 @@ async def test_manager_to_public_gpu_readiness(
             return {
                 "status": "ready" if observed_ready else "not_ready",
                 "reason": "" if observed_ready else "not_ready",
-                "ready": observed_ready, "backend_count": 2, "active_backend_count": 2,
-                "membership_state_counts": {}, "allocation_state_counts": {},
-                "lease_count": 0, "card_queue_count": 0, "backend_queue_count": 0,
-                "transition_present": False, "durable_domain_matches": domain_matches,
+                "ready": observed_ready,
+                "backend_count": 2,
+                "active_backend_count": 2,
+                "membership_state_counts": {},
+                "allocation_state_counts": {},
+                "lease_count": 0,
+                "card_queue_count": 0,
+                "backend_queue_count": 0,
+                "transition_present": False,
+                "durable_domain_matches": domain_matches,
             }
 
     class Authority:
@@ -1910,16 +1953,22 @@ async def test_manager_to_public_gpu_readiness(
             return Observation()
 
     if observed_ready == "unavailable":
+
         class MembershipData:
             async def membership_candidates(self, resource_id, *, states):
                 return []
+
         monkeypatch.setattr(
             "app.api.v1.admin_ml_integrations.bind_gpu_authority_data",
             AsyncMock(return_value=MembershipData()),
         )
 
-    monkeypatch.setattr("app.api.v1.admin_ml_integrations.gpu_authority_client", Authority)
-    response = await list_gpu_resources(db=SimpleNamespace(rollback=AsyncMock()), _admin=None)
+    monkeypatch.setattr(
+        "app.api.v1.admin_ml_integrations.gpu_authority_client", Authority
+    )
+    response = await list_gpu_resources(
+        db=SimpleNamespace(rollback=AsyncMock()), _admin=None
+    )
     assert response.runtime_ready is expected
     assert response.enforce_runtime_ready is expected
     resource = response.resources[0]
@@ -1932,10 +1981,14 @@ async def test_manager_to_public_gpu_readiness(
         assert "gpu_arbiter_runtime_not_ready" not in codes
         assert "gpu_rollout_not_ready" not in codes
         owner = await manager.get_diagnostics()
-        assert all(item["gpu_config"]["effective_mode"] == "enforce" for item in owner.result["backends"])
+        assert all(
+            item["gpu_config"]["effective_mode"] == "enforce"
+            for item in owner.result["backends"]
+        )
         assert all(
             diag["code"] != "gpu_arbiter_runtime_not_ready"
-            for item in owner.result["backends"] for diag in item["gpu_config"]["diagnostics"]
+            for item in owner.result["backends"]
+            for diag in item["gpu_config"]["diagnostics"]
         )
 
 
@@ -1944,42 +1997,93 @@ async def test_manager_retired_plugin_diagnostics_are_validated_and_claim_sensit
     from aap_inference.gpu.settings import GPUArbiterMode as Mode, GPUAuthoritySettings
 
     manifest = {
-        "plugin_id": "libreyolo", "version": "1.0", "publisher": "example",
-        "license": "MIT", "artifact": "registry.example/plugin@sha256:" + "a" * 64,
-        "sdk_compatibility": ">=1", "entrypoint": ["python", "-m", "plugin"],
+        "plugin_id": "libreyolo",
+        "version": "1.0",
+        "publisher": "example",
+        "license": "MIT",
+        "artifact": "registry.example/plugin@sha256:" + "a" * 64,
+        "sdk_compatibility": ">=1",
+        "entrypoint": ["python", "-m", "plugin"],
         "capabilities": ["inference", "detection", "managed_models"],
+        "models": [
+            {
+                "id": "detect",
+                "task": "detect",
+                "is_interactive": False,
+                "supported_prompts": ["none"],
+                "supported_inputs": ["full_image", "crop"],
+                "supported_geometric_outputs": ["bbox"],
+            }
+        ],
+        "pools": {"models": {"cap": 1}},
         "resource": {"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 2048},
         "asset_manifest_sha256": "b" * 64,
         "allowed_asset_sources": ["https://example.com/assets"],
-        "managed_model_compatibility": [{"framework": "libreyolo", "format": "libreyolo", "runtime_device": "cuda"}],
+        "managed_model_compatibility": [
+            {"framework": "libreyolo", "format": "libreyolo", "runtime_device": "cuda"}
+        ],
     }
     rows = []
-    for kind in ("retired", "active", "malformed", "wrong_id", "partial", "cpu", "unknown"):
+    for kind in (
+        "retired",
+        "active",
+        "malformed",
+        "wrong_id",
+        "partial",
+        "cpu",
+        "unknown",
+    ):
         ident = str(uuid.uuid4())
         plugin = {
             "installation_id": str(uuid.uuid4()) if kind == "wrong_id" else ident,
-            "manifest": manifest, "status": "active" if kind == "active" else "retired",
+            "manifest": manifest,
+            "status": "active" if kind == "active" else "retired",
             "revision": 0 if kind == "malformed" else 1,
-            "resource": {"gpu_resource_id": "node/gpu", "physical_gpu_uuid": "GPU-123", "logical_device": "cuda:0"},
+            "resource": {
+                "gpu_resource_id": "node/gpu",
+                "physical_gpu_uuid": "GPU-123",
+                "logical_device": "cuda:0",
+            },
         }
-        rows.append({
-            "backend_id": ident, "gpu_resource_id": None,
-            "vram_budget_mb": 2048 if kind == "partial" else None,
-            "eviction_priority": 0, "extra_params": {"plugin": plugin} if kind not in {"cpu", "unknown"} else {},
-            "state": "connected", "last_checked_at": datetime.now(UTC).isoformat(),
-            "health_meta": {"compute": {"configured_device": "cpu", "effective_device": "cpu"}} if kind == "cpu" else {},
-        })
+        rows.append(
+            {
+                "backend_id": ident,
+                "gpu_resource_id": None,
+                "vram_budget_mb": 2048 if kind == "partial" else None,
+                "eviction_priority": 0,
+                "extra_params": {"plugin": plugin}
+                if kind not in {"cpu", "unknown"}
+                else {},
+                "state": "connected",
+                "last_checked_at": datetime.now(UTC).isoformat(),
+                "health_meta": {
+                    "compute": {"configured_device": "cpu", "effective_device": "cpu"}
+                }
+                if kind == "cpu"
+                else {},
+            }
+        )
+
     class Data:
         async def step(self, action, arguments):
-            return {"backends": rows} if action == "shadow_snapshot" else {"snapshots": []}
+            return (
+                {"backends": rows} if action == "shadow_snapshot" else {"snapshots": []}
+            )
 
     manager = GPUAuthorityManager.__new__(GPUAuthorityManager)
     manager._data = Data()
     manager._config = GPUAuthoritySettings(gpu_arbiter_mode=Mode.OFF)
     result = (await manager.get_diagnostics()).result
-    statuses = {row["backend_id"]: {d["code"] for d in row["gpu_config"]["diagnostics"]} for row in result["backends"]}
-    retired, active, malformed, wrong_id, partial, cpu, unknown = (statuses[row["backend_id"]] for row in rows)
+    statuses = {
+        row["backend_id"]: {d["code"] for d in row["gpu_config"]["diagnostics"]}
+        for row in result["backends"]
+    }
+    retired, active, malformed, wrong_id, partial, cpu, unknown = (
+        statuses[row["backend_id"]] for row in rows
+    )
     assert not retired
-    assert all("gpu_claim_unknown" in item for item in (active, malformed, wrong_id, unknown))
+    assert all(
+        "gpu_claim_unknown" in item for item in (active, malformed, wrong_id, unknown)
+    )
     assert partial and "explicit_cpu_backend" not in partial
     assert "explicit_cpu_backend" in cpu

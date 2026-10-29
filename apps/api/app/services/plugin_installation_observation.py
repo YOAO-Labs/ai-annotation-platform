@@ -12,6 +12,9 @@ from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
 from aap_inference_contract.plugin import (
     PluginInstallationResponse,
     PluginLaunchReceipt,
+    PluginManifest,
+    PluginModelCapability,
+    PluginPoolTopology,
     PluginLifecycleQualification,
 )
 from aap_protocol_v2.lifecycle import (
@@ -20,6 +23,7 @@ from aap_protocol_v2.lifecycle import (
     canonical_managed_lifecycle_capabilities,
 )
 from aap_protocol_v2.version import PROTOCOL_VERSION
+from aap_protocol_v2.vocab import GEOMETRY_VALUES, INPUT_VALUES, PROMPT_VALUES
 from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 from training_contract.model_return import LIBRE_RUNTIME
 
@@ -29,6 +33,90 @@ from app.services.inference_topology_data import InferenceTopologyData
 
 class PluginObservationRejected(ValueError):
     """Endpoint identity, capabilities, or resource did not match the reservation."""
+
+
+def validate_manifest_capabilities(manifest: PluginManifest) -> None:
+    """Reject values outside the protocol vocabulary before approving intent."""
+    for model in manifest.models:
+        if (
+            not set(model.supported_inputs).issubset(INPUT_VALUES)
+            or not set(model.supported_prompts).issubset(PROMPT_VALUES)
+            or not set(model.supported_geometric_outputs).issubset(GEOMETRY_VALUES)
+        ):
+            raise PluginObservationRejected("unknown model capability")
+
+
+def _model_capabilities_match(manifest: PluginManifest, models: object) -> bool:
+    if type(models) is not list or len(models) != len(manifest.models):
+        return False
+    expected = {model.id: model for model in manifest.models}
+    observed = {}
+    try:
+        for model in models:
+            if type(model) is not dict:
+                return False
+            capability = PluginModelCapability.model_validate(
+                {key: model[key] for key in PluginModelCapability.model_fields}
+            )
+            if capability.id in observed:
+                return False
+            profile = model.get("resource_profile")
+            if type(profile) is not dict or profile.get("device") != (
+                "gpu" if manifest.resource.device == "cuda" else "cpu"
+            ):
+                return False
+            observed[capability.id] = capability
+    except (KeyError, TypeError, ValueError):
+        return False
+    if observed.keys() != expected.keys():
+        return False
+    for key, model in expected.items():
+        other = observed[key]
+        if (
+            model.task != other.task
+            or model.is_interactive != other.is_interactive
+            or set(model.supported_inputs) != set(other.supported_inputs)
+            or set(model.supported_prompts) != set(other.supported_prompts)
+            or set(model.supported_geometric_outputs)
+            != set(other.supported_geometric_outputs)
+        ):
+            return False
+    return True
+
+
+def _pool_topology_matches(manifest: PluginManifest, pools: object) -> bool:
+    if type(pools) is not dict or pools.keys() != manifest.pools.keys():
+        return False
+    try:
+        return all(
+            PluginPoolTopology.model_validate(value) == manifest.pools[name]
+            for name, value in pools.items()
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _parse_residency(value: object) -> BackendResidency:
+    if (
+        type(value) is not dict
+        or any(
+            type(value.get(key)) is not int
+            for key in ("active_requests", "builders", "borrowers")
+        )
+        or any(type(value.get(key)) is not bool for key in ("draining", "evictable"))
+        or (
+            value.get("gpu_loaded") is not None
+            and type(value["gpu_loaded"]) is not bool
+        )
+        or type(value.get("pools")) is not dict
+        or any(
+            type(pool) is not dict
+            or (pool.get("resident") is not None and type(pool["resident"]) is not bool)
+            for pool in value["pools"].values()
+        )
+    ):
+        raise ValueError("residency has invalid JSON field types")
+    return BackendResidency.model_validate(value)
 
 
 def verify_launch_receipt(
@@ -91,9 +179,13 @@ def verify_endpoint_observation(
     if setup.get("physical_gpu_uuid") != resource.physical_gpu_uuid:
         raise PluginObservationRejected("physical GPU differs from reservation")
     gpu_info = health.get("gpu_info")
-    if (
-        type(gpu_info) is not dict
-        or gpu_info.get("device_uuid") != resource.physical_gpu_uuid
+    if not (
+        (resource.physical_gpu_uuid is None and gpu_info is None)
+        or (
+            type(gpu_info) is dict
+            and "device_uuid" in gpu_info
+            and gpu_info["device_uuid"] == resource.physical_gpu_uuid
+        )
     ):
         raise PluginObservationRejected("health GPU identity differs from reservation")
     compute = health.get("compute")
@@ -101,12 +193,26 @@ def verify_endpoint_observation(
     if (
         type(compute) is not dict
         or compute.get("configured_device") != resource.logical_device
-        or compute.get("cpu_fallback_supported") is not False
+        or (
+            manifest.resource.device == "cuda"
+            and compute.get("cpu_fallback_supported") is not False
+        )
+        or type(compute.get("cpu_fallback_supported")) is not bool
         or compute.get("effective_device") not in (None, resource.logical_device)
         or type(runtime) is not dict
         or runtime.get("device") != manifest.resource.device
     ):
         raise PluginObservationRejected("runtime device differs from reservation")
+    if (
+        any(
+            entry.framework == "libreyolo"
+            for entry in manifest.managed_model_compatibility
+        )
+        and compute["cpu_fallback_supported"] is not False
+    ):
+        raise PluginObservationRejected(
+            "LibreYOLO fallback policy differs from reservation"
+        )
     compatibility = [
         entry.model_dump(mode="json") for entry in manifest.managed_model_compatibility
     ]
@@ -134,29 +240,20 @@ def verify_endpoint_observation(
             raise PluginObservationRejected(
                 "CUDA build or execution configuration is not qualified"
             )
-    models = setup.get("models")
-    if type(models) is not list or len(models) != 1 or type(models[0]) is not dict:
-        raise PluginObservationRejected("unsupported model capabilities")
-    model = models[0]
-    inputs = model.get("supported_inputs")
-    outputs = model.get("supported_geometric_outputs")
-    if (
-        "detection" not in manifest.capabilities
-        or model.get("id") != "detect"
-        or model.get("task") != "detect"
-        or model.get("is_interactive") is not False
-        or type(inputs) is not list
-        or len(inputs) != 2
-        or any(type(value) is not str for value in inputs)
-        or sorted(inputs) != ["crop", "full_image"]
-        or outputs != ["bbox"]
-        or type(model.get("resource_profile")) is not dict
-        or model["resource_profile"].get("device")
-        != ("gpu" if manifest.resource.device == "cuda" else "cpu")
-    ):
-        raise PluginObservationRejected(
-            "model capabilities differ from approved intent"
-        )
+    validate_manifest_capabilities(manifest)
+    if not for_drain:
+        if not _model_capabilities_match(manifest, setup.get("models")):
+            raise PluginObservationRejected(
+                "model capabilities differ from approved intent"
+            )
+        if not _pool_topology_matches(manifest, setup.get("pool_topology")):
+            raise PluginObservationRejected(
+                "pool topology differs from approved intent"
+            )
+        if not _pool_topology_matches(manifest, health.get("pool_topology")):
+            raise PluginObservationRejected(
+                "live pool topology differs from approved intent"
+            )
     if manifest.resource.device == "cpu" and setup.get("terminal_lifecycle") != {
         "terminal_drain_endpoint": "/lifecycle/terminal-drain",
     }:
@@ -168,13 +265,24 @@ def verify_endpoint_observation(
     try:
         if manifest.resource.device == "cuda" and not for_drain:
             canonical_managed_lifecycle_capabilities(setup.get("managed_lifecycle"))
-        residency = BackendResidency.model_validate(health.get("residency"))
+        residency = _parse_residency(health.get("residency"))
     except (TypeError, ValueError):
         raise PluginObservationRejected(
             "managed lifecycle evidence is invalid"
         ) from None
-    if residency.state is LifecycleState.UNKNOWN or not residency.pools:
-        raise PluginObservationRejected("runtime pool state is unknown")
+    if residency.state is LifecycleState.UNKNOWN or set(residency.pools) != set(
+        manifest.pools
+    ):
+        raise PluginObservationRejected(
+            "runtime pool state differs from approved intent"
+        )
+    if manifest.resource.device == "cpu" and (
+        residency.gpu_loaded is not False
+        or residency.identity is not None
+        or residency.generation is not None
+        or residency.control_epoch is not None
+    ):
+        raise PluginObservationRejected("CPU runtime has GPU lifecycle state")
     if residency.identity is not None and (
         residency.identity.backend_registry_id != str(installation.registry_id)
         or residency.identity.gpu_resource_id != resource.gpu_resource_id
@@ -239,18 +347,79 @@ def verify_qualification(
         raise PluginObservationRejected(
             "qualification hardware or image differs from observed launch"
         )
-    expected_topology = {
-        "registry_id": str(installation.registry_id),
-        "gpu_resource_id": resource.gpu_resource_id,
-        "pools": {"models": {"cap": 1}},
-    }
-    if deployment["pool_topology"] != expected_topology or set(residency.pools) != {
-        "models"
-    }:
+    topology = deployment["pool_topology"]
+    live_versions = runtime.get("runtime_versions")
+    is_onnx = (
+        setup.get("infra") == "onnx"
+        or (type(live_versions) is dict and "onnxruntime" in live_versions)
+        or "onnxruntime" in deployment["runtime_versions"]
+    )
+    final_residency = report["final_residency"]
+    if (
+        set(topology)
+        != (
+            {"registry_id", "gpu_resource_id", "pools", "session_counts"}
+            if is_onnx
+            else {"registry_id", "gpu_resource_id", "pools"}
+        )
+        or topology["registry_id"] != str(installation.registry_id)
+        or topology["gpu_resource_id"] != resource.gpu_resource_id
+        or not _pool_topology_matches(item.manifest, topology["pools"])
+        or set(residency.pools) != set(item.manifest.pools)
+        or type(final_residency) is not dict
+        or type(final_residency.get("pools")) is not dict
+        or set(final_residency["pools"]) != set(item.manifest.pools)
+    ):
         raise PluginObservationRejected(
             "qualification pool topology differs from endpoint"
         )
+    if is_onnx:
+        expected_counts = topology["session_counts"]
+        for observed_counts in (
+            runtime.get("ort_session_counts"),
+            health.get("ort_session_counts"),
+        ):
+            if (
+                type(observed_counts) is not dict
+                or observed_counts != expected_counts
+                or any(type(count) is not int for count in observed_counts.values())
+            ):
+                raise PluginObservationRejected(
+                    "ORT session counts differ from live factory"
+                )
+    try:
+        final_snapshot = _parse_residency(final_residency)
+    except (TypeError, ValueError):
+        raise PluginObservationRejected(
+            "qualification final residency is incomplete"
+        ) from None
+    if (
+        final_snapshot.identity is None
+        or final_snapshot.identity.backend_registry_id != str(installation.registry_id)
+        or final_snapshot.identity.gpu_resource_id != resource.gpu_resource_id
+    ):
+        raise PluginObservationRejected(
+            "qualification final identity differs from reservation"
+        )
     versions = deployment["runtime_versions"]
+    is_libreyolo = any(
+        entry.framework == "libreyolo"
+        for entry in item.manifest.managed_model_compatibility
+    )
+    if live_versions is not None or not is_libreyolo:
+        if (
+            type(live_versions) is not dict
+            or not live_versions
+            or any(
+                type(key) is not str or not key or type(value) is not str or not value
+                for key, value in live_versions.items()
+            )
+            or any(versions.get(key) != value for key, value in live_versions.items())
+            or (is_onnx and "onnxruntime" not in live_versions)
+        ):
+            raise PluginObservationRejected(
+                "qualification runtime versions differ from endpoint"
+            )
     required = {
         "plugin_id": item.manifest.plugin_id,
         "plugin_version": item.manifest.version,

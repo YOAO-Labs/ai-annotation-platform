@@ -171,7 +171,11 @@ def validate_managed_lifecycle_evidence(value: object) -> dict[str, Any]:
 
     cycles = _object_list(value["cycles"], "cycles")
     for cycle in cycles:
-        _require_exact_fields(cycle, _CYCLE_FIELDS, "cycle")
+        fields = _CYCLE_FIELDS
+        if "session_observations" in cycle:
+            fields = fields | {"session_observations"}
+            _validate_session_observations(cycle["session_observations"])
+        _require_exact_fields(cycle, fields, "cycle")
         if type(cycle["cycle"]) is not int or cycle["cycle"] < 1:
             raise ValueError("cycle.cycle must be a positive integer")
         if not isinstance(cycle["generation"], str) or not cycle["generation"]:
@@ -256,12 +260,78 @@ def _validate_passing_qualification(value: Mapping[str, Any]) -> None:
         for cycle in cycles
     ):
         raise ValueError("passing evidence does not meet memory recovery gates")
+    if "onnxruntime" in deployment["runtime_versions"]:
+        pools = deployment["pool_topology"].get("pools")
+        expected_counts = deployment["pool_topology"].get("session_counts")
+        if (
+            not isinstance(pools, dict)
+            or not pools
+            or not isinstance(expected_counts, dict)
+            or set(expected_counts) != set(pools)
+            or any(
+                type(count) is not int or not 1 <= count <= 128
+                for count in expected_counts.values()
+            )
+        ):
+            raise ValueError(
+                "ORT qualification requires complete factory session counts"
+            )
+        for cycle in cycles:
+            observations = cycle.get("session_observations")
+            if not isinstance(observations, dict) or set(observations) != set(pools):
+                raise ValueError(
+                    "ORT qualification requires observations for every pool"
+                )
+            counts = {name: len(chains) for name, chains in observations.items()}
+            if counts != expected_counts:
+                raise ValueError("ORT session observations differ from factory counts")
+            if any(
+                chain[0] != "CUDAExecutionProvider"
+                for chains in observations.values()
+                for chain in chains
+            ):
+                raise ValueError(
+                    "ORT business sessions must use CUDA as primary provider"
+                )
     if REQUIRED_CONTRACT_CHECKS - checks.keys() or not all(checks.values()):
         raise ValueError("passing evidence does not meet contract checks")
     if not is_unloaded_residency(value["final_residency"]):
         raise ValueError("passing evidence requires fully unloaded final residency")
     if value["runtime_ephemera_clean"] is not True:
         raise ValueError("passing evidence requires clean runtime ephemera")
+
+
+def _validate_session_observations(value: object) -> None:
+    if not isinstance(value, dict) or not value or len(value) > 128:
+        raise ValueError("session_observations must be a non-empty pool map")
+    for name, chains in value.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or name.strip() != name
+            or len(name) > 128
+            or not isinstance(chains, list)
+            or not chains
+            or len(chains) > 128
+        ):
+            raise ValueError(
+                "session observations contain an invalid pool or session list"
+            )
+        for chain in chains:
+            if (
+                not isinstance(chain, list)
+                or not chain
+                or len(chain) > 128
+                or any(
+                    not isinstance(provider, str)
+                    or not provider
+                    or provider.strip() != provider
+                    for provider in chain
+                )
+            ):
+                raise ValueError(
+                    "session provider chain must contain canonical provider names"
+                )
 
 
 def is_unloaded_residency(value: Mapping[str, Any] | None) -> bool:

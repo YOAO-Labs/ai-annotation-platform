@@ -75,7 +75,9 @@ class TransportSubjectOpener(Protocol):
 
 
 _NATIVE_REPLY_KEYS = frozenset({"schema", "status"})
-_MANAGED_CONTROL_PATHS = frozenset({"/unload", "/lifecycle/unload", "/reload"})
+_MANAGED_CONTROL_PATHS = frozenset(
+    {"/unload", "/lifecycle/unload", "/lifecycle/terminal-drain", "/reload"}
+)
 _CONTROL_FIELDS = {"control_id", "registry_id", "kind", "phase", "capability"}
 _FINISHED_CONTROL_FIELDS = {"control_id", "registry_id", "kind", "phase"}
 # The Native admission snapshot serializes the whole ``ml_backend_registry`` row

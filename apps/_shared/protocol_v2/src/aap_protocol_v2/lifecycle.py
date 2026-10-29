@@ -156,6 +156,16 @@ CONTROL_ADMISSION_SCOPES = frozenset(
 )
 
 
+class TerminalDrainRequest(BaseModel):
+    """Identity-bound request to permanently drain a CPU backend process."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    registry_id: str = Field(min_length=1, max_length=128)
+    boot_id: str = Field(min_length=1, max_length=128)
+    operation_id: str = Field(min_length=1, max_length=256)
+
+
 class ManagedLifecycleCapabilities(BaseModel):
     """Additive ``/setup.managed_lifecycle`` capability declaration."""
 
