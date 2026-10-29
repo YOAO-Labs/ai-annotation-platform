@@ -26,7 +26,6 @@ _GPU = re.compile(
 )
 _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _OWNER = re.compile(r"^[0-9a-f]{64}$")
-_QUALIFICATION_TARGET = "/var/lib/aap-libreyolo-qualification/report.json"
 
 
 def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None:
@@ -69,6 +68,10 @@ class ContainerConfig:
     data_target: str
     qualification_file: Path | None = None
     candidate_token: str | None = None
+
+    @property
+    def qualification_target(self) -> str:
+        return f"{self.data_target}-qualification/report.json"
 
     def validate(self) -> None:
         if not _NAME.fullmatch(self.name) or not _NAME.fullmatch(self.network):
@@ -260,7 +263,7 @@ class Docker:
             )
         if config.qualification_file is not None:
             expected_mounts.add(
-                (str(config.qualification_file), _QUALIFICATION_TARGET, False)
+                (str(config.qualification_file), config.qualification_target, False)
             )
         if not isinstance(mounts, list) or any(
             not isinstance(m, dict) or m.get("Type") != "bind" for m in mounts
@@ -471,7 +474,7 @@ class Docker:
             *(
                 [
                     "--mount",
-                    f"type=bind,src={config.qualification_file},dst={_QUALIFICATION_TARGET},readonly",
+                    f"type=bind,src={config.qualification_file},dst={config.qualification_target},readonly",
                 ]
                 if config.qualification_file
                 else []

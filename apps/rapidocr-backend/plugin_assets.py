@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import catalog
@@ -94,6 +95,8 @@ def main() -> int:
     )
     parser.add_argument("--asset-origin", action="append", default=[])
     args = parser.parse_args()
+    if os.environ.get("RAPIDOCR_POOL_CAP", "3") != "3":
+        parser.error("Plugin manifests require the default RAPIDOCR_POOL_CAP=3")
     if (
         args.memory_mb <= 0
         or args.gpu_memory_mb < 0

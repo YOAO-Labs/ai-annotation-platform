@@ -23,7 +23,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ai_annotation._plugin_docker import (
     ContainerConfig,
     Docker,
-    _QUALIFICATION_TARGET,
     _validate_entrypoint,
 )
 from ai_annotation._plugin_receipt import ReceiptStore, _check_private
@@ -370,6 +369,9 @@ class LocalPluginDeployment:
                 ],
                 separators=(",", ":"),
             )
+            if config.manifest.resource.device == "cpu":
+                env["NVIDIA_VISIBLE_DEVICES"] = "void"
+                env["CUDA_VISIBLE_DEVICES"] = ""
         qualification = receipt.get("qualification") if with_qualification else None
         qualification_file = (
             self.store.directory / "qualification.json" if qualification else None
@@ -377,7 +379,7 @@ class LocalPluginDeployment:
         if qualification:
             env.update(
                 {
-                    "AAP_PLUGIN_QUALIFICATION_FILE": _QUALIFICATION_TARGET,
+                    "AAP_PLUGIN_QUALIFICATION_FILE": f"{data_target}-qualification/report.json",
                     "AAP_PLUGIN_QUALIFICATION_SHA256": qualification["sha256"],
                     "AAP_PLUGIN_OCI_ARTIFACT": config.manifest.artifact,
                     "AAP_PLUGIN_IMAGE_ID": qualification["image_id"],
