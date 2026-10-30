@@ -4,13 +4,30 @@ This service uses the native LibreYOLO 1.6.0 loader, not Ultralytics, and the ex
 
 ## Build and prepare
 
-Build dependency wheels for `apps/_shared/libreyolo_native`, training/task/protocol/backend contracts, `apps/_shared/lifecycle_contract`, and `packages/inference-plugin-sdk`, together with their locked transitive dependencies. Build the plugin wheel from the checkout:
+Build a private Linux x86-64 glibc / CPython 3.11 candidate from an explicitly identified commit. Use an isolated builder environment containing `pip`, `build==1.3.0`, `setuptools==80.9.0` and `wheel==0.45.1`, plus `git`, `uv` and GNU `tar`. The build downloads the locked dependencies from PyPI and the PyTorch cu132 index; it includes the existing CUDA-linked Torch and NVIDIA runtime wheels even when inference runs on CPU.
 
 ```sh
-python plugins/libreyolo/build-wheel.py /absolute/path/to/wheelhouse
+python scripts/build-libreyolo-candidate.py --revision <commit> --output /private/candidate.tar
 ```
 
-The build stages `apps/yolo-backend/scripts/controlled-model-assets.json` into the wheel; that file remains the sole maintained source of asset identities. Install from the resulting locked wheelhouse in a clean environment, then explicitly prepare a model:
+The archive contains the versioned plugin, SDK and contract wheels, a complete hash-locked wheelhouse, `requirements.lock`, an inventory with the source revision and wheel digests, and the canonical controlled asset manifest. No weights or platform checkout are included. For another build of the same revision, use the same target and builder versions; the build normalizes wheel and archive timestamps. This does not imply identical OCI images: base image, apt packages and image builder are separate inputs. Review licenses before redistribution; this private candidate is not a publication.
+
+Transfer the expected archive SHA256 through a trusted independent channel. Verify that value before unpacking or running any artifact; the adjacent checksum alone is not an authenticity mechanism:
+
+```sh
+echo '<trusted-sha256>  candidate.tar' | sha256sum -c -
+mkdir candidate && tar -xf candidate.tar -C candidate
+python -m pip install --no-index --find-links candidate/wheelhouse --only-binary=:all: --require-hashes -r candidate/requirements.lock
+python -m pip check
+```
+
+The wheel builder also accepts the canonical manifest explicitly when working directly from source:
+
+```sh
+python plugins/libreyolo/build-wheel.py /absolute/path/to/wheelhouse --manifest apps/yolo-backend/scripts/controlled-model-assets.json
+```
+
+The manifest is embedded into the plugin wheel and copied into the candidate for digest accounting; the checkout file remains its sole maintained source. Install from the resulting locked wheelhouse in a clean environment, then explicitly prepare a model:
 
 ```sh
 aap-libreyolo prepare-assets --size t --asset-dir /private/libreyolo/assets
