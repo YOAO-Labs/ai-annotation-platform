@@ -139,10 +139,14 @@ class ContainerConfig:
 
 
 class Docker:
-    def _run(self, *args: str) -> str:
+    def _run(self, *args: str, input: str | None = None) -> str:
         try:
             result = subprocess.run(
-                ["docker", *args], capture_output=True, text=True, check=False
+                ["docker", *args],
+                input=input,
+                capture_output=True,
+                text=True,
+                check=False,
             )
         except OSError as exc:
             raise AAPError("Docker CLI is unavailable") from exc
@@ -359,6 +363,32 @@ class Docker:
         if not started_at or started_at.startswith("0001-"):
             raise AAPError("Unable to verify container process start identity")
         return {**existing, "image_id": image_id, "started_at": started_at}
+
+    def measure_assets(
+        self, config: ContainerConfig, container_id: str, assets: list[dict]
+    ) -> list[str]:
+        """Hash files in the running container, not a replaceable host pathname."""
+        probe = Path(__file__).with_name("_plugin_asset_measure.py").read_text()
+        output = self._run(
+            "exec",
+            "--interactive",
+            container_id,
+            "python3",
+            "-I",
+            "-S",
+            "-c",
+            probe,
+            input=json.dumps({"root": config.data_target, "assets": assets}),
+        )
+        try:
+            measured = json.loads(output)
+        except ValueError as exc:
+            raise AAPError("Container returned an invalid asset measurement") from exc
+        if not isinstance(measured, list) or any(
+            not isinstance(path, str) for path in measured
+        ):
+            raise AAPError("Container returned an invalid asset measurement")
+        return measured
 
     def _state(self, container_id: str) -> dict:
         try:
