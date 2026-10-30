@@ -90,7 +90,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ### 公开第一方制品与独立消费 {#plugin-candidate-artifacts}
 
-[Plugin-SDK 发布](https://github.com/YOAO-Labs/Plugin-SDK/releases)提供能力 SDK、推理运行时与 Mask 工具的 wheel、sdist、源码归档及 SHA256 清单；[官方插件发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases)提供具体插件、模型专属适配与插件自有预训练目录。便携契约由平台拥有，构建器只导出五个契约包，通过 [SDK 契约渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-c200b1f76441)分发；历史混合发布保持不可变，但不再作为当前源码归属或模型目录权威。第一方源码许可不重新授权第三方依赖或权重。manifest 记录真实源码仓库、固定提交与文件摘要，匿名消费者不需要平台 checkout 或私有 Token。
+[Plugin-SDK 发布](https://github.com/YOAO-Labs/Plugin-SDK/releases)提供能力 SDK、推理运行时与 Mask 工具的 wheel、sdist、源码归档及 SHA256 清单；[官方插件发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases)提供具体插件、模型专属适配与插件自有预训练目录。便携契约由平台拥有，构建器只导出五个契约包，通过 [SDK 契约渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-906628f2619b)分发；历史混合发布保持不可变，但不再作为当前源码归属或模型目录权威。第一方源码许可不重新授权第三方依赖或权重。manifest 记录真实源码仓库、固定提交与文件摘要，匿名消费者不需要平台 checkout 或私有 Token。
 
 完整候选构建器由独立插件仓库的 `scripts/build-libreyolo-candidate.py` 维护，从固定插件提交与契约制品生成完整 hash-locked wheelhouse。具体命令、资产准备与安装见 [YOAO-Plugins README](https://github.com/YOAO-Labs/YOAO-Plugins#readme)；通用接入见[推理插件接入](/dev/tutorials/ml-backend-starter)。公开发布不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们分别保留许可和分发门禁，不因第一方源码公开而自动获得授权。
 
@@ -264,11 +264,15 @@ YOLO、RapidOCR、ONNXTools 的唯一源码已迁到官方仓库的 `plugins/inf
 
 新独立 ONNXTools 和 RapidOCR 已分别通过完整两轮单卡 GPU 生命周期证明，核对全部实际业务 sessions，并由普通 API SDK 完成报告校验、安装和平台端点激活。前者覆盖三池／四 sessions，后者覆盖三引擎／九 sessions；释放后活动计数归零。YOLO 的多任务、受控模型、正例 ByteTrack／BoT-SORT、World／YOLOE 文本及 exemplar CPU HTTP 已与独立原生预期比对，完整 CUDA 资格仍需覆盖全部选用权重与编码器，不能沿用仅覆盖闭集模型的证明。
 
-官方插件还提供独立的部署资产选择描述：预期模型／变体和文件身份由插件发布清单及原生加载依赖产生，绑定具体制品与原安装清单；描述自身的摘要与安装清单摘要分开。四个插件的实际输出已通过平台纯类型消费者和规范摘要核验，描述工具不读取权重内容、不批准、不下载，也不决定项目权限。当前集成验收仍发现未批准 OCR 变体被目录标为可执行的缺口，安装级批准／撤销和目录、排队、发送门禁正在隔离工作树验证，尚未记为平台治理闭环。
+官方插件提供独立的部署资产选择描述：预期模型／完整变体和文件身份来自插件发布清单及原生加载依赖，绑定具体制品与原安装清单；描述自身的摘要与安装清单摘要分开。描述工具不读取权重内容、不批准、不下载，也不决定项目权限。平台按安装分别维护修订化批准／撤销和当前可用性；管理员 SDK 在实际运行容器内测量文件大小与 SHA256，固定文件描述符并拒绝逃逸链接或测量中身份变化，不能用同名宿主目录的替换文件冒充容器挂载内容。用户训练 checkpoint 继续由 Learning／Assets 治理。
 
-当前独立平台已观察到 ONNX 当前任务、空例／边界批量、crop 属性及 OCR 的真实持久化结果，以及项目停用和无项目成员权限的拒绝。跨后端驱逐后的首次请求则因强制健康刷新使已预留路由的 eligibility revision 过期而失败；随后独立提交的成功请求不替代该验收。修复必须保留原成员、配置、池代际、当前授权和固定 tracker scope 的所有权，不能靠重试或放宽围栏通过。
+隔离集成环境已验证目录、排队及发送前的同一批准规则：明确批准的完整规格可执行，未批准的具体规格与默认规格、撤销及已批准但不可用的资源均拒绝，且插件实际调用数不增加；非管理员不能批准，项目停用或无项目权限仍独立拒绝。浏览器中的 OCR 混合规格组不会把一项批准扩散到其他规格，YOLO 的已批准 `s` 和未批准默认 `n` 也分别展示可用与拒绝。明暗主题、桌面和窄屏已检查；浏览器记录中的认证 heartbeat 409 单独保留，不宣称所有网络请求均成功。
 
-原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。off／observe 的 legacy CUDA 拒绝不算成功推理；正常 SDK 停用后的物理空闲，也不等于重启 owner 后的未知分配已恢复为可准入。源码、不可变制品、报告摘要、失败与私有证据位置见拆仓计划的第五批记录。完整业务／治理、未知状态恢复和安全退役继续独立推进；旧业务资格、历史收据及原环境恢复义务不被覆盖。
+发送 owner 在强制健康刷新后原子重验同一成员、进程身份、配置、池代际和当前权限；不重试、不重选实例，也不解除固定 tracker scope 的所有权。获准 Registry 集合进入有界、规范化的冻结命令及重放摘要，混合池仍按原权重在合格成员间选择，发送前明确拒绝记录为 `not_sent`。新隔离环境中的两次跨后端驱逐后首次请求均成功；另一个显式仅匹配 `car` 的 crop 作业只为两个 `car` 框写入分类属性，五个非车辆框保持空属性。迁移前仍需排空或明确退役旧 scope，停止旧执行者后再应用迁移和刷新 owner／消费者，不能为旧记录补造身份。
+
+ONNXTools 和 RapidOCR 已完成正常重启、新容器资产重测、成员显式恢复、冷请求及正常卸载；实际许可时限后的 collector 证明两个成员均已回收，分配、提交内存、租约和队列归零。零成员域按既有规则保持 `not_ready/proof_incomplete`，因为 ready 要求至少一个 active 成员；这不等于残留分配，也不能通过伪造成员或清账本改成 ready。
+
+原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。off／observe 的 legacy CUDA 拒绝不算成功推理。正常重启可能等待真实 Token 时限后的新鲜证明，替换容器后须重新测量资产，并按管理员意图恢复已排空成员的流量；安装 active、物理空闲及模型批准都不等于 owner 已恢复可准入。早期失败栈的未知分配历史保留，其宿主隔离清退不冒充正常 `retired` 收据。源码、制品、报告及失败证据见拆仓计划第五批；完整 YOLO GPU 资格、最终安全退役与原环境恢复仍单独记录。
 
 ## Learning 的 Jobs 读取 {#learning-jobs-reads}
 

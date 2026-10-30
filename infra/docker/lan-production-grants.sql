@@ -1455,6 +1455,8 @@ DECLARE
         'aap_inference_topology_v1.plugin_installation(uuid)',
         'aap_inference_topology_v1.plugin_installations()',
         'aap_inference_topology_v1.plugin_installation_evidence(uuid)',
+        'aap_inference_topology_v1.plugin_asset_approval(uuid)',
+        'aap_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)',
         'aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)',
         'aap_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)',
         'aap_inference_topology_v1.registry_url_owner(text)',
@@ -1520,8 +1522,9 @@ BEGIN
             'ml_backend_registry','ml_backend_service_pools','ml_backend_pool_members',
             'project_ml_backend_pool','gpu_backend_fences','gpu_backend_memberships',
             'gpu_arbiter_rollouts','gpu_backend_cancel_intents'
-        )) OR (n.nspname IN ('aap_inference_backend_endpoint_v1','aap_inference_gpu_v1',
-                            'aap_inference_gpu_collector_v1') AND c.relkind IN ('r','p','v','m','f'))
+        )) OR (n.nspname IN ('aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
+                            'aap_inference_gpu_v1','aap_inference_gpu_collector_v1')
+               AND c.relkind IN ('r','p','v','m','f'))
     LOOP
         IF pg_catalog.pg_has_role(v_runtime_oid,v_relation.relowner,'MEMBER') THEN
             RAISE EXCEPTION 'Runtime inherits private Inference ownership';

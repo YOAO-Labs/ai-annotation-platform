@@ -13,6 +13,10 @@ from aap_inference_contract.plugin import (
     PluginInstallationCommand,
     PluginQuiesceResponse,
 )
+from aap_inference_contract.plugin_assets import (
+    PluginAssetApprovalState,
+    PluginAssetApprovalUpdate,
+)
 
 
 class PluginInstallations:
@@ -49,6 +53,23 @@ class PluginInstallations:
             "GET", f"/admin/ml-integrations/plugins/installations/{installation_id}"
         )
         return PluginInstallationResponse.model_validate(response.json())
+
+    def asset_approval(self, installation_id: str | UUID) -> PluginAssetApprovalState:
+        response = self._http.request(
+            "GET",
+            f"/admin/ml-integrations/plugins/installations/{installation_id}/assets",
+        )
+        return PluginAssetApprovalState.model_validate(response.json())
+
+    def set_asset_approval(
+        self, installation_id: str | UUID, request: PluginAssetApprovalUpdate
+    ) -> PluginAssetApprovalState:
+        response = self._http.request(
+            "PUT",
+            f"/admin/ml-integrations/plugins/installations/{installation_id}/assets",
+            json=request.model_dump(mode="json"),
+        )
+        return PluginAssetApprovalState.model_validate(response.json())
 
     def activate(
         self, installation_id: str | UUID, request: PluginActivateRequest

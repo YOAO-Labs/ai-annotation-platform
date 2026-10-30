@@ -1511,6 +1511,34 @@ async def trigger_preannotation(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    from app.services.model_catalog import pool_asset_candidates, pool_has_plugin
+
+    if not needs_snapshot and await pool_has_plugin(db, backend):
+        from app.services.prediction_execution import freeze_builtin_defaults
+
+        if not body.model_id:
+            candidates = [
+                item
+                for item in ((backend.health_meta or {}).get("capabilities") or {}).get(
+                    "models", []
+                )
+                if isinstance(item, dict)
+                and not item.get("is_interactive")
+                and normalize_task(item.get("task") or "unknown", allow_unknown=True)
+                == body.task
+            ]
+            if len(candidates) != 1:
+                raise HTTPException(status_code=422, detail="管线需要明确选择模型")
+            body.model_id = candidates[0]["id"]
+        stage = {"model_variants": body.model_variants}
+        freeze_builtin_defaults(backend, _stage_model(backend, body.model_id), stage)
+        body.model_variants = stage.get("model_variants") or {}
+        _, code = await pool_asset_candidates(
+            db, backend, body.model_id, body.model_variants
+        )
+        if code:
+            raise HTTPException(status_code=409, detail={"error_code": code})
+
     retry_context = build_predict_context(
         prompt=body.prompt,
         output_mode=body.output_mode,
@@ -1966,6 +1994,14 @@ async def trigger_preannotation(
                         "text_threshold": float(project.text_threshold),
                     },
                 )
+                _, code = await pool_asset_candidates(
+                    db,
+                    stage_backend,
+                    stage.get("model_id"),
+                    stage.get("model_variants") or {},
+                )
+                if code:
+                    raise HTTPException(status_code=409, detail={"error_code": code})
                 metadata, _ = native_metadata(
                     stage_backend, model, stage.get("model_variants") or {}
                 )
@@ -2345,7 +2381,9 @@ async def trigger_preannotation(
             selector_ids = (
                 [str(task_id) for task_id in canonical_task_ids]
                 if uses_input_manifest and canonical_task_ids is not None
-                else None if uses_input_manifest else scoped_ids
+                else None
+                if uses_input_manifest
+                else scoped_ids
             )
             precreated_payload: dict = {
                 "batch_id": str(body.batch_id) if body.batch_id else None,
@@ -2409,7 +2447,9 @@ async def trigger_preannotation(
         selector_ids = (
             [str(task_id) for task_id in canonical_task_ids]
             if uses_input_manifest and canonical_task_ids is not None
-            else None if uses_input_manifest else scoped_ids
+            else None
+            if uses_input_manifest
+            else scoped_ids
         )
         if needs_snapshot:
             frozen_model_ref = await freeze_execution()
@@ -2595,9 +2635,12 @@ async def trigger_preannotation(
         project_id=str(project.id),
         ml_backend_id=str(source_backend_id),
         task_ids=(
-            [str(tid) for tid in (
-                canonical_task_ids if uses_input_manifest else explicit_task_ids
-            )]
+            [
+                str(tid)
+                for tid in (
+                    canonical_task_ids if uses_input_manifest else explicit_task_ids
+                )
+            ]
             if (canonical_task_ids if uses_input_manifest else explicit_task_ids)
             is not None
             else None

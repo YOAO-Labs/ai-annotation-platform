@@ -298,6 +298,12 @@
           "type": ["string", "null"],
           "format": "uuid"
         },
+        "approved_registry_ids": {
+          "type": ["array", "null"],
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
+        },
         "owner": {
           "type": "string",
           "minLength": 1,
@@ -689,7 +695,7 @@
           "format": "uuid"
         },
         "state": {
-          "enum": ["active", "response", "uncertain", "reconciled"]
+          "enum": ["active", "response", "uncertain", "reconciled", "not_sent"]
         },
         "status_code": {
           "type": ["integer", "null"],
@@ -1635,6 +1641,12 @@
         "required_instance_id": {
           "type": ["string", "null"],
           "format": "uuid"
+        },
+        "approved_registry_ids": {
+          "type": ["array", "null"],
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
         },
         "owner": {
           "type": "string",

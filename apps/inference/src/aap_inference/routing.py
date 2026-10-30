@@ -57,6 +57,8 @@ class RoutingTransaction(Protocol):
         self, action: str, arguments: Mapping[str, Any]
     ) -> dict[str, Any]: ...
 
+    def savepoint(self) -> AbstractAsyncContextManager[None]: ...
+
 
 RoutingDataFactory = Callable[[], AbstractAsyncContextManager[RoutingTransaction]]
 BackendControl = Callable[[Mapping[str, Any]], Awaitable[object]]
@@ -270,8 +272,46 @@ class RoutingManager:
                 await asyncio.sleep(0.01 * (attempt + 1))
         raise RoutingUnavailable()
 
+    async def begin_model(
+        self,
+        command: RoutingCommand,
+        *,
+        member_id: uuid.UUID | None,
+        boot_id: str | None,
+        revalidate: bool,
+        binding: Mapping[str, Any],
+    ) -> RoutingResult:
+        """Begin and prepare the exact model attempt in one transaction."""
+        request = decode_routing_command(command)
+        if (
+            request.operation != "begin"
+            or (member_id is not None and type(member_id) is not uuid.UUID)
+            or (boot_id is not None and (type(boot_id) is not str or not boot_id))
+            or type(revalidate) is not bool
+            or (revalidate and member_id is None)
+            or not isinstance(binding, Mapping)
+        ):
+            raise RoutingUnavailable()
+        if (
+            binding.get("member_id") != (None if member_id is None else str(member_id))
+            or binding.get("boot_id") != boot_id
+            or binding.get("revalidate") is not revalidate
+            or binding.get("health_max_age_seconds") != self.health_max_age_seconds
+        ):
+            raise RoutingUnavailable()
+        return await self._execute_once(
+            request,
+            retry_contention=False,
+            model_binding=(member_id, boot_id, revalidate, dict(binding)),
+        )
+
     async def _execute_once(
-        self, command: RoutingCommand, *, retry_contention: bool
+        self,
+        command: RoutingCommand,
+        *,
+        retry_contention: bool,
+        model_binding: tuple[uuid.UUID | None, str | None, bool, dict[str, Any]]
+        | None = None,
     ) -> RoutingResult:
         request = decode_routing_command(command)
         digest = routing_command_sha256(request)
@@ -298,7 +338,37 @@ class RoutingManager:
                     result_body = prior
                 else:
                     try:
-                        result_body = await self._execute_action(data, request, digest)
+                        if model_binding is None:
+                            result_body = await self._execute_action(
+                                data, request, digest
+                            )
+                        else:
+                            async with data.savepoint():
+                                member_id, boot_id, revalidate, binding = model_binding
+                                body = _request_body(request)
+                                if revalidate:
+                                    assert member_id is not None
+                                    result_body = await self._begin_model(
+                                        data, body, digest, member_id, boot_id
+                                    )
+                                else:
+                                    result_body = await self._begin(
+                                        data, body, control=False
+                                    )
+                                prepared = await _native_step(
+                                    data,
+                                    "model_dispatch_step",
+                                    {
+                                        "scope_id": body["scope_id"],
+                                        "capability": body["capability"],
+                                        "attempt_id": body["attempt_id"],
+                                        "action": "prepare",
+                                        "binding": binding,
+                                    },
+                                    keys={"state"},
+                                )
+                                if prepared["state"] != "prepared":
+                                    raise RoutingUnavailable()
                     except _Rejected as rejected:
                         if (
                             retry_contention
@@ -428,6 +498,8 @@ class RoutingManager:
         digest: str,
         *,
         request: RoutingCommand | None = None,
+        expected_model: tuple[dict[str, Any], uuid.UUID, str] | None = None,
+        revalidate_only: bool = False,
     ) -> dict[str, Any]:
         if body["operation"].startswith("control:"):
             raise _Rejected("invalid_command")
@@ -476,6 +548,38 @@ class RoutingManager:
             observed_at=observed_at,
             health_max_age_seconds=self.health_max_age_seconds,
         )
+        if body.get("approved_registry_ids") is not None:
+            approved = {
+                _canonical_uuid(value) for value in body["approved_registry_ids"]
+            }
+            candidate_ids = [value for value in candidate_ids if value in approved]
+            if not candidate_ids:
+                raise _Rejected("pool_unavailable")
+        if expected_model is not None:
+            original, expected_member, expected_boot = expected_model
+            selected = [
+                (member, backend)
+                for member, backend, _ in members
+                if member.id == expected_member
+                and str(backend.id) == original["registry_id"]
+            ]
+            if (
+                pool is None
+                or str(pool.id) != original["pool_id"]
+                or pool.routing_generation != original["generation"]
+                or len(selected) != 1
+                or candidate_ids != [selected[0][1].id]
+            ):
+                raise _Rejected("generation_mismatch")
+            health = selected[0][1].health_meta
+            residency = health.get("residency") if isinstance(health, Mapping) else None
+            if (
+                not isinstance(residency, Mapping)
+                or residency.get("boot_id") != expected_boot
+            ):
+                raise _Rejected("transport_changed")
+        if revalidate_only:
+            return {"snapshot": snapshot}
         reservation = {
             "snapshot": snapshot,
             "candidate_ids": [str(value) for value in candidate_ids],
@@ -641,6 +745,88 @@ class RoutingManager:
                 "method": method,
                 "path": path,
                 "transport_identity": transport_identity,
+            },
+            keys={"attempt_id", "scope", "headers"},
+        )
+        return {
+            "attempt_id": result["attempt_id"],
+            "scope": _json_object(result["scope"]),
+            "headers": _json_object(result["headers"]),
+        }
+
+    async def _begin_model(
+        self,
+        data: RoutingTransaction,
+        body: dict[str, Any],
+        digest: str,
+        member_id: uuid.UUID,
+        boot_id: str | None,
+    ) -> dict[str, Any]:
+        scope_id = _canonical_uuid(body["scope_id"])
+        attempt_id = _canonical_uuid(body["attempt_id"])
+        identity = await self._open_transport_subject(
+            data, body["transport_subject"], scope_id, attempt_id, control=False
+        )
+        original = (await self._scope_status(data, body))["scope"]
+        if original["closed"] or original["pool_id"] is None:
+            raise _Rejected("scope_unavailable")
+        if original["state"] == "reserved":
+            status = await _native_step(
+                data,
+                "supersede_unbegun_scope",
+                {
+                    "scope_id": str(scope_id),
+                    "capability": body["capability"],
+                    "snapshot": None,
+                    "member_id": None,
+                    "boot_id": None,
+                },
+                keys={"scope", "stale"},
+            )
+            if type(status["stale"]) is not bool:
+                raise RoutingUnavailable()
+            if status["stale"]:
+                if boot_id is None:
+                    raise _Rejected("transport_changed")
+                fresh = await self._acquire(
+                    data,
+                    {
+                        "pool_id": original["pool_id"],
+                        "registry_id": None,
+                        "project_id": original["project_id"],
+                        "mode": original["mode"],
+                        "required_instance_id": original["registry_id"],
+                        "owner": original["owner"],
+                        "operation": original["operation"],
+                    },
+                    digest,
+                    expected_model=(original, member_id, boot_id),
+                    revalidate_only=True,
+                )
+                await _native_step(
+                    data,
+                    "supersede_unbegun_scope",
+                    {
+                        "scope_id": str(scope_id),
+                        "capability": body["capability"],
+                        "snapshot": fresh["snapshot"],
+                        "member_id": str(member_id),
+                        "boot_id": boot_id,
+                    },
+                    keys={"scope"},
+                )
+        elif original["state"] != "active":
+            raise _Rejected("scope_unavailable")
+        result = await _native_step(
+            data,
+            "begin_attempt",
+            {
+                "scope_id": str(scope_id),
+                "capability": body["capability"],
+                "attempt_id": str(attempt_id),
+                "method": body["method"],
+                "path": body["path"],
+                "transport_identity": identity,
             },
             keys={"attempt_id", "scope", "headers"},
         )

@@ -25,6 +25,8 @@ POST /api/v1/admin/ml-integrations/plugins/installations
 GET  /api/v1/admin/ml-integrations/plugins/installations
 GET  /api/v1/admin/ml-integrations/plugins/installations/:installation_id
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/activate
+GET  /api/v1/admin/ml-integrations/plugins/installations/:installation_id/assets
+PUT  /api/v1/admin/ml-integrations/plugins/installations/:installation_id/assets
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/disable
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/quiesce
 POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/retire
@@ -34,6 +36,8 @@ POST /api/v1/admin/ml-integrations/plugins/installations/:installation_id/cancel
 集合 `POST` 预留身份，不是 `/prepare`，所有安装管理入口均要求超级管理员。管理员在 Docker 执行机使用 `aap plugins prepare`、`install` 和 `status`；API 不访问 Docker socket。`prepare-assets` 仅用于提供该命令的 LibreYOLO 插件，其他插件使用各自的获准资产流程。安装器检查实际固定摘要镜像、容器启动身份及资源绑定；CPU 不绑定 GPU 或提交 GPU 证明，CUDA 则需要物理 GPU、验签公钥及管理员批准的完整共享生命周期报告。动作使用最新 `expected_revision`，并发冲突先读取状态。安装不会自动启用项目。
 
 `manifest.models[]` 必须包含每个获准模型的 `id`、规范任务 `task`、`is_interactive`、`supported_prompts`、`supported_inputs` 和 `supported_geometric_outputs`；它是安全边界所需投影，不复制完整 `/setup` 参数目录。允许多模型、非 bbox 结果及分类的空几何输出，但未知词表、重复模型和实际能力不一致会被拒绝。`manifest.pools` 按池名声明严格正整数 `cap`，与实际 setup／新鲜 health 及资格拓扑一致，不固定为 `models` 池。
+
+插件预训练模型按安装身份、模型 ID 和完整变体组合审批。实际模型请求在等待并发与设备准入后、HTTP 发送前复核该组合的当前审批；等待期间审批撤销或审批快照变化时，拒绝发送，不自动重试或改选实例。视频 Tracker 在固定 job 路由时仅从当前可用且已获准的成员中加权选择；组合追踪要求同一成员同时获准发现与传播模型，后续请求仍逐次复核。非插件后端和 Learning 受控检查点沿用各自原有的授权路径。资产可用性来自受信管理员／SDK 的测量，不是持续重算摘要，也不证明恶意超级管理员无法篡改。
 
 ORT CUDA 报告另含 `deployment.pool_topology.session_counts` 及每轮 `session_observations`。平台将每个实际 session 的 provider 链和数量与 factory 拓扑、`setup.runtime_info.ort_session_counts`、挑战绑定的 `health.ort_session_counts` 核对；不能用可用 provider 列表替代实际 session，也不能两轮漏掉同一 session。严格 CUDA 拒绝整 session CPU 回退，仍允许合法算子分区。非 ORT 报告不新增这些字段或改写旧摘要。
 

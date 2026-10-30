@@ -3621,6 +3621,97 @@ async def _run_tracker_job_claimed(
         # v0.23.3 ADR-0050 §11 · 取得 job-scope route lease (enforce) / 记录 would-select
         # (observe)。tracker 整 job pin 一个实例, lease 周期 heartbeat 续命 (不能中途换实例)。
         if backend is not None:
+            from aap_inference_contract.plugin_assets import (
+                plugin_asset_reason,
+                resolve_plugin_selection,
+            )
+            from app.services.inference_topology_data import InferenceTopologyData
+            from app.services.model_catalog import backend_reason, pool_has_plugin
+            from app.services.video_tracking.backend_identity import (
+                VideoBackendIdentityError,
+                _selected_model,
+            )
+
+            approved_registry_ids = None
+            if await pool_has_plugin(db, backend):
+                selections = [
+                    (
+                        tracker_capability,
+                        frozen_plan.backend_compatibility[0].model_id
+                        if frozen_plan is not None
+                        else frozen_routing.get("model_id")
+                        if is_correction
+                        else None,
+                        accepted_prompt.get("sam_variant"),
+                    )
+                ]
+                if is_combo:
+                    selections.append(
+                        (
+                            "sam3_video",
+                            frozen_plan.backend_compatibility[1].model_id
+                            if frozen_plan is not None
+                            else None,
+                            None,
+                        )
+                    )
+                topology = InferenceTopologyData(db)
+                pool = await topology.pool_for_registry(backend.id)
+                members = await topology.pool_members(pool.id) if pool else []
+                active_count = sum(m.traffic_state == "active" for m in members)
+                candidates = (
+                    [(member.registry, member) for member in members]
+                    if pool is not None
+                    else [(await topology.registry_facts(backend.id), None)]
+                )
+                approved_registry_ids = []
+                for candidate, member in candidates:
+                    if candidate is None:
+                        continue
+                    if (
+                        pool is not None
+                        and backend_reason(
+                            candidate,
+                            pool,
+                            member,
+                            enabled=True,
+                            member_count=active_count,
+                        )[0]
+                        is not None
+                    ):
+                        continue
+                    state = (
+                        await topology.get_plugin_asset_approval(candidate.id)
+                        if "plugin" in (candidate.extra_params or {})
+                        else None
+                    )
+                    for capability, model_id, sam_variant in selections:
+                        try:
+                            selected = _selected_model(
+                                candidate, model_key=capability, model_id=model_id
+                            )
+                        except VideoBackendIdentityError:
+                            break
+                        context = {"model_id": selected.get("id")}
+                        if sam_variant:
+                            context["model_variants"] = {"sam_variant": sam_variant}
+                        model_id, variants = resolve_plugin_selection(
+                            candidate.health_meta, context
+                        )
+                        if (
+                            plugin_asset_reason(
+                                candidate.extra_params, state, model_id, variants
+                            )
+                            is not None
+                        ):
+                            break
+                    else:
+                        approved_registry_ids.append(candidate.id)
+                if not approved_registry_ids:
+                    raise RoutingError(
+                        RejectionReason.POOL_UNAVAILABLE,
+                        "No pool member is approved for every tracker selection",
+                    )
             try:
                 tracker_ledger = (
                     make_ledger_from_settings()
@@ -3640,6 +3731,11 @@ async def _run_tracker_job_claimed(
                 if frozen_registry_id is not None
                 else None,
                 execution=execution_proof(job_id).model_dump(mode="json"),
+                **(
+                    {"approved_registry_ids": sorted(approved_registry_ids)}
+                    if approved_registry_ids is not None
+                    else {}
+                ),
             )
             if _sel.rejection is not None or _sel.instance_id is None:
                 rejection = _sel.rejection or RejectionReason.POOL_UNAVAILABLE

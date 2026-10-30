@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from aap_protocol_v2.backend_auth import managed_provider
 from aap_protocol_v2.model_metadata import ModelMetadataResponse, classes_digest
 from aap_inference_contract.topology import to_record
+from aap_inference_contract.plugin_assets import plugin_asset_reason
 from aap_task_contract import normalize_task
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -128,6 +129,53 @@ def backend_reason(backend, pool, member, *, enabled, member_count):
     ):
         return "capability_mismatch", "推理实例能力与服务池不一致"
     return None, None
+
+
+async def pool_has_plugin(db, backend):
+    topology = InferenceTopologyData(db)
+    pool = await topology.pool_for_registry(backend.id)
+    if pool is None:
+        return "plugin" in (backend.extra_params or {})
+    return any(
+        "plugin" in (member.registry.extra_params or {})
+        for member in await topology.pool_members(pool.id)
+    )
+
+
+async def pool_asset_candidates(db, backend, model_id, variants):
+    """Return approved selectable members, or None when no plugin is involved."""
+    topology = InferenceTopologyData(db)
+    pool = await topology.pool_for_registry(backend.id)
+    if pool is None:
+        if "plugin" not in (backend.extra_params or {}):
+            return None, None
+        state = await topology.get_plugin_asset_approval(backend.id)
+        reason = plugin_asset_reason(backend.extra_params, state, model_id, variants)
+        return ([backend.id] if reason is None else []), reason
+    members = await topology.pool_members(pool.id)
+    if not any("plugin" in (member.registry.extra_params or {}) for member in members):
+        return None, None
+    active_count = sum(member.traffic_state == "active" for member in members)
+    approved = []
+    denied = None
+    for member in members:
+        candidate = member.registry
+        code, _ = backend_reason(
+            candidate, pool, member, enabled=True, member_count=active_count
+        )
+        if code is not None:
+            continue
+        state = (
+            await topology.get_plugin_asset_approval(candidate.id)
+            if "plugin" in (candidate.extra_params or {})
+            else None
+        )
+        reason = plugin_asset_reason(candidate.extra_params, state, model_id, variants)
+        if reason is None:
+            approved.append(candidate.id)
+        else:
+            denied = denied or reason
+    return approved, None if approved else denied or "plugin_asset_unavailable"
 
 
 def native_metadata(backend, model, variants):
@@ -274,6 +322,18 @@ async def list_catalog(
                     enabled=pool is not None and pool.id in enabled_pools,
                     member_count=member_counts[pool.id] if pool else 0,
                 )
+                if code is None and "plugin" in (backend.extra_params or {}):
+                    asset_state = await topology.get_plugin_asset_approval(backend.id)
+                    asset_code = plugin_asset_reason(
+                        backend.extra_params, asset_state, capability.id, variants
+                    )
+                    if asset_code is not None:
+                        code = asset_code
+                        reason = (
+                            "模型资源尚未获管理员批准"
+                            if asset_code == "plugin_asset_unapproved"
+                            else "已批准的模型资源不可用或与安装不匹配"
+                        )
                 if class_meta.verification_status == "mismatch":
                     code, reason = (
                         "class_metadata_mismatch",

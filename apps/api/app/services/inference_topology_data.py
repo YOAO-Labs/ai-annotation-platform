@@ -49,6 +49,13 @@ _LIST_PLUGINS = text(f"SELECT {_SCHEMA}.plugin_installations()")
 _PLUGIN_EVIDENCE = text(
     f"SELECT {_SCHEMA}.plugin_installation_evidence(CAST(:id AS uuid))"
 )
+_PLUGIN_ASSET_APPROVAL = text(
+    f"SELECT {_SCHEMA}.plugin_asset_approval(CAST(:id AS uuid))"
+)
+_SET_PLUGIN_ASSET_APPROVAL = text(
+    f"SELECT {_SCHEMA}.set_plugin_asset_approval("
+    "CAST(:id AS uuid),CAST(:revision AS integer),CAST(:decision AS text))"
+)
 _COMMAND_PLUGIN = text(
     f"SELECT {_SCHEMA}.command_plugin_installation("
     "CAST(:id AS uuid),CAST(:revision AS integer),CAST(:action AS text),CAST(:evidence AS text))"
@@ -401,6 +408,23 @@ class InferenceTopologyData:
     ) -> Mapping[str, Any] | None:
         return _object(
             await self._plugin_scalar(_PLUGIN_EVIDENCE, {"id": installation_id})
+        )
+
+    async def get_plugin_asset_approval(self, installation_id: UUID):
+        return _object(
+            await self._plugin_scalar(_PLUGIN_ASSET_APPROVAL, {"id": installation_id})
+        )
+
+    async def set_plugin_asset_approval(self, installation_id: UUID, decision):
+        return _object(
+            await self._plugin_scalar(
+                _SET_PLUGIN_ASSET_APPROVAL,
+                {
+                    "id": installation_id,
+                    "revision": decision.expected_revision,
+                    "decision": decision.model_dump_json(),
+                },
+            )
         )
 
     async def command_plugin_installation(

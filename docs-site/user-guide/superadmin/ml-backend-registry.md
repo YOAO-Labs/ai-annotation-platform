@@ -98,7 +98,7 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `aap-inference-contract`、`aap-task-contract`、`aap-lifecycle-contract` 和训练契约），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架；仅安装核心 SDK 或 `cli` extra 不会隐式安装插件管理依赖。
 
-必要的第一方便携契约可从公开[契约制品](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-3d6393e64630)按 manifest 与 SHA256 核验取得，契约源码仍由平台维护；[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供自定义插件作者抽象与能力工具，[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。插件开发 SDK 与管理员使用的 API SDK 分包，安装管理无需安装模型开发运行时。公开第一方 wheel 不是完整离线依赖包，也不包含模型权重或 OCI 镜像，更不自动授予托管 GPU 资格。
+必要的第一方便携契约可从公开[契约制品](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-906628f2619b)按 manifest 与 SHA256 核验取得，契约源码仍由平台维护；[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供自定义插件作者抽象与能力工具，[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。插件开发 SDK 与管理员使用的 API SDK 分包，安装管理无需安装模型开发运行时。公开第一方 wheel 不是完整离线依赖包，也不包含模型权重或 OCI 镜像，更不自动授予托管 GPU 资格。
 
 ```bash
 python -m venv .venv
@@ -188,6 +188,22 @@ RapidOCR CPU 镜像使用独立 CPU ORT 依赖，不安装 GPU ORT 或 NVIDIA wh
 
 安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
 
+安装和项目启用不授予预训练模型权利。超级管理员须审核插件发布的 selection descriptor，按该安装的制品、资产清单和每个完整变体明确批准；目录中未批准或本地资产不可用的规格仍可查看，但不可用于推理。既有安装不会自动获得批准，历史 GPU 报告也不能替代这一步。受控训练模型仍遵循原有部署和发布规则。
+
+对已经激活的安装，使用原私有状态目录和插件提供的 descriptor 文件。`choices.json` 是含 `approved` 数组的 JSON 对象，每项为 `{"model_id":"...","variants":{...}}`；只列出实际批准的完整规格，空数组撤销全部批准。先读取修订，再以该修订提交，冲突时重新读取并审核：
+
+```bash
+aap plugins asset-approvals --state-dir ./plugin-state --json
+aap plugins approve-assets --state-dir ./plugin-state --descriptor selections.json \
+  --choices choices.json --expected-revision 0 --yes --json
+```
+
+首次决策修订为 `0`；后续提交使用读取到的修订。安装器核对原安装收据和运行容器身份，在该容器内执行固定的 Python 标准库测量程序，逐文件核验实际挂载数据的 SHA256 与大小；不会改为读取可能已被替换的宿主机同名目录。镜像须提供 `python3`，不需要安装平台 SDK，测量程序不会导入模型或初始化 CUDA。测量固定目录描述符并拒绝符号链接，缺失或不匹配的资产不会被标记为可用。测量结果是提交时的管理员本地观测，不会持续重新计算文件摘要；须保护数据目录，并在文件变化后重新测量提交。批准和可用是不同状态；准备或更换文件后须重新测量提交，重启后的新容器身份也须重新测量。该流程不下载权重，也不要求 CPU 安装具备 CUDA；发布者的资源描述和软件许可本身不构成管理员批准。
+
+已有 LibreYOLO 安装同样需要此批准：使用该插件发布的预训练描述与对应安装身份生成 selection descriptor，审核完整规格和每个资产后，用原状态目录执行上述读取与提交。对于当前版本已支持的安装，不要新建安装、改写原 manifest 或重新制作旧 GPU 资格报告；原容器和收据无法核验时先恢复安装所有权，不能把历史报告当作本地资产清单。如果历史 manifest 尚无 `models` 和 `pools`，必须先完成下面的[历史清单与本地收据迁移](#历史清单与本地收据迁移)；旧版隔离运行环境在迁移前保持原状，不能由本批准流程自动补齐能力。
+
+同一服务池中各实例的批准和本地资产可用状态可能不同；平台只在符合该规格的可接流成员中按原有权重路由，未批准或不可用的成员不会参与选择。执行前会再次检查实际选中的实例，因此撤销批准后已排队但尚未派发的工作不能继续使用该规格。
+
 停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。下列命令由安装器执行停用、排空证明、停止拥有的容器，以及依赖检查与退役：
 
 真实请求断连后，不确定工作租约仍占用显存承诺。安装 owner 只有在相关许可有效期与租约硬期限均过去，并取得当前实例的新鲜空闲证明后，才能结清这些租约并继续签名排空；原生请求、构建或模型借用未退出时不会提前释放。等待超时应保留原状态目录，按结构化错误及重试信息恢复同一安装操作，不删除 Redis 租约或退出围栏。
@@ -202,6 +218,8 @@ aap plugins uninstall --state-dir ./plugin-state --yes --json
 GPU 资源修复任务可依据 owner 核验的“从未启动”闭合证明回收已取消的预留，不要求不存在的进程提供健康响应。真正启动过的实例仍须完成终止证明，并等待相关 Token 时限后收口；不要通过清空账本或重命名资源绕过等待。多池终止回执必须包含全部且不重复的获准池，顺序可以不同，其他身份、代际与卸载字段仍须匹配。
 
 需要保留同一安装及模型目录、仅替换运行进程时，使用 `aap plugins restart --state-dir ./plugin-state --yes --json`。它先完成上述终止证明及停止，再用原制品和资格创建新的容器与启动身份；历史证明保留。GPU 激活须等待既有签名许可有效期，reset 与 enforce 各自保留完整等待窗口；结构化超时不表示候选可以改换身份。中断后继续同一命令，不手工启动候选或替换容器。重启不会自动恢复已排空的服务池成员，须由管理员显式恢复。意外退出或外部重启不等于终止证明，无法核验原进程身份时拒绝自动接管；执行安装器期间应独占该安装的 Docker 管理操作。
+
+重启返回 active 只确认安装已激活，不代表新容器的预训练资产已重新测量，也不代表服务池已恢复接流或项目策略已启用。用同一私有状态目录读取当前批准修订，重新执行 `approve-assets`，在新容器内测量并提交经过审核的规格；确认成员和能力后，再通过服务池管理显式 resume 已排空的成员。项目启用仍由项目负责人单独管理。CUDA 资源可能仍在等待许可时限及其后的新鲜健康证明；查看 GPU 资源的 owner 就绪状态，不能仅凭进程或物理 GPU 空闲判断可接流，也不要清空账本缩短等待。
 
 新进程的路由 incarnation 不能直接沿用旧进程。宿主只有在原终止证明已结算、旧容器与 boot 已记为停止，且新容器、boot、端点、资格和安装修订均匹配时，才授权这一次替换握手；存在未结束或不确定的路由执行时拒绝。失败重试保留原控制 ID、挑战和 epoch，完整握手后才能继续 GPU 初始化及激活，不把“新进程空闲”单独当作旧进程已退出。
 
@@ -292,7 +310,7 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 以下事件写入 `audit_logs`：
 
 - `ml_registry.created` / `ml_registry.updated` / `ml_registry.deleted`（全局注册 CRUD）
-- `ml_plugin_installation.prepared` / `launch_recorded` / `qualification_approved` / `activated` / `disabled` / `quiesced` / `retired`（插件身份与生命周期动作；不记录实例 Token）
+- `ml_plugin_installation.prepared` / `launch_recorded` / `qualification_approved` / `activated` / `disabled` / `quiesced` / `retired` / `assets_updated`（插件身份、生命周期和资产批准动作；不记录实例 Token）
 - `ml_registry.managed_auth_initialized`（默认凭据初始化与同步）
 - `ml_backend.maintenance_requested`（系统设置提交指定服务的镜像与容器维护）
 - `ml_service_pool.created` / `updated` / `deleted`（服务池 CRUD）

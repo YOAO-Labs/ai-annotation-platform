@@ -2214,6 +2214,17 @@ ALTER FUNCTION aap_inference_routing_v1._routing_step_0279(text, text)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.scope_retirement_step(text, text)
     OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.supersede_unbegun_scope(text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.model_dispatch_step(text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.guard_model_attempt()
+    OWNER TO :"inference_owner";
+GRANT USAGE ON SCHEMA aap_inference_topology_v1 TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_inference_topology_v1.plugin_asset_approval(uuid)
+    TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.capture_scope_boot()
+    OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1._scope_retirement_step_0280(text, text)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_step(text, text)
@@ -3909,6 +3920,7 @@ BEGIN
     END LOOP;
 END;
 $inference_owner$;
+ALTER TABLE aap_inference_topology_v1.plugin_asset_approvals OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_gpu_v1.installation_control_intents OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_gpu_v1.installation_terminal_intents OWNER TO :"inference_owner";

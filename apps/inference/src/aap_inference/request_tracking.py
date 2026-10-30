@@ -34,14 +34,25 @@ class _Attempt:
         self.grant = grant
         self.settlement: asyncio.Task | None = None
 
-    async def finish(self, *, status_code: int | None = None, reason=None):
+    async def finish(
+        self, *, status_code: int | None = None, reason=None, not_sent=False
+    ):
         if self.settlement is None:
-            self.settlement = asyncio.create_task(self._settle(status_code, reason))
+            self.settlement = asyncio.create_task(
+                self._settle(status_code, reason, not_sent)
+            )
         await asyncio.shield(self.settlement)
 
-    async def _settle(self, status_code, reason):
+    async def _settle(self, status_code, reason, not_sent):
         try:
-            if status_code is None:
+            if not_sent:
+                try:
+                    confirmed = await self.grant.not_sent()
+                except Exception:
+                    confirmed = False
+                if not confirmed:
+                    await self.grant.uncertain("dispatch_start_unacknowledged")
+            elif status_code is None:
                 await self.grant.uncertain(reason or "transport_error")
             else:
                 await self.grant.response(status_code)
@@ -109,6 +120,9 @@ class TrackedHttpClient:
             attempt = _Attempt(context, grant)
             self.attempts[request] = attempt
             request.headers.update(grant.headers)
+            authorize = getattr(grant, "authorize_send", None)
+            if authorize is not None:
+                await authorize()
             if self.on_send is not None:
                 self.on_send()
         except BaseException:
@@ -118,7 +132,10 @@ class TrackedHttpClient:
                 except Exception:
                     logger.warning("backend_route_no_send_unacknowledged")
             if attempt is not None:
-                await attempt.finish(reason="invalid_admission_headers")
+                await attempt.finish(
+                    reason="invalid_admission_headers",
+                    not_sent=bool(getattr(attempt.grant, "can_prove_not_sent", False)),
+                )
             raise
         # A later rejected redirect cannot prove that this dispatch never sent.
         self.admission_passed = True

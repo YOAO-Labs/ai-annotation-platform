@@ -83,6 +83,7 @@ class RoutingAuthority:
         owner="api",
         operation="backend_http",
         required_instance_id=None,
+        approved_registry_ids=None,
         execution=None,
     ):
         body = {
@@ -96,6 +97,10 @@ class RoutingAuthority:
             if required_instance_id
             else None,
         }
+        if approved_registry_ids is not None:
+            body["approved_registry_ids"] = [
+                str(value) for value in approved_registry_ids
+            ]
         if execution is not None:
             body["execution"] = execution
         return await self.execute(
