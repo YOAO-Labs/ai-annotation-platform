@@ -17,6 +17,7 @@ apps/web/node_modules/
 **/build/
 **/*.egg-info/
 .git/
+**/.git
 
 # Credentials and persistent data are supplied at runtime, never in build layers.
 **/.env

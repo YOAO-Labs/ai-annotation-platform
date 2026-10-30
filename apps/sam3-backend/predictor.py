@@ -24,7 +24,7 @@ API 形态关键点 (与 SAM 2 / grounded-sam2 完全不同):
   6. bbox 输入: 归一化 cxcywh (中心 + 宽高), 用 vendor/sam3/sam3/model/box_ops.box_xywh_to_cxcywh
      转换. 我们对外协议用归一化 xyxy, 转换在 predictor 内部完成.
 
-mask → polygon 简化复用 apps/_shared/mask_utils; 与 grounded-sam2-backend 同源.
+mask → polygon 简化复用 anno-mask-utils 包; 与 grounded-sam2-backend 同源.
 
 Idle unload 集成: __init__ 加载到 self.device; main.py 在 idle 后 del self._predictor +
 torch.cuda.empty_cache(); 重建是再调一次 __init__.

@@ -1,8 +1,8 @@
 """COCO uncompressed RLE codec for API validation and export paths.
 
-The tracker backends use ``apps/_shared/mask_utils``. This API-local copy keeps
-the production API image independent of sibling build contexts; shared golden
-fixtures assert identical behavior across runtimes.
+The tracker backends use the independent ``anno-mask-utils`` package. This
+API-local copy keeps the production API image free of backend runtime packages;
+shared golden fixtures assert identical behavior across runtimes.
 """
 
 from __future__ import annotations

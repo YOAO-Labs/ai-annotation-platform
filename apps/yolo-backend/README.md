@@ -266,4 +266,4 @@ uv run pytest tests/ -q
 
 CI 使用 `bash scripts/run-ml-cpu-tests.sh run yolo` 创建临时虚拟环境，按后端锁文件安装固定依赖，结束后自动删除虚拟环境和测试临时文件。
 
-LibreYOLO 受控推理由独立的 `plugins/libreyolo` 插件提供；此后端只接受 Ultralytics 收据。迁移前须完成或明确处置旧 CPU 部署的所有冻结工作，保留历史收据与模型引用。平台流程见[在线学习](../../docs-site/user-guide/online-learning/index.md)。
+LibreYOLO 受控推理由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 中的独立插件提供；此后端只接受 Ultralytics 收据。迁移前须完成或明确处置旧 CPU 部署的所有冻结工作，保留历史收据与模型引用。平台流程见[在线学习](../../docs-site/user-guide/online-learning/index.md)。

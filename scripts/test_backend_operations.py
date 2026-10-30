@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import hashlib
 import importlib.util
 import json
 import os
@@ -80,9 +79,7 @@ class FakeRunner(runner_module.Runner):
         self.probe = {
             "argv": list(self.container["Config"]["Entrypoint"]),
             "shutdown": True,
-            "lifecycle_sha256": hashlib.sha256(
-                (ROOT / "apps/_shared/backend_runtime/src/aap_backend_runtime/gpu_lifecycle.py").read_bytes()
-            ).hexdigest(),
+            "lifecycle_sha256": (ROOT / "apps/_shared/plugin-runtime-lifecycle.sha256").read_text().strip(),
         }
         self.services = [{"provider": "yolo", "can_rebuild": True, "reason": None}]
         self.heartbeat()
@@ -240,46 +237,6 @@ class QueueTests(unittest.TestCase):
                 for args in self.runner.commands
             )
         )
-
-    def test_all_five_current_dockerfiles_and_shutdown_sources_are_supported(self):
-        for provider, service in runner_module.PROVIDERS.items():
-            with self.subTest(provider=provider):
-                container = deepcopy(self.runner.container)
-                container["Config"]["Labels"]["com.docker.compose.service"] = service
-                source = (ROOT / "apps" / service / "Dockerfile").read_text()
-                entrypoint = next(
-                    line.removeprefix("ENTRYPOINT ")
-                    for line in source.splitlines()
-                    if line.startswith("ENTRYPOINT ")
-                )
-                container["Config"]["Entrypoint"] = json.loads(entrypoint)
-                container["Mounts"] = [
-                    {
-                        "Destination": mount,
-                        "Type": "volume",
-                        "Name": "fixed-model-volume",
-                        "Source": "/models",
-                        "RW": True,
-                    }
-                    for mount in runner_module.MODEL_MOUNTS[provider]
-                ]
-                self.runner.probe = {
-                    "argv": [
-                        "uvicorn",
-                        "main:app",
-                        "--host",
-                        "0.0.0.0",
-                        "--port",
-                        str(runner_module.PORTS[provider]),
-                        "--workers",
-                        "1",
-                    ],
-                    "shutdown": True,
-                    "lifecycle_sha256": hashlib.sha256(
-                        (ROOT / "apps/_shared/backend_runtime/src/aap_backend_runtime/gpu_lifecycle.py" if provider == "yolo" else ROOT / "apps" / service / "gpu_lifecycle.py").read_bytes()
-                    ).hexdigest(),
-                }
-                self.runner.validate(provider, container)
 
     def test_build_failure_does_not_stop_old_container(self):
         self.runner.failure = "build"

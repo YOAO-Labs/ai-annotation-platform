@@ -42,9 +42,7 @@ services:
   # 首次启动会自动下载 checkpoints (~900MB), start_period 留足 120s.
   grounded-sam2-backend:
     build:
-      # v0.9.4 phase 3: build context 升级到 apps/ 以便 COPY 兄弟目录 _shared/mask_utils
-      # (与 v0.10.x sam3-backend 共用 mask→polygon 简化逻辑). Dockerfile 内所有 COPY 路径
-      # 已加 grounded-sam2-backend/ 前缀; 历史 `docker build apps/grounded-sam2-backend/` 失效.
+      # The apps context supplies platform-owned protocol contracts.
       context: ./apps
       dockerfile: grounded-sam2-backend/Dockerfile
     profiles: ["gpu"]

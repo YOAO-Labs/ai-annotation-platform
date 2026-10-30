@@ -439,8 +439,8 @@ class PolygonGeometry(BaseModel):
 class MultiPolygonGeometry(BaseModel):
     """多连通域 polygon 集合。每个 polygons[i] 内部仍是带 hole 的单连通 PolygonGeometry。
 
-    v0.9.14 · 配合 mask_to_multi_polygon (apps/_shared/mask_utils) 输出。Predictor 在
-    单连通无 hole 时仍输出 PolygonGeometry 兼容老前端; 多连通或带 hole 才走本分支。
+    配合 anno-mask-utils 的 mask_to_multi_polygon 输出。Predictor 在单连通无 hole 时
+    仍输出 PolygonGeometry 兼容老前端; 多连通或带 hole 才走本分支。
     """
 
     type: Literal["multi_polygon"] = "multi_polygon"

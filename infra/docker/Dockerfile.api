@@ -72,6 +72,8 @@ RUN uv venv /opt/venv \
   && uv pip install --python /opt/venv/bin/python --no-deps /_shared/site_agent_contract \
   && rm /tmp/requirements.txt
 COPY apps/api/ .
+RUN test -f /app/app/vendor/TrackEval/trackeval_metrics/metrics.py \
+  || (echo "ERROR: TrackEval submodule is missing; run git submodule update --init --recursive before building." >&2; exit 1)
 COPY docs-site/public/home/sam-tools/smart-point.webm /app/fixture-media/smart-point.webm
 RUN chmod +x /app/scripts/entrypoint.sh
 EXPOSE 8000

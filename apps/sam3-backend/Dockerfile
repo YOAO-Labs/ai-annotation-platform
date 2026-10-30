@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ninja-build \
         gcc \
         g++ \
+        patch \
         libgl1 \
         libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
@@ -76,22 +77,22 @@ RUN pip install --upgrade "pip" "setuptools>=68,<81" "wheel" && \
 # 启动方式: `docker compose --profile gpu-sam3 build sam3-backend`
 # 直接 build: `docker build -f apps/sam3-backend/Dockerfile apps/`
 
-# vendor 含上游 facebookresearch/sam3 全树 (commit 见 vendor/sam3/.commit);
-# 通过 scripts/sync_vendor.sh 同步并固定 commit.
+# vendor/sam3 is pinned by the platform submodule commit.
 COPY sam3-backend/vendor/ ./vendor/
+COPY sam3-backend/patches/0001-request-scoped-autocast.patch /app/sam3-autocast.patch
 # 带 [train] extra: 拉 vendor 自己声明的 hydra-core / omegaconf / scipy / scikit-image /
 # scikit-learn / torchmetrics / fvcore / fairscale / submitit / tensorboard / zstandard.
 # 部分 train 专用包 (submitit/fairscale/tensorboard) 推理路径用不到, 镜像多吃 ~50MB,
 # 远比手工 grep 漏装翻车便宜. notebooks extra 拉 jupyter/ipywidgets 等 200MB+ 不要.
-RUN if [ ! -d "vendor/sam3" ] || [ -z "$(ls -A vendor/sam3 2>/dev/null)" ]; then \
-        echo "ERROR: vendor/sam3 is empty. Run sam3-backend/scripts/sync_vendor.sh <commit> on host before 'docker build'." >&2; \
+RUN if [ ! -f vendor/sam3/pyproject.toml ]; then \
+        echo "ERROR: SAM3 submodule is missing. Run git submodule update --init --recursive before building." >&2; \
         exit 1; \
     fi && \
+    patch -d /app/vendor/sam3 -p1 < /app/sam3-autocast.patch && \
     pip install --no-build-isolation -e "./vendor/sam3[train]"
 
-# 共享 mask_utils 包 (apps/_shared/mask_utils) editable 安装, 与 grounded-sam2-backend 共用.
-COPY _shared/mask_utils/ /app/mask_utils/
-RUN pip install --no-build-isolation -e /app/mask_utils
+COPY _shared/requirements-plugin-mask.txt /app/requirements-plugin-mask.txt
+RUN pip install --no-deps --require-hashes -r /app/requirements-plugin-mask.txt
 
 # v0.14.12 · 共享协议 v2 schema + 受控词表常量 (apps/_shared/protocol_v2),
 # 与 grounded-sam2-backend / yolo-backend 共用, 避免协议字段在 backend 之间漂移.
@@ -101,12 +102,11 @@ COPY _shared/protocol_v2/ /app/protocol_v2/
 # together now that the lifecycle verifier requires current cryptography.
 RUN pip install --no-build-isolation -e /app/task_contract -e /app/protocol_v2 "pyOpenSSL>=24.2.1"
 
-# 共享 backend_runtime 包 (apps/_shared/backend_runtime). 五 backend 共用的无状态叶子函数
-# (图片下载 / 显存释放 / /versions 载荷). setuptools 已在装 protocol_v2 前处理, 复用.
+# The platform owns lifecycle and protocol contracts; runtime comes from the pinned wheel.
 COPY _shared/lifecycle_contract/ /app/lifecycle_contract/
 RUN pip install --no-build-isolation -e /app/lifecycle_contract
-COPY _shared/backend_runtime/ /app/backend_runtime/
-RUN pip install --no-build-isolation -e /app/backend_runtime
+COPY _shared/requirements-plugin-runtime.txt /app/requirements-plugin-runtime.txt
+RUN pip install --no-deps --require-hashes -r /app/requirements-plugin-runtime.txt
 
 COPY sam3-backend/scripts/ ./scripts/
 COPY sam3-backend/main.py sam3-backend/predictor.py sam3-backend/video_predictor.py \

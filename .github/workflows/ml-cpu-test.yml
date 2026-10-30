@@ -1,22 +1,17 @@
-# Reusable CPU test workflow for the three shared packages and five ML backends.
+# Reusable CPU test workflow for the platform protocol and five ML backends.
 #
 # Caller contract:
 #   uses: ./.github/workflows/ml-cpu-test.yml
 #   with:
 #     suites: all                     # default; or a comma/space separated subset of:
-#                                     #   shared-backend-runtime, shared-mask-utils, shared-protocol-v2,
-#                                     #   yolo, rapidocr, onnxtools, grounded-sam2, sam3
+#                                     #   shared-protocol-v2, yolo, rapidocr,
+#                                     #   onnxtools, grounded-sam2, sam3
 #   (a call with no `suites` input runs every suite)
 #
 # Manual full entry: Actions -> "ML CPU tests" -> Run workflow.
 #
-# Scope: the 88 Python test files that are otherwise not wired (89 not-wired
-# minus the Node image-reference test owned by the P8 caller work). No GPU, no
-# model weights, no network beyond dependency installation. `grounded-sam2` and
-# `sam3` install CPU torch; `yolo` installs its qualified lock and executes on CPU;
-# `rapidocr` needs neither rapidocr/onnxruntime/cv2; `onnxtools` adds cv2 and
-# reports 3 upstream-gated skips. Each suite runs in its own throwaway venv so
-# committed `sys.modules` torch stubs cannot leak across suites.
+# Each suite runs in its own throwaway venv so committed `sys.modules` torch
+# stubs cannot leak across suites. Plugin package tests run in their repository.
 
 name: ML CPU tests
 
@@ -25,8 +20,8 @@ on:
     inputs:
       suites:
         description: >-
-          Comma/space separated subset of shared-backend-runtime, shared-mask-utils,
-          shared-protocol-v2, yolo, rapidocr, onnxtools, grounded-sam2, sam3; or "all".
+          Comma/space separated subset of shared-protocol-v2, yolo, rapidocr,
+          onnxtools, grounded-sam2, sam3; or "all".
         required: false
         default: all
         type: string
@@ -34,8 +29,8 @@ on:
     inputs:
       suites:
         description: >-
-          Comma/space separated subset of shared-backend-runtime, shared-mask-utils,
-          shared-protocol-v2, yolo, rapidocr, onnxtools, grounded-sam2, sam3; or "all".
+          Comma/space separated subset of shared-protocol-v2, yolo, rapidocr,
+          onnxtools, grounded-sam2, sam3; or "all".
         required: false
         default: all
         type: string
@@ -48,8 +43,6 @@ jobs:
     name: ML CPU select suites
     runs-on: ubuntu-latest
     outputs:
-      shared_backend_runtime: ${{ steps.plan.outputs.shared_backend_runtime }}
-      shared_mask_utils: ${{ steps.plan.outputs.shared_mask_utils }}
       shared_protocol_v2: ${{ steps.plan.outputs.shared_protocol_v2 }}
       yolo: ${{ steps.plan.outputs.yolo }}
       rapidocr: ${{ steps.plan.outputs.rapidocr }}
@@ -63,40 +56,6 @@ jobs:
         env:
           SUITES: ${{ inputs.suites }}
         run: bash scripts/run-ml-cpu-tests.sh plan "$SUITES" >> "$GITHUB_OUTPUT"
-
-  shared-backend-runtime:
-    name: ML CPU shared backend runtime
-    needs: plan
-    if: needs.plan.outputs.shared_backend_runtime == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install uv
-        run: pip install uv
-      - name: Run shared backend runtime tests
-        run: bash scripts/run-ml-cpu-tests.sh run shared-backend-runtime
-
-  shared-mask-utils:
-    name: ML CPU shared mask utils
-    needs: plan
-    if: needs.plan.outputs.shared_mask_utils == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install uv
-        run: pip install uv
-      - name: Run shared mask utils tests
-        run: bash scripts/run-ml-cpu-tests.sh run shared-mask-utils
 
   shared-protocol-v2:
     name: ML CPU shared protocol v2
@@ -182,6 +141,8 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
@@ -206,6 +167,8 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

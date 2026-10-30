@@ -60,25 +60,21 @@ RUN pip install --upgrade "pip" "setuptools>=62.3.0,<75.9" "wheel" && \
         "pynvml>=11.5" \
         "psutil>=5.9"
 
-# v0.9.4 phase 3: build context 升级为 apps/ 以便 COPY 兄弟目录 _shared/mask_utils.
-# 所有 COPY 路径以 apps/ 为根; 历史命令 `docker build apps/grounded-sam2-backend/` 不再可用,
-# 必须走 `docker compose --profile gpu build grounded-sam2-backend` 或 `docker build -f apps/grounded-sam2-backend/Dockerfile apps/`.
+# Build context is apps/: platform contracts and backend source are copied from it.
 
 # vendor 含上游 IDEA-Research/Grounded-SAM-2 全树:
 #   - 仓库根 = SAM 2 (sam2 包) → pip install -e .
 #   - grounding_dino/ 子目录 = GroundingDINO (含 CUDA 算子) → pip install --no-build-isolation -e .
 COPY grounded-sam2-backend/vendor/ ./vendor/
-RUN if [ ! -d "vendor/grounded-sam-2" ] || [ -z "$(ls -A vendor/grounded-sam-2 2>/dev/null)" ]; then \
-        echo "ERROR: vendor/grounded-sam-2 is empty. Run scripts/sync_vendor.sh <commit> on host before 'docker build'." >&2; \
+RUN if [ ! -f vendor/grounded-sam-2/setup.py ] || [ ! -f vendor/grounded-sam-2/grounding_dino/setup.py ]; then \
+        echo "ERROR: Grounded-SAM-2 submodules are missing. Run git submodule update --init --recursive before building." >&2; \
         exit 1; \
     fi && \
     pip install --no-build-isolation -e ./vendor/grounded-sam-2 && \
     pip install --no-build-isolation -e ./vendor/grounded-sam-2/grounding_dino
 
-# v0.9.4 phase 3: 共享 mask_utils 包 (apps/_shared/mask_utils) 在容器内安装为 editable;
-# 与 v0.10.x sam3-backend 共用, 单一来源避免重写 mask→polygon 简化逻辑.
-COPY _shared/mask_utils/ /app/mask_utils/
-RUN pip install --no-build-isolation -e /app/mask_utils
+COPY _shared/requirements-plugin-mask.txt /app/requirements-plugin-mask.txt
+RUN pip install --no-deps --require-hashes -r /app/requirements-plugin-mask.txt
 
 # v0.14.12 · 共享协议 v2 schema + 受控词表常量 (apps/_shared/protocol_v2),
 # 与 sam3-backend / yolo-backend 共用, 避免协议字段在 backend 之间漂移.
@@ -88,12 +84,11 @@ COPY _shared/protocol_v2/ /app/protocol_v2/
 # now that the shared lifecycle protocol requires a newer cryptography release.
 RUN pip install --no-build-isolation -e /app/task_contract -e /app/protocol_v2 "pyOpenSSL>=24.2.1"
 
-# 共享 backend_runtime 包 (apps/_shared/backend_runtime). 五 backend 共用的无状态叶子函数
-# (图片下载 / 显存释放 / /versions 载荷). setuptools 已在装 protocol_v2 前处理, 复用.
+# The platform owns lifecycle and protocol contracts; runtime comes from the pinned wheel.
 COPY _shared/lifecycle_contract/ /app/lifecycle_contract/
 RUN pip install --no-build-isolation -e /app/lifecycle_contract
-COPY _shared/backend_runtime/ /app/backend_runtime/
-RUN pip install --no-build-isolation -e /app/backend_runtime
+COPY _shared/requirements-plugin-runtime.txt /app/requirements-plugin-runtime.txt
+RUN pip install --no-deps --require-hashes -r /app/requirements-plugin-runtime.txt
 
 COPY grounded-sam2-backend/scripts/ ./scripts/
 COPY grounded-sam2-backend/main.py grounded-sam2-backend/predictor.py \

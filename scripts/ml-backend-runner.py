@@ -26,12 +26,12 @@ MODEL_MOUNTS = {
     "rapidocr": {"/app/models"},
 }
 # Read process/code identity without importing GPU libraries or printing environment.
-PROBE = """import ast,hashlib,json,pathlib
+PROBE = """import ast,hashlib,importlib.metadata,json,pathlib
 p=pathlib.Path('/app')
 t=ast.parse((p/'main.py').read_text())
 shutdown=any(isinstance(n,ast.Await) and isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and isinstance(n.value.func.value,ast.Name) and n.value.func.value.id=='_gpu_lifecycle' and n.value.func.attr=='shutdown' for n in ast.walk(t))
 shared=any(isinstance(n,ast.ImportFrom) and n.module=='aap_backend_runtime.gpu_lifecycle' for n in ast.walk(t))
-lifecycle=p/'backend_runtime/src/aap_backend_runtime/gpu_lifecycle.py' if shared else p/'gpu_lifecycle.py'
+lifecycle=pathlib.Path(importlib.metadata.distribution('aap-backend-runtime').locate_file('aap_backend_runtime/gpu_lifecycle.py')) if shared else p/'gpu_lifecycle.py'
 print(json.dumps({'argv':pathlib.Path('/proc/1/cmdline').read_bytes().decode().split('\\0')[:-1],'shutdown':shutdown,'lifecycle_sha256':hashlib.sha256(lifecycle.read_bytes()).hexdigest()}))
 """
 
@@ -226,12 +226,13 @@ class Runner:
                 raise UnsafeRuntime(
                     "PID 1 or graceful shutdown hook differs from supported runtime"
                 )
-            lifecycle_source = (
-                self.root / "apps/_shared/backend_runtime/src/aap_backend_runtime/gpu_lifecycle.py"
+            expected_hash = (
+                (self.root / "apps/_shared/plugin-runtime-lifecycle.sha256").read_text().strip()
                 if provider == "yolo"
-                else self.root / "apps" / PROVIDERS[provider] / "gpu_lifecycle.py"
+                else hashlib.sha256(
+                    (self.root / "apps" / PROVIDERS[provider] / "gpu_lifecycle.py").read_bytes()
+                ).hexdigest()
             )
-            expected_hash = hashlib.sha256(lifecycle_source.read_bytes()).hexdigest()
             if observed["lifecycle_sha256"] != expected_hash:
                 raise UnsafeRuntime(
                     "Runtime lacks the verified lifecycle shutdown implementation"

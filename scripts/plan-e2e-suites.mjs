@@ -30,24 +30,6 @@ import { pathToFileURL } from "node:url";
 // this planner only owns the path triggers and the recorded contract entries.
 // `wired: false` means "runs via the ml-cpu workflow, not scheduled here".
 const SHARED_CONTRACT_SUITES = {
-  "shared-backend-runtime": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-backend-runtime",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/_shared/backend_runtime/", "apps/_shared/lifecycle_contract/"],
-    reason: "shared pool/runtime contract tests; 99 tests, torch only stubbed via sys.modules",
-    dependencies: "pytest + package extras (httpx, pillow); CPU only",
-  },
-  "shared-mask-utils": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-mask-utils",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/_shared/mask_utils/"],
-    reason: "shared mask→polygon conversion contracts; 41 tests",
-    dependencies: "pytest + numpy, opencv-python-headless, shapely; CPU only",
-  },
   "shared-protocol-v2": {
     command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2",
     scope: "specialty",
