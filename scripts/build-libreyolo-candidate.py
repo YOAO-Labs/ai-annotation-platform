@@ -54,7 +54,9 @@ def sha256(path: Path) -> str:
 def wheel_metadata(path: Path) -> tuple[str, str]:
     with zipfile.ZipFile(path) as wheel:
         files = [
-            name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
+            name
+            for name in wheel.namelist()
+            if name.count("/") == 1 and name.endswith(".dist-info/METADATA")
         ]
         if len(files) != 1:
             raise ValueError(f"wheel has invalid metadata: {path.name}")
@@ -70,6 +72,11 @@ def main() -> None:
     parser.add_argument("--revision", required=True, help="committed source revision")
     parser.add_argument(
         "--output", required=True, type=Path, help="new candidate .tar path"
+    )
+    parser.add_argument(
+        "--dependency-cache",
+        type=Path,
+        help="optional reusable directory for downloaded, hash-verified wheels",
     )
     args = parser.parse_args()
     if (
@@ -123,6 +130,12 @@ def main() -> None:
         wheelhouse = candidate / "wheelhouse"
         wheelhouse.mkdir(parents=True)
         exported = temporary / "external-requirements.txt"
+        downloads = (
+            args.dependency_cache.resolve()
+            if args.dependency_cache
+            else temporary / "downloads"
+        )
+        downloads.mkdir(parents=True, exist_ok=True)
         run(
             "uv",
             "export",
@@ -142,6 +155,7 @@ def main() -> None:
             "--isolated",
             "download",
             "--disable-pip-version-check",
+            "--no-cache-dir",
             "--no-deps",
             "--only-binary=:all:",
             "--require-hashes",
@@ -149,6 +163,27 @@ def main() -> None:
             "https://pypi.org/simple",
             "--extra-index-url",
             "https://download.pytorch.org/whl/cu132",
+            "--find-links",
+            str(downloads),
+            "--dest",
+            str(downloads),
+            "-r",
+            str(exported),
+        )
+        run(
+            sys.executable,
+            "-m",
+            "pip",
+            "--isolated",
+            "download",
+            "--disable-pip-version-check",
+            "--no-cache-dir",
+            "--no-deps",
+            "--only-binary=:all:",
+            "--require-hashes",
+            "--no-index",
+            "--find-links",
+            str(downloads),
             "--dest",
             str(wheelhouse),
             "-r",
@@ -193,7 +228,7 @@ def main() -> None:
         if (
             "aap-libreyolo-plugin" not in seen
             or "aap-inference-plugin-sdk" not in seen
-            or "ai-annotation" in seen
+            or "ai-annotation-sdk" in seen
             or "ultralytics" in seen
         ):
             raise ValueError("unexpected candidate distribution set")

@@ -10,6 +10,8 @@ Build a private Linux x86-64 glibc / CPython 3.11 candidate from an explicitly i
 python scripts/build-libreyolo-candidate.py --revision <commit> --output /private/candidate.tar
 ```
 
+An optional `--dependency-cache /private/wheel-cache` reuses downloaded wheels across builds. The producer disables pip's shared cache and verifies the locked hashes again when selecting wheels for each candidate. The cache is not part of the candidate.
+
 The archive contains the versioned plugin, SDK and contract wheels, a complete hash-locked wheelhouse, `requirements.lock`, an inventory with the source revision and wheel digests, and the canonical controlled asset manifest. No weights or platform checkout are included. For another build of the same revision, use the same target and builder versions; the build normalizes wheel and archive timestamps. This does not imply identical OCI images: base image, apt packages and image builder are separate inputs. Review licenses before redistribution; this private candidate is not a publication.
 
 Transfer the expected archive SHA256 through a trusted independent channel. Verify that value before unpacking or running any artifact; the adjacent checksum alone is not an authenticity mechanism:
