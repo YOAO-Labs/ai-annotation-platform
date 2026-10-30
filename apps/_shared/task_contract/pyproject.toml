@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aap-task-contract"
 version = "0.1.0"
+license = { file = "LICENSE" }
 description = "Dependency-free visual task identities shared by data, training and inference"
 requires-python = ">=3.10"
 dependencies = []

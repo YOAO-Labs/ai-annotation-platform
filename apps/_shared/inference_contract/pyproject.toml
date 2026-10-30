@@ -5,6 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aap-inference-contract"
 version = "0.1.0"
+license = { file = "LICENSE" }
 description = "Portable Inference contracts and shared preannotation pipeline structure"
 requires-python = ">=3.11"
 dependencies = ["aap-task-contract", "pydantic>=2.10.0"]

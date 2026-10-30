@@ -1,6 +1,7 @@
 [project]
 name = "aap-training-contract"
 version = "0.1.0"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = ["aap-task-contract"]
 

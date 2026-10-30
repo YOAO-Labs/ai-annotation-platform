@@ -365,7 +365,7 @@ ai-annotation-platform/
 
 ## License
 
-MIT
+第一方代码采用 [MIT](LICENSE)。第三方 vendor、运行依赖与模型权重保留各自的许可证及声明；项目 MIT 许可不重新授权它们。
 
 讨论、历史、缺陷报告、Mask 格式／修复及点云质量入口见 [讨论、缺陷报告与质量处理](./docs-site/dev/sdk/annotation-quality.md)。回执与版本绑定原选择，派发失败保留可查询的 run/job 身份。
 
