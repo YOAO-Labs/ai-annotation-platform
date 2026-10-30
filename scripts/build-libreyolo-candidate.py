@@ -2,8 +2,9 @@
 """Build a private LibreYOLO candidate from an explicitly named git commit.
 
 Run with CPython 3.11 on glibc Linux x86_64, with git, uv, tar, pip,
-setuptools 80.9.0, wheel 0.45.1 and build 1.3.0 installed. The build
-requires network access to the public package indexes; consumption does not.
+setuptools 80.9.0, wheel 0.45.1, hatchling 1.27.0 and build 1.3.0
+installed. The build requires network access to the public package indexes;
+consumption does not.
 """
 
 from __future__ import annotations
@@ -82,6 +83,7 @@ def main() -> None:
         ("setuptools", "80.9.0"),
         ("wheel", "0.45.1"),
         ("build", "1.3.0"),
+        ("hatchling", "1.27.0"),
     ):
         if importlib.metadata.version(name) != expected:
             parser.error(f"builder requires {name}=={expected}")

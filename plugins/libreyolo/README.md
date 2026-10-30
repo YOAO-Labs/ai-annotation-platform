@@ -4,7 +4,7 @@ This service uses the native LibreYOLO 1.6.0 loader, not Ultralytics, and the ex
 
 ## Build and prepare
 
-Build a private Linux x86-64 glibc / CPython 3.11 candidate from an explicitly identified commit. Use an isolated builder environment containing `pip`, `build==1.3.0`, `setuptools==80.9.0` and `wheel==0.45.1`, plus `git`, `uv` and GNU `tar`. The build downloads the locked dependencies from PyPI and the PyTorch cu132 index; it includes the existing CUDA-linked Torch and NVIDIA runtime wheels even when inference runs on CPU.
+Build a private Linux x86-64 glibc / CPython 3.11 candidate from an explicitly identified commit. Use an isolated builder environment containing `pip`, `build==1.3.0`, `setuptools==80.9.0`, `wheel==0.45.1` and `hatchling==1.27.0`, plus `git`, `uv` and GNU `tar`. The build downloads the locked dependencies from PyPI and the PyTorch cu132 index; it includes the existing CUDA-linked Torch and NVIDIA runtime wheels even when inference runs on CPU.
 
 ```sh
 python scripts/build-libreyolo-candidate.py --revision <commit> --output /private/candidate.tar
