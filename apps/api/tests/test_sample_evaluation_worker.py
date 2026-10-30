@@ -153,15 +153,26 @@ async def test_dispatch_without_private_jobs_read(world, db_session, monkeypatch
     await db_session.execute(text("RESET ROLE"))
 
 
-async def test_job_binding_and_attempt_share_caller_rollback(world):
+async def test_dispatch_commit_failure_rolls_back_attempt_and_job(world, monkeypatch):
+    published = Mock()
+    monkeypatch.setattr(worker.run_sample_evaluation, "apply_async", published)
     async with world.factory() as db:
+        run = await db.get(Run, world.run.id)
         attempt = await db.get(Attempt, world.attempt.id)
         job = await worker.jobs.get_job(db, attempt.async_job_id)
         previous = job.celery_task_id
-        worker.jobs.bind_execution_id(job, str(uuid.uuid4()))
-        attempt.dispatched_at = service.now()
-        await db.flush()
+
+        async def fail_after_flush():
+            await db.flush()
+            assert attempt.dispatched_at is not None
+            assert job.celery_task_id and job.celery_task_id != previous
+            raise RuntimeError("commit failed")
+
+        monkeypatch.setattr(db, "commit", fail_after_flush)
+        with pytest.raises(RuntimeError, match="commit failed"):
+            await worker.dispatch(db, run)
         await db.rollback()
+    published.assert_not_called()
     async with world.factory() as db:
         attempt = await db.get(Attempt, world.attempt.id)
         job = await worker.jobs.get_job(db, attempt.async_job_id)
