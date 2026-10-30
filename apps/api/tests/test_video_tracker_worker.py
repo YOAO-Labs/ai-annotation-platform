@@ -2285,8 +2285,9 @@ async def test_mask_write_cancellation_retains_completed_frames_in_current_windo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("combo", [False, True])
+@pytest.mark.parametrize("use_default", [False, True])
 async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
-    db_session, super_admin, monkeypatch, combo
+    db_session, super_admin, monkeypatch, combo, use_default
 ):
     from contextlib import asynccontextmanager
 
@@ -2334,6 +2335,27 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         pool.capability_fingerprint = capability_fingerprint(snapshot)
         job.model_key = "sam3_video_combo"
         job.prompt = {**job.prompt, "text": "car"}
+    if use_default:
+        import copy
+
+        for backend, size in ((unapproved, "small"), (approved, "large")):
+            health = copy.deepcopy(backend.health_meta)
+            capabilities = health["capabilities"]
+            capabilities["default_variants"] = {"size": size}
+            for model in capabilities["models"]:
+                model["supported_variants"] = [
+                    {
+                        "key": "size",
+                        "variants": [{"value": "small"}, {"value": "large"}],
+                    }
+                ]
+            backend.health_meta = health
+        snapshot = canonicalize_capability(approved.health_meta["capabilities"])
+        pool.capability_snapshot = snapshot
+        pool.capability_fingerprint = capability_fingerprint(snapshot)
+    health_by_id = {
+        backend.id: backend.health_meta for backend in (unapproved, approved)
+    }
     manifest = {
         "plugin_id": "tracker",
         "version": "1",
@@ -2367,8 +2389,14 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
             "artifact": manifest["artifact"],
             "asset_manifest_sha256": manifest["asset_manifest_sha256"],
             "selections": [
-                {"model_id": model_id, "variants": {}, "asset_free": True, "assets": []}
+                {
+                    "model_id": model_id,
+                    "variants": {"size": size} if size else {},
+                    "asset_free": True,
+                    "assets": [],
+                }
                 for model_id in model_ids
+                for size in (("small", "large") if use_default else (None,))
             ],
         }
     )
@@ -2395,12 +2423,23 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         "expected_installation_revision": 1,
         "descriptor": descriptor.model_dump(mode="json"),
         "descriptor_sha256": descriptor.sha256(),
-        "approved": [{"model_id": model_id, "variants": {}} for model_id in model_ids],
+        "approved": [
+            {"model_id": model_id, "variants": {"size": "large"} if use_default else {}}
+            for model_id in model_ids
+        ],
         "inventory": [],
         "container_id": "c" * 64,
         "image_id": "sha256:" + "d" * 64,
     }
     await db_session.flush()
+    for backend_id, health_meta in health_by_id.items():
+        await db_session.execute(
+            text(
+                "UPDATE public.ml_backend_registry SET state='connected', "
+                "health_meta=CAST(:health AS jsonb), last_checked_at=now() WHERE id=:id"
+            ),
+            {"id": backend_id, "health": json.dumps(health_meta)},
+        )
     await db_session.execute(
         text(
             "SELECT aap_inference_topology_v1.set_plugin_asset_approval"
@@ -2410,7 +2449,15 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
     )
     if combo:
         # The other healthy member has only the propagation model approved.
-        partial = {**decision, "approved": [{"model_id": model_ids[0], "variants": {}}]}
+        partial = {
+            **decision,
+            "approved": [
+                {
+                    "model_id": model_ids[0],
+                    "variants": {"size": "small"} if use_default else {},
+                }
+            ],
+        }
         await db_session.execute(
             text(
                 "SELECT aap_inference_topology_v1.set_plugin_asset_approval"

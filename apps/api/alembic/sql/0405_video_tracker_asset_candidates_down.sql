@@ -14,7 +14,7 @@ DECLARE
                     'owner','operation','execution'
                 ]
            )
-           OR CASE WHEN (v_command -> 'body') ? 'approved_registry_ids' THEN
+           OR (CASE WHEN (v_command -> 'body') ? 'approved_registry_ids' THEN
                 CASE pg_catalog.jsonb_typeof(v_command #> '{body,approved_registry_ids}')
                     WHEN 'null' THEN false
                     WHEN 'array' THEN
@@ -34,7 +34,7 @@ DECLARE
                                    ) AS candidate(value))
                     ELSE true
                 END
-              ELSE false END$after$;
+              ELSE false END)$after$;
     v_definition text := pg_catalog.pg_get_functiondef(
         'aap_jobs_v1._video_execution_route_step(text,text)'::pg_catalog.regprocedure
     );

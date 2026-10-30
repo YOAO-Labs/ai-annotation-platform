@@ -872,17 +872,19 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
     assert stale["status"] == "rejected" and stale["reason"] == "scope_unavailable"
 
 
-@pytest.mark.parametrize("approved", [False, True])
+@pytest.mark.parametrize("candidate_shape", ["absent", "null", "list"])
 async def test_video_route_intent_binds_approved_candidates_to_claim(
-    db_session, approved
+    db_session, candidate_shape
 ):
+    import hashlib
+
     from aap_inference_contract.routing import (
         make_routing_command,
         routing_command_bytes,
         routing_command_sha256,
     )
 
-    actor, project_id, _, _, job = await _seed_tracker_job(db_session)
+    actor, project, _, _, job = await _seed_tracker_job(db_session)
     await _capture(db_session, actor, job.id)
     claim = (
         await _step(
@@ -897,11 +899,11 @@ async def test_video_route_intent_binds_approved_candidates_to_claim(
     )["execution"]
     proof = _proof(job.id, claim)
     request_id = uuid.uuid4()
-    allowed = [uuid.uuid4()] if approved else None
+    allowed = [uuid.uuid4()] if candidate_shape == "list" else None
     body = {
         "pool_id": uuid.uuid4(),
         "registry_id": None,
-        "project_id": project_id,
+        "project_id": project.id,
         "mode": "enforce",
         "required_instance_id": None,
         "approved_registry_ids": allowed,
@@ -932,11 +934,37 @@ async def test_video_route_intent_binds_approved_candidates_to_claim(
 
     command = make_routing_command("video_acquire", body, request_id=request_id)
     original = arguments(command, proof)
+    if candidate_shape == "absent":
+        original["command"]["body"].pop("approved_registry_ids")
+        digest_input = {
+            key: value
+            for key, value in original["command"].items()
+            if key != "request_id"
+        }
+        original["command_sha256"] = hashlib.sha256(
+            json.dumps(
+                digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
     prepared = await prepare(original)
     assert prepared["status"] == "ok"
     assert prepared["intent"]["state"] == "prepared"
     assert prepared["intent"]["scope_id"] == original["scope_id"]
     assert (await prepare(original))["intent"] == prepared["intent"]
+
+    unknown = json.loads(json.dumps(original))
+    unknown["command"]["body"]["unexpected"] = True
+    digest_input = {
+        key: value for key, value in unknown["command"].items() if key != "request_id"
+    }
+    unknown["command_sha256"] = hashlib.sha256(
+        json.dumps(
+            digest_input, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    ).hexdigest()
+    assert (await prepare(unknown))["reason"] == "invalid_command"
+    bad_digest = {**original, "command_sha256": "0" * 64}
+    assert (await prepare(bad_digest))["reason"] == "invalid_command"
 
     changed = make_routing_command(
         "video_acquire",
