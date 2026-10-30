@@ -40,6 +40,7 @@
 
 ### Added
 
+- 新增 LibreYOLO 私有候选制品构建流程：从固定源码提交生成版本化插件、SDK、契约和完整 hash-locked wheelhouse，支持核验归档摘要后的离线安装及无平台源码的检测开发；权重独立准备，正式分发与许可证仍单独设门禁。
 - 新增基于现有 Inference HTTP 契约的推理插件清单、安装治理及 Python 开发 SDK，提供 `init`、`dev`、`check`、`build` 的真实检测开发路径；安装与项目启用、模型试用、人工发布分别处理，不引入通用前端插件加载器。
 - LibreYOLO YOLOv9 t/s/m/c 检测迁至独立插件，可承接原生训练权重并分别固定 CPU／CUDA 推理运行时；当前任务、批量、真实裁剪及 off／observe／enforce 在途重启已完成限定单卡本地验收，旧 CPU 冻结引用和历史收据保留，不据此宣称双卡隔离或生产资格。
 - 新增可安装的 RapidOCR CPU 镜像，保留检测、按检测区域裁剪识别和端到端 OCR 的多边形、文本、方向与语言结果；通过正常项目启用、后台推理和持久化路径验收，不依赖 GPU ORT 或 NVIDIA wheel。

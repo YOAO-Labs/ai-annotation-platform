@@ -1,6 +1,6 @@
 # 推理后端插件化与 YOAO-Plugins 独立仓库规划
 
-> 状态：第二批通用准入、RapidOCR CPU、ONNXTools 多池 CUDA 及四处 Learning → Jobs 读取已验收并审核合入。LibreYOLO 原限定单卡资格保留；其他后端完整迁移、通用装配、版本化制品与独立仓库分发仍分别设门禁，不宣称阶段 B／C 整体完成。
+> 状态：第三批已完成 LibreYOLO 固定提交候选制品、真实取回／离线安装、独立镜像与检测开发路径，以及 Learning 样本评估的 Jobs 分发边界。第二批通用准入、RapidOCR CPU 和 ONNXTools 多池 CUDA 的限定资格保留；实际拆仓、正式分发与其余后端完整迁移仍设门禁，不宣称阶段 B／C 整体完成。
 >
 > 日期：规划于 2026-10-28，实施记录更新于 2026-10-30。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，已核验为 **Private**；未推送当前工作区代码。
 >
@@ -112,11 +112,11 @@ plugins/YOAO-plugins/
 
 暂不创建前端 SDK 占位目录、不拆成六个仓库、不引入平台 Git submodule。跨仓依赖用发布制品；仓内开发可使用 workspace sources，但发布 wheel 与镜像必须不含指向另一个 checkout 的 editable/path 依赖。
 
-## 4. 现有试点需要补齐的接缝
+## 4. 规划基线中的接缝
 
-这不是推翻试点，而是把已验证的机制与检测场景的限制分开。当前源码存在以下明确边界：
+下表保留规划时的源码调查快照，行号对应当时实现，**不是当前未完成清单**。其中通用能力匹配、多池与 CPU／CUDA 安装已在第二批验收；依赖声明准备和第三批候选制品见后文记录。检测小接口有意保留，实际拆仓与干净跨仓构建仍须独立验收。
 
-| 当前限制                                                   | 证据                                                                                    | 扩展要求                                                                                     |
+| 规划时限制                                                 | 当时源码依据                                                                            | 扩展要求                                                                                     |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | manifest 能力词表只有 `inference/detection/managed_models` | `apps/_shared/inference_contract/src/aap_inference_contract/plugin.py:47-76`            | 复用既有 Protocol v2 能力语义，按实际迁移用例扩展；不允许任意 JSON 冒充未知能力              |
 | 激活校验只接受一个 `detect`、非交互、bbox、固定输入组合    | `apps/api/app/services/plugin_installation_observation.py:76-90`                        | 由获准能力配置与实际 `/setup` 做对应验证，支持多模型目录；不能直接删除校验                   |
@@ -166,6 +166,8 @@ SDK 边界另需通过独立安装验证：API SDK 核心安装可导入并调�
 先在 `plugins/YOAO-plugins/` 准备独立插件仓库，为公共契约提供能实际获取的版本化制品，再迁入 SDK、共享运行时与 LibreYOLO。本地嵌套位置只方便开发联调，不允许把父目录中的平台源码当作隐式依赖；仍须从插件仓库干净检出构建 wheel／镜像，在没有平台源码的环境验证开发者路径，再连接平台完成与阶段 A 相同的业务验收。
 
 Python 制品先使用明确的发布渠道与 SHA256 清单，例如 GitHub Releases 的 wheelhouse；需要公共 PyPI 时另行完成名称、发布权限与许可证核验，不假定当前包已在 PyPI。OCI 使用组织的镜像发布渠道，平台安装固定 digest，不使用 `latest` 作为身份。
+
+第三批已先交付私有候选：固定提交的 wheelhouse 经真实 loopback HTTP 取回、独立摘要核验和离线安装，并在不挂载平台源码的环境运行生成的作者项目及 OCI 镜像。这证明本地候选闭环，不等于正式 Releases／PyPI／OCI 发布渠道或干净插件仓检出已经完成；不能据此删除旧源码或跳过后续平台业务验收。
 
 每份代码确定唯一源码归属。切换平台依赖、Compose、CI、资产准备脚本、文档及所有调用方后，删除已迁出的旧实现；不保留双维护镜像、跨应用 re-export 或运行时回退到旧目录。历史已部署旧镜像在引用排空前仍可运行，这不是保留第二份活跃源码。
 
@@ -262,6 +264,17 @@ CPU 与接口工作可以并行；同一卡的 operator 资格和平台托管推
 
 按用户授权清理了两处无依赖的旧实例；保留的主、备实例经原匹配 SDK／宿主恢复，原镜像、配置、GPU 绑定和启用路由权重均已核对，模型缓存为冷启动。第二批证据位于 `.worktree/orca/run_ed041b0afdc5/`；仅内部验收权重与本机 OCI 制品，不推送远程、不发布版本。
 
+### 第三批：候选制品闭环与样本评估读取
+
+Orca run 为 `run_e7a85605ded7`，基线为 `cd345fdeaeeb7a917a9c97e5f466f4f0b197d4e4`。两个执行者使用 OMP `openai-codex/gpt-6.1-terra`、`xhigh` 和独立工作树，分别负责制品闭环与 Learning 评估分发；主进程审核提交并进行独立运行验证，不扩展到新后端迁移、GPU 验收或远程发布。
+
+- 制品源码 HEAD 为 `35b5d1be0851e5aed0b36b42594b1567b5860a9a`；归档固定于 `f9b8e1388c6366534664f7b603f099375d06fd33`，该 HEAD 相对归档源码仅修订指南。79 个锁定 wheel 包含九个第一方 distribution，不包含 API SDK、平台源码或权重。两个独立构建得到相同归档 SHA256：`f7eb92e27185a2c5155a3362cdf756fc899ae03cb52123c268728dea225de7d3`。
+- 已通过实际 HTTP 取回、解包前独立摘要核验、离线安装与 `pip check`；缺失 wheel、损坏 wheel 和不匹配平台均拒绝。纯契约导入不加载模型、Torch、ORM、Celery 或平台私有模块；规范资产清单仍是唯一维护来源。
+- 主进程复核实际归档与第一方元数据，构建并离线安装生成的作者项目，实际启动其入口后执行未修改的 `aap-plugin check`。预先独立标定的双车／空图及认证、几何／类别／分数、参数和本地路径拒绝全部通过；不把仅运行内置插件入口算作作者项目验收。
+- 固定官方 Python 基础镜像上的独立 OCI 构建通过，产物 ID 为 `sha256:debf087087b64cd9db94fb05da48b66bf73728dc2b9bc3016cbb344394c53c41`。初次 Debian HTTP 下载阻塞后，通过任务专用镜像代理取得仍受 Debian 签名／hash 校验的包；未改基础镜像、生成的 Dockerfile 或共享网络配置，代理已停止。pip 安装层禁网。主进程实际启动镜像并通过相同 HTTP 检查，确认 UID/GID 10001、无 GPU 请求及仅只读权重／Token 挂载。
+- Learning 提交 `ddb77956e`、审核修正 `14f7b0cb7` 合入 `a634acb42`。主进程四项 PostgreSQL 检查及实际 `maintain`／`claim` 验证同事务绑定、提交后发布、提交失败回滚和重复领取围栏；其 broker／对象／旧传输为替代，不是模型推理或冷 worker 资格。详细边界见核心模块台账。
+- 证据与候选包保留在 `.worktree/orca/run_e7a85605ded7/`。这是 CPU 执行而非 GPU-free 依赖栈；不声称 OCI digest 可复现、公开许可、正式渠道或实际拆仓完成。日常服务和保留实例未改变。
+
 ## Outcome
 
 - 本轮已完成六个迁移单元、真实共享依赖、检测专用假设、有状态边界与许可证前置的盘点，形成上述顺序与验收门。
@@ -269,6 +282,7 @@ CPU 与接口工作可以并行；同一卡的 operator 资格和平台托管推
 - 统一契约／分运行环境 SDK／前端信任分层为采用的目标方向；本期只推进推理与 Python 开发体验，不宣称通用插件框架或前端 SDK 已实现。
 - 正式架构入口：`docs-site/dev/concepts/module-deployment.md`。已实现的依赖边界影响记入 `CHANGELOG.md` 的 Unreleased；不据此指定发布版本或日期。
 - 实施与验收：LibreYOLO 原限定单卡资格，以及第二批 RapidOCR CPU、ONNXTools 多池 CUDA 的限定平台业务与正常退役已通过，细节与边界见[正式架构台账](../../docs-site/dev/concepts/module-deployment.md#inference-plugin-admission)。其他后端完整迁移、实际拆仓与跨仓发布尚未完成。
+- 第三批私有候选制品与生成项目／镜像 CPU 检查已通过，Learning 样本评估分发已合入；正式制品渠道、唯一源码归属切换和独立插件仓干净构建仍是阶段 C 的下一道门禁，不直接进入其他模型的大规模搬迁。
 - 本地独立插件仓库已克隆到 `plugins/YOAO-plugins/`，平台根 `.gitignore` 忽略整个嵌套仓库；未搬迁算法源码、创建 submodule 或推送代码。
 - API SDK 与插件 SDK 保持分包、独立版本及共享必要契约。生命周期纯校验的实现与消费者已在契约提交 `8ddcd65be` 中收口并合入；正式规则见 `docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk`。
 - 并行的 Learning 反馈读取提交 `47b5eec70` 已审核合入；其无 Audit 父表读取权限和 HTTP 快照重放证据记在核心模块台账，不计作插件迁移完成。

@@ -84,6 +84,16 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 - API SDK／`aap` 负责连接平台与管理安装、启停和退役，见[安装生命周期](/user-guide/superadmin/ml-backend-registry)。安装不等于项目启用或模型发布。
 - 联调环境可同时安装两套工具；插件运行镜像不因此默认包含 API SDK。独立安装验收需分别证明 API 客户端不依赖插件运行时、插件开发不依赖平台源码或管理员凭据。
 
+### 私有候选制品与独立消费 {#plugin-candidate-artifacts}
+
+`scripts/build-libreyolo-candidate.py` 从明确的 Git 提交构建 LibreYOLO、插件 SDK、共享运行时与契约 wheel，并收集完整运行依赖、逐文件 SHA256、源码提交和规范资产清单。它只归档选定构建输入；候选包不包含权重、平台 checkout 或 API SDK。具体构建环境、显式 `--manifest` 输入、离线安装和资产准备见仓库 `plugins/libreyolo/README.md`；通用入口见[推理插件接入](/dev/tutorials/ml-backend-starter)。
+
+先通过可信独立渠道取得预期归档摘要，核验成功后才解包，使用 `pip --no-index --require-hashes` 安装。随包 checksum 只能检查完整性，不能单独证明发布者身份。候选制品已完成同提交双次构建摘要一致、真实 loopback HTTP 取回、缺失／损坏 wheel 和错误平台拒绝；这不是已上线的长期制品渠道。
+
+主进程额外构建并离线安装了 `init` 生成的作者项目，再实际运行其 console script、`dev` 与 HTTP `check`；不是仅生成模板或启动内置入口。生成项目与固定镜像都通过预先独立标定的双车／空图、类别／坐标／分数、认证、参数及本地路径拒绝检查。镜像从固定的干净 Python 基础镜像和候选 wheelhouse 构建，pip 安装层禁网；基础镜像获取及 apt 仍需网络。镜像以 UID/GID 10001、无 GPU 设备请求运行，只挂载只读权重和 Token，不挂载平台源码。
+
+当前证据仅为 Linux x86-64／glibc／CPython 3.11 的私有检测候选。CPU 推理使用既有 CUDA-linked Torch／torchvision 依赖，不是 GPU-free 分发，也不产生托管 GPU 资格。归档复现不等于 OCI digest 复现；正式分发、许可证核验、迁入独立仓库及平台重新采用仍分别验收。
+
 ## 剩余工作台账
 
 这是本计划唯一的剩余工作台账；下文和 ADR 保存历史资格证据，不另行维护待办列表。
@@ -169,7 +179,7 @@ Labeling 未暂缓范围的运维、当前工件与本地模块门槛现已闭�
 
 Jobs 非暂缓模块的当前工件、真实消费者与恢复已通过，本机现已采用独立 queue／relay
 及一个四队列业务 worker；[采用界限](#jobs-nonheld-module)单列日常空库、凭据和实际控制消息。
-旧操作切片保留原始证据，已闭合状态合并为下表一行；四处 Learning 兼容读取仍暂缓。
+旧操作切片保留原始证据，已闭合状态合并为下表一行；选定 [Learning 读取](#learning-jobs-reads)已另行迁移，完整 Learning 边界与共享私表权限仍单独收口。
 
 Inference 当前非暂缓协议的模型／GPU／控制面已独立运行，本机普通 API、业务 worker 与
 Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inference-whole-module)
@@ -204,7 +214,7 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
-| 插件装配与扩展安装 | 推理切片已有完整模型能力、CPU／CUDA、命名池及 ORT session 准入；开发 SDK、管理员安装器与原生 HTTP 适配分工明确；全扩展点装配仍未交付 | LibreYOLO、RapidOCR 与 ONNXTools 复用 Inference／Registry 和各业务 owner；API 路由、Celery、迁移与凭据总体仍静态装配 | LibreYOLO 原限定单卡资格保留；[通用准入与限定验收](#inference-plugin-admission)覆盖真实 OCR CPU、多池 ONNX CUDA 业务、持久化与安全退役；GPU 资格仍按插件报告独立判断 | 完成核心内置装配及其他扩展 SPI；其余后端完整迁移、独立仓库分发与许可门禁继续推进，不恢复旧适配器或建立第二套业务实现 |
+| 插件装配与扩展安装 | 推理切片已有完整模型能力、CPU／CUDA、命名池及 ORT session 准入；开发 SDK、管理员安装器与原生 HTTP 适配分工明确；全扩展点装配仍未交付 | LibreYOLO、RapidOCR 与 ONNXTools 复用 Inference／Registry 和各业务 owner；API 路由、Celery、迁移与凭据总体仍静态装配 | LibreYOLO 原限定单卡资格保留；[通用准入与限定验收](#inference-plugin-admission)覆盖真实 OCR CPU、多池 ONNX CUDA 业务、持久化与安全退役；[私有候选闭环](#plugin-candidate-artifacts)另验证固定提交制品与独立 CPU 消费，不产生 GPU 资格 | 完成核心内置装配及其他扩展 SPI；其余后端完整迁移、独立仓库分发与许可门禁继续推进，不恢复旧适配器或建立第二套业务实现 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
 

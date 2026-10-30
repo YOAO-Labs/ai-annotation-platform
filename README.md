@@ -53,6 +53,8 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 核心能力的目标形态是随项目发布的内置插件，模型、训练器、连接器与格式等扩展通过版本化契约安装。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和独立 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。API SDK 与插件 SDK 保持分包，复杂模型服务沿完整 HTTP 契约接入，不强制转成 bbox 检测接口。全扩展点统一装配、独立插件仓库分发及其余模型服务迁移仍未完成；模块资格与下一步以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准，独立包或独立进程不等于插件化完成。
 
+LibreYOLO 提供[私有候选制品构建流程](./plugins/libreyolo/README.md#build-and-prepare)：从明确提交生成完整 hash-locked wheelhouse，经过可信独立渠道核对归档 SHA256 后离线安装，无需挂载平台源码。已验证检测开发路径及干净基础镜像上的 CPU 运行；CPU 执行仍包含既有 CUDA-linked Torch 依赖，不代表无 GPU 依赖、GPU 资格或公开分发许可。
+
 ## 工作台 AI 案例
 
 图片标注工作台支持对已确认标注做[二次推理](./docs-site/user-guide/ai/current-task-inference.md)，由标注员、项目管理员或超级管理员使用。审核工作台隐藏相关入口，接口也拒绝审核员调用；人工审核修改保留。

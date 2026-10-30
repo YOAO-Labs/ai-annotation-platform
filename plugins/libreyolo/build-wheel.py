@@ -1,19 +1,19 @@
-"""Build a wheel with the canonical controlled asset manifest embedded.
+"""Build the LibreYOLO wheel with an explicitly supplied canonical asset manifest."""
 
-Run from a source checkout; generated wheel is independently installable with
-its versioned dependency wheels. The staged manifest is not a second source.
-"""
-
+import argparse
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 
-root = Path(__file__).resolve().parents[2]
+parser = argparse.ArgumentParser()
+parser.add_argument("out", type=Path)
+parser.add_argument("--manifest", type=Path, required=True)
+args = parser.parse_args()
 plugin = Path(__file__).resolve().parent
-manifest = root / "apps/yolo-backend/scripts/controlled-model-assets.json"
-out = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else plugin / "dist"
+manifest = args.manifest.resolve(strict=True)
+out = args.out.resolve()
 out.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="libreyolo-wheel-") as temporary:
     staging = Path(temporary) / "plugin"
@@ -28,6 +28,15 @@ with tempfile.TemporaryDirectory(prefix="libreyolo-wheel-") as temporary:
         manifest, staging / "aap_libreyolo_plugin/controlled-model-assets.json"
     )
     subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(out), str(staging)],
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
+            str(out),
+            str(staging),
+        ],
         check=True,
     )
