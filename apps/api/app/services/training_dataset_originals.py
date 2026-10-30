@@ -12,11 +12,11 @@ import uuid
 from fastapi import HTTPException
 from PIL import Image
 
-from app.db.models.user import User
 from app.services import managed_original_reader as reader
 from app.services import original_content_access as access
 from app.services import original_sources, storage_access
 from app.services.content_snapshot import ContentError
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.original_binary_response import close_stage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
@@ -143,7 +143,7 @@ async def authorize(
 ):
     key_id = uuid.UUID(str(api_key_id)) if api_key_id else None
     if http_request is not None:
-        actor = await db.get(User, actor_id)
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
         if actor is None:
             raise HTTPException(403, {"code": "content_authority_revoked"})
         proof = await access.capture_credentials(db, actor, http_request)

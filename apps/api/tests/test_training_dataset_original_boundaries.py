@@ -752,3 +752,73 @@ async def test_durable_output_operation_blocks_retry_and_delete(
     await unresolved_output.release()
     # Another version's durable operation remains and must not block this owner.
     await datasets.lock_dataset_execution(world.db, world.version.id)
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires a disposable database with role creation privileges",
+)
+async def test_http_training_authority_without_private_identity_select(
+    db_session, super_admin
+):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from app.db.models.user import User
+
+    db = db_session
+    actor, token = super_admin
+    project = await create_project(db, owner_id=actor.id)
+    actor_id, project_id = actor.id, project.id
+    await db.flush()
+    db.expunge(actor)
+    role = "training_identity_guard_" + uuid.uuid4().hex
+    await db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+    await db.execute(
+        text(
+            "GRANT USAGE ON SCHEMA public, aap_identity_v1, "
+            f'aap_workspace_v1, aap_workspace_project_query_v1 TO "{role}"'
+        )
+    )
+    await db.execute(
+        text(
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, "
+            f'aap_workspace_v1, aap_workspace_project_query_v1 TO "{role}"'
+        )
+    )
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", f"Bearer {token}".encode())],
+        }
+    )
+    try:
+        async with db.begin_nested():
+            await db.execute(text(f'SET LOCAL ROLE "{role}"'))
+            assert not await db.scalar(
+                text(
+                    "SELECT has_any_column_privilege(current_user, 'public.users', 'SELECT')"
+                )
+            )
+            authority = await originals.authorize(
+                db, project_id, actor_id, http_request=request
+            )
+            assert authority.actor_id == actor_id and authority.project_id == project_id
+            with pytest.raises(HTTPException) as missing:
+                await originals.authorize(
+                    db, project_id, uuid.uuid4(), http_request=request
+                )
+            assert missing.value.status_code == 403
+            assert missing.value.detail["code"] == "content_authority_revoked"
+    finally:
+        await db.execute(text("RESET ROLE"))
+    await db.execute(update(User).where(User.id == actor_id).values(is_active=False))
+    try:
+        async with db.begin_nested():
+            await db.execute(text(f'SET LOCAL ROLE "{role}"'))
+            with pytest.raises(HTTPException) as revoked:
+                await originals.check(db, authority)
+            assert revoked.value.status_code == 403
+            assert revoked.value.detail["code"] == "content_authority_revoked"
+    finally:
+        await db.execute(text("RESET ROLE"))
