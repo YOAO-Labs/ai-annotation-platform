@@ -171,8 +171,6 @@ test("shared/ML contract entries carry the per-suite CPU audit facts", () => {
     "ml-rapidocr",
     "ml-sam3",
     "ml-yolo",
-    "shared-backend-runtime",
-    "shared-mask-utils",
     "shared-protocol-v2",
   ]);
   // Per-audit facts: no GPU/weights/network anywhere; torch split is explicit.
@@ -347,8 +345,8 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     // both outputs. The fixture keeps base != HEAD: the base is captured
     // BEFORE the shared path is added, so the diff is nonempty.
     const sharedBase = git("rev-parse", "HEAD");
-    mkdirSync(join(cwd, "apps/_shared/mask_utils/src"), { recursive: true });
-    writeFileSync(join(cwd, "apps/_shared/mask_utils/src/polygon.ts"), "export {}\n");
+    mkdirSync(join(cwd, "apps/_shared/protocol_v2/src"), { recursive: true });
+    writeFileSync(join(cwd, "apps/_shared/protocol_v2/src/schemas.py"), "pass\n");
     git("add", ".");
     git(
       "-c",
@@ -399,7 +397,7 @@ test("large PR reports use files while suite dispatch and final audit outputs st
       { length: 1730 },
       (_, index) => `apps/web/changed-${String(index).padStart(4, "0")}-${"x".repeat(120)}.ts`,
     );
-    paths.push("apps/_shared/mask_utils/changed.py");
+    paths.push("apps/_shared/protocol_v2/changed.py");
     for (const path of paths) {
       mkdirSync(resolve(cwd, path, ".."), { recursive: true });
       writeFileSync(join(cwd, path), "fixture\n");

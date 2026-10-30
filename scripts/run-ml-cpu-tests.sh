@@ -5,8 +5,8 @@
 # Isolated per suite: every invocation creates its own throwaway virtualenv, so
 # no suite can inherit another package's `sys.modules` (the committed tests
 # install MagicMock torch stubs, and a shared interpreter would let a stub leak
-# into a later suite). Native plugin tests run separately from YOLO's stubbed
-# contract tests. No GPU, weights or network are used by the tests.
+# into a later suite). Plugin-owned suites run in the plugin repository.
+# No GPU, weights or network are used by the tests.
 #
 # Usage:
 #   scripts/run-ml-cpu-tests.sh plan "<spec>"   # print name=value suite flags
@@ -25,8 +25,6 @@ DEPS_DIR="$ROOT/scripts/ml-cpu-deps"
 TORCH_CPU_INDEX="https://download.pytorch.org/whl/cpu"
 
 SUITES=(
-  shared-backend-runtime
-  shared-mask-utils
   shared-protocol-v2
   yolo
   rapidocr
@@ -156,14 +154,6 @@ run_pytest() {
 run() {
   local suite="${1:?suite name required}"
   case "$suite" in
-    shared-backend-runtime)
-      install_editable "apps/_shared/backend_runtime" "3.10" "test" -e "$ROOT/apps/_shared/protocol_v2" -e "$ROOT/apps/_shared/lifecycle_contract"
-      run_pytest "apps/_shared/backend_runtime" "$VENV_PATH"
-      ;;
-    shared-mask-utils)
-      install_editable "apps/_shared/mask_utils" "3.10" "test"
-      run_pytest "apps/_shared/mask_utils" "$VENV_PATH"
-      ;;
     shared-protocol-v2)
       install_editable "apps/_shared/protocol_v2" "3.10" "test"
       run_pytest "apps/_shared/task_contract" "$VENV_PATH"
@@ -174,19 +164,6 @@ run() {
       new_venv "3.12"
       run_in "apps/yolo-backend" env UV_PROJECT_ENVIRONMENT="$VENV_PATH" uv sync --locked --extra dev
       run_pytest "apps/yolo-backend" "$VENV_PATH"
-      # Native plugin tests need real tensors and their own interpreter.
-      new_venv "3.12"
-      run_in "plugins/libreyolo" uv pip install --python "$VENV_PATH/bin/python" \
-        --extra-index-url https://download.pytorch.org/whl/cu132 \
-        -e "$ROOT/apps/_shared/task_contract" \
-        -e "$ROOT/apps/_shared/protocol_v2" \
-        -e "$ROOT/apps/_shared/lifecycle_contract" \
-        -e "$ROOT/apps/_shared/backend_runtime" \
-        -e "$ROOT/apps/_shared/inference_contract" \
-        -e "$ROOT/apps/_shared/training_contract" \
-        -e "$ROOT/apps/_shared/libreyolo_native" \
-        -e "$ROOT/packages/inference-plugin-sdk" -e . pytest pytest-asyncio
-      run_pytest "plugins/libreyolo" "$VENV_PATH" tests/test_native.py tests/test_provider.py
       ;;
     rapidocr)
       install_editable "apps/rapidocr-backend" "3.10" "dev"
@@ -219,7 +196,7 @@ run() {
 # wildcard case that must not glob. Exits nonzero on any mismatch.
 selftest() {
   local failures=0
-  local suite_list="shared_backend_runtime,shared_mask_utils,shared_protocol_v2,yolo,rapidocr,onnxtools,grounded_sam2,sam3"
+  local suite_list="shared_protocol_v2,yolo,rapidocr,onnxtools,grounded_sam2,sam3"
 
   _selftest_plan() {
     local spec="$1"
