@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import os
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.api_key import ApiKey
@@ -102,6 +103,90 @@ async def world(test_engine, monkeypatch):
                 await db.execute(delete(model).where(condition))
             await db.commit()
         objects.objects.clear()
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires a disposable database with role creation privileges",
+)
+async def test_dispatch_without_private_jobs_read(world, db_session, monkeypatch):
+    role = "evaluation_jobs_dispatch_" + uuid.uuid4().hex
+    run = await db_session.get(Run, world.run.id)
+    attempt_id, job_id = world.attempt.id, world.attempt.async_job_id
+    await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
+    await db_session.execute(
+        text(f'GRANT USAGE ON SCHEMA public, aap_jobs_v1 TO "{role}"')
+    )
+    await db_session.execute(
+        text(f'GRANT SELECT, UPDATE ON public.sample_evaluation_attempts TO "{role}"')
+    )
+    await db_session.execute(
+        text(
+            "GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
+            "aap_jobs_v1.read_job_execution_snapshot(uuid), "
+            "aap_jobs_v1.read_job_progress(uuid), "
+            f'aap_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
+        )
+    )
+    published = []
+    monkeypatch.setattr(
+        worker.run_sample_evaluation,
+        "apply_async",
+        lambda **values: published.append(values),
+    )
+    await db_session.execute(text(f'SET LOCAL ROLE "{role}"'))
+    assert not await db_session.scalar(
+        text(
+            "SELECT has_any_column_privilege(current_user, 'public.async_jobs', 'SELECT')"
+        )
+    )
+    await worker.dispatch(db_session, run)
+    job = await worker.jobs.get_job(db_session, job_id, populate_existing=True)
+    attempt = await db_session.get(Attempt, attempt_id)
+    assert published == [{"args": [str(attempt_id)], "task_id": job.celery_task_id}]
+    assert attempt.dispatched_at is not None
+
+    attempt.claim_id = uuid.uuid4()
+    await db_session.flush()
+    await worker.dispatch(db_session, run)
+    assert len(published) == 1
+    await db_session.execute(text("RESET ROLE"))
+
+
+async def test_job_binding_and_attempt_share_caller_rollback(world):
+    async with world.factory() as db:
+        attempt = await db.get(Attempt, world.attempt.id)
+        job = await worker.jobs.get_job(db, attempt.async_job_id)
+        previous = job.celery_task_id
+        worker.jobs.bind_execution_id(job, str(uuid.uuid4()))
+        attempt.dispatched_at = service.now()
+        await db.flush()
+        await db.rollback()
+    async with world.factory() as db:
+        attempt = await db.get(Attempt, world.attempt.id)
+        job = await worker.jobs.get_job(db, attempt.async_job_id)
+        assert job.celery_task_id == previous
+        assert attempt.dispatched_at is None
+
+
+async def test_dispatch_missing_job_and_nonqueued_run(world, monkeypatch):
+    published = []
+    monkeypatch.setattr(
+        worker.run_sample_evaluation,
+        "apply_async",
+        lambda **values: published.append(values),
+    )
+    async with world.factory() as db:
+        run = await db.get(Run, world.run.id)
+        attempt = await db.get(Attempt, world.attempt.id)
+        attempt.async_job_id = None
+        run.status = "running"
+        await worker.dispatch(db, run)
+        assert not published and attempt.dispatched_at is None
+        run.status = "queued"
+        await worker.dispatch(db, run)
+        assert published[0]["args"] == [str(attempt.id)]
+        assert attempt.dispatched_at is not None
 
 
 async def test_duplicate_delivery_has_one_claim_and_stale_writer_cannot_checkpoint(
