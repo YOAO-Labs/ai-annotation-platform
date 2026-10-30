@@ -57,7 +57,10 @@ class ManagedModelCompatibility(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     framework: str = Field(min_length=1)
-    format: str = Field(min_length=1)
+    format: str | None = Field(
+        min_length=1,
+        description="Null identifies a native checkpoint without a separate export format.",
+    )
     runtime_device: Literal["cpu", "cuda"]
 
 

@@ -17,6 +17,8 @@ last_reviewed: 2026-10-20
 
 插件以统一、语言无关的 manifest 和 HTTP 协议接入 Registry；运行时 SDK 组合协议、认证和生命周期，模型实现由插件提供。当前实现仅覆盖 Inference 与图片检测 Python SDK，尚无通用前端插件框架。LibreYOLO 检测的新接入使用独立插件，不再作为内置 YOLO 服务的运行路径。作者通过 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`；SDK 不依赖平台 ORM、Celery 或原生模型框架。安装、作者命令、权重许可证边界与本地检查限制见[检测插件教程](/dev/tutorials/ml-backend-starter#使用-libreyolo-检测插件)。
 
+受控模型兼容条目必须同时声明 `framework`、`format` 和 `runtime_device`。`format: null` 明确表示没有独立导出格式标识的原生 checkpoint（如 Ultralytics 原生权重），不是通配符；具名格式使用非空字符串，缺字段或空字符串均无效。安装清单、实际 `/setup` 观测及平台保存的模型回执必须精确匹配，CPU／CUDA 资格仍分别核对。
+
 ---
 
 ## 任务字段与兼容输入

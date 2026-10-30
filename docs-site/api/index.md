@@ -30,6 +30,8 @@ last_reviewed: 2026-10-26
 
 本机服务维护使用 `GET /api/v1/admin/ml-backend-operations/status` 获取 `can_maintain` 和目标身份，再以 `POST /api/v1/admin/ml-backend-operations/jobs` 提交 `provider`、`expected_deployment` 和 `expected_runner_id`，通过 `GET /api/v1/admin/ml-backend-operations/jobs/{id}` 查看阶段；SAM 的镜像准备阶段为 `building`，独立插件为 `pulling`。接口仅限超管；目标变化返回 `409`，不可自动重试。执行前须安装[宿主机维护程序](/ops/deploy/ml-backend-maintenance)。API 不接受命令、Compose 文件或容器名，响应不返回原始构建或拉取日志。
 
+推理插件安装清单的 `managed_model_compatibility[].format` 是必填可空字段：显式 `null` 对应无独立导出格式标识的原生 checkpoint，非空字符串对应具名格式。平台仍同时核对管理员批准、实际能力观测、模型回执和运行设备；缺字段不等同于 `null`，也不能将它当作任意格式匹配。
+
 ### 第一次接入
 
 1. 调用 `POST /api/v1/auth/login` 获取 JWT Bearer Token。

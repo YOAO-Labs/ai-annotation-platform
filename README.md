@@ -55,6 +55,8 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 第一方制品提供固定下载地址、实际源码提交和 SHA256 清单；自定义开发见 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme)，官方实现与候选镜像构建见 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)，平台便携契约通过[固定 SDK 渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-3d6393e64630)分发。公开制品不含权重、私有数据集、完整第三方 wheelhouse 或 OCI 镜像；它们的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
 
+受控模型兼容声明区分具名导出格式与显式 `format: null` 的原生 checkpoint；两者都必须与实际插件能力及平台模型回执精确匹配，清单声明不替代权重审批或 CPU／CUDA 资格。
+
 ## 工作台 AI 案例
 
 图片标注工作台支持对已确认标注做[二次推理](./docs-site/user-guide/ai/current-task-inference.md)，由标注员、项目管理员或超级管理员使用。审核工作台隐藏相关入口，接口也拒绝审核员调用；人工审核修改保留。

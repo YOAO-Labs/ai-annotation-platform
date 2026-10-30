@@ -26627,9 +26627,17 @@
         "additionalProperties": false,
         "properties": {
           "format": {
-            "minLength": 1,
-            "title": "Format",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null identifies a native checkpoint without a separate export format.",
+            "title": "Format"
           },
           "framework": {
             "minLength": 1,
