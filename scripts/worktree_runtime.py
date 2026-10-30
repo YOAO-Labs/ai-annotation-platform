@@ -250,7 +250,11 @@ def diagnose(backend) -> dict:
             name: backend.bucket_info(name) for name in resources["buckets"].values()
         },
     )
-    check("migration_graph", lambda: migration_graph(backend.code_root))
+    if (backend.code_root / "apps/api/app/vendor/TrackEval/trackeval_metrics/metrics.py").is_file():
+        check("migration_graph", lambda: migration_graph(backend.code_root))
+    else:
+        checks["migration_graph"] = None
+        report["errors"].append("TrackEval 子模块缺失；运行 pnpm dev:worktree -- init")
     if "MINIO_INPUTS_BUCKET" in resources["buckets"]:
         check("inputs_bucket_versioning", backend.inputs_bucket_versioning)
         versioning = checks.get("inputs_bucket_versioning")
@@ -617,6 +621,8 @@ def run_processes(backend, options) -> int:
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
     root = Path(__file__).resolve().parents[1]
+    if options.command in {"up", "init", "exec", "reset"}:
+        subprocess.run(["bash", str(root / "scripts/ensure-api-vendor.sh")], cwd=root, check=True)
     sys.path.insert(0, str(root / "apps/api"))
     from app.config import settings
     from worktree_resources import LocalResources

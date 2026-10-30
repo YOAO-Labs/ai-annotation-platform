@@ -88,7 +88,7 @@ RUN if [ ! -f vendor/sam3/pyproject.toml ]; then \
         echo "ERROR: SAM3 submodule is missing. Run git submodule update --init --recursive before building." >&2; \
         exit 1; \
     fi && \
-    patch -d /app/vendor/sam3 -p1 < /app/sam3-autocast.patch && \
+    patch --batch --forward --fuzz=0 -d /app/vendor/sam3 -p1 < /app/sam3-autocast.patch && \
     pip install --no-build-isolation -e "./vendor/sam3[train]"
 
 COPY _shared/requirements-plugin-mask.txt /app/requirements-plugin-mask.txt

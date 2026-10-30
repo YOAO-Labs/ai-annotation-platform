@@ -56,6 +56,10 @@ def test_setup(launcher):
         (worktree / ".env.example").write_text("EXAMPLE=preserve\n")
         (worktree / "scripts").mkdir()
         shutil.copy2(script, worktree / "scripts" / script.name)
+        shutil.copy2(script.with_name("ensure-api-vendor.sh"), worktree / "scripts")
+        trackeval = worktree / "apps/api/app/vendor/TrackEval/trackeval_metrics/metrics.py"
+        trackeval.parent.mkdir(parents=True)
+        trackeval.write_text("# initialized fixture\n")
         calls = base / "calls"
         for name in ("pnpm", "uv"):
             executable = binaries / name
