@@ -75,6 +75,8 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 
 生命周期证明 schema、内存周期计算和纯校验由平台的 `aap-lifecycle-contract` 提供，支持 Python 3.10 及以上且无第三方运行依赖。生产 API 和 API SDK 的 `plugins` extra 使用该契约，不安装 `aap-backend-runtime`；训练契约仍按实际用途保留，测试 extra 可使用运行时生成证据夹具。模型装载、文件摘要采集、证明生产和资源释放机制仍在插件运行时。公开契约 wheel 已在全新环境通过实际取回、独立摘要核验、安装、依赖检查与隔离导入，未加载 Torch、模型实现、ORM、Celery、平台 API 或插件运行时；这不产生模型或 GPU 资格。
 
+证明可通过可选的 `workload_evidence` 对象保留受控模型收据、运行时与 fixture 摘要、尺寸和逐轮输出等结构化证据；这些内容仍需通过递归敏感字段校验，不代替必做检查，也不改变部署身份、真实权重和实际池拓扑的严格绑定。不能将这类对象编码成 `runtime_versions` 字符串，或伪造额外模型池。
+
 安装管理类型直接消费 `aap_inference_contract.plugin`，API SDK 不再维护第二份插件模型定义；规范任务词表复用 `aap-task-contract`。核心、CLI 与管理员插件工具已分别在干净环境安装检查，不能把管理员工具的可选依赖扩散到普通 API 客户端。
 
 具体插件确需调用平台公开 API 时，可自行显式依赖 API SDK，并使用获准操作和作用域的凭据。插件 SDK 不自动注入平台客户端、管理员凭据或内部签名私钥，也不提供访问平台私有模块、数据库或绕过领域 owner 的通道。
@@ -87,7 +89,7 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 
 ### 公开第一方制品与独立消费 {#plugin-candidate-artifacts}
 
-[插件包发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-6118885dd686)提供 SDK、共享运行时、Mask 工具、原生 LibreYOLO 适配器及插件的 wheel、sdist、选定源码归档与 SHA256 清单。[便携契约发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/contracts-0a21bc402432)提供平台拥有的五个契约包与规范资产清单；发布仓库不改变契约源码 owner。两组制品采用 MIT 许可，manifest 分别记录实际源码仓库、固定提交和文件摘要，匿名消费者无需平台 checkout 或私有 Token。
+[插件包发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-6118885dd686)提供 SDK、共享运行时、Mask 工具、原生 LibreYOLO 适配器及插件的 wheel、sdist、选定源码归档与 SHA256 清单。便携契约由平台拥有，当前构建器只导出五个契约包；[既有契约发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/contracts-0a21bc402432)中附带的混合模型目录属于历史制品，不再作为新插件目录的源码权威。发布仓库不改变契约源码 owner。第一方代码采用 MIT 许可，manifest 记录实际源码仓库、固定提交和文件摘要，匿名消费者无需平台 checkout 或私有 Token。
 
 完整候选构建器由独立插件仓库的 `scripts/build-libreyolo-candidate.py` 维护，从固定插件提交与契约制品生成完整 hash-locked wheelhouse。具体命令、资产准备与安装见 [YOAO-Plugins README](https://github.com/YOAO-Labs/YOAO-Plugins#readme)；通用接入见[推理插件接入](/dev/tutorials/ml-backend-starter)。公开发布不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们分别保留许可和分发门禁，不因第一方源码公开而自动获得授权。
 
@@ -100,6 +102,14 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 平台重新采用使用该固定新镜像的独立 GPU 报告，不复用旧镜像资格。两轮实际 CUDA 装卸载、取消计账、忙碌卸载拒绝及代际／重放控制检查通过；释放后 Torch allocated／reserved、原生 wrapper 与借用归零，宿主观测到实际容器 GPU 进程。资格生成通过进程内 ASGI；网络 HTTP 的平台业务单独验证。正式安装器按调用者的非 root 身份运行，不把镜像默认 UID/GID 10001 当作平台安装要求。
 
 真实训练 checkpoint 已经过新镜像受控加载、GPU 试用、人工发布、当前任务及批量预测持久化。取消项目选用后，部署和安装正常排空、卸载、退役，真实 Token 时限后 collector 清零；旧 release、预测及冻结引用不重写，原 CPU 历史和保留环境不变。训练使用已审核的独立 executor，并非声称推理镜像执行训练。此项限定为单卡串行闭环，不证明双卡隔离、并发容量、所有历史路由资格或模型精度；低阈值空图的实际误检也保留在记录中。固定镜像、报告、业务对象及私有证据归档身份见 `docs/plans/1793184138_inference-plugins-repository-extraction.md` 第四批记录。
+
+### 预训练目录与平台资产治理
+
+插件发布模型、变体、文件大小、SHA256、固定来源、许可证及兼容要求；平台消费该版本的清单并校验实际文件，不再手工维护另一份预训练目录。来源或许可未核实必须明确标记，不能继承插件代码的许可证。
+
+平台独立管理管理员批准、可用状态、项目授权和存储位置。**目录可见不代表获准下载、启用或公开分发。** 用户训练的 checkpoint 仍属于 Learning／Assets，不进入插件预训练目录。
+
+`scripts/prepare-controlled-model-assets.py` 是平台管理员工具，不是公网插件发布器：它按审核后的插件清单校验本地文件大小和 SHA256，向训练桶写入 `model-assets/sha256/<摘要>/weights.pt`，或从桶取回已核验字节并准备节点缓存。插件运行进程不持有 S3 管理凭据。命令与准备顺序见[部署说明](/ops/deploy/docker-compose)。
 
 ## 剩余工作台账
 

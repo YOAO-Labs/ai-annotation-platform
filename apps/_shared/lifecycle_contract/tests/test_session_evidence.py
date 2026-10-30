@@ -120,3 +120,19 @@ def test_non_ort_report_remains_unchanged_without_session_observations():
     for cycle in value["cycles"]:
         del cycle["session_observations"]
     assert validate_managed_lifecycle_evidence(value) == value
+
+
+@pytest.mark.parametrize(
+    "workload",
+    [
+        None,
+        [],
+        {"controlled_detect": {"receipt": {"token": "secret"}}},
+        {"controlled_segment": {"dimensions": [float("inf"), 640]}},
+    ],
+)
+def test_workload_evidence_rejects_non_objects_secrets_and_non_json_numbers(workload):
+    value = evidence()
+    value["workload_evidence"] = workload
+    with pytest.raises(ValueError):
+        validate_managed_lifecycle_evidence(value)

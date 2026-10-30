@@ -122,7 +122,11 @@ def validate_managed_lifecycle_evidence(value: object) -> dict[str, Any]:
 
     if not isinstance(value, dict):
         raise ValueError("lifecycle evidence must be a JSON object")
-    _require_exact_fields(value, _TOP_LEVEL_FIELDS, "evidence")
+    fields = _TOP_LEVEL_FIELDS
+    if "workload_evidence" in value:
+        fields = fields | {"workload_evidence"}
+        _object(value["workload_evidence"], "workload_evidence")
+    _require_exact_fields(value, fields, "evidence")
     if value["schema_version"] != EVIDENCE_SCHEMA_VERSION:
         raise ValueError("unsupported lifecycle evidence schema_version")
     if not isinstance(value["backend_name"], str):
