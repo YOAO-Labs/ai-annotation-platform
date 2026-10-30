@@ -1,6 +1,6 @@
 """SAM 3 推理封装 (vendor 对齐).
 
-vendor: facebookresearch/sam3 @ 4cbac14, 通过 scripts/sync_vendor.sh 同步.
+vendor: facebookresearch/sam3 @ 4cbac14, 固定为 Git submodule。
 入口: `from sam3 import build_sam3_image_model` + `from sam3.model.sam3_image_processor import Sam3Processor`.
 
 支持的 prompt (启用 inst_interactivity):
@@ -38,8 +38,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-# vendor: container 内由 Dockerfile `pip install -e ./vendor/sam3` 提供; 本地测试通过
-# pyproject.toml 的 pythonpath 注入. 显式把 vendor 根加进 sys.path 兜底.
+# vendor 由容器构建时修补并安装；本地 CPU 单测不安装模型源码。
+# 容器路径显式加入 sys.path，供上游包解析。
 _VENDOR_ROOT = "/app/vendor/sam3"
 if os.path.isdir(_VENDOR_ROOT) and _VENDOR_ROOT not in sys.path:
     sys.path.insert(0, _VENDOR_ROOT)

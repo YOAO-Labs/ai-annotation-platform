@@ -33,7 +33,7 @@ class CacheEntry:
 
     `is_batch` 给未来 set_image_batch 留位; 当前不用.
 
-    sync_vendor.sh 升级 commit 时务必跑端到端验收, 确认 Sam3Processor.set_image() 写到 state
+    升级 submodule commit 时务必跑端到端验收, 确认 Sam3Processor.set_image() 写到 state
     的 keys (`backbone_out`, `original_height`, `original_width`) 仍然一致.
     """
 

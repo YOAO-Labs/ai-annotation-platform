@@ -1,0 +1,54 @@
+diff --git a/sam3/model/sam3_multiplex_base.py b/sam3/model/sam3_multiplex_base.py
+index e4df5d303..d6733c4f3 100644
+--- a/sam3/model/sam3_multiplex_base.py
++++ b/sam3/model/sam3_multiplex_base.py
+@@ -168,8 +168,9 @@ class Sam3MultiplexTrackerPredictor(nn.Module):
+         self.per_obj_inference = per_obj_inference
+         self.fill_hole_area = fill_hole_area
+         # use bfloat16 inference for Flash Attention kernel
++        # Autocast is scoped by the embedding service around each inference so
++        # its cast cache can be released together with the managed model.
+         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+-        self.bf16_context.__enter__()  # keep using for the entire model process
+
+     def __getattr__(self, name):
+         # Expose all attributes of the underlying model
+@@ -2854,5 +2855,6 @@ class Sam3MultiplexPredictorWrapper(Sam3MultiplexTrackerPredictor):
+         self.is_multiplex_dynamic = is_multiplex_dynamic
+
+         # use bfloat16 inference for Flash Attention kernel
++        # Autocast is scoped by the embedding service around each inference so
++        # its cast cache can be released together with the managed model.
+         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+-        self.bf16_context.__enter__()
+diff --git a/sam3/model/sam3_multiplex_video_predictor.py b/sam3/model/sam3_multiplex_video_predictor.py
+index b86c7f1cb..4f20c865b 100644
+--- a/sam3/model/sam3_multiplex_video_predictor.py
++++ b/sam3/model/sam3_multiplex_video_predictor.py
+@@ -48,8 +48,9 @@ class Sam3MultiplexVideoPredictor(Sam3BasePredictor):
+         torch.backends.cuda.matmul.allow_tf32 = True
+         torch.backends.cudnn.allow_tf32 = True
+         # use bfloat16 inference for Flash Attention kernel
++        # The embedding service owns a request-scoped autocast context. A
++        # process-scoped enter keeps BF16 weight casts alive after eviction.
+         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+-        self.bf16_context.__enter__()
+
+         if warm_up:
+             self.model._warm_up_complete = False
+diff --git a/sam3/model/sam3_tracking_predictor.py b/sam3/model/sam3_tracking_predictor.py
+index 43b068b77..aa7ebb7f9 100644
+--- a/sam3/model/sam3_tracking_predictor.py
++++ b/sam3/model/sam3_tracking_predictor.py
+@@ -47,8 +47,10 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
+         self.max_point_num_in_prompt_enc = max_point_num_in_prompt_enc
+         self.non_overlap_masks_for_output = non_overlap_masks_for_output
+
++        # The embedding service scopes autocast around each inference. Keeping
++        # this context entered for the process lifetime pins autocast's cast
++        # cache after the model itself is evicted.
+         self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+-        self.bf16_context.__enter__()  # keep using for the entire model process
+
+         self.iter_use_prev_mask_pred = True
+         self.add_all_frames_to_correct_as_cond = True
