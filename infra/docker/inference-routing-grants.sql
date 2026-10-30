@@ -113,6 +113,7 @@ BEGIN
             bad_function;
     END IF;
     FOR required IN SELECT * FROM (VALUES
+        ('aap_inference_routing_v1.model_dispatch_step(text)','jsonb'),
         ('aap_inference_routing_v1.routing_policy()','jsonb'),
         ('aap_inference_routing_v1.routing_step(text,text)','jsonb'),
         ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb'),
@@ -158,6 +159,7 @@ END $$;
 GRANT USAGE ON SCHEMA aap_inference_routing_v1
     TO :"inference_routing_role";
 GRANT EXECUTE ON FUNCTION
+    aap_inference_routing_v1.model_dispatch_step(text),
     aap_inference_routing_v1.routing_policy(),
     aap_inference_routing_v1.routing_step(text,text),
     aap_inference_routing_v1.scope_retirement_step(text,text),
@@ -173,6 +175,7 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
+        'aap_inference_routing_v1.model_dispatch_step(text)',
         'aap_inference_routing_v1.routing_policy()',
         'aap_inference_routing_v1.routing_step(text, text)',
         'aap_inference_routing_v1.scope_retirement_step(text, text)',

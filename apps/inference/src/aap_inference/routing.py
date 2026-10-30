@@ -57,6 +57,8 @@ class RoutingTransaction(Protocol):
         self, action: str, arguments: Mapping[str, Any]
     ) -> dict[str, Any]: ...
 
+    def savepoint(self) -> AbstractAsyncContextManager[None]: ...
+
 
 RoutingDataFactory = Callable[[], AbstractAsyncContextManager[RoutingTransaction]]
 BackendControl = Callable[[Mapping[str, Any]], Awaitable[object]]
@@ -274,21 +276,33 @@ class RoutingManager:
         self,
         command: RoutingCommand,
         *,
-        member_id: uuid.UUID,
+        member_id: uuid.UUID | None,
         boot_id: str | None,
+        revalidate: bool,
+        binding: Mapping[str, Any],
     ) -> RoutingResult:
-        """Begin a model attempt after checking its exact reserved member."""
+        """Begin and prepare the exact model attempt in one transaction."""
         request = decode_routing_command(command)
         if (
             request.operation != "begin"
-            or type(member_id) is not uuid.UUID
+            or (member_id is not None and type(member_id) is not uuid.UUID)
             or (boot_id is not None and (type(boot_id) is not str or not boot_id))
+            or type(revalidate) is not bool
+            or (revalidate and member_id is None)
+            or not isinstance(binding, Mapping)
+        ):
+            raise RoutingUnavailable()
+        if (
+            binding.get("member_id") != (None if member_id is None else str(member_id))
+            or binding.get("boot_id") != boot_id
+            or binding.get("revalidate") is not revalidate
+            or binding.get("health_max_age_seconds") != self.health_max_age_seconds
         ):
             raise RoutingUnavailable()
         return await self._execute_once(
             request,
             retry_contention=False,
-            model_binding=(member_id, boot_id),
+            model_binding=(member_id, boot_id, revalidate, dict(binding)),
         )
 
     async def _execute_once(
@@ -296,7 +310,8 @@ class RoutingManager:
         command: RoutingCommand,
         *,
         retry_contention: bool,
-        model_binding: tuple[uuid.UUID, str | None] | None = None,
+        model_binding: tuple[uuid.UUID | None, str | None, bool, dict[str, Any]]
+        | None = None,
     ) -> RoutingResult:
         request = decode_routing_command(command)
         digest = routing_command_sha256(request)
@@ -328,12 +343,33 @@ class RoutingManager:
                                 data, request, digest
                             )
                         else:
-                            result_body = await self._begin_model(
-                                data, _request_body(request), digest, *model_binding
-                            )
+                            async with data.savepoint():
+                                member_id, boot_id, revalidate, binding = model_binding
+                                body = _request_body(request)
+                                if revalidate:
+                                    assert member_id is not None
+                                    result_body = await self._begin_model(
+                                        data, body, digest, member_id, boot_id
+                                    )
+                                else:
+                                    result_body = await self._begin(
+                                        data, body, control=False
+                                    )
+                                prepared = await _native_step(
+                                    data,
+                                    "model_dispatch_step",
+                                    {
+                                        "scope_id": body["scope_id"],
+                                        "capability": body["capability"],
+                                        "attempt_id": body["attempt_id"],
+                                        "action": "prepare",
+                                        "binding": binding,
+                                    },
+                                    keys={"state"},
+                                )
+                                if prepared["state"] != "prepared":
+                                    raise RoutingUnavailable()
                     except _Rejected as rejected:
-                        if model_binding is not None:
-                            raise
                         if (
                             retry_contention
                             and rejected.reason == "management_busy"
@@ -345,10 +381,6 @@ class RoutingManager:
                     self._result(request, digest, "committed", result_body)
                     await self._record_command(data, request, digest, result_body)
                 body_completed = True
-        except _Rejected as rejected:
-            return self._result(
-                request, digest, "committed", _rejection(rejected.reason)
-            )
         except (_RetryAdmission, asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception as exc:

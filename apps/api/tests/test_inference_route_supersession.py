@@ -7,12 +7,16 @@ import json
 import os
 import uuid
 
+import asyncpg
 from fastapi import FastAPI
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_inference.backend_endpoint import BackendEndpointSnapshot
-from aap_inference.owner_transport import RoutingModelRequestContextFactory
+from aap_inference.owner_transport import (
+    ModelDispatchDenied,
+    RoutingModelRequestContextFactory,
+)
 from aap_inference.request_tracking import http_client
 from aap_inference.routing_runtime import RoutingRuntime
 from aap_inference_contract.execution import (
@@ -21,7 +25,6 @@ from aap_inference_contract.execution import (
 )
 from aap_inference_contract.routing import (
     RoutingRejectedResult,
-    RoutingUnavailable,
     make_routing_command,
 )
 from tests.factory import create_project, create_user
@@ -43,6 +46,7 @@ pytestmark = [
     [
         "health_refresh",
         "unchanged_legacy",
+        "legacy_capability",
         "pool",
         "member",
         "endpoint",
@@ -51,6 +55,12 @@ pytestmark = [
         "project",
         "offline",
         "cancel",
+        "send_pool",
+        "send_member",
+        "send_endpoint",
+        "send_boot",
+        "send_project",
+        "cancel_before_send",
     ],
 )
 async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
@@ -62,6 +72,7 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
     runtime = RoutingRuntime(routing_dsn)
     app = FastAPI()
     entered, release = asyncio.Event(), asyncio.Event()
+    gate_entered = asyncio.Event()
     calls = []
 
     @app.post("/predict")
@@ -139,6 +150,21 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
         original = acquired.result
         assert original.state == "reserved"
         original_revision = original.eligibility_revision
+        if case == "legacy_capability":
+            # Rows created before the migration have no captured revision.
+            await owner.execute(
+                "UPDATE aap_inference_routing_v1.scopes SET reservation_eligibility_revision=NULL,reservation_boot_id=NULL WHERE id=$1",
+                original.id,
+            )
+            legacy = await runtime.execute(
+                make_routing_command(
+                    "scope_status",
+                    {"scope_id": str(original.id), "capability": original.capability},
+                )
+            )
+            assert legacy.result.scope.capability == original.capability
+            assert legacy.result.scope.eligibility_revision == original_revision
+            return
         if case != "unchanged_legacy":
             # A mandatory challenged health observation changes only live health data.
             health["probe"] = {"challenge": uuid.uuid4().hex}
@@ -223,9 +249,50 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
         request_context = RoutingModelRequestContextFactory(runtime)(
             operation, endpoint, binding
         )
+        if case.startswith("send_") or case == "cancel_before_send":
+            dispatch = runtime.model_dispatch
+
+            async def mutate_before_start(**arguments):
+                if arguments["action"] == "start":
+                    if case == "cancel_before_send":
+                        gate_entered.set()
+                        await release.wait()
+                    elif case == "send_pool":
+                        await owner.execute(
+                            "UPDATE public.ml_backend_service_pools SET routing_generation=routing_generation+1 WHERE id=$1",
+                            world["pool_id"],
+                        )
+                    elif case == "send_member":
+                        await owner.execute(
+                            "UPDATE public.ml_backend_pool_members SET traffic_state='disabled' WHERE id=$1",
+                            world["member_id"],
+                        )
+                    elif case == "send_project":
+                        await owner.execute(
+                            "UPDATE public.project_ml_backend_pool SET enabled=false WHERE project_id=$1 AND pool_id=$2",
+                            project_id,
+                            world["pool_id"],
+                        )
+                    elif case == "send_endpoint":
+                        with pytest.raises(asyncpg.LockNotAvailableError):
+                            await owner.execute(
+                                "UPDATE public.ml_backend_registry SET url=$2 WHERE id=$1",
+                                world["registry_id"],
+                                url + "/rotated",
+                            )
+                    elif case == "send_boot":
+                        health["residency"]["boot_id"] = "replacement-boot"
+                        await owner.execute(
+                            "UPDATE public.ml_backend_registry SET health_meta=$2::jsonb,last_checked_at=now() WHERE id=$1",
+                            world["registry_id"],
+                            json.dumps(health),
+                        )
+                return await dispatch(**arguments)
+
+            runtime.model_dispatch = mutate_before_start
 
         async with http_client(request_context, timeout=10, trust_env=False) as client:
-            if case in {"health_refresh", "unchanged_legacy"}:
+            if case in {"health_refresh", "unchanged_legacy", "send_endpoint"}:
                 assert (await client.post(url + "/predict")).json() == {"ok": True}
                 assert calls == ["predict"]
             elif case == "cancel":
@@ -236,8 +303,15 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
                     await sending
                 release.set()
                 assert calls == ["predict"]
+            elif case == "cancel_before_send":
+                sending = asyncio.create_task(client.post(url + "/predict"))
+                await asyncio.wait_for(gate_entered.wait(), timeout=5)
+                sending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await sending
+                assert calls == []
             else:
-                with pytest.raises(RoutingUnavailable):
+                with pytest.raises(ModelDispatchDenied):
                     await client.post(url + "/predict")
                 assert calls == []
         status = await runtime.execute(
@@ -246,22 +320,122 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
                 {"scope_id": str(original.id), "capability": original.capability},
             )
         )
-        if case in {"health_refresh", "unchanged_legacy"}:
+        if case in {"health_refresh", "unchanged_legacy", "send_endpoint"}:
             assert status.result.scope.id == original.id
             assert status.result.scope.capability == original.capability
-            if case == "health_refresh":
+            if case in {"health_refresh", "send_endpoint"}:
                 assert status.result.scope.eligibility_revision > original_revision
             else:
                 assert status.result.scope.eligibility_revision == original_revision
             assert status.result.attempts[0].state == "response"
+            assert not await runtime.model_dispatch(
+                scope_id=original.id,
+                capability=original.capability,
+                attempt_id=attempt_id,
+                action="not_sent",
+                binding=None,
+            )
+            assert not await runtime.model_dispatch(
+                scope_id=original.id,
+                capability=original.capability,
+                attempt_id=attempt_id,
+                action="start",
+                binding={
+                    "member_id": str(world["member_id"]),
+                    "boot_id": None if case == "unchanged_legacy" else "original-boot",
+                    "revalidate": True,
+                    "health_max_age_seconds": runtime.manager.health_max_age_seconds,
+                    "model_id": None,
+                    "model_variants": None,
+                    "check_approval": False,
+                    "approval": None,
+                },
+            )
+            assert calls == ["predict"]
         elif case == "cancel":
             assert (
                 len(status.result.attempts) == 1
                 and status.result.attempts[0].state == "uncertain"
             )
+        elif case.startswith("send_") or case == "cancel_before_send":
+            assert status.result.scope.id == original.id
+            assert status.result.scope.capability == original.capability
+            assert len(status.result.attempts) == 1
+            assert status.result.attempts[0].state == "not_sent"
+            assert status.result.attempts[0].reason == "not_sent"
+            closed = await runtime.execute(
+                make_routing_command(
+                    "close",
+                    {
+                        "scope_id": str(original.id),
+                        "capability": original.capability,
+                        "outcome": "cancel",
+                    },
+                )
+            )
+            assert closed.result.state == "cancelled"
         else:
             assert status.result.scope.eligibility_revision == original_revision
             assert not status.result.attempts
+        if case == "project":
+            replay_attempt = uuid.uuid4()
+            identity = {
+                "url": url,
+                "auth_method": row["auth_method"],
+                "auth_token": row["auth_token"],
+                "gpu_resource_id": "fixture-host/test-device",
+                "extra_params": extra,
+            }
+            replay_binding = {
+                "member_id": str(world["member_id"]),
+                "boot_id": "original-boot",
+                "revalidate": True,
+                "health_max_age_seconds": runtime.manager.health_max_age_seconds,
+                "model_id": None,
+                "model_variants": None,
+                "check_approval": False,
+                "approval": None,
+            }
+            async with runtime.transport_subject_issuer(
+                parent_kind="scope",
+                parent_id=original.id,
+                capability=original.capability,
+                attempt_id=replay_attempt,
+                transport_identity=identity,
+            ) as subject:
+                command = make_routing_command(
+                    "begin",
+                    {
+                        "scope_id": str(original.id),
+                        "capability": original.capability,
+                        "attempt_id": str(replay_attempt),
+                        "method": "POST",
+                        "path": "/predict",
+                        "transport_subject": subject,
+                    },
+                )
+                first = await runtime.begin_model(
+                    command,
+                    member_id=world["member_id"],
+                    boot_id="original-boot",
+                    revalidate=True,
+                    binding=replay_binding,
+                )
+                assert isinstance(first.result, RoutingRejectedResult)
+                await owner.execute(
+                    "UPDATE public.project_ml_backend_pool SET enabled=true WHERE project_id=$1 AND pool_id=$2",
+                    project_id,
+                    world["pool_id"],
+                )
+                replay = await runtime.begin_model(
+                    command,
+                    member_id=world["member_id"],
+                    boot_id="original-boot",
+                    revalidate=True,
+                    binding=replay_binding,
+                )
+                assert replay.result == first.result
+                assert calls == []
     finally:
         release.set()
         try:

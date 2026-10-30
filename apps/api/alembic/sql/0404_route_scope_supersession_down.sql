@@ -1,5 +1,9 @@
 DO $guard$
 BEGIN
+    IF EXISTS (SELECT 1 FROM aap_inference_routing_v1.attempts
+               WHERE state='not_sent' OR dispatch_state='prepared') THEN
+        RAISE EXCEPTION 'Cannot downgrade while no-send history or prepared attempts exist';
+    END IF;
     IF EXISTS (
         SELECT 1 FROM aap_inference_routing_v1.scopes
          WHERE NOT closed AND reservation_eligibility_revision IS NOT NULL
@@ -9,6 +13,19 @@ BEGIN
     END IF;
 END;
 $guard$;
+-- aap-statement-break
+DROP FUNCTION aap_inference_routing_v1.model_dispatch_step(text);
+-- aap-statement-break
+DROP TRIGGER aap_route_guard_model_attempt ON aap_inference_routing_v1.attempts;
+-- aap-statement-break
+DROP FUNCTION aap_inference_routing_v1.guard_model_attempt();
+-- aap-statement-break
+ALTER TABLE aap_inference_routing_v1.attempts
+    DROP CONSTRAINT attempts_state_check,
+    ADD CONSTRAINT attempts_state_check CHECK (state IN ('active','response','uncertain','reconciled')),
+    DROP COLUMN dispatch_binding_sha256,
+    DROP COLUMN dispatch_xid,
+    DROP COLUMN dispatch_state;
 -- aap-statement-break
 DROP FUNCTION aap_inference_routing_v1.supersede_unbegun_scope(text);
 -- aap-statement-break

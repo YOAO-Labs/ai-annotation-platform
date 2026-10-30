@@ -602,7 +602,7 @@ class RoutingScopeView(_RoutingModel):
 
 class RoutingAttemptView(_RoutingModel):
     attempt_id: uuid.UUID
-    state: Literal["active", "response", "uncertain", "reconciled"]
+    state: Literal["active", "response", "uncertain", "reconciled", "not_sent"]
     status_code: StrictInt | None
     reason: StrictStr | None = Field(max_length=96)
 

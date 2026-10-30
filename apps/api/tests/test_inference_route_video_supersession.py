@@ -88,7 +88,7 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
             "residency": {"boot_id": "video-boot"},
         }
         await owner.execute(
-            "UPDATE public.ml_backend_registry SET url=$2,health_meta=$3::jsonb,last_checked_at=now() WHERE id=$1",
+            "UPDATE public.ml_backend_registry SET url=$2,gpu_resource_id='fixture-host/test-device',vram_budget_mb=512,health_meta=$3::jsonb,last_checked_at=now() WHERE id=$1",
             world["registry_id"],
             url,
             json.dumps(health),
@@ -111,7 +111,7 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
             "url": url,
             "auth_method": row["auth_method"],
             "auth_token": row["auth_token"],
-            "gpu_resource_id": None,
+            "gpu_resource_id": "fixture-host/test-device",
             "extra_params": extra,
         }
         acquire = make_routing_command(
@@ -155,6 +155,16 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
             json.dumps(health),
         )
         attempt_id = uuid.uuid4()
+        binding = {
+            "member_id": str(world["member_id"]),
+            "boot_id": "video-boot",
+            "revalidate": True,
+            "health_max_age_seconds": runtime.manager.health_max_age_seconds,
+            "model_id": None,
+            "model_variants": None,
+            "check_approval": False,
+            "approval": None,
+        }
         async with runtime.transport_subject_issuer(
             parent_kind="scope",
             parent_id=scope_id,
@@ -174,7 +184,11 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
                 },
             )
             begun = await runtime.begin_model(
-                command, member_id=world["member_id"], boot_id="video-boot"
+                command,
+                member_id=world["member_id"],
+                boot_id="video-boot",
+                revalidate=True,
+                binding=binding,
             )
         assert begun.state == "committed" and isinstance(
             begun.result, RoutingBeginResult
@@ -182,6 +196,13 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
         assert begun.result.scope.id == scope_id
         assert begun.result.scope.eligibility_revision > original.eligibility_revision
         assert begun.result.scope.owner == f"tracker:{fixture['job_id']}"
+        assert await runtime.model_dispatch(
+            scope_id=scope_id,
+            capability=original.capability,
+            attempt_id=attempt_id,
+            action="start",
+            binding=binding,
+        )
         async with httpx.AsyncClient(trust_env=False) as client:
             assert (
                 await client.post(url + "/predict", headers=begun.result.headers)

@@ -109,11 +109,53 @@ class RoutingRuntime:
         return await self.manager.execute(command)
 
     async def begin_model(
-        self, command: RoutingCommand, *, member_id: UUID, boot_id: str | None
+        self,
+        command: RoutingCommand,
+        *,
+        member_id: UUID | None,
+        boot_id: str | None,
+        revalidate: bool,
+        binding: Mapping[str, Any],
     ):
         return await self.manager.begin_model(
-            command, member_id=member_id, boot_id=boot_id
+            command,
+            member_id=member_id,
+            boot_id=boot_id,
+            revalidate=revalidate,
+            binding=binding,
         )
+
+    async def model_dispatch(
+        self,
+        *,
+        scope_id: UUID,
+        capability: str,
+        attempt_id: UUID,
+        action: str,
+        binding: Mapping[str, Any] | None,
+    ) -> bool:
+        if action not in {"start", "not_sent"}:
+            raise RoutingUnavailable()
+        async with self._transaction() as data:
+            reply = await data.step(
+                "model_dispatch_step",
+                {
+                    "scope_id": str(scope_id),
+                    "capability": capability,
+                    "attempt_id": str(attempt_id),
+                    "action": action,
+                    "binding": None if binding is None else dict(binding),
+                },
+            )
+            if reply.get("schema") != ROUTING_DATA_PROTOCOL:
+                raise RoutingUnavailable()
+            if reply.get("status") == "rejected":
+                return False
+            if reply.get("status") != "ok" or reply.get("state") != (
+                "started" if action == "start" else "not_sent"
+            ):
+                raise RoutingUnavailable()
+            return True
 
     @asynccontextmanager
     async def transport_subject_issuer(

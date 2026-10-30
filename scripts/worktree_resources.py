@@ -489,6 +489,7 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.complete_image_garbage(uuid,uuid)",
 )
 INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
+    "aap_inference_routing_v1.model_dispatch_step(text)",
     "aap_inference_routing_v1.routing_policy()",
     "aap_inference_routing_v1.routing_step(text,text)",
     "aap_inference_routing_v1.scope_retirement_step(text,text)",

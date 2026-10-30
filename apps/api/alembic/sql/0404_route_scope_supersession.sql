@@ -3,6 +3,46 @@ ALTER TABLE aap_inference_routing_v1.scopes
     ADD COLUMN reservation_boot_id text,
     ADD COLUMN reservation_eligibility_revision bigint;
 -- aap-statement-break
+-- Old attempts remain unmanaged: they cannot acquire a retroactive no-send proof.
+ALTER TABLE aap_inference_routing_v1.attempts
+    ADD COLUMN dispatch_state text NOT NULL DEFAULT 'unmanaged'
+        CHECK (dispatch_state IN ('unmanaged','prepared','started')),
+    ADD COLUMN dispatch_xid xid8,
+    ADD COLUMN dispatch_binding_sha256 bytea;
+-- aap-statement-break
+ALTER TABLE aap_inference_routing_v1.attempts
+    ALTER COLUMN dispatch_xid SET DEFAULT pg_catalog.pg_current_xact_id(),
+    DROP CONSTRAINT attempts_state_check,
+    ADD CONSTRAINT attempts_state_check CHECK (state IN ('active','response','uncertain','reconciled','not_sent'));
+-- aap-statement-break
+CREATE FUNCTION aap_inference_routing_v1.guard_model_attempt()
+RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD' SET extra_float_digits TO 3
+AS $function$
+BEGIN
+    IF OLD.state = 'not_sent' AND
+       (NEW.state IS DISTINCT FROM OLD.state OR NEW.reason IS DISTINCT FROM OLD.reason
+        OR NEW.status_code IS DISTINCT FROM OLD.status_code) THEN
+        RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='not-sent attempt is terminal';
+    END IF;
+    IF OLD.state='active' AND OLD.dispatch_state='prepared'
+       AND NEW.state IN ('uncertain','reconciled') THEN
+        NEW.state := 'not_sent';
+        NEW.reason := 'not_sent';
+        NEW.status_code := NULL;
+    ELSIF OLD.state='active' AND OLD.dispatch_state='prepared' AND NEW.state='response' THEN
+        RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='model dispatch was not started';
+    END IF;
+    RETURN NEW;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_routing_v1.guard_model_attempt() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER aap_route_guard_model_attempt BEFORE UPDATE ON aap_inference_routing_v1.attempts
+FOR EACH ROW EXECUTE FUNCTION aap_inference_routing_v1.guard_model_attempt();
+-- aap-statement-break
 CREATE FUNCTION aap_inference_routing_v1.capture_scope_boot()
 RETURNS trigger
 LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -184,6 +224,173 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_inference_routing_v1.supersede_unbegun_scope(text) FROM PUBLIC;
 -- aap-statement-break
+-- The start transition is the dispatch authorization linearization point.
+CREATE FUNCTION aap_inference_routing_v1.model_dispatch_step(p_args text)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD' SET extra_float_digits TO 3
+AS $function$
+DECLARE
+    args jsonb := p_args::jsonb;
+    binding jsonb;
+    current_binding jsonb;
+    v_scope aap_inference_routing_v1.scopes%ROWTYPE;
+    v_attempt aap_inference_routing_v1.attempts%ROWTYPE;
+    v_state aap_inference_routing_v1.registry_state%ROWTYPE;
+    v_registry public.ml_backend_registry%ROWTYPE;
+    v_scope_id uuid;
+    v_attempt_id uuid;
+    v_member_id uuid;
+    v_action text;
+    v_transport jsonb;
+    v_age bigint;
+BEGIN
+    IF NOT aap_inference_routing_v1._routing_exact_keys(
+        args, ARRAY['scope_id','capability','attempt_id','action','binding']
+    ) OR pg_catalog.jsonb_typeof(args->'capability') IS DISTINCT FROM 'string'
+      OR pg_catalog.jsonb_typeof(args->'action') IS DISTINCT FROM 'string'
+      OR args->>'capability' !~ '^[0-9a-f]{64}$' THEN
+        RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid model dispatch';
+    END IF;
+    v_scope_id := aap_inference_routing_v1._routing_uuid(args->>'scope_id');
+    v_attempt_id := aap_inference_routing_v1._routing_uuid(args->>'attempt_id');
+    v_action := args->>'action';
+    IF v_action NOT IN ('prepare','start','not_sent') THEN
+        RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid model dispatch';
+    END IF;
+    SELECT s.* INTO v_scope FROM aap_inference_routing_v1.scopes AS s
+     WHERE s.id=v_scope_id FOR UPDATE;
+    IF NOT FOUND OR aap_inference_routing_v1._routing_scope_capability(v_scope_id) IS DISTINCT FROM args->>'capability' THEN
+        RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+    END IF;
+    SELECT a.* INTO v_attempt FROM aap_inference_routing_v1.attempts AS a
+     WHERE a.id=v_attempt_id AND a.scope_id=v_scope_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+    END IF;
+    IF v_action='not_sent' THEN
+        IF args->'binding' IS DISTINCT FROM 'null'::jsonb THEN
+            RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid model dispatch';
+        END IF;
+        IF v_attempt.state='not_sent' THEN
+            RETURN aap_inference_routing_v1._routing_reply('ok', pg_catalog.jsonb_build_object('state','not_sent'));
+        END IF;
+        IF v_attempt.state IS DISTINCT FROM 'active' OR v_attempt.dispatch_state IS DISTINCT FROM 'prepared' THEN
+            RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+        END IF;
+        UPDATE aap_inference_routing_v1.attempts SET state='not_sent',reason='not_sent',status_code=NULL,
+            updated_at=pg_catalog.now() WHERE id=v_attempt_id;
+        RETURN aap_inference_routing_v1._routing_reply('ok', pg_catalog.jsonb_build_object('state','not_sent'));
+    END IF;
+    binding := args->'binding';
+    IF NOT aap_inference_routing_v1._routing_exact_keys(
+        binding, ARRAY['member_id','boot_id','revalidate','health_max_age_seconds',
+                       'model_id','model_variants','check_approval','approval']
+    ) OR pg_catalog.jsonb_typeof(binding->'revalidate') IS DISTINCT FROM 'boolean'
+      OR pg_catalog.jsonb_typeof(binding->'check_approval') IS DISTINCT FROM 'boolean'
+      OR (binding->'boot_id' <> 'null'::jsonb AND pg_catalog.jsonb_typeof(binding->'boot_id') IS DISTINCT FROM 'string')
+      OR (binding->'model_id' <> 'null'::jsonb AND pg_catalog.jsonb_typeof(binding->'model_id') IS DISTINCT FROM 'string')
+      OR (binding->'model_variants' <> 'null'::jsonb AND pg_catalog.jsonb_typeof(binding->'model_variants') IS DISTINCT FROM 'object')
+      OR (binding->'approval' <> 'null'::jsonb AND pg_catalog.jsonb_typeof(binding->'approval') IS DISTINCT FROM 'object') THEN
+        RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='invalid model dispatch binding';
+    END IF;
+    IF binding->'member_id' <> 'null'::jsonb THEN
+        v_member_id := aap_inference_routing_v1._routing_uuid(binding->>'member_id');
+    END IF;
+    v_age := aap_inference_routing_v1._routing_integer(binding->'health_max_age_seconds',1,3600);
+    IF v_scope.closed OR v_scope.state IS DISTINCT FROM 'active' OR v_attempt.state IS DISTINCT FROM 'active' THEN
+        RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+    END IF;
+    IF v_action='prepare' THEN
+        IF v_attempt.dispatch_state IS DISTINCT FROM 'unmanaged'
+           OR v_attempt.dispatch_xid IS DISTINCT FROM pg_catalog.pg_current_xact_id() THEN
+            RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+        END IF;
+        UPDATE aap_inference_routing_v1.attempts
+           SET dispatch_state='prepared',
+               dispatch_binding_sha256=public.digest(pg_catalog.convert_to(binding::text,'UTF8'),'sha256'),
+               updated_at=pg_catalog.now() WHERE id=v_attempt_id;
+        RETURN aap_inference_routing_v1._routing_reply('ok', pg_catalog.jsonb_build_object('state','prepared'));
+    END IF;
+    IF v_attempt.dispatch_state IS DISTINCT FROM 'prepared' THEN
+        RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+    END IF;
+    SELECT r.* INTO v_registry FROM public.ml_backend_registry AS r WHERE r.id=v_scope.registry_id FOR SHARE NOWAIT;
+    IF NOT FOUND THEN
+        RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+    END IF;
+    IF (binding->>'revalidate')::boolean IS DISTINCT FROM
+       (v_scope.pool_id IS NOT NULL AND v_registry.gpu_resource_id IS NOT NULL)
+       OR ((binding->>'revalidate')::boolean AND v_member_id IS NULL) THEN
+        RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+    END IF;
+    SELECT s.* INTO v_state FROM aap_inference_routing_v1.registry_state AS s WHERE s.registry_id=v_scope.registry_id;
+    v_transport := aap_inference_routing_v1._routing_transport_identity(v_scope.registry_id);
+    IF v_transport IS NULL OR pg_catalog.encode(public.digest(pg_catalog.convert_to(v_transport::text,'UTF8'),'sha256'),'hex')
+          IS DISTINCT FROM v_attempt.transport_identity_sha256
+       OR v_state.registry_id IS NULL OR v_state.realm IS DISTINCT FROM v_scope.realm
+       OR v_state.realm IS DISTINCT FROM aap_inference_routing_v1._routing_realm()
+       OR v_state.config_revision IS DISTINCT FROM v_scope.config_revision
+       OR v_state.authority_epoch IS DISTINCT FROM v_scope.authority_epoch THEN
+        RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+    END IF;
+    IF v_scope.pool_id IS NOT NULL THEN
+        PERFORM aap_inference_routing_v1._routing_lock_admission_pool(v_scope.pool_id);
+        PERFORM p.id FROM public.ml_backend_service_pools AS p
+         WHERE p.id=v_scope.pool_id AND p.enabled AND p.routing_generation=v_scope.generation;
+        IF NOT FOUND THEN RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch'); END IF;
+        PERFORM m.id FROM public.ml_backend_pool_members AS m
+         WHERE m.pool_id=v_scope.pool_id AND m.registry_id=v_scope.registry_id
+           AND (v_member_id IS NULL OR m.id=v_member_id) AND m.traffic_state='active'
+         FOR SHARE NOWAIT;
+        IF NOT FOUND THEN RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch'); END IF;
+        IF v_scope.project_id IS NOT NULL THEN
+            PERFORM a.id FROM public.project_ml_backend_pool AS a
+             WHERE a.project_id=v_scope.project_id AND a.pool_id=v_scope.pool_id AND a.enabled;
+            IF NOT FOUND THEN RETURN aap_inference_routing_v1._routing_rejected('pool_not_enabled'); END IF;
+        END IF;
+    ELSIF v_member_id IS NOT NULL THEN
+        RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
+    END IF;
+    IF aap_inference_routing_v1._routing_has_control(v_scope.registry_id) THEN
+        RETURN aap_inference_routing_v1._routing_rejected('management_busy');
+    END IF;
+    IF v_scope.operation='tracker' AND NOT aap_jobs_v1._video_execution_scope_is_current(v_scope_id,false) THEN
+        RETURN aap_inference_routing_v1._routing_rejected('scope_unavailable');
+    END IF;
+    IF (binding->>'revalidate')::boolean THEN
+        IF (binding->>'boot_id' IS NULL AND v_scope.reservation_eligibility_revision IS DISTINCT FROM v_scope.eligibility_revision)
+           OR (binding->>'boot_id' IS NOT NULL AND (
+               v_scope.reservation_boot_id IS DISTINCT FROM binding->>'boot_id'
+               OR v_registry.health_meta #>> '{residency,boot_id}' IS DISTINCT FROM binding->>'boot_id')) THEN
+            RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM aap_inference_routing_v1.attempts AS a
+                       WHERE a.scope_id=v_scope_id AND a.id<>v_attempt_id)
+           AND (v_state.eligibility_revision IS DISTINCT FROM v_scope.eligibility_revision
+             OR (v_scope.reservation_eligibility_revision IS DISTINCT FROM v_scope.eligibility_revision
+                 AND (v_registry.state IS DISTINCT FROM 'connected' OR v_registry.last_checked_at IS NULL
+                      OR v_registry.last_checked_at < pg_catalog.clock_timestamp()-pg_catalog.make_interval(secs=>v_age::integer)))) THEN
+            RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
+        END IF;
+    END IF;
+    current_binding := binding;
+    IF (binding->>'check_approval')::boolean THEN
+        current_binding := pg_catalog.jsonb_set(binding, '{approval}',
+            COALESCE(aap_inference_topology_v1.plugin_asset_approval(v_scope.registry_id), 'null'::jsonb));
+    END IF;
+    IF public.digest(pg_catalog.convert_to(current_binding::text,'UTF8'),'sha256')
+       IS DISTINCT FROM v_attempt.dispatch_binding_sha256 THEN
+        RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+    END IF;
+    UPDATE aap_inference_routing_v1.attempts SET dispatch_state='started',updated_at=pg_catalog.now()
+     WHERE id=v_attempt_id;
+    RETURN aap_inference_routing_v1._routing_reply('ok', pg_catalog.jsonb_build_object('state','started'));
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_routing_v1.model_dispatch_step(text) FROM PUBLIC;
+-- aap-statement-break
 DO $owner$
 DECLARE owner_name text;
 BEGIN
@@ -191,5 +398,9 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid=n.nspowner WHERE n.nspname='aap_inference_routing_v1';
     EXECUTE pg_catalog.format('ALTER FUNCTION aap_inference_routing_v1.capture_scope_boot() OWNER TO %I', owner_name);
     EXECUTE pg_catalog.format('ALTER FUNCTION aap_inference_routing_v1.supersede_unbegun_scope(text) OWNER TO %I', owner_name);
+    EXECUTE pg_catalog.format('ALTER FUNCTION aap_inference_routing_v1.guard_model_attempt() OWNER TO %I', owner_name);
+    EXECUTE pg_catalog.format('ALTER FUNCTION aap_inference_routing_v1.model_dispatch_step(text) OWNER TO %I', owner_name);
+    EXECUTE pg_catalog.format('GRANT USAGE ON SCHEMA aap_inference_topology_v1 TO %I', owner_name);
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION aap_inference_topology_v1.plugin_asset_approval(uuid) TO %I', owner_name);
 END;
 $owner$;
