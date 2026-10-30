@@ -1,6 +1,6 @@
 """SAM 3 推理封装 (vendor 对齐).
 
-vendor: facebookresearch/sam3 @ 4cbac14, 通过 scripts/sync_vendor.sh 同步.
+vendor: facebookresearch/sam3 @ 4cbac14, 固定为 Git submodule。
 入口: `from sam3 import build_sam3_image_model` + `from sam3.model.sam3_image_processor import Sam3Processor`.
 
 支持的 prompt (启用 inst_interactivity):

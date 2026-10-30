@@ -1,6 +1,6 @@
 """Grounded-SAM-2 推理封装.
 
-vendor 形态: vendor/grounded-sam-2/ 下放上游官方仓库副本 (固定 commit, 通过 scripts/sync_vendor.sh 同步).
+vendor 形态: vendor/grounded-sam-2/ 是固定 commit 的上游 Git submodule.
 本模块只对 vendor 内的 SAM 2.1 image_predictor + GroundingDINO inference utilities 做一层 prompt 适配,
 返回平台协议要求的 polygonlabels / rectanglelabels 字典数组.
 
@@ -202,7 +202,7 @@ class GroundedSAM2Predictor:
     # SAM2ImagePredictor.set_image() 把 image embedding 写到几个实例属性上;
     # 缓存命中时把这些字段写回, 等价于 set_image() 但跳过编码器.
     # 字段名跟随 vendor IDEA-Research/Grounded-SAM-2 (commit b7a9c29) 内的
-    # sam2/sam2_image_predictor.py; sync_vendor.sh 升级 commit 时务必跑 5-clicks 集成验收.
+    # sam2/sam2_image_predictor.py; 升级 submodule commit 时务必跑 5-clicks 集成验收.
 
     def _snapshot_sam(self, w: int, h: int) -> CacheEntry:
         sp = self._sam_predictor

@@ -60,9 +60,9 @@ apps/sam3-backend/
 ├── scripts/
 │   ├── download_checkpoints.py   幂等拉 sam3.pt + sam3.1_multiplex 权重 (gated, 需 HF_TOKEN)
 │   ├── validate_managed_lifecycle.py  真实 GPU 三池部署验收
-│   └── sync_vendor.sh            同步上游到 vendor/
+├── patches/                构建时应用的上游修补
 ├── vendor/
-│   └── sam3/               vendored copy (须先跑 sync_vendor.sh)
+│   └── sam3/               固定 commit 的 Git submodule
 └── README.md
 ```
 
@@ -70,19 +70,20 @@ apps/sam3-backend/
 
 ## Vendor & 固定 commit
 
-vendor 形态选 **vendored copy** 而非 git submodule (与 grounded-sam2-backend 一致, 同步脚本可控).
+从仓库根目录执行 `git submodule update --init --recursive`。SAM3 固定于
+`4cbac146c1b5a1e3a7f5c6a894901090b4dfd65b`，保留上游 SAM License；
+模型权重仍受独立的访问与许可限制。
 
-**首次接入 / 升级**:
-
-```bash
-cd apps/sam3-backend
-bash scripts/sync_vendor.sh <commit-sha>
-git add vendor/sam3 && git commit -m "vendor: bump sam3 to <commit-sha>"
-```
-
-**当前固定 commit**: `4cbac146c1b5a1e3a7f5c6a894901090b4dfd65b` (2026-05-13 拉取, main HEAD: "Fix PYRE_MISSING_ANNOTATIONS issues in fbcode/deeplearning/projects/sam3_release/sam3/model/io_utils.py").
-
-> ✅ **2026-05-13 状态**: vendor 已就位 + `predictor.py` / `embedding_cache.py` / `tests/` 已按真实 API 重写 (45 单测全绿). v0.10.0 选项 A: 不启用 `enable_inst_interactivity`, 放弃 point prompt, 让 grounded-sam2-backend 兜底单点交互. 等首位 GPU 部署者跑端到端验收 (HF_TOKEN + `--profile gpu-sam3`).
+构建在干净的 submodule 副本上应用 `patches/0001-request-scoped-autocast.patch`：
+四处 autocast 上下文不再永久进入，避免驱逐模型后保留缓存。不要直接修改 submodule 工作树。
+旧 `sam3/model/{sam3_multiplex_base,sam3_multiplex_video_predictor,sam3_tracking_predictor}.py`
+由补丁逐字还原。`scripts/eval/silver/{README.md,fathomnet_image_uuids.json}` 和
+`assets/veval/toy_gt_and_pred/{toy_saco_veval_sav_test_eval_res.json,toy_saco_veval_sav_test_pred.json}`
+仅有末尾空白差异，现使用上游原件。其余旧文件与同路径上游一致（`.commit` 由 gitlink 取代）。
+上游额外提供 `assets/{dog.gif,player.gif,saco_gold_annotation.png,videos/bedroom.mp4}`、
+`assets/veval/toy_gt_and_pred/toy_saco_veval_sav_test_gt.json`、
+`examples/{sam3_image_batched_inference.ipynb,sam3_image_predictor_example.ipynb}` 和
+`scripts/eval/silver/inaturalist_image_subset.json`；它们不是推理依赖。
 
 升级 commit 时务必跑 5-clicks 集成验收, 复核以下签名是否仍然存在:
 
@@ -123,8 +124,8 @@ git add vendor/sam3 && git commit -m "vendor: bump sam3 to <commit-sha>"
 **镜像 mirror 注意**: Dockerfile 用 `pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel` (torch + CUDA + cudnn 一站式, 不需要 pip 重装 torch). 若 mirror 无该 tag, 备选 `pytorch/pytorch:2.7.1-cuda12.6-cudnn9-devel` (CUDA 12.6 下限) 或 `pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel` (更新, 不一定存在). vendor README §82 推荐的是 `torch==2.10.0+cu128`, 我们用 2.7.1 已满足 vendor §70 的「torch >= 2.7」下限, 换取镜像可用性.
 
 ```bash
-# 1. 同步 vendor (一次性)
-bash apps/sam3-backend/scripts/sync_vendor.sh <commit-sha>
+# 1. 初始化固定的 vendor submodule (仓库根目录)
+git submodule update --init --recursive
 
 # 2. 通过 docker compose GPU profile 启动
 docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up --build sam3-backend
@@ -272,7 +273,7 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 
 ## 排错
 
-**vendor/sam3 为空**: 先跑 `bash scripts/sync_vendor.sh <commit>`. Dockerfile 在 build 期检测到空目录会 fail-fast.
+**vendor/sam3 为空**: 在仓库根目录运行 `git submodule update --init --recursive`。
 
 **HF_TOKEN 未设置**: 容器启动后 `download_checkpoints.py` 立即 fail-fast 退出. 检查 `.env` 与 docker-compose 的 environment 注入是否一致.
 

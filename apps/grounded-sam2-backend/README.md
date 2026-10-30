@@ -37,10 +37,9 @@ apps/grounded-sam2-backend/
 ├── tests/                  pytest 单测 (无 GPU 即可跑)
 ├── checkpoints/            权重落盘点 (启动时下载, 挂 volume)
 ├── scripts/
-│   ├── download_checkpoints.py   幂等拉权重
-│   └── sync_vendor.sh            同步上游到 vendor/
+│   └── download_checkpoints.py   幂等拉权重
 ├── vendor/
-│   └── grounded-sam-2/     vendored copy (须先跑 sync_vendor.sh)
+│   └── grounded-sam-2/     固定 commit 的 Git submodule
 └── README.md
 ```
 
@@ -48,17 +47,11 @@ apps/grounded-sam2-backend/
 
 ## Vendor & 固定 commit
 
-vendor 形态选 **vendored copy** 而非 git submodule（理由：上游 demo 脚本结构常变，同步脚本可控）。
-
-**首次接入 / 升级**：
-
-```bash
-cd apps/grounded-sam2-backend
-bash scripts/sync_vendor.sh <commit-sha>
-git add vendor/grounded-sam-2 && git commit -m "vendor: bump grounded-sam-2 to <commit-sha>"
-```
-
-**当前固定 commit**：`b7a9c29f196edff0eb54dbe14588d7ae5e3dde28`（2026-05-07 选定，main HEAD；fix: add CUDA version check for <12.8 compatibility, #123）。
+从仓库根目录执行 `git submodule update --init --recursive`。Grounded-SAM-2
+固定于 `b7a9c29f196edff0eb54dbe14588d7ae5e3dde28`；源代码和许可文件与该上游
+commit 一致（旧 `.commit` 由 gitlink 取代）。上游额外包含
+`grounding_dino/{demo/test_ap_on_coco.py,docker_test.py,test.ipynb}`，不是推理依赖。
+各组件的上游许可证及模型权重限制仍然适用。
 
 ---
 
@@ -73,8 +66,8 @@ git add vendor/grounded-sam-2 && git commit -m "vendor: bump grounded-sam-2 to <
 > Dockerfile 与对齐版本来自官仓 [`IDEA-Research/Grounded-SAM-2/Dockerfile`](https://github.com/IDEA-Research/Grounded-SAM-2/blob/main/Dockerfile)（Python 3.10 + torch 2.3.1 + torchvision 0.18.1 + CUDA 12.1 + gcc/g++-10）。我们额外加 `8.9 / 9.0` 以覆盖 Ada Lovelace 与 Hopper。
 
 ```bash
-# 1. 同步 vendor (一次性)
-bash apps/grounded-sam2-backend/scripts/sync_vendor.sh <commit-sha>
+# 1. 初始化固定的 vendor submodule (仓库根目录)
+git submodule update --init --recursive
 
 # 2. 通过 docker compose GPU profile 启动
 docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up --build grounded-sam2-backend
@@ -191,7 +184,7 @@ LRU embedding 缓存的 key 为 `sha1(url_path|sam_variant)`（剥掉 MinIO pres
 
 ## 排错
 
-**vendor/grounded-sam-2 为空**：先跑 `bash scripts/sync_vendor.sh <commit>`。Dockerfile 在 build 期检测到空目录会 fail-fast。
+**vendor/grounded-sam-2 为空**：在仓库根目录运行 `git submodule update --init --recursive`。
 
 **首次启动卡住 > 5 分钟**：`docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu logs -f grounded-sam2-backend` 查看 checkpoints 下载进度。HuggingFace 偶发限速，重试即可。
 

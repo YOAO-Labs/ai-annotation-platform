@@ -1,0 +1,9 @@
+[submodule "apps/sam3-backend/vendor/sam3"]
+	path = apps/sam3-backend/vendor/sam3
+	url = https://github.com/facebookresearch/sam3.git
+[submodule "apps/grounded-sam2-backend/vendor/grounded-sam-2"]
+	path = apps/grounded-sam2-backend/vendor/grounded-sam-2
+	url = https://github.com/IDEA-Research/Grounded-SAM-2.git
+[submodule "apps/api/app/vendor/TrackEval"]
+	path = apps/api/app/vendor/TrackEval
+	url = https://github.com/YOAO-Labs/TrackEval.git

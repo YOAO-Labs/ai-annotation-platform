@@ -14,7 +14,7 @@
     响应 result 每条: {frame_index(源帧号), geometry:{type:"bbox",x,y,w,h},
                         confidence, outside}, x/y/w/h 归一化到 [0,1]。
 
-vendor SAM2 video API 关键事实 (以实际 vendor 代码为准, commit 见 sync_vendor.sh):
+vendor SAM2 video API 关键事实 (以固定 submodule 的代码为准):
   - init_state(video_path, ...): video_path 可为 .mp4 文件 (走 decord) 或
     "<frame_index>.jpg" JPEG 目录 (走 PIL)。一次性把整段加载进显存, **无窗口参数**。
     → 为把单次 init_state 显存/帧数压到 VIDEO_TRACKER_MAX_WINDOW_FRAMES 安全上限,

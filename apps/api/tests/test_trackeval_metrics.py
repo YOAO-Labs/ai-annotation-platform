@@ -8,7 +8,7 @@ from app.services.video_track_quality import (
     _issue_frame_counts,
     metrics_with_current_chapters,
 )
-from app.vendor.trackeval_metrics import evaluate_sequence
+from app.vendor.TrackEval.trackeval_metrics import evaluate_sequence
 
 
 def _data(gt, tracker, similarities, *, gt_ids, tracker_ids):

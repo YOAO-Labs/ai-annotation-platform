@@ -20,7 +20,7 @@ dependencies = [
     # huggingface_hub: SAM 3.1 是 gated repo, 拉权重必须传 HF_TOKEN.
     "huggingface_hub>=0.23",
     # transformers 5.x 对 SAM 3 友好 (Sam3Model / Sam3VideoModel 在 5.x 落地).
-    # 具体下限以 facebookresearch/sam3 README 为准, sync_vendor.sh 升级后核对.
+    # 具体下限以 facebookresearch/sam3 README 为准, 升级 submodule 后核对.
     "transformers>=4.45",
     "supervision>=0.21",
     "prometheus-client>=0.20",

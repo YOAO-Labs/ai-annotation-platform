@@ -39,7 +39,7 @@ from app.services.video_collaboration import (
 from app.services.video_context import derive_step
 from app.services.video_frame_service import build_context_from_task
 from app.services.video_tracks import resolve_track_at_frame
-from app.vendor.trackeval_metrics import evaluate_sequence
+from app.vendor.TrackEval.trackeval_metrics import evaluate_sequence
 from app.services.labeling_spatial_quality import (
     quality_records,
     quality_row,

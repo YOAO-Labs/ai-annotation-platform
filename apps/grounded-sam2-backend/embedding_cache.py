@@ -9,8 +9,8 @@
     + 平台需要的 `(w,h)`. tensor 原地引用, 不 deepcopy(GPU 拷贝代价大;
     LRU 容量 = 内存上限的物理保证).
   - vendor 升级提醒: predictor 内部属性名 (`_features`/`_orig_hw`/`_is_image_set`/
-    `_is_batch`) 跟随 IDEA-Research/Grounded-SAM-2 commit 走; sync_vendor.sh
-    每次必须人肉跑一次 5-clicks 集成验收.
+    `_is_batch`) 跟随 IDEA-Research/Grounded-SAM-2 commit 走; 升级 submodule 时
+    必须人肉跑一次 5-clicks 集成验收.
 """
 
 from __future__ import annotations
