@@ -98,7 +98,7 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `aap-inference-contract`、`aap-task-contract`、`aap-lifecycle-contract` 和训练契约），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架；仅安装核心 SDK 或 `cli` extra 不会隐式安装插件管理依赖。
 
-必要的第一方便携契约可从公开[契约制品](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-3d6393e64630)按 manifest 与 SHA256 核验取得，契约源码仍由平台维护；[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供自定义插件作者抽象与能力工具，[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。插件开发 SDK 与管理员使用的 API SDK 分包，安装管理无需安装模型开发运行时。公开第一方 wheel 不是完整离线依赖包，也不包含模型权重或 OCI 镜像，更不自动授予托管 GPU 资格。
+必要的第一方便携契约可从公开[契约制品](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-906628f2619b)按 manifest 与 SHA256 核验取得，契约源码仍由平台维护；[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供自定义插件作者抽象与能力工具，[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。插件开发 SDK 与管理员使用的 API SDK 分包，安装管理无需安装模型开发运行时。公开第一方 wheel 不是完整离线依赖包，也不包含模型权重或 OCI 镜像，更不自动授予托管 GPU 资格。
 
 ```bash
 python -m venv .venv
@@ -218,6 +218,8 @@ aap plugins uninstall --state-dir ./plugin-state --yes --json
 GPU 资源修复任务可依据 owner 核验的“从未启动”闭合证明回收已取消的预留，不要求不存在的进程提供健康响应。真正启动过的实例仍须完成终止证明，并等待相关 Token 时限后收口；不要通过清空账本或重命名资源绕过等待。多池终止回执必须包含全部且不重复的获准池，顺序可以不同，其他身份、代际与卸载字段仍须匹配。
 
 需要保留同一安装及模型目录、仅替换运行进程时，使用 `aap plugins restart --state-dir ./plugin-state --yes --json`。它先完成上述终止证明及停止，再用原制品和资格创建新的容器与启动身份；历史证明保留。GPU 激活须等待既有签名许可有效期，reset 与 enforce 各自保留完整等待窗口；结构化超时不表示候选可以改换身份。中断后继续同一命令，不手工启动候选或替换容器。重启不会自动恢复已排空的服务池成员，须由管理员显式恢复。意外退出或外部重启不等于终止证明，无法核验原进程身份时拒绝自动接管；执行安装器期间应独占该安装的 Docker 管理操作。
+
+重启返回 active 只确认安装已激活，不代表新容器的预训练资产已重新测量，也不代表服务池已恢复接流或项目策略已启用。用同一私有状态目录读取当前批准修订，重新执行 `approve-assets`，在新容器内测量并提交经过审核的规格；确认成员和能力后，再通过服务池管理显式 resume 已排空的成员。项目启用仍由项目负责人单独管理。CUDA 资源可能仍在等待许可时限及其后的新鲜健康证明；查看 GPU 资源的 owner 就绪状态，不能仅凭进程或物理 GPU 空闲判断可接流，也不要清空账本缩短等待。
 
 新进程的路由 incarnation 不能直接沿用旧进程。宿主只有在原终止证明已结算、旧容器与 boot 已记为停止，且新容器、boot、端点、资格和安装修订均匹配时，才授权这一次替换握手；存在未结束或不确定的路由执行时拒绝。失败重试保留原控制 ID、挑战和 epoch，完整握手后才能继续 GPU 初始化及激活，不把“新进程空闲”单独当作旧进程已退出。
 
