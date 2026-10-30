@@ -1484,6 +1484,7 @@ TEST_FILES = (
     "tests/test_training_authority_contract.py",
     "tests/test_training_dataset_original_boundaries.py::test_http_training_authority_without_private_identity_select",
     "tests/test_training_dataset_owner_fences.py::test_finalization_fails_closed_on_locked_snapshot_rows",
+    "tests/test_inference_gpu_routing_native.py::test_gpu_endpoint_opens_large_native_capture_without_losing_metadata",
     "tests/test_video_restore_native.py",
     "tests/test_video_restore_live.py",
     "tests/test_video_restore_worker_live.py",
