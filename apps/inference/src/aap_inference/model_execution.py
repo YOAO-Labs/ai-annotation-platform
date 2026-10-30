@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 import httpx
 
@@ -30,6 +30,10 @@ from aap_inference_contract.execution import (
     thaw_json,
 )
 from aap_inference_contract.plugin import plugin_is_active
+from aap_inference_contract.plugin_assets import (
+    plugin_asset_reason,
+    resolve_plugin_selection,
+)
 
 from .backend_transport import (
     BackendOptions,
@@ -38,6 +42,7 @@ from .backend_transport import (
     DispatchContext,
     ErrorFactory,
 )
+from .owner_transport import ModelDispatchDenied
 from .request_tracking import RequestContext
 
 
@@ -180,14 +185,36 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
                 raise ModelExecutionUnavailable()
             if not plugin_is_active(endpoint.extra_params):
                 raise ModelExecutionUnavailable()
+            context = request.context or {}
+            if (
+                isinstance(endpoint.extra_params, Mapping)
+                and "plugin" in endpoint.extra_params
+                and context.get("frozen_model_ref") is None
+            ):
+                model_id, variants = resolve_plugin_selection(
+                    request.health_meta, context
+                )
+                if (
+                    plugin_asset_reason(
+                        endpoint.extra_params,
+                        endpoint.plugin_asset_approval,
+                        model_id,
+                        variants,
+                    )
+                    is not None
+                ):
+                    raise ModelExecutionUnavailable()
+                canonical_context = thaw_json(context)
+                canonical_context["model_id"] = model_id
+                canonical_context["model_variants"] = variants
+                request = replace(request, context=canonical_context)
             if (
                 request.required_instance_id is not None
                 and endpoint.registry_id != request.required_instance_id
             ):
                 raise ModelExecutionUnavailable()
             if before_dispatch is not None:
-                # Exact dispatch boundary: endpoint authority is open and this
-                # provider is about to issue the single physical request.
+                # Caller preflight runs before transport semaphore and GPU admission.
                 try:
                     await before_dispatch(ModelExecutionDispatch.from_request(request))
                 except BaseException as error:
@@ -380,7 +407,7 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
         if not isinstance(error_code, str):
             error_code = getattr(error_code, "value", None)
         uncertain = False
-        if isinstance(exc, ModelExecutionUnavailable):
+        if isinstance(exc, (ModelExecutionUnavailable, ModelDispatchDenied)):
             kind = "unavailable"
             code = "model_execution_unavailable"
             status_code = 503

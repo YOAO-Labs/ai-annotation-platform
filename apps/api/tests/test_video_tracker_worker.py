@@ -2281,3 +2281,243 @@ async def test_mask_write_cancellation_retains_completed_frames_in_current_windo
     result = await run_tracker_job(db_session, job_id, publisher=silent)
     assert result.status == "cancelled"
     assert [frame["frame_index"] for frame in result.staged_result["results"]] == [0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("combo", [False, True])
+async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
+    db_session, super_admin, monkeypatch, combo
+):
+    from contextlib import asynccontextmanager
+
+    from sqlalchemy import text
+    from aap_inference.pool_capability import (
+        canonicalize_capability,
+        capability_fingerprint,
+    )
+    from aap_inference.routing import RoutingManager
+    from aap_inference_contract.plugin_assets import PluginAssetDescriptor
+    from aap_inference_contract.routing import (
+        RoutingRejectedResult,
+        make_routing_command,
+    )
+    from app.services.ml_routing.authority import RoutingAuthority, RoutingRejected
+
+    user, _ = super_admin
+    job, unapproved, approved, pool = await _make_multi_member_tracker_job(
+        db_session, user.id
+    )
+    job_id, approved_id, unapproved_id = job.id, approved.id, unapproved.id
+    model_ids = ["sam3-pvs", "sam3-mx"] if combo else ["sam2"]
+    if combo:
+        capabilities = {
+            "supported_trackers": ["sam3_video_interactive", "sam3_video"],
+            "models": [
+                {
+                    "id": "sam3-pvs",
+                    "task": "video_segment",
+                    "modalities": ["video"],
+                    "supported_trackers": ["sam3_video_interactive"],
+                },
+                {
+                    "id": "sam3-mx",
+                    "task": "video_segment",
+                    "modalities": ["video"],
+                    "supported_trackers": ["sam3_video"],
+                },
+            ],
+        }
+        for backend in (unapproved, approved):
+            backend.health_meta = {"capabilities": capabilities}
+        snapshot = canonicalize_capability(capabilities)
+        pool.capability_snapshot = snapshot
+        pool.capability_fingerprint = capability_fingerprint(snapshot)
+        job.model_key = "sam3_video_combo"
+        job.prompt = {**job.prompt, "text": "car"}
+    manifest = {
+        "plugin_id": "tracker",
+        "version": "1",
+        "publisher": "test",
+        "license": "MIT",
+        "artifact": "example/tracker@sha256:" + "a" * 64,
+        "sdk_compatibility": "1",
+        "entrypoint": ["tracker"],
+        "capabilities": ["inference"],
+        "models": [
+            {
+                "id": model_id,
+                "task": "tracker",
+                "is_interactive": True,
+                "supported_prompts": ["none"],
+                "supported_inputs": ["full_image"],
+                "supported_geometric_outputs": ["bbox"],
+            }
+            for model_id in model_ids
+        ],
+        "pools": {"models": {"cap": 1}},
+        "resource": {"device": "cpu", "memory_mb": 1024, "gpu_memory_mb": 0},
+        "asset_manifest_sha256": "b" * 64,
+        "allowed_asset_sources": [],
+    }
+    descriptor = PluginAssetDescriptor.model_validate(
+        {
+            "schema_version": 1,
+            "plugin_id": manifest["plugin_id"],
+            "plugin_version": manifest["version"],
+            "artifact": manifest["artifact"],
+            "asset_manifest_sha256": manifest["asset_manifest_sha256"],
+            "selections": [
+                {"model_id": model_id, "variants": {}, "asset_free": True, "assets": []}
+                for model_id in model_ids
+            ],
+        }
+    )
+    resource = {
+        "gpu_resource_id": None,
+        "physical_gpu_uuid": None,
+        "logical_device": "cpu",
+    }
+    for backend in (unapproved, approved):
+        backend.extra_params = {
+            "plugin": {
+                "installation_id": str(backend.id),
+                "manifest": manifest,
+                "status": "active",
+                "revision": 1,
+                "resource": resource,
+            },
+            "plugin_lifecycle": {
+                "launch": {"container_id": "c" * 64, "image_id": "sha256:" + "d" * 64}
+            },
+        }
+    decision = {
+        "expected_revision": 0,
+        "expected_installation_revision": 1,
+        "descriptor": descriptor.model_dump(mode="json"),
+        "descriptor_sha256": descriptor.sha256(),
+        "approved": [{"model_id": model_id, "variants": {}} for model_id in model_ids],
+        "inventory": [],
+        "container_id": "c" * 64,
+        "image_id": "sha256:" + "d" * 64,
+    }
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "SELECT aap_inference_topology_v1.set_plugin_asset_approval"
+            "(:id, 0, :decision)"
+        ),
+        {"id": approved_id, "decision": json.dumps(decision)},
+    )
+    if combo:
+        # The other healthy member has only the propagation model approved.
+        partial = {**decision, "approved": [{"model_id": model_ids[0], "variants": {}}]}
+        await db_session.execute(
+            text(
+                "SELECT aap_inference_topology_v1.set_plugin_asset_approval"
+                "(:id, 0, :decision)"
+            ),
+            {"id": unapproved_id, "decision": json.dumps(partial)},
+        )
+    await db_session.execute(
+        text(
+            "UPDATE aap_inference_routing_v1.registry_state "
+            "SET continuity='ready', backend_incarnation=gen_random_uuid() "
+            "WHERE registry_id IN (:approved, :unapproved)"
+        ),
+        {"approved": approved_id, "unapproved": unapproved_id},
+    )
+    await db_session.commit()
+
+    class NativeData:
+        async def step(self, action, arguments):
+            raw = await db_session.scalar(
+                text("SELECT aap_inference_routing_v1.routing_step(:action, :args)"),
+                {"action": action, "args": json.dumps(arguments)},
+            )
+            return json.loads(raw) if isinstance(raw, str) else raw
+
+        async def video_execution_scope_step(self, action, arguments):
+            raw = await db_session.scalar(
+                text(
+                    "SELECT aap_inference_routing_v1.video_execution_scope_step"
+                    "(:action, :args)"
+                ),
+                {"action": action, "args": json.dumps(arguments)},
+            )
+            return json.loads(raw) if isinstance(raw, str) else raw
+
+    @asynccontextmanager
+    async def native_data():
+        yield NativeData()
+
+    manager = RoutingManager(
+        native_data, health_max_age_seconds=90, lease_ttl_ms=120000
+    )
+
+    async def execute(_self, operation, body, *, request_id=None):
+        result = await manager.execute(
+            make_routing_command(operation, body, request_id=request_id)
+        )
+        if isinstance(result.result, RoutingRejectedResult):
+            raise RoutingRejected(result.result.reason)
+        return result.result
+
+    class Ledger:
+        async def aclose(self):
+            return None
+
+    used = []
+
+    async def predict(self, task_data, context):
+        used.append(str(self.backend_id))
+        return PredictionResult(
+            task_id=task_data["id"],
+            result=[
+                {
+                    "frame_index": frame,
+                    "instance_id": "1",
+                    "geometry": {"type": "bbox", "x": 1, "y": 2, "w": 10, "h": 12},
+                    "confidence": 0.9,
+                }
+                for frame in range(context["from_frame"], context["to_frame"] + 1)
+            ],
+        )
+
+    async def runtime_snapshot(_self, _ids):
+        return None
+
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
+    monkeypatch.setattr(
+        "app.services.ml_routing.router.make_ledger_from_settings", lambda: Ledger()
+    )
+    monkeypatch.setattr(RoutingAuthority, "execute", execute)
+    monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", runtime_snapshot)
+    install_tracker_execution_fake(monkeypatch, predict)
+
+    await run_tracker_job(db_session, job_id, publisher=_noop_pub)
+    await db_session.refresh(job)
+    assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value, job.error_message
+    assert used == [str(approved_id)] * (2 if combo else 1)
+    scope = (
+        await db_session.execute(
+            text(
+                "SELECT registry_id, pool_id, owner FROM aap_inference_routing_v1.scopes "
+                "WHERE owner=:owner"
+            ),
+            {"owner": f"tracker:{job_id}"},
+        )
+    ).one()
+    assert tuple(scope) == (approved_id, pool.id, f"tracker:{job_id}")
+    intent = (
+        await db_session.execute(
+            text(
+                "SELECT intent.state, execution.route_request_id=intent.request_id "
+                "FROM aap_jobs_v1.video_execution_route_intents intent "
+                "JOIN aap_jobs_v1.video_executions execution ON execution.job_id=intent.job_id "
+                "WHERE intent.job_id=:job"
+            ),
+            {"job": job_id},
+        )
+    ).one()
+    assert tuple(intent) == ("bound", True)

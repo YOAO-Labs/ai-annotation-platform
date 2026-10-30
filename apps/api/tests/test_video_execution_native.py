@@ -870,3 +870,85 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
     assert replacement["state"] == "recovery_required"
     stale = await _routing_step(db_session, "command_status", arguments)
     assert stale["status"] == "rejected" and stale["reason"] == "scope_unavailable"
+
+
+@pytest.mark.parametrize("approved", [False, True])
+async def test_video_route_intent_binds_approved_candidates_to_claim(
+    db_session, approved
+):
+    from aap_inference_contract.routing import (
+        make_routing_command,
+        routing_command_bytes,
+        routing_command_sha256,
+    )
+
+    actor, project_id, _, _, job = await _seed_tracker_job(db_session)
+    await _capture(db_session, actor, job.id)
+    claim = (
+        await _step(
+            db_session,
+            "claim",
+            {
+                "job_id": str(job.id),
+                "worker_id": str(uuid.uuid4()),
+                "lease_seconds": 120,
+            },
+        )
+    )["execution"]
+    proof = _proof(job.id, claim)
+    request_id = uuid.uuid4()
+    allowed = [uuid.uuid4()] if approved else None
+    body = {
+        "pool_id": uuid.uuid4(),
+        "registry_id": None,
+        "project_id": project_id,
+        "mode": "enforce",
+        "required_instance_id": None,
+        "approved_registry_ids": allowed,
+        "owner": f"tracker:{job.id}",
+        "operation": "tracker",
+        "execution": proof,
+    }
+
+    def arguments(command, claim_proof):
+        return {
+            **claim_proof,
+            "request_id": str(request_id),
+            "command": json.loads(routing_command_bytes(command)),
+            "command_sha256": routing_command_sha256(command),
+            "scope_id": str(uuid.uuid5(request_id, "aap-video-execution-scope/v1")),
+        }
+
+    async def prepare(args):
+        return _decode(
+            await db_session.scalar(
+                text(
+                    "SELECT aap_inference_routing_v1.video_execution_scope_step"
+                    "('prepare', :arguments)"
+                ),
+                {"arguments": json.dumps(args, separators=(",", ":"))},
+            )
+        )
+
+    command = make_routing_command("video_acquire", body, request_id=request_id)
+    original = arguments(command, proof)
+    prepared = await prepare(original)
+    assert prepared["status"] == "ok"
+    assert prepared["intent"]["state"] == "prepared"
+    assert prepared["intent"]["scope_id"] == original["scope_id"]
+    assert (await prepare(original))["intent"] == prepared["intent"]
+
+    changed = make_routing_command(
+        "video_acquire",
+        {**body, "approved_registry_ids": [uuid.uuid4()]},
+        request_id=request_id,
+    )
+    conflict = await prepare(arguments(changed, proof))
+    assert conflict["status"] == "rejected"
+    assert conflict["reason"] == "intent_conflict"
+
+    stale = await prepare(
+        arguments(command, {**proof, "lease_token": str(uuid.uuid4())})
+    )
+    assert stale["status"] == "rejected"
+    assert stale["reason"] == "lease_lost"

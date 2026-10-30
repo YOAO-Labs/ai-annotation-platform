@@ -451,6 +451,25 @@ async def test_enforce_eligibility_uses_full_rows_and_python_capability_fingerpr
 
 
 @pytest.mark.asyncio
+async def test_approved_candidate_filter_excludes_unapproved_members():
+    native = _Native()
+    native.snapshot["members"][1]["registry"]["last_checked_at"] = (
+        _NOW - timedelta(seconds=1)
+    ).isoformat()
+    command = _acquire().model_dump(mode="json", by_alias=True)
+    command["body"]["approved_registry_ids"] = [str(_STALE_ID)]
+    result = await _manager(native).execute(command)
+    assert result.result.registry_id == _STALE_ID
+
+    denied = _Native()
+    command["body"]["approved_registry_ids"] = [str(_DRIFT_ID)]
+    result = await _manager(denied).execute(command)
+    assert isinstance(result.result, RoutingRejectedResult)
+    assert result.result.reason == "pool_unavailable"
+    assert not any(action == "reserve_scope" for action, _ in denied.calls)
+
+
+@pytest.mark.asyncio
 async def test_admission_consumes_the_registry_rotation_revision():
     native = _Native()
     for item in native.snapshot["members"]:

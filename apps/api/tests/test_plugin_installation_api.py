@@ -897,6 +897,209 @@ async def test_activate_and_disable_are_revision_fenced(
     assert disabled.json()["installation"]["status"] == "disabled"
 
 
+async def test_asset_decisions_require_admin_and_compare_revision(
+    httpx_client, super_admin, project_admin, monkeypatch, db_session
+):
+    from aap_inference_contract.plugin_assets import PluginAssetDescriptor
+    from app.api.v1 import admin_plugin_installations as routes
+
+    owner, admin_token = super_admin
+    owner_id = owner.id
+    _, project_token = project_admin
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    body = payload(uuid4())
+    path = BASE + "/" + body["installation_id"]
+    assert (
+        await httpx_client.post(BASE, json=body, headers=headers)
+    ).status_code == 200
+    receipt = {
+        "installation_id": body["installation_id"],
+        "registry_id": body["installation_id"],
+        "artifact": body["manifest"]["artifact"],
+        "image_id": "sha256:" + "c" * 64,
+        "container_id": "d" * 64,
+        "resource": body["resource"],
+    }
+
+    async def verified_endpoint(db, reserved, launch, qualification):
+        return {
+            **launch.model_dump(mode="json"),
+            "endpoint": body["url"],
+            "boot_id": "boot-1",
+            "control_epoch": None,
+        }
+
+    monkeypatch.setattr(routes, "observe_plugin_endpoint", verified_endpoint)
+    allow_routing_binding(monkeypatch)
+    active = await httpx_client.post(
+        path + "/activate",
+        headers=headers,
+        json={"expected_revision": 1, "receipt": receipt},
+    )
+    assert active.status_code == 200, active.text
+    descriptor = PluginAssetDescriptor.model_validate(
+        {
+            "schema_version": 1,
+            "plugin_id": body["manifest"]["plugin_id"],
+            "plugin_version": body["manifest"]["version"],
+            "artifact": body["manifest"]["artifact"],
+            "asset_manifest_sha256": body["manifest"]["asset_manifest_sha256"],
+            "selections": [
+                {
+                    "model_id": "detect",
+                    "variants": {"size": "small"},
+                    "asset_free": True,
+                    "assets": [],
+                },
+                {
+                    "model_id": "detect",
+                    "variants": {"size": "large"},
+                    "asset_free": True,
+                    "assets": [],
+                },
+            ],
+        }
+    )
+    decision = {
+        "expected_revision": 0,
+        "expected_installation_revision": active.json()["installation"]["revision"],
+        "descriptor": descriptor.model_dump(mode="json"),
+        "descriptor_sha256": descriptor.sha256(),
+        "approved": [{"model_id": "detect", "variants": {"size": "small"}}],
+        "inventory": [],
+        "container_id": receipt["container_id"],
+        "image_id": receipt["image_id"],
+    }
+    denied = await httpx_client.put(
+        path + "/assets",
+        json=decision,
+        headers={"Authorization": f"Bearer {project_token}"},
+    )
+    assert denied.status_code == 403
+    empty = await httpx_client.get(path + "/assets", headers=headers)
+    assert empty.json() == {"revision": 0, "decision": None}
+    accepted = await httpx_client.put(path + "/assets", json=decision, headers=headers)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["revision"] == 1
+    stale = await httpx_client.put(path + "/assets", json=decision, headers=headers)
+    assert stale.status_code == 409
+    await db_session.rollback()
+    revoked = await httpx_client.put(
+        path + "/assets",
+        json={**decision, "expected_revision": 1, "approved": []},
+        headers=headers,
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["revision"] == 2
+    assert (await httpx_client.get(path + "/assets", headers=headers)).json()[
+        "decision"
+    ]["approved"] == []
+
+    from datetime import datetime, timezone
+    from sqlalchemy import func, select
+    from app.db.models.async_job import AsyncJob
+    from app.db.models.ml_backend_pool import MLBackendServicePool
+    from app.db.models.ml_backend_registry import (
+        MLBackendRegistry,
+        ProjectMLBackendPool,
+    )
+    from app.services.inference_topology_data import InferenceTopologyData
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
+    from tests.test_staged_preannotate_endpoint import _seed
+
+    project, _, _, batch = await _seed(db_session, owner_id)
+    registry = await db_session.get(MLBackendRegistry, UUID(body["installation_id"]))
+    registry.state = "connected"
+    registry.last_checked_at = datetime.now(timezone.utc)
+    registry.health_meta = {
+        "capabilities": {
+            "models": [
+                {
+                    "id": "detect",
+                    "task": "detect",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image"],
+                    "supported_geometric_outputs": ["bbox"],
+                    "resource_profile": {"device": "cpu", "batchable": True},
+                    "supported_variants": [
+                        {
+                            "key": "size",
+                            "variants": [{"value": "small"}, {"value": "large"}],
+                        }
+                    ],
+                    "default_variants": {"size": "small"},
+                }
+            ]
+        }
+    }
+    pool = await InferenceTopologyData(db_session).pool_for_registry(registry.id)
+    pool_row = await db_session.get(MLBackendServicePool, pool.id)
+    pool_row.enabled = True
+    db_session.add(
+        ProjectMLBackendPool(project_id=project.id, pool_id=pool.id, enabled=True)
+    )
+    await db_session.commit()
+    reapplied = await httpx_client.put(
+        path + "/assets", json={**decision, "expected_revision": 2}, headers=headers
+    )
+    assert reapplied.status_code == 200, reapplied.text
+    catalog = await httpx_client.get(
+        f"/api/v1/projects/{project.id}/model-catalog", headers=headers
+    )
+    assert catalog.status_code == 200, catalog.text
+    entries = {
+        entry["model_variants"]["size"]: entry
+        for entry in catalog.json()["items"]
+        if any(
+            placement["registry_id"] == str(registry.id)
+            for placement in entry["placements"]
+        )
+    }
+    assert entries["small"]["operations"]["preannotate"]["allowed"]
+    assert (
+        entries["large"]["operations"]["preannotate"]["reason_code"]
+        == "plugin_asset_unapproved"
+    )
+    revoked_again = await httpx_client.put(
+        path + "/assets",
+        json={**decision, "expected_revision": 3, "approved": []},
+        headers=headers,
+    )
+    assert revoked_again.status_code == 200, revoked_again.text
+    dispatched = []
+    monkeypatch.setattr(
+        CeleryBatchPredictionDispatcher,
+        "dispatch",
+        lambda *a, **kw: dispatched.append(True),
+    )
+    before = await db_session.scalar(
+        select(func.count())
+        .select_from(AsyncJob)
+        .where(AsyncJob.project_id == project.id)
+    )
+    request_body = {
+        "ml_backend_id": str(registry.id),
+        "batch_id": str(batch.id),
+        "model_id": "detect",
+    }
+    for variants in (None, {"size": "large"}):
+        response = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/preannotate",
+            headers=headers,
+            json={**request_body, "model_variants": variants},
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["error_code"] == "plugin_asset_unapproved"
+    after = await db_session.scalar(
+        select(func.count())
+        .select_from(AsyncJob)
+        .where(AsyncJob.project_id == project.id)
+    )
+    assert before == after
+    assert not dispatched
+
+
 async def test_failed_activation_retains_recorded_launch(
     httpx_client, super_admin, monkeypatch
 ):

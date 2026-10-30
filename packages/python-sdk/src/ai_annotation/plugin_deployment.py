@@ -36,7 +36,13 @@ from aap_inference_contract.plugin import (
     PluginLifecycleQualification,
     PluginResourceBinding,
 )
+from aap_inference_contract.plugin_assets import (
+    PluginAssetApprovalUpdate,
+    PluginAssetDescriptor,
+    PluginSelectionKey,
+)
 from ai_annotation.plugins import PluginInstallations
+
 
 _DATA_TARGET = "/var/lib/aap-libreyolo"
 
@@ -289,6 +295,68 @@ class LocalPluginDeployment:
             result = self.plugins.get(receipt["installation_id"])
             self._verify(receipt, result)
             return result
+
+    def approve_assets(
+        self,
+        descriptor: PluginAssetDescriptor,
+        approved: list[PluginSelectionKey],
+        expected_revision: int,
+    ):
+        """Measure the active container's files before explicit asset decisions."""
+        with self.store.locked():
+            receipt = self._load()
+            result = self.plugins.get(receipt["installation_id"])
+            self._verify(receipt, result)
+            if result.installation.status != "active":
+                raise AAPError("Asset decisions require the active owned installation")
+            container = self._container(receipt, result, provision=False)
+            inspected = self.docker.verify_running(container)
+            self._verify_process(
+                receipt.get("launch"), receipt.get("started_at"), inspected
+            )
+            chosen = {
+                (item.model_id, tuple(sorted(item.variants.items())))
+                for item in approved
+            }
+            expected = {
+                asset.path: asset
+                for item in descriptor.selections
+                if (item.model_id, tuple(sorted(item.variants.items()))) in chosen
+                for asset in item.assets
+            }
+            measured = (
+                self.docker.measure_assets(
+                    container,
+                    inspected["id"],
+                    [
+                        asset.model_dump(mode="json")
+                        for _, asset in sorted(expected.items())
+                    ],
+                )
+                if expected
+                else []
+            )
+            if len(measured) != len(set(measured)) or any(
+                path not in expected for path in measured
+            ):
+                raise AAPError("Container returned an invalid asset measurement")
+            inventory = [expected[path] for path in measured]
+            self._verify_process(
+                receipt.get("launch"),
+                receipt.get("started_at"),
+                self.docker.verify_running(container),
+            )
+            update = PluginAssetApprovalUpdate(
+                expected_revision=expected_revision,
+                expected_installation_revision=result.installation.revision,
+                descriptor=descriptor,
+                descriptor_sha256=descriptor.sha256(),
+                approved=approved,
+                inventory=inventory,
+                container_id=inspected["id"],
+                image_id=inspected["image_id"],
+            )
+            return self.plugins.set_asset_approval(receipt["installation_id"], update)
 
     @staticmethod
     def _private_file(path: Path, content: str) -> None:
