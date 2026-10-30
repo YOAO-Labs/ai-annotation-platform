@@ -11,6 +11,7 @@ from uuid import UUID
 
 from aap_inference.backend_endpoint import BackendEndpointSnapshot, _snapshot
 from aap_inference_contract.backend_endpoint import (
+    BACKEND_ENDPOINT_MAX_BYTES,
     BackendEndpointAuthority,
     BackendEndpointBinding,
     BackendEndpointPurpose,
@@ -21,6 +22,7 @@ from aap_inference_contract.backend_endpoint import (
 
 _ENDPOINT_SCHEMA = "aap_inference_backend_endpoint_v1"
 _MAX_ENDPOINT_JSON_BYTES = 64 * 1024
+_CAPTURE_REPLY_MAX_BYTES = BACKEND_ENDPOINT_MAX_BYTES + 256  # status/subject envelope
 _ENDPOINT_POLICY_SQL = (
     "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
 )
@@ -154,7 +156,8 @@ class GPUOwnedBackendEndpointSource:
                             request_id,
                             purpose,
                             binding_json,
-                        )
+                        ),
+                        max_bytes=_CAPTURE_REPLY_MAX_BYTES,
                     )
                     if set(capture) != {"status", "subject"}:
                         raise GPUOwnedEndpointUnavailable()
@@ -309,7 +312,9 @@ def _compact_model_json(value: Any) -> str | None:
     return encoded
 
 
-def _decode_object(value: Any) -> dict[str, Any]:
+def _decode_object(
+    value: Any, *, max_bytes: int = _MAX_ENDPOINT_JSON_BYTES
+) -> dict[str, Any]:
     try:
         if isinstance(value, Mapping):
             raw = json.dumps(
@@ -318,16 +323,16 @@ def _decode_object(value: Any) -> dict[str, Any]:
                 allow_nan=False,
                 separators=(",", ":"),
             ).encode("utf-8", errors="strict")
-            if len(raw) > _MAX_ENDPOINT_JSON_BYTES:
+            if len(raw) > max_bytes:
                 raise GPUOwnedEndpointUnavailable()
             result = json.loads(raw, object_pairs_hook=_unique_object)
         elif type(value) is str:
             raw = value.encode("utf-8", errors="strict")
-            if len(raw) > _MAX_ENDPOINT_JSON_BYTES:
+            if len(raw) > max_bytes:
                 raise GPUOwnedEndpointUnavailable()
             result = json.loads(raw, object_pairs_hook=_unique_object)
         elif type(value) is bytes:
-            if len(value) > _MAX_ENDPOINT_JSON_BYTES:
+            if len(value) > max_bytes:
                 raise GPUOwnedEndpointUnavailable()
             result = json.loads(value, object_pairs_hook=_unique_object)
         else:

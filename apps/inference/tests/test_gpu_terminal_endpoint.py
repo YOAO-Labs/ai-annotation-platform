@@ -12,12 +12,17 @@ from aap_inference.backend_endpoint import BackendEndpointSnapshot
 from aap_inference.gpu.endpoint_source import (
     GPUOwnedBackendEndpointSource,
     GPUOwnedEndpointUnavailable,
+    _decode_object,
 )
 from aap_inference.owner_transport import (
     BackendTransportGPUControlAdapter,
     _ActiveGPUControl,
 )
-from aap_inference_contract.backend_endpoint import BackendEndpointBinding
+from aap_inference_contract.backend_endpoint import (
+    BACKEND_ENDPOINT_MAX_BYTES,
+    BackendEndpointBinding,
+    make_backend_endpoint_subject,
+)
 from aap_inference_contract.routing import RoutingUnavailable
 
 
@@ -61,6 +66,29 @@ def snapshot_document(registry_id, request_id):
         "eviction_priority": 0,
         "extra_params": None,
     }
+
+
+def test_gpu_endpoint_keeps_small_reply_and_subject_validation_closed():
+    for value in (
+        '{"status":"ok","status":"ok"}',
+        json.dumps({"padding": "x" * 70_000}),
+        b"\xff",
+    ):
+        with pytest.raises(GPUOwnedEndpointUnavailable):
+            _decode_object(value)
+    with pytest.raises(GPUOwnedEndpointUnavailable):
+        _decode_object(
+            '{"status":"ok","status":"ok","subject":"v1.AAAA"}',
+            max_bytes=BACKEND_ENDPOINT_MAX_BYTES + 256,
+        )
+    with pytest.raises(ValueError):
+        make_backend_endpoint_subject(
+            uuid4(),
+            request_id=uuid4(),
+            purpose="health_observation",
+            binding=None,
+            subject="v1." + "A" * BACKEND_ENDPOINT_MAX_BYTES,
+        )
 
 
 @pytest.mark.asyncio

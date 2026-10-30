@@ -1,6 +1,7 @@
 """Native routing + actual TCP and GPU signatures; no GPU arbiter/hardware claim."""
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -46,6 +47,54 @@ pytestmark = [
         reason="requires the verified disposable module-data environment",
     ),
 ]
+
+
+async def test_gpu_endpoint_opens_large_native_capture_without_losing_metadata(
+    test_engine,
+):
+    await assert_owned_test_database(test_engine)
+    registry_id, pool_id, member_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    world = {"registry_id": registry_id, "pool_id": pool_id, "member_id": member_id}
+    owner = await _connect(test_engine)
+    pool = None
+    report = {"samples": "x" * 70_000}
+    try:
+        await _seed_world(
+            owner,
+            registry_id=registry_id,
+            pool_id=pool_id,
+            member_id=member_id,
+            backend_url="http://127.0.0.1:9",
+            backend_token="large-capture-test-token",
+        )
+        await owner.execute(
+            "UPDATE public.ml_backend_registry SET extra_params=$2::jsonb WHERE id=$1",
+            registry_id,
+            json.dumps({"plugin_lifecycle": {"qualification": {"report": report}}}),
+        )
+        pool = await asyncpg.create_pool(
+            dsn=os.environ["AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL"].replace(
+                "postgresql+asyncpg://", "postgresql://", 1
+            )
+        )
+        source = GPUOwnedBackendEndpointSource(
+            {"health_observation": pool, "gpu_control": pool}
+        )
+        snapshot = await source.open_owned(
+            registry_id,
+            request_id=uuid.uuid4(),
+            purpose="health_observation",
+        )
+        assert snapshot.registry_id == registry_id
+        assert (
+            snapshot.extra_params["plugin_lifecycle"]["qualification"]["report"]
+            == report
+        )
+    finally:
+        if pool is not None:
+            await pool.close()
+        await _cleanup(owner, world)
+        await owner.close()
 
 
 async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_pool_drain(
