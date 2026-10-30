@@ -145,6 +145,9 @@ class CommandTests(unittest.TestCase):
             ):
                 report = runtime.diagnose(backend)
                 self.assertFalse(report["healthy"])
+                self.assertTrue(
+                    any("TrackEval" in error and "init" in error for error in report["errors"])
+                )
                 self.assertEqual(report["state"], "starting")
                 self.assertEqual(report["worker"], "ordinary@local")
                 self.assertEqual(report["maintenance_worker"], "starting")

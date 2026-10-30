@@ -64,5 +64,6 @@ for path in apps/api/.venv apps/web/src/api/generated; do
     exit 1
   fi
 done
+bash scripts/ensure-api-vendor.sh
 UV_PROJECT_ENVIRONMENT="$PWD/apps/api/.venv" uv sync --project apps/api --locked --extra test
 pnpm codegen
