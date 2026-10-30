@@ -180,6 +180,7 @@ def test_managed_cleanup_propagates_cuda_runtime_failure(monkeypatch) -> None:
         main.torch._C,
         "_cuda_clearCublasWorkspaces",
         lambda: None,
+        raising=False,
     )
 
     def _broken_empty_cache() -> None:
@@ -206,6 +207,7 @@ def test_managed_cleanup_releases_cublas_workspace(monkeypatch) -> None:
         main.torch._C,
         "_cuda_clearCublasWorkspaces",
         lambda: events.append("clear-cublas"),
+        raising=False,
     )
     monkeypatch.setattr(
         main.torch.cuda,

@@ -136,8 +136,14 @@ install_editable() {
 }
 
 install_backend() {
-  local dir="$1" python_version="$2" mask="${3:-false}" extras="${4:-dev}"
+  local dir="$1" python_version="$2" mask="${3:-false}" extras="${4:-dev}" cpu_vision="${5:-false}"
   new_venv "$python_version"
+  if [ "$cpu_vision" = true ]; then
+    # timm depends on torch/torchvision; install their CPU builds before
+    # resolving the backend so pip cannot pull the CUDA graph from PyPI.
+    run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" \
+      -r "$DEPS_DIR/torch-cpu.txt" torchvision --index-url "$TORCH_CPU_INDEX"
+  fi
   run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" --no-deps --require-hashes \
     -r "$ROOT/apps/_shared/requirements-plugin-runtime.txt"
   if [ "$mask" = true ]; then
@@ -181,8 +187,7 @@ run() {
       run_pytest "apps/onnxtools-backend" "$VENV_PATH"
       ;;
     grounded-sam2)
-      install_backend "apps/grounded-sam2-backend" "3.10" true
-      run_in "apps/grounded-sam2-backend" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/torch-cpu.txt" --index-url "$TORCH_CPU_INDEX"
+      install_backend "apps/grounded-sam2-backend" "3.10" true "dev" true
       run_pytest "apps/grounded-sam2-backend" "$VENV_PATH"
       ;;
     sam3)
