@@ -305,8 +305,7 @@ class _ModelExecutionGateway(ModelExecutionPort):
                 ),
             )
             try:
-                # Routing admission and endpoint-subject capture are complete;
-                # the caller's boundary runs immediately before the one request.
+                # The caller's preflight precedes the owner's transport admission.
                 result = await client.execute(bound, before_dispatch=before_dispatch)
             except ModelExecutionError as error:
                 self._observe(error.failure.observation)

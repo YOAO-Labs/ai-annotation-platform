@@ -42,6 +42,7 @@ from .backend_transport import (
     DispatchContext,
     ErrorFactory,
 )
+from .owner_transport import ModelDispatchDenied
 from .request_tracking import RequestContext
 
 
@@ -213,8 +214,7 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
             ):
                 raise ModelExecutionUnavailable()
             if before_dispatch is not None:
-                # Exact dispatch boundary: endpoint authority is open and this
-                # provider is about to issue the single physical request.
+                # Caller preflight runs before transport semaphore and GPU admission.
                 try:
                     await before_dispatch(ModelExecutionDispatch.from_request(request))
                 except BaseException as error:
@@ -407,7 +407,7 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
         if not isinstance(error_code, str):
             error_code = getattr(error_code, "value", None)
         uncertain = False
-        if isinstance(exc, ModelExecutionUnavailable):
+        if isinstance(exc, (ModelExecutionUnavailable, ModelDispatchDenied)):
             kind = "unavailable"
             code = "model_execution_unavailable"
             status_code = 503

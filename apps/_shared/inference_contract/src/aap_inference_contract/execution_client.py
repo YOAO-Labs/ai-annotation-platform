@@ -118,8 +118,8 @@ class ModelExecutionHttpClient(ModelExecutionPort):
         except ImportError:
             raise ModelExecutionUnavailable() from None
         if before_dispatch is not None:
-            # The caller's boundary runs in this process after routing admission
-            # and endpoint-subject capture, but before the one physical request.
+            # Caller preflight runs before the owner waits for transport admission;
+            # the physical-send authorization is enforced inside the owner.
             await before_dispatch(ModelExecutionDispatch.from_request(request))
         body = model_operation_request_bytes(request)
         client = await self._http_client()
