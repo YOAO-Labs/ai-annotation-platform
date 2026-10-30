@@ -363,6 +363,74 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
             assert len(status.result.attempts) == 1
             assert status.result.attempts[0].state == "not_sent"
             assert status.result.attempts[0].reason == "not_sent"
+            if case == "cancel_before_send":
+                # A cancelled, never-sent attempt does not make a later attempt
+                # the second physical send for the same still-open scope.
+                health["probe"] = {"challenge": uuid.uuid4().hex}
+                await owner.execute(
+                    "UPDATE public.ml_backend_registry SET health_meta=$2::jsonb,last_checked_at=now() WHERE id=$1",
+                    world["registry_id"],
+                    json.dumps(health),
+                )
+                next_attempt = uuid.uuid4()
+                next_binding = {
+                    "member_id": str(world["member_id"]),
+                    "boot_id": "original-boot",
+                    "revalidate": True,
+                    "health_max_age_seconds": runtime.manager.health_max_age_seconds,
+                    "model_id": None,
+                    "model_variants": None,
+                    "check_approval": False,
+                    "approval": None,
+                }
+                identity = {
+                    "url": url,
+                    "auth_method": row["auth_method"],
+                    "auth_token": row["auth_token"],
+                    "gpu_resource_id": "fixture-host/test-device",
+                    "extra_params": extra,
+                }
+                async with runtime.transport_subject_issuer(
+                    parent_kind="scope",
+                    parent_id=original.id,
+                    capability=original.capability,
+                    attempt_id=next_attempt,
+                    transport_identity=identity,
+                ) as subject:
+                    command = make_routing_command(
+                        "begin",
+                        {
+                            "scope_id": str(original.id),
+                            "capability": original.capability,
+                            "attempt_id": str(next_attempt),
+                            "method": "POST",
+                            "path": "/predict",
+                            "transport_subject": subject,
+                        },
+                    )
+                    next_result = await runtime.begin_model(
+                        command,
+                        member_id=world["member_id"],
+                        boot_id="original-boot",
+                        revalidate=True,
+                        binding=next_binding,
+                    )
+                assert not isinstance(next_result.result, RoutingRejectedResult)
+                assert not await dispatch(
+                    scope_id=original.id,
+                    capability=original.capability,
+                    attempt_id=next_attempt,
+                    action="start",
+                    binding=next_binding,
+                )
+                assert await dispatch(
+                    scope_id=original.id,
+                    capability=original.capability,
+                    attempt_id=next_attempt,
+                    action="not_sent",
+                    binding=None,
+                )
+                assert calls == []
             closed = await runtime.execute(
                 make_routing_command(
                     "close",

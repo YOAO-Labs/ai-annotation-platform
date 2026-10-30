@@ -366,7 +366,8 @@ BEGIN
             RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
         END IF;
         IF NOT EXISTS (SELECT 1 FROM aap_inference_routing_v1.attempts AS a
-                       WHERE a.scope_id=v_scope_id AND a.id<>v_attempt_id)
+                       WHERE a.scope_id=v_scope_id AND a.id<>v_attempt_id
+                         AND a.dispatch_state IN ('started','unmanaged'))
            AND (v_state.eligibility_revision IS DISTINCT FROM v_scope.eligibility_revision
              OR (v_scope.reservation_eligibility_revision IS DISTINCT FROM v_scope.eligibility_revision
                  AND (v_registry.state IS DISTINCT FROM 'connected' OR v_registry.last_checked_at IS NULL
