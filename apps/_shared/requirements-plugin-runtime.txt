@@ -1,0 +1,1 @@
+aap-backend-runtime @ https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl --hash=sha256:13d25849cafdb53d8a0b0feffa8b3505e9d8393db9e3ee093e7cbb5f4f9896e8

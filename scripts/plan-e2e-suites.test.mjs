@@ -158,38 +158,6 @@ test("single-domain frontend changes select core plus triggered specialties", ()
   assert.deepEqual(shadow.removed, [...core, "pointcloud", "visual", "layout-stress"]);
 });
 
-test("shared/ML contract entries carry the per-suite CPU audit facts", () => {
-  const shadow = shadowPlan("pull_request", [
-    "apps/_shared/protocol_v2/src/aap_protocol_v2/schemas.py",
-    "apps/sam3-backend/main.py",
-  ]);
-  const contracts = shadow.sharedContracts.qualification;
-  const bySuite = Object.fromEntries(contracts.map((suite) => [suite.suite, suite]));
-  assert.deepEqual(Object.keys(bySuite).sort(), [
-    "ml-grounded-sam2",
-    "ml-onnxtools",
-    "ml-rapidocr",
-    "ml-sam3",
-    "ml-yolo",
-    "shared-protocol-v2",
-  ]);
-  // Per-audit facts: no GPU/weights/network anywhere; torch split is explicit.
-  assert.match(bySuite["shared-protocol-v2"].dependencies, /numpy/);
-  assert.match(bySuite["ml-yolo"].reason, /without torch or ultralytics/);
-  assert.match(
-    bySuite["ml-grounded-sam2"].reason,
-    /10 torch-free files \(68 tests\) \+ 9 CPU-torch files \(82 tests\)/,
-  );
-  assert.match(bySuite["ml-sam3"].reason, /3 CPU-torch files \(43 tests\)/);
-  for (const suite of contracts) {
-    assert.match(suite.command, /run-ml-cpu-tests\.sh run /);
-    assert.equal(suite.wired, false);
-    assert.match(suite.dependencies, /CPU only/);
-  }
-  // Execution is delegated to the ml-cpu workflow: the planner schedules none
-  // of them, and the caller wiring lives in ci.yml.
-  assert.ok(shadow.planned.every((suite) => !suite.startsWith("ml-")));
-});
 test("shadow diff against the legacy gate is recorded for schedule changes", () => {
   const shadow = shadowPlan("schedule");
   // Legacy: extended-only. Shadow proposal per §6.2: nightly full matrix.

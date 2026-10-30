@@ -1,1 +1,0 @@
-"""LibreYOLO native detection plugin."""

@@ -8,6 +8,10 @@ requires-python = ">=3.10,<3.11"
 # 不在此处重复声明以避免 pip 误升级覆盖预装版本.
 # 与官仓 IDEA-Research/Grounded-SAM-2/Dockerfile 对齐: CUDA 12.1, Python 3.10, torch 2.3.1, torchvision 0.18.1.
 dependencies = [
+    "aap-backend-runtime",
+    "aap-lifecycle-contract",
+    "aap-protocol-v2",
+    "anno-mask-utils",
     "aap-task-contract",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
@@ -48,9 +52,12 @@ py-modules = ["main", "predictor", "schemas", "embedding_cache", "observability"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# v0.9.4 phase 3: mask_utils 共享包从 apps/_shared/mask_utils 注入. Docker 容器内由
-# `pip install -e /app/mask_utils` 提供; 本地 pytest 通过 pythonpath 直接定位 src/.
-pythonpath = ["../_shared/task_contract/src", ".", "../_shared/mask_utils/src", "../_shared/protocol_v2/src", "../_shared/backend_runtime/src", "../_shared/lifecycle_contract/src"]
+# Plugin packages are installed distributions; platform contracts remain local.
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/lifecycle_contract/src"]
 
 [tool.uv.sources]
+aap-backend-runtime = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl" }
+anno-mask-utils = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/anno_mask_utils-0.1.0-py3-none-any.whl" }
+aap-lifecycle-contract = { path = "../_shared/lifecycle_contract", editable = true }
+aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }

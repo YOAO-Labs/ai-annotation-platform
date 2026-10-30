@@ -133,6 +133,8 @@ jobs:
       # Fail-closed: a built entry never runs without its fingerprinted build,
       # and a build failure skips the suites instead of testing stale code.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

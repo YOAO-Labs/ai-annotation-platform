@@ -135,12 +135,18 @@ install_editable() {
   run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]" "$@"
 }
 
-install_file() {
-  local dir="$1" python_version="$2" file="$3"
-  shift 3
+install_backend() {
+  local dir="$1" python_version="$2" mask="${3:-false}" extras="${4:-dev}"
   new_venv "$python_version"
-  log "install $file (python $python_version)"
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/$file" "$@"
+  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" --no-deps --require-hashes \
+    -r "$ROOT/apps/_shared/requirements-plugin-runtime.txt"
+  if [ "$mask" = true ]; then
+    run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" --no-deps --require-hashes \
+      -r "$ROOT/apps/_shared/requirements-plugin-mask.txt"
+  fi
+  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" \
+    -e "$ROOT/apps/_shared/task_contract" -e "$ROOT/apps/_shared/protocol_v2" \
+    -e "$ROOT/apps/_shared/lifecycle_contract" -e ".[$extras]"
 }
 
 run_pytest() {
@@ -166,21 +172,21 @@ run() {
       run_pytest "apps/yolo-backend" "$VENV_PATH"
       ;;
     rapidocr)
-      install_editable "apps/rapidocr-backend" "3.10" "dev"
+      install_backend "apps/rapidocr-backend" "3.10" false "dev,cpu"
       run_pytest "apps/rapidocr-backend" "$VENV_PATH"
       ;;
     onnxtools)
-      install_editable "apps/onnxtools-backend" "3.10" "dev"
+      install_backend "apps/onnxtools-backend" "3.10"
       run_in "apps/onnxtools-backend" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/onnxtools-extra.txt"
       run_pytest "apps/onnxtools-backend" "$VENV_PATH"
       ;;
     grounded-sam2)
-      install_editable "apps/grounded-sam2-backend" "3.10" "dev"
+      install_backend "apps/grounded-sam2-backend" "3.10" true
       run_in "apps/grounded-sam2-backend" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/torch-cpu.txt" --index-url "$TORCH_CPU_INDEX"
       run_pytest "apps/grounded-sam2-backend" "$VENV_PATH"
       ;;
     sam3)
-      install_editable "apps/sam3-backend" "3.12" "dev"
+      install_backend "apps/sam3-backend" "3.12" true
       run_in "apps/sam3-backend" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/torch-cpu.txt" --index-url "$TORCH_CPU_INDEX"
       run_pytest "apps/sam3-backend" "$VENV_PATH"
       ;;

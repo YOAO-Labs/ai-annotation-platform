@@ -26,12 +26,13 @@ RUN python3 -m pip install --require-hashes --no-deps -r /build/requirements-bui
 COPY _shared/task_contract/ /build/task_contract/
 COPY _shared/protocol_v2/ /build/protocol_v2/
 COPY _shared/lifecycle_contract/ /build/lifecycle_contract/
-COPY _shared/backend_runtime/ /build/backend_runtime/
 COPY onnxtools-backend/pyproject.toml onnxtools-backend/main.py onnxtools-backend/predictor.py \
      onnxtools-backend/schemas.py onnxtools-backend/attribute_schema.py onnxtools-backend/handle_pool.py \
      onnxtools-backend/gpu_lifecycle.py /build/onnxtools-backend/
 RUN python3 -m pip install --no-build-isolation --no-deps \
-        /build/task_contract /build/protocol_v2 /build/lifecycle_contract /build/backend_runtime /build/onnxtools-backend \
+        /build/task_contract /build/protocol_v2 /build/lifecycle_contract /build/onnxtools-backend
+COPY _shared/requirements-plugin-runtime.txt /build/requirements-plugin-runtime.txt
+RUN python3 -m pip install --no-deps --require-hashes -r /build/requirements-plugin-runtime.txt \
     && rm -rf /build
 COPY onnxtools-backend/scripts/validate_managed_lifecycle.py /app/scripts/
 RUN mkdir -p /app/models

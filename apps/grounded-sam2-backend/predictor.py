@@ -4,7 +4,7 @@ vendor 形态: vendor/grounded-sam-2/ 下放上游官方仓库副本 (固定 com
 本模块只对 vendor 内的 SAM 2.1 image_predictor + GroundingDINO inference utilities 做一层 prompt 适配,
 返回平台协议要求的 polygonlabels / rectanglelabels 字典数组.
 
-mask → polygon 简化策略 (实现位于 apps/_shared/mask_utils, 与 sam3-backend 共用):
+mask → polygon 简化策略 (由独立的 anno-mask-utils 包提供, 与 sam3-backend 共用):
     cv2.findContours(RETR_CCOMP, CHAIN_APPROX_NONE)  # CCOMP 抓内外环
     → 各连通域外环 / hole 配对（hierarchy parent 索引归属）
     → shapely.simplify(tolerance=DEFAULT_SIMPLIFY_TOLERANCE, preserve_topology=True)

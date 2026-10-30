@@ -73,7 +73,7 @@ aap-identity-admission = { path = "../_shared/identity_admission", editable = tr
 aap-inference = { path = "../inference", editable = true }
 aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
 aap-lifecycle-contract = { path = "../_shared/lifecycle_contract", editable = true }
-aap-backend-runtime = { path = "../_shared/backend_runtime", editable = true }
+aap-backend-runtime = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl" }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 aap-assets-catalog = { path = "../assets-catalog", editable = true }
 aap-assets-media = { path = "../assets-media", editable = true }

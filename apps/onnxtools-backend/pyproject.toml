@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 
 dependencies = [
     "aap-backend-runtime==0.1.0",
+    "aap-lifecycle-contract",
     "aap-protocol-v2==0.2.0",
     "aap-task-contract==0.1.0",
     "cryptography>=43.0.0",
@@ -34,10 +35,10 @@ py-modules = ["main", "predictor", "schemas", "attribute_schema", "handle_pool",
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Source tests use the same shared packages installed as wheels in the image.
-pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/lifecycle_contract/src", "../_shared/backend_runtime/src"]
+pythonpath = ["../_shared/task_contract/src", ".", "../_shared/protocol_v2/src", "../_shared/lifecycle_contract/src"]
 
 [tool.uv.sources]
-aap-backend-runtime = { path = "../_shared/backend_runtime" }
+aap-backend-runtime = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl" }
 aap-lifecycle-contract = { path = "../_shared/lifecycle_contract", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
