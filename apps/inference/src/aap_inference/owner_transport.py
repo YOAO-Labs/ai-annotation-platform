@@ -419,6 +419,16 @@ class RoutingModelRequestContextFactory:
         ):
             raise RoutingUnavailable()
         identity = _transport_identity(endpoint)
+        revalidate = (
+            endpoint.gpu_resource_id is not None
+            and request.selected_pool_id is not None
+        )
+        health = request.health_meta
+        residency = health.get("residency") if isinstance(health, Mapping) else None
+        raw_boot = residency.get("boot_id") if isinstance(residency, Mapping) else None
+        boot_id = raw_boot if type(raw_boot) is str and raw_boot else None
+        if revalidate and type(request.selected_member_id) is not uuid.UUID:
+            raise RoutingUnavailable()
 
         @asynccontextmanager
         async def request_context(http_request):
@@ -433,28 +443,50 @@ class RoutingModelRequestContextFactory:
                 attempt_id=attempt_id,
                 transport_identity=identity,
             ) as subject:
-                begun = await _execute_routing(
-                    self._routing_runtime,
-                    "begin",
-                    {
-                        "scope_id": str(route_binding.scope_id),
-                        "capability": route_binding.capability,
-                        "attempt_id": str(attempt_id),
-                        "method": http_request.method,
-                        "path": http_request.url.path,
-                        "transport_subject": subject,
-                    },
-                    command_id=attempt_id,
-                )
+                body = {
+                    "scope_id": str(route_binding.scope_id),
+                    "capability": route_binding.capability,
+                    "attempt_id": str(attempt_id),
+                    "method": http_request.method,
+                    "path": http_request.url.path,
+                    "transport_subject": subject,
+                }
+                command_id = uuid.uuid5(attempt_id, "model-begin")
+                command = make_routing_command("begin", body, request_id=command_id)
+                if revalidate:
+                    reply = await self._routing_runtime.begin_model(
+                        command, member_id=request.selected_member_id, boot_id=boot_id
+                    )
+                else:
+                    reply = await self._routing_runtime.execute(command)
+                if (
+                    not isinstance(reply, RoutingResult)
+                    or reply.request_id != command_id
+                    or reply.operation != "begin"
+                    or reply.state != "committed"
+                    or isinstance(reply.result, RoutingRejectedResult)
+                ):
+                    raise RoutingUnavailable()
+                begun = reply.result
             if (
                 not isinstance(begun, RoutingBeginResult)
                 or begun.attempt_id != attempt_id
             ):
                 raise RoutingUnavailable()
+            actual = begun.scope
+            if revalidate and (
+                actual.pool_id != request.selected_pool_id
+                or actual.registry_id != request.endpoint_registry_id
+                or actual.project_id != request.project_id
+                or actual.generation != request.topology_generation
+                or actual.id != route_binding.scope_id
+                or actual.capability != route_binding.capability
+            ):
+                raise RoutingUnavailable()
             yield _RoutingRequestGrant(
                 self._routing_runtime,
-                route_binding.scope_id,
-                route_binding.capability,
+                actual.id,
+                actual.capability,
                 attempt_id,
                 begun.headers,
             )

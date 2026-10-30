@@ -116,6 +116,7 @@ BEGIN
         ('aap_inference_routing_v1.routing_policy()','jsonb'),
         ('aap_inference_routing_v1.routing_step(text,text)','jsonb'),
         ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb'),
+        ('aap_inference_routing_v1.supersede_unbegun_scope(text)','jsonb'),
         ('aap_inference_routing_v1.video_execution_scope_step(text,text)','jsonb')
     ) AS capability(signature,result_type)
     LOOP
@@ -160,6 +161,7 @@ GRANT EXECUTE ON FUNCTION
     aap_inference_routing_v1.routing_policy(),
     aap_inference_routing_v1.routing_step(text,text),
     aap_inference_routing_v1.scope_retirement_step(text,text),
+    aap_inference_routing_v1.supersede_unbegun_scope(text),
     aap_inference_routing_v1.video_execution_scope_step(text,text)
     TO :"inference_routing_role";
 
@@ -174,6 +176,7 @@ DECLARE
         'aap_inference_routing_v1.routing_policy()',
         'aap_inference_routing_v1.routing_step(text, text)',
         'aap_inference_routing_v1.scope_retirement_step(text, text)',
+        'aap_inference_routing_v1.supersede_unbegun_scope(text)',
         'aap_inference_routing_v1.video_execution_scope_step(text, text)'
     ];
 BEGIN

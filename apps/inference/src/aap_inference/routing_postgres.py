@@ -30,6 +30,7 @@ from aap_inference_contract.video_execution import (
 _SCHEMA = "aap_inference_routing_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.routing_policy()"
 _STEP_SQL = f"SELECT {_SCHEMA}.routing_step($1::text,$2::text)"
+_SUPERSEDE_SQL = f"SELECT {_SCHEMA}.supersede_unbegun_scope($1::text)"
 _RETIREMENT_STEP_SQL = f"SELECT {_SCHEMA}.scope_retirement_step($1::text,$2::text)"
 _VIDEO_STEP_SQL = f"SELECT {_SCHEMA}.video_execution_scope_step($1::text,$2::text)"
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
@@ -38,6 +39,7 @@ _FUNCTIONS = {
     ("routing_policy", ""),
     ("routing_step", "text, text"),
     ("scope_retirement_step", "text, text"),
+    ("supersede_unbegun_scope", "text"),
     ("video_execution_scope_step", "text, text"),
 }
 
@@ -170,7 +172,10 @@ class RoutingPostgresData:
         """Execute one closed action through ``routing_step(text,text)``."""
         if (
             type(action) is not str
-            or action not in ROUTING_NATIVE_ACTIONS
+            or (
+                action not in ROUTING_NATIVE_ACTIONS
+                and action != "supersede_unbegun_scope"
+            )
             or not isinstance(arguments, Mapping)
             or any(type(key) is not str for key in arguments)
         ):
@@ -178,7 +183,10 @@ class RoutingPostgresData:
         request_json = _json_text(arguments)
         try:
             await self._assert_transaction()
-            raw = await self._connection.fetchval(_STEP_SQL, action, request_json)
+            if action == "supersede_unbegun_scope":
+                raw = await self._connection.fetchval(_SUPERSEDE_SQL, request_json)
+            else:
+                raw = await self._connection.fetchval(_STEP_SQL, action, request_json)
             reply = _json_object(raw, max_bytes=ROUTING_REPLY_MAX_BYTES)
         except RoutingUnavailable:
             raise

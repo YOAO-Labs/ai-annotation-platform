@@ -108,6 +108,13 @@ class RoutingRuntime:
     async def execute(self, command: RoutingCommand | dict | bytes | str):
         return await self.manager.execute(command)
 
+    async def begin_model(
+        self, command: RoutingCommand, *, member_id: UUID, boot_id: str | None
+    ):
+        return await self.manager.begin_model(
+            command, member_id=member_id, boot_id=boot_id
+        )
+
     @asynccontextmanager
     async def transport_subject_issuer(
         self,

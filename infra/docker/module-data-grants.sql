@@ -2214,6 +2214,10 @@ ALTER FUNCTION aap_inference_routing_v1._routing_step_0279(text, text)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.scope_retirement_step(text, text)
     OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.supersede_unbegun_scope(text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.capture_scope_boot()
+    OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1._scope_retirement_step_0280(text, text)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_step(text, text)
