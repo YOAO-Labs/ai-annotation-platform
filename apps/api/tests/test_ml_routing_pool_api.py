@@ -70,6 +70,7 @@ async def test_enable_pool_for_project(httpx_client, db_session, super_admin) ->
     body = resp.json()
     assert body["enabled"] is True
     assert body["pool"]["id"] == str(pool.id)
+    assert body["pool"]["member_count"] == 1
 
     # The binding row now exists.
     from sqlalchemy import select

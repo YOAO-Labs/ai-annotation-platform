@@ -1966,7 +1966,7 @@ async def set_project_ml_backend_pool_enablement(
     fresh = next((row for row in rows if row[0].id == pool_id), None)
     if fresh is None:
         raise HTTPException(status_code=404, detail="service pool not found")
-    pool, assoc, member_count = fresh
+    pool, member_count, assoc = fresh
     pool_data = to_record(pool)
     return ProjectMLBackendPoolItem(
         pool=MLBackendPoolSummary(
