@@ -77,7 +77,7 @@ The most fragile assumption is that native 8.4.183 behavior can pass the control
 | Web `TrainingCreatePage`, `TrainingWarehouseCards`, parameter and comparison presentation                           | Growing model list, family labels and family-specific inactive parameters                                   | Task → framework → family → scale filtering using API metadata; retain existing review behavior                                               |
 | Existing native qualification and lifecycle tools                                                                   | Hardcoded segmentation inputs and one controlled segmentation model                                         | Matrix-driven, per-artifact evidence for exact returned models                                                                                |
 
-The built-in inference directory already lists YOLOv8/YOLO11/YOLO26 variants in `apps/yolo-backend/model_registry.py`. Reuse its public naming conventions, but do not equate built-in prediction discovery with controlled training or return eligibility. The shared registry owns the controlled subset; test that overlapping names agree.
+The official [YOLO plugin directory](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo) lists built-in variants. Reuse its public naming conventions, but do not equate built-in prediction discovery with controlled training or return eligibility. The shared registry owns the controlled subset; test that overlapping names agree.
 
 ```text
 Shared model registry + versioned parameter / runtime profiles
@@ -302,7 +302,7 @@ Not exercised during planning: image builds, package installation, target GPU av
 
 Recorded on 2026-10-20, after the planning pass above. The shared registry now enumerates all 34 combinations. Ultralytics is pinned to `8.4.183` in both candidate images; LibreYOLO remains at its latest stable `1.6.0`. Exact historical parameter, initialization and receipt identities remain readable without granting cross-version execution. New experiments expose task, framework, family and scale selection, exact-runtime initialization and node-specific asset readiness. YOLO26 uses its actual native end-to-end heads, L1/semantic losses and bounded semantic target construction.
 
-The checked-in [public asset manifest](../../apps/yolo-backend/scripts/controlled-model-assets.json) records all 34 official files, immutable upstream sources, byte counts and SHA256 values. Public assets were published and read back from the development `training` bucket, and all 34 were verified into the existing development node cache at `/home/hehao/.local/state/ai-annotation-platform/development-training/models`. Existing legacy files were retained. Private managed installations share protected SHA256 blobs while retaining independent immutable receipts and access checks.
+The official [YOLO asset manifest](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/yolo_plugin/pretrained-assets.json) and [LibreYOLO asset manifest](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/libreyolo/aap_libreyolo_plugin/controlled-model-assets.json) own their respective sources and immutable identities. Historical development-bucket and node-cache verification did not grant approval to redistribute or use those assets in other deployments. Private managed installations share protected SHA256 blobs while retaining independent immutable receipts and access checks.
 
 ### Retained native CPU evidence
 

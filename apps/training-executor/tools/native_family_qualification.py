@@ -2,6 +2,8 @@
 
 import asyncio
 import hashlib
+import importlib.metadata
+import importlib.util
 import json
 from pathlib import Path
 import resource
@@ -56,11 +58,19 @@ def detection_fixture(root):
 
 def qualify_managed_return(path, base_model, root):
     """Use the actual HTTP installer and native inspection, with task-owned storage."""
-    backend = Path(__file__).resolve().parents[2] / "yolo-backend"
-    sys.path.insert(0, str(backend))
+    # Resolve the validation helper from the installed official wheel, not
+    # from a neighbouring checkout or the platform's own scripts package.
+    helper_path = importlib.metadata.distribution("yolo-backend").locate_file(
+        "scripts/controlled_segmentation_validation.py"
+    )
+    helper_spec = importlib.util.spec_from_file_location(
+        "yolo_qualification_helper", helper_path
+    )
+    helper = importlib.util.module_from_spec(helper_spec)
+    sys.modules[helper_spec.name] = helper
+    helper_spec.loader.exec_module(helper)
     from managed_models import InstallRequest as UltralyticsInstallRequest
     from managed_models import ManagedModelStore as UltralyticsModelStore
-    from scripts.controlled_segmentation_validation import _weight_server
     from training_contract.model_return import libre_identity, ultralytics_identity
 
     framework = "libreyolo" if base_model.startswith("libreyolo") else "ultralytics"
@@ -87,22 +97,29 @@ def qualify_managed_return(path, base_model, root):
         ),
     }
     if framework == "libreyolo":
-        plugin = Path(__file__).resolve().parents[3] / "plugins" / "libreyolo"
-        sys.path.insert(0, str(plugin))
+        # The official LibreYOLO distribution is installed in the qualification environment.
         from aap_backend_runtime.managed_models import ManagedModelStore
         from aap_libreyolo_plugin.install import (
-            inspect, install_request_model, validate_installed_receipt,
+            inspect,
+            install_request_model,
+            validate_installed_receipt,
         )
 
-        store = ManagedModelStore(root / "managed", inspect=inspect, validate_receipt=validate_installed_receipt)
+        store = ManagedModelStore(
+            root / "managed",
+            inspect=inspect,
+            validate_receipt=validate_installed_receipt,
+        )
     else:
         store = UltralyticsModelStore(root / "managed")
-    with _weight_server(path) as url:
+    with helper._weight_server(path) as url:
         if framework == "libreyolo":
             from urllib.parse import urlsplit
 
             parsed = urlsplit(url)
-            request_model = install_request_model([f"{parsed.scheme}://{parsed.netloc}"])
+            request_model = install_request_model(
+                [f"{parsed.scheme}://{parsed.netloc}"]
+            )
         else:
             request_model = UltralyticsInstallRequest
         body = request_model.model_validate(

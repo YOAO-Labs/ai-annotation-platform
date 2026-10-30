@@ -24533,6 +24533,7 @@
               "queued",
               "validating",
               "building",
+              "pulling",
               "stopping",
               "recreating",
               "checking",
@@ -47676,8 +47677,8 @@
       },
       "Service": {
         "properties": {
-          "can_rebuild": {
-            "title": "Can Rebuild",
+          "can_maintain": {
+            "title": "Can Maintain",
             "type": "boolean"
           },
           "provider": {
@@ -47705,7 +47706,7 @@
         },
         "required": [
           "provider",
-          "can_rebuild",
+          "can_maintain",
           "reason"
         ],
         "title": "Service",

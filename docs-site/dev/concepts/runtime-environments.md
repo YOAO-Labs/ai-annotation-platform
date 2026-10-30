@@ -16,7 +16,7 @@ last_reviewed: 2026-10-19
 `docker-compose.yml` 只定义**基础设施 + Celery**（api/web 不在内）。开发态与生产态的差异由三件事决定：
 
 1. **谁进容器** —— 开发态 API/Web 跑宿主机进程；生产态用叠加文件 `docker-compose.prod.yml` 把 api/web 以容器拉起
-2. **哪些 profile 启用** —— `gpu`、`gpu-sam3`、`gpu-yolo`、`gpu-onnxtools`、`gpu-rapidocr`（`docker-compose.ml.yml`）、`training`（`docker-compose.training.yml`）与 `monitoring` 默认不启动
+2. **哪些 profile 启用** —— `gpu`、`gpu-sam3`（`docker-compose.ml.yml`）、`gpu-yolo`、`gpu-onnxtools`、`gpu-rapidocr`（各自插件叠加文件）、`training`（`docker-compose.training.yml`）与 `monitoring` 默认不启动
 3. **`ENVIRONMENT` 变量取值** —— 驱动 `config.py` / `main.py` 的启动断言和环境安全策略
 
 ```bash

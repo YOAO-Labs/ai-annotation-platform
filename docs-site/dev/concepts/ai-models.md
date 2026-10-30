@@ -17,15 +17,15 @@ last_reviewed: 2026-10-20
 
 ## 0. Backend 名录
 
-平台当前自维护 **5 个 ML backend**（各为独立 FastAPI 微服务、独立 `docker-compose.ml.yml` profile，按显存预算自由组合启动）。所有 backend 走同一套[能力声明协议](../reference/ml-backend-protocol)，由平台经 `/setup` 探能力 + `/predict` 调推理。
+平台维护 SAM 系列服务；YOLO、ONNXTools 与 RapidOCR 由官方插件仓独立发布。它们是独立 FastAPI 微服务，通过各自 Compose profile 按显存预算部署。所有服务走同一套[能力声明协议](../reference/ml-backend-protocol)，由平台经 `/setup` 探能力 + `/predict` 调推理。
 
-| Backend                 | 端口 | profile         | 模型族                                                        | 主用途                                                                                        | composition                  |
-| ----------------------- | ---- | --------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------- |
-| `grounded-sam2-backend` | 8001 | `gpu`           | GroundingDINO + SAM 2.1                                       | 文本/点/框交互式实例分割；暴露 `box-seg` 几何原子（多阶段下游）                               | `composite` + `atom`         |
-| `sam3-backend`          | 8002 | `gpu-sam3`      | SAM 3                                                         | 交互式分割（下一代 SAM）                                                                      | `composite`                  |
-| `yolo-backend`          | 8003 | `gpu-yolo`      | Ultralytics（v8/v11/v12）+ LibreYOLO（YOLO9/YOLOX）+ 受管模型 | 纯批量预标（`supported_prompts=["none"]`）+ 在线训练受管模型热加载（`/managed-models`）与评估 | `composite`                  |
-| `onnxtools-backend`     | 8004 | `gpu-onnxtools` | rtdetr + va                                                   | 二阶段车辆属性预标注；多阶段编排原子组合（上游纯检测 + 下游纯分类）                           | `atom` × 2 + `composite` × 1 |
-| `rapidocr-backend`      | 8005 | `gpu-rapidocr`  | RapidOCR（ONNX）PP-OCRv5/v6                                   | OCR 文本检测 / 识别；`det → cls → rec` 拆原子 + 端到端，落点 `text`/`orientation`/`language`  | `atom` × 2 + `composite` × 1 |
+| Backend                 | 端口 | profile         | 模型族                       | 主用途                                                                                       | composition                  |
+| ----------------------- | ---- | --------------- | ---------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------- |
+| `grounded-sam2-backend` | 8001 | `gpu`           | GroundingDINO + SAM 2.1      | 文本/点/框交互式实例分割；暴露 `box-seg` 几何原子（多阶段下游）                              | `composite` + `atom`         |
+| `sam3-backend`          | 8002 | `gpu-sam3`      | SAM 3                        | 交互式分割（下一代 SAM）                                                                     | `composite`                  |
+| `yolo-backend`          | 8003 | `gpu-yolo`      | Ultralytics 多任务与受管模型 | 纯批量预标和在线训练受管模型安装与评估                                                       | `composite`                  |
+| `onnxtools-backend`     | 8004 | `gpu-onnxtools` | rtdetr + va                  | 二阶段车辆属性预标注；多阶段编排原子组合（上游纯检测 + 下游纯分类）                          | `atom` × 2 + `composite` × 1 |
+| `rapidocr-backend`      | 8005 | `gpu-rapidocr`  | RapidOCR（ONNX）PP-OCRv5/v6  | OCR 文本检测 / 识别；`det → cls → rec` 拆原子 + 端到端，落点 `text`/`orientation`/`language` | `atom` × 2 + `composite` × 1 |
 
 SAM 系列特化（image embedding 缓存、prompt 路由）集中在 §1–§5。`yolo-backend` / `onnxtools-backend` / `rapidocr-backend` 的差异化说明放在 §6。
 
@@ -49,7 +49,7 @@ apps/api (FastAPI 3.11) ──HTTP /predict──▶ grounded-sam2-backend
 
 ### 1.1 docker-compose.ml.yml profile + nvidia 资源预留
 
-所有 GPU 推理后端定义在独立的 `docker-compose.ml.yml` 中，每个 service 具备四项核心配置：① 独立 service + 独立端口；② `profiles: ["gpu*"]` opt-in（默认开发栈不启动 GPU profile，避免占用开发机显存）；③ `deploy.resources.reservations.devices` 申请 NVIDIA GPU；④ `healthcheck start_period=180s`（覆盖首次冷启与 checkpoint 加载）。
+SAM 服务定义在 `docker-compose.ml.yml`，三个独立插件各使用一个可选叠加文件。GPU 服务采用独立端口、opt-in profile、NVIDIA device reservation 与健康检查；首次模型加载仍需按实际镜像和权重验收。
 
 ```yaml
 # docker-compose.ml.yml 节选
@@ -82,7 +82,7 @@ services:
               capabilities: [gpu]
 ```
 
-**dev vs 生产差异**（GPU backend 定义在 `docker-compose.ml.yml`，启动时需叠加 `-f docker-compose.yml -f docker-compose.ml.yml` 或配置 `COMPOSE_FILE`）：
+**dev vs 生产差异**（以下示例使用 SAM 叠加文件；插件部署另加对应文件并配置审核过的镜像 digest）：
 
 | 场景                  | 启动命令                                                | GPU 需求                     | 显存预算    | 备注                                                                 |
 | --------------------- | ------------------------------------------------------- | ---------------------------- | ----------- | -------------------------------------------------------------------- |
@@ -284,15 +284,15 @@ histogram_quantile(0.95,
 
 ## 6. YOLO / ONNX / OCR 通用推理 backend
 
-`grounded-sam2-backend` / `sam3-backend` 之外平台还自维护三个**通用推理 backend**——`yolo-backend`、`onnxtools-backend` 与 `rapidocr-backend`。三者共性：不交互式（`supported_prompts=["none"]` 或仅 `bbox`），走纯批量预标；镜像与权重均按 backend 自治（`docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile <profile> up`），不影响 SAM 系列。
+`grounded-sam2-backend` / `sam3-backend` 之外，[官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)提供 `yolo-backend`、`onnxtools-backend` 与 `rapidocr-backend`。平台按已审核的镜像 digest 部署这些独立服务，模型权重和项目启用仍须单独批准。
 
 ### 6.1 yolo-backend（8003 / `gpu-yolo`）
 
-- **内置模型目录（Ultralytics + LibreYOLO）**：
-  - 覆盖 Ultralytics 多任务多系列（`detection` / `segmentation` / `pose` / `obb` / `classification`，含 YOLOv8 / YOLOv11 / YOLOv12）以及 LibreYOLO 检测模型族（`YOLO9` / `YOLOX`）。
-  - 协议 v2 多模型目录（详 [ADR-0036](../adr/archive/0036-ml-backend-capability-protocol-v2-multi-model)）暴露全部预置权重，前端模型市场按 `task` × `series` × `size` 分组渲染。权重经 `yolo_checkpoints` 卷持久化。
+- **内置模型目录（Ultralytics）**：
+  - 检测、分割、姿态与旋转框的模型组合由插件 `/setup` 发布；权重经 `yolo_checkpoints` 卷持久化。
+  - LibreYOLO 由独立插件提供，不通过 Ultralytics 目录冒用其身份。
 - **在线训练受控模型安装（`/managed-models`）**：
-  - `apps/yolo-backend/managed_models.py` 的 `ManagedModelStore` 接收 `POST /managed-models`，下载受控原生权重并核验字节数、SHA-256、任务、框架、架构和类别顺序，在 checkpoint 目录的 `managed/{version_id}` 原子保存 `weights.pt` 与 `receipt.json`。
+  - YOLO 插件的 `ManagedModelStore` 接收 `POST /managed-models`，下载受控原生权重并核验字节数、SHA-256、任务、框架、架构和类别顺序，在 checkpoint 目录的 `managed/{version_id}` 原子保存 `weights.pt` 与 `receipt.json`。
   - 平台用 `trained:{version_id}` 和冻结引用访问具体部署。安装后须完成固定图片试用，再由负责人按任务人工发布，才能用于普通预标；候选评估与主动选样有各自的资格检查。受控实例分割首批限定 `yolo11n-seg`，输出原图逐实例 RLE。详见[受控模型部署协议](../reference/ml-backend-protocol)与[实例分割闭环](./instance-segmentation-learning)。
 - **逐样本评估收据端点（`/managed-evaluation/*`）**：
   - 真实推理复用 `POST /predict` 的 `context.sample_evaluation`；辅助 GET profile、GET requests 和 POST seal 用于环境核验、持久收据和停止／恢复。分割使用独立 `/managed-evaluation/segment/*` 命名空间。平台评估器从冻结真值及预测计算 TP／FP／FN、mask IoU／Dice 与错误诊断；LibreYOLO 尚未开放共享逐样本评估。
@@ -301,9 +301,7 @@ histogram_quantile(0.95,
 
 **二阶段车辆属性预标注**：rtdetr 检测出框 → 对机动车框跑 va 分类出**车型（13 类）+ 颜色（11 类）** → 写入框 `attributes`。基于 [onnxtools `VehicleAttributePipeline`](https://github.com/yyq19990828/onnxtools) 封装。
 
-**镜像基础**：`pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel`（cuda12.8 + cudnn9 满足 onnxruntime-gpu 1.22；cudnn8 base 会静默退 CPU）。Dockerfile entrypoint 把 torch 自带的 `nvidia/*/lib` 加进 `LD_LIBRARY_PATH`，否则 CUDAExecutionProvider 找不到 cudnn 静默退 CPU（实测 GPU ~35ms/图 vs CPU ~940ms）。缺 GPU 时自动 fallback CPU，功能仍可用。
-
-**模型注入**：不打进镜像，经 bind mount（`./apps/onnxtools-backend/models:/app/models:ro`）。起栈前需手动复制（rtdetr-2024080100 + va_260612）到该目录。
+**镜像与模型注入**：使用经过部署审核的官方镜像及 manifest digest；通过 `ONNXTOOLS_MODELS_PATH` 将已审核的两个模型只读挂载到 `/app/models`。文件可见不代表已获使用授权。
 
 **三 model 暴露（原子化范式）**：`/setup` 广播三个 model，各架在自己的单模型推理类上、按需懒加载——detect-only 部署只加载 `RtdetrORT`、classify-only 只加载 `VehicleAttributeORT`。
 

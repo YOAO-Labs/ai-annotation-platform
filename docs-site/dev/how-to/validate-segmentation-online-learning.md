@@ -68,7 +68,7 @@ COCO8 是流程夹具，指标不适合评判泛化质量。逐样本比较应�
 
 ## 受控分割模型生命周期
 
-使用包含最新脚本的目标 YOLO 镜像，在目标 UUID 的独占 GPU 上运行 `apps/yolo-backend/scripts/validate_managed_lifecycle.py`。先准备已核验的真实训练权重、代表性原图及严格 JSON 夹具。以下以 `yolo26n-seg` 为例；三个家族的 15 个分割组合应按实际部署范围分别验收：
+使用包含最新脚本的目标 YOLO 镜像，在目标 UUID 的独占 GPU 上运行 YOLO 插件的 `scripts/validate_managed_lifecycle.py`。先准备已核验的真实训练权重、代表性原图及严格 JSON 夹具。以下以 `yolo26n-seg` 为例；三个家族的 15 个分割组合应按实际部署范围分别验收：
 
 ```json
 {
@@ -98,7 +98,7 @@ export VALIDATION_CONTROLLED_MODEL_IMAGE=/fixtures/image.jpg
 
 `base_model`、`framework_version` 必须对应实际 checkpoint 和目标镜像。旧 schema 1 固定为 `yolo11n-seg`／Ultralytics `8.4.177`；schema 2 支持显式分割身份。原有 `VALIDATION_CONTROLLED_SEGMENT_*` 输入组仍可用，但两组变量不能混用，也不能用旧身份的报告覆盖新身份。
 
-将输入只读挂到资格容器，另外提供原有四任务权重摘要、批准引用、Git commit、实际镜像 ID 和 GPU UUID，再按 [YOLO Backend README](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/yolo-backend/README.md) 的完整命令运行。输入路径是容器内路径；`set -o pipefail` 保留脚本退出码。原有普通 YOLO 模式可以继续使用，但没有 `controlled_segment` 证据的报告只覆盖普通模型。
+将输入只读挂到资格容器，另外提供原有四任务权重摘要、批准引用、Git commit、实际镜像 ID 和 GPU UUID，再按 [YOLO 插件说明](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)的完整命令运行。输入路径是容器内路径；`set -o pipefail` 保留脚本退出码。原有普通 YOLO 模式可以继续使用，但没有 `controlled_segment` 证据的报告只覆盖普通模型。
 
 新模式实际通过 HTTP 安装训练权重、读取收据，比较冻结引用、原生头和类别；错误摘要或重新绑定应拒绝。两轮分别用 `trained:<版本>` 冷加载，验证原图 RLE、实例和类别对齐，再执行同一共享池的卸载。第二轮故障矩阵使用受控分割预测请求，覆盖 busy unload、取消计数、旧代次、重放和不完整准入头。
 

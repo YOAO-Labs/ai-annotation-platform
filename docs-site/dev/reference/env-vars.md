@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 环境变量参考
@@ -171,11 +171,27 @@ last_reviewed: 2026-10-29
 | `ML_BACKEND_ROUTER_PASSIVE_FAILURE_THRESHOLD` | `3` | Passive circuit: consecutive transport failures before ejection + open duration. |
 | `ML_BACKEND_ROUTER_EJECT_SECONDS` | `30` | — |
 
-## yolo-backend (ultralytics 多任务 det/seg/pose/obb)
+## Official plugin repositories, immutable registry manifest digests and
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `YOLO_DEVICE` | `cuda:0` | profile gpu-yolo · 与 grounded-sam2 / sam3 三 backend 独立启停 |
+| `YOLO_IMAGE` | `—` | independently reviewed lifecycle source hashes. Required only for the corresponding opt-in Compose overlay. Use the manifest digest, not an image ID. |
+| `YOLO_IMAGE_DIGEST` | `—` | — |
+| `YOLO_LIFECYCLE_SHA256` | `—` | — |
+| `ONNXTOOLS_IMAGE` | `—` | — |
+| `ONNXTOOLS_IMAGE_DIGEST` | `—` | — |
+| `ONNXTOOLS_LIFECYCLE_SHA256` | `—` | — |
+| `RAPIDOCR_IMAGE` | `—` | — |
+| `RAPIDOCR_IMAGE_DIGEST` | `—` | — |
+| `RAPIDOCR_LIFECYCLE_SHA256` | `—` | — |
+| `ONNXTOOLS_MODELS_PATH` | `./data/onnxtools-models` | Reviewed model files are mounted read-only; no download is implied. |
+| `RAPIDOCR_MODELS_PATH` | `./data/rapidocr-models` | — |
+
+## profile gpu-yolo · 与 grounded-sam2 / sam3 三 backend 独立启停
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `YOLO_DEVICE` | `cuda:0` | — |
 | `YOLO_MODEL_POOL_CAP` | `2` | — |
 | `YOLO_MANAGED_MODELS_TOKEN` | `—` | Optional manual override. Empty uses the system-managed per-service credential. Existing manual credentials are never overwritten; use the same Token in its registry. |
 | `ML_MANAGED_AUTH_DIR` | `./data/inference-auth` | Private shared defaults for five first-party inference services; no token values go in .env. |

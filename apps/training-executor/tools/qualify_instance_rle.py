@@ -1,7 +1,8 @@
 """Bounded native consumer qualification; defaults to CPU and cleans fixtures.
 
-Use the pinned backend image with both native adapters and this checkout mounted
-read-only. Training and managed-return installation share a temporary directory.
+Install the pinned official YOLO and LibreYOLO distributions in the
+qualification environment. Training and managed-return installation share a
+temporary directory.
 GPU execution requires the platform resource owner
 and is deliberately not acquired or bypassed by this probe.
 """

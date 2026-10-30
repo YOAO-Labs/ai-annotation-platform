@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import importlib.util
 import json
 import os
@@ -31,14 +32,23 @@ class FakeRunner(runner_module.Runner):
         super().__init__(
             ROOT,
             "maintenance-test",
-            [ROOT / "docker-compose.yml", ROOT / "docker-compose.ml.yml"],
+            [
+                ROOT / "docker-compose.yml",
+                ROOT / "docker-compose.ml.yml",
+                ROOT / "docker-compose.ml-yolo.yml",
+            ],
             store,
         )
         self.commands = []
         self.failure = None
+        self.image_ref = "registry.invalid/yolo@sha256:" + "a" * 64
+        self.image_id = "sha256:" + "b" * 64
+        self.lifecycle_hash = "c" * 64
         self.container = {
             "Id": "old-id",
+            "Image": self.image_id,
             "Config": {
+                "Image": self.image_ref,
                 "Entrypoint": [
                     "uvicorn",
                     "main:app",
@@ -58,6 +68,7 @@ class FakeRunner(runner_module.Runner):
                     "com.docker.compose.project.config_files": ",".join(
                         str(p) for p in self.files
                     ),
+                    runner_module.LIFECYCLE_HASH_LABEL: self.lifecycle_hash,
                     "com.docker.compose.oneoff": "False",
                 },
             },
@@ -73,26 +84,52 @@ class FakeRunner(runner_module.Runner):
                     "Name": "maintenance-test_yolo_checkpoints",
                     "Source": "/private/volume",
                     "RW": True,
-                }
+                },
+                {
+                    "Destination": "/model-assets",
+                    "Type": "bind",
+                    "Source": "/private/model-assets",
+                    "RW": False,
+                },
             ],
         }
         self.probe = {
             "argv": list(self.container["Config"]["Entrypoint"]),
             "shutdown": True,
-            "lifecycle_sha256": (ROOT / "apps/_shared/plugin-runtime-lifecycle.sha256").read_text().strip(),
+            "lifecycle_sha256": self.lifecycle_hash,
         }
-        self.services = [{"provider": "yolo", "can_rebuild": True, "reason": None}]
+        self.services = [{"provider": "yolo", "can_maintain": True, "reason": None}]
         self.heartbeat()
 
     def command(self, args, **kwargs):
         self.commands.append(args)
+        if "image" in args and "inspect" in args:
+            return json.dumps([{"Id": self.image_id, "RepoDigests": [self.image_ref]}])
+        if "config" in args:
+            if "gpu-yolo" not in args:
+                return json.dumps({"services": {}})
+            return json.dumps(
+                {
+                    "services": {
+                        "yolo-backend": {
+                            "image": self.image_ref,
+                            "labels": {
+                                runner_module.LIFECYCLE_HASH_LABEL: self.lifecycle_hash
+                            },
+                        }
+                    }
+                }
+            )
+        if "run" in args:
+            digest = "0" * 64 if self.failure == "target_hash" else self.lifecycle_hash
+            return json.dumps({"shutdown": True, "lifecycle_sha256": digest})
         if "inspect" in args:
             return json.dumps([self.container])
         if "ps" in args:
             return self.container["Id"]
         if "exec" in args:
             return json.dumps(self.probe)
-        if "build" in args and self.failure == "build":
+        if "pull" in args and self.failure == "pull":
             raise runner_module.CommandFailure()
         if "stop" in args:
             if self.failure == "stop":
@@ -151,7 +188,7 @@ class QueueTests(unittest.TestCase):
                 if hasattr(self, "runner")
                 else self.runner_id,
             )
-        self.assertFalse(self.store.status()["services"][2]["can_rebuild"])
+        self.assertFalse(self.store.status()["services"][2]["can_maintain"])
         self.store.abort_reservation(job["id"])
         self.assertEqual(self.store.jobs(), [])
 
@@ -170,12 +207,12 @@ class QueueTests(unittest.TestCase):
         status = self.store.status()
         self.assertTrue(
             next(s for s in status["services"] if s["provider"] == "yolo")[
-                "can_rebuild"
+                "can_maintain"
             ]
         )
         self.assertFalse(
             next(s for s in status["services"] if s["provider"] == "sam3")[
-                "can_rebuild"
+                "can_maintain"
             ]
         )
         heartbeat = self.store.read("heartbeat.json")
@@ -202,7 +239,7 @@ class QueueTests(unittest.TestCase):
 
     def test_malformed_heartbeat_and_job_metadata_fail_closed(self):
         heartbeat = self.store.read("heartbeat.json")
-        heartbeat["services"] = [{"provider": [], "can_rebuild": True}]
+        heartbeat["services"] = [{"provider": [], "can_maintain": True}]
         self.store.write("heartbeat.json", heartbeat)
         self.assertFalse(self.store.status()["available"])
         self.runner.heartbeat()
@@ -211,7 +248,7 @@ class QueueTests(unittest.TestCase):
         self.store.write(f"{job['id']}.json", job)
         self.assertFalse(self.store.status()["available"])
 
-    def test_build_before_infinite_grace_stop_and_volume_preservation(self):
+    def test_pull_before_infinite_grace_stop_and_volume_preservation(self):
         job = self.runner.job()
         self.runner.run_job(job)
         result = self.store.read(f"{job['id']}.json")
@@ -219,9 +256,9 @@ class QueueTests(unittest.TestCase):
         actions = [
             args
             for args in self.runner.commands
-            if "build" in args or "stop" in args or "up" in args
+            if "pull" in args or "stop" in args or "up" in args
         ]
-        self.assertIn("build", actions[0])
+        self.assertIn("pull", actions[0])
         self.assertEqual(
             actions[1][-6:],
             ["stop", "--signal", "SIGTERM", "--timeout", "-1", "old-id"],
@@ -238,14 +275,81 @@ class QueueTests(unittest.TestCase):
             )
         )
 
-    def test_build_failure_does_not_stop_old_container(self):
-        self.runner.failure = "build"
+    def test_pull_failure_does_not_stop_old_container(self):
+        self.runner.failure = "pull"
         job = self.runner.job()
         self.runner.run_job(job)
         self.assertEqual(self.store.read(f"{job['id']}.json")["status"], "failed")
         self.assertFalse(
             any("stop" in args or "up" in args for args in self.runner.commands)
         )
+
+    def test_platform_owned_backend_still_builds_before_stopping(self):
+        runner = self.runner
+        runner.services = [{"provider": "sam3", "can_maintain": True, "reason": None}]
+        runner.heartbeat()
+        runner.container["Config"]["Labels"]["com.docker.compose.service"] = (
+            "sam3-backend"
+        )
+        runner.container["Config"]["Entrypoint"] = [
+            "/bin/bash",
+            "-c",
+            "python /app/scripts/download_checkpoints.py && exec uvicorn main:app --host 0.0.0.0 --port 8002 --workers 1",
+        ]
+        runner.container["Mounts"] = [
+            {
+                "Destination": path,
+                "Type": "volume",
+                "Name": path,
+                "Source": path,
+                "RW": True,
+            }
+            for path in ("/app/checkpoints", "/app/.cache/huggingface")
+        ]
+        runner.probe = {
+            "argv": [
+                "uvicorn",
+                "main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8002",
+                "--workers",
+                "1",
+            ],
+            "shutdown": True,
+            "lifecycle_sha256": hashlib.sha256(
+                (ROOT / "apps/sam3-backend/gpu_lifecycle.py").read_bytes()
+            ).hexdigest(),
+        }
+        job = self.store.reserve(
+            "sam3",
+            expected_deployment=runner.project,
+            expected_runner_id=runner.runner_id,
+        )
+        runner.run_job(self.store.publish(job["id"]))
+        self.assertEqual(self.store.read(f"{job['id']}.json")["status"], "succeeded")
+        actions = [
+            args
+            for args in runner.commands
+            if "build" in args or "pull" in args or "stop" in args
+        ]
+        self.assertIn("build", actions[0])
+        self.assertFalse(any("pull" in args for args in actions))
+
+    def test_unreviewed_target_lifecycle_never_stops_running_service(self):
+        self.runner.failure = "target_hash"
+        job = self.runner.job()
+        self.runner.run_job(job)
+        self.assertEqual(self.store.read(f"{job['id']}.json")["status"], "failed")
+        self.assertFalse(
+            any("stop" in args or "up" in args for args in self.runner.commands)
+        )
+
+    def test_tag_only_running_image_is_not_eligible_for_maintenance(self):
+        self.runner.container["Config"]["Image"] = "registry.invalid/yolo:latest"
+        with self.assertRaises(runner_module.UnsafeRuntime):
+            self.runner.validate("yolo", self.runner.container)
 
     def test_stop_timeout_never_recreates_and_requires_host_inspection(self):
         self.runner.failure = "stop"
@@ -255,7 +359,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(result["status"], "interrupted")
         self.assertTrue(result["requires_inspection"])
         self.assertFalse(any("up" in args for args in self.runner.commands))
-        self.assertFalse(self.store.status()["services"][2]["can_rebuild"])
+        self.assertFalse(self.store.status()["services"][2]["can_maintain"])
 
     def test_changed_model_mount_fails_without_resume(self):
         self.runner.failure = "mount"

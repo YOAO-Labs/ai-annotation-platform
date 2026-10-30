@@ -485,7 +485,7 @@ services:
   # 三者 profile-gated 且与本文件服务无 depends_on / 不共享数据卷, 故独立维护。启用:
   #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu      up -d grounded-sam2-backend
   #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
-  #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d yolo-backend
+  #   docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-yolo.yml --profile gpu-yolo up -d yolo-backend
 
   # v0.8.8 · 可观测性 stack（默认 profile=monitoring 不启动，避免 dev 多吃 ~200MB）
   # 启动方式：`docker compose --profile monitoring up -d prometheus grafana`

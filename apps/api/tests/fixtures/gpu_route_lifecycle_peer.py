@@ -1,12 +1,8 @@
-"""Real YOLO lifecycle and route controllers with an in-memory model, no GPU."""
+"""Real lifecycle and route controllers with an in-memory model, no GPU."""
 
 import asyncio
 from contextlib import asynccontextmanager
 import os
-from pathlib import Path
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "apps/yolo-backend"))
 
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from fastapi import FastAPI, HTTPException, Request
@@ -21,7 +17,7 @@ from aap_protocol_v2.lifecycle import (
 )
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
-from model_pool import ModelPool
+from aap_backend_runtime.managed_pool import BuildArtifact, ManagedLruPool
 
 
 class Model:
@@ -29,7 +25,9 @@ class Model:
     device = "cuda:0"
 
 
-pool = ModelPool(2, lambda *_args: Model(), lambda: None, build_timeout=1)
+pool = ManagedLruPool(
+    2, lambda _key: BuildArtifact(Model()), str, lambda: None, build_timeout=1
+)
 lifecycle = ManagedGpuLifecycle(
     pool,
     verify_keyring={
@@ -99,7 +97,7 @@ async def warmup(request: Request):
         AdmissionScope.WARMUP, **credentials(request)
     )
     try:
-        async with pool.borrow("detect", "fixture", "small"):
+        async with pool.borrow(("detect", "fixture", "small")):
             await asyncio.sleep(0)
         return {"ok": True}
     finally:

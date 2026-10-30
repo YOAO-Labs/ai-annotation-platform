@@ -2,7 +2,7 @@
 
 ML backend 协议 v2 的共享 Pydantic schema 与受控词表常量。
 
-被 `apps/sam3-backend` / `apps/grounded-sam2-backend` / `apps/yolo-backend` 等 backend 编辑安装复用，单一来源避免协议字段在各 backend 之间漂移。
+被 `apps/sam3-backend` / `apps/grounded-sam2-backend` 等 backend 编辑安装复用；独立插件使用发布的协议合同，避免字段漂移。
 
 ## 边界
 

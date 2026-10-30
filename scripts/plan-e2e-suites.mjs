@@ -23,12 +23,8 @@ import { pathToFileURL } from "node:url";
  * visible alongside the selection.
  */
 
-// Per-test CPU wiring from the accepted P8 audit (/tmp/aap-opt-p8-cpu-audit.md):
-// all 89 not-wired files are CPU-compatible; 12 need CPU torch (9 grounded-sam2,
-// 3 sam3); none needs a GPU, real weights or network. Execution itself is
-// delegated to .github/workflows/ml-cpu-test.yml (scripts/run-ml-cpu-tests.sh);
-// this planner only owns the path triggers and the recorded contract entries.
-// `wired: false` means "runs via the ml-cpu workflow, not scheduled here".
+// Platform-owned suites run in the ML CPU workflow; independent plugins run
+// their source suites in their own repository.
 const SHARED_CONTRACT_SUITES = {
   "shared-protocol-v2": {
     command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2",
@@ -44,6 +40,19 @@ const SHARED_CONTRACT_SUITES = {
     ],
     reason: "protocol v2 schema/vocab/mask-codec contracts; 163 tests",
     dependencies: "pytest + cryptography/fastapi/pydantic/PyJWT + numpy (test extra); CPU only",
+  },
+  "controlled-assets": {
+    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run controlled-assets",
+    scope: "specialty",
+    built: false,
+    wired: false,
+    triggers: [
+      "scripts/prepare-controlled-model-assets.py",
+      "scripts/test_controlled_model_assets.py",
+      "apps/_shared/training_contract/",
+    ],
+    reason: "controlled asset import and cache verification",
+    dependencies: "pytest + training and task contracts; CPU only",
   },
   "ml-grounded-sam2": {
     command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run grounded-sam2",
@@ -64,38 +73,6 @@ const SHARED_CONTRACT_SUITES = {
     reason:
       "sam3 backend contract tests: 17 torch-free files (153 tests) + 3 CPU-torch files (43 tests); full directory runs clean with CPU torch",
     dependencies: "backend dev extra + CPU torch (cpu wheel index); CPU only",
-  },
-  "ml-yolo": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run yolo",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/yolo-backend/"],
-    reason:
-      "yolo backend contract tests: 16 files / 224 tests run entirely without torch or ultralytics (test-only dependency set)",
-    dependencies:
-      "pytest, pytest-asyncio, fastapi, httpx, numpy, pillow, opencv-headless, psutil, pynvml; CPU only",
-  },
-  "ml-rapidocr": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run rapidocr",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/rapidocr-backend/"],
-    reason:
-      "rapidocr backend contract tests: 7 files / 83 tests; rapidocr shimmed by conftest, onnxruntime faked, no cv2 needed",
-    dependencies:
-      "pytest, pytest-asyncio, fastapi, httpx, numpy, pillow, cryptography, PyJWT; CPU only",
-  },
-  "ml-onnxtools": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run onnxtools",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/onnxtools-backend/"],
-    reason:
-      "onnxtools backend contract tests: 8 files / 70 passed + 3 expected upstream importorskip skips; cv2 added explicitly (pyproject omits it)",
-    dependencies: "backend dev extra + opencv-python-headless; CPU only",
   },
 };
 

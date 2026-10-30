@@ -7,7 +7,7 @@ last_reviewed: 2026-10-19
 
 # 本机 ML 服务维护
 
-系统配置中的「重建镜像与容器」只面向当前部署的 Grounded SAM2、SAM3、YOLO、ONNXTools、RapidOCR。操作会短暂停止目标服务；已接受的推理请求和后台模型构建先完成，再退出。空闲视频追踪会话及内存缓存会清空，用户可能需要重新开始追踪。权重卷、模型目录、数据库中的标注与 GPU fence 高水位保留。
+系统配置中的「维护镜像与容器」只面向当前部署的 Grounded SAM2、SAM3、YOLO、ONNXTools、RapidOCR。SAM 从平台源码构建；独立插件拉取并核验部署指定的不可变镜像。操作会短暂停止目标服务；已接受的推理请求和后台模型构建先完成，再退出。空闲视频追踪会话及内存缓存会清空，用户可能需要重新开始追踪。权重卷、模型目录、数据库中的标注与 GPU fence 高水位保留。
 
 认证、服务池接流和 GPU 许可分别检查不同条件，基本原理见[模型服务接入、路由与认证](../../dev/concepts/ml-backend-routing-and-auth)。
 
@@ -39,7 +39,7 @@ apps/api/.venv/bin/python scripts/ml-backend-runner.py \
   --operations-dir /srv/ai-annotation-platform/data/backend-manager
 ```
 
-生产部署需再明确传入 `--compose-file /srv/ai-annotation-platform/docker-compose.prod.yml`。程序固定读取部署目录中的 `.env.production`；开发配置读取 `.env`。曾使用的其他受支持叠加文件也必须显式传入，与现有容器标签完全一致。不支持临时命令、任意 Compose 文件或自定义 entrypoint。
+生产部署需再明确传入 `--compose-file /srv/ai-annotation-platform/docker-compose.prod.yml`。启用独立插件时，将部署实际使用的 `docker-compose.ml-yolo.yml`、`docker-compose.ml-onnxtools.yml` 或 `docker-compose.ml-rapidocr.yml` 逐个作为 `--compose-file` 传入；文件列表必须与容器标签完全一致。程序固定读取部署目录中的 `.env.production`；开发配置读取 `.env`。不支持临时命令、任意 Compose 文件或自定义 entrypoint。
 
 API 的 `ML_BACKEND_OPERATIONS_DIR` 和 runner 的 `--operations-dir` 必须指向同一个私有目录。API 在容器内时，配置容器路径并通过读写 bind 映射该宿主机目录；worker 无须读取队列。目录权限为 `0700`，文件为 `0600`。非 root API 与 runner 应使用同一 UID；root API 创建的文件保留目录所有者。不要将目录复制到公开共享存储。
 
@@ -49,15 +49,15 @@ API 的 `ML_BACKEND_OPERATIONS_DIR` 和 runner 的 `--operations-dir` 必须指�
 
 只有超级管理员可以提交和查看维护任务；提交请求先持久化审计记录，再交给宿主机执行。任务全局串行，不重复提交。任务详情仅显示固定阶段消息，不向浏览器暴露构建输出、环境变量、路径或认证密钥。
 
-程序校验容器的 Compose project、工作目录、配置文件、service 和持久挂载，同时校验运行中的 PID 1 确实是单 worker Uvicorn，未覆盖优雅退出配置。它还核对受审的 `gpu_lifecycle.py` 源码摘要和关闭钩子，以确认超时后仍在运行的后台任务会排空。未知旧镜像、修改过进程模型、缺少关闭钩子或尚未完成启动的容器均拒绝自动维护；此时需要部署管理员先完成一次人工升级。
+程序校验容器的 Compose project、工作目录、配置文件、service 和持久挂载，同时校验运行中的 PID 1 是单 worker Uvicorn、关闭钩子和受审的 `gpu_lifecycle.py` 源码摘要。独立插件的运行容器必须绑定真实 RepoDigest，并在 Compose 中配置对应 `YOLO_LIFECYCLE_SHA256`、`ONNXTOOLS_LIFECYCLE_SHA256` 或 `RAPIDOCR_LIFECYCLE_SHA256`；值来自对该镜像安装的生命周期源码审查。镜像升级时同步更新目标摘要和源码摘要，旧容器标签保留原摘要供停机前校验。未知旧镜像、修改过进程模型、缺少关闭钩子或尚未完成启动的容器均拒绝自动维护；需部署管理员先完成一次人工升级。
 
-先构建目标镜像，构建失败不停止旧容器。构建成功后重新核对原容器 ID，再执行 `docker stop --signal SIGTERM --timeout -1`，停止接受新请求并无限等待其正常退出。Docker 官方明确 `--timeout -1` 不会在超时后发送 SIGKILL：[停止容器](https://docs.docker.com/reference/cli/docker/container/stop/)。runner 的阶段跟踪默认最多 1800 秒，可由部署管理员用 `--phase-timeout` 调整；跟踪超时不会杀死容器或仍在等待的停止命令。
+SAM 先构建目标镜像；插件先拉取指定 manifest digest，核对实际 RepoDigest，再以无网络、无 GPU 的短期容器检查安装包中的源码和关闭钩子。任一准备或校验失败都不停止旧容器。准备成功后重新核对原容器 ID，再执行 `docker stop --signal SIGTERM --timeout -1`，停止接受新请求并无限等待其正常退出。Docker 官方明确 `--timeout -1` 不会在超时后发送 SIGKILL：[停止容器](https://docs.docker.com/reference/cli/docker/container/stop/)。runner 的阶段跟踪默认最多 1800 秒，可由部署管理员用 `--phase-timeout` 调整；跟踪超时不会杀死容器或仍在等待的停止命令。
 
 仅确认容器正常退出后，程序才以固定目标运行 `up -d --no-deps --no-build --force-recreate`，不启动依赖、不删除模型卷、不重启其他服务。完成仅表示目标容器已健康，认证、GPU 新 boot_id 的证明和实际推理仍由平台重新探活确认；维护程序不清空或重置 fence、epoch、GPU 账本。
 
 ## 中断与诊断
 
-完整构建输出仅保存在私有队列目录的 `<任务 UUID>.log`，供宿主机部署管理员检查。浏览器中不会返回原始日志。请按部署日志保留策略清理已经结束的旧日志和任务文件，保留需要审计的记录。
+完整构建或拉取输出仅保存在私有队列目录的 `<任务 UUID>.log`，供宿主机部署管理员检查。浏览器中不会返回原始日志。请按部署日志保留策略清理已经结束的旧日志和任务文件，保留需要审计的记录。
 
 runner 重启后不会自动重放旧任务；未开始的请求安全取消。停止阶段之后的错误、阶段跟踪超时或正在执行时 runner 中断，会阻止继续提交。此时先在宿主机核实原容器是否仍在优雅退出、目标容器是否已经建立，以及持久模型挂载是否正确。不要为了恢复按钮而强制结束现有推理。
 

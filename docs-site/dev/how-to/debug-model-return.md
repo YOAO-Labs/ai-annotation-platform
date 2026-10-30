@@ -52,7 +52,7 @@ last_reviewed: 2026-10-19
 
 预测使用 `trained:{version_id}` 及最小 `frozen_model_ref`，Backend 回传 `meta.trained_model` 和 `native_class_index`。平台核对身份、矩形框坐标和置信度后才映射项目类别。只看到安装收据不能将部署认定为 `ready`；重新加载可修复损坏副本，但不能改写候选权重。
 
-代码入口为 `services/trained_models.py` 的 `install_and_trial()`、`wire_context()` 与 `validate_and_map_results()`，Backend 对应 `apps/yolo-backend/managed_models.py` 和 `main.py`。字段与状态码见[受控模型部署协议](../reference/ml-backend-protocol#_12-受控自训模型部署协议-managed-models)。
+代码入口为 `services/trained_models.py` 的 `install_and_trial()`、`wire_context()` 与 `validate_and_map_results()`，Backend 对应 [YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)的 `managed_models.py` 和 `main.py`。字段与状态码见[受控模型部署协议](../reference/ml-backend-protocol#_12-受控自训模型部署协议-managed-models)。
 
 ### 4. 试用成功但无法发布
 
@@ -74,7 +74,7 @@ last_reviewed: 2026-10-19
 | -------------------------------- | ----------------------------------------------------------------------------------------------- |
 | 注册、部署与发布                 | `apps/api/tests/test_trained_models.py`                                                         |
 | 系统托管、并发认证变更与观测凭据 | `test_managed_inference_auth.py`、`test_managed_auth_routes.py`、`test_managed_observe_auth.py` |
-| Backend 安装与请求恢复           | `apps/yolo-backend/tests/test_managed_models.py`、`test_sample_evaluations.py`                  |
+| Backend 安装与请求恢复           | YOLO 插件的 `tests/test_managed_models.py`、`test_sample_evaluations.py`                        |
 | 回流资格                         | `apps/_shared/training_contract/tests/test_model_return.py`                                     |
 | 界面入口、类别绑定和不可用原因   | `apps/web/src/pages/Projects/ProjectModelsPanel.test.tsx`                                       |
 

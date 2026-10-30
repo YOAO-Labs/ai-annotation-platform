@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import threading
@@ -18,22 +19,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps/api"))
 from app.services.backend_operations import JobStore, PROVIDERS, TERMINAL  # noqa: E402
 
 PORTS = {"gsam2": 8001, "sam3": 8002, "yolo": 8003, "onnxtools": 8004, "rapidocr": 8005}
+PLUGIN_PROVIDERS = {"yolo", "onnxtools", "rapidocr"}
+LIFECYCLE_HASH_LABEL = "com.aap.lifecycle-sha256"
 MODEL_MOUNTS = {
     "gsam2": {"/app/checkpoints", "/app/.cache/huggingface"},
     "sam3": {"/app/checkpoints", "/app/.cache/huggingface"},
-    "yolo": {"/app/checkpoints"},
+    "yolo": {"/app/checkpoints", "/model-assets"},
     "onnxtools": {"/app/models"},
     "rapidocr": {"/app/models"},
 }
-# Read process/code identity without importing GPU libraries or printing environment.
-PROBE = """import ast,hashlib,importlib.metadata,json,pathlib
-p=pathlib.Path('/app')
-t=ast.parse((p/'main.py').read_text())
+# Inspect source without importing model code or initializing CUDA.
+CODE_PROBE = """import ast,hashlib,importlib.util,json,pathlib
+main=pathlib.Path(importlib.util.find_spec('main').origin)
+t=ast.parse(main.read_text())
 shutdown=any(isinstance(n,ast.Await) and isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and isinstance(n.value.func.value,ast.Name) and n.value.func.value.id=='_gpu_lifecycle' and n.value.func.attr=='shutdown' for n in ast.walk(t))
 shared=any(isinstance(n,ast.ImportFrom) and n.module=='aap_backend_runtime.gpu_lifecycle' for n in ast.walk(t))
-lifecycle=pathlib.Path(importlib.metadata.distribution('aap-backend-runtime').locate_file('aap_backend_runtime/gpu_lifecycle.py')) if shared else p/'gpu_lifecycle.py'
-print(json.dumps({'argv':pathlib.Path('/proc/1/cmdline').read_bytes().decode().split('\\0')[:-1],'shutdown':shutdown,'lifecycle_sha256':hashlib.sha256(lifecycle.read_bytes()).hexdigest()}))
+lifecycle=pathlib.Path(importlib.util.find_spec('aap_backend_runtime.gpu_lifecycle' if shared else 'gpu_lifecycle').origin)
+result={'shutdown':shutdown,'lifecycle_sha256':hashlib.sha256(lifecycle.read_bytes()).hexdigest()}
 """
+PROBE = (
+    CODE_PROBE
+    + """result['argv']=pathlib.Path('/proc/1/cmdline').read_bytes().decode().split('\\0')[:-1]
+print(json.dumps(result))
+"""
+)
+IMAGE_PROBE = CODE_PROBE + "print(json.dumps(result))"
 
 
 class UnsafeRuntime(RuntimeError):
@@ -60,6 +70,9 @@ class Runner:
             for name in (
                 "docker-compose.yml",
                 "docker-compose.ml.yml",
+                "docker-compose.ml-yolo.yml",
+                "docker-compose.ml-onnxtools.yml",
+                "docker-compose.ml-rapidocr.yml",
                 "docker-compose.prod.yml",
                 "docker-compose.hostvols.yml",
                 "docker-compose.lan-prod.yml",
@@ -79,7 +92,7 @@ class Runner:
         self.timeout = timeout
         self.runner_id = runner_id or str(uuid.uuid4())
         self.services = [
-            {"provider": p, "can_rebuild": False, "reason": "正在核对宿主机部署。"}
+            {"provider": p, "can_maintain": False, "reason": "正在核对宿主机部署。"}
             for p in PROVIDERS
         ]
 
@@ -151,6 +164,69 @@ class Runner:
             raise UnsafeRuntime("Expected exactly one existing deployment container")
         return self.inspect(ids[0])
 
+    def verify_image(self, reference, *, expected_id=None):
+        if not isinstance(reference, str) or not re.fullmatch(
+            r"[^@\s]+@sha256:[0-9a-f]{64}", reference
+        ):
+            raise UnsafeRuntime("Plugin image is not bound to a manifest digest")
+        image = json.loads(self.command(self.docker("image", "inspect", reference)))[0]
+        if reference not in (image.get("RepoDigests") or []) or (
+            expected_id is not None and image.get("Id") != expected_id
+        ):
+            raise UnsafeRuntime("Plugin image does not match its repository digest")
+        return image["Id"]
+
+    def plugin_target(self, provider):
+        config = json.loads(
+            self.command(
+                self.compose(
+                    "--profile", f"gpu-{provider}", "config", "--format", "json"
+                )
+            )
+        )
+        service = config["services"][PROVIDERS[provider]]
+        reference = service["image"]
+        digest = (service.get("labels") or {}).get(LIFECYCLE_HASH_LABEL)
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise UnsafeRuntime("Reviewed lifecycle source digest is required")
+        if not isinstance(reference, str) or not re.fullmatch(
+            r"[^@\s]+@sha256:[0-9a-f]{64}", reference
+        ):
+            raise UnsafeRuntime("Plugin target is not bound to a manifest digest")
+        return reference, digest
+
+    def verify_plugin_target(self, reference, digest):
+        image_id = self.verify_image(reference)
+        observed = json.loads(
+            self.command(
+                self.docker(
+                    "run",
+                    "--rm",
+                    "--runtime",
+                    "runc",
+                    "--network",
+                    "none",
+                    "--pull",
+                    "never",
+                    "--env",
+                    "NVIDIA_VISIBLE_DEVICES=void",
+                    "--env",
+                    "CUDA_VISIBLE_DEVICES=",
+                    "--entrypoint",
+                    "python3",
+                    reference,
+                    "-c",
+                    IMAGE_PROBE,
+                ),
+                timeout=self.timeout,
+            )
+        )
+        if not observed["shutdown"] or observed["lifecycle_sha256"] != digest:
+            raise UnsafeRuntime(
+                "Target image lacks the reviewed lifecycle implementation"
+            )
+        return image_id
+
     def validate(self, provider, container, *, probe=True):
         labels = container["Config"].get("Labels") or {}
         if (
@@ -163,6 +239,14 @@ class Runner:
         ):
             raise UnsafeRuntime("Container deployment identity mismatch")
         config = container["Config"]
+        if provider in PLUGIN_PROVIDERS:
+            image_ref = config.get("Image")
+            expected_hash = labels.get(LIFECYCLE_HASH_LABEL)
+            if not isinstance(expected_hash, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", expected_hash
+            ):
+                raise UnsafeRuntime("Running plugin lacks reviewed lifecycle identity")
+            self.verify_image(image_ref, expected_id=container["Image"])
         environment = dict(
             value.split("=", 1) for value in config.get("Env", []) if "=" in value
         )
@@ -226,13 +310,12 @@ class Runner:
                 raise UnsafeRuntime(
                     "PID 1 or graceful shutdown hook differs from supported runtime"
                 )
-            expected_hash = (
-                (self.root / "apps/_shared/plugin-runtime-lifecycle.sha256").read_text().strip()
-                if provider == "yolo"
-                else hashlib.sha256(
-                    (self.root / "apps" / PROVIDERS[provider] / "gpu_lifecycle.py").read_bytes()
+            if provider not in PLUGIN_PROVIDERS:
+                expected_hash = hashlib.sha256(
+                    (
+                        self.root / "apps" / PROVIDERS[provider] / "gpu_lifecycle.py"
+                    ).read_bytes()
                 ).hexdigest()
-            )
             if observed["lifecycle_sha256"] != expected_hash:
                 raise UnsafeRuntime(
                     "Runtime lacks the verified lifecycle shutdown implementation"
@@ -274,7 +357,7 @@ class Runner:
                     "未找到可安全维护的当前部署容器，请检查容器、启动状态和进程配置。"
                 )
             services.append(
-                {"provider": provider, "can_rebuild": reason is None, "reason": reason}
+                {"provider": provider, "can_maintain": reason is None, "reason": reason}
             )
         self.services = services
 
@@ -324,23 +407,38 @@ class Runner:
         try:
             old = self.locate(provider)
             mounts = self.validate(provider, old)
-            self.store.event(job, "building", "正在构建目标镜像；现有容器继续服务。")
+            plugin = provider in PLUGIN_PROVIDERS
+            if plugin:
+                target = self.plugin_target(provider)
+                self.store.event(
+                    job, "pulling", "正在拉取并核验已审核的固定镜像；现有容器继续服务。"
+                )
+            else:
+                self.store.event(
+                    job, "building", "正在构建目标镜像；现有容器继续服务。"
+                )
             log_path = self.store.directory / f"{job['id']}.log"
             fd = os.open(
                 log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
             )
             with os.fdopen(fd, "w") as logfile:
                 self.command(
-                    self.compose("build", PROVIDERS[provider]),
+                    self.compose("pull" if plugin else "build", PROVIDERS[provider]),
                     logfile=logfile,
                     timeout=self.timeout,
                 )
+                if plugin:
+                    target_id = self.verify_plugin_target(*target)
+                    if self.plugin_target(provider) != target:
+                        raise UnsafeRuntime("Plugin image configuration changed")
                 current = self.locate(provider)
                 if (
                     current["Id"] != old["Id"]
                     or self.validate(provider, current) != mounts
                 ):
-                    raise UnsafeRuntime("Container changed while image was building")
+                    raise UnsafeRuntime(
+                        "Container changed while image was being prepared"
+                    )
                 self.store.event(
                     job,
                     "stopping",
@@ -368,6 +466,10 @@ class Runner:
                     or exited["State"].get("ExitCode", 0) != 0
                 ):
                     raise UnsafeRuntime("Container did not exit cleanly")
+                if plugin and self.plugin_target(provider) != target:
+                    raise UnsafeRuntime(
+                        "Plugin image configuration changed during shutdown"
+                    )
                 self.store.event(
                     job,
                     "recreating",
@@ -395,6 +497,15 @@ class Runner:
                     raise UnsafeRuntime(
                         "Persistent model mount changed during recreation"
                     )
+                if plugin and (
+                    new["Config"].get("Image") != target[0]
+                    or (new["Config"].get("Labels") or {}).get(LIFECYCLE_HASH_LABEL)
+                    != target[1]
+                    or new["Image"] != target_id
+                ):
+                    raise UnsafeRuntime(
+                        "Replacement plugin image differs from reviewed target"
+                    )
                 if new["State"].get("Health", {}).get("Status") == "healthy":
                     self.validate(provider, new)
                     self.store.event(
@@ -412,7 +523,7 @@ class Runner:
             message = (
                 "维护结果待核查：等待超时或停止后的步骤失败。未强制终止容器，请部署管理员核查后恢复。"
                 if uncertain
-                else "构建或安全校验失败，未停止原容器。旧服务若不具备已验证的优雅退出能力，需部署管理员首次升级；详细诊断保存在宿主机私有日志。"
+                else "镜像准备或安全校验失败，未停止原容器。旧服务若不具备已验证的优雅退出能力，需部署管理员首次升级；详细诊断保存在宿主机私有日志。"
             )
             self.store.event(
                 job,

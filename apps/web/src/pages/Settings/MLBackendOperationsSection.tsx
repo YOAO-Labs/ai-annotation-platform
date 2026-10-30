@@ -7,7 +7,7 @@ import {
   type ManagedMLProvider,
   type MLBackendOperationJob,
   type MLBackendOperationProvider,
-  type MLBackendRebuildTarget,
+  type MLBackendMaintenanceTarget,
 } from "@/api/mlBackendOperations";
 import {
   AlertDialog,
@@ -50,6 +50,7 @@ const PHASE_LABELS = {
   queued: "等待执行",
   validating: "检查部署配置",
   building: "重建镜像",
+  pulling: "拉取并核验镜像",
   stopping: "停止原容器",
   recreating: "重建容器",
   checking: "检查容器",
@@ -86,7 +87,7 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
   const [initializing, setInitializing] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<MLBackendRebuildTarget | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<MLBackendMaintenanceTarget | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const authKey = ["managed-ml-auth", userId, sessionId];
   const statusKey = ["ml-backend-operations", userId, sessionId];
@@ -153,17 +154,17 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
     }
   };
 
-  const rebuild = async () => {
+  const maintain = async () => {
     const target = confirmTarget;
     setConfirmTarget(null);
     if (!target || pending.current || busy || !ownsResponse()) return;
     const service = operations.data?.services.find((item) => item.provider === target.provider);
-    if (!operations.data?.available || !service?.can_rebuild) return;
+    if (!operations.data?.available || !service?.can_maintain) return;
     pending.current = true;
     setSubmitting(true);
     setActionError(null);
     try {
-      const result = await mlBackendOperationsApi.rebuild(target);
+      const result = await mlBackendOperationsApi.maintain(target);
       if (ownsResponse()) {
         client.setQueryData(jobKey(result.id), result);
         setSelectedJobId(result.id);
@@ -232,9 +233,9 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
                 const provider = item.provider;
                 const service = operations.data?.services.find((row) => row.provider === provider);
                 const reason = operations.data?.reason ?? service?.reason ?? "维护状态尚未就绪";
-                const canRebuild =
+                const canMaintain =
                   operations.data?.available &&
-                  service?.can_rebuild &&
+                  service?.can_maintain &&
                   !!operations.data.deployment &&
                   !!operations.data.runner_id;
                 return (
@@ -257,9 +258,9 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
                         </Button>
                         <Button
                           size="xs"
-                          disabled={busy || !canRebuild}
-                          title={!canRebuild ? reason : undefined}
-                          aria-label={`重建 ${PROVIDER_NAMES[provider]} 镜像与容器`}
+                          disabled={busy || !canMaintain}
+                          title={!canMaintain ? reason : undefined}
+                          aria-label={`维护 ${PROVIDER_NAMES[provider]} 镜像与容器`}
                           onClick={() => {
                             if (operations.data?.deployment && operations.data.runner_id) {
                               setConfirmTarget({
@@ -270,7 +271,7 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
                             }
                           }}
                         >
-                          重建镜像与容器
+                          维护镜像与容器
                         </Button>
                       </div>
                     </div>
@@ -306,7 +307,7 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
                     )}
                     {operations.data?.available &&
                       service &&
-                      !service.can_rebuild &&
+                      !service.can_maintain &&
                       service.reason && (
                         <p className="text-xs text-muted-foreground">
                           维护不可用：{service.reason}
@@ -355,20 +356,21 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              重建 {confirmTarget ? PROVIDER_NAMES[confirmTarget.provider] : ""} 镜像与容器？
+              维护 {confirmTarget ? PROVIDER_NAMES[confirmTarget.provider] : ""} 镜像与容器？
             </AlertDialogTitle>
             <AlertDialogDescription>
               目标部署：{confirmTarget?.expected_deployment ?? "未标识"}
-              。将重新构建所选服务的镜像并重新创建容器，期间该服务的推理会短暂停止。确认前请安排好正在使用该服务的任务。空闲跟踪会话缓存会丢失，已持久保存的模型和标注数据会保留。
+              。SAM
+              服务会构建镜像，官方插件会拉取并核验已审核的固定镜像；随后重新创建容器，期间推理会短暂停止。确认前请安排好正在使用该服务的任务。空闲跟踪会话缓存会丢失，已持久保存的模型和标注数据会保留。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy || !operations.data?.available}
-              onClick={() => void rebuild()}
+              onClick={() => void maintain()}
             >
-              确认重建
+              确认维护
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -909,13 +909,13 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 #### 4.1.6 范例：YOLO 官仓 backend（按任务分条目 + series/size 多轴）
 
-> **真实参考实现**：[`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend)。
+> **真实参考实现**：[YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)。
 > 实仓覆盖 4 task × 7 series × 9 size 的 80 个有效组合，与下方 jsonc 示例完全对齐；本节 jsonc 是缩写说明，实仓 `/setup` 输出是 canonical。
 > 注意实仓在 `models[].task` 维度去掉了 `classify`（ImageNet-1k 与项目 LabelConfig 几乎对不上），下方示例保留 classify 仅作协议形态说明。
 
 ```jsonc
 {
-  "name": "yolo-backend", // 与 apps/yolo-backend 实仓对齐
+  "name": "yolo-backend", // 与 YOLO 插件对齐
   "version": "0.1.0",
   "model_version": "ultralytics-8.4.x",
   "infra": "pytorch",
@@ -1153,7 +1153,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 - 识别文本：写入 prediction result 的 `attributes.text`（必要时 `attributes.language` / `attributes.orientation`，对应 `output_attribute_types` 声明）。
 - 采纳后生成普通 annotation + text 写入 attributes；**项目未配置 text attribute 时不静默丢文本** —— 前端提示「可采纳几何，文本字段不会入库」或要求先配置。
 
-**真实参考 backend `rapidocr`**（[`apps/rapidocr-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/rapidocr-backend)）把 RapidOCR 的 `det → cls → rec` 三段拆为**原子能力 + 端到端编排**，自报三个 model：
+**真实参考 backend `rapidocr`**（[RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)）把 RapidOCR 的 `det → cls → rec` 三段拆为**原子能力 + 端到端编排**，自报三个 model：
 
 - `ocr-det`（`task: "detect"`，原子）：full_image → `polygon` 四点文本框，无属性。
 - `ocr-rec`（`task: "ocr"`，原子）：`crop` → `attributes.text` + `orientation`，内部跑文本行方向分类（cls）做 180° 校正。
@@ -1186,9 +1186,9 @@ POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /set
 
 #### 4.1.10 可跑参考实现
 
-**真实推理参考实现**：[`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend) —— ultralytics 多任务多系列 backend，覆盖 detect / segment(instance) / pose / obb 四 task × v8/v9/v10/v11/v12/v26/rt-detr 七系列，共 80 个有效预训练组合。`/setup.models[]` 按 task 拆 4 条目，`supported_variants` 走 series × size 两轴，按预训练矩阵严格过滤。`/predict` 零 adapter 命中 4 种 result type，结果直落平台 `apps/api/app/services/prediction.py::to_internal_shape` → internal Geometry。可作为新接入 backend 的首选骨架参考。
+**真实推理参考实现**：[YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)提供检测、分割、姿态和旋转框多模型目录；以实际 `/setup` 为目录真值。
 
-**真实 OCR 参考实现**：[`apps/rapidocr-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/rapidocr-backend) —— RapidOCR(ONNX) backend，`ocr` 任务族首个真实推理实现。把一条 OCR 流水线拆为原子能力（`ocr-det` 检测 + `ocr-rec` 识别）+ 端到端 composite（`ocr-e2e`），详见 §4.1.8。`/setup.models[]` 三条目走 version × size × lang 多轴 `variants`，权重 bind-mount 注入（`download_models.py` 拉取）。可作为「单 backend 把流水线拆成原子 + 编排入口」与 OCR 富属性（text/orientation/language）落点的参考。
+**真实 OCR 参考实现**：[RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)提供 `ocr-det`、`ocr-rec` 和 `ocr-e2e`，资产需独立审核和准备。
 
 **协议形态参考实现（无真实推理）**：[`docs-site/dev/examples/mock-v2-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/docs-site/dev/examples/mock-v2-backend) —— `/setup` 暴露 YOLO 风格多任务 `models[]`、PaddleOCR / DocLayout、点 / 框 / exemplar 交互分割及视频 tracker 条目；`/predict` 按 `context.type` 返回固定几何、OCR 文本属性或逐帧追踪结果。可直接 `uvicorn main:app --port 9100` 启动，也可通过 `docker-compose.ml.yml` 的 `screenshots` profile 作为截图与视觉回归协议 stub；所有能力仍由平台正常探测和绑定。
 
@@ -1758,7 +1758,7 @@ YOLO 在 `/setup` 中以 `model_metadata_endpoint=true` 声明这个可选接口
 
 ### 安装：`POST /managed-models`
 
-Ultralytics 的请求模型定义在 `apps/yolo-backend/managed_models.py` 的 `InstallRequest`；LibreYOLO 插件通过共享受控模型合同接收相应请求：
+Ultralytics 的请求模型定义在 YOLO 插件的 `managed_models.py` 的 `InstallRequest`；LibreYOLO 插件通过共享受控模型合同接收相应请求：
 
 | 字段                             | 含义与约束                                                                                                                                                             |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1796,7 +1796,7 @@ LibreYOLO 原生插件使用 `libreyolo==1.6.0`，支持 YOLO9 t/s/m/c 检测，
 | `mask_threshold`  | `0.0`                                       |
 | `decoder`         | `aap-coco-rle-column-major-1`               |
 
-身份还包含 `ultralytics.models.yolo.segment.predict` 与 `ultralytics.utils.ops` 的源码 SHA-256；服务检查实际导入版本和源码，不能用相同版本号替代源码核验。权威常量在 `apps/_shared/training_contract/training_contract/model_return.py`，后端执行核验在 `apps/yolo-backend/managed_segmentation.py`。这些软件身份检查与真实训练／推理流程验收不能替代目标部署的 GPU 准入、受管生命周期及设备验收；相应运行规则与证据仍须逐部署满足。
+身份还包含 `ultralytics.models.yolo.segment.predict` 与 `ultralytics.utils.ops` 的源码 SHA-256；服务检查实际导入版本和源码，不能用相同版本号替代源码核验。权威常量在 `apps/_shared/training_contract/training_contract/model_return.py`，后端执行核验在 YOLO 插件的 `managed_segmentation.py`。这些软件身份检查与真实训练／推理流程验收不能替代目标部署的 GPU 准入、受管生命周期及设备验收；相应运行规则与证据仍须逐部署满足。
 
 推理固定 `retina_masks=true`，从原生 `masks.data` 生成逐实例、原图尺寸 COCO column-major RLE，不经 `masks.xy` 或多边形轮廓重建。wire 的 canonical RLE 为 `{encoding:"coco_rle", size:[height,width], counts:[整数 runs...]}`；`counts` 是整数数组，不是 COCO compressed string。平台存储压缩不改变该 canonical 内容身份。
 
