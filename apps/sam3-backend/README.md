@@ -51,7 +51,7 @@ apps/sam3-backend/
 ├── video_predictor.py      multiplex 文本视频追踪
 ├── pvs_video_predictor.py  PVS 点/框视频追踪
 ├── embedding_cache.py      SAM 3 image embedding LRU 缓存 (cap 默认 32)
-├── pool_domain.py          image / multiplex / PVS 三池驻留聚合 (LRU 内核来自 _shared/backend_runtime)
+├── pool_domain.py          image / multiplex / PVS 三池驻留聚合 (LRU 内核来自 aap-backend-runtime)
 ├── gpu_lifecycle.py        admission、generation fencing 与 drain/unload 状态机
 ├── observability.py        Prometheus Counter/Histogram/Gauge (sam3_* 前缀)
 ├── schemas.py              Pydantic schema (协议对齐, 含 exemplar)
@@ -59,7 +59,7 @@ apps/sam3-backend/
 ├── checkpoints/            权重落盘点 (启动时下载, 挂 volume)
 ├── scripts/
 │   ├── download_checkpoints.py   幂等拉 sam3.pt + sam3.1_multiplex 权重 (gated, 需 HF_TOKEN)
-│   ├── validate_managed_lifecycle.py  真实 GPU 三池部署验收
+│   └── validate_managed_lifecycle.py  真实 GPU 三池部署验收
 ├── patches/                构建时应用的上游修补
 ├── vendor/
 │   └── sam3/               固定 commit 的 Git submodule

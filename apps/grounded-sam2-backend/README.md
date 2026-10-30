@@ -27,7 +27,7 @@ apps/grounded-sam2-backend/
 ├── main.py                 FastAPI app + 推理、观测和受管生命周期端点
 ├── predictor.py            三种 prompt 推理 + mask→polygon 内联 + cache snapshot/restore
 ├── video_predictor.py      SAM 2 视频跟踪封装
-├── model_pool.py           图像 predictor + embedding cache 池 (LRU 内核来自 _shared/backend_runtime)
+├── model_pool.py           图像 predictor + embedding cache 池 (LRU 内核来自 aap-backend-runtime)
 ├── video_pool.py           视频 tracker 池
 ├── pool_domain.py          图像/视频双池生命周期聚合
 ├── gpu_lifecycle.py        drain、generation、admission 与全量卸载状态机
