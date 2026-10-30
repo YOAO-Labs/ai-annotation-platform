@@ -1,8 +1,8 @@
 # 推理后端插件化、Plugin-SDK 与官方插件独立仓库规划
 
-> 状态：阶段 C 的首次公开拆仓与 C2 的独立 Plugin-SDK／能力目录前置已完成。阶段 D 已保留各后端的源代码与 CPU 验证证据，尚未完成新制品的 GPU 资格、平台消费者切换与旧后端退役。已有 LibreYOLO 单卡串行资格不代表新制品或其余后端已验收。
+> 状态：阶段 C 与 C2 已完成；阶段 D 已切换三个后端的源码、构建和维护消费者。新独立 ONNXTools／RapidOCR 镜像已通过各自完整单卡 GPU 生命周期资格及实际 SDK 安装、平台激活；YOLO 完整 CUDA 资格和新镜像的平台业务／治理闭环仍在推进，不能用旧镜像或 CPU 证据替代。
 >
-> 日期：规划于 2026-10-28，实施记录更新于 2026-10-30。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
+> 日期：规划于 2026-10-28，实施记录更新于 2026-10-31。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
 >
 > 授权范围：使用 Orca、OMP `openai-codex/gpt-6.1-terra`／`xhigh` 和独立工作树，由主进程审核并合并提交。用户已授权公开必要第一方制品、补齐既有 MIT 许可，并要求原有 vendor 改为固定 tag／哈希的 Git 子模块；不因此发布应用版本、扩展前端 SDK 或公开未获授权的权重。
 >
@@ -48,9 +48,9 @@
 | 插件单元         | 当前代码入口                                                       | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
 | ---------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | LibreYOLO        | 官方仓 `plugins/inference/libreyolo`，原生 loader 位于其 `native/` | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
-| Ultralytics YOLO | `apps/yolo-backend`                                                | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
-| RapidOCR         | `apps/rapidocr-backend`                                            | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
-| ONNXTools        | `apps/onnxtools-backend`                                           | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、最多四个业务 sessions；两个模型文件来源与授权仍需核验          |
+| Ultralytics YOLO | 官方仓 `plugins/inference/yolo`                                    | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
+| RapidOCR         | 官方仓 `plugins/inference/rapidocr`                                | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
+| ONNXTools        | 官方仓 `plugins/inference/onnxtools`                               | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、四个业务 sessions；两份权重仅获准内部验收，不代表可公开分发    |
 | Grounded-SAM2    | `apps/grounded-sam2-backend`                                       | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
 | SAM3             | `apps/sam3-backend`                                                | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
 
@@ -58,9 +58,9 @@
 
 主要源码依据：
 
-- [YOLO 模型矩阵](../../apps/yolo-backend/model_registry.py)、[YOLO HTTP 服务](../../apps/yolo-backend/main.py)、[受控分割](../../apps/yolo-backend/managed_segmentation.py)。
-- [RapidOCR 目录](../../apps/rapidocr-backend/catalog.py)、[引擎池](../../apps/rapidocr-backend/engine_pool.py)。
-- [ONNXTools 服务](../../apps/onnxtools-backend/main.py)、[属性 schema](../../apps/onnxtools-backend/attribute_schema.py)、[句柄池](../../apps/onnxtools-backend/handle_pool.py)。
+- [YOLO 模型矩阵](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/model_registry.py)、[YOLO HTTP 服务](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/main.py)、[受控分割](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/managed_segmentation.py)。
+- [RapidOCR 目录](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/rapidocr/catalog.py)、[引擎池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/rapidocr/engine_pool.py)。
+- [ONNXTools 服务](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/main.py)、[属性 schema](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/attribute_schema.py)、[句柄池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/handle_pool.py)。
 - [Grounded-SAM2 服务](../../apps/grounded-sam2-backend/main.py)、[视频执行](../../apps/grounded-sam2-backend/video_predictor.py)。
 - [SAM3 服务](../../apps/sam3-backend/main.py)、[multiplex](../../apps/sam3-backend/video_predictor.py)、[PVS](../../apps/sam3-backend/pvs_video_predictor.py)。
 
@@ -68,7 +68,7 @@
 
 LibreYOLO 已交付独立 SDK、插件及安装治理，在自有隔离环境完成真实 GPU 训练与原生 checkpoint 回流、受控安装试用及人工发布、当前任务／批量／真实裁剪、CPU 历史冻结与退役，以及三种路由模式的在途排空、升级失败恢复和受控重启。原生 close 两轮使 Torch allocated／reserved 回到零，旧 YOLO 中的 LibreYOLO 适配分支已删除；证据及已知范围限制见[试点 Outcome](1793156248_libreyolo-inference-plugin.md#outcome)。
 
-**尚未完成**：其余五个后端的插件化、全扩展点统一装配。SDK、共享工具与 LibreYOLO 的唯一源码切换、公开 Python 制品、干净构建及拆仓后的平台业务验收已按第四批完成，新镜像使用独立报告而非旧镜像资格。单卡串行通过不证明双卡隔离、并发调度、模型精度或生产容量；代码、依赖及权重的许可前置也不会因本机可运行而消失。
+**尚未完成**：阶段 D 的完整模型与平台治理联合验收、两个 SAM 后端的独立迁移、全扩展点统一装配。SDK、共享工具与 LibreYOLO 的唯一源码切换、公开 Python 制品、干净构建及拆仓后的平台业务验收已按第四批完成；三个普通后端的源码切换和新镜像资格按第五批单独记录。单卡串行通过不证明双卡隔离、并发调度、模型精度或生产容量；代码、依赖及权重的许可前置也不会因本机可运行而消失。
 
 ## 3. 仓库边界
 
@@ -340,6 +340,16 @@ Orca run 为 `run_6118885dd686`。主进程先建立五个便携契约的可取�
 | `apps/api/app/vendor/TrackEval`                    | `YOAO-Labs/TrackEval`          | `8335d7a840a02d20580a72c2f0e71f003dc99561` |
 
 TrackEval 使用保留原裁剪适配层的公开 fork，不把平台调用切换为未经验证的上游完整评测器。三个 gitlink 均固定完整 commit；tag 只辅助选择，不追踪浮动分支。
+
+### 第五批：阶段 D 源码切换与新镜像资格（进行中）
+
+- 平台已合入 `4b32ceaac2cf6fac07c4b4cd55a19c6a82fef064`：删除三个已迁出后端的旧源码，Compose 使用显式启用的固定摘要镜像，宿主维护程序按服务选择拉取／核验制品或保留 SAM 的本地构建。安装包探针、训练资格工具、生命周期夹具和 CI 消费者使用独立制品，不保留第二套活跃实现。
+- `c200b1f764419bdd1683d64a556a727176a54917` 修复原生 checkpoint 的兼容契约：必填 `format` 可显式为 `null`，但不是通配符，缺失、空串和不匹配的导出格式仍拒绝。五个便携契约已发布为 [contracts-c200b1f76441](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-c200b1f76441)，manifest SHA256 为 `46e0b750d75f7f53a2ae1adcefbda916bb294ad03ba8d15f987f95fca318b70c`；匿名取回、逐项摘要核验、干净安装和真实九模型清单准备已通过，旧发布不覆盖。
+- 新 ONNXTools 来自 `a054091cfd3377991e14c2139c86434ae60b2675`，本机不可变制品为 `127.0.0.1:5050/aap/onnxtools@sha256:5919ffba2162313863ef76ac8e7b917e646ac3ff85a68f0d2c9e1709de03028b`；实际四个 CUDA-primary sessions 在两轮中完整观察，工作集回收分别为 97.90%／95.99%，最终三池及活动计数清零。普通 API SDK 使用该原始报告完成安装及平台激活，实际身份为 `70ac2761-aaf1-4026-8f8b-e6c17ecffd98`。
+- 新 RapidOCR 来自 `d0798c3068ab9ced0aedb5b6c5da41e14facf87f`，本机制品为 `127.0.0.1:5050/aap/rapidocr@sha256:70b379eaf2227beb708221c630f9c6836b52c00baa7430daee75694b434f19a0`；三引擎／九个 CUDA-primary sessions 两轮均完整观察，回收均为 100%，最终 unloaded 且请求、builder、borrower 清零。报告规范 SHA256 为 `03999c4124135f204b9f83349d9c62cd5b4d9f1dda6cef4ad7bd25655c958c9b`，普通 SDK 校验、实际端点观察及平台激活通过，身份为 `d1a1785b-9900-452a-b5d5-859ef10c9441`。早先的 priming epoch 错误和缺失 driver 绑定报告均保留；未沿用失败镜像资格。
+- YOLO 的受控检测／原图 RLE 分割、真实正例 ByteTrack、池容量 2 的 LRU，以及 World／YOLOE 文本和视觉 exemplar 已通过真实 CPU HTTP 与独立原生预期比对。开放词表的四份附加权重经用户单独批准，仅供内部验收，实际大小与 SHA256 均匹配；这不授予公开分发权，也不产生 CUDA 资格。完整 GPU 证明需在两轮中覆盖这些模型及编码器，并保留原有四类任务、tracker、受控模型及回收门禁；原未启动候选因需要新制品已通过正常 SDK 退役，历史身份保留。
+- [官方插件 CPU CI](https://github.com/YOAO-Labs/YOAO-Plugins/actions/runs/41079589016) 与 [独立 SDK CI](https://github.com/YOAO-Labs/Plugin-SDK/actions/runs/41079587773) 已通过。新镜像的当前任务／批量／crop、项目授权、off／observe／enforce 和安全退役仍需独立完成，不把安装激活或旧第二批证据记作本批业务通过。
+- 本批私有证据位于 `.worktree/orca/run_74dff0b9bbeb/stage-d-07/` 及对应隔离工作树。GPU 按显式独占窗口串行使用；原保留实例只做正常停用，恢复义务单独记录，尚未记为本批环境恢复完成。静态预算合计超额是允许驱逐的弹性超售警告，不以扩大物理容量或伪造 ledger readiness 消除实际 rollout 门禁。
 
 ## Outcome
 

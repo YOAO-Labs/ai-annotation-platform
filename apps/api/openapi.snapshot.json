@@ -35834,6 +35834,204 @@
         "title": "PluginActivateRequest",
         "type": "object"
       },
+      "PluginAsset": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "size_bytes",
+          "path"
+        ],
+        "title": "PluginAsset",
+        "type": "object"
+      },
+      "PluginAssetApprovalState": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginAssetApprovalUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "decision"
+        ],
+        "title": "PluginAssetApprovalState",
+        "type": "object"
+      },
+      "PluginAssetApprovalUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "items": {
+              "$ref": "#/components/schemas/PluginSelectionKey"
+            },
+            "title": "Approved",
+            "type": "array"
+          },
+          "container_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Container Id",
+            "type": "string"
+          },
+          "descriptor": {
+            "$ref": "#/components/schemas/PluginAssetDescriptor"
+          },
+          "descriptor_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Descriptor Sha256",
+            "type": "string"
+          },
+          "expected_installation_revision": {
+            "minimum": 1.0,
+            "title": "Expected Installation Revision",
+            "type": "integer"
+          },
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "image_id": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Image Id",
+            "type": "string"
+          },
+          "inventory": {
+            "items": {
+              "$ref": "#/components/schemas/PluginAsset"
+            },
+            "title": "Inventory",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "expected_installation_revision",
+          "descriptor",
+          "descriptor_sha256",
+          "approved",
+          "inventory",
+          "container_id",
+          "image_id"
+        ],
+        "title": "PluginAssetApprovalUpdate",
+        "type": "object"
+      },
+      "PluginAssetDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "minLength": 1,
+            "title": "Artifact",
+            "type": "string"
+          },
+          "asset_manifest_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Asset Manifest Sha256",
+            "type": "string"
+          },
+          "plugin_id": {
+            "minLength": 1,
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "plugin_version": {
+            "minLength": 1,
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "selections": {
+            "items": {
+              "$ref": "#/components/schemas/PluginAssetSelection"
+            },
+            "minItems": 1,
+            "title": "Selections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "plugin_id",
+          "plugin_version",
+          "artifact",
+          "asset_manifest_sha256",
+          "selections"
+        ],
+        "title": "PluginAssetDescriptor",
+        "type": "object"
+      },
+      "PluginAssetSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_free": {
+            "title": "Asset Free",
+            "type": "boolean"
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/PluginAsset"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "model_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "variants": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "object"
+          }
+        },
+        "required": [
+          "model_id",
+          "variants",
+          "asset_free",
+          "assets"
+        ],
+        "title": "PluginAssetSelection",
+        "type": "object"
+      },
       "PluginInstallation": {
         "additionalProperties": false,
         "properties": {
@@ -36264,6 +36462,30 @@
           "gpu_memory_mb"
         ],
         "title": "PluginResourceRequirements",
+        "type": "object"
+      },
+      "PluginSelectionKey": {
+        "additionalProperties": false,
+        "properties": {
+          "model_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "variants": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "object"
+          }
+        },
+        "required": [
+          "model_id",
+          "variants"
+        ],
+        "title": "PluginSelectionKey",
         "type": "object"
       },
       "PointCloudCameraOut": {
@@ -70101,6 +70323,110 @@
           }
         ],
         "summary": "Activate",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets": {
+      "get": {
+        "operationId": "get_asset_approval_api_v1_admin_ml_integrations_plugins_installations__installation_id__assets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginAssetApprovalState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Asset Approval",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      },
+      "put": {
+        "operationId": "set_asset_approval_api_v1_admin_ml_integrations_plugins_installations__installation_id__assets_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginAssetApprovalUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginAssetApprovalState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Asset Approval",
         "tags": [
           "admin-plugin-installations"
         ]

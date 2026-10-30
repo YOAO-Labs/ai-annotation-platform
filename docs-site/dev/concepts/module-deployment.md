@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 后端模块解耦、插件化与独立部署
@@ -90,7 +90,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ### 公开第一方制品与独立消费 {#plugin-candidate-artifacts}
 
-[Plugin-SDK 发布](https://github.com/YOAO-Labs/Plugin-SDK/releases)提供能力 SDK、推理运行时与 Mask 工具的 wheel、sdist、源码归档及 SHA256 清单；[官方插件发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases)提供具体插件、模型专属适配与插件自有预训练目录。便携契约由平台拥有，构建器只导出五个契约包，通过 [SDK 契约渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-3d6393e64630)分发；历史混合发布保持不可变，但不再作为当前源码归属或模型目录权威。第一方源码许可不重新授权第三方依赖或权重。manifest 记录真实源码仓库、固定提交与文件摘要，匿名消费者不需要平台 checkout 或私有 Token。
+[Plugin-SDK 发布](https://github.com/YOAO-Labs/Plugin-SDK/releases)提供能力 SDK、推理运行时与 Mask 工具的 wheel、sdist、源码归档及 SHA256 清单；[官方插件发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases)提供具体插件、模型专属适配与插件自有预训练目录。便携契约由平台拥有，构建器只导出五个契约包，通过 [SDK 契约渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-c200b1f76441)分发；历史混合发布保持不可变，但不再作为当前源码归属或模型目录权威。第一方源码许可不重新授权第三方依赖或权重。manifest 记录真实源码仓库、固定提交与文件摘要，匿名消费者不需要平台 checkout 或私有 Token。
 
 完整候选构建器由独立插件仓库的 `scripts/build-libreyolo-candidate.py` 维护，从固定插件提交与契约制品生成完整 hash-locked wheelhouse。具体命令、资产准备与安装见 [YOAO-Plugins README](https://github.com/YOAO-Labs/YOAO-Plugins#readme)；通用接入见[推理插件接入](/dev/tutorials/ml-backend-starter)。公开发布不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们分别保留许可和分发门禁，不因第一方源码公开而自动获得授权。
 
@@ -236,7 +236,7 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
-| 插件装配与扩展安装 | 推理切片已有完整模型能力、CPU／CUDA、命名池及 ORT session 准入；开发 SDK、管理员安装器与原生 HTTP 适配分工明确；全扩展点装配仍未交付 | LibreYOLO、RapidOCR 与 ONNXTools 复用 Inference／Registry 和各业务 owner；SDK、共享运行时、Mask 工具和 LibreYOLO 由公开插件仓维护，平台消费固定制品 | LibreYOLO 原限定单卡资格保留；[通用准入与限定验收](#inference-plugin-admission)覆盖真实 OCR CPU、多池 ONNX CUDA 业务、持久化与安全退役；[公开制品与独立消费](#plugin-candidate-artifacts)分列源码、分发及运行证据，新镜像不能沿用旧 GPU 资格 | 完成核心内置装配及其他扩展 SPI；其余后端完整迁移、第三方与 OCI 分发门禁继续推进，不恢复旧适配器或建立第二套业务实现 |
+| 插件装配与扩展安装 | 推理切片已有完整模型能力、CPU／CUDA、命名池及 ORT session 准入；开发 SDK、管理员安装器与原生 HTTP 适配分工明确；全扩展点装配仍未交付 | 作者 SDK、共享运行时与 Mask 工具归独立 Plugin-SDK；四个官方插件归 YOAO-Plugins；平台消费固定制品，三个普通后端旧源码已删除 | LibreYOLO 原限定单卡资格保留；[通用准入与限定验收](#inference-plugin-admission)分列早期平台业务与新独立 ONNXTools／RapidOCR 的 GPU 资格、真实 SDK 安装和激活；新镜像不能沿用旧资格 | 完成 YOLO 完整 CUDA、新独立镜像的平台业务／治理闭环及两个 SAM 后端迁移；核心内置装配、其他扩展 SPI、第三方与 OCI 分发门禁仍独立推进 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
 
@@ -257,6 +257,14 @@ ONNXTools 的 operator 资格已在独占单卡上实际通过：`pipeline` 两�
 上述第二批证据只覆盖本机限定组合。当时的模型权重仅获准内部验收，OCI 仅推送本机临时 registry，未实施源码拆仓或公开分发。后续 SDK／共享工具／LibreYOLO 的公开拆仓见[独立消费记录](#plugin-candidate-artifacts)，不扩大第二批的模型资格，也不代表生产部署或其余模型插件已完整迁移。
 
 这不是模型准确率或吞吐基准：选定 CPU 资源配额下，ONNXTools 的实际预检仍有大量 ORT 线程和较长延迟；限制 CPU affinity 的对照未改善，不据此推荐该调整。白色空例产生误检的记录保留，未通过降低阈值改写模型行为。
+
+### 普通后端独立制品切换
+
+YOLO、RapidOCR、ONNXTools 的唯一源码已迁到官方仓库的 `plugins/inference/`。平台 Compose 显式启用固定摘要制品，维护入口区分插件镜像拉取与仍在平台的 SAM 构建；平台 CI 只保留自身契约、资产管理工具及 SAM 测试，官方实现的测试在官方仓库运行。
+
+新独立 ONNXTools 和 RapidOCR 已分别通过完整两轮单卡 GPU 生命周期证明，核对全部实际业务 sessions，并由普通 API SDK 完成报告校验、安装和平台端点激活。前者覆盖三池／四 sessions，后者覆盖三引擎／九 sessions；释放后活动计数归零。YOLO 的多任务、受控模型、正例 tracker、World／YOLOE 文本及 exemplar CPU HTTP 已与独立原生预期比对，完整 CUDA 资格仍需覆盖全部选用权重与编码器，不能沿用仅覆盖闭集模型的证明。
+
+原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。新镜像的平台项目授权、预测持久化及治理验收仍独立推进，安装不自动启用项目。源码提交、不可变制品、报告摘要、早期失败和私有证据位置见拆仓计划的第五批记录；旧业务资格、历史收据与原环境恢复义务不被覆盖。
 
 ## Learning 的 Jobs 读取 {#learning-jobs-reads}
 

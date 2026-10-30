@@ -76,6 +76,7 @@ class MLBackendRouter:
         project_id: uuid.UUID | None = None,
         required_instance_id: uuid.UUID | None = None,
         registry_id: uuid.UUID | None = None,
+        approved_registry_ids: list[uuid.UUID] | None = None,
         execution: dict | None = None,
     ) -> RouteSelection:
         """Reserve durable execution ownership using current committed topology."""
@@ -91,6 +92,11 @@ class MLBackendRouter:
                 owner=owner,
                 operation=operation,
                 required_instance_id=required_instance_id,
+                **(
+                    {"approved_registry_ids": approved_registry_ids}
+                    if approved_registry_ids is not None
+                    else {}
+                ),
                 **({"execution": execution} if execution is not None else {}),
             )
         except RoutingRejected as exc:

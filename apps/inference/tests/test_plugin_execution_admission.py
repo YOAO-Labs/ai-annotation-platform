@@ -107,3 +107,99 @@ async def test_inactive_plugin_is_rejected_before_dispatch(operation, lifecycle_
         await provider.execute(request, before_dispatch=before_dispatch)
     assert error.value.failure.code == "model_execution_unavailable"
     assert not dispatched
+
+
+@pytest.mark.asyncio
+async def test_unapproved_default_is_rejected_before_dispatch():
+    registry_id, request_id, scope_id = uuid4(), uuid4(), uuid4()
+    authority = BackendEndpointAuthority(
+        kind="scope", scope_id=scope_id, control_id=None, attempt_id=request_id
+    )
+    subject = BackendEndpointSubject(
+        schema="aap-inference-backend-endpoint/v1",
+        request_id=request_id,
+        registry_id=registry_id,
+        purpose="execution",
+        authority=authority,
+        subject="v1.YQ==",
+    )
+    extra = {
+        "plugin": {
+            "installation_id": str(registry_id),
+            "status": "active",
+            "revision": 3,
+            "resource": {
+                "gpu_resource_id": None,
+                "physical_gpu_uuid": None,
+                "logical_device": "cpu",
+            },
+            "manifest": {
+                "plugin_id": "detector",
+                "version": "1",
+                "publisher": "example",
+                "license": "MIT",
+                "artifact": "example/detector@sha256:" + "a" * 64,
+                "sdk_compatibility": "1",
+                "entrypoint": ["detector"],
+                "capabilities": ["inference", "detection"],
+                "models": [
+                    {
+                        "id": "detect",
+                        "task": "detect",
+                        "is_interactive": False,
+                        "supported_prompts": ["none"],
+                        "supported_inputs": ["full_image"],
+                        "supported_geometric_outputs": ["bbox"],
+                    }
+                ],
+                "pools": {"models": {"cap": 1}},
+                "resource": {"device": "cpu", "memory_mb": 1024, "gpu_memory_mb": 0},
+                "asset_manifest_sha256": "b" * 64,
+                "allowed_asset_sources": [],
+            },
+        }
+    }
+    endpoint = SimpleNamespace(
+        registry_id=registry_id,
+        extra_params=extra,
+        plugin_asset_approval=None,
+        endpoint_sha256="a" * 64,
+    )
+
+    class Source:
+        async def open(self, *args, **kwargs):
+            return endpoint
+
+    provider = BackendTransportModelExecutionProvider(
+        Source(),
+        options=None,
+        request_context_factory=lambda *args: None,
+        dispatch_context_factory=lambda *args: None,
+    )
+    request = FrozenModelOperation(
+        request_id=request_id,
+        operation="batch_predict",
+        task_inputs=({"id": "one", "file_path": "https://example.invalid/a.jpg"},),
+        context={"model_id": "detect"},
+        project_id=None,
+        requested_registry_id=registry_id,
+        requested_pool_id=None,
+        endpoint_registry_id=registry_id,
+        endpoint_subject=subject,
+        required_instance_id=None,
+        route_owner="plugin-test",
+        route_operation="predict",
+        route_binding=ModelExecutionRouteBinding(
+            scope_id=scope_id, attempt_id=request_id, capability="a" * 64
+        ),
+        health_meta={"capabilities": {"models": [{"id": "detect", "task": "detect"}]}},
+    )
+    dispatched = False
+
+    async def before_dispatch(_request):
+        nonlocal dispatched
+        dispatched = True
+
+    with pytest.raises(ModelExecutionError):
+        await provider.execute(request, before_dispatch=before_dispatch)
+    assert not dispatched

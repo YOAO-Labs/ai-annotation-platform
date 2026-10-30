@@ -53,7 +53,7 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 核心能力的目标形态是随项目发布的内置插件，模型、UI、训练器、连接器与格式等扩展通过版本化契约接入。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和开发 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立维护面向自定义插件作者的能力抽象与工具；[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。API SDK、契约权威与业务治理留在平台。现有实现明确归属推理能力，UI、训练器、数据导出不依赖推理运行时，也不提前创建空 SDK。全扩展点统一装配及其余模型服务的源码切换仍未完成，资格以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准。
 
-第一方制品提供固定下载地址、实际源码提交和 SHA256 清单；自定义开发见 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme)，官方实现与候选镜像构建见 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)，平台便携契约通过[固定 SDK 渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-3d6393e64630)分发。公开制品不含权重、私有数据集、完整第三方 wheelhouse 或 OCI 镜像；它们的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
+第一方制品提供固定下载地址、实际源码提交和 SHA256 清单；自定义开发见 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme)，官方实现与候选镜像构建见 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)，平台便携契约通过[固定 SDK 渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-c200b1f76441)分发。公开制品不含权重、私有数据集、完整第三方 wheelhouse 或 OCI 镜像；它们的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
 
 受控模型兼容声明区分具名导出格式与显式 `format: null` 的原生 checkpoint；两者都必须与实际插件能力及平台模型回执精确匹配，清单声明不替代权重审批或 CPU／CUDA 资格。
 

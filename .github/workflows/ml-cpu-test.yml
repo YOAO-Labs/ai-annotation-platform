@@ -1,11 +1,11 @@
-# Reusable CPU test workflow for the platform protocol and five ML backends.
+# Reusable CPU test workflow for platform contracts, asset tooling and SAM backends.
 #
 # Caller contract:
 #   uses: ./.github/workflows/ml-cpu-test.yml
 #   with:
 #     suites: all                     # default; or a comma/space separated subset of:
-#                                     #   shared-protocol-v2, yolo, rapidocr,
-#                                     #   onnxtools, grounded-sam2, sam3
+#                                     #   shared-protocol-v2, controlled-assets,
+#                                     #   grounded-sam2, sam3
 #   (a call with no `suites` input runs every suite)
 #
 # Manual full entry: Actions -> "ML CPU tests" -> Run workflow.
@@ -20,8 +20,8 @@ on:
     inputs:
       suites:
         description: >-
-          Comma/space separated subset of shared-protocol-v2, yolo, rapidocr,
-          onnxtools, grounded-sam2, sam3; or "all".
+          Comma/space separated subset of shared-protocol-v2, controlled-assets,
+          grounded-sam2, sam3; or "all".
         required: false
         default: all
         type: string
@@ -29,8 +29,8 @@ on:
     inputs:
       suites:
         description: >-
-          Comma/space separated subset of shared-protocol-v2, yolo, rapidocr,
-          onnxtools, grounded-sam2, sam3; or "all".
+          Comma/space separated subset of shared-protocol-v2, controlled-assets,
+          grounded-sam2, sam3; or "all".
         required: false
         default: all
         type: string
@@ -44,9 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       shared_protocol_v2: ${{ steps.plan.outputs.shared_protocol_v2 }}
-      yolo: ${{ steps.plan.outputs.yolo }}
-      rapidocr: ${{ steps.plan.outputs.rapidocr }}
-      onnxtools: ${{ steps.plan.outputs.onnxtools }}
+      controlled_assets: ${{ steps.plan.outputs.controlled_assets }}
       grounded_sam2: ${{ steps.plan.outputs.grounded_sam2 }}
       sam3: ${{ steps.plan.outputs.sam3 }}
     steps:
@@ -74,63 +72,20 @@ jobs:
       - name: Run shared protocol v2 tests
         run: bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2
 
-  yolo:
-    name: ML CPU yolo backend
+  controlled-assets:
+    name: ML CPU controlled asset administration
     needs: plan
-    if: needs.plan.outputs.yolo == 'true'
+    if: needs.plan.outputs.controlled_assets == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
       - name: Install uv
         run: pip install uv
-      - name: Cache uv downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ml-cpu-uv-${{ runner.os }}-yolo-${{ hashFiles('apps/yolo-backend/uv.lock') }}
-          restore-keys: |
-            ml-cpu-uv-${{ runner.os }}-yolo-
-      - name: Run yolo backend tests
-        run: bash scripts/run-ml-cpu-tests.sh run yolo
-
-  rapidocr:
-    name: ML CPU rapidocr backend
-    needs: plan
-    if: needs.plan.outputs.rapidocr == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install uv
-        run: pip install uv
-      - name: Run rapidocr backend tests
-        run: bash scripts/run-ml-cpu-tests.sh run rapidocr
-
-  onnxtools:
-    name: ML CPU onnxtools backend
-    needs: plan
-    if: needs.plan.outputs.onnxtools == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install uv
-        run: pip install uv
-      - name: Run onnxtools backend tests
-        run: bash scripts/run-ml-cpu-tests.sh run onnxtools
+      - name: Run controlled asset administration tests
+        run: bash scripts/run-ml-cpu-tests.sh run controlled-assets
 
   grounded-sam2:
     name: ML CPU grounded sam2 backend

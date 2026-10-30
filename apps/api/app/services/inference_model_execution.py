@@ -153,6 +153,35 @@ class _ModelExecutionGateway(ModelExecutionPort):
                     if request.requested_registry_id is not None
                     else None
                 )
+                approved_registry_ids = None
+                if reference is None:
+                    from aap_inference_contract.plugin_assets import (
+                        resolve_plugin_selection,
+                    )
+                    from app.services.model_catalog import (
+                        pool_asset_candidates,
+                        pool_has_plugin,
+                    )
+
+                    source_id = request.requested_registry_id or (
+                        pool.legacy_instance_id if pool is not None else None
+                    )
+                    if source_id is None and pool is not None:
+                        members = await data.pool_members(pool.id)
+                        source_id = members[0].registry_id if members else None
+                    source = await data.registry_facts(source_id) if source_id else None
+                    if source is not None and await pool_has_plugin(self.db, source):
+                        model_id, variants = resolve_plugin_selection(
+                            source.health_meta, request.context
+                        )
+                        approved_registry_ids, reason = await pool_asset_candidates(
+                            self.db, source, model_id, variants
+                        )
+                        if reason is not None:
+                            raise RoutingError(
+                                RejectionReason.POOL_UNAVAILABLE,
+                                "Plugin asset selection is not approved or available",
+                            )
                 mode = _router_mode()
                 if self.installation_trial is not None:
                     pool = None
@@ -180,6 +209,11 @@ class _ModelExecutionGateway(ModelExecutionPort):
                     owner=request.route_owner,
                     operation=request.route_operation,
                     required_instance_id=request.required_instance_id,
+                    **(
+                        {"approved_registry_ids": approved_registry_ids}
+                        if approved_registry_ids is not None
+                        else {}
+                    ),
                 )
                 if selection.rejection is not None:
                     raise RoutingError(

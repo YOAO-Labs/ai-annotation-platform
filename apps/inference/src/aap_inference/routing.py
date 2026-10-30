@@ -516,6 +516,13 @@ class RoutingManager:
             observed_at=observed_at,
             health_max_age_seconds=self.health_max_age_seconds,
         )
+        if body.get("approved_registry_ids") is not None:
+            approved = {
+                _canonical_uuid(value) for value in body["approved_registry_ids"]
+            }
+            candidate_ids = [value for value in candidate_ids if value in approved]
+            if not candidate_ids:
+                raise _Rejected("pool_unavailable")
         if expected_model is not None:
             original, expected_member, expected_boot = expected_model
             selected = [

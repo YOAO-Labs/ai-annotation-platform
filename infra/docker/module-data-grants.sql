@@ -3913,6 +3913,7 @@ BEGIN
     END LOOP;
 END;
 $inference_owner$;
+ALTER TABLE aap_inference_topology_v1.plugin_asset_approvals OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_gpu_v1.installation_control_intents OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_gpu_v1.installation_terminal_intents OWNER TO :"inference_owner";

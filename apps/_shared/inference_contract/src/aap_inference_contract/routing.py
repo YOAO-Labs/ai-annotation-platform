@@ -137,8 +137,17 @@ class _AcquireBody(_RoutingModel):
     project_id: uuid.UUID | None
     mode: Literal["off", "observe", "enforce", "direct"]
     required_instance_id: uuid.UUID | None
+    approved_registry_ids: list[uuid.UUID] | None = Field(default=None, max_length=1024)
     owner: StrictStr = Field(min_length=1, max_length=512)
     operation: StrictStr = Field(min_length=1, max_length=96)
+
+    @model_validator(mode="after")
+    def unique_approved_registry_ids(self):
+        if self.approved_registry_ids is not None and len(
+            self.approved_registry_ids
+        ) != len(set(self.approved_registry_ids)):
+            raise ValueError("approved registry ids must be unique")
+        return self
 
 
 class RoutingVideoExecutionProof(_RoutingModel):

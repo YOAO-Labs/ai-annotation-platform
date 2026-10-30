@@ -21,6 +21,10 @@ from aap_inference_contract.plugin import (
     PluginQuiesceResponse,
     PreparePluginInstallation,
 )
+from aap_inference_contract.plugin_assets import (
+    PluginAssetApprovalState,
+    PluginAssetApprovalUpdate,
+)
 from app.db.enums import UserRole
 from app.deps import get_db, require_roles
 from app.schemas.ml_backend import _validate_ml_backend_url
@@ -164,6 +168,57 @@ async def get_installation(
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     return await _installation(db, installation_id)
+
+
+@router.get("/{installation_id}/assets", response_model=PluginAssetApprovalState)
+async def get_asset_approval(
+    installation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    result = await InferenceTopologyData(db).get_plugin_asset_approval(installation_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail={"error_code": "plugin_installation_not_found"}
+        )
+    return result
+
+
+@router.put("/{installation_id}/assets", response_model=PluginAssetApprovalState)
+async def set_asset_approval(
+    installation_id: UUID,
+    data: PluginAssetApprovalUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    topology = InferenceTopologyData(db)
+    installation = await _installation(db, installation_id)
+    model_ids = {item.id for item in installation.installation.manifest.models}
+    if any(item.model_id not in model_ids for item in data.descriptor.selections):
+        raise HTTPException(
+            status_code=422, detail={"error_code": "plugin_asset_model_unknown"}
+        )
+    try:
+        result = await topology.set_plugin_asset_approval(installation_id, data)
+    except ValueError:
+        raise _conflict() from None
+    await AuditService.log(
+        db,
+        actor=admin,
+        action="ml_plugin_installation.assets_updated",
+        target_type="ml_backend",
+        target_id=str(installation_id),
+        request=request,
+        status_code=200,
+        detail={
+            "revision": result["revision"],
+            "descriptor_sha256": data.descriptor_sha256,
+            "approved": [item.model_dump(mode="json") for item in data.approved],
+        },
+    )
+    await db.commit()
+    return result
 
 
 @router.post("/{installation_id}/activate", response_model=PluginInstallationResponse)

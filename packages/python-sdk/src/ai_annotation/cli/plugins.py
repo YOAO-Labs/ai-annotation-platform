@@ -114,6 +114,55 @@ def migrate_state(
     print_learning_result(result, json_output)
 
 
+@app.command("asset-approvals")
+def asset_approvals(
+    state_dir: Path = typer.Option(..., "--state-dir"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Read the current decision revision for an owned installation."""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            deployment = _deployment(client, state_dir)
+            installation = deployment.status()
+            result = client.plugins.asset_approval(
+                installation.installation.installation_id
+            )
+    print_learning_result(result, json_output)
+
+
+@app.command("approve-assets")
+def approve_assets(
+    state_dir: Path = typer.Option(..., "--state-dir"),
+    descriptor: Path = typer.Option(
+        ..., "--descriptor", help="Plugin-produced selection descriptor JSON"
+    ),
+    choices: Path = typer.Option(
+        ..., "--choices", help="JSON object containing explicitly approved selections"
+    ),
+    expected_revision: int = typer.Option(..., "--expected-revision", min=0),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Replace decisions and measure available bytes for the owned active installation."""
+    with cli_errors(json_output):
+        _deployment_types()
+        from aap_inference_contract.plugin_assets import (
+            PluginAssetChoices,
+            PluginAssetDescriptor,
+        )
+
+        approved_descriptor = read_json_body(descriptor, PluginAssetDescriptor)
+        approved_choices = read_json_body(choices, PluginAssetChoices)
+        confirm_destructive(
+            "Replace this installation's model asset approvals?", yes, json_output
+        )
+        with get_client(json_output) as client:
+            result = _deployment(client, state_dir).approve_assets(
+                approved_descriptor, approved_choices.approved, expected_revision
+            )
+    print_learning_result(result, json_output)
+
+
 @app.command("status")
 def status(
     state_dir: Path = typer.Option(..., "--state-dir"),

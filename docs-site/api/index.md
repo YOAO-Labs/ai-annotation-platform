@@ -32,6 +32,8 @@ last_reviewed: 2026-10-26
 
 推理插件安装清单的 `managed_model_compatibility[].format` 是必填可空字段：显式 `null` 对应无独立导出格式标识的原生 checkpoint，非空字符串对应具名格式。平台仍同时核对管理员批准、实际能力观测、模型回执和运行设备；缺字段不等同于 `null`，也不能将它当作任意格式匹配。
 
+超管通过 `GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets` 读取单个安装的资源决策及修订，`PUT` 使用预期修订提交完整替换决策、插件 selection descriptor 和受安装收据约束的实测清单；并发变化返回 `409`。这些操作不更改安装 manifest 或既有资格报告。具体审核与本地测量流程见[插件安装](/user-guide/superadmin/ml-backend-registry#可安装推理插件)。
+
 ### 第一次接入
 
 1. 调用 `POST /api/v1/auth/login` 获取 JWT Bearer Token。
