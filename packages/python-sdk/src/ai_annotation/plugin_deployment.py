@@ -9,11 +9,13 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+from contextlib import ExitStack
 from dataclasses import replace
 import json
 import os
 import re
 import secrets
+import stat
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -36,7 +38,51 @@ from aap_inference_contract.plugin import (
     PluginLifecycleQualification,
     PluginResourceBinding,
 )
+from aap_inference_contract.plugin_assets import (
+    PluginAssetApprovalUpdate,
+    PluginAssetDescriptor,
+    PluginSelectionKey,
+)
 from ai_annotation.plugins import PluginInstallations
+
+
+def _measured_asset(root: Path, asset) -> bool:
+    """Open only contained regular files without following mutable symlinks."""
+    try:
+        with ExitStack() as stack:
+            directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            stack.callback(os.close, directory)
+            parts = asset.path.split("/")
+            for part in parts[:-1]:
+                directory = os.open(
+                    part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+                )
+                stack.callback(os.close, directory)
+            descriptor = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+            )
+            stack.callback(os.close, descriptor)
+            before = os.fstat(descriptor)
+            if not stat.S_ISREG(before.st_mode) or before.st_size != asset.size_bytes:
+                return False
+            digest = hashlib.sha256()
+            while chunk := os.read(descriptor, 1024 * 1024):
+                digest.update(chunk)
+            after = os.fstat(descriptor)
+            return (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+            ) == (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+            ) and digest.hexdigest() == asset.sha256
+    except OSError:
+        return False
+
 
 _DATA_TARGET = "/var/lib/aap-libreyolo"
 
@@ -289,6 +335,57 @@ class LocalPluginDeployment:
             result = self.plugins.get(receipt["installation_id"])
             self._verify(receipt, result)
             return result
+
+    def approve_assets(
+        self,
+        descriptor: PluginAssetDescriptor,
+        approved: list[PluginSelectionKey],
+        expected_revision: int,
+    ):
+        """Measure the owned data directory before submitting explicit decisions."""
+        with self.store.locked():
+            receipt = self._load()
+            result = self.plugins.get(receipt["installation_id"])
+            self._verify(receipt, result)
+            if result.installation.status != "active":
+                raise AAPError("Asset decisions require the active owned installation")
+            container = self._container(receipt, result, provision=False)
+            inspected = self.docker.verify_running(container)
+            self._verify_process(
+                receipt.get("launch"), receipt.get("started_at"), inspected
+            )
+            root = container.data_dir
+            chosen = {
+                (item.model_id, tuple(sorted(item.variants.items())))
+                for item in approved
+            }
+            expected = {
+                asset.path: asset
+                for item in descriptor.selections
+                if (item.model_id, tuple(sorted(item.variants.items()))) in chosen
+                for asset in item.assets
+            }
+            inventory = [
+                asset
+                for _, asset in sorted(expected.items())
+                if _measured_asset(root, asset)
+            ]
+            self._verify_process(
+                receipt.get("launch"),
+                receipt.get("started_at"),
+                self.docker.verify_running(container),
+            )
+            update = PluginAssetApprovalUpdate(
+                expected_revision=expected_revision,
+                expected_installation_revision=result.installation.revision,
+                descriptor=descriptor,
+                descriptor_sha256=descriptor.sha256(),
+                approved=approved,
+                inventory=inventory,
+                container_id=inspected["id"],
+                image_id=inspected["image_id"],
+            )
+            return self.plugins.set_asset_approval(receipt["installation_id"], update)
 
     @staticmethod
     def _private_file(path: Path, content: str) -> None:

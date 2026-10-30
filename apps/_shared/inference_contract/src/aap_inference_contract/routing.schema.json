@@ -298,6 +298,12 @@
           "type": ["string", "null"],
           "format": "uuid"
         },
+        "approved_registry_ids": {
+          "type": ["array", "null"],
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
+        },
         "owner": {
           "type": "string",
           "minLength": 1,
@@ -1635,6 +1641,12 @@
         "required_instance_id": {
           "type": ["string", "null"],
           "format": "uuid"
+        },
+        "approved_registry_ids": {
+          "type": ["array", "null"],
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
         },
         "owner": {
           "type": "string",

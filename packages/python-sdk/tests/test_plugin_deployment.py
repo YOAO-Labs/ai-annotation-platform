@@ -938,3 +938,69 @@ def test_manifest_rejects_docker_option_injection():
     body["manifest"]["artifact"] = "--privileged@sha256:" + "a" * 64
     with pytest.raises(ValueError):
         LocalPluginConfig.model_validate(body)
+
+
+def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(tmp_path):
+    from aap_inference_contract.plugin_assets import (
+        PluginAssetDescriptor,
+        PluginSelectionKey,
+    )
+
+    class AssetCore(Core):
+        def set_asset_approval(self, installation_id, request):
+            self.last_asset_decision = request
+            return request
+
+    core = AssetCore()
+    docker = LocalDocker(core.events)
+    deployment = LocalPluginDeployment(
+        core, "https://api.example", tmp_path / "state", docker
+    )
+    deployment.prepare(config())
+    installation = deployment.install(report_file(tmp_path))
+    data = tmp_path / "state" / "data"
+    (data / "correct.bin").write_bytes(b"correct")
+    (data / "corrupt.bin").write_bytes(b"incorrect")
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"outside")
+    (data / "link.bin").symlink_to(outside)
+    manifest = installation.installation.manifest
+    descriptor = PluginAssetDescriptor.model_validate(
+        {
+            "schema_version": 1,
+            "plugin_id": manifest.plugin_id,
+            "plugin_version": manifest.version,
+            "artifact": manifest.artifact,
+            "asset_manifest_sha256": manifest.asset_manifest_sha256,
+            "selections": [
+                {
+                    "model_id": "detect",
+                    "variants": {},
+                    "asset_free": False,
+                    "assets": [
+                        {
+                            "path": "correct.bin",
+                            "sha256": hashlib.sha256(b"correct").hexdigest(),
+                            "size_bytes": 7,
+                        },
+                        {
+                            "path": "corrupt.bin",
+                            "sha256": hashlib.sha256(b"expected").hexdigest(),
+                            "size_bytes": 8,
+                        },
+                        {
+                            "path": "link.bin",
+                            "sha256": hashlib.sha256(b"outside").hexdigest(),
+                            "size_bytes": 7,
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+    choices = [PluginSelectionKey(model_id="detect", variants={})]
+    result = deployment.approve_assets(descriptor, choices, 0)
+    assert [asset.path for asset in result.inventory] == ["correct.bin"]
+    docker.started_at = "replaced-process"
+    with pytest.raises(AAPError, match="process identity"):
+        deployment.approve_assets(descriptor, choices, 1)

@@ -119,6 +119,7 @@ class BackendEndpointSnapshot:
     # Exact registry credential generation captured with the endpoint snapshot.
     # In-process seam fakes may omit it; SQL snapshots always carry it.
     auth_revision: int = field(default=0, repr=False)
+    plugin_asset_approval: Mapping[str, Any] | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         return (
@@ -192,7 +193,10 @@ def _snapshot(
 ) -> BackendEndpointSnapshot:
     try:
         value = json.loads(raw_json, parse_constant=_reject_json_constant)
-        if type(value) is not dict or set(value) != _SNAPSHOT_FIELDS:
+        expected_fields = _SNAPSHOT_FIELDS | (
+            {"plugin_asset_approval"} if request.purpose == "execution" else set()
+        )
+        if type(value) is not dict or set(value) != expected_fields:
             raise ValueError("invalid endpoint snapshot shape")
         if (
             value["schema"] != "aap-inference-backend-endpoint-snapshot/v1"
@@ -235,6 +239,9 @@ def _snapshot(
             raise ValueError("invalid endpoint eviction priority")
         if extra is not None and type(extra) is not dict:
             raise ValueError("invalid endpoint extra parameters")
+        approval = value.get("plugin_asset_approval")
+        if approval is not None and type(approval) is not dict:
+            raise ValueError("invalid plugin asset approval state")
         frozen_extra = None if extra is None else _freeze_json(extra)
         return BackendEndpointSnapshot(
             registry_id=request.registry_id,
@@ -250,6 +257,7 @@ def _snapshot(
             vram_budget_mb=vram,
             eviction_priority=priority,
             extra_params=frozen_extra,
+            plugin_asset_approval=None if approval is None else _freeze_json(approval),
         )
     except (
         KeyError,

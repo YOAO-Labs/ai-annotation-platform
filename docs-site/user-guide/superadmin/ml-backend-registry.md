@@ -188,6 +188,22 @@ RapidOCR CPU 镜像使用独立 CPU ORT 依赖，不安装 GPU ORT 或 NVIDIA wh
 
 安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
 
+安装和项目启用不授予预训练模型权利。超级管理员须审核插件发布的 selection descriptor，按该安装的制品、资产清单和每个完整变体明确批准；目录中未批准或本地资产不可用的规格仍可查看，但不可用于推理。既有安装不会自动获得批准，历史 GPU 报告也不能替代这一步。受控训练模型仍遵循原有部署和发布规则。
+
+对已经激活的安装，使用原私有状态目录和插件提供的 descriptor 文件。`choices.json` 是含 `approved` 数组的 JSON 对象，每项为 `{"model_id":"...","variants":{...}}`；只列出实际批准的完整规格，空数组撤销全部批准。先读取修订，再以该修订提交，冲突时重新读取并审核：
+
+```bash
+aap plugins asset-approvals --state-dir ./plugin-state --json
+aap plugins approve-assets --state-dir ./plugin-state --descriptor selections.json \
+  --choices choices.json --expected-revision 0 --yes --json
+```
+
+首次决策修订为 `0`；后续提交使用读取到的修订。安装器核对原安装收据和运行容器身份，逐文件测量 data 目录内 descriptor 声明的 SHA256 与大小，缺失或不匹配的资产不会被标记为可用。测量结果是提交时的管理员本地观测，不会持续重新计算文件摘要；须保护数据目录，并在文件变化后重新测量提交。批准和可用是不同状态；准备或更换文件后须重新测量提交，重启后的新容器身份也须重新测量。该流程不下载权重，也不要求 CPU 安装具备 CUDA；发布者的资源描述和软件许可本身不构成管理员批准。
+
+已有 LibreYOLO 安装同样需要此批准：使用该插件发布的预训练描述与对应安装身份生成 selection descriptor，审核完整规格和每个资产后，用原状态目录执行上述读取与提交。对于当前版本已支持的安装，不要新建安装、改写原 manifest 或重新制作旧 GPU 资格报告；原容器和收据无法核验时先恢复安装所有权，不能把历史报告当作本地资产清单。如果历史 manifest 尚无 `models` 和 `pools`，必须先完成下面的[历史清单与本地收据迁移](#历史清单与本地收据迁移)；旧版隔离运行环境在迁移前保持原状，不能由本批准流程自动补齐能力。
+
+同一服务池中各实例的批准和本地资产可用状态可能不同；平台只在符合该规格的可接流成员中按原有权重路由，未批准或不可用的成员不会参与选择。执行前会再次检查实际选中的实例，因此撤销批准后已排队但尚未派发的工作不能继续使用该规格。
+
 停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。下列命令由安装器执行停用、排空证明、停止拥有的容器，以及依赖检查与退役：
 
 真实请求断连后，不确定工作租约仍占用显存承诺。安装 owner 只有在相关许可有效期与租约硬期限均过去，并取得当前实例的新鲜空闲证明后，才能结清这些租约并继续签名排空；原生请求、构建或模型借用未退出时不会提前释放。等待超时应保留原状态目录，按结构化错误及重试信息恢复同一安装操作，不删除 Redis 租约或退出围栏。
@@ -292,7 +308,7 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 以下事件写入 `audit_logs`：
 
 - `ml_registry.created` / `ml_registry.updated` / `ml_registry.deleted`（全局注册 CRUD）
-- `ml_plugin_installation.prepared` / `launch_recorded` / `qualification_approved` / `activated` / `disabled` / `quiesced` / `retired`（插件身份与生命周期动作；不记录实例 Token）
+- `ml_plugin_installation.prepared` / `launch_recorded` / `qualification_approved` / `activated` / `disabled` / `quiesced` / `retired` / `assets_updated`（插件身份、生命周期和资产批准动作；不记录实例 Token）
 - `ml_registry.managed_auth_initialized`（默认凭据初始化与同步）
 - `ml_backend.maintenance_requested`（系统设置提交指定服务的镜像与容器维护）
 - `ml_service_pool.created` / `updated` / `deleted`（服务池 CRUD）

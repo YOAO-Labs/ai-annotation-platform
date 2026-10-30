@@ -84,6 +84,8 @@
 | POST | `/` |
 | GET | `/` |
 | GET | `/{installation_id}` |
+| GET | `/{installation_id}/assets` |
+| PUT | `/{installation_id}/assets` |
 | POST | `/{installation_id}/activate` |
 | POST | `/{installation_id}/disable` |
 | POST | `/{installation_id}/quiesce` |
@@ -1247,4 +1249,4 @@
 
 ---
 
-_共 116 模块 / 750 路由_
+_共 116 模块 / 752 路由_
