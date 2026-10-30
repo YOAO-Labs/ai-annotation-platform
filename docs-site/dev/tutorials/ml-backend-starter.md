@@ -246,9 +246,9 @@ async def predict(req: PredictRequest):
 - **预热与运行时观测**：`/setup.warmup_endpoint: true` + `POST /warmup`；`/predict` 响应带 `cache_hit` / `model_load_ms`，前端据此区分「加载中」与「推理中」（协议 §4.2 / §4.4）。
 - **标准错误形态**：非法 variant → 422 `variant_not_supported`；权重缺失 / 显存不可服务 → 503 `model_unavailable` + `Retry-After`（协议 §6）。
 
-**生产建议**：直接依赖共享库 `apps/_shared/protocol_v2/`（`aap_protocol_v2`），它提供 `PredictionResult` / `BatchPredictResponse` / `PoolStatus` / `WarmupResponse` 等协议 Pydantic 模型、`VariantNotSupportedError` / `ModelUnavailableError` 标准错误类，以及旧 variant 字段的 normalize 工具——各第一方生产 backend（`yolo-backend` / `sam3-backend` / `grounded-sam2-backend`）均已依赖。真实推理 backend 的完整组织方式（ModelPool、observability、tests）首选参考 `apps/yolo-backend/`。
+**生产建议**：依赖发布的 `aap_protocol_v2` 合同，使用其请求、响应、标准错误与词表。真实推理 backend 的组织方式可参考[官方 YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)。
 
-本教程的 OCR 主题，真实推理参考 `apps/rapidocr-backend/`：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），示范一个 backend 如何既暴露可被 pipeline 编排的原子阶段、又提供一次跑完的便捷入口，并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
+本教程的 OCR 主题，真实推理参考 [RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
 
 ## Step 5：全局注册并对项目启用
 

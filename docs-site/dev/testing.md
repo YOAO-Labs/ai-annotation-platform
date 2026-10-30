@@ -38,7 +38,7 @@ last_reviewed: 2026-10-26
 
 当前测试基线的两条重要事实：
 
-- **ML CPU 与共享契约套件**：PR 触及 `apps/_shared/**`（7 个共享包：`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor/`、`apps/storage-agent/` 或任一 `apps/*-backend/` 路径时，可在纯 CPU 虚拟环境中运行 pytest（其中 ML 与相关共享包由 `.github/workflows/ml-cpu-test.yml` 在独立一次性虚拟环境中自动执行：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
+- **ML CPU 与共享契约套件**：平台工作流 `.github/workflows/ml-cpu-test.yml` 在独立虚拟环境运行协议、受控资产、Grounded SAM2 和 SAM3 套件；后两者使用 CPU torch。YOLO、RapidOCR 和 ONNXTools 源码测试在官方插件仓执行；CPU 测试不替代目标设备资格验收。
 - **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
 
 ---
@@ -118,7 +118,7 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
 
 ## 在线学习与训练执行器测试
 
-在线学习子系统的验证横跨控制面（`apps/api`）、执行面（`apps/training-executor`）与推理回传面（`apps/yolo-backend`）：
+在线学习子系统的验证横跨控制面（`apps/api`）、执行面（`apps/training-executor`）与 [YOLO 推理插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)：
 
 1. **执行器单元测试（无需数据库）**：
    ```bash

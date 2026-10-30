@@ -1,13 +1,14 @@
 # ML Backend 叠加文件 · GPU 推理 backend + 截图协议 stub。
 #
-# 从 docker-compose.yml 拆出：这三者都是 profile-gated 的独立 HTTP 服务，
-# 与核心 infra（postgres/redis/minio/celery）无 depends_on、不共享数据卷，
-# 拎出来单独维护让基础栈更聚焦。
+# SAM services and the screenshot stub are profile-gated and independent of
+# core infrastructure. Official YOLO, ONNXTools and RapidOCR deployments use
+# their respective opt-in overlays and accepted immutable image references.
 #
 # 用法（与基础文件叠加，保持单一 compose project，避免 orphan 容器警告）:
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu      up -d grounded-sam2-backend
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
-#   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d yolo-backend
+#   Add docker-compose.ml-yolo.yml, docker-compose.ml-onnxtools.yml or
+#   docker-compose.ml-rapidocr.yml when deploying the corresponding plugin.
 #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile screenshots up -d screenshot-ml-stub
 #
 # 嫌每次敲两个 -f 麻烦, 可在 shell / .env 固化:
@@ -169,163 +170,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 180s
-
-  # v0.14.12 · yolo-backend (ultralytics 多任务多系列, det/seg/pose/obb 四 task).
-  # 与 grounded-sam2 (8001) / sam3 (8002) 解耦的独立 profile:
-  #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up yolo-backend
-  # 三 backend 可并存; yolo 走纯批量预标 (supported_prompts=['none']), 不挤占交互式工具栏.
-  # 显存预算: 单 m/l 模型 ~5-8GB; 池容量 YOLO_MODEL_POOL_CAP 默认 2 适配 4060/3060 8G.
-  # 首次推理时按需从 GH release 下载权重到 checkpoints 卷; STRICT_OFFLINE=1 改报 400.
-  yolo-backend:
-    build:
-      context: ./apps
-      dockerfile: yolo-backend/Dockerfile
-    profiles: ["gpu-yolo"]
-    ports:
-      - "8003:8003"
-    environment:
-      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
-      YOLO_DEVICE: ${YOLO_DEVICE:-cuda:0}
-      YOLO_MODEL_POOL_CAP: ${YOLO_MODEL_POOL_CAP:-2}
-      YOLO_MANAGED_MODELS_TOKEN: ${YOLO_MANAGED_MODELS_TOKEN:-}
-      YOLO_BUILD_TIMEOUT: ${YOLO_BUILD_TIMEOUT:-30}
-      YOLO_IDLE_UNLOAD_SECONDS: ${YOLO_IDLE_UNLOAD_SECONDS:-600}
-      YOLO_IDLE_CHECK_INTERVAL: ${YOLO_IDLE_CHECK_INTERVAL:-60}
-      YOLO_STRICT_OFFLINE: ${YOLO_STRICT_OFFLINE:-0}
-      YOLO_MANAGED_LIFECYCLE_VERIFIED: ${YOLO_MANAGED_LIFECYCLE_VERIFIED:-0}
-      GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
-      GPU_LIFECYCLE_REGISTRY_ID: ${GPU_LIFECYCLE_REGISTRY_ID:-}
-      GPU_LIFECYCLE_RESOURCE_ID: ${GPU_LIFECYCLE_RESOURCE_ID:-}
-      LOG_LEVEL: ${YOLO_LOG_LEVEL:-INFO}
-      NVIDIA_VISIBLE_DEVICES: ${YOLO_GPU_DEVICE_ID:-0}
-      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${YOLO_GPU_DEVICE_ID:-0}
-    volumes:
-      - type: bind
-        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/yolo
-        target: /run/aap-inference-auth
-        read_only: true
-        bind:
-          create_host_path: false
-      - yolo_checkpoints:/app/checkpoints
-      # Same host: use the executor's resolved path to reuse one physical blob.
-      # Remote hosts prepare their own directory with the same immutable assets.
-      - ${TRAINING_MODELS_PATH:-./training/models}:/model-assets:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["${YOLO_GPU_DEVICE_ID:-0}"]
-              capabilities: [gpu]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # v0.18.0 · onnxtools-backend (rtdetr 检测 + va 车辆属性, 二阶段预标).
-  #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-onnxtools up onnxtools-backend
-  # 三个固定 lazy handle (pipeline/detector/va); 纯批量预标 (supported_prompts=['none']).
-  # 模型由 bind mount 注入 (不打进镜像), 起栈前先复制 (见 apps/onnxtools-backend/README.md):
-  #   cp /home/tyjt/Desktop/onnxtools/models/{rtdetr-2024080100,va_260612}.onnx apps/onnxtools-backend/models/
-  # onnxruntime-gpu 缺 GPU/cuDNN 时自动 fallback CPU, 功能仍可用 (仅变慢).
-  onnxtools-backend:
-    build:
-      context: ./apps
-      dockerfile: onnxtools-backend/Dockerfile
-    profiles: ["gpu-onnxtools"]
-    ports:
-      - "8004:8004"
-    environment:
-      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
-      ONNXTOOLS_MODEL_DIR: /app/models
-      ONNXTOOLS_DET_MODEL: ${ONNXTOOLS_DET_MODEL:-rtdetr-2024080100.onnx}
-      ONNXTOOLS_VA_MODEL: ${ONNXTOOLS_VA_MODEL:-va_260612.onnx}
-      ONNXTOOLS_CONF_THRES: ${ONNXTOOLS_CONF_THRES:-0.5}
-      ONNXTOOLS_BUILD_TIMEOUT: ${ONNXTOOLS_BUILD_TIMEOUT:-30}
-      ONNXTOOLS_IDLE_UNLOAD_SECONDS: ${ONNXTOOLS_IDLE_UNLOAD_SECONDS:-600}
-      ONNXTOOLS_IDLE_CHECK_INTERVAL: ${ONNXTOOLS_IDLE_CHECK_INTERVAL:-60}
-      ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED: ${ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED:-0}
-      GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
-      LOG_LEVEL: ${ONNXTOOLS_LOG_LEVEL:-INFO}
-      NVIDIA_VISIBLE_DEVICES: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
-      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
-    volumes:
-      - type: bind
-        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/onnxtools
-        target: /run/aap-inference-auth
-        read_only: true
-        bind:
-          create_host_path: false
-      - ./apps/onnxtools-backend/models:/app/models:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["${ONNXTOOLS_GPU_DEVICE_ID:-0}"]
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # v0.20.0 · rapidocr-backend (RapidOCR OCR: det 原子 + rec 原子 + e2e composite).
-  #   docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-rapidocr up rapidocr-backend
-  # 13 个 onnx 由 bind mount 注入 (不打进镜像), 起栈前先下载 (见 apps/rapidocr-backend/README.md):
-  #   python3 apps/rapidocr-backend/download_models.py
-  # base 与瘦身后 onnxtools 共享 nvidia/cuda cudnn9 runtime；此 profile 始终申请 NVIDIA 设备。
-  # backend 的显式 CPU 模式需通过不含下方 device reservation 的独立启动方式运行。
-  rapidocr-backend:
-    build:
-      context: ./apps
-      dockerfile: rapidocr-backend/Dockerfile
-    profiles: ["gpu-rapidocr"]
-    ports:
-      - "8005:8005"
-    environment:
-      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
-      RAPIDOCR_MODEL_DIR: /app/models
-      RAPIDOCR_DEVICE: ${RAPIDOCR_DEVICE:-gpu}
-      RAPIDOCR_POOL_CAP: ${RAPIDOCR_POOL_CAP:-3}
-      RAPIDOCR_BUILD_TIMEOUT: ${RAPIDOCR_BUILD_TIMEOUT:-30}
-      RAPIDOCR_IDLE_UNLOAD_SECONDS: ${RAPIDOCR_IDLE_UNLOAD_SECONDS:-600}
-      RAPIDOCR_IDLE_CHECK_INTERVAL: ${RAPIDOCR_IDLE_CHECK_INTERVAL:-60}
-      RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED: ${RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED:-0}
-      GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
-      LOG_LEVEL: ${RAPIDOCR_LOG_LEVEL:-INFO}
-      NVIDIA_VISIBLE_DEVICES: ${RAPIDOCR_GPU_DEVICE_ID:-0}
-      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${RAPIDOCR_GPU_DEVICE_ID:-0}
-    volumes:
-      - type: bind
-        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/rapidocr
-        target: /run/aap-inference-auth
-        read_only: true
-        bind:
-          create_host_path: false
-      - ./apps/rapidocr-backend/models:/app/models:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["${RAPIDOCR_GPU_DEVICE_ID:-0}"]
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
 
 volumes:
   gsam2_checkpoints:

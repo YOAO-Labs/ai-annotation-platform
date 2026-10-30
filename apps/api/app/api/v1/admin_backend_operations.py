@@ -39,6 +39,7 @@ class Job(BaseModel):
         "queued",
         "validating",
         "building",
+        "pulling",
         "stopping",
         "recreating",
         "checking",
@@ -53,7 +54,7 @@ class Job(BaseModel):
 
 class Service(BaseModel):
     provider: Provider
-    can_rebuild: bool
+    can_maintain: bool
     reason: str | None
 
 
@@ -125,7 +126,7 @@ async def submit_job(
         await AuditService.log(
             db,
             actor=admin,
-            action="ml_backend.rebuild_requested",
+            action="ml_backend.maintenance_requested",
             target_type="ml_backend_operation",
             target_id=job["id"],
             request=request,

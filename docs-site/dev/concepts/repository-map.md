@@ -345,8 +345,7 @@ last_reviewed: 2026-10-26
 - 后端纯规则测试不落库；事务/锁/通知顺序测试用独立连接。
 - 前端页面测试优先在 MSW API 边界描述响应（`src/test/` 提供最小 fixture）；
   纯 URL/几何规则下沉到 `*UrlState.test.ts` / 几何单测。
-- ML backend 与 `apps/_shared` 五个共享包（`backend_runtime` / `mask_utils` / `protocol_v2` / `task_contract` / `training_contract`）
-  的 `tests/` 执行入口是可复用工作流 `.github/workflows/ml-cpu-test.yml` 与 `scripts/run-ml-cpu-tests.sh`。这些测试全部 CPU 可运行，不存在“硬件专属”测试。
+- 平台 ML CPU 工作流 `.github/workflows/ml-cpu-test.yml` 与 `scripts/run-ml-cpu-tests.sh` 运行平台契约、受控资产及 SAM 服务套件；独立插件源码套件在插件仓运行。真实设备资格需另行验收。
 
 ## 7. 改动时的对齐参考
 
@@ -456,19 +455,10 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 
 ### 独立 ML 服务与契约真值
 
-五个 ML FastAPI 应用不是主 API 的 mounts。以下仅是各 `main.py` 装饰器的源码声明计数，不代表已导入/启动模型或取得设备资格；其中 SAM3/Grounded SAM2 各含一个隐藏 metrics 声明，框架文档不计入。
-
-| 独立应用                     | HTTP 声明数 |
-| ---------------------------- | ----------: |
-| `apps/yolo-backend`          |          17 |
-| `apps/sam3-backend`          |          13 |
-| `apps/grounded-sam2-backend` |          13 |
-| `apps/rapidocr-backend`      |          10 |
-| `apps/onnxtools-backend`     |          10 |
-| 合计                         |          63 |
+SAM3 与 Grounded SAM2 是本仓独立 ML 应用；YOLO、RapidOCR 和 ONNXTools 在 [官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)独立发布。它们不是主 API 的 mounts，源码计数不代表设备资格。
 
 素材探测是另一个独立运行单元：`apps/media-probe` 提供三个版本化探测操作以及 health，
-不计入上述 ML 声明数或主 API 路由数。它的非 root 镜像和锁文件只包含探测依赖；
+不计入 ML 服务或主 API 路由数。它的非 root 镜像和锁文件只包含探测依赖；
 主 API/worker 可按配置调用本地包或独立 HTTP 服务。协议见[素材探测](/api/guides/media-probe)，
 全模块提取状态见[模块部署](/dev/concepts/module-deployment)。
 

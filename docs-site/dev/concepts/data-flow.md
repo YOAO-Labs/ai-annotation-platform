@@ -124,7 +124,7 @@ consumer 闭环验证前保持关闭；capability 响应不会把未验证 adapt
 - 算力租约与调度：`apps/api/app/services/training_runs.py`、`apps/api/app/services/training_studies.py`
 - 独立执行器：`apps/training-executor/training_executor/`
 - 模型谱系、决策与发布：`apps/api/app/services/model_lineage.py`、`apps/api/app/api/v1/model_lineage.py`、`apps/api/app/api/v1/trained_models.py`
-- 模型回流与受控评估端点：`apps/yolo-backend/managed_models.py`、`apps/yolo-backend/sample_evaluations.py`
+- 模型回流与受控评估端点：[YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)的 `managed_models.py`、`sample_evaluations.py`
 - 架构总览：[在线学习与训练体系](./training-datasets)
 
 ---

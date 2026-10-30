@@ -234,10 +234,10 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -
 # SAM 3：独立 GPU profile，需要 HF_TOKEN 与更高显存
 docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
 
-# 其它可选后端：YOLO、ONNXTools、RapidOCR
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d yolo-backend
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-onnxtools up -d onnxtools-backend
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-rapidocr up -d rapidocr-backend
+# 其它可选后端：先配置镜像仓库、已审核的 manifest digest 和生命周期源码 SHA-256
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-yolo.yml --profile gpu-yolo up -d yolo-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-onnxtools.yml --profile gpu-onnxtools up -d onnxtools-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-rapidocr.yml --profile gpu-rapidocr up -d rapidocr-backend
 
 # Prometheus + Grafana
 docker compose --profile monitoring up -d prometheus grafana
@@ -328,9 +328,6 @@ ai-annotation-platform/
 │   ├── training-executor/         # 受控单 GPU 在线学习训练执行器
 │   ├── grounded-sam2-backend/     # Grounded-SAM-2 GPU ML Backend
 │   ├── sam3-backend/              # SAM 3 GPU ML Backend
-│   ├── yolo-backend/              # YOLO 检测 / 分割 / Exemplar ML Backend
-│   ├── onnxtools-backend/         # ONNX 检测与属性推理 ML Backend
-│   ├── rapidocr-backend/          # OCR 检测 / 识别 / 端到端 ML Backend
 │   └── _shared/                   # 7 个共享包（backend_runtime / filesystem_read / mask_utils / protocol_v2 / site_agent_contract / task_contract / training_contract）
 ├── packages/
 │   └── python-sdk/                # Python SDK、CLI 与 TUI 客户端
@@ -347,6 +344,8 @@ ai-annotation-platform/
 ├── pnpm-workspace.yaml
 └── package.json
 ```
+
+YOLO、RapidOCR 和 ONNXTools 的官方推理实现位于 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)，平台负责部署审批与受控资产。
 
 ## 技术栈
 

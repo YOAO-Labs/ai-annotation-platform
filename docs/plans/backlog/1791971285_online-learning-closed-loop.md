@@ -27,14 +27,14 @@
 
 以下为草案编写时核对的代码入口。实施前需依照 [草案转实施规则](README.md#promotion-gate) 重新核对。
 
-| 已有能力              | 依据                                                                                                                             | 复用方式与限制                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| 后台导出与格式转换    | [export worker](../../../apps/api/app/workers/export.py)、[exporting](../../../apps/api/app/services/exporting/service.py)       | 复用转换和任务通知；训练输入需额外冻结，不能直接读取随时变化的项目 |
-| 导出产物缓存          | [ExportArtifact](../../../apps/api/app/db/models/export_artifact.py)                                                             | 缓存存在过期时间；训练快照与模型产物必须独立持久化                 |
-| 统一异步任务          | [AsyncJob](../../../apps/api/app/db/models/async_job.py)、[任务服务](../../../apps/api/app/services/async_job.py)                | 展示执行状态与通知；训练领域记录不能随任务历史清理而消失           |
-| 推理实例与服务池      | [实例注册](../../../apps/api/app/db/models/ml_backend_registry.py)、[服务池](../../../apps/api/app/db/models/ml_backend_pool.py) | 复用部署和路由关系；模型版本不能混同于物理实例或服务池             |
-| YOLO 模型目录与加载池 | [模型目录](../../../apps/yolo-backend/model_registry.py)、[模型池](../../../apps/yolo-backend/model_pool.py)                     | 增加自定义权重身份；权重和类别缓存需按模型版本隔离                 |
-| 模型市场              | [ModelMarketPage](../../../apps/web/src/pages/ModelMarket/ModelMarketPage.tsx)                                                   | 继续管理推理能力与实例；训练实验放在项目内                         |
+| 已有能力              | 依据                                                                                                                                                                                                         | 复用方式与限制                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 后台导出与格式转换    | [export worker](../../../apps/api/app/workers/export.py)、[exporting](../../../apps/api/app/services/exporting/service.py)                                                                                   | 复用转换和任务通知；训练输入需额外冻结，不能直接读取随时变化的项目 |
+| 导出产物缓存          | [ExportArtifact](../../../apps/api/app/db/models/export_artifact.py)                                                                                                                                         | 缓存存在过期时间；训练快照与模型产物必须独立持久化                 |
+| 统一异步任务          | [AsyncJob](../../../apps/api/app/db/models/async_job.py)、[任务服务](../../../apps/api/app/services/async_job.py)                                                                                            | 展示执行状态与通知；训练领域记录不能随任务历史清理而消失           |
+| 推理实例与服务池      | [实例注册](../../../apps/api/app/db/models/ml_backend_registry.py)、[服务池](../../../apps/api/app/db/models/ml_backend_pool.py)                                                                             | 复用部署和路由关系；模型版本不能混同于物理实例或服务池             |
+| YOLO 模型目录与加载池 | [模型目录](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/model_registry.py)、[模型池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/model_pool.py) | 增加自定义权重身份；权重和类别缓存需按模型版本隔离                 |
+| 模型市场              | [ModelMarketPage](../../../apps/web/src/pages/ModelMarket/ModelMarketPage.tsx)                                                                                                                               | 继续管理推理能力与实例；训练实验放在项目内                         |
 
 采用现有 React、FastAPI、PostgreSQL、Celery 和对象存储。新增一个训练执行服务角色，使用受控训练容器；不引入新的工作流平台或第三方实验平台。预计整体涉及超过 8 个文件，需按阶段拆分数据库、API、界面和运行环境变更。
 

@@ -18,7 +18,7 @@ vi.mock("@/api/mlBackendOperations", () => ({
     managedAuth: vi.fn(),
     initialize: vi.fn(),
     status: vi.fn(),
-    rebuild: vi.fn(),
+    maintain: vi.fn(),
     job: vi.fn(),
   },
 }));
@@ -39,7 +39,7 @@ const operationsStatus: MLBackendOperationsStatus = {
   reason: null,
   deployment: "test-deployment",
   runner_id: "test-runner",
-  services: providers.map((provider) => ({ provider, can_rebuild: true, reason: null })),
+  services: providers.map((provider) => ({ provider, can_maintain: true, reason: null })),
   jobs: [],
 };
 function job(overrides: Partial<MLBackendOperationJob> = {}): MLBackendOperationJob {
@@ -82,8 +82,8 @@ async function loaded() {
   await screen.findByText("Grounded SAM 2");
   await screen.findByText(/当前部署：test-deployment/);
 }
-function openRebuild() {
-  fireEvent.click(screen.getByRole("button", { name: "重建 YOLO 镜像与容器" }));
+function openMaintenance() {
+  fireEvent.click(screen.getByRole("button", { name: "维护 YOLO 镜像与容器" }));
 }
 
 describe("MLBackendOperationsSection", () => {
@@ -93,7 +93,7 @@ describe("MLBackendOperationsSection", () => {
     vi.mocked(mlBackendOperationsApi.managedAuth).mockResolvedValue(structuredClone(authStatus));
     vi.mocked(mlBackendOperationsApi.status).mockResolvedValue(structuredClone(operationsStatus));
     vi.mocked(mlBackendOperationsApi.initialize).mockResolvedValue(authStatus);
-    vi.mocked(mlBackendOperationsApi.rebuild).mockResolvedValue(job());
+    vi.mocked(mlBackendOperationsApi.maintain).mockResolvedValue(job());
     vi.mocked(mlBackendOperationsApi.job).mockResolvedValue(job());
   });
   afterEach(() => {
@@ -123,7 +123,7 @@ describe("MLBackendOperationsSection", () => {
     expect(screen.getByText(/容器健康和模型业务就绪需要分别检查/)).toBeInTheDocument();
     expect(container.querySelector("input")).toBeNull();
     expect(mlBackendOperationsApi.initialize).not.toHaveBeenCalled();
-    expect(mlBackendOperationsApi.rebuild).not.toHaveBeenCalled();
+    expect(mlBackendOperationsApi.maintain).not.toHaveBeenCalled();
   });
 
   it("does not read or render privileged operations for a non-admin", () => {
@@ -142,8 +142,8 @@ describe("MLBackendOperationsSection", () => {
     });
     renderSection();
     await screen.findByText(/维护不可用：维护执行器未接入当前部署/);
-    expect(screen.getByRole("button", { name: "重建 YOLO 镜像与容器" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "重建 YOLO 镜像与容器" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "维护 YOLO 镜像与容器" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "维护 YOLO 镜像与容器" })).toHaveAttribute(
       "title",
       "维护执行器未接入当前部署",
     );
@@ -189,25 +189,25 @@ describe("MLBackendOperationsSection", () => {
   it("requires target-specific confirmation and preserves cancellation", async () => {
     renderSection();
     await loaded();
-    openRebuild();
+    openMaintenance();
     const dialog = screen.getByRole("alertdialog");
-    expect(dialog).toHaveTextContent("重建 YOLO 镜像与容器？");
+    expect(dialog).toHaveTextContent("维护 YOLO 镜像与容器？");
     expect(dialog).toHaveTextContent("目标部署：test-deployment");
     expect(dialog).toHaveTextContent("推理会短暂停止");
     expect(dialog).toHaveTextContent("空闲跟踪会话缓存会丢失");
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-    expect(mlBackendOperationsApi.rebuild).not.toHaveBeenCalled();
+    expect(mlBackendOperationsApi.maintain).not.toHaveBeenCalled();
   });
 
   it("freezes the confirmed deployment and runner and never retries a changed target automatically", async () => {
-    vi.mocked(mlBackendOperationsApi.rebuild).mockRejectedValue(
+    vi.mocked(mlBackendOperationsApi.maintain).mockRejectedValue(
       new ApiError(409, "维护部署已变化，请重新核对目标", {
         error_code: "backend_manager_target_changed",
       }),
     );
     const { client } = renderSection();
     await loaded();
-    openRebuild();
+    openMaintenance();
     act(() => {
       client.setQueryData(["ml-backend-operations", admin.id, useAuthStore.getState().sessionId], {
         ...operationsStatus,
@@ -217,12 +217,12 @@ describe("MLBackendOperationsSection", () => {
     });
     expect(screen.getByRole("alertdialog")).toHaveTextContent("目标部署：test-deployment");
     expect(screen.getByRole("alertdialog")).not.toHaveTextContent("replacement-deployment");
-    fireEvent.click(screen.getByRole("button", { name: "确认重建" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认维护" }));
     expect(
       await screen.findByText("维护任务未创建：维护部署已变化，请重新核对目标"),
     ).toBeInTheDocument();
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledTimes(1);
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledWith({
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledTimes(1);
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledWith({
       provider: "yolo",
       expected_deployment: "test-deployment",
       expected_runner_id: "test-runner",
@@ -233,25 +233,25 @@ describe("MLBackendOperationsSection", () => {
 
   it("prevents repeated rebuilds and polls phase logs until completion", async () => {
     const pending = deferred<MLBackendOperationJob>();
-    vi.mocked(mlBackendOperationsApi.rebuild).mockReturnValue(pending.promise);
+    vi.mocked(mlBackendOperationsApi.maintain).mockReturnValue(pending.promise);
     vi.mocked(mlBackendOperationsApi.job)
       .mockResolvedValueOnce(
         job({
           status: "running",
-          phase: "building",
-          events: [{ at: "2026-10-19T10:00:00Z", kind: "info", message: "正在构建 YOLO 镜像" }],
+          phase: "pulling",
+          events: [{ at: "2026-10-19T10:00:00Z", kind: "info", message: "正在拉取 YOLO 镜像" }],
         }),
       )
       .mockResolvedValueOnce(job({ status: "succeeded", phase: "complete" }));
     renderSection();
     await loaded();
-    openRebuild();
-    fireEvent.click(screen.getByRole("button", { name: "确认重建" }));
-    expect(screen.getByRole("button", { name: "重建 YOLO 镜像与容器" })).toBeDisabled();
+    openMaintenance();
+    fireEvent.click(screen.getByRole("button", { name: "确认维护" }));
+    expect(screen.getByRole("button", { name: "维护 YOLO 镜像与容器" })).toBeDisabled();
     await act(async () => pending.resolve(job()));
-    expect(await screen.findByText("正在构建 YOLO 镜像")).toBeInTheDocument();
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledTimes(1);
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledWith({
+    expect(await screen.findByText("正在拉取 YOLO 镜像")).toBeInTheDocument();
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledTimes(1);
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledWith({
       provider: "yolo",
       expected_deployment: "test-deployment",
       expected_runner_id: "test-runner",
@@ -262,7 +262,7 @@ describe("MLBackendOperationsSection", () => {
   });
 
   it("recovers the conflicting job instead of resubmitting a rebuild", async () => {
-    vi.mocked(mlBackendOperationsApi.rebuild).mockRejectedValue(
+    vi.mocked(mlBackendOperationsApi.maintain).mockRejectedValue(
       new ApiError(409, "已有维护任务正在执行", {
         error_code: "backend_operation_conflict",
         job_id: "existing-job",
@@ -273,35 +273,35 @@ describe("MLBackendOperationsSection", () => {
     );
     renderSection();
     await loaded();
-    openRebuild();
-    fireEvent.click(screen.getByRole("button", { name: "确认重建" }));
+    openMaintenance();
+    fireEvent.click(screen.getByRole("button", { name: "确认维护" }));
     expect(await screen.findByText(/维护任务未创建：已有维护任务正在执行/)).toBeInTheDocument();
     expect(await screen.findByText("检查容器")).toBeInTheDocument();
     expect(mlBackendOperationsApi.job).toHaveBeenCalledWith("existing-job", expect.any(Object));
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledTimes(1);
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledTimes(1);
   });
 
   it("keeps failed rebuilds explicit and allows a separately confirmed retry", async () => {
-    vi.mocked(mlBackendOperationsApi.rebuild)
+    vi.mocked(mlBackendOperationsApi.maintain)
       .mockRejectedValueOnce(new Error("维护执行器暂不可用"))
       .mockResolvedValueOnce(
-        job({ id: "retry-job", status: "failed", phase: "building", error: "镜像构建失败" }),
+        job({ id: "retry-job", status: "failed", phase: "pulling", error: "镜像拉取失败" }),
       );
     vi.mocked(mlBackendOperationsApi.job).mockResolvedValue(
-      job({ id: "retry-job", status: "failed", phase: "building", error: "镜像构建失败" }),
+      job({ id: "retry-job", status: "failed", phase: "pulling", error: "镜像拉取失败" }),
     );
     renderSection();
     await loaded();
-    openRebuild();
-    fireEvent.click(screen.getByRole("button", { name: "确认重建" }));
+    openMaintenance();
+    fireEvent.click(screen.getByRole("button", { name: "确认维护" }));
     expect(await screen.findByText("维护任务未创建：维护执行器暂不可用")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重建 YOLO 镜像与容器" })).toBeEnabled();
-    openRebuild();
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "确认重建" }));
+    expect(screen.getByRole("button", { name: "维护 YOLO 镜像与容器" })).toBeEnabled();
+    openMaintenance();
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "确认维护" }));
     expect(await screen.findByText("维护失败")).toBeInTheDocument();
-    expect(screen.getByText("镜像构建失败")).toBeInTheDocument();
-    expect(mlBackendOperationsApi.rebuild).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("镜像拉取失败")).toBeInTheDocument();
+    expect(mlBackendOperationsApi.maintain).toHaveBeenCalledTimes(2);
   });
 
   it("keeps task read failures recoverable and explains interrupted recovery", async () => {
@@ -320,7 +320,7 @@ describe("MLBackendOperationsSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试读取任务" }));
     expect(await screen.findByText("维护已中断")).toBeInTheDocument();
     expect(screen.getByText(/在宿主机确认恢复后再创建维护任务/)).toBeInTheDocument();
-    expect(mlBackendOperationsApi.rebuild).not.toHaveBeenCalled();
+    expect(mlBackendOperationsApi.maintain).not.toHaveBeenCalled();
   });
 
   it("shows authorization errors without enabling writes from failed status reads", async () => {
@@ -355,15 +355,15 @@ describe("MLBackendOperationsSection", () => {
 
   it("discards late rebuild errors after account replacement", async () => {
     const pending = deferred<MLBackendOperationJob>();
-    vi.mocked(mlBackendOperationsApi.rebuild).mockReturnValue(pending.promise);
+    vi.mocked(mlBackendOperationsApi.maintain).mockReturnValue(pending.promise);
     renderSection();
     await loaded();
-    openRebuild();
-    fireEvent.click(screen.getByRole("button", { name: "确认重建" }));
+    openMaintenance();
+    fireEvent.click(screen.getByRole("button", { name: "确认维护" }));
     act(() => useAuthStore.getState().setAuth("other-token", { ...admin, id: "admin-2" }));
     await loaded();
     await act(async () => pending.reject(new Error("旧账号维护失败")));
     expect(screen.queryByText(/旧账号维护失败/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重建 YOLO 镜像与容器" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "维护 YOLO 镜像与容器" })).toBeEnabled();
   });
 });

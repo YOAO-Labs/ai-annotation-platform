@@ -1,3 +1,0 @@
-# RapidOCR onnx 权重由下载脚本注入 (download_models.py)、volume 挂载, 不入 git。见 ../README.md。
-*.onnx
-*.engine

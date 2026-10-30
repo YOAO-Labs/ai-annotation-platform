@@ -61,6 +61,15 @@ class DevelopmentRestartTests(unittest.TestCase):
             m.validate(self.containers + extra, self.root), list(m.WORKERS)
         )
 
+    def test_official_plugin_overlays_keep_worker_identity_valid(self):
+        labels = self.containers[0]["Config"]["Labels"]
+        labels["com.docker.compose.project.config_files"] += (
+            ",/checkout/docker-compose.ml-yolo.yml"
+            ",/checkout/docker-compose.ml-onnxtools.yml"
+            ",/checkout/docker-compose.ml-rapidocr.yml"
+        )
+        self.assertEqual(m.validate(self.containers, self.root), list(m.WORKERS))
+
     def test_production_worker_refused(self):
         self.containers[0]["Config"]["Labels"]["com.docker.compose.project"] = (
             "aap-production"

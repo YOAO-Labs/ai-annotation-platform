@@ -158,6 +158,7 @@ class JobStore:
             "queued",
             "validating",
             "building",
+            "pulling",
             "stopping",
             "recreating",
             "checking",
@@ -201,7 +202,7 @@ class JobStore:
                     not isinstance(service, dict)
                     or not isinstance(service.get("provider"), str)
                     or service["provider"] not in PROVIDERS
-                    or not isinstance(service.get("can_rebuild"), bool)
+                    or not isinstance(service.get("can_maintain"), bool)
                     or (
                         service.get("reason") is not None
                         and not isinstance(service["reason"], str)
@@ -224,7 +225,7 @@ class JobStore:
                 "runner_id": None,
                 "jobs": [],
                 "services": [
-                    {"provider": p, "can_rebuild": False, "reason": "维护队列不可用。"}
+                    {"provider": p, "can_maintain": False, "reason": "维护队列不可用。"}
                     for p in PROVIDERS
                 ],
             }
@@ -255,13 +256,13 @@ class JobStore:
             "services": [
                 {
                     "provider": p,
-                    "can_rebuild": not blocker
-                    and service_states.get(p, {}).get("can_rebuild") is True,
+                    "can_maintain": not blocker
+                    and service_states.get(p, {}).get("can_maintain") is True,
                     "reason": blocker
                     or service_states.get(p, {}).get("reason")
                     or (
                         None
-                        if service_states.get(p, {}).get("can_rebuild") is True
+                        if service_states.get(p, {}).get("can_maintain") is True
                         else "宿主机尚未登记可维护的服务容器。"
                     ),
                 }
@@ -283,7 +284,7 @@ class JobStore:
             ):
                 raise TargetChanged()
             if not any(
-                s.get("provider") == provider and s.get("can_rebuild") is True
+                s.get("provider") == provider and s.get("can_maintain") is True
                 for s in heartbeat["services"]
                 if isinstance(s, dict)
             ):

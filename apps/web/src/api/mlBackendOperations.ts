@@ -21,7 +21,15 @@ export interface MLBackendOperationJob {
   id: string;
   provider: MLBackendOperationProvider;
   status: "queued" | "running" | "succeeded" | "failed" | "interrupted";
-  phase: "queued" | "validating" | "building" | "stopping" | "recreating" | "checking" | "complete";
+  phase:
+    | "queued"
+    | "validating"
+    | "building"
+    | "pulling"
+    | "stopping"
+    | "recreating"
+    | "checking"
+    | "complete";
   created_at: string;
   updated_at: string;
   events: { at: string; message: string; kind: "info" | "success" | "error" }[];
@@ -36,13 +44,13 @@ export interface MLBackendOperationsStatus {
   runner_id: string | null;
   services: {
     provider: MLBackendOperationProvider;
-    can_rebuild: boolean;
+    can_maintain: boolean;
     reason: string | null;
   }[];
   jobs: MLBackendOperationJob[];
 }
 
-export interface MLBackendRebuildTarget {
+export interface MLBackendMaintenanceTarget {
   provider: MLBackendOperationProvider;
   expected_deployment: string;
   expected_runner_id: string;
@@ -58,7 +66,7 @@ export const mlBackendOperationsApi = {
     apiClient.silentPost<ManagedMLAuthStatus>(authBase + "/initialize", { providers }),
   status: (options?: RequestInit) =>
     apiClient.silentGet<MLBackendOperationsStatus>(operationsBase + "/status", options),
-  rebuild: (target: MLBackendRebuildTarget) =>
+  maintain: (target: MLBackendMaintenanceTarget) =>
     apiClient.silentPost<MLBackendOperationJob>(operationsBase + "/jobs", target),
   job: (id: string, options?: RequestInit) =>
     apiClient.silentGet<MLBackendOperationJob>(

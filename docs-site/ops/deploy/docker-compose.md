@@ -654,7 +654,11 @@ URL 改动、探测失败或快照过期后都按 unknown 保守报告，不会�
 
 ### docker compose 启用 GPU service
 
-五个 backend 定义在叠加文件 `docker-compose.ml.yml`（从基础 `docker-compose.yml` 拆出，profile-gated 且与核心 infra 无 depends_on），各有独立 profile，可单独启用也可并存。启用时须同时 `-f` 两个文件：
+SAM backend 定义在 `docker-compose.ml.yml`；YOLO、ONNXTools 与 RapidOCR 各自使用独立叠加文件。它们均 profile-gated 且与核心 infra 无 depends_on，可单独启用或并存。
+
+官方插件的实现和镜像由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供，不再从平台 checkout 构建。使用对应插件叠加文件前，设置该插件的 `YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应的 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`；值来自部署已审核镜像仓库、真实 manifest digest 和镜像内受审生命周期源码摘要，而非镜像 ID。未启用插件时无需配置这些变量。
+
+ONNXTools 与 RapidOCR 的权重不打进镜像；以 `ONNXTOOLS_MODELS_PATH`、`RAPIDOCR_MODELS_PATH` 指向已审核的宿主目录并只读挂载。目录必须已存在，资产目录可见不等于授权使用。YOLO 保留 checkpoint 卷和平台受控资产只读挂载；平台仍负责审批、项目授权和存储。
 
 ```bash
 # 默认不启任何 GPU service（基础栈不含 ML backend，节约本地资源）
@@ -667,13 +671,13 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -
 docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
 
 # 启 yolo（profile gpu-yolo，端口 8003）
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d yolo-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-yolo.yml --profile gpu-yolo up -d yolo-backend
 
 # 启 ONNXTools（profile gpu-onnxtools，端口 8004）
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-onnxtools up -d onnxtools-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-onnxtools.yml --profile gpu-onnxtools up -d onnxtools-backend
 
 # 启 RapidOCR（profile gpu-rapidocr，端口 8005）
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-rapidocr up -d rapidocr-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-rapidocr.yml --profile gpu-rapidocr up -d rapidocr-backend
 ```
 
 > 嫌每次敲两个 `-f` 麻烦，可在 shell 或 `.env` 固化 `COMPOSE_FILE=docker-compose.yml:docker-compose.ml.yml`，之后 `docker compose --profile gpu up -d grounded-sam2-backend` 即可（profile-gated 不影响默认 `docker compose up`）。

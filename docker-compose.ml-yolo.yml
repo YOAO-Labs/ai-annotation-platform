@@ -1,0 +1,57 @@
+# Optional official plugin overlay; combine with docker-compose.ml.yml.
+services:
+  # Official YOLO plugin; configure the accepted repository and manifest digest.
+  # The checkpoint volume and reviewed training asset cache remain platform-owned.
+  yolo-backend:
+    image: ${YOLO_IMAGE:?Set the accepted YOLO image repository}@${YOLO_IMAGE_DIGEST:?Set the YOLO manifest digest}
+    labels:
+      com.aap.lifecycle-sha256: ${YOLO_LIFECYCLE_SHA256:?Set the reviewed YOLO lifecycle source SHA-256}
+    profiles: ["gpu-yolo"]
+    ports:
+      - "8003:8003"
+    environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
+      YOLO_DEVICE: ${YOLO_DEVICE:-cuda:0}
+      YOLO_MODEL_POOL_CAP: ${YOLO_MODEL_POOL_CAP:-2}
+      YOLO_MANAGED_MODELS_TOKEN: ${YOLO_MANAGED_MODELS_TOKEN:-}
+      YOLO_BUILD_TIMEOUT: ${YOLO_BUILD_TIMEOUT:-30}
+      YOLO_IDLE_UNLOAD_SECONDS: ${YOLO_IDLE_UNLOAD_SECONDS:-600}
+      YOLO_IDLE_CHECK_INTERVAL: ${YOLO_IDLE_CHECK_INTERVAL:-60}
+      YOLO_STRICT_OFFLINE: ${YOLO_STRICT_OFFLINE:-0}
+      YOLO_MANAGED_LIFECYCLE_VERIFIED: ${YOLO_MANAGED_LIFECYCLE_VERIFIED:-0}
+      GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
+      GPU_LIFECYCLE_REGISTRY_ID: ${GPU_LIFECYCLE_REGISTRY_ID:-}
+      GPU_LIFECYCLE_RESOURCE_ID: ${GPU_LIFECYCLE_RESOURCE_ID:-}
+      LOG_LEVEL: ${YOLO_LOG_LEVEL:-INFO}
+      NVIDIA_VISIBLE_DEVICES: ${YOLO_GPU_DEVICE_ID:-0}
+      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${YOLO_GPU_DEVICE_ID:-0}
+    volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/yolo
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
+      - yolo_checkpoints:/app/checkpoints
+      # Same host: use the executor's resolved path to reuse one physical blob.
+      # Remote hosts prepare their own directory with the same immutable assets.
+      - ${TRAINING_MODELS_PATH:-./training/models}:/model-assets:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${YOLO_GPU_DEVICE_ID:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

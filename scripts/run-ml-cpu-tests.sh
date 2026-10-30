@@ -26,9 +26,7 @@ TORCH_CPU_INDEX="https://download.pytorch.org/whl/cpu"
 
 SUITES=(
   shared-protocol-v2
-  yolo
-  rapidocr
-  onnxtools
+  controlled-assets
   grounded-sam2
   sam3
 )
@@ -171,20 +169,11 @@ run() {
       run_pytest "apps/_shared/task_contract" "$VENV_PATH"
       run_pytest "apps/_shared/protocol_v2" "$VENV_PATH"
       ;;
-    yolo)
-      # Execute the backend's locked graph on CPU.
+    controlled-assets)
       new_venv "3.12"
-      run_in "apps/yolo-backend" env UV_PROJECT_ENVIRONMENT="$VENV_PATH" uv sync --locked --extra dev
-      run_pytest "apps/yolo-backend" "$VENV_PATH"
-      ;;
-    rapidocr)
-      install_backend "apps/rapidocr-backend" "3.10" false "dev,cpu"
-      run_pytest "apps/rapidocr-backend" "$VENV_PATH"
-      ;;
-    onnxtools)
-      install_backend "apps/onnxtools-backend" "3.10"
-      run_in "apps/onnxtools-backend" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/onnxtools-extra.txt"
-      run_pytest "apps/onnxtools-backend" "$VENV_PATH"
+      run_in "." uv pip install --python "$VENV_PATH/bin/python" \
+        -e "$ROOT/apps/_shared/task_contract" -e "$ROOT/apps/_shared/training_contract" pytest
+      run_pytest "." "$VENV_PATH" scripts/test_controlled_model_assets.py
       ;;
     grounded-sam2)
       install_backend "apps/grounded-sam2-backend" "3.10" true "dev" true
@@ -207,7 +196,7 @@ run() {
 # wildcard case that must not glob. Exits nonzero on any mismatch.
 selftest() {
   local failures=0
-  local suite_list="shared_protocol_v2,yolo,rapidocr,onnxtools,grounded_sam2,sam3"
+  local suite_list="shared_protocol_v2,controlled_assets,grounded_sam2,sam3"
 
   _selftest_plan() {
     local spec="$1"
@@ -260,18 +249,18 @@ selftest() {
   }
 
   _selftest_ok "all" "$suite_list"
-  _selftest_ok "yolo,onnxtools" "yolo,onnxtools"
-  _selftest_ok "yolo onnxtools rapidocr" "yolo,rapidocr,onnxtools"
-  _selftest_ok $'yolo\tonnxtools' "yolo,onnxtools"
-  _selftest_ok $'yolo\nonnxtools' "yolo,onnxtools"
-  _selftest_ok $'yolo\n\t sam3,\trapidocr' "yolo,rapidocr,sam3"
-  _selftest_ok "yolo,,onnxtools" "yolo,onnxtools"
-  _selftest_ok "yolo,yolo" "yolo"
+  _selftest_ok "shared-protocol-v2,sam3" "shared_protocol_v2,sam3"
+  _selftest_ok "shared-protocol-v2 sam3 grounded-sam2" "shared_protocol_v2,grounded_sam2,sam3"
+  _selftest_ok $'shared-protocol-v2\tsam3' "shared_protocol_v2,sam3"
+  _selftest_ok $'shared-protocol-v2\nsam3' "shared_protocol_v2,sam3"
+  _selftest_ok $'shared-protocol-v2\n\t sam3,\tgrounded-sam2' "shared_protocol_v2,grounded_sam2,sam3"
+  _selftest_ok "shared-protocol-v2,,sam3" "shared_protocol_v2,sam3"
+  _selftest_ok "sam3,sam3" "sam3"
   _selftest_fail ""
   _selftest_fail $' \t\r\n '
   _selftest_fail ",,"
   _selftest_fail "bogus"
-  _selftest_fail "yolo,bogus"
+  _selftest_fail "sam3,bogus"
   _selftest_fail "*"
 
   if [ "$failures" -eq 0 ]; then
