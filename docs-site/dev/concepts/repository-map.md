@@ -25,11 +25,11 @@ last_reviewed: 2026-10-26
 | 应用工作流      | `apps/api/app/application/**`                                                               | 显式装配领域服务、协调用例事务与派发顺序；不持有领域状态机                                                 |
 | 服务层          | `apps/api/app/services/**`                                                                  | 项目授权在 `project_access`，任务访问/写入准入在 `task_access`，聚合 SQL 在 `project_aggregates`           |
 | Worker          | `apps/api/app/workers/**`                                                                   | 复用工作流与服务；终态信号仅适配事件、连接及调用方提交                                                     |
-| ML 共享运行时   | 外部 `YOAO-Plugins/packages/backend-runtime`，平台消费固定 wheel                            | 无状态叶子函数 + `ManagedLruPool` 池内核；不回退到平台旧源码目录                                           |
+| ML 共享运行时   | 外部 `Plugin-SDK/packages/inference/runtime`，平台消费固定 wheel                            | 无状态叶子函数 + `ManagedLruPool` 池内核；不回退到平台旧源码目录                                           |
 | ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                                      |
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                           |
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                               |
-| 光栅掩码工具    | 外部 `YOAO-Plugins/packages/mask-utils`，平台消费固定 wheel                                 | RLE 编解码、多边形与掩码转换等无状态图像/视频共享工具                                                      |
+| 光栅掩码工具    | 外部 `Plugin-SDK/packages/inference/mask-utils`，平台消费固定 wheel                         | RLE 编解码、多边形与掩码转换等无状态图像/视频共享工具                                                      |
 | 只读文件原语    | `apps/_shared/filesystem_read`                                                              | 标准库 Linux `openat2` 只读目录/文件锚点校验与 `0600` 本地 `VerifiedStage`                                 |
 | 站点 Agent 契约 | `apps/_shared/site_agent_contract`                                                          | 中心与跨网络只读站点 Agent 共用的命令、回执、摘要与协议模型                                                |
 | 站点存储 Agent  | `apps/storage-agent`                                                                        | 独立出站 HTTPS 只读目录扫描与分块传输守护进程（零入站监听、本地 SQLite 状态）                              |
@@ -303,7 +303,7 @@ last_reviewed: 2026-10-26
 
 1. 协议：`apps/_shared/protocol_v2` 定义请求/响应 schema 与受控词表；
    `apps/web` 的生成类型与 API 快照由 CI 再生成，不手改。
-2. 池内核：独立 YOAO-Plugins 仓库的 `packages/backend-runtime/src/aap_backend_runtime/managed_pool.py`
+2. 池内核：独立 Plugin-SDK 仓库的 `packages/inference/runtime/src/aap_backend_runtime/managed_pool.py`
    提供 builder 单飞、borrower 串行、租约、quarantine 清理与强制回收；
    各 backend 通过 `logger_name` 保留自己的日志身份。
 3. backend 本地实现：`model_pool.py` / `video_pool.py` / `pool_domain.py`

@@ -1937,7 +1937,7 @@ HTTP API 统一挂载在 `/api/v1`，而 WebSocket 单独挂载在 `/ws/...`。�
 
 ## Grounded-SAM-2 ML Backend
 
-`apps/grounded-sam2-backend/` 独立 GPU 服务，提供工作台 `S` 工具与 `/ai-pre` 文本批量预标的 SAM mask 推理。三种 prompt（point / bbox / text）路由到 SAM 2.1 + GroundingDINO；mask→polygon 简化使用公开 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/packages/mask-utils) 中的 `anno-mask-utils` 固定制品，与 SAM3 共用。
+`apps/grounded-sam2-backend/` 独立 GPU 服务，提供工作台 `S` 工具与 `/ai-pre` 文本批量预标的 SAM mask 推理。三种 prompt（point / bbox / text）路由到 SAM 2.1 + GroundingDINO；mask→polygon 简化使用公开 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK/tree/main/packages/inference/mask-utils) 中的 `anno-mask-utils` 固定制品，与 SAM3 共用。
 
 ### 起 / 停
 
@@ -1976,11 +1976,11 @@ docker build -f apps/grounded-sam2-backend/Dockerfile apps/
 
 ### `mask_utils` 共享包
 
-评测工具维护于独立插件仓库。真实 SAM mask 属于受控验收数据，不随公开源码分发；从获准的本地数据目录读取，不重新生成基线或将数据提交到公开仓库。
+评测工具维护于独立 Plugin-SDK 的 Mask 能力包。真实 SAM mask 属于受控验收数据，不随公开源码分发；从获准的本地数据目录读取，不重新生成基线或将数据提交到公开仓库。
 
 ```bash
-# 在 YOAO-Plugins checkout 根目录执行；使用已获准的绝对输入路径
-uv run --project packages/mask-utils python scripts/eval_simplify.py \
+# 在 Plugin-SDK checkout 根目录执行；使用已获准的绝对输入路径
+uv run --project packages/inference/mask-utils python packages/inference/mask-utils/scripts/eval_simplify.py \
     --masks-dir /absolute/path/to/approved-sam-masks \
     --tolerances 0.5,1.0,2.0,3.0,5.0 \
     --out /absolute/path/to/private-output/simplify-tolerance-eval.md
@@ -2049,7 +2049,7 @@ pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
 
 # 后端 / 共享包测试
 cd apps/api && uv run pytest                                            # FastAPI 平台后端
-# 在独立 YOAO-Plugins checkout 中：uv run --project packages/mask-utils --extra test pytest packages/mask-utils/tests/
+# 在独立 Plugin-SDK checkout 中：uv run --project packages/inference/mask-utils --extra test pytest packages/inference/mask-utils/tests/
 cd apps/grounded-sam2-backend && uv run --extra dev pytest tests/       # SAM backend 单测（无 GPU 走 mock）
 
 # OpenAPI 契约

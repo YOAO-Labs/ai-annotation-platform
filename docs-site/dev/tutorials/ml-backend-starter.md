@@ -3,16 +3,16 @@ title: ML Backend 接入教程
 audience: [dev]
 type: tutorial
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
-# ML Backend 接入教程：从 echo 示例到真实模型
+# ML Backend 接入教程：自定义插件与 HTTP 契约
 
-检测模型的推荐路径是独立安装检测插件 SDK 和 LibreYOLO 插件；下面的 echo 示例仅用于理解 HTTP 协议，并不执行真实推理。
+简单检测服务可以使用独立 Plugin-SDK 实现自己的 provider，无需安装官方模型；复杂服务或其他语言实现可直接遵守完整 HTTP 契约。下文另保留 echo 协议教学，它不执行真实推理。
 
-## 使用 LibreYOLO 检测插件
+## 使用自定义推理 SDK
 
-在线开发使用公开 [YOAO-Plugins 开发说明](https://github.com/YOAO-Labs/YOAO-Plugins#readme)中的固定 wheel URL：在全新 CPython 3.11 环境安装 SDK，生成作者项目，再通过 `uv lock --python 3.11`／`uv sync --python 3.11 --frozen` 安装并运行该项目的实际入口。第一方插件包和平台便携契约通过 GitHub Releases 提供，核对各自 manifest 的源码提交与 SHA256；不要假定这些包已发布到 PyPI，也不需要平台仓库或管理员凭据。
+在线开发使用 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 中的固定公开制品：在全新 CPython 3.11 环境安装推理 SDK，生成作者项目，再通过 `uv lock --python 3.11`／`uv sync --python 3.11 --frozen --no-editable` 安装运行。生成项目固定 SDK 与平台便携契约的 GitHub Release URL；核对各自 manifest 的源码提交与 SHA256，不假定这些包已发布到 PyPI。开发过程不依赖平台或官方插件 checkout、数据库、管理员凭据、Torch 或模型权重。
 
 以下为**离线开发**路径：先从可信渠道取得版本化、包含完整依赖闭包的 wheelhouse。除模型依赖外，还须包含 `build`、生成项目声明的构建后端及各自依赖。公开第一方 wheel 发布不是完整离线包；完整第三方依赖和权重的许可分别核验。在 CPython 3.11 新环境安装：
 
@@ -21,35 +21,48 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 export PIP_NO_INDEX=1
 export PIP_FIND_LINKS=/path/to/wheelhouse
-python -m pip install build aap-inference-plugin-sdk aap-libreyolo-plugin
-aap-plugin init my-detector --template libreyolo-yolov9
-aap-plugin build my-detector
+python -m pip install 'aap-inference-plugin-sdk[dev]'
+aap-inference-plugin init my-detector
+aap-inference-plugin build my-detector
 python -m pip install my-detector/dist/*.whl
-aap-plugin prepare-assets --size t --asset-dir ./assets
-# token 文件须事先创建，内容为至少 32 字符的私密随机 token；不要提交到源码库
-aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./assets --token-file ./token
+umask 077
+python -c 'import secrets; from pathlib import Path; Path("token").write_text(secrets.token_urlsafe(40))'
+aap-inference-plugin dev --entrypoint my-color-region-plugin --device cpu --token-file ./token
 ```
 
-`build` 是单独安装的构建工具，SDK 未声明 `dev` extra。生成项目可按需要修改后重新安装；开发者自己的项目也可 editable 安装，发布制品不应依赖 editable 路径。`aap-plugin dev` 调用当前环境已安装的作者 console script，仅监听 `127.0.0.1`，不需要 Registry、管理员或 GPU keyring。必须显式选择 `cpu` 或 `cuda:N`；例如没有 GPU 时把上面的 `cuda:0` 改为 `cpu`，本机多 GPU 时可选择本地 ordinal，例如 `cuda:1`。服务预热并检查实际设备驻留；本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。受管 CPU 与 CUDA 实例按各自清单、身份和生命周期要求准入。
+SDK 的 `dev` extra 提供 wheel 构建工具。开发者可编辑生成的 provider，重新构建、安装并重启服务；发布制品不依赖 editable 路径。`aap-inference-plugin dev` 仅监听 loopback，调用已安装的作者 console script，预热默认检测变体并检查显式请求设备上的驻留；它移除继承的宿主路由／插件权限配置，不需要 Registry、管理员或 GPU keyring。本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。模型专属 serve 参数放在 `--` 之后，不能覆盖开发工具控制的 host、port、token 或 device。
 
-资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。GPU 不可用时应修复设备配置，而不是更换模型或精度。生成的 `my_libreyolo_plugin.py` 将作者 `Provider.load`、`Model.predict` 和 `Model.close` 委托给真实 LibreYOLO 原生模型，可按需求修改。
+生成的 `my_color_region_plugin.py` 是可运行的 CPU 颜色区域算法，**不是预训练模型**：对每个 RGB 通道，选取本通道至少 200、其他通道至多 80 的像素，分别返回 `red-region`／`green-region`／`blue-region` 的一个包围框，分数为 1；同色不连通区域合并到同一框，没有匹配像素则返回空结果。作者替换 `Provider.load`、`ColorRegionModel.predict` 与 `close` 实现自己的模型；发布前修改 distribution、模块和入口名，避免使用示例身份。
 
-准备一个包含多检测和空检测真实图片的 fixture JSON。`box` 是相对于图片的 `[x, y, width, height]` 百分比；`box_tolerance` 同样以百分比计，`score_tolerance` 以 0–1 分数计。下面数值仅说明格式，必须替换为经人工确认的该模型实际期望，不能把示例当成验收结果：
+具体模型的资产准备由插件提供：显式核验来源、许可、大小和摘要，不在推理中隐式下载。官方 LibreYOLO 的模型加载器、资产工具和 manifest 生成器位于 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)，不是通用 SDK 的默认依赖。
 
-期望值须绑定权重、输入、参数和执行设备。CPU 开发可使用同权重的原生 CPU 输出作为独立基线；CUDA 检查使用对应的原生 CUDA 基线。保留检查失败记录，不从待测 HTTP 响应反向生成期望值，也不在失败后放宽容差。CPU／CUDA 跨设备数值对照是另一项验证，应在运行前确定容差，不能把任一设备的 HTTP 检查通过当成跨设备验证。
+为默认示例生成独立可确定期望的图片：
+
+```python
+from PIL import Image, ImageDraw
+
+image = Image.new("RGB", (100, 100), "black")
+draw = ImageDraw.Draw(image)
+draw.rectangle((10, 10, 29, 39), fill="red")
+draw.rectangle((50, 40, 79, 89), fill=(0, 255, 0))
+image.save("multi.png")
+Image.new("RGB", (100, 100), "black").save("empty.png")
+```
+
+将下面内容保存为 `fixtures.json`。`box` 是图片中的 `[x, y, width, height]` 百分比，框右／下边界按像素排他边界计算。替换为真实模型后，期望值必须独立绑定权重、输入、参数和执行设备；不要从待测 HTTP 响应反向生成期望，也不要在失败后放宽容差。CPU 检查不等于 CUDA 数值或托管资格验证。
 
 ```json
 {
   "multi": {
     "image": "multi.png",
-    "box_tolerance": 1.0,
-    "score_tolerance": 0.05,
+    "box_tolerance": 0.00001,
+    "score_tolerance": 0,
     "detections": [
-      { "native_class_index": 0, "label": "person", "box": [10, 10, 20, 40], "score": 0.9 },
-      { "native_class_index": 1, "label": "bicycle", "box": [45, 20, 30, 40], "score": 0.8 }
+      { "native_class_index": 0, "label": "red-region", "box": [10, 10, 20, 30], "score": 1 },
+      { "native_class_index": 1, "label": "green-region", "box": [50, 40, 30, 50], "score": 1 }
     ]
   },
-  "empty": { "image": "empty.png", "box_tolerance": 1.0, "score_tolerance": 0.05, "detections": [] }
+  "empty": { "image": "empty.png", "box_tolerance": 0, "score_tolerance": 0, "detections": [] }
 }
 ```
 
@@ -57,18 +70,18 @@ aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./as
 
 ```bash
 export AAP_PLUGIN_TOKEN="$(cat ./token)"
-aap-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
+aap-inference-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
 ```
 
-该命令核对真实多检测与空检测的数量、类别、坐标和分数，验证认证、参数和本地路径拒绝；它只报告 HTTP 事实，不授予 GPU 托管资格。要运行本机独占 GPU 的完整检查，先停止占用该卡的服务与其他进程；用于取消场景的多检测图片须不大于 2 MiB，再显式运行：
+检查核对多检测与空检测的数量、类别、坐标、分数、认证、参数和本地路径拒绝，只报告 HTTP 事实。CPU 示例不实现 GPU 检查钩子。具备 `probe`／`qualification-server` 钩子的 GPU provider 才能进行下面的可选检查；先确保指定设备获准独占，用于取消场景的图片不大于 2 MiB：
 
 ```bash
-aap-plugin check --qualify-local --fixtures ./fixtures.json \
+aap-inference-plugin check --qualify-local --entrypoint your-gpu-provider --fixtures ./fixtures.json \
   --device cuda:0 --gpu-uuid GPU-实际设备UUID --asset-dir ./assets \
   --exclusive-gpu --report ./local-gpu-evidence.json
 ```
 
-修改模型实现后，重新运行前面的 `aap-plugin build my-detector`，安装新 wheel 并重启开发服务；记录命令输出的 SHA-256。镜像应使用已经检查过的作者 wheel，而不是依赖主仓库源码或 editable 安装。
+修改模型实现后，重新运行 `aap-inference-plugin build my-detector`，安装新 wheel 并重启开发服务；记录命令输出的 SHA-256。镜像使用已检查的作者 wheel，不依赖平台源码或 editable 安装。
 
 本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。看不到必要事实时失败而不虚报成功。平台图片 URL 主机须由部署管理员明确配置。
 
@@ -77,16 +90,12 @@ aap-plugin check --qualify-local --fixtures ./fixtures.json \
 构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像的 pip 安装步骤禁网并使用 `--require-hashes`，不加载工作目录。系统包安装步骤仍需要可用的软件包源。以下命令使用已安装的 CLI，不要求当前目录位于平台仓库：
 
 ```bash
-aap-plugin build --base-image image@sha256:<真实摘要> \
+aap-inference-plugin build --base-image image@sha256:<真实摘要> \
   --wheelhouse /path/to/complete-wheelhouse --requirements-lock /path/to/requirements.lock \
-  --entrypoint my-libreyolo-plugin --tag registry.example/my-detector:release --push
-aap-libreyolo manifest registry.example/my-detector:release \
-  --publisher "你的发布者名称" --license "审核后的 SPDX 许可证表达式" \
-  --device cuda --memory-mb 16384 --gpu-memory-mb 8192 \
-  --asset-origin https://assets.example --output manifest.json
+  --entrypoint my-color-region-plugin --tag registry.example/my-detector:release --push
 ```
 
-`--push` 可省略；生成 manifest 前镜像必须有恰好一个可检查的实际 RepoDigest。资产 origin 必须与受控资产清单的实际下载来源一致，并由管理员授权；多个来源可重复 `--asset-origin`。发布者须显式提供 `--publisher` 和 `--license`，生成器不会代替作者审核许可。上游当前 [9t](https://huggingface.co/LibreYOLO/LibreYOLO9t)、[9s](https://huggingface.co/LibreYOLO/LibreYOLO9s)、[9m](https://huggingface.co/LibreYOLO/LibreYOLO9m)、[9c](https://huggingface.co/LibreYOLO/LibreYOLO9c) 模型卡标为 MIT；代码及所用**具体权重**的许可证和来源仍须分别审核，这不表示固定版本的模型卡字节已核验。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格报告，安装不会自动为项目启用。
+`--push` 可省略。作者按公开推理 manifest schema 描述自己的能力、资源、启动参数和数据目录，绑定镜像可检查的实际 RepoDigest；SDK 生成镜像的可写数据目录为 `/var/lib/aap-inference`。不能用 LibreYOLO 的专属 manifest 工具为不相关的自定义插件生成身份。模型来源与许可证分别审核，清单展示不授予下载、启用或再分发权限。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格，安装不会自动为项目启用。
 
 安装实例退役时，CPU 实例的不可逆终止排空使用认证的 `/lifecycle/terminal-drain`，并绑定注册实例和当前 boot；GPU 终止排空使用 `/lifecycle/terminal-drain-signed`，除业务 token 外还要求平台签发的 GPU DRAIN 许可。两种路径都等待真实模型借用和构建退出后卸载；业务 token 不能代替 GPU 许可，也不能重启已终止的实例。
 

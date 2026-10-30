@@ -1,8 +1,8 @@
-# 推理后端插件化与 YOAO-Plugins 独立仓库规划
+# 推理后端插件化、Plugin-SDK 与官方插件独立仓库规划
 
-> 状态：阶段 C 的首次公开拆仓已完成。唯一源码切换、固定提交 vendor 子模块、匿名干净构建、新镜像 GPU 资格及真实训练产物的平台业务闭环均已验收；范围限定为 LibreYOLO 单卡串行，不代表其余五个后端已迁移或新镜像取得全部历史资格。
+> 状态：阶段 C 的首次公开拆仓与 C2 的独立 Plugin-SDK／能力目录前置已完成。阶段 D 已保留各后端的源代码与 CPU 验证证据，尚未完成新制品的 GPU 资格、平台消费者切换与旧后端退役。已有 LibreYOLO 单卡串行资格不代表新制品或其余后端已验收。
 >
-> 日期：规划于 2026-10-28，实施记录更新于 2026-10-30。目标仓库：[YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)，用户已将其设置为 **Public**。
+> 日期：规划于 2026-10-28，实施记录更新于 2026-10-30。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
 >
 > 授权范围：使用 Orca、OMP `openai-codex/gpt-6.1-terra`／`xhigh` 和独立工作树，由主进程审核并合并提交。用户已授权公开必要第一方制品、补齐既有 MIT 许可，并要求原有 vendor 改为固定 tag／哈希的 Git 子模块；不因此发布应用版本、扩展前端 SDK 或公开未获授权的权重。
 >
@@ -10,14 +10,14 @@
 
 ## 1. 决策
 
-采用 **统一插件契约，按运行环境提供 SDK**。统一的是可验证的行为边界，不是统一语言、模型基类、依赖环境或部署进程。
+采用 **平台拥有契约、SDK 按能力提供作者抽象、官方仓库提供具体实现**。运行语言是能力包的实现选择，不是把模型接口提升为所有插件基类的理由。统一的是可验证的身份、兼容与治理边界，不是模型基类、依赖环境或部署进程。
 
-| 层次                | 职责                                                                                                 | 明确不负责                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 统一插件契约        | manifest、身份、能力声明、版本兼容、权限、配置、安装与生命周期；需要时声明后端与前端组件及其兼容关系 | 不能凭声明获得权限、GPU 资格或替平台决定业务终态                                      |
-| Python 插件 SDK     | 降低服务端插件开发成本；模型加载、执行、释放和 HTTP 协议适配，复用共享运行时                         | 不要求插件导入 API、ORM、Celery 或核心私有实现；不把所有算法塞进检测接口              |
-| TypeScript 前端 SDK | 有实际需求时提供页面、侧栏、工具栏等扩展入口；受控访问当前项目、任务和平台操作                       | 本期不实现，不提供主应用任意代码执行、登录凭据或私有 store 访问                       |
-| 平台宿主            | 权限校验、扩展入口注册、资源管理、隔离、审计、安装治理                                               | 不替代 Identity、Assets、Learning、Jobs、Labeling 等领域 owner 的业务规则与最终提交权 |
+| 层次                     | 职责                                                                                                 | 明确不负责                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 统一插件契约             | manifest、身份、能力声明、版本兼容、权限、配置、安装与生命周期；需要时声明后端与前端组件及其兼容关系 | 不能凭声明获得权限、GPU 资格或替平台决定业务终态                                      |
+| 推理能力 SDK             | 提供自定义推理插件的作者接口、HTTP 适配、开发工具与一致性检查；运行时机制与模型实现分离              | 不要求安装官方插件、Torch 或指定模型；检测接口与 GPU 生命周期不成为其他能力的基础     |
+| UI／训练器／数据导出 SDK | 在实际扩展点落地时提供各自的输入、输出、宿主操作与一致性检查，分别声明依赖与兼容范围                 | 本期不实现空包，不依赖推理 SDK，不复制领域权限或业务终态规则                          |
+| 平台宿主                 | 权限校验、扩展入口注册、资源管理、隔离、审计、安装治理                                               | 不替代 Identity、Assets、Learning、Jobs、Labeling 等领域 owner 的业务规则与最终提交权 |
 
 后端以既有 HTTP 契约为当前边界；需要事件交互时沿公开、类型化且受授权的事件契约扩展，不提前增加通用事件总线。非 Python 实现可直接实现协议，SDK 只是便利工具。
 
@@ -27,7 +27,7 @@
 
 采用 **分包、独立版本、共享必要契约、统一开发流程**，不合并为一个 SDK distribution。API SDK 用于调用平台，插件 SDK 用于实现供平台调用的服务；“管理插件”不等于“开发插件”。正式职责与依赖规则见[API SDK 与插件 SDK](../../docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk)。
 
-- `ai-annotation-sdk` 及管理员 `aap` CLI 留在平台仓库，负责公开 API 和插件安装治理；`aap-inference-plugin-sdk` 与 `aap-plugin` 开发工具已迁入 `plugins/YOAO-plugins/`。
+- `ai-annotation-sdk` 及管理员 `aap` CLI 留在平台仓库，负责公开 API 和插件安装治理；插件作者抽象及工具在独立 `Plugin-SDK` 仓库发布，当前推理 distribution 为 `aap-inference-plugin-sdk`，开发命令为 `aap-inference-plugin`。`YOAO-Plugins` 只维护官方插件及模型专属实现。
 - API SDK 核心安装不引入插件服务或模型运行时；插件 SDK 不默认依赖 API SDK。具体插件确有调用平台公开 API 的需求时，可显式依赖 API SDK，使用单独授予的作用域凭据，不继承管理员身份或访问私有应用包。
 - 只共享跨边界必需的 manifest、安装身份、资源绑定、证明 schema 与纯校验规则；消费既有契约包，或从同一权威 schema 生成对应类型，不手工维护第二份类型真值，也不把平台全量 API DTO 搬入插件 SDK。
 - 两套 SDK 分别声明平台 API、插件协议及宿主兼容范围，独立发布；需要组合使用时验证兼容组合，不要求版本号相同或随任一模型插件一起升级。本轮不新增统一安装包或命令包装层。
@@ -45,14 +45,14 @@
 
 现有五个后端加上独立 LibreYOLO，共六个迁移单元。以现有后端的运行依赖和生命周期为单位，不按每个模型规格建仓或建插件。
 
-| 插件单元         | 当前代码入口                                            | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
-| ---------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| LibreYOLO        | 独立仓 `plugins/libreyolo`、`packages/libreyolo-native` | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
-| Ultralytics YOLO | `apps/yolo-backend`                                     | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
-| RapidOCR         | `apps/rapidocr-backend`                                 | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
-| ONNXTools        | `apps/onnxtools-backend`                                | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、最多四个业务 sessions；两个模型文件来源与授权仍需核验          |
-| Grounded-SAM2    | `apps/grounded-sam2-backend`                            | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
-| SAM3             | `apps/sam3-backend`                                     | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
+| 插件单元         | 当前代码入口                                                       | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
+| ---------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| LibreYOLO        | 官方仓 `plugins/inference/libreyolo`，原生 loader 位于其 `native/` | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
+| Ultralytics YOLO | `apps/yolo-backend`                                                | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
+| RapidOCR         | `apps/rapidocr-backend`                                            | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
+| ONNXTools        | `apps/onnxtools-backend`                                           | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、最多四个业务 sessions；两个模型文件来源与授权仍需核验          |
+| Grounded-SAM2    | `apps/grounded-sam2-backend`                                       | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
+| SAM3             | `apps/sam3-backend`                                                | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
 
 这张表基于当前实现调查，不代表六个插件均已独立发布或取得 GPU 资格。SAM vendor 的训练代码或训练 extra 不等于平台已支持 SAM 训练回流。
 
@@ -72,15 +72,15 @@ LibreYOLO 已交付独立 SDK、插件及安装治理，在自有隔离环境完
 
 ## 3. 仓库边界
 
-采用一个 `YOAO-Plugins` 源码仓库，多个独立发布的插件和 SDK 包。插件版本、锁文件、基础镜像和 CUDA／ORT／Torch 环境分别维护，不要求六个插件共同升级。
+采用三个明确所有者：平台拥有业务与契约权威，`Plugin-SDK` 独立发布自定义插件开发抽象，`YOAO-Plugins` 独立发布官方维护的具体插件。第三方作者不需要把插件提交到官方仓库。每个能力包、插件、锁文件与运行环境独立维护，不要求所有插件共同升级。
 
 | 内容                                                                                      | 唯一源码归属                       | 跨仓使用方式                                                                   |
 | ----------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
 | 核心 Inference owner、Registry、路由、GPU 仲裁、权限、Jobs／Labeling／Learning 业务与 SQL | `ai-annotation-platform`           | 公共服务／有限 owner 契约；禁止搬入插件仓或让插件直接读取核心表                |
 | 公共 wire 类型、manifest schema、任务与受控训练产物契约                                   | 平台维护的便携契约包               | 发布版本化 wheel、JSON Schema 与一致性夹具；插件消费制品，不复制另一份类型真值 |
 | 平台 Python 客户端及管理员 CLI                                                            | `packages/python-sdk` 留在平台     | 通过公共 API 管理安装；不作为插件 SDK 的默认运行依赖                           |
-| Python 插件开发 SDK、算法侧共享运行时、Mask 工具与 LibreYOLO 原生 loader                  | `YOAO-Plugins`                     | 独立 Python distribution；不依赖平台 checkout 或私有应用包                     |
-| 六个算法服务、模型适配、vendor、各自镜像与资格工具                                        | `YOAO-Plugins`                     | 独立 OCI 制品，按 digest 安装                                                  |
+| 自定义插件作者接口、能力专属开发工具、推理运行时与 Mask 工具                              | `Plugin-SDK`                       | 能力分包、独立 Python distribution；不依赖官方插件、平台 checkout 或私有应用包 |
+| 官方算法服务、模型适配、LibreYOLO 原生 loader、vendor、镜像与资格工具                     | `YOAO-Plugins`                     | 消费 SDK 发布制品；每个官方插件独立发布，OCI 按 digest 安装                    |
 | 权限与资格证明的解释、准入决定                                                            | 平台宿主／Inference owner          | 插件提供事实与证明，不能自行批准或修改资格标准                                 |
 | 模型权重与受控训练产物                                                                    | 各自获准的资产渠道／平台领域 owner | 授权准备、摘要校验、只授予所需访问；不随代码仓任意复制或公开                   |
 | 插件预训练模型／变体、文件身份、来源、许可与兼容描述                                      | 对应插件，随插件版本发布           | 平台读取并校验，不另建手工维护的模型清单；展示不授予下载、启用或再分发权限     |
@@ -96,27 +96,33 @@ Mask 算法工具可随模型代码迁移；平台的几何语义、像素格式
 
 独立插件仓库放在平台工作树的 **`plugins/YOAO-plugins/`**，本地目录名按此大小写固定；远程仓库仍为 `YOAO-Labs/YOAO-Plugins`。平台根 `.gitignore` 使用 `/plugins/YOAO-plugins/` 忽略整个嵌套仓库，其代码由插件仓库独立跟踪和提交，不作为平台目录或 Git submodule 提交。
 
-下图为目标布局。本批已迁入四个共享包和 LibreYOLO，并删除平台中的旧实现；其余五个后端目录是后续迁移目标，不代表已经实现或取得资格：
+目标结构按能力分组，当前只创建已有实现。UI、训练器和数据导出不预建空包；未来新增能力不得反向依赖推理运行时：
 
 ```text
-plugins/YOAO-plugins/
+Plugin-SDK/
   packages/
-    inference-plugin-sdk/
-    backend-runtime/
-    mask-utils/
-    libreyolo-native/
+    inference/
+      sdk/
+      runtime/
+      mask-utils/
+  scripts/
+
+plugins/YOAO-plugins/
   plugins/
-    libreyolo/
-    yolo/
-    rapidocr/
-    onnxtools/
-    grounded-sam2/
-    sam3/
-  conformance/
-  examples/
+    inference/
+      libreyolo/
+        native/
+      yolo/
+      rapidocr/
+      onnxtools/
+  scripts/
 ```
 
 暂不创建前端 SDK 占位目录、不拆成六个插件仓库；平台不把 `YOAO-Plugins` 自身作为 Git submodule。第三方 vendor 则按固定提交使用子模块，两者不是同一规则。跨仓依赖用发布制品；仓内开发可使用 workspace sources，但发布 wheel 与镜像必须不含指向另一个 checkout 的 editable/path 依赖。
+
+同一能力的代码统一归入 `packages/inference/`，不是用三个同前缀目录代替能力层级；内部保持现有 Python distribution／import 名称。runtime 和 Mask 支持 Python 3.10，作者 SDK 要求 Python 3.11，独立分发避免下游无关依赖与运行版本被提升。当前检测作者接口仍明确限定推理能力，不能宣称已覆盖 UI、训练或导出。未来能力沿各自 owner 的契约扩展：UI 使用受限宿主操作，训练器交付受校验的运行及产物描述，导出器消费获准输入并交付结果；权限、数据账本和最终业务提交留在平台。
+
+真正跨能力复用的身份、兼容与配置契约才进入公共层；不从推理包抽出一个带 GPU、HTTP 或模型字段的“通用插件基类”。现有 `aap_inference_contract` 仍是推理契约，不把它改名后冒充全能力合同。
 
 ## 4. 规划基线中的接缝
 
@@ -142,14 +148,14 @@ CPU、CUDA、设备故障回退策略须分别声明并验收。不得把 CPU �
 
 提供两种受同一契约约束的接入方式：
 
-1. **新建简单推理插件**：模型作者实现小型 load／predict／close 接口与目录配置，SDK 完成协议、认证、借用和边界转换。现有 `aap-plugin init/dev/check/build` 继续作为检测开发路径；不能把这些命令描述成已支持全部任务。
+1. **新建简单推理插件**：作者实现 `load`／`predict`／`close` 接口与目录配置，SDK 完成协议、认证、借用和边界转换。`aap-inference-plugin init/dev/check/build` 不默认安装官方模型；生成的可运行 CPU 图像分析示例仅演示作者接口，不冒充预训练模型，也不代表已支持全部推理任务。
 2. **迁移既有复杂服务或其他语言实现**：保留原 HTTP 服务和模型池，通过 manifest、安装身份、配置、准入与生命周期接入。先证明完整功能不丢失，再提取有实际复用价值的共享机械过程。
 
 打包也允许两条路径：Python 检测作者使用已存在的离线 wheelhouse／hash lock 构建；包含 CUDA 编译、vendor 或其他语言的服务保留明确的独立 Dockerfile。两者都交付固定 digest 的 OCI 制品，并通过相同的宿主安装与行为资格，不强迫使用一份通用基础镜像。
 
 模板与指南须让开发者能在**没有平台源码、数据库、Redis 和内部签名私钥**的环境完成本地开发与协议检查。最终平台联调使用普通安装和项目启用流程，不要求开发者手写内部表或理解 Celery。
 
-开发指南串联已有工具职责：`aap-plugin` 用于创建、开发、协议检查和构建；API SDK／`aap` 用于连接平台并管理安装、启停和退役。开发者可在联调环境同时安装两者，但插件运行镜像不因此默认包含 API SDK 或管理员凭据；安装与项目启用仍是独立步骤。
+开发指南串联职责：`aap-inference-plugin` 用于创建、开发、协议检查和构建推理插件；API SDK／`aap` 用于连接平台并管理安装、启停和退役。开发者可在联调环境同时安装两者，但插件运行镜像不因此默认包含 API SDK 或管理员凭据；安装与项目启用仍是独立步骤。
 
 ## 6. 执行顺序与验收门
 
@@ -167,17 +173,39 @@ CPU、CUDA、设备故障回退策略须分别声明并验收。不得把 CPU �
 
 SDK 边界另需通过独立安装验证：API SDK 核心安装可导入并调用公开 API，不安装插件服务／模型运行时；插件 SDK 可在没有 API SDK、平台源码或管理员凭据的环境完成本地开发与协议检查；管理员安装工具使用迁移后的便携证明契约，仍拒绝不匹配的身份与资格。组合使用时验证声明的兼容版本，不以“同一 checkout 可导入”代替跨仓分发验收。
 
-### C. 首次实际拆仓：SDK、共享运行时、LibreYOLO
+### C. 首次实际拆仓：SDK、共享运行时、LibreYOLO（已完成的历史阶段）
 
 先在 `plugins/YOAO-plugins/` 准备独立插件仓库，为公共契约提供能实际获取的版本化制品，再迁入 SDK、共享运行时与 LibreYOLO。本地嵌套位置只方便开发联调，不允许把父目录中的平台源码当作隐式依赖；仍须从插件仓库干净检出构建 wheel／镜像，在没有平台源码的环境验证开发者路径，再连接平台完成与阶段 A 相同的业务验收。
 
-必要第一方 Python 制品使用公开 `YOAO-Plugins` GitHub Releases，固定发布标签并记录实际源码提交及逐文件 SHA256；普通平台／fork 构建不要求私有 Token。五个便携契约的源码 owner 仍是平台，由 `scripts/build-plugin-contracts.py --revision <platform-commit> --output <new-directory>` 导出 wheel、sdist、选定源码归档与规范资产清单。构建器固定 `build==1.3.0`、`setuptools==80.9.0`、`wheel==0.45.1`、`hatchling==1.27.0`；跨仓发布标签不冒充平台源码提交，manifest 与归档提供真实来源。此渠道不转存第三方依赖 wheel 或模型权重。公共 PyPI 与 OCI 发布仍分别核验权限／许可；OCI 安装固定 digest，不使用 `latest` 作为身份。
+首次公开渠道使用 `YOAO-Plugins` GitHub Releases，固定标签、真实源码提交及逐文件 SHA256。此历史发布保持不可变。后续 SDK 制品改由独立 SDK 仓库发布，官方仓库不再发布通用实现；平台便携契约仍由 `scripts/build-plugin-contracts.py --revision <platform-commit> --output <new-directory>` 导出五个包的 wheel、sdist 与选定源码归档，不含模型清单。构建器固定 `build==1.3.0`、`setuptools==80.9.0`、`wheel==0.45.1`、`hatchling==1.27.0`；分发仓库及标签不冒充平台源码 owner 或提交。普通消费者不要求私有 Token；第三方依赖、模型权重和 OCI 仍有独立分发门禁。
 
 第三批已先交付私有候选：固定提交的 wheelhouse 经真实 loopback HTTP 取回、独立摘要核验和离线安装，并在不挂载平台源码的环境运行生成的作者项目及 OCI 镜像。这证明本地候选闭环，不等于正式 Releases／PyPI／OCI 发布渠道或干净插件仓检出已经完成；不能据此删除旧源码或跳过后续平台业务验收。
 
 每份代码确定唯一源码归属。切换平台依赖、Compose、CI、资产准备脚本、文档及所有调用方后，删除已迁出的旧实现；不保留双维护镜像、跨应用 re-export 或运行时回退到旧目录。历史已部署旧镜像在引用排空前仍可运行，这不是保留第二份活跃源码。
 
 原有 vendor 源码改为 Git 子模块，最终以 gitlink 的完整 commit 固定；tag 仅用于选择版本，不能跟随浮动分支。先比对当前 vendor 与上游，保留必要本地修改和 LICENSE／NOTICE，再切换递归克隆、CI、镜像及源码打包入口。TrackEval 等裁剪／适配副本不能直接替换成未经验证的完整上游导入。该项只改变第三方源码获取和构建方式，不提前迁移其所属后端或改变算法行为。
+
+### C2. 独立作者 SDK 与能力分层（已完成的结构前置）
+
+在三个隔离工作树并行处理：SDK 作者接口及无官方模型依赖的开发路径、SDK 独立构建发布与 CI、官方插件能力目录与构建迁移。主进程维护平台消费者、公开制品渠道及计划，审核并合并每个提交。
+
+验收门：
+
+- `Plugin-SDK` 在无平台与官方插件 checkout 的环境构建、安装和运行自定义推理插件；实际输入产生检测与空结果，不以 mock／echo 代替作者实现。
+- SDK 不默认安装官方插件、LibreYOLO native 或 Torch；推理专属 CLI 与 GPU 检查不变成 UI／训练／导出的必需依赖。
+- 官方插件源码统一到 `plugins/inference/`；专属 loader 留在所属插件内，通用 SDK／运行时／Mask 旧目录删除，所有构建与消费者使用独立发布制品。
+- 平台、官方插件、开发工具和当前文档完成切换；历史 release 与既有运行镜像保持原样，不把目录迁移或 CPU 冒烟当成新的 GPU 资格。
+
+实施证据：
+
+- 公开 SDK 的实际镜像构建命令已运行：固定 Python 基础镜像，完整 30 包 wheelhouse，pip 安装层禁网并逐项核验哈希。私有 CPU 镜像 `sha256:c1021431359d91698a0b88391cdc4e2872576f31df14f6dc22b8392521ce845c` 以 UID/GID 10001、只读根文件系统、只读 Token、可写 `/var/lib/aap-inference` 通过八项 HTTP 检查；无 GPU 设备、官方模型、Torch 或平台源码挂载。系统包层本次实际下载；镜像未公开，也未取得 GPU 或平台部署资格。临时容器和 Token 已清理。
+
+- 独立 SDK 源码提交 `743b0f42d0b2e85dc5722fdab2c97ddc7c6cbaad` 已公开；三个 distribution 位于 `packages/inference/{sdk,runtime,mask-utils}`，发布为 [python-sdk-0.1.0](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/python-sdk-0.1.0)，manifest SHA256 为 `6cffa1d704efa4f06d3e301623c1310b1c8e1274cd6690194083d78ed4d98f56`。匿名干净检出重建的三个 wheel 与发布字节一致。
+- 默认作者项目以 Pillow 实现真实颜色区域检测，不使用预训练权重。公开 wheel 安装、非 editable 作者包、`dev` 与 HTTP `check` 已通过双区域／空图、类别／坐标／分数、认证、参数和本地路径拒绝检查；修改类别名和阈值后重新构建的作者插件也通过独立预期检查。未安装官方插件、Torch 或平台 API SDK；开发入口清除继承的宿主控制环境，Ctrl-C 后子进程退出。
+- Python 3.10 独立安装 runtime、mask-utils 及其必要契约后，依赖检查、运行时响应和真实 mask 转多边形通过；不安装要求 Python 3.11 的作者 SDK 或推理契约。作者 SDK 的 35 项本地测试与两个 SDK GitHub Actions 运行通过。
+- 官方仓库提交 `53717ebed7622e4fb12a6c94c64acacfef85c331` 已审核合入并公开。四个官方插件归入 `plugins/inference/`，LibreYOLO native 归入自身目录，通用实现及 mask 评估脚本已从官方仓库删除。五个 wheel 的匿名干净构建与已审核构建一致；[python-53717ebed762](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-53717ebed762) 同时发布四份从插件 wheel 提取的预训练目录，manifest SHA256 为 `82608ae226fbc84f436cdfe2e5c5877da1a759a29ef03e8a88981e618ce3ee10`。仅发布第一方源码、包与目录，不发布权重或第三方 wheelhouse；官方 CPU CI 通过。
+- 平台六个 Python 消费者及共享镜像 requirements 已改用 SDK 的固定公开 URL／SHA256，lockfile 的包版本集合不变。官方三个后端 lock、OCR 独立构建输入和 LibreYOLO 候选构建器也已切换；历史 release 不覆盖，现有日常服务和保留镜像未替换。
+- UI、训练器和数据导出的 SDK／官方实现尚未创建。后续按真实能力定义独立接口与依赖，不把推理抽象提升为所有插件的共同基类。
 
 ### D. 普通图像及多任务后端
 

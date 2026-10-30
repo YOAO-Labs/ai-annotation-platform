@@ -10,7 +10,7 @@ resolution-markers = [
 [[package]]
 name = "aap-backend-runtime"
 version = "0.1.0"
-source = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl" }
+source = { url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/aap_backend_runtime-0.1.0-py3-none-any.whl" }
 dependencies = [
     { name = "aap-lifecycle-contract" },
     { name = "aap-protocol-v2" },
@@ -20,7 +20,7 @@ dependencies = [
     { name = "pillow" },
 ]
 wheels = [
-    { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl", hash = "sha256:13d25849cafdb53d8a0b0feffa8b3505e9d8393db9e3ee093e7cbb5f4f9896e8" },
+    { url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/aap_backend_runtime-0.1.0-py3-none-any.whl", hash = "sha256:96556de7d2cc56b3ddbd8f2b83178058a9cc4743d3a58f884f3b3a837e0478c4" },
 ]
 
 [package.metadata]
@@ -81,14 +81,14 @@ wheels = [
 [[package]]
 name = "anno-mask-utils"
 version = "0.1.0"
-source = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/anno_mask_utils-0.1.0-py3-none-any.whl" }
+source = { url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/anno_mask_utils-0.1.0-py3-none-any.whl" }
 dependencies = [
     { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "shapely" },
 ]
 wheels = [
-    { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/anno_mask_utils-0.1.0-py3-none-any.whl", hash = "sha256:adebcb0b76cabd0ca393f59924d7cbbd4cc7a3fd2e2979d760a6bef6ce1d9d12" },
+    { url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/anno_mask_utils-0.1.0-py3-none-any.whl", hash = "sha256:065c1e62194562b42b99d3d23117b6c6b6b1b925277687575a7702838b028567" },
 ]
 
 [package.metadata]
@@ -455,12 +455,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aap-backend-runtime", url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl" },
+    { name = "aap-backend-runtime", url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/aap_backend_runtime-0.1.0-py3-none-any.whl" },
     { name = "aap-lifecycle-contract", editable = "../_shared/lifecycle_contract" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "addict", specifier = ">=2.4" },
-    { name = "anno-mask-utils", url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/anno_mask_utils-0.1.0-py3-none-any.whl" },
+    { name = "anno-mask-utils", url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/anno_mask_utils-0.1.0-py3-none-any.whl" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27" },

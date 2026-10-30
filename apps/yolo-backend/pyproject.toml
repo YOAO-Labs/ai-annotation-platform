@@ -48,7 +48,7 @@ build-backend = "setuptools.build_meta"
 py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "class_names", "model_metadata", "observability", "managed_models", "managed_segmentation", "sample_evaluations", "segmentation_evaluations"]
 
 [tool.uv.sources]
-aap-backend-runtime = { url = "https://github.com/YOAO-Labs/YOAO-Plugins/releases/download/python-6118885dd686/aap_backend_runtime-0.1.0-py3-none-any.whl" }
+aap-backend-runtime = { url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/aap_backend_runtime-0.1.0-py3-none-any.whl" }
 aap-lifecycle-contract = { path = "../_shared/lifecycle_contract", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }

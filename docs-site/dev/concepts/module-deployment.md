@@ -31,16 +31,16 @@ Mask 格式的静态 registry 仍向适配器传入 Session／ORM，也不能直
 先做实推理扩展点与 Python 开发体验，再按实际用例增加其他扩展契约。
 核心统一装配和非模型扩展仍有独立目标，不能用一个模型插件的成功替代。
 
-### 统一契约与分运行环境 SDK
+### 统一治理边界与按能力分包的 SDK
 
-统一插件契约负责 manifest、身份、能力声明、版本兼容、权限、配置、安装和生命周期。
-SDK 按运行环境提供便利，不定义第二套权限或业务规则：
+平台拥有身份、兼容、权限、安装和生命周期的契约权威；SDK 提供开发者实现自定义插件所需的公开抽象与工具，不定义第二套业务规则。
+能力是第一层边界，运行语言是能力包的实现选择。当前推理契约不是所有未来插件的通用基类：
 
-| 层次                | 责任与边界                                                                                                       |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Python 插件 SDK     | 服务端模型加载、执行、释放及协议适配；简单检测可用小接口，复杂后端保留完整 HTTP 应用，不要求导入核心应用或数据库 |
-| TypeScript 前端 SDK | 在具体需求出现后提供页面、侧栏、工具栏及受控项目／任务操作；当前未实现，也不创建占位框架                         |
-| 平台宿主            | 校验权限、注册扩展入口、管理资源与隔离、记录审计；最终业务规则与提交仍归各领域 owner                             |
+| 层次                     | 责任与边界                                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| 推理 SDK                 | 当前提供 `DetectionProvider`／`DetectionModel` 作者接口、HTTP 适配和工具；复杂后端可保留完整 HTTP 应用；不要求官方插件或模型框架 |
+| UI／训练器／数据导出 SDK | 尚未实现；在实际扩展点落地时分别定义输入、输出、宿主操作与检查，不继承检测接口、GPU 生命周期或推理运行时                         |
+| 平台宿主                 | 校验权限、注册扩展入口、管理资源与隔离、记录审计；最终业务规则与提交仍归各领域 owner                                             |
 
 插件后端不限定 Python，其他语言可直接实现公开 HTTP 契约；需要事件交互时再增加
 明确、受授权的事件契约，不预先引入通用事件总线。一个联合插件可以用同一份 manifest
@@ -51,23 +51,24 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 不泄露登录凭据或提供任意请求代理。内置、受审查扩展可使用宿主组件接口；
 二者复用能力契约，隔离策略不同，信任等级不能由插件自行声明。
 
-插件 SDK、共享运行时、Mask 工具、原生 LibreYOLO 适配器与 LibreYOLO 插件
-由公开的 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 仓库维护，
-按各包及插件分别固定依赖和制品。其余后端的源码迁移仍逐项验收。
-核心 Inference、其他领域 owner、公共契约权威源码与平台客户端留在主仓库；
-插件消费平台导出的便携契约制品，不复制核心实现。
+公开的 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立维护作者 SDK、推理运行时与 Mask 工具，
+推理相关代码统一位于 `packages/inference/`，内部的 `sdk/`、`runtime/`、`mask-utils/` 保留独立分发边界；Python 3.10 的运行时／Mask 消费者不必安装要求 Python 3.11 的作者 SDK。
+[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件，现有实现按 `plugins/inference/` 分组；
+LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第三方作者不需要依赖官方模型或将自己的插件提交到官方仓库。
+核心 Inference、其他领域 owner、公共契约权威源码与 API SDK 留在平台。三个仓库通过固定发布制品衔接，不复制第二份活跃实现。
+未来能力有独立包、依赖及一致性检查；只在实际共享需求出现时提取跨能力公共层，不预建空目录、万能 hook 或带模型字段的通用插件基类。
 
 ### API SDK 与插件 SDK {#api-sdk-and-plugin-sdk}
 
 **统一必要契约和开发流程，不合并 SDK 包。** 两套 SDK 分别维护，生命周期证明的纯校验独立于模型运行时；插件 SDK 与必要便携契约已有固定公开制品。
 
-| 维度                | API SDK                                      | 插件 SDK                                                 |
-| ------------------- | -------------------------------------------- | -------------------------------------------------------- |
-| Python distribution | `ai-annotation-sdk`                          | `aap-inference-plugin-sdk`                               |
-| 使用者与方向        | 集成方、自动化脚本和管理员调用平台公开 API   | 模型作者实现供平台调用的推理服务                         |
-| 主要职责            | 项目、任务、作业等平台操作，以及插件安装治理 | 模型加载、执行、释放、HTTP 协议适配与插件开发工具        |
-| 源码归属            | 平台的 `packages/python-sdk`                 | 独立 YOAO-Plugins 仓库的 `packages/inference-plugin-sdk` |
-| 兼容目标            | 平台公开 API                                 | 插件协议与宿主准入契约                                   |
+| 维度                | API SDK                                      | 插件 SDK                                          |
+| ------------------- | -------------------------------------------- | ------------------------------------------------- |
+| Python distribution | `ai-annotation-sdk`                          | `aap-inference-plugin-sdk`                        |
+| 使用者与方向        | 集成方、自动化脚本和管理员调用平台公开 API   | 模型作者实现供平台调用的推理服务                  |
+| 主要职责            | 项目、任务、作业等平台操作，以及插件安装治理 | 模型加载、执行、释放、HTTP 协议适配与插件开发工具 |
+| 源码归属            | 平台的 `packages/python-sdk`                 | 独立 Plugin-SDK 仓库的 `packages/inference/sdk`   |
+| 兼容目标            | 平台公开 API                                 | 插件协议与宿主准入契约                            |
 
 **管理插件不等于开发插件。** API SDK 核心安装只需要 HTTP 客户端与数据模型，不引入 FastAPI、Uvicorn 或模型运行时；`client.plugins` 按需加载 `plugins` extra，未安装时明确报错。插件 SDK 不默认依赖 API SDK，也不把平台项目、标注和作业等全量 API DTO 纳入自己的接口。
 
@@ -83,17 +84,21 @@ SDK 按运行环境提供便利，不定义第二套权限或业务规则：
 
 开发流程复用现有入口，不新增统一安装包或命令包装层：
 
-- `aap-plugin` 负责创建、开发、检查和构建；当前小接口及工具面向检测插件，复杂服务仍可直接实现 HTTP 契约，见[推理插件接入](/dev/tutorials/ml-backend-starter)。
+- `aap-inference-plugin` 负责创建、开发、检查和构建推理插件；默认作者示例不安装官方模型、Torch 或权重，复杂服务仍可直接实现 HTTP 契约，见[推理插件接入](/dev/tutorials/ml-backend-starter)。
 - API SDK／`aap` 负责连接平台与管理安装、启停和退役，见[安装生命周期](/user-guide/superadmin/ml-backend-registry)。安装不等于项目启用或模型发布。
 - 联调环境可同时安装两套工具；插件运行镜像不因此默认包含 API SDK。独立安装验收需分别证明 API 客户端不依赖插件运行时、插件开发不依赖平台源码或管理员凭据。
 
 ### 公开第一方制品与独立消费 {#plugin-candidate-artifacts}
 
-[插件包发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-6118885dd686)提供 SDK、共享运行时、Mask 工具、原生 LibreYOLO 适配器及插件的 wheel、sdist、选定源码归档与 SHA256 清单。便携契约由平台拥有，当前构建器只导出五个契约包；[既有契约发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/contracts-0a21bc402432)中附带的混合模型目录属于历史制品，不再作为新插件目录的源码权威。发布仓库不改变契约源码 owner。第一方代码采用 MIT 许可，manifest 记录实际源码仓库、固定提交和文件摘要，匿名消费者无需平台 checkout 或私有 Token。
+[Plugin-SDK 发布](https://github.com/YOAO-Labs/Plugin-SDK/releases)提供能力 SDK、推理运行时与 Mask 工具的 wheel、sdist、源码归档及 SHA256 清单；[官方插件发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases)提供具体插件、模型专属适配与插件自有预训练目录。便携契约由平台拥有，构建器只导出五个契约包，通过 [SDK 契约渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-3d6393e64630)分发；历史混合发布保持不可变，但不再作为当前源码归属或模型目录权威。第一方源码许可不重新授权第三方依赖或权重。manifest 记录真实源码仓库、固定提交与文件摘要，匿名消费者不需要平台 checkout 或私有 Token。
 
 完整候选构建器由独立插件仓库的 `scripts/build-libreyolo-candidate.py` 维护，从固定插件提交与契约制品生成完整 hash-locked wheelhouse。具体命令、资产准备与安装见 [YOAO-Plugins README](https://github.com/YOAO-Labs/YOAO-Plugins#readme)；通用接入见[推理插件接入](/dev/tutorials/ml-backend-starter)。公开发布不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们分别保留许可和分发门禁，不因第一方源码公开而自动获得授权。
 
 取回后先用可信独立记录中的 SHA256 核验，再解包或安装；随包 checksum 不能单独证明发布者身份。完整候选可用 `pip --no-index --require-hashes` 离线安装，不能把第一方 wheel 发布等同于完整离线分发或 OCI 资格。
+
+独立 SDK 已发布为 [python-sdk-0.1.0](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/python-sdk-0.1.0)：匿名干净构建复现三个 wheel 的 SHA256，公开制品安装的自定义 CPU 作者插件通过真实双区域／空图 HTTP 检查，修改作者实现后也按独立预期通过；不安装官方插件、Torch 或 API SDK。Python 3.10 的 runtime／Mask 消费单独通过依赖与实际行为检查。官方插件的 [能力目录发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-53717ebed762) 包含四个插件、LibreYOLO 专属 native 及四份插件自有目录，五个 wheel 的匿名干净构建一致。两个仓库的 CPU CI 通过；平台六个消费者只切换 SDK 制品 URL／摘要，不改变包版本集合。这些结构与作者路径证据不产生新的 GPU 或平台业务资格，固定提交和 manifest 摘要见拆仓计划 C2。
+
+同一 SDK 的实际镜像构建路径也已通过：固定基础镜像、完整 hash-locked wheelhouse 和禁网 pip 安装层，使用非 root、只读根文件系统及 Token、独立可写推理数据目录，运行默认作者算法并通过八项 HTTP 检查。容器无 GPU 设备、不安装官方模型或 Torch、不挂载平台源码；私有镜像未发布，不能继承旧 LibreYOLO 镜像的资格。
 
 拆仓前的私有候选已完成同提交双次构建摘要一致、真实 loopback HTTP 取回以及缺失／损坏 wheel 和错误平台拒绝。主进程还构建并离线安装了 `init` 生成的作者项目，实际运行其 console script、`dev` 与 HTTP `check`；生成项目与固定镜像通过预先独立标定的双车／空图、类别／坐标／分数、认证、参数和本地路径拒绝检查。该镜像从固定干净 Python 基础镜像构建，pip 安装层禁网；以 UID/GID 10001、无 GPU 请求运行，仅挂载只读权重和 Token，不挂载平台源码。
 
