@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build portable contract wheels and source distributions from a committed revision.
 
-Only first-party contracts and controlled-asset metadata are exported. Model
-weights, the API SDK and third-party dependency wheels are not included.
+Only first-party contracts are exported. Model catalogs and weights, the API
+SDK and third-party dependency wheels are not included.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,7 +27,6 @@ PACKAGES = (
     "apps/_shared/protocol_v2",
     "apps/_shared/training_contract",
 )
-ASSETS = "apps/yolo-backend/scripts/controlled-model-assets.json"
 BUILDERS = {
     "build": "1.3.0",
     "setuptools": "80.9.0",
@@ -76,7 +74,6 @@ def main() -> None:
             revision,
             "LICENSE",
             *PACKAGES,
-            ASSETS,
         ],
         cwd=ROOT,
         check=True,
@@ -103,7 +100,6 @@ def main() -> None:
                 env=environment,
                 check=True,
             )
-        shutil.copyfile(source / ASSETS, output / "controlled-model-assets.json")
         license_bytes = (source / "LICENSE").read_bytes()
     files = []
     for path in sorted(output.iterdir()):

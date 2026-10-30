@@ -790,12 +790,18 @@ TRAINING_IMAGE_DIGEST="sha256:..."
 相同存储桶名或相同逻辑卷名不能保证挂载到同一位置。
 跨机部署时，各机器准备自己的本地目录，路径可不同，无需共享文件系统。
 
-管理员使用既有权重准备脚本的 `--asset-manifest` 模式，把审核过的基础权重保存到
-环境现有 `MINIO_TRAINING_BUCKET` 下的 `model-assets/sha256/<sha256>/weights.pt`，
-再使用 `--from-bucket` 在各目标机器准备 `<sha256>.pt` 与 `assets.json`。
-完整命令与清单字段见仓库 `apps/yolo-backend/README.md` 的「受控基础模型与同机缓存」。
-命令在现有管理员存储凭据环境中运行，不把 MinIO 管理凭据分发到运行容器。
-准备完成后再启动或刷新消费者；下载不占用训练租约或 GPU 准入。
+管理员使用平台的受控资产脚本，将审核过的基础权重保存到环境现有 `MINIO_TRAINING_BUCKET` 下的 `model-assets/sha256/<sha256>/weights.pt`，再在各目标机器准备 `<sha256>.pt` 与 `assets.json`：
+
+```bash
+apps/api/.venv/bin/python scripts/prepare-controlled-model-assets.py \
+  --asset-manifest /secure/reviewed-model-assets.json \
+  --source-dir /secure/reviewed-weights --target-dir /srv/aap/model-assets --publish
+apps/api/.venv/bin/python scripts/prepare-controlled-model-assets.py \
+  --asset-manifest /secure/reviewed-model-assets.json \
+  --from-bucket --target-dir /srv/aap/model-assets
+```
+
+使用插件发布并经管理员审核的不可变清单；目录可见不代表批准下载、启用或公开再分发。命令在现有管理员存储凭据环境中运行，不把 MinIO 管理凭据分发到运行容器。准备完成后再启动或刷新消费者；下载不占用训练租约或 GPU 准入。
 已有受控映射的文件缺失或校验失败时，该节点模型不可用，不会临时改用同名上游文件。
 
 对象存储地址必须从每个目标节点可达；先执行实际认证下载，再检查 API 到 Backend 的控制连接。
