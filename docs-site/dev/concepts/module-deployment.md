@@ -262,7 +262,7 @@ ONNXTools 的 operator 资格已在独占单卡上实际通过：`pipeline` 两�
 
 YOLO、RapidOCR、ONNXTools 的唯一源码已迁到官方仓库的 `plugins/inference/`。平台 Compose 显式启用固定摘要制品，维护入口区分插件镜像拉取与仍在平台的 SAM 构建；平台 CI 只保留自身契约、资产管理工具及 SAM 测试，官方实现的测试在官方仓库运行。
 
-新独立 ONNXTools 和 RapidOCR 已分别通过完整两轮单卡 GPU 生命周期证明，核对全部实际业务 sessions，并由普通 API SDK 完成报告校验、安装和平台端点激活。前者覆盖三池／四 sessions，后者覆盖三引擎／九 sessions；释放后活动计数归零。YOLO 的多任务、受控模型、正例 ByteTrack／BoT-SORT、World／YOLOE 文本及 exemplar CPU HTTP 已与独立原生预期比对，完整 CUDA 资格仍需覆盖全部选用权重与编码器，不能沿用仅覆盖闭集模型的证明。
+新独立 ONNXTools 和 RapidOCR 已分别通过完整两轮单卡 GPU 生命周期证明，核对全部实际业务 sessions，并由普通 API SDK 完成报告校验、安装和平台端点激活。前者覆盖三池／四 sessions，后者覆盖三引擎／九 sessions；释放后活动计数归零。YOLO 的精确新镜像也已通过新身份绑定的检测、分割两份完整 CUDA 资格：覆盖全部选用权重、World／YOLOE 文本与 exemplar、两种编码器的实际 CUDA 放置、正例 ByteTrack／BoT-SORT、受控检测／分割及释放回收；六帧合成跟踪夹具不代表自然视频质量。受控协议资格中的预训练副本不冒充真实训练产物，平台业务仍须独立验收。
 
 官方插件提供独立的部署资产选择描述：预期模型／完整变体和文件身份来自插件发布清单及原生加载依赖，绑定具体制品与原安装清单；描述自身的摘要与安装清单摘要分开。描述工具不读取权重内容、不批准、不下载，也不决定项目权限。平台按安装分别维护修订化批准／撤销和当前可用性；管理员 SDK 在实际运行容器内测量文件大小与 SHA256，固定文件描述符并拒绝逃逸链接或测量中身份变化，不能用同名宿主目录的替换文件冒充容器挂载内容。用户训练 checkpoint 继续由 Learning／Assets 治理。
 
@@ -272,7 +272,7 @@ YOLO、RapidOCR、ONNXTools 的唯一源码已迁到官方仓库的 `plugins/inf
 
 ONNXTools 和 RapidOCR 已完成正常重启、新容器资产重测、成员显式恢复、冷请求及正常卸载；实际许可时限后的 collector 证明两个成员均已回收，分配、提交内存、租约和队列归零。零成员域按既有规则保持 `not_ready/proof_incomplete`，因为 ready 要求至少一个 active 成员；这不等于残留分配，也不能通过伪造成员或清账本改成 ready。
 
-原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。off／observe 的 legacy CUDA 拒绝不算成功推理。正常重启可能等待真实 Token 时限后的新鲜证明，替换容器后须重新测量资产，并按管理员意图恢复已排空成员的流量；安装 active、物理空闲及模型批准都不等于 owner 已恢复可准入。早期失败栈的未知分配历史保留，其宿主隔离清退不冒充正常 `retired` 收据。源码、制品、报告及失败证据见拆仓计划第五批；完整 YOLO GPU 资格、最终安全退役与原环境恢复仍单独记录。
+原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。off／observe 的 legacy CUDA 拒绝不算成功推理。正常重启可能等待真实 Token 时限后的新鲜证明，替换容器后须重新测量资产，并按管理员意图恢复已排空成员的流量；安装 active、物理空闲及模型批准都不等于 owner 已恢复可准入。早期失败栈的未知分配历史保留，其宿主隔离清退不冒充正常 `retired` 收据。源码、制品、报告及失败证据见拆仓计划第五批；YOLO 平台业务、真实训练来源的受控发布、最终安全退役与原环境恢复仍单独记录。
 
 ## Learning 的 Jobs 读取 {#learning-jobs-reads}
 
