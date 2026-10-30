@@ -71,7 +71,7 @@ ai-annotation-platform/
 │   ├── storage-agent/           # 跨网络只读站点存储 Agent
 │   ├── training-executor/       # 受控单 GPU 在线学习训练执行器
 │   ├── grounded-sam2-backend/   # Grounded-SAM-2 GPU backend
-│   │   ├── vendor/              # IDEA-Research/Grounded-SAM-2 镜像副本（sync_vendor.sh）
+│   │   ├── vendor/              # 固定提交的 IDEA-Research/Grounded-SAM-2 子模块
 │   │   ├── predictor.py         # 三种 prompt (point/bbox/text) 路由
 │   │   ├── main.py              # FastAPI 4 端点 + /metrics + /cache/stats
 │   │   └── Dockerfile           # build context 为 apps/，可复用共享包
@@ -81,9 +81,9 @@ ai-annotation-platform/
 │   ├── rapidocr-backend/        # OCR backend
 │   │
 │   └── _shared/                 # 跨子应用共享 Python 包
-│       ├── backend_runtime/     # ML Backend 运行时公共工具与健康/认证基座
 │       ├── filesystem_read/     # 受控根目录解析与只读快照原语
-│       ├── mask_utils/          # mask→polygon (sam2-backend / sam3-backend 共用)
+│       ├── inference_contract/  # 平台拥有的便携推理契约
+│       ├── lifecycle_contract/  # 平台拥有的便携生命周期契约
 │       ├── protocol_v2/         # ML Backend 协议 schema 与能力词表
 │       ├── site_agent_contract/ # 中心与只读站点 Agent 传输消息契约
 │       ├── task_contract/       # 统一任务类型、媒体与导出契约
@@ -91,8 +91,10 @@ ai-annotation-platform/
 │
 ├── packages/
 │   └── python-sdk/              # Python SDK、CLI 与 TUI 客户端
+├── plugins/
+│   └── YOAO-plugins/            # 可选的独立插件仓库 checkout；整目录忽略
 ├── infra/docker/                # Dockerfile + Nginx (web/api)
-├── scripts/                     # 工具脚本（seed.py / eval_simplify.py / sync_vendor.sh）
+├── scripts/                     # 平台工具与便携契约制品构建脚本
 ├── docs-site/                   # VitePress 用户手册 + 开发文档 + API
 ├── docs/                        # ADR / changelogs / plans / research
 ├── docker-compose.yml           # 本地基础服务（postgres/redis/minio/celery + 监控 profile）
@@ -338,6 +340,12 @@ node scripts/test-codex-session-start.mjs
 ## 本地启动与开发细则
 
 标准前置依赖、本地启动步骤与技术栈总览见 [README.md#快速开始](README.md#快速开始)。以下补充本地开发常用的环境变量、GPU 绑定与热重载细则：
+
+首次准备或切换工作树后，先执行 `git submodule update --init --recursive`，按父仓库 gitlink 拉取 SAM3、Grounded-SAM-2 与 TrackEval 固定提交；不要使用 `--remote` 随上游分支漂移。SAM3 的请求级 autocast 补丁由 Docker 构建应用到干净副本，宿主机子模块保持原始状态。修改或升级 vendor 时同步审查固定提交、许可和补丁，并重建实际消费它的镜像。
+
+Orca 初始化与 `dev:worktree init/up/exec/reset` 会在 API／Alembic 导入前自动补齐缺失的 TrackEval 子模块，不拉取两个模型源码仓库，也不覆盖已有本地修改。`doctor` 只报告缺失及初始化指引，`stop/destroy` 不因缺失源码触发网络操作；模型镜像构建前仍须显式递归初始化全部子模块。
+
+常规平台开发无需插件源码。需要修改插件时，在平台根目录单独执行 `git clone https://github.com/YOAO-Labs/YOAO-Plugins.git plugins/YOAO-plugins`，按该仓库 README 准备独立环境；该目录被忽略，不作为平台可编辑依赖或 Docker 源码挂载。插件 SDK、共享运行时、Mask 工具和原生 LibreYOLO 适配器的修改、测试及发布只在独立仓库进行，平台通过固定 URL 与锁文件摘要更新依赖。
 
 ```bash
 docker compose up -d
@@ -1927,9 +1935,9 @@ HTTP API 统一挂载在 `/api/v1`，而 WebSocket 单独挂载在 `/ws/...`。�
 
 系统设置白名单内的运营参数支持数据库覆盖，部署环境变量保留为默认值。邀请上限、离线判定、导入预算、同步建任务阈值与视频预热分别在业务消费入口读取；导入任务在受理时固定预算快照。详见[运行时覆盖契约](docs-site/dev/concepts/system-settings.md)。首次更新这些消费者代码后刷新对应 API/Celery 进程；此后通过设置页调参不需要重启，跨进程缓存最多约 30 秒，在线状态另需等待下一轮扫描。不要通过修改进程中的 `settings` 对象模拟后台设置生效。
 
-## Grounded-SAM-2 ML Backend（v0.9.x）
+## Grounded-SAM-2 ML Backend
 
-`apps/grounded-sam2-backend/` 独立 GPU 服务，提供工作台 `S` 工具与 `/ai-pre` 文本批量预标的 SAM mask 推理。三种 prompt（point / bbox / text）路由到 SAM 2.1 + GroundingDINO；mask→polygon 简化用 `apps/_shared/mask_utils`（v0.9.4 phase 3 抽出共用，与 v0.10.x sam3-backend 共享）。
+`apps/grounded-sam2-backend/` 独立 GPU 服务，提供工作台 `S` 工具与 `/ai-pre` 文本批量预标的 SAM mask 推理。三种 prompt（point / bbox / text）路由到 SAM 2.1 + GroundingDINO；mask→polygon 简化使用公开 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/packages/mask-utils) 中的 `anno-mask-utils` 固定制品，与 SAM3 共用。
 
 ### 起 / 停
 
@@ -1943,9 +1951,9 @@ curl -fsS http://localhost:8001/health                             # 探活
 curl -fsS http://localhost:8001/cache/stats                        # SAM 2 image embedding LRU 命中率（v0.9.1）
 ```
 
-### Rebuild（改了 backend 代码 / Dockerfile / mask_utils 后必跑）
+### Rebuild（修改后端代码、Dockerfile 或固定依赖后必跑）
 
-build context **从 v0.9.4 phase 3 起升级到 `apps/`**（让 Dockerfile 能 COPY 兄弟目录 `_shared/mask_utils`）。**历史命令 `docker build apps/grounded-sam2-backend/` 已不可用**。
+build context 为 `apps/`，包含后端源码、已初始化的 vendor 子模块和平台契约；共享运行时与 Mask 工具安装固定 wheel，不再复制其旧源码目录。不能使用 `docker build apps/grounded-sam2-backend/` 作为独立构建上下文。
 
 ```bash
 # 推荐：走 docker compose
@@ -1968,12 +1976,14 @@ docker build -f apps/grounded-sam2-backend/Dockerfile apps/
 
 ### `mask_utils` 共享包
 
+评测工具维护于独立插件仓库。真实 SAM mask 属于受控验收数据，不随公开源码分发；从获准的本地数据目录读取，不重新生成基线或将数据提交到公开仓库。
+
 ```bash
-# 评测 mask→polygon simplify tolerance（fixtures 含 84 张真实 SAM mask + 6 张合成）
-uv run --project apps/_shared/mask_utils python scripts/eval_simplify.py \
-    --masks-dir apps/_shared/mask_utils/tests/fixtures/real_sam_masks \
+# 在 YOAO-Plugins checkout 根目录执行；使用已获准的绝对输入路径
+uv run --project packages/mask-utils python scripts/eval_simplify.py \
+    --masks-dir /absolute/path/to/approved-sam-masks \
     --tolerances 0.5,1.0,2.0,3.0,5.0 \
-    --out docs/research/13-simplify-tolerance-eval.md
+    --out /absolute/path/to/private-output/simplify-tolerance-eval.md
 ```
 
 最新评测见 [docs/research/13-simplify-tolerance-eval.md](docs/research/13-simplify-tolerance-eval.md)。
@@ -2039,7 +2049,7 @@ pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
 
 # 后端 / 共享包测试
 cd apps/api && uv run pytest                                            # FastAPI 平台后端
-cd apps/_shared/mask_utils && uv run --extra test pytest tests/         # mask→polygon 共享包（grounded-sam2-backend / sam3-backend 共用）
+# 在独立 YOAO-Plugins checkout 中：uv run --project packages/mask-utils --extra test pytest packages/mask-utils/tests/
 cd apps/grounded-sam2-backend && uv run --extra dev pytest tests/       # SAM backend 单测（无 GPU 走 mock）
 
 # OpenAPI 契约

@@ -12,10 +12,12 @@ last_reviewed: 2026-10-19
 
 ## 使用 LibreYOLO 检测插件
 
-从可信渠道取得**版本化、包含完整依赖闭包的 wheelhouse**；不要假定这些包已经发布到 PyPI。除模型运行依赖外，wheelhouse 还须包含 `build`、生成项目声明的构建后端及各自依赖。Python 3.11 及以上的新环境可直接安装 wheel，不需要 `../../apps` 或平台仓库的 editable 包：
+在线开发使用公开 [YOAO-Plugins 开发说明](https://github.com/YOAO-Labs/YOAO-Plugins#readme)中的固定 wheel URL：在全新 CPython 3.11 环境安装 SDK，生成作者项目，再通过 `uv lock --python 3.11`／`uv sync --python 3.11 --frozen` 安装并运行该项目的实际入口。第一方插件包和平台便携契约通过 GitHub Releases 提供，核对各自 manifest 的源码提交与 SHA256；不要假定这些包已发布到 PyPI，也不需要平台仓库或管理员凭据。
+
+以下为**离线开发**路径：先从可信渠道取得版本化、包含完整依赖闭包的 wheelhouse。除模型依赖外，还须包含 `build`、生成项目声明的构建后端及各自依赖。公开第一方 wheel 发布不是完整离线包；完整第三方依赖和权重的许可分别核验。在 CPython 3.11 新环境安装：
 
 ```bash
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 export PIP_NO_INDEX=1
 export PIP_FIND_LINKS=/path/to/wheelhouse
@@ -28,7 +30,7 @@ aap-plugin prepare-assets --size t --asset-dir ./assets
 aap-plugin dev --entrypoint my-libreyolo-plugin --device cuda:0 --asset-dir ./assets --token-file ./token
 ```
 
-`build` 是单独安装的构建工具，SDK 未声明 `dev` extra。生成项目可按需要修改后重新安装；开发者自己的项目也可 editable 安装，发布制品不应依赖 editable 路径。`aap-plugin dev` 调用当前环境已安装的作者 console script，仅监听 `127.0.0.1`，不需要 Registry、管理员或 GPU keyring。必须显式选择 `cpu` 或 `cuda:N`；例如没有 GPU 时把上面的 `cuda:0` 改为 `cpu`，本机多 GPU 时可选择本地 ordinal，例如 `cuda:1`。服务预热并检查实际设备驻留；本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。当前管理员安装器仅支持 CUDA。
+`build` 是单独安装的构建工具，SDK 未声明 `dev` extra。生成项目可按需要修改后重新安装；开发者自己的项目也可 editable 安装，发布制品不应依赖 editable 路径。`aap-plugin dev` 调用当前环境已安装的作者 console script，仅监听 `127.0.0.1`，不需要 Registry、管理员或 GPU keyring。必须显式选择 `cpu` 或 `cuda:N`；例如没有 GPU 时把上面的 `cuda:0` 改为 `cpu`，本机多 GPU 时可选择本地 ordinal，例如 `cuda:1`。服务预热并检查实际设备驻留；本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。受管 CPU 与 CUDA 实例按各自清单、身份和生命周期要求准入。
 
 资产准备是显式步骤：按插件的受控清单下载并核验来源、摘要和大小，推理时不会隐式下载。GPU 不可用时应修复设备配置，而不是更换模型或精度。生成的 `my_libreyolo_plugin.py` 将作者 `Provider.load`、`Model.predict` 和 `Model.close` 委托给真实 LibreYOLO 原生模型，可按需求修改。
 

@@ -188,7 +188,7 @@ SAM2ImagePredictor `set_image()` 之后状态写在 `_features` / `_orig_hw` / `
 
 ### 3.5 vendor 升级风险
 
-`_features` / `_orig_hw` / `_is_image_set` / `_is_batch` 是 vendor `IDEA-Research/Grounded-SAM-2` 的内部 API（commit `b7a9c29`）。执行 `apps/{grounded-sam2,sam3}-backend/scripts/sync_vendor.sh` 升级后必须运行 5-clicks 集成验收（README §性能参考）。
+`_features` / `_orig_hw` / `_is_image_set` / `_is_batch` 是 `IDEA-Research/Grounded-SAM-2` 的内部 API。vendor 由父仓库 gitlink 固定提交，首次 checkout 执行 `git submodule update --init --recursive`；升级时显式切换并审查目标提交，不使用 `--remote` 自动追踪上游。升级 Grounded-SAM-2 或 SAM3 后必须运行 5-clicks 集成验收（对应后端 README 的性能参考），SAM3 还须核对请求级 autocast 补丁能否在干净上游源码中应用。许可及上游来源随子模块保留。
 
 ---
 

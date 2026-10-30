@@ -16,8 +16,11 @@ last_reviewed: 2026-10-23
 - 本机 Docker 可用；共享 PostgreSQL、MinIO 已经启动。建议在主目录只执行 `docker compose up -d postgres minio`，不要为每个工作树重复启动默认 Compose 栈。
 - PostgreSQL 配置使用本机 `postgresql+asyncpg` URL，不带 query 参数；运行连接与迁移连接必须指向同一个本机实例。两个账号都需要连接 `postgres` 库，启动器通过会话锁核对实例，不能仅凭 loopback 地址和相同端口判断。迁移账号需要创建数据库及管理新库的权限。基础配置若共用一个账号，还需具备 `CREATEROLE`，用于创建本模式的普通运行账号；没有该权限时，先由管理员预配置普通账号，再分开 `DATABASE_URL` 与 `MIGRATION_DATABASE_URL`，启动器不会回退使用 owner。MinIO endpoint 也必须位于本机，账号需要创建、标记和管理专属 bucket 的权限。
 - 默认工作树模式关闭外发 SMTP、Sentry、共享 ML 后端自动注册和 GPU 控制配置，不会启动 GPU worker 或 beat。真实 GPU 调度验证应使用专用验收环境，不能让多个独立控制面管理同一块卡。
+- Orca setup 与 `init/up/exec/reset` 在 API／Alembic 导入前初始化缺失的固定 TrackEval 子模块；已有本地修改保留。SAM3 和 Grounded-SAM-2 不在普通 API 初始化中下载，构建模型镜像前另行执行 `git submodule update --init --recursive`。
 
 这不是生产环境隔离或权限沙箱：基础设施进程和账号可能共享。启动器拒绝 staging/production 配置，也不会自动启动、停止或重建共享 PostgreSQL/MinIO 服务。
+
+`doctor` 对缺失的 TrackEval 返回初始化指引，不下载源码；`stop/destroy` 也不会为了停止或清理环境发起子模块网络请求。
 
 ## 首次启动与资源归属
 

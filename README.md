@@ -51,9 +51,9 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 ## 后端解耦与插件化
 
-核心能力的目标形态是随项目发布的内置插件，模型、训练器、连接器与格式等扩展通过版本化契约安装。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和独立 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。API SDK 与插件 SDK 保持分包，复杂模型服务沿完整 HTTP 契约接入，不强制转成 bbox 检测接口。全扩展点统一装配、独立插件仓库分发及其余模型服务迁移仍未完成；模块资格与下一步以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准，独立包或独立进程不等于插件化完成。
+核心能力的目标形态是随项目发布的内置插件，模型、训练器、连接器与格式等扩展通过版本化契约安装。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和独立 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。API SDK 与插件 SDK 保持分包，复杂模型服务沿完整 HTTP 契约接入，不强制转成 bbox 检测接口。插件 SDK、共享运行时、Mask 工具、原生 LibreYOLO 适配器与 LibreYOLO 插件由公开的 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 仓库维护；平台保留契约所有权并消费固定制品。全扩展点统一装配及其余模型服务的源码迁移仍未完成；模块资格与下一步以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准，独立包或独立进程不等于插件化完成。
 
-LibreYOLO 提供[私有候选制品构建流程](./plugins/libreyolo/README.md#build-and-prepare)：从明确提交生成完整 hash-locked wheelhouse，经过可信独立渠道核对归档 SHA256 后离线安装，无需挂载平台源码。已验证检测开发路径及干净基础镜像上的 CPU 运行；CPU 执行仍包含既有 CUDA-linked Torch 依赖，不代表无 GPU 依赖、GPU 资格或公开分发许可。
+第一方 Python 包以 MIT 许可发布，提供[插件包与源码](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-6118885dd686)及[平台便携契约](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/contracts-0a21bc402432)的固定下载地址、源码提交和 SHA256 清单。安装、独立开发与候选镜像构建见 [YOAO-Plugins 开发说明](https://github.com/YOAO-Labs/YOAO-Plugins#readme)。公开制品不含权重、私有数据集、完整第三方 wheelhouse 或 OCI 镜像；它们的许可与分发资格分别判断。CPU 执行仍可包含 CUDA-linked Torch 依赖，不代表无 GPU 依赖或新镜像已取得 GPU 资格。
 
 ## 工作台 AI 案例
 
@@ -171,6 +171,7 @@ LibreYOLO 提供[私有候选制品构建流程](./plugins/libreyolo/README.md#b
 
 ```bash
 # 1. 安装依赖
+git submodule update --init --recursive
 pnpm install
 cd apps/api && uv sync --extra test && cd ../..
 pnpm codegen
@@ -191,6 +192,8 @@ pnpm dev:web        # http://localhost:3000
 # 多 worktree 并行时可用一条命令启动当前 checkout 的前后端
 pnpm dev:worktree   # 独立数据库/Redis/bucket，自动选择端口并配置代理
 ```
+
+源码应通过 Git 获取；已有 checkout 和新 worktree 都须初始化固定提交的子模块。GitHub 源码 ZIP 或普通 `git archive` 不包含 vendor 子模块内容，不能直接替代完整构建输入。插件仓库不属于这些子模块：仅需修改插件时，另行克隆到被忽略的 `plugins/YOAO-plugins/`；常规平台安装直接消费固定公开 wheel。
 
 `dev:worktree` 为每个工作树的 `dev/test/e2e` 模式管理独立数据库、Redis、九个 bucket 及本地文件；共享本机 PostgreSQL/MinIO 实例，不修改共享数据库。默认从 API `8100` 和 Web `3100` 寻找空闲端口，可用 `--with-worker` 启动本工作树的后台任务消费者。`doctor` 诊断、`stop` 停止、带精确确认值的 `reset/destroy` 重建或清理环境。首次启动不复制已有账号和项目。详见[独立工作树开发环境](./docs-site/dev/how-to/worktree-environments.md)。
 

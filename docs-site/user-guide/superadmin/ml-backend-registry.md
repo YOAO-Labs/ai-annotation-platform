@@ -94,7 +94,11 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 插件由超级管理员在可访问 Docker 的部署机用 `aap plugins` 安装，不自动发现插件；平台 API 不访问 Docker socket。安装器支持显式 CPU 和单卡 CUDA 配置、多个模型及命名模型池，不再限定为检测服务。需要非 host Docker 网络和已加载的固定 OCI 摘要镜像；CUDA 另需 NVIDIA Container Toolkit 和明确授权的物理 GPU。服务运行在隔离 Docker 进程，不挂载核心数据库、Redis 或 GPU 签发私钥。
 
+部署命令须由非 root Docker 管理员执行；托管容器沿用操作者的 UID/GID，不强制使用镜像的默认 `USER`。私有状态目录须由该操作者持有并保持 `0700`，不要为匹配镜像默认 UID 而放宽权限或添加共享 ACL。
+
 使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `aap-inference-contract`、`aap-task-contract`、`aap-lifecycle-contract` 和训练契约），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架；仅安装核心 SDK 或 `cli` extra 不会隐式安装插件管理依赖。
+
+必要的第一方便携契约可从公开[契约制品](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/contracts-0a21bc402432)按 manifest 与 SHA256 核验取得；LibreYOLO、插件开发 SDK 和算法侧共享工具由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 独立维护。插件开发 SDK 与管理员使用的 API SDK 分包，安装管理无需安装模型开发运行时。公开第一方 wheel 不是完整离线依赖包，也不包含模型权重或 OCI 镜像，更不自动授予托管 GPU 资格。
 
 ```bash
 python -m venv .venv
