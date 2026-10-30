@@ -695,7 +695,7 @@
           "format": "uuid"
         },
         "state": {
-          "enum": ["active", "response", "uncertain", "reconciled"]
+          "enum": ["active", "response", "uncertain", "reconciled", "not_sent"]
         },
         "status_code": {
           "type": ["integer", "null"],

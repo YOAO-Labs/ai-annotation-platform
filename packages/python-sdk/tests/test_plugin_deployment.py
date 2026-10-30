@@ -940,7 +940,13 @@ def test_manifest_rejects_docker_option_injection():
         LocalPluginConfig.model_validate(body)
 
 
-def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(tmp_path):
+@pytest.mark.parametrize("replace_host_directory", [False, True])
+def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(
+    tmp_path, replace_host_directory
+):
+    import os
+
+    from ai_annotation._plugin_asset_measure import measured_paths
     from aap_inference_contract.plugin_assets import (
         PluginAssetDescriptor,
         PluginSelectionKey,
@@ -951,8 +957,18 @@ def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(tmp_pat
             self.last_asset_decision = request
             return request
 
+    class AssetDocker(LocalDocker):
+        def measure_assets(self, config, container_id, assets):
+            root = os.open(
+                self.mounted_data, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+            try:
+                return measured_paths(root, assets)
+            finally:
+                os.close(root)
+
     core = AssetCore()
-    docker = LocalDocker(core.events)
+    docker = AssetDocker(core.events)
     deployment = LocalPluginDeployment(
         core, "https://api.example", tmp_path / "state", docker
     )
@@ -999,8 +1015,17 @@ def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(tmp_pat
         }
     )
     choices = [PluginSelectionKey(model_id="detect", variants={})]
+    docker.mounted_data = data
+    if replace_host_directory:
+        (data / "correct.bin").write_bytes(b"wrong!!")
+        docker.mounted_data = tmp_path / "still-mounted-data"
+        data.rename(docker.mounted_data)
+        data.mkdir(mode=0o700)
+        (data / "correct.bin").write_bytes(b"correct")
     result = deployment.approve_assets(descriptor, choices, 0)
-    assert [asset.path for asset in result.inventory] == ["correct.bin"]
+    assert [asset.path for asset in result.inventory] == (
+        [] if replace_host_directory else ["correct.bin"]
+    )
     docker.started_at = "replaced-process"
     with pytest.raises(AAPError, match="process identity"):
         deployment.approve_assets(descriptor, choices, 1)

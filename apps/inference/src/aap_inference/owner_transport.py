@@ -26,6 +26,7 @@ from aap_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionRouteBinding,
 )
+from aap_inference_contract.plugin_assets import plugin_asset_reason
 from aap_inference_contract.routing import (
     RoutingAttemptView,
     RoutingBeginControlResult,
@@ -192,8 +193,20 @@ class _TerminalDrainGrant:
         return None
 
 
+class ModelDispatchDenied(RuntimeError):
+    """The exact model attempt was denied before its physical HTTP send."""
+
+
 class _RoutingRequestGrant:
-    __slots__ = ("_runtime", "_scope_id", "_capability", "_attempt_id", "headers")
+    __slots__ = (
+        "_runtime",
+        "_scope_id",
+        "_capability",
+        "_attempt_id",
+        "_dispatch_binding",
+        "_dispatch_phase",
+        "headers",
+    )
 
     def __init__(
         self,
@@ -202,12 +215,64 @@ class _RoutingRequestGrant:
         capability: str,
         attempt_id: uuid.UUID,
         headers: Mapping[str, str],
+        *,
+        dispatch_binding: Mapping[str, Any] | None = None,
     ) -> None:
         self._runtime = runtime
         self._scope_id = scope_id
         self._capability = capability
         self._attempt_id = attempt_id
+        self._dispatch_binding = (
+            None if dispatch_binding is None else dict(dispatch_binding)
+        )
+        self._dispatch_phase = (
+            "prepared" if dispatch_binding is not None else "unmanaged"
+        )
         self.headers = MappingProxyType(dict(headers))
+
+    @property
+    def can_prove_not_sent(self) -> bool:
+        return self._dispatch_phase in {"prepared", "not_sent"}
+
+    async def authorize_send(self) -> None:
+        if self._dispatch_phase == "unmanaged":
+            return
+        if self._dispatch_phase != "prepared":
+            raise RoutingUnavailable()
+        self._dispatch_phase = "starting"
+        try:
+            accepted = await self._runtime.model_dispatch(
+                scope_id=self._scope_id,
+                capability=self._capability,
+                attempt_id=self._attempt_id,
+                action="start",
+                binding=self._dispatch_binding,
+            )
+        except BaseException:
+            self._dispatch_phase = "prepared"
+            raise
+        if not accepted:
+            self._dispatch_phase = "prepared"
+            if await self.not_sent():
+                raise ModelDispatchDenied()
+            raise RoutingUnavailable()
+        self._dispatch_phase = "started"
+
+    async def not_sent(self) -> bool:
+        if self._dispatch_phase == "not_sent":
+            return True
+        if self._dispatch_phase != "prepared":
+            return False
+        self._dispatch_phase = "settling"
+        accepted = await self._runtime.model_dispatch(
+            scope_id=self._scope_id,
+            capability=self._capability,
+            attempt_id=self._attempt_id,
+            action="not_sent",
+            binding=None,
+        )
+        self._dispatch_phase = "not_sent" if accepted else "unknown"
+        return accepted
 
     async def response(self, status_code: int) -> None:
         if type(status_code) is not int or not 100 <= status_code <= 599:
@@ -419,6 +484,49 @@ class RoutingModelRequestContextFactory:
         ):
             raise RoutingUnavailable()
         identity = _transport_identity(endpoint)
+        revalidate = (
+            endpoint.gpu_resource_id is not None
+            and request.selected_pool_id is not None
+        )
+        health = request.health_meta
+        residency = health.get("residency") if isinstance(health, Mapping) else None
+        raw_boot = residency.get("boot_id") if isinstance(residency, Mapping) else None
+        boot_id = raw_boot if type(raw_boot) is str and raw_boot else None
+        if revalidate and type(request.selected_member_id) is not uuid.UUID:
+            raise RoutingUnavailable()
+        context = request.context or {}
+        check_approval = (
+            isinstance(endpoint.extra_params, Mapping)
+            and "plugin" in endpoint.extra_params
+            and context.get("frozen_model_ref") is None
+        )
+        model_id = context.get("model_id") if check_approval else None
+        variants = context.get("model_variants") if check_approval else None
+        if (
+            check_approval
+            and plugin_asset_reason(
+                endpoint.extra_params,
+                endpoint.plugin_asset_approval,
+                model_id,
+                variants,
+            )
+            is not None
+        ):
+            raise ModelDispatchDenied()
+        dispatch_binding = {
+            "member_id": None
+            if request.selected_member_id is None
+            else str(request.selected_member_id),
+            "boot_id": boot_id,
+            "revalidate": revalidate,
+            "health_max_age_seconds": self._routing_runtime.manager.health_max_age_seconds,
+            "model_id": model_id,
+            "model_variants": _json_value(variants),
+            "check_approval": check_approval,
+            "approval": _json_value(endpoint.plugin_asset_approval)
+            if check_approval
+            else None,
+        }
 
         @asynccontextmanager
         async def request_context(http_request):
@@ -433,31 +541,80 @@ class RoutingModelRequestContextFactory:
                 attempt_id=attempt_id,
                 transport_identity=identity,
             ) as subject:
-                begun = await _execute_routing(
-                    self._routing_runtime,
-                    "begin",
-                    {
-                        "scope_id": str(route_binding.scope_id),
-                        "capability": route_binding.capability,
-                        "attempt_id": str(attempt_id),
-                        "method": http_request.method,
-                        "path": http_request.url.path,
-                        "transport_subject": subject,
-                    },
-                    command_id=attempt_id,
+                body = {
+                    "scope_id": str(route_binding.scope_id),
+                    "capability": route_binding.capability,
+                    "attempt_id": str(attempt_id),
+                    "method": http_request.method,
+                    "path": http_request.url.path,
+                    "transport_subject": subject,
+                }
+                command_id = uuid.uuid5(attempt_id, "model-begin")
+                command = make_routing_command("begin", body, request_id=command_id)
+                begin_task = asyncio.create_task(
+                    self._routing_runtime.begin_model(
+                        command,
+                        member_id=request.selected_member_id,
+                        boot_id=boot_id,
+                        revalidate=revalidate,
+                        binding=dispatch_binding,
+                    )
                 )
+                try:
+                    reply = await asyncio.shield(begin_task)
+                except asyncio.CancelledError:
+                    reply = await asyncio.shield(begin_task)
+                    if (
+                        isinstance(reply, RoutingResult)
+                        and reply.state == "committed"
+                        and isinstance(reply.result, RoutingBeginResult)
+                    ):
+                        actual = reply.result.scope
+                        grant = _RoutingRequestGrant(
+                            self._routing_runtime,
+                            actual.id,
+                            actual.capability,
+                            attempt_id,
+                            reply.result.headers,
+                            dispatch_binding=dispatch_binding,
+                        )
+                        await asyncio.shield(grant.not_sent())
+                    raise
+                if (
+                    not isinstance(reply, RoutingResult)
+                    or reply.request_id != command_id
+                    or reply.operation != "begin"
+                    or reply.state != "committed"
+                ):
+                    raise RoutingUnavailable()
+                if isinstance(reply.result, RoutingRejectedResult):
+                    raise ModelDispatchDenied()
+                begun = reply.result
             if (
                 not isinstance(begun, RoutingBeginResult)
                 or begun.attempt_id != attempt_id
             ):
                 raise RoutingUnavailable()
-            yield _RoutingRequestGrant(
+            actual = begun.scope
+            grant = _RoutingRequestGrant(
                 self._routing_runtime,
-                route_binding.scope_id,
-                route_binding.capability,
+                actual.id,
+                actual.capability,
                 attempt_id,
                 begun.headers,
+                dispatch_binding=dispatch_binding,
             )
+            if revalidate and (
+                actual.pool_id != request.selected_pool_id
+                or actual.registry_id != request.endpoint_registry_id
+                or actual.project_id != request.project_id
+                or actual.generation != request.topology_generation
+                or actual.id != route_binding.scope_id
+                or actual.capability != route_binding.capability
+            ):
+                await grant.not_sent()
+                raise ModelDispatchDenied()
+            yield grant
 
         return request_context
 
