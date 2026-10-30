@@ -11,13 +11,9 @@ from fastapi import HTTPException
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs
 from app.services import training_dataset_originals as originals
@@ -25,8 +21,17 @@ from app.services.content_snapshot import ContentError
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    get_core_row,
+    lock_annotation_rows_for_core_read,
+    lock_task_rows_for_core_read_share,
+    task_row,
+)
 from app.services.job_execution_control import JobExecutionControl
 from app.services.project_access import get_workspace_project, resolve_project_access
+from app.services.workspace_read_relations import project_facts
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_project_manager,
@@ -221,7 +226,12 @@ async def prepare_selection(
                 trusted_actor=trusted_actor,
             )
             await reading.commit()
-            current = await reading.get(Project, project.id, populate_existing=True)
+            current = await get_workspace_project(
+                reading,
+                actor_id=actor_id,
+                project_id=project.id,
+                populate_existing=True,
+            )
             sources = {}
             snapshot, report = await _freeze_selection(
                 reading,
@@ -253,16 +263,25 @@ async def finalize_selection(db, prepared):
 
     authority = prepared.authority
     await originals.check(db, authority)
-    project = await db.get(Project, authority.project_id, populate_existing=True)
+    project = await get_workspace_project(
+        db,
+        actor_id=authority.actor_id,
+        project_id=authority.project_id,
+        populate_existing=True,
+    )
     task_ids = [uuid.UUID(s["task_id"]) for s in prepared.snapshot["samples"]]
     async with original_sources._reads(db, True):
-        for statement in (
-            select(Task.id).where(Task.id.in_(task_ids)).order_by(Task.id),
-            select(Annotation.id)
-            .where(Annotation.task_id.in_(task_ids))
-            .order_by(Annotation.id),
-        ):
-            await db.execute(statement.with_for_update(read=True, nowait=True))
+        await lock_task_rows_for_core_read_share(db, task_ids)
+        annotation_ids = list(
+            await db.scalars(
+                select(annotation_row.id)
+                .where(annotation_row.task_id.in_(task_ids))
+                .order_by(annotation_row.id)
+            )
+        )
+        await lock_annotation_rows_for_core_read(
+            db, annotation_ids, lock_mode="share", nowait=True
+        )
         for source in prepared.sources.values():
             await originals.recheck(db, authority, source)
         current, _report = await _freeze_selection(
@@ -334,7 +353,7 @@ async def _freeze_selection(
             "unsupported_project", "当前训练数据版本仅支持图片项目"
         )
     if selection.batch_id:
-        batch = await db.get(TaskBatch, selection.batch_id)
+        batch = await get_core_row(db, batch_row, selection.batch_id)
         if batch is None or batch.project_id != project.id:
             raise TrainingDatasetError(
                 "batch_not_found", "批次不属于当前项目", status_code=404
@@ -366,38 +385,39 @@ async def _freeze_selection(
             func.jsonb_agg(
                 func.jsonb_build_object(
                     "id",
-                    cast(Annotation.id, String),
+                    cast(annotation_row.id, String),
                     "version",
-                    Annotation.version,
+                    annotation_row.version,
                     "class_name",
-                    Annotation.class_name,
+                    annotation_row.class_name,
                     "tool_unit_id",
-                    Annotation.tool_unit_id,
+                    annotation_row.tool_unit_id,
                     "geometry",
-                    Annotation.geometry,
+                    annotation_row.geometry,
                 )
             )
         )
         .where(
-            Annotation.task_id == Task.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+            annotation_row.task_id == task_row.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
         )
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
     # Classes, task eligibility, media references and annotations share one PG
     # statement snapshot, even when the request session uses READ COMMITTED.
+    project_row = project_facts()
     stmt = (
-        select(Task, DatasetItem, Project.tool_bindings, annotation_json)
-        .join(Project, Project.id == Task.project_id)
-        .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-        .where(Task.project_id == project.id)
-        .order_by(Task.id)
+        select(task_row, DatasetItem, project_row.c.tool_bindings, annotation_json)
+        .join(project_row, project_row.c.id == task_row.project_id)
+        .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
+        .where(task_row.project_id == project.id)
+        .order_by(task_row.id)
         .limit(MAX_SAMPLES + 1)
     )
     if selection.batch_id:
-        stmt = stmt.where(Task.batch_id == selection.batch_id)
+        stmt = stmt.where(task_row.batch_id == selection.batch_id)
     if selection.dataset_id:
         from app.db.models.dataset import ProjectDataset
 
@@ -414,7 +434,7 @@ async def _freeze_selection(
     if selection.dataset_filter is not None:
         from app.services.dataset_workbench import project_filtered_item_ids
 
-        actor = await db.get(User, actor_id, populate_existing=True)
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
         if actor is None or not actor.is_active:
             raise TrainingDatasetError(
                 "authority_revoked", "数据版本创建权限已撤销", status_code=403
@@ -422,9 +442,9 @@ async def _freeze_selection(
         item_ids = await project_filtered_item_ids(
             db, project.id, selection.dataset_id, selection.dataset_filter, actor
         )
-        stmt = stmt.where(Task.dataset_item_id.in_(item_ids))
+        stmt = stmt.where(task_row.dataset_item_id.in_(item_ids))
     if selection.task_ids:
-        stmt = stmt.where(Task.id.in_(selection.task_ids))
+        stmt = stmt.where(task_row.id.in_(selection.task_ids))
     rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
     from app.services.reference_keys import is_reference
 
@@ -680,7 +700,7 @@ async def _freeze_selection(
     if references and frozen_samples is None and declared <= MAX_DATASET_BYTES:
         from app.services.training_dataset_sources import training_reference_snapshot
 
-        actor = await db.get(User, actor_id, populate_existing=True)
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
         # One AsyncSession cannot serve concurrent resolver queries.
         for sample in references:
             try:
