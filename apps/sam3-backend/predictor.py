@@ -38,8 +38,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-# vendor: container 内由 Dockerfile `pip install -e ./vendor/sam3` 提供; 本地测试通过
-# pyproject.toml 的 pythonpath 注入. 显式把 vendor 根加进 sys.path 兜底.
+# vendor 由容器构建时修补并安装；本地 CPU 单测不安装模型源码。
+# 容器路径显式加入 sys.path，供上游包解析。
 _VENDOR_ROOT = "/app/vendor/sam3"
 if os.path.isdir(_VENDOR_ROOT) and _VENDOR_ROOT not in sys.path:
     sys.path.insert(0, _VENDOR_ROOT)

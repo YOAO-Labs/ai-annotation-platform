@@ -76,6 +76,9 @@ apps/sam3-backend/
 
 构建在干净的 submodule 副本上应用 `patches/0001-request-scoped-autocast.patch`：
 四处 autocast 上下文不再永久进入，避免驱逐模型后保留缓存。不要直接修改 submodule 工作树。
+支持的模型推理入口是构建后的容器；宿主机 CPU 单测不加载上游模型。
+不要把未修补的 `vendor/sam3` 直接加入 `PYTHONPATH` 或安装到宿主机用于推理，
+否则会重新启用进程级 autocast。
 旧 `sam3/model/{sam3_multiplex_base,sam3_multiplex_video_predictor,sam3_tracking_predictor}.py`
 由补丁逐字还原。`scripts/eval/silver/{README.md,fathomnet_image_uuids.json}` 和
 `assets/veval/toy_gt_and_pred/{toy_saco_veval_sav_test_eval_res.json,toy_saco_veval_sav_test_pred.json}`
