@@ -41,8 +41,9 @@ pytestmark = [
 
 
 @pytest.mark.parametrize("operation", ["batch_predict", "interactive_predict"])
-async def test_revoked_approval_after_cpu_admission_wait_sends_no_http(
-    test_engine, tmp_path, operation
+@pytest.mark.parametrize("wait_stage", ["admission", "route"])
+async def test_revoked_approval_after_wait_sends_no_http(
+    test_engine, tmp_path, operation, wait_stage
 ):
     await assert_owned_test_database(test_engine)
     routing_dsn = os.environ["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"]
@@ -200,8 +201,9 @@ server.serve_forever()
 
         @asynccontextmanager
         async def admission(_operation, _scope):
-            entered.set()
-            await release.wait()
+            if wait_stage == "admission":
+                entered.set()
+                await release.wait()
             yield None
 
         async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
@@ -233,14 +235,36 @@ server.serve_forever()
             source = BackendEndpointManager(
                 BackendEndpointPostgresData(endpoint_dsn, "execution")
             )
+            route_factory = RoutingModelRequestContextFactory(runtime)
+
+            def request_context_factory(request, endpoint, route_binding):
+                context = route_factory(request, endpoint, route_binding)
+
+                @asynccontextmanager
+                async def gated(http_request):
+                    async with context(http_request) as grant:
+                        if wait_stage == "route":
+                            entered.set()
+                            await release.wait()
+                        yield grant
+
+                return gated
+
             provider = BackendTransportModelExecutionProvider(
                 source,
                 options=SimpleNamespace(ml_health_timeout=5, ml_predict_timeout=10),
-                request_context_factory=RoutingModelRequestContextFactory(runtime),
+                request_context_factory=request_context_factory,
                 dispatch_context_factory=lambda *_: admission,
             )
             running = asyncio.create_task(provider.execute(request))
             await asyncio.wait_for(entered.wait(), timeout=10)
+            if wait_stage == "route":
+                prepared = await owner.fetchrow(
+                    "SELECT state, dispatch_state FROM aap_inference_routing_v1.attempts "
+                    "WHERE id=$1",
+                    request_id,
+                )
+                assert tuple(prepared) == ("active", "prepared")
             revoked = {**decision, "expected_revision": 1, "approved": []}
             await owner.fetchval(
                 "SELECT aap_inference_topology_v1.set_plugin_asset_approval($1,1,$2::text)",
