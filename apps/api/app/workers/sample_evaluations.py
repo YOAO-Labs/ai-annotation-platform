@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.async_job import AsyncJob
 from app.db.models.sample_evaluation import (
     SampleEvaluationAttempt as Attempt,
     SampleEvaluationRun as Run,
@@ -556,9 +555,9 @@ async def dispatch(db, run):
         return
     task_id = str(uuid.uuid4())
     attempt.dispatched_at = service.now()
-    job = await db.get(AsyncJob, attempt.async_job_id)
+    job = await jobs.get_job(db, attempt.async_job_id)
     if job:
-        job.celery_task_id = task_id
+        jobs.bind_execution_id(job, task_id)
     await db.commit()
     try:
         run_sample_evaluation.apply_async(args=[str(attempt.id)], task_id=task_id)
