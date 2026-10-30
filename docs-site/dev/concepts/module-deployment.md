@@ -242,7 +242,7 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 
 ## 通用推理插件准入与限定验收 {#inference-plugin-admission}
 
-manifest 的 `models` 是完整获准模型目录的最小安全投影，`pools` 是命名容量；实际 setup、新鲜挑战绑定的 health 与资格报告必须一致。CPU 不绑定 GPU，也不携带 GPU generation／control epoch；CUDA 显式绑定单卡与获准报告。ORT 另核对 factory 的 session 数量和每轮每个实际 session 的 provider 链，不能两轮漏报同一 session。严格 CUDA 拒绝整 session 回退，不声称全部算子均在 GPU 上执行。
+manifest 的 `models` 是插件完整声明目录的最小安全投影，不是管理员的资产批准清单；`pools` 是命名容量。实际 setup、新鲜挑战绑定的 health 与资格报告必须一致。CPU 不绑定 GPU，也不携带 GPU generation／control epoch；CUDA 显式绑定单卡与获准报告。ORT 另核对 factory 的 session 数量和每轮每个实际 session 的 provider 链，不能两轮漏报同一 session。严格 CUDA 拒绝整 session 回退，不声称全部算子均在 GPU 上执行。
 
 复杂后端保留原生 HTTP 服务，不经过检测专用适配器。安装、项目启用、模型试用／人工发布仍是不同动作。路由控制与业务 Bearer 各自认证；终止排空只在原 unload 权限范围内开放精确路径，并校验全部声明池。历史 manifest 通过批准 inventory 迁移，保留原身份、制品及收据；缺少新声明的旧镜像不能凭收据迁移取得重新激活资格，具体步骤见[管理员指南](/user-guide/superadmin/ml-backend-registry#历史清单与本地收据迁移)。
 
@@ -262,9 +262,13 @@ ONNXTools 的 operator 资格已在独占单卡上实际通过：`pipeline` 两�
 
 YOLO、RapidOCR、ONNXTools 的唯一源码已迁到官方仓库的 `plugins/inference/`。平台 Compose 显式启用固定摘要制品，维护入口区分插件镜像拉取与仍在平台的 SAM 构建；平台 CI 只保留自身契约、资产管理工具及 SAM 测试，官方实现的测试在官方仓库运行。
 
-新独立 ONNXTools 和 RapidOCR 已分别通过完整两轮单卡 GPU 生命周期证明，核对全部实际业务 sessions，并由普通 API SDK 完成报告校验、安装和平台端点激活。前者覆盖三池／四 sessions，后者覆盖三引擎／九 sessions；释放后活动计数归零。YOLO 的多任务、受控模型、正例 tracker、World／YOLOE 文本及 exemplar CPU HTTP 已与独立原生预期比对，完整 CUDA 资格仍需覆盖全部选用权重与编码器，不能沿用仅覆盖闭集模型的证明。
+新独立 ONNXTools 和 RapidOCR 已分别通过完整两轮单卡 GPU 生命周期证明，核对全部实际业务 sessions，并由普通 API SDK 完成报告校验、安装和平台端点激活。前者覆盖三池／四 sessions，后者覆盖三引擎／九 sessions；释放后活动计数归零。YOLO 的多任务、受控模型、正例 ByteTrack／BoT-SORT、World／YOLOE 文本及 exemplar CPU HTTP 已与独立原生预期比对，完整 CUDA 资格仍需覆盖全部选用权重与编码器，不能沿用仅覆盖闭集模型的证明。
 
-原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。新镜像的平台项目授权、预测持久化及治理验收仍独立推进，安装不自动启用项目。源码提交、不可变制品、报告摘要、早期失败和私有证据位置见拆仓计划的第五批记录；旧业务资格、历史收据与原环境恢复义务不被覆盖。
+官方插件还提供独立的部署资产选择描述：预期模型／变体和文件身份由插件发布清单及原生加载依赖产生，绑定具体制品与原安装清单；描述自身的摘要与安装清单摘要分开。四个插件的实际输出已通过平台纯类型消费者和规范摘要核验，描述工具不读取权重内容、不批准、不下载，也不决定项目权限。当前集成验收仍发现未批准 OCR 变体被目录标为可执行的缺口，安装级批准／撤销和目录、排队、发送门禁正在隔离工作树验证，尚未记为平台治理闭环。
+
+当前独立平台已观察到 ONNX 当前任务、空例／边界批量、crop 属性及 OCR 的真实持久化结果，以及项目停用和无项目成员权限的拒绝。跨后端驱逐后的首次请求则因强制健康刷新使已预留路由的 eligibility revision 过期而失败；随后独立提交的成功请求不替代该验收。修复必须保留原成员、配置、池代际、当前授权和固定 tracker scope 的所有权，不能靠重试或放宽围栏通过。
+
+原生受控 checkpoint 的兼容清单使用必填的显式 `format: null`，与具名导出格式精确区分；这不是缺省通配或发布许可。off／observe 的 legacy CUDA 拒绝不算成功推理；正常 SDK 停用后的物理空闲，也不等于重启 owner 后的未知分配已恢复为可准入。源码、不可变制品、报告摘要、失败与私有证据位置见拆仓计划的第五批记录。完整业务／治理、未知状态恢复和安全退役继续独立推进；旧业务资格、历史收据及原环境恢复义务不被覆盖。
 
 ## Learning 的 Jobs 读取 {#learning-jobs-reads}
 
