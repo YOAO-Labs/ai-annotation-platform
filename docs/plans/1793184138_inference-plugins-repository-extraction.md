@@ -45,14 +45,14 @@
 
 现有五个后端加上独立 LibreYOLO，共六个迁移单元。以现有后端的运行依赖和生命周期为单位，不按每个模型规格建仓或建插件。
 
-| 插件单元         | 当前代码入口                                                       | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
-| ---------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| LibreYOLO        | 官方仓 `plugins/inference/libreyolo`，原生 loader 位于其 `native/` | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
-| Ultralytics YOLO | 官方仓 `plugins/inference/yolo`                                    | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
-| RapidOCR         | 官方仓 `plugins/inference/rapidocr`                                | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
-| ONNXTools        | 官方仓 `plugins/inference/onnxtools`                               | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、四个业务 sessions；两份权重仅获准内部验收，不代表可公开分发    |
-| Grounded-SAM2    | 官方仓 `plugins/inference/grounded-sam2/`；平台旧源码暂留 `apps/grounded-sam2-backend` | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪 | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask |
-| SAM3             | 官方仓 `plugins/inference/sam3/`；平台旧源码暂留 `apps/sam3-backend` | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力 | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪 |
+| 插件单元         | 当前代码入口                                                                           | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
+| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| LibreYOLO        | 官方仓 `plugins/inference/libreyolo`，原生 loader 位于其 `native/`                     | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
+| Ultralytics YOLO | 官方仓 `plugins/inference/yolo`                                                        | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
+| RapidOCR         | 官方仓 `plugins/inference/rapidocr`                                                    | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
+| ONNXTools        | 官方仓 `plugins/inference/onnxtools`                                                   | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、四个业务 sessions；两份权重仅获准内部验收，不代表可公开分发    |
+| Grounded-SAM2    | 官方仓 `plugins/inference/grounded-sam2/`；平台旧源码暂留 `apps/grounded-sam2-backend` | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
+| SAM3             | 官方仓 `plugins/inference/sam3/`；平台旧源码暂留 `apps/sam3-backend`                   | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
 
 这张表基于当前实现调查，不代表六个插件均已独立发布或取得 GPU 资格。SAM vendor 的训练代码或训练 extra 不等于平台已支持 SAM 训练回流。
 
@@ -227,17 +227,23 @@ SDK 边界另需通过独立安装验证：API SDK 核心安装可导入并调�
 
 这些后端目前是整窗 JSON 返回，vendor 内部 generator 不等于逐帧 HTTP 流。平台仍负责跨窗编排、进度、取消、迟到结果隔离和最终写入，不能把这些 owner 责任移给插件。
 
-#### 当前证据与未完成门禁
+#### 限定验收结果与阶段边界
 
-- 官方仓 `main` 为 `eac82ed5e51b84c7c95588561fc3503844978526`，两种实现独立分发，vendor 分别固定为 Grounded-SAM2 `b7a9c29f196edff0eb54dbe14588d7ae5e3dde28`、SAM3 `4cbac146c1b5a1e3a7f5c6a894901090b4dfd65b`，后者保留窄范围 autocast 补丁。[官方源码 CI](https://github.com/YOAO-Labs/YOAO-Plugins/actions/runs/41196578903) 已通过；两者公开二进制发布仍待完成。平台旧副本及 Compose 不在本阶段删除。
-- Plugin-SDK `main` 为 `1380d8a798144d9e8660edb7ef5abfaae420314c`，制品见 [python-sdk-1380d8a79814](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/python-sdk-1380d8a79814)。有状态 session 取消等待真实 worker／future 与 borrower，清理失败保持可见。它与平台 API SDK 仍各自独立；API SDK 同源签名上传修复 `cb11f75aa` 已合入 `856f5938c`，现有 SDK 测试环境中 49 项数据集测试通过。
+- 官方仓已推送 `e489ff1d4b7c2ec7acabdbe4b10f3663bbd706a0`，该提交的[官方源码 CI](https://github.com/YOAO-Labs/YOAO-Plugins/actions/runs/41236246201) 已通过。Grounded-SAM2 与 SAM3 的独立第一方制品分别发布为 [python-245bed115c68](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-245bed115c68)、[python-e489ff1d4b7c](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-e489ff1d4b7c)。两者 vendor 分别固定为 `b7a9c29f196edff0eb54dbe14588d7ae5e3dde28`、`4cbac146c1b5a1e3a7f5c6a894901090b4dfd65b`；公开归档不含子模块内容、权重、第三方 wheelhouse 或 OCI 镜像。SAM3 发布标签的实际提交、六份远端资产的大小与 SHA256 均已核对。
+- Plugin-SDK 已独立发布 [python-sdk-46ae0c4f5f03](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/python-sdk-46ae0c4f5f03)。持久状态归实际模型池条目，每个命令仅在执行期间持有 borrower；驱逐和排空使旧 token 失效，等待真实清理并释放模型强引用后才清理分配器缓存，失败保留未知状态。安装 wheel 的 165 项 runtime、35 项作者 SDK 和 41 项 Mask 检查通过；它与平台 API SDK 仍独立维护。
 - Grounded-SAM2 保留 Python 3.10、Torch 2.3.1、torchvision 0.18.1 与 CUDA 12.1；SAM3 保留 Python 3.12、Torch 2.7.1、CUDA 12.8 且仅 GPU 推理。兼容 runtime／Mask 制品可供 Grounded 使用，无须安装要求 Python 3.11 的作者 SDK；不合并运行环境或降低包元数据要求。
 - 轻量目录 `grounded_sam2_plugin.catalog` 和 `sam3_plugin.catalog` 分别拥有 manifest 与 `deployment_selections(data_root)`；Grounded 有 36 个完整选择、11 个资产文件，SAM3 有 5 个选择及两份分别受许可门禁约束的权重。没有公开模型权重或接受新许可条款；插件进程不持有 S3 管理凭据或生命周期签名私钥。目录可见不授予下载或执行权限。
-- Grounded 固定本地镜像 ID `sha256:0177fa9d76ff5f526bef5f36dbd7aa0b49cead9cdb53b78515194b245a133e7e`，私有 OCI `127.0.0.1:5050/aap/grounded-sam2-plugin@sha256:16c2bfdc3be011b3b70ae5c4f5820a76b776c7e4f0e5efd60b868c672b96006a`。在单独授权的 GPU1 上真实 image／video 资格及两轮生命周期通过，正常原生安装 active，owner 就绪为 enforcing／ready；这些是私有本地资格，不是公开二进制发布。
-- 实际平台图像请求分别证明文本多边形输出与精确原生 RLE Mask，以及交互框、三个 multimask 候选、正负点、logits 续用、原图尺寸 RLE 解码和候选绑定收据。Grounded 文本 `output=mask` 沿用多边形路径，点／框／Mask／涂抹的精确 Mask 必须经过对应能力检查。原生 Mask 接纳当前被 owner 读取缺陷阻断；Mask seed 接纳／读回、队列视频、取消及浏览器闭环仍待验收。
-- 分别以文件可用但未批准的 interactive large/B、已批准但暂时缺少任务自有小权重的 interactive small/T 验证治理负例，均返回 `503 ml_backend_pool_unavailable`；没有改动原权重副本，也不因此获准下载或执行。默认 Grounded 的最大 context 与 window 同为 300，故 tracker context 为 `none`；正向平台 session 验收仍需显式运行配置。
-- SAM3 固定源码 `da8901f61832f678a1d666f8bd8c58209c73d94f` 和镜像 ID `sha256:33416ec67f755388f9e69933bb45d01485a6e61b19480148a4c9e0c1c5ed6696` 已构建，私有 OCI 为 `127.0.0.1:5050/aap/sam3-plugin@sha256:58b7a33c975dace6071296b9f931d4d52a88f5bf474d15c2880377fe8cd9bd06`。此前 213 项 CPU 测试及真实无 GPU 容器检查通过；尚无 SAM3 GPU 推理或原生激活验收，Grounded 后还须串行验收 image／multiplex／PVS 全池。
-- 阶段 E 还须完成正向跨窗 session、取消／实际执行排空／清理失败、全部真实池与两轮生命周期、平台接纳／视频／浏览器检查，以及获授权制品发布。原有两套 LibreYOLO GPU1 安装在授权窗口暂时停用，原数据、记录及路由权重保留；交付前须经正常 SDK restart 与 member resume 恢复。GPU0 训练未动用；以上任何单项证据均不代表阶段 E 完成。
+- Grounded 固定源码 `245bed115c68538bc73728c52f54214b473f0f5b`、镜像 ID `sha256:9ef7f099988dae6da434de1e99e790ebcf8583d254f342331f903c71065424ba`、私有 OCI `127.0.0.1:5050/aap/grounded-sam2-plugin@sha256:45cc95478f4c52273a6f7f31bd58978ed47156d5b188bc5eb5a0e48a9c77df83`。全池真实资格和两轮生命周期通过，两轮均回到实测 347 MiB context 基线；正常安装、项目启用、资产批准和 enforcing／ready 后完成业务，最终正常退役并取得 `proof_backed_collection_complete`。
+- Grounded 的实际图像请求覆盖文本多边形、交互框、三个 multimask 候选、正负点、logits 续用、原图尺寸 RLE、候选收据、原生 Mask 接纳及 seed 读回。显式 context 64／window 16 下，48 帧正反向任务均完成三个窗口、持久会话关闭和正常结果丢弃；另验证运行中取消及取消后标注不变。取消状态本身不代替真实执行排空证明。默认 context／window 同为 300 的配置仍是 `none`，不能继承此 session 资格。
+- 资产治理负例仍保留：未批准的 interactive large/B、已批准但缺少任务自有小权重的 interactive small/T 均返回 `503 ml_backend_pool_unavailable`。平台限权 Mask 接纳／像素读取、凭据撤销围栏、视频衍生物及 Jobs owner 修复已审核整合到 `13d9b034a8468862a89a2f21d79c530a4dbc5ab6`；真实业务未通过扩大 API 私表权限绕过 owner。
+- SAM3 修复了索引 CUDA 设备放置、288×288 原生 logits 与 256×256 协议网格适配，以及非 root 进程的内核缓存目录。两项真实 codec 回归修复前失败、修复后通过，固定 Torch 环境中另有 29 项既有图像检查通过。最终源码 `e489ff1` 还为 PVS 独立会话启动补上执行线程内的 BF16 autocast；启动、续用与关闭均通过真实签名请求核验帧和对象身份。
+- SAM3 最终镜像为 `sha256:952de08ec06cf2a9b14ad5ed10a9e95b6b0feff6657d17c49099ac02328579ee`，私有 OCI 为 `127.0.0.1:5050/aap/sam3-plugin@sha256:0d00c055712debb65d9bb6676dd60a63c95eab36fbd8940f79c54c16e7a2af97`。三池、两轮生命周期的九项资格检查全部通过，最后各池均非驻留且活动计数归零；卸载后比实测 CUDA context 基线多 80 MiB，不宣称精确回到基线。最终正常退役、移除容器，等待实际 Token 时限后取得 `proof_backed_collection_complete`，GPU 计账归零。
+- 同一最终制品按图像→PVS→multiplex 顺序通过实际平台业务：图像七类场景包含原生 Mask 接纳、logits 续用、seed 读回和 exemplar；PVS 与 multiplex 的正反向结果均覆盖全部 48 帧，各经过四个有效 12 帧窗口。PVS 使用明确的 context 64 并记录持久会话关闭，multiplex 仍是独立窗口；未缩短平台窗口或降低阈值。两种模式取消后标注均未变化。multiplex 反向结果丢弃曾遇到正常的 NOWAIT 锁冲突 `409`，待锁释放后通过原 SDK 完成，没有重放已成功推理。
+- 旧 `7e51ea4` 候选的 PVS BF16／Float 错误及随后 multiplex 显存不足、最终候选修复前的后续窗口准入失败，均保留失败证据。新制品在相同执行顺序下通过，不等于已经孤立证明旧显存失败的唯一原因，也不构成其他权重或设备的容量承诺。平台准入修复 `a08377f60` 仅在驻留与冷启动观测同时未就绪时刷新一次并重验完整证明；95 项相关检查通过，随后真实视频业务通过。运行 owner 已采用对应提交并移除临时工作树源码覆盖。
+- 浏览器实际查看已保存的原生 Mask，核对明暗主题、桌面与 390px 窄屏，无横向溢出；窄屏遵守既有只读限制。适配器为 SwiftShader，只能作为软件渲染证据，不能登记为硬件 WebGPU 资格。保留修复前未就绪提示及鉴权／任务冲突、旧绑定与推理失败请求，不宣称零失败请求。
+- 原生安装实测 UID/GID 为 `1000:1000`、根文件系统可写且无单独 `/tmp` tmpfs；只读根和 tmpfs 属于隔离资格容器的约束，不能混称。限定 GPU 为物理 GPU1 `GPU-ac5e7f45-7a36-c3f8-1f65-a54f28bfcd31`，容器中的逻辑 `cuda:0` 不代表宿主 GPU0。未给本次验收授予 GPU0；此前磁盘耗尽造成原有训练容器自动重启，因此不能声称手工环境从未中断。
+- 已按授权删除未被使用的 26 个旧 dev 镜像、4 个已退出旧模型容器，以及 17 个已合并且不再承载服务的中间工作树及其分支；对应可销毁测试环境通过原工具清理，保留验收归档、模型资产和仍运行的工作树。原有两套 LibreYOLO GPU1 安装已通过正常 SDK restart 与 member resume 恢复为 active，正常健康检查均返回 `ok`，原固定镜像、物理 GPU 绑定和 `1:100` 路由权重保持不变。阶段 E 的限定交付已完成；旧 SAM 源码、Compose 切换及历史退役仍归阶段 F，不能将本次第一方制品发布记为该切换已经完成。
+- 文档验证分别记录：架构页、模型市场指南和镜像后的更新日志均通过真实 VitePress 按页编译，并返回包含本次内容的 JavaScript。全站 `pnpm docs:build` 被 `docs-site/dev/reference/env-vars.md:209` 中未转义的 `<node>/<physical-device-token>` 阻断；该文件 SHA256 与阶段前 `13d9b034a` 基线一致，本轮未改动。按页通过不冒充全站构建通过，该既有文档缺陷另行处理。
 
 ### F. 按插件完成平台切换与历史退役
 

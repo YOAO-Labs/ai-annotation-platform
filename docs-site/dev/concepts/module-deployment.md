@@ -236,7 +236,7 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
-| 插件装配与扩展安装 | 推理准入、作者 SDK、管理员安装器与 HTTP 适配分工明确；全扩展点装配仍未交付 | SDK／运行时／Mask 工具归独立 Plugin-SDK；六个官方插件实现归 YOAO-Plugins，三个普通后端旧源码已删除，两个 SAM 平台旧副本暂留 | 阶段 D 的限定本机资格已完成；Grounded-SAM2 真实 image／video GPU 资格、两轮生命周期及部分平台图像请求通过；SAM3 仅有构建、CPU 测试及无 GPU 容器证据 | 阶段 E 仍须完成原生 Mask 接纳、Mask seed 读回、队列视频、正向跨窗 session、取消与排空／清理、浏览器检查、SAM3 全池 GPU／原生激活及授权制品发布，恢复原有 LibreYOLO 服务；阶段 F 再切换及退役旧 SAM。核心装配、其他扩展及第三方许可门禁独立推进 |
+| 插件装配与扩展安装 | 推理准入、作者 SDK、管理员安装器与 HTTP 适配分工明确；全扩展点装配仍未交付 | SDK／运行时／Mask 工具归独立 Plugin-SDK；六个官方插件实现归 YOAO-Plugins，三个普通后端旧源码已删除，两个 SAM 平台旧副本暂留 | 阶段 D、E 的限定本机资格完成；两种 SAM 均通过原生 Mask、正反向跨窗视频、全池两轮 GPU 生命周期及正常退役；SAM3 另覆盖 exemplar、PVS 和 multiplex，独立第一方制品已发布，原 LibreYOLO 服务已恢复 | 阶段 F 再切换固定部署制品并退役旧 SAM；核心装配、其他扩展、第三方许可与生产容量门禁独立推进 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
 
@@ -248,7 +248,15 @@ manifest 的 `models` 是插件完整声明目录的最小安全投影，不是�
 
 有状态插件保持各自运行环境：Grounded-SAM2 使用 Python 3.10、Torch 2.3.1／torchvision 0.18.1 和 CUDA 12.1；SAM3 使用 Python 3.12、Torch 2.7.1 和 CUDA 12.8，推理仅支持 GPU。插件各自发布轻量目录和资产选择，目录展示不构成资产下载、执行或再分发授权。插件不得持有 S3 管理凭据或生命周期签名私钥。
 
-Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同；实际平台接纳仍被 owner 读取缺陷阻断。默认 context 上限与窗口均为 300，tracker context 显示 `none`，不能据此宣称跨窗 session 已验收。源码、固定私有镜像、GPU 资格与尚待完成的平台门禁分别见[拆仓计划阶段 E](../../../docs/plans/1793184138_inference-plugins-repository-extraction.md#e-有状态交互与视频后端)。
+Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同。平台原生 Mask 接纳和 seed 读回已通过真实模型验证，输入、授权与最终提交仍由原 owner 负责。默认 context 上限与窗口均为 300，tracker context 显示 `none`；明确配置 context 64、window 16 后，48 帧正反向任务均通过三个窗口，并记录持久会话关闭。该资格不自动覆盖默认配置、其他权重或其他镜像。固定制品及验收范围见[拆仓计划阶段 E](../../../docs/plans/1793184138_inference-plugins-repository-extraction.md#e-有状态交互与视频后端)。
+
+空闲 tracker 会话归属实际模型池条目，每个命令只在真实执行期间借用该条目；续用不能按相同模型 key 静默重建。驱逐、排空或关闭先使旧上下文失效，再等待归属会话清理，释放模型强引用后才执行分配器缓存清理。清理失败保留资源根和未知驻留状态，不能以请求取消、borrower 归零或池为空代替物理释放证明。每个新窗口仍需独立签名准入与完成计账，持久会话不是重复使用旧授权的凭据。
+
+SAM3 显式按选定逻辑 CUDA 设备放置模型，并约束上游隐式 CUDA 调用的当前设备；逻辑 `cuda:0` 必须与安装绑定的物理 UUID 对照，不能解释为宿主机 GPU0。PVS 启动和每次续用均在实际执行线程建立各自的 BF16 autocast 上下文，不能依赖整窗调用的外层状态。PVS 支持配置后的持久上下文，multiplex 仍按独立窗口运行；两者的执行与清理合同不能混用。
+
+SAM3 的限定平台验收使用 context 64 的 PVS 配置和平台有效窗口 12；PVS 与 multiplex 的正反向结果均覆盖 48 帧、各四个窗口，取消后标注未变。全池两轮资格通过，但卸载后仍比实测 CUDA context 基线多 80 MiB，不能表述为精确基线回收。正常退役在实际 Token 时限后取得闭合证明并回收全部计账；该结果不自动覆盖其他配置、权重或设备。
+
+SAM3 的原生交互 logits 为 288×288，插件在边界适配统一的 256×256 不透明续点格式，并在下一次请求恢复原生网格；两向使用一致的像素中心采样。多候选不生成歧义续点 token，无效 logits 不再被静默丢弃。镜像的 `HOME=/tmp` 让非 root 进程使用可写缓存路径，但不改变安装器的根文件系统或 tmpfs 策略；实际安装与隔离资格容器的约束须分别记录。
 
 复杂后端保留原生 HTTP 服务，不经过检测专用适配器。安装、项目启用、模型试用／人工发布仍是不同动作。路由控制与业务 Bearer 各自认证；终止排空只在原 unload 权限范围内开放精确路径，并校验全部声明池。历史 manifest 通过批准 inventory 迁移，保留原身份、制品及收据；缺少新声明的旧镜像不能凭收据迁移取得重新激活资格，具体步骤见[管理员指南](/user-guide/superadmin/ml-backend-registry#历史清单与本地收据迁移)。
 

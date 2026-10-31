@@ -151,7 +151,9 @@ backend 的变体面板拆成两组：
 - **视频追踪权重**：video tracker 不使用 DINO，预热加载到**独立 video 池**（`POST /reload` body 携带 `modality=video`）。有多档视频权重时显示 SAM 下拉；只有单一视频模型时显示独立权重条目和预热按钮，不制造无意义下拉。
 - 分组是否显示优先读取健康检查落库的 `health_meta.capabilities.modalities`；纯图像 backend 不显示视频组，纯视频 backend 不显示图像组。未健康检查过、没有 modalities 快照时，页面回落到 `/setup` enum / tracker 判断，避免把未知能力的 backend 误隐藏。
 
-Grounded-SAM2 的默认 tracker context 为 `none`：默认最大 context 与 window 均为 300。需要跨窗 session 时须使用明确的运行配置，并以实际资格和平台验收为准；显示视频能力或完成预热不等于跨窗会话已验收。Grounded 文本请求的 `output=mask` 是多边形路径，精确原生 Mask 属于交互能力，使用前仍须检查已批准的能力。
+Grounded-SAM2 的默认 tracker context 为 `none`：默认最大 context 与 window 均为 300。需要跨窗 session 时须使用明确的运行配置，并以该配置、权重和固定镜像的实际资格为准；显示视频能力或完成预热不等于跨窗会话已验收。SAM3 的 PVS 与 multiplex 是不同视频能力：PVS 可使用持久上下文，multiplex 按独立窗口执行，上下文上限不等于平台实际窗口长度。每个窗口仍受平台准入与取消控制；空闲会话的模型由池持有，卸载时必须连同会话真实释放。驱逐或排空后旧上下文失效，不能续接到新加载的模型。Grounded 文本请求的 `output=mask` 是多边形路径，精确原生 Mask 属于交互能力，使用前仍须检查已批准的能力。
+
+SAM3 的不透明续点数据仅在无歧义的单候选交互中返回，插件负责统一协议格式与模型内部网格之间的适配；多候选阶段不返回续点 token。不要把模型原生 logits 当作平台的续点数据，或把没有 token 误认为候选掩码无法采纳。
 
 <DocsVideo
   src="/media/superadmin/model-market/video-pool.mp4"
