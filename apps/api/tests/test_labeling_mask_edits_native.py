@@ -9,9 +9,12 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 import pytest
 from sqlalchemy import delete, select
+from sqlalchemy.exc import DBAPIError
 
 from aap_labeling.ai_mask_accept_contract import (
     AI_MASK_ACCEPT_PROTOCOL,
+    FindAiMaskDecision,
+    LockAiMaskDecision,
     RecordAiMaskDecision,
     RefineAiMaskAnnotation,
 )
@@ -577,4 +580,81 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 await db.execute(delete(DatasetItem).where(DatasetItem.id == item_id))
             if dataset_id is not None:
                 await db.execute(delete(Dataset).where(Dataset.id == dataset_id))
+        await _cleanup(maker, world)
+
+
+async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
+    maker, world = await _seed(test_engine)
+    task_id = None
+    connection = None
+    try:
+        now = datetime.now(timezone.utc)
+        async with maker.begin() as db:
+            task = await create_task(
+                db, project_id=world["project_id"], status="in_progress"
+            )
+            task_id = task.id
+            db.add(AiMaskAcceptDecision(
+                task_id=task_id,
+                idempotency_key="decision-lock",
+                request_digest="a" * 64,
+                candidate_id="mask:test",
+                content_digest="b" * 64,
+                prediction_id=uuid.uuid4(),
+                prediction_created_at=now,
+                annotation_id=uuid.uuid4(),
+                result_version=1,
+                actor_id=world["member_id"],
+                response_json={"result_version": 1},
+                expires_at=now - timedelta(seconds=1),
+            ))
+        connection = await asyncpg.connect(
+            _dsn(test_engine, "AAP_MODULE_DATA_LABELING_MASK_EDIT_URL", _ROLE),
+            timeout=5,
+            command_timeout=10,
+        )
+        async def execute(payload):
+            return await connection.fetchval(
+                "SELECT aap_labeling_v1.ai_mask_accept_command($1::jsonb)", payload
+            )
+
+        client = AiMaskAcceptDataClient(execute)
+        identity = dict(
+            schema=AI_MASK_ACCEPT_PROTOCOL,
+            task_id=task_id,
+            idempotency_key="decision-lock",
+        )
+        async with connection.transaction():
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with connection.transaction():
+                    await connection.fetch("SELECT id FROM public.ai_mask_accept_decisions")
+            found = await client.command(FindAiMaskDecision(operation="find_decision", **identity))
+            assert found.decision.found and found.decision.expires_at < now
+            locked = await client.command(LockAiMaskDecision(operation="lock_decision", **identity))
+            assert locked.decision == found.decision
+            async with maker() as db:
+                with pytest.raises(DBAPIError) as error:
+                    await db.execute(
+                        select(AiMaskAcceptDecision.id)
+                        .where(AiMaskAcceptDecision.task_id == task_id)
+                        .with_for_update(nowait=True)
+                    )
+                assert getattr(error.value.orig, "sqlstate", None) == "55P03"
+                await db.rollback()
+
+        async with maker.begin() as db:
+            await db.execute(
+                select(AiMaskAcceptDecision.id)
+                .where(AiMaskAcceptDecision.task_id == task_id)
+                .with_for_update()
+            )
+            async with connection.transaction():
+                with pytest.raises(asyncpg.LockNotAvailableError):
+                    await client.command(LockAiMaskDecision(operation="lock_decision", **identity))
+    finally:
+        if connection is not None:
+            await connection.close()
+        if task_id is not None:
+            async with maker.begin() as db:
+                await db.execute(delete(Task).where(Task.id == task_id))
         await _cleanup(maker, world)

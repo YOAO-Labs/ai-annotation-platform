@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aap_labeling.ai_mask_accept_contract import (
     AiMaskAcceptCommand,
     AiMaskAcceptUnavailable,
+    LockAiMaskDecision,
 )
 from aap_labeling.ai_mask_accept_data import AiMaskAcceptDataClient
 from aap_labeling.mask_edit_contract import MaskEditCommand, MaskEditUnavailable
@@ -70,6 +71,10 @@ async def _command(db: AsyncSession, sql: str, client_type, request, unavailable
             except (KeyError, TypeError, ValueError):
                 status_code, response_detail = 409, {"reason": "mask_write_conflict"}
             raise MaskOwnerCommandError(status_code, response_detail) from exc
+        if isinstance(request, LockAiMaskDecision) and sqlstate in {
+            "55P03", "40P01", "40001"
+        }:
+            raise
         if sqlstate in {"55P03", "40P01", "40001"}:
             raise MaskOwnerCommandError(409, {"reason": "task_busy"}) from exc
         raise

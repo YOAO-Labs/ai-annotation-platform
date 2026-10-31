@@ -18,6 +18,7 @@ from aap_labeling.ai_mask_accept_contract import (
     AiMaskDecisionData,
     ExpireAiMaskDecisions,
     FindAiMaskDecision,
+    LockAiMaskDecision,
     RecordAiMaskDecision,
     RefineAiMaskAnnotation,
     AI_MASK_ACCEPT_PROTOCOL,
@@ -106,13 +107,13 @@ def _replay_response(decision: AiMaskDecisionData) -> AiMaskAcceptResponse:
 
 
 async def _find_decision(
-    db: AsyncSession, *, task_id: uuid.UUID, idempotency_key: str
+    db: AsyncSession, *, task_id: uuid.UUID, idempotency_key: str, lock: bool = False
 ) -> AiMaskDecisionData | None:
     result = await ai_mask_accept_command(
         db,
-        FindAiMaskDecision(
+        (LockAiMaskDecision if lock else FindAiMaskDecision)(
             schema=AI_MASK_ACCEPT_PROTOCOL,
-            operation="find_decision",
+            operation="lock_decision" if lock else "find_decision",
             task_id=task_id,
             idempotency_key=idempotency_key,
         ),

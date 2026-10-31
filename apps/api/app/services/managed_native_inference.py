@@ -4,9 +4,6 @@ from dataclasses import dataclass, field
 import json
 import uuid
 
-from sqlalchemy import select
-
-from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.services.content_snapshot import ContentError
 from app.services import prediction_originals as originals
 from app.services.labeling_core_read_relations import get_core_row, task_row
@@ -35,6 +32,7 @@ class _NativeReceipt:
 
 async def qualify_native_acceptance(db, task, actor, request, data):
     from app.services.ai_mask_accept import (
+        _find_decision,
         AiMaskAcceptError,
         _validate_receipt,
         _validate_replay,
@@ -52,15 +50,9 @@ async def qualify_native_acceptance(db, task, actor, request, data):
         data.candidate.candidate.value.rle.model_dump(mode="json")
     )
     request_digest = ai_mask_accept_request_digest(data)
-    query = (
-        select(AiMaskAcceptDecision)
-        .where(
-            AiMaskAcceptDecision.task_id == task.id,
-            AiMaskAcceptDecision.idempotency_key == data.idempotency_key,
-        )
-        .execution_options(populate_existing=True)
+    existing = await _find_decision(
+        db, task_id=task.id, idempotency_key=data.idempotency_key
     )
-    existing = await db.scalar(query)
     # A completed Decision has its own lifetime. Its exact request and current
     # original must still match, but an expired candidate need not be re-signed.
     claims = (
@@ -83,7 +75,9 @@ async def qualify_native_acceptance(db, task, actor, request, data):
         )
         # No source handle or permit remains open while final business locks are held.
         await owner.final()
-        current = await db.scalar(query.with_for_update(read=True, nowait=True))
+        current = await _find_decision(
+            db, task_id=task.id, idempotency_key=data.idempotency_key, lock=True
+        )
         if current:
             project = await get_workspace_project(
                 db,

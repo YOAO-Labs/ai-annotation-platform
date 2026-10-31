@@ -38,6 +38,13 @@ class FindAiMaskDecision(_Command):
     idempotency_key: StrictStr
 
 
+class LockAiMaskDecision(_Command):
+    operation: Literal["lock_decision"]
+    task_id: uuid.UUID
+    idempotency_key: StrictStr
+
+
+
 class RecordAiMaskDecision(_Command):
     operation: Literal["record_decision"]
     task_id: uuid.UUID
@@ -85,6 +92,7 @@ class ExpireAiMaskDecisions(_Command):
 
 AiMaskAcceptCommand = Annotated[
     FindAiMaskDecision
+    | LockAiMaskDecision
     | RecordAiMaskDecision
     | RefineAiMaskAnnotation
     | ExpireAiMaskDecisions,
@@ -151,7 +159,10 @@ def decode_ai_mask_accept_reply(request: AiMaskAcceptCommand, value: object):
         raise AiMaskAcceptUnavailable() from None
     if not reply.ok or reply.request != request:
         raise AiMaskAcceptUnavailable()
-    if isinstance(request, FindAiMaskDecision) and reply.data.decision is None:
+    if (
+        isinstance(request, (FindAiMaskDecision, LockAiMaskDecision))
+        and reply.data.decision is None
+    ):
         raise AiMaskAcceptUnavailable()
     if isinstance(request, RefineAiMaskAnnotation) and (
         reply.data.annotation_id != request.annotation_id

@@ -11,7 +11,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import content_http_error, key_authority
 from app.services.dataset_references import reference_context, reference_snapshot
@@ -324,6 +323,7 @@ class _NativeReceipt:
 
 async def qualify_native_acceptance(db, task, actor, request, data):
     from app.services.ai_mask_accept import (
+        _find_decision,
         _validate_receipt,
         _validate_replay,
         ai_mask_accept_request_digest,
@@ -336,15 +336,9 @@ async def qualify_native_acceptance(db, task, actor, request, data):
         data.candidate.candidate.value.rle.model_dump(mode="json")
     )
     request_digest = ai_mask_accept_request_digest(data)
-    query = (
-        select(AiMaskAcceptDecision)
-        .where(
-            AiMaskAcceptDecision.task_id == task.id,
-            AiMaskAcceptDecision.idempotency_key == data.idempotency_key,
-        )
-        .execution_options(populate_existing=True)
+    existing = await _find_decision(
+        db, task_id=task.id, idempotency_key=data.idempotency_key
     )
-    existing = await db.scalar(query)
     claims = (
         None
         if existing
@@ -354,7 +348,9 @@ async def qualify_native_acceptance(db, task, actor, request, data):
     try:
         await owner.capture(annotations_read=data.target.mode == "refine")
         await owner.final()
-        current = await db.scalar(query.with_for_update(read=True, nowait=True))
+        current = await _find_decision(
+            db, task_id=task.id, idempotency_key=data.idempotency_key, lock=True
+        )
         if current:
             project = await get_workspace_project(
                 db,

@@ -279,6 +279,33 @@
       "title": "FindAiMaskDecision",
       "type": "object"
     },
+    "LockAiMaskDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-ai-mask-accept/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_decision",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "idempotency_key"],
+      "title": "LockAiMaskDecision",
+      "type": "object"
+    },
     "RecordAiMaskDecision": {
       "additionalProperties": false,
       "properties": {
@@ -584,6 +611,7 @@
         "mapping": {
           "expire_decisions": "#/$defs/ExpireAiMaskDecisions",
           "find_decision": "#/$defs/FindAiMaskDecision",
+          "lock_decision": "#/$defs/LockAiMaskDecision",
           "record_decision": "#/$defs/RecordAiMaskDecision",
           "refine_annotation": "#/$defs/RefineAiMaskAnnotation"
         },
@@ -592,6 +620,9 @@
       "oneOf": [
         {
           "$ref": "#/$defs/FindAiMaskDecision"
+        },
+        {
+          "$ref": "#/$defs/LockAiMaskDecision"
         },
         {
           "$ref": "#/$defs/RecordAiMaskDecision"
