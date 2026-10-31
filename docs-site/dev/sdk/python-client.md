@@ -122,7 +122,7 @@ with Client() as client:
 | `preview_lifecycle` | `preview_lifecycle(dataset_id, operation, *, expected_revision: int)`                                                      | `DatasetLifecyclePreview` |
 | `set_lifecycle`     | `set_lifecycle(dataset_id, operation, *, expected_revision: int, impact_token: str)`                                       | `DatasetLifecycleResult`  |
 
-- `upload_files`:逐文件三步流(upload-init → PUT 预签名 URL → upload-complete)。`on_progress(done, total, file_name)` 在每个文件完成后回调。
+- `upload_files`:逐文件三步流(upload-init → PUT 预签名 URL → upload-complete)。相对的签名上传地址按客户端平台地址解析；PUT 使用无平台认证头的独立连接。`on_progress(done, total, file_name)` 在每个文件完成后回调。
 - `upload_zip`:multipart 上传单个 ZIP 包,后端解压入库(≤200MB / ≤5000 文件)。
 - `link_project`:返回的 `LinkResult.status == "linking"` 时建任务走异步,用 `async_job_id` 配合 `client.jobs.wait` 等待。
 - `update`: `**fields` 保留“未提供”与“显式传 `None`”的区别，因此可以用 `axis_convention=None` 清除坐标系约定。

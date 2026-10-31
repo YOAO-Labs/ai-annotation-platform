@@ -23,7 +23,7 @@ from ai_annotation.models import (
     ZipUploadResult,
 )
 
-from .conftest import API
+from .conftest import API, BASE
 
 DS_ID = str(uuid4())
 DATASET = {
@@ -628,7 +628,17 @@ def test_dataset_management_maps_permission_error(
         call(client)
 
 
-def test_upload_files_three_step_flow(client, respx_mock, tmp_path):
+@pytest.mark.parametrize(
+    ("upload_url", "target"),
+    [
+        (
+            "http://minio.local/bucket/img.jpg?sig=1",
+            "http://minio.local/bucket/img.jpg?sig=1",
+        ),
+        ("/minio/bucket/img.jpg?sig=1", f"{BASE}/minio/bucket/img.jpg?sig=1"),
+    ],
+)
+def test_upload_files_three_step_flow(client, respx_mock, tmp_path, upload_url, target):
     item_id = str(uuid4())
     f = tmp_path / "img.jpg"
     f.write_bytes(b"jpegdata")
@@ -638,14 +648,12 @@ def test_upload_files_three_step_flow(client, respx_mock, tmp_path):
             200,
             json={
                 "item_id": item_id,
-                "upload_url": "http://minio.local/bucket/img.jpg?sig=1",
+                "upload_url": upload_url,
                 "expires_in": 900,
             },
         )
     )
-    put = respx_mock.put(host="minio.local", path="/bucket/img.jpg").mock(
-        return_value=httpx.Response(200)
-    )
+    put = respx_mock.put(target).mock(return_value=httpx.Response(200))
     complete = respx_mock.post(
         f"{API}/datasets/{DS_ID}/items/upload-complete/{item_id}"
     ).mock(
