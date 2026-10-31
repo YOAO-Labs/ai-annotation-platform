@@ -10,6 +10,8 @@ last_reviewed: 2026-10-24
 
 包名 `ai-annotation-sdk`,导入名 `ai_annotation`。同步 Client,底层 httpx + pydantic v2。
 
+本页是调用平台公开 API 的 SDK，不是编写推理插件的作者 SDK。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立发布作者接口、推理运行时与 Mask 工具；管理员可用本 SDK 管理安装，但这不授予插件管理员凭据或直接访问平台数据库的权限。两者的包、兼容和职责边界见[模块部署](../concepts/module-deployment#api-sdk-and-plugin-sdk)。
+
 项目分页／维护、批次分派／切分／送审、数据集回填、绩效、搜索、指引图片、失败预测与标注导入见 [项目、批次与数据运维](./project-workflows)。已有资源继续沿用 `projects`、`batches`、`datasets` 等入口，另有 `project_performance`、`search`、`guide_assets` 和 `failed_predictions`。
 
 账户、身份、用户管理和运维入口包括 `auth`、`account`、`avatars`、`api_keys`、`users`、`groups`、`invitations`、`health`、`ml_capabilities`、`system_settings`、`audit_logs`、`storage_connections`、`admin_operations`、`ml_diagnostics` 与 `project_ml`。这些命名空间的方法、公开类型与权限／恢复规则见 [账户、管理与运维](./account-and-operations)，精确参数和 schema 可用 `describe_operation("namespace.method")` 离线读取。

@@ -1,6 +1,6 @@
 # 推理后端插件化、Plugin-SDK 与官方插件独立仓库规划
 
-> 状态：阶段 C 与 C2 已完成；阶段 D 已切换三个后端的源码、构建和维护消费者。新独立 ONNXTools／RapidOCR 镜像已通过各自完整单卡 GPU 生命周期资格及实际 SDK 安装、平台激活；YOLO 完整 CUDA 资格和新镜像的平台业务／治理闭环仍在推进，不能用旧镜像或 CPU 证据替代。
+> 状态：阶段 C、C2 及阶段 D 的限定本机验收已完成；阶段 E 的两个有状态后端已有官方源码与固定镜像，Grounded-SAM2 取得限定 GPU 资格和部分平台请求证据，但平台接纳与其他验收门仍待完成；SAM3 尚无 GPU 推理或原生激活验收。阶段 E 未完成，平台旧 SAM 源码的退役属于阶段 F。
 >
 > 日期：规划于 2026-10-28，实施记录更新于 2026-10-31。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
 >
@@ -51,8 +51,8 @@
 | Ultralytics YOLO | 官方仓 `plugins/inference/yolo`                                    | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
 | RapidOCR         | 官方仓 `plugins/inference/rapidocr`                                | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
 | ONNXTools        | 官方仓 `plugins/inference/onnxtools`                               | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、四个业务 sessions；两份权重仅获准内部验收，不代表可公开分发    |
-| Grounded-SAM2    | `apps/grounded-sam2-backend`                                       | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
-| SAM3             | `apps/sam3-backend`                                                | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
+| Grounded-SAM2    | 官方仓 `plugins/inference/grounded-sam2/`；平台旧源码暂留 `apps/grounded-sam2-backend` | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪 | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask |
+| SAM3             | 官方仓 `plugins/inference/sam3/`；平台旧源码暂留 `apps/sam3-backend` | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力 | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪 |
 
 这张表基于当前实现调查，不代表六个插件均已独立发布或取得 GPU 资格。SAM vendor 的训练代码或训练 extra 不等于平台已支持 SAM 训练回流。
 
@@ -61,14 +61,14 @@
 - [YOLO 模型矩阵](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/model_registry.py)、[YOLO HTTP 服务](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/main.py)、[受控分割](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/managed_segmentation.py)。
 - [RapidOCR 目录](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/rapidocr/catalog.py)、[引擎池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/rapidocr/engine_pool.py)。
 - [ONNXTools 服务](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/main.py)、[属性 schema](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/attribute_schema.py)、[句柄池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/handle_pool.py)。
-- [Grounded-SAM2 服务](../../apps/grounded-sam2-backend/main.py)、[视频执行](../../apps/grounded-sam2-backend/video_predictor.py)。
-- [SAM3 服务](../../apps/sam3-backend/main.py)、[multiplex](../../apps/sam3-backend/video_predictor.py)、[PVS](../../apps/sam3-backend/pvs_video_predictor.py)。
+- [Grounded-SAM2 官方实现](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/grounded-sam2)；平台旧服务暂留至阶段 F。
+- [SAM3 官方实现](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/sam3)；平台旧服务暂留至阶段 F。
 
 ### LibreYOLO 当前进度不能扩大解释
 
 LibreYOLO 已交付独立 SDK、插件及安装治理，在自有隔离环境完成真实 GPU 训练与原生 checkpoint 回流、受控安装试用及人工发布、当前任务／批量／真实裁剪、CPU 历史冻结与退役，以及三种路由模式的在途排空、升级失败恢复和受控重启。原生 close 两轮使 Torch allocated／reserved 回到零，旧 YOLO 中的 LibreYOLO 适配分支已删除；证据及已知范围限制见[试点 Outcome](1793156248_libreyolo-inference-plugin.md#outcome)。
 
-**尚未完成**：阶段 D 的完整模型与平台治理联合验收、两个 SAM 后端的独立迁移、全扩展点统一装配。SDK、共享工具与 LibreYOLO 的唯一源码切换、公开 Python 制品、干净构建及拆仓后的平台业务验收已按第四批完成；三个普通后端的源码切换和新镜像资格按第五批单独记录。单卡串行通过不证明双卡隔离、并发调度、模型精度或生产容量；代码、依赖及权重的许可前置也不会因本机可运行而消失。
+**尚未完成**：阶段 E 的有状态平台联合验收与两个 SAM 后端的平台切换、全扩展点统一装配。单卡串行通过不证明双卡隔离、并发调度、模型精度或生产容量；代码、依赖及权重的许可前置也不会因本机可运行而消失。
 
 ## 3. 仓库边界
 
@@ -115,6 +115,8 @@ plugins/YOAO-plugins/
       yolo/
       rapidocr/
       onnxtools/
+      grounded-sam2/
+      sam3/
   scripts/
 ```
 
@@ -224,6 +226,18 @@ SDK 边界另需通过独立安装验证：API SDK 核心安装可导入并调�
 必须保留精确 Mask／RLE、低分辨率 logits、多候选、prompt revision、对象与源帧身份、正反向传播、session start／continue／close／lost，以及取消后真实执行和借用的结束。
 
 这些后端目前是整窗 JSON 返回，vendor 内部 generator 不等于逐帧 HTTP 流。平台仍负责跨窗编排、进度、取消、迟到结果隔离和最终写入，不能把这些 owner 责任移给插件。
+
+#### 当前证据与未完成门禁
+
+- 官方仓 `main` 为 `eac82ed5e51b84c7c95588561fc3503844978526`，两种实现独立分发，vendor 分别固定为 Grounded-SAM2 `b7a9c29f196edff0eb54dbe14588d7ae5e3dde28`、SAM3 `4cbac146c1b5a1e3a7f5c6a894901090b4dfd65b`，后者保留窄范围 autocast 补丁。[官方源码 CI](https://github.com/YOAO-Labs/YOAO-Plugins/actions/runs/41196578903) 已通过；两者公开二进制发布仍待完成。平台旧副本及 Compose 不在本阶段删除。
+- Plugin-SDK `main` 为 `1380d8a798144d9e8660edb7ef5abfaae420314c`，制品见 [python-sdk-1380d8a79814](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/python-sdk-1380d8a79814)。有状态 session 取消等待真实 worker／future 与 borrower，清理失败保持可见。它与平台 API SDK 仍各自独立；API SDK 同源签名上传修复 `cb11f75aa` 已合入 `856f5938c`，现有 SDK 测试环境中 49 项数据集测试通过。
+- Grounded-SAM2 保留 Python 3.10、Torch 2.3.1、torchvision 0.18.1 与 CUDA 12.1；SAM3 保留 Python 3.12、Torch 2.7.1、CUDA 12.8 且仅 GPU 推理。兼容 runtime／Mask 制品可供 Grounded 使用，无须安装要求 Python 3.11 的作者 SDK；不合并运行环境或降低包元数据要求。
+- 轻量目录 `grounded_sam2_plugin.catalog` 和 `sam3_plugin.catalog` 分别拥有 manifest 与 `deployment_selections(data_root)`；Grounded 有 36 个完整选择、11 个资产文件，SAM3 有 5 个选择及两份分别受许可门禁约束的权重。没有公开模型权重或接受新许可条款；插件进程不持有 S3 管理凭据或生命周期签名私钥。目录可见不授予下载或执行权限。
+- Grounded 固定本地镜像 ID `sha256:0177fa9d76ff5f526bef5f36dbd7aa0b49cead9cdb53b78515194b245a133e7e`，私有 OCI `127.0.0.1:5050/aap/grounded-sam2-plugin@sha256:16c2bfdc3be011b3b70ae5c4f5820a76b776c7e4f0e5efd60b868c672b96006a`。在单独授权的 GPU1 上真实 image／video 资格及两轮生命周期通过，正常原生安装 active，owner 就绪为 enforcing／ready；这些是私有本地资格，不是公开二进制发布。
+- 实际平台图像请求分别证明文本多边形输出与精确原生 RLE Mask，以及交互框、三个 multimask 候选、正负点、logits 续用、原图尺寸 RLE 解码和候选绑定收据。Grounded 文本 `output=mask` 沿用多边形路径，点／框／Mask／涂抹的精确 Mask 必须经过对应能力检查。原生 Mask 接纳当前被 owner 读取缺陷阻断；Mask seed 接纳／读回、队列视频、取消及浏览器闭环仍待验收。
+- 分别以文件可用但未批准的 interactive large/B、已批准但暂时缺少任务自有小权重的 interactive small/T 验证治理负例，均返回 `503 ml_backend_pool_unavailable`；没有改动原权重副本，也不因此获准下载或执行。默认 Grounded 的最大 context 与 window 同为 300，故 tracker context 为 `none`；正向平台 session 验收仍需显式运行配置。
+- SAM3 固定源码 `da8901f61832f678a1d666f8bd8c58209c73d94f` 和镜像 ID `sha256:33416ec67f755388f9e69933bb45d01485a6e61b19480148a4c9e0c1c5ed6696` 已构建，私有 OCI 为 `127.0.0.1:5050/aap/sam3-plugin@sha256:58b7a33c975dace6071296b9f931d4d52a88f5bf474d15c2880377fe8cd9bd06`。此前 213 项 CPU 测试及真实无 GPU 容器检查通过；尚无 SAM3 GPU 推理或原生激活验收，Grounded 后还须串行验收 image／multiplex／PVS 全池。
+- 阶段 E 还须完成正向跨窗 session、取消／实际执行排空／清理失败、全部真实池与两轮生命周期、平台接纳／视频／浏览器检查，以及获授权制品发布。原有两套 LibreYOLO GPU1 安装在授权窗口暂时停用，原数据、记录及路由权重保留；交付前须经正常 SDK restart 与 member resume 恢复。GPU0 训练未动用；以上任何单项证据均不代表阶段 E 完成。
 
 ### F. 按插件完成平台切换与历史退役
 

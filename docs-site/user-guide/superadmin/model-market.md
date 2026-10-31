@@ -15,6 +15,8 @@ last_reviewed: 2026-10-21
 
 列表展示各规格共有的类别摘要与使用状态；存在差异时提示「因规格而异」，进入详情后核对。多规格模型在详情中选择具体型号后使用，避免列表默认使用第一个型号。只有一个规格时显示普通标签，列表保留直接使用入口。项目训练模型仍以不可变版本为单位显示，所属项目标在模型名称下方。
 
+官方 Grounded-SAM2 与 SAM3 插件分别维护模型目录和资产清单；目录可见不代表权重已获准下载、实例已安装或项目已启用。SAM3 的两份权重各有独立授权门禁；具体来源、运行环境与迁移状态见[模块部署](/dev/concepts/module-deployment#inference-plugin-admission)。
+
 - **查看详情**：点击名称或「查看详情」后，立即在右侧打开详情面板；窄屏占满视口。多规格模型可在面板中切换规格，原生类别、使用状态、权重摘要、部署实例和使用入口随之更新；单一规格不提供重复选择按钮。内容单独滚动，关闭后返回原列表位置。支持 Escape 关闭并返回触发按钮。打开详情或切换规格不会下载或加载权重。
 - **加载与试用**：项目负责人进入原有[模型与发布](../online-learning/models)流程，安装候选、核对样本并人工发布。
 - **用于预标注**：选择项目后，将可用的闭集图片检测模型带到项目预标配置；不会自动执行。
@@ -148,6 +150,8 @@ backend 的变体面板拆成两组：
 - **图像推理变体**：SAM + DINO 双下拉，预热加载到图片池（grounded-sam2 图片 predictor）。预热走 `POST /{backend_id}/reload`（含 `modality` 可选体）或 `POST /{backend_id}/warmup`（协议 v2 §4.4，backend 声明 `warmup_endpoint=true` 时启用）。
 - **视频追踪权重**：video tracker 不使用 DINO，预热加载到**独立 video 池**（`POST /reload` body 携带 `modality=video`）。有多档视频权重时显示 SAM 下拉；只有单一视频模型时显示独立权重条目和预热按钮，不制造无意义下拉。
 - 分组是否显示优先读取健康检查落库的 `health_meta.capabilities.modalities`；纯图像 backend 不显示视频组，纯视频 backend 不显示图像组。未健康检查过、没有 modalities 快照时，页面回落到 `/setup` enum / tracker 判断，避免把未知能力的 backend 误隐藏。
+
+Grounded-SAM2 的默认 tracker context 为 `none`：默认最大 context 与 window 均为 300。需要跨窗 session 时须使用明确的运行配置，并以实际资格和平台验收为准；显示视频能力或完成预热不等于跨窗会话已验收。Grounded 文本请求的 `output=mask` 是多边形路径，精确原生 Mask 属于交互能力，使用前仍须检查已批准的能力。
 
 <DocsVideo
   src="/media/superadmin/model-market/video-pool.mp4"
