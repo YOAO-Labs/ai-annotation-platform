@@ -2,9 +2,9 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import text
 
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.jobs_lifecycle_data import job_lock_statement
@@ -13,23 +13,17 @@ KIND = AsyncJobKind.VIDEO_ASSET_RETRY.value
 ACTIVE = ("pending", "running")
 
 
-def _active(output_id):
-    return select(AsyncJob).where(
-        AsyncJob.project_id.is_(None),
-        AsyncJob.kind == KIND,
-        AsyncJob.status.in_(ACTIVE),
-        AsyncJob.payload["output_id"].astext == str(output_id),
-    )
-
-
 async def observe(db, output, user_id: uuid.UUID, asset_type: str):
     """Called while prepare holds the Item lock; never reuse another actor's job."""
-    job = await db.scalar(
-        _active(output.id).where(
-            AsyncJob.user_id == user_id,
-            AsyncJob.payload["asset_type"].astext == asset_type,
-        )
+    await db.flush()
+    job_id = await db.scalar(
+        text(
+            "SELECT aap_jobs_v1.find_video_retry_job("
+            "CAST(:output_id AS uuid), CAST(:user_id AS uuid), CAST(:asset_type AS text))"
+        ),
+        {"output_id": output.id, "user_id": user_id, "asset_type": asset_type},
     )
+    job = await jobs.get_job(db, job_id) if job_id is not None else None
     if job is None:
         job = await jobs.create_job(
             db,
@@ -98,11 +92,16 @@ async def _project(db, job, output):
 
 async def sync_output(db, output):
     """Called after locking the Output, in its existing transition transaction."""
-    rows = await db.scalars(
-        _active(output.id)
-        .order_by(AsyncJob.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    await db.flush()
+    identifiers = await db.scalars(
+        text(
+            "SELECT * FROM aap_jobs_v1.lock_video_retry_jobs(CAST(:output_id AS uuid))"
+        ),
+        {"output_id": output.id},
     )
-    for job in rows:
-        await _project(db, job, output)
+    for identifier in identifiers:
+        job = await db.scalar(
+            job_lock_statement(identifier, mode="update", populate_existing=True)
+        )
+        if job is not None:
+            await _project(db, job, output)

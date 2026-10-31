@@ -403,8 +403,12 @@ async def run_outputs(identifiers):
             try:
                 claimed = await claim_with_retry(factory, identifier)
             except Exception as exc:
+                log.warning(
+                    "video derivative claim refused: code=%s exception=%s",
+                    error_code(exc),
+                    type(exc).__name__,
+                )
                 await fail_with_retry(factory, identifier, None, error_code(exc))
-                log.warning("video derivative claim refused: code=%s", error_code(exc))
                 continue
             if claimed is None:
                 continue

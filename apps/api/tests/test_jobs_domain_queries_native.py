@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -345,6 +346,71 @@ async def _without_api_private_job_access(test_engine):
                     "GRANT SELECT, UPDATE ON public.async_jobs TO identity_api_consumer"
                 )
             )
+
+
+@pytest.mark.asyncio
+async def test_video_retry_projection_with_private_jobs_denied(test_engine):
+    from app.services import video_asset_retry_jobs
+    from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+
+    _verify_postgres(test_engine.url)
+    api_url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"])
+    assert (api_url.host, api_url.port, api_url.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    assert api_url.database and api_url.database.endswith("_test")
+    assert api_url.username == "identity_api_consumer"
+    engine = create_async_engine(api_url.set(drivername="postgresql+asyncpg"))
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with _committed_query_world(test_engine) as world:
+            output = SimpleNamespace(
+                id=uuid.uuid4(),
+                dataset_item_id=uuid.uuid4(),
+                state="building",
+                lease_token=uuid.uuid4(),
+                result=None,
+                error_code=None,
+            )
+            async with world["sessions"]() as setup:
+                rows = [
+                    _job(
+                        actor_id=world["actor_id"],
+                        kind="video_asset_retry",
+                        status=status,
+                        payload={
+                            "output_id": str(output.id),
+                            "dataset_item_id": str(output.dataset_item_id),
+                            "asset_type": asset,
+                        },
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    for status, asset in (("pending", "probe"), ("cancelled", "poster"))
+                ]
+                await _persist_fixture_jobs(setup, rows)
+                await setup.commit()
+                world["job_ids"].extend(row.id for row in rows)
+            async with _without_api_private_job_access(test_engine):
+                async with sessions() as api:
+                    job = await video_asset_retry_jobs.observe(
+                        api, output, world["actor_id"], "probe"
+                    )
+                    assert job.id == rows[0].id and job.status == "running"
+                    await video_asset_retry_jobs.sync_output(api, output)
+                    output.state = "retiring"
+                    output.error_code = "decoder_failed"
+                    await video_asset_retry_jobs.sync_output(api, output)
+                    await api.commit()
+                async with world["sessions"]() as owner:
+                    active = await owner.get(AsyncJob, rows[0].id)
+                    cancelled = await owner.get(AsyncJob, rows[1].id)
+                    assert active.status == "failed"
+                    assert active.error_message == "video_asset_retry_failed"
+                    assert cancelled.status == "cancelled"
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

@@ -3865,6 +3865,8 @@ ALTER FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) OWNER TO :"jobs_o
 ALTER FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.find_video_retry_job(uuid,uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.lock_video_retry_jobs(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_update(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_share_nowait(uuid) OWNER TO :"jobs_owner";
