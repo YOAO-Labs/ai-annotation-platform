@@ -181,6 +181,13 @@ def resolve_plugin_selection(health_meta, context):
             else not context.get("task") or model.get("task") == context.get("task")
         )
     ]
+    if len(candidates) > 1 and not model_id and context.get("type") == "text":
+        output = context.get("output", "mask")
+        candidates = [
+            model
+            for model in candidates
+            if output in (model.get("supported_text_outputs") or [])
+        ]
     if len(candidates) != 1 or not isinstance(candidates[0].get("id"), str):
         return None, {}
     model = candidates[0]

@@ -143,3 +143,47 @@ def test_default_variant_resolves_to_the_real_advertised_selection():
     assert resolve_plugin_selection(
         health, {"model_id": "detect", "model_variants": {"size": "unknown"}}
     ) == (None, {})
+
+
+def test_legacy_text_selects_only_the_advertised_output_model():
+    health = {
+        "capabilities": {
+            "models": [
+                {
+                    "id": "detection",
+                    "task": "detect",
+                    "supported_text_outputs": ["box"],
+                    "supported_variants": [
+                        {"key": "dino_variant", "variants": [{"value": "T"}]}
+                    ],
+                    "default_variants": {"dino_variant": "T"},
+                },
+                {
+                    "id": "segmentation",
+                    "task": "segment",
+                    "supported_text_outputs": ["mask", "both"],
+                    "supported_variants": [
+                        {"key": "sam_variant", "variants": [{"value": "tiny"}]},
+                        {"key": "dino_variant", "variants": [{"value": "T"}]},
+                    ],
+                    "default_variants": {"sam_variant": "tiny", "dino_variant": "T"},
+                },
+            ]
+        }
+    }
+    assert resolve_plugin_selection(health, {"type": "text", "output": "box"}) == (
+        "detection", {"dino_variant": "T"}
+    )
+    for output in ("mask", "both"):
+        assert resolve_plugin_selection(health, {"type": "text", "output": output}) == (
+            "segmentation", {"sam_variant": "tiny", "dino_variant": "T"}
+        )
+    assert resolve_plugin_selection(health, {"type": "text", "output": "unknown"}) == (
+        None, {}
+    )
+    health["capabilities"]["models"].append(
+        {**health["capabilities"]["models"][1], "id": "another-segmentation"}
+    )
+    assert resolve_plugin_selection(health, {"type": "text", "output": "mask"}) == (
+        None, {}
+    )
