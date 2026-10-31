@@ -2068,6 +2068,82 @@ async def test_resident_authority_orders_horizon_signing_and_release(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fresh_state", ["resident", "busy", "identity_changed", "unavailable"]
+)
+async def test_next_window_rechecks_transitional_pool_observation(
+    monkeypatch, fresh_state: str
+) -> None:
+    events: list[str] = []
+    subject = _subject()
+    store = _RecordingStore(events)
+    signer = _ScopeSigner(events)
+    _install_authority_fakes(monkeypatch, events, subject)
+    observed_ready = True
+    observed_reason = "resident_runtime_not_ready"
+    health_probes = 0
+
+    async def read_resident(db, *, backend_id, gpu_resource_id):
+        if not observed_ready:
+            raise GPUResidentRuntimeSubjectError(observed_reason)
+        return subject
+
+    async def read_cold(db, *, backend_id, gpu_resource_id, expected_challenge=None):
+        raise authority_module.GPUColdRuntimeSubjectError("cold_runtime_not_ready")
+
+    async def refresh_health(backend_id, challenge):
+        nonlocal observed_ready, observed_reason, health_probes
+        health_probes += 1
+        if health_probes > 1:
+            raise AssertionError("An unhealthy backend must not be polled indefinitely")
+        if fresh_state == "unavailable":
+            return False
+        observed_ready = fresh_state == "resident"
+        if fresh_state == "identity_changed":
+            observed_reason = "residency_identity_mismatch"
+        return True
+
+    monkeypatch.setattr(
+        authority_module, "read_gpu_resident_runtime_subject", read_resident
+    )
+    monkeypatch.setattr(authority_module, "read_gpu_cold_runtime_subject", read_cold)
+    factory = _build_dispatch_context_factory(
+        _session_factory(events),
+        store_factory=lambda: store,  # type: ignore[arg-type]
+        signer_factory=lambda: signer,  # type: ignore[arg-type]
+        health_refresher=refresh_health,
+    )
+    async with factory(_request(subject)) as first:
+        first.report_response(200)
+
+    # A probe observed another pool loading during the completed first window.
+    observed_ready = False
+    if fresh_state == "resident":
+        async with factory(_request(subject)) as second:
+            second.report_response(200)
+        assert second.generation == first.generation == subject.generation
+        assert second.admission_token != first.admission_token
+        assert {item["lease_id"] for item in store.release_kwargs} == {
+            claims.jti for claims in signer.claims_history
+        }
+        assert len(signer.claims_history) == 2
+    else:
+        with pytest.raises(GPUArbiterDispatchError) as caught:
+            async with factory(_request(subject)):
+                pytest.fail(
+                    "A failed readiness proof must not authorize another window"
+                )
+        assert caught.value.error_code == (
+            GPUArbiterErrorCode.UNAVAILABLE.value
+            if fresh_state == "unavailable"
+            else GPUArbiterErrorCode.NOT_READY.value
+        )
+        assert len(signer.claims_history) == len(store.release_kwargs) == 1
+    assert health_probes == 1
+    assert store.uncertain_kwargs == []
+
+
+@pytest.mark.asyncio
 async def test_resident_authority_marks_missing_outcome_uncertain(monkeypatch) -> None:
     events: list[str] = []
     subject = _subject()

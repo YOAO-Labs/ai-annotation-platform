@@ -244,6 +244,8 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 
 manifest 的 `models` 是插件完整声明目录的最小安全投影，不是管理员的资产批准清单；`pools` 是命名容量。实际 setup、新鲜挑战绑定的 health 与资格报告必须一致。CPU 不绑定 GPU，也不携带 GPU generation／control epoch；CUDA 显式绑定单卡与获准报告。ORT 另核对 factory 的 session 数量和每轮每个实际 session 的 provider 链，不能两轮漏报同一 session。严格 CUDA 拒绝整 session 回退，不声称全部算子均在 GPU 上执行。
 
+同一插件的其他模型池在窗口执行期间加载时，健康采样可能记录尚未稳定的驻留状态。下一次 GPU 调度若同时被驻留与冷启动证明以未就绪拒绝，平台仅重新采集一次健康观测，然后完整重验；持续未就绪、身份变化或探测失败仍拒绝签发。此步骤不重放推理，不重选实例，也不放宽证明条件。
+
 有状态插件保持各自运行环境：Grounded-SAM2 使用 Python 3.10、Torch 2.3.1／torchvision 0.18.1 和 CUDA 12.1；SAM3 使用 Python 3.12、Torch 2.7.1 和 CUDA 12.8，推理仅支持 GPU。插件各自发布轻量目录和资产选择，目录展示不构成资产下载、执行或再分发授权。插件不得持有 S3 管理凭据或生命周期签名私钥。
 
 Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同；实际平台接纳仍被 owner 读取缺陷阻断。默认 context 上限与窗口均为 300，tracker context 显示 `none`，不能据此宣称跨窗 session 已验收。源码、固定私有镜像、GPU 资格与尚待完成的平台门禁分别见[拆仓计划阶段 E](../../../docs/plans/1793184138_inference-plugins-repository-extraction.md#e-有状态交互与视频后端)。

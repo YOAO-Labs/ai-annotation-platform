@@ -3029,56 +3029,80 @@ def build_gpu_dispatch_context_factory(
     @asynccontextmanager
     async def dispatch(request: GPUDispatchRequest):
         _validate_runtime_request(request)
-        try:
-            subject = await _read_runtime_subject(data_provider, request)
-        except GPUResidentRuntimeSubjectError as exc:
-            logger.info(
-                "gpu_runtime_subject_not_ready",
-                gpu_arbiter={
-                    "backend_id": request.backend_id,
-                    "resource_id": request.gpu_resource_id,
-                    "reason": exc.reason,
-                },
-            )
+        for refreshed in (False, True):
             try:
-                cold_subject = await _read_cold_runtime_subject(
-                    data_provider,
-                    request,
+                subject = await _read_runtime_subject(data_provider, request)
+                break
+            except GPUResidentRuntimeSubjectError as exc:
+                logger.info(
+                    "gpu_runtime_subject_not_ready",
+                    gpu_arbiter={
+                        "backend_id": request.backend_id,
+                        "resource_id": request.gpu_resource_id,
+                        "reason": exc.reason,
+                    },
                 )
-            except GPUColdRuntimeSubjectError as cold_exc:
-                raise _dispatch_error(
-                    GPUArbiterErrorCode.NOT_READY,
-                    "GPU runtime subject is not ready",
-                ) from cold_exc
-            except Exception as cold_exc:
+                try:
+                    cold_subject = await _read_cold_runtime_subject(
+                        data_provider,
+                        request,
+                    )
+                except GPUColdRuntimeSubjectError as cold_exc:
+                    if (
+                        refreshed
+                        or exc.reason != "resident_runtime_not_ready"
+                        or cold_exc.reason != "cold_runtime_not_ready"
+                    ):
+                        raise _dispatch_error(
+                            GPUArbiterErrorCode.NOT_READY,
+                            "GPU runtime subject is not ready",
+                        ) from cold_exc
+                    # Another pool may have finished loading since the last probe.
+                    # Observe once; never replay execution or relax either proof.
+                    try:
+                        refreshed_health = await health_refresher(
+                            uuid.UUID(request.backend_id), secrets.token_hex(32)
+                        )
+                    except Exception as refresh_exc:
+                        raise _dispatch_error(
+                            GPUArbiterErrorCode.UNAVAILABLE,
+                            "GPU runtime health refresh is unavailable",
+                        ) from refresh_exc
+                    if not refreshed_health:
+                        raise _dispatch_error(
+                            GPUArbiterErrorCode.UNAVAILABLE,
+                            "GPU runtime health refresh is unavailable",
+                        )
+                    continue
+                except Exception as cold_exc:
+                    raise _dispatch_error(
+                        GPUArbiterErrorCode.UNAVAILABLE,
+                        "GPU cold runtime subject is unavailable",
+                    ) from cold_exc
+                async with _dispatch_cold_runtime(
+                    data_provider,
+                    endpoint_source,
+                    backend_transport,
+                    request,
+                    cold_subject,
+                    config=config,
+                    store_factory=store_factory,
+                    signer_factory=signer_factory,
+                    health_refresher=health_refresher,
+                    clock=clock,
+                    heartbeat_ttl_ms=heartbeat_ttl_ms,
+                    heartbeat_interval_seconds=float(heartbeat_interval_seconds),
+                    admission_timeout_seconds=admission_timeout_seconds,
+                    residency_cooldown_seconds=residency_cooldown_seconds,
+                    queue_poll_interval_seconds=float(queue_poll_interval_seconds),
+                ) as grant:
+                    yield grant
+                return
+            except Exception as exc:
                 raise _dispatch_error(
                     GPUArbiterErrorCode.UNAVAILABLE,
-                    "GPU cold runtime subject is unavailable",
-                ) from cold_exc
-            async with _dispatch_cold_runtime(
-                data_provider,
-                endpoint_source,
-                backend_transport,
-                request,
-                cold_subject,
-                config=config,
-                store_factory=store_factory,
-                signer_factory=signer_factory,
-                health_refresher=health_refresher,
-                clock=clock,
-                heartbeat_ttl_ms=heartbeat_ttl_ms,
-                heartbeat_interval_seconds=float(heartbeat_interval_seconds),
-                admission_timeout_seconds=admission_timeout_seconds,
-                residency_cooldown_seconds=residency_cooldown_seconds,
-                queue_poll_interval_seconds=float(queue_poll_interval_seconds),
-            ) as grant:
-                yield grant
-            return
-        except Exception as exc:
-            raise _dispatch_error(
-                GPUArbiterErrorCode.UNAVAILABLE,
-                "GPU runtime subject is unavailable",
-            ) from exc
+                    "GPU runtime subject is unavailable",
+                ) from exc
 
         admission_timeout_ms = _admission_timeout_ms(
             config,
