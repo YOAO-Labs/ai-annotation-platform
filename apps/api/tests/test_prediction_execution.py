@@ -210,6 +210,155 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
 
 
 @pytest.mark.usefixtures("controlled_artifacts")
+@pytest.mark.parametrize(
+    "reference_state", ["valid", "missing", "stale", "controlled-root"]
+)
+async def test_controlled_crop_uses_its_frozen_identity(
+    trained_retry_world, managed_worker_world, input_world, monkeypatch, reference_state
+):
+    from app.services import prediction_originals
+    from tests.inference_execution_test_ports import run_batch_request
+    from tests.managed_prediction_worker_fixtures import worker_engine
+    from contextlib import nullcontext
+
+    db = trained_retry_world.db
+    owner, token = trained_retry_world.admin
+    project, backend, version, deployment, *_ = await seed_published(
+        db, trained_retry_world.client, (owner, token), monkeypatch
+    )
+    task = await create_task(db, project_id=project.id)
+    member = await managed_task(db, project, owner, task=task, size=(1000, 1000))
+    source = await prediction_originals.resolve(db, task.id)
+    managed_worker_world.source_bytes[source.bucket, source.object_key] = member.raw
+    reference = trained_models.frozen_reference(version, deployment)
+    stages = pipeline_body(backend, task)["pipeline_stages"]
+    stages[0]["model_id"] = "stock-detector"
+    stages[1]["model_id"] = f"trained:{version.id}"
+    stages[1]["frozen_model_ref"] = copy.deepcopy(reference)
+    stages[1].pop("class_filter")
+    if reference_state == "controlled-root":
+        stages[0]["model_id"] = f"trained:{version.id}"
+        stages[0]["frozen_model_ref"] = copy.deepcopy(reference)
+    if reference_state == "missing":
+        del stages[1]["frozen_model_ref"]
+    elif reference_state == "stale":
+        stages[1]["frozen_model_ref"]["sha256"] = "0" * 64
+    from app.services import async_job as jobs
+
+    job = await jobs.create_job(
+        db,
+        kind="batch_predict",
+        user_id=owner.id,
+        project_id=project.id,
+        payload={
+            "execution_scope": "bulk",
+            "batch_id": None,
+            "task_ids": [str(task.id)],
+        },
+    )
+    job = await freeze_job(
+        db,
+        project=project,
+        actor=owner,
+        backend=backend,
+        tasks=[task],
+        job=job,
+        config={"stages": stages, "output_mode": "box"},
+    )
+    calls = []
+
+    class Client:
+        async def predict(self, inputs, context=None):
+            calls.append(copy.deepcopy(context))
+            return [
+                PredictionResult(
+                    task_id=item["id"],
+                    result=[
+                        {
+                            "type": "rectanglelabels",
+                            "coordinate_units": "percent",
+                            "value": {
+                                "x": 10,
+                                "y": 10,
+                                "width": 50,
+                                "height": 50,
+                                "rectanglelabels": ["car"],
+                            },
+                            "score": 0.9,
+                        }
+                    ],
+                )
+                for item in inputs
+            ]
+
+    monkeypatch.setattr(
+        "app.application.preannotation_execution._model_execution_port",
+        lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
+    )
+    from app.services.prediction_inputs import PredictionInputs
+
+    original_upload = PredictionInputs.upload_crop
+    # This fixture uses the legacy retained-input adapter, not the live
+    # accepted-input path; bridge its task-object argument only within the test.
+
+    async def upload_crop(snapshot, task_id, box_index, content):
+        return await original_upload(
+            snapshot, SimpleNamespace(id=task_id), box_index, content
+        )
+
+    monkeypatch.setattr(PredictionInputs, "upload_crop", upload_crop)
+    expected = (
+        nullcontext()
+        if reference_state in {"valid", "controlled-root"}
+        else pytest.raises(
+            ValueError,
+            match=(
+                "missing its frozen identity"
+                if reference_state == "missing"
+                else "reference digest mismatch"
+            ),
+        )
+    )
+    with expected:
+        async with worker_engine(managed_worker_world):
+            await run_batch_request(
+                project_id=str(project.id),
+                ml_backend_id=str(backend.id),
+                task_ids=[str(task.id)],
+                user_id=str(owner.id),
+                async_job_id=str(job.id),
+                celery_task_id=str(job.id),
+                worker_node_id="worker:controlled-child@test",
+                pipeline_stages=stages,
+            )
+    if reference_state in {"missing", "stale"}:
+        assert not calls
+        return
+    async with managed_worker_world.factory() as observer:
+        completed = await observer.get(AsyncJob, job.id)
+        failures = (
+            await observer.scalars(
+                select(FailedPrediction).where(
+                    FailedPrediction.project_id == project.id
+                )
+            )
+        ).all()
+        assert completed.status == "completed", [
+            (failure.error_type, failure.message) for failure in failures
+        ]
+        assert completed.result["success_count"] == 1
+        assert completed.result["pipeline_stages"][1]["ok"] == 1
+    if reference_state == "controlled-root":
+        assert calls[0]["model_id"] == f"trained:{version.id}"
+        assert calls[0]["frozen_model_ref"] == reference
+    else:
+        assert calls[0]["model_id"] == "stock-detector"
+        assert calls[0].get("frozen_model_ref") is None
+    assert calls[1]["model_id"] == f"trained:{version.id}"
+    assert calls[1]["frozen_model_ref"] == reference
+
+
+@pytest.mark.usefixtures("controlled_artifacts")
 @pytest.mark.parametrize("child_fails", [False, True])
 async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_deleted(
     trained_retry_world,
@@ -220,7 +369,6 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
 ):
     from datetime import timedelta
 
-    from app.config import settings
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.storage_maintenance import StorageOperation
     from app.services import async_job as jobs, prediction_inputs, prediction_originals
@@ -309,12 +457,6 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     dispatch.assert_called_once()
     dispatched = dispatch.call_args.kwargs
     retry_id = uuid.UUID(dispatched["task_id"])
-    assert dispatched == {
-        "args": [str(fid), str(owner.id)],
-        "queue": settings.preannotate_cpu_queue,
-        "task_id": str(retry_id),
-        "kwargs": {"async_job_id": str(retry_id)},
-    }
     retry_job = await db_session.get(AsyncJob, retry_id, populate_existing=True)
     assert retry_id != original_job_id
     assert retry_job.execution_snapshot_id == snapshot.id

@@ -1859,20 +1859,35 @@ async def _execute_preannotation(
                 pipeline_stages=pipeline_stages,
                 execution_unit=execution_unit,
             )
-            if not frozen_model_ref:
-                raise ValueError(
-                    "Controlled preannotation is missing its frozen identity"
+            root_controlled = (
+                trained_models.is_controlled(model_id) or frozen_model_ref is not None
+            )
+            references = [frozen_model_ref] if root_controlled else []
+            references.extend(
+                stage.get("frozen_model_ref")
+                for stage in (pipeline_stages or [])
+                if stage.get("parent_stage") is not None
+                and (
+                    trained_models.is_controlled(stage.get("model_id"))
+                    or stage.get("frozen_model_ref") is not None
                 )
-            try:
-                await trained_models.bind_frozen_model_reference(db).validate(
-                    ValidateFrozenModelReferenceRequest(
-                        project_id=project_uuid,
-                        reference=frozen_model_ref,
+            )
+            for reference in references:
+                if not reference:
+                    raise ValueError(
+                        "Controlled preannotation is missing its frozen identity"
                     )
-                )
-            except FreezeModelReferenceError as exc:
-                trained_models.raise_frozen_model_reference_error(exc)
-            model_id = f"trained:{frozen_model_ref['model_version_id']}"
+                try:
+                    await trained_models.bind_frozen_model_reference(db).validate(
+                        ValidateFrozenModelReferenceRequest(
+                            project_id=project_uuid,
+                            reference=reference,
+                        )
+                    )
+                except FreezeModelReferenceError as exc:
+                    trained_models.raise_frozen_model_reference_error(exc)
+            if root_controlled:
+                model_id = f"trained:{frozen_model_ref['model_version_id']}"
         box_thr = (
             float(box_threshold_snapshot)
             if box_threshold_snapshot is not None
