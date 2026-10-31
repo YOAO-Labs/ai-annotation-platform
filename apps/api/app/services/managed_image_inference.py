@@ -14,15 +14,16 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
-from app.db.models.task_batch import TaskBatch
 from app.services import prediction_inputs, prediction_originals as originals
 from app.services import storage_access
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS
 from app.services.dataset_content import content_http_error, key_authority
 from app.services.image_inference_authority import authorize_image_operation
 from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
     get_core_row,
+    lock_annotation_rows_for_core_read,
     lock_task_for_core_read,
 )
 from app.services.project_write_guard import (
@@ -187,9 +188,15 @@ class ManagedImageOperation:
                 raise ValueError
         except (ValueError, TypeError, KeyError, AttributeError):
             raise ContentError("mask_prompt_source_changed") from None
-        query = select(Annotation).where(Annotation.id == identifier)
+        query = select(annotation_row).where(annotation_row.id == identifier)
         if lock:
-            query = query.with_for_update(read=True, nowait=True)
+            await lock_annotation_rows_for_core_read(
+                db,
+                [identifier],
+                task_id=self.task_id,
+                lock_mode="share",
+                nowait=True,
+            )
         annotation = await db.scalar(query.execution_options(populate_existing=True))
         geometry = annotation.geometry if annotation is not None else None
         if not isinstance(geometry, dict):
@@ -216,7 +223,7 @@ class ManagedImageOperation:
         if is_reference(task.file_path):
             raise ContentError("content_binding_changed")
         if task.batch_id is not None:
-            await get_core_row(db, TaskBatch, task.batch_id, populate_existing=True)
+            await get_core_row(db, batch_row, task.batch_id, populate_existing=True)
         return task
 
     async def _business(self, db, task, actor):
@@ -414,7 +421,7 @@ class ManagedImageOperation:
             raise ContentError("content_binding_changed")
         if task.batch_id is not None:
             await get_core_row(
-                self.db, TaskBatch, task.batch_id, populate_existing=True
+                self.db, batch_row, task.batch_id, populate_existing=True
             )
         await self._bound(self.db, task, actor, final=True)
         if self.inputs is not None:

@@ -203,7 +203,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
     "aap_labeling_v1.mask_revision_command(jsonb)": "0348_labeling_mask_edits.sql",
-    "aap_labeling_v1.ai_mask_accept_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.ai_mask_accept_command(jsonb)": "0406_labeling_mask_decision_lock.sql",
     "aap_labeling_v1.scene_read_query(jsonb)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)": "0349_labeling_scene_read.sql",
@@ -1214,6 +1214,7 @@ SQL_ARTIFACTS = (
     "0399_plugin_terminal_hold.sql",
     "0400_plugin_routing_replacement.sql",
     "0402_plugin_terminal_drain_route.sql",
+    "0406_labeling_mask_decision_lock.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",

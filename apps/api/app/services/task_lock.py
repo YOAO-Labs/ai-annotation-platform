@@ -20,6 +20,7 @@ from aap_labeling.task_locks_contract import (
 from aap_labeling.task_locks_data import TaskLocksData
 from app.db.models.task_lock import TaskLock
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.labeling_core_read_relations import task_lock_row
 
 _RETRYABLE_SQLSTATES = {"40P01", "40001"}
 _MAX_DEADLOCK_RETRY = 3
@@ -290,9 +291,9 @@ class TaskLockService:
             result = await self._read("active_locks", task_id)
             return [await self._attach(row) for row in result["locks"]]
         rows = await self.db.execute(
-            select(TaskLock).where(
-                TaskLock.task_id == task_id,
-                TaskLock.expire_at >= datetime.now(timezone.utc),
+            select(task_lock_row).where(
+                task_lock_row.task_id == task_id,
+                task_lock_row.expire_at >= datetime.now(timezone.utc),
             )
         )
         return list(rows.scalars().all())
