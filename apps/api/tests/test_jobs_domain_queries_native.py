@@ -331,21 +331,38 @@ async def _without_api_private_job_access(test_engine):
                 )
             )
         ).one()
-        assert rights == (True, True, False, False)
         await owner.execute(
             text(
                 "REVOKE SELECT, UPDATE ON public.async_jobs FROM identity_api_consumer"
             )
         )
+        denied = (
+            await owner.execute(
+                text(
+                    "SELECT pg_catalog.has_any_column_privilege("
+                    "'identity_api_consumer', 'public.async_jobs', 'SELECT'), "
+                    "pg_catalog.has_any_column_privilege("
+                    "'identity_api_consumer', 'public.async_jobs', 'UPDATE')"
+                )
+            )
+        ).one()
+        assert denied == (False, False)
     try:
         yield
     finally:
         async with test_engine.begin() as owner:
-            await owner.execute(
-                text(
-                    "GRANT SELECT, UPDATE ON public.async_jobs TO identity_api_consumer"
-                )
-            )
+            for privilege, granted, grant_option in (
+                ("SELECT", rights[0], rights[2]),
+                ("UPDATE", rights[1], rights[3]),
+            ):
+                if granted:
+                    suffix = " WITH GRANT OPTION" if grant_option else ""
+                    await owner.execute(
+                        text(
+                            f"GRANT {privilege} ON public.async_jobs "
+                            f"TO identity_api_consumer{suffix}"
+                        )
+                    )
 
 
 @pytest.mark.asyncio

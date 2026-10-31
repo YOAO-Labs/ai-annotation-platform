@@ -1418,6 +1418,8 @@ async def interactive_annotating(
             if context.get("output_geometry") == "mask"
             else None
         )
+        if image_input is not None:
+            await image_input.validate()
         await db.commit()
 
         max_response_bytes = (

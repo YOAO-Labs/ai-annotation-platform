@@ -226,6 +226,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.task_workflow_command(jsonb)": "0335_labeling_task_workflow.sql",
     "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
+    "aap_jobs_v1.find_video_retry_job(uuid,uuid,text)": "0407_jobs_video_retry.sql",
+    "aap_jobs_v1.lock_video_retry_jobs(uuid)": "0407_jobs_video_retry.sql",
     "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0331_jobs_filter_fixtures.sql",
     "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0330_jobs_fixture_cleanup.sql",
     "aap_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
@@ -1215,6 +1217,7 @@ SQL_ARTIFACTS = (
     "0400_plugin_routing_replacement.sql",
     "0402_plugin_terminal_drain_route.sql",
     "0406_labeling_mask_decision_lock.sql",
+    "0407_jobs_video_retry.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",

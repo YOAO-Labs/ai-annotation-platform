@@ -698,11 +698,15 @@ async def manifest_v2(
 ) -> VideoManifestV2Response:
     ctx = await _physical_context(db, ctx)
     from app.services.video_segment_service import ensure_segments, segment_out
-    from app.db.models.project import Project
+    from app.services.project_access import get_workspace_project
     from app.services.video_collaboration import collaboration_config
 
     segment_rows = await ensure_segments(db, ctx)
-    project = await db.get(Project, ctx.task.project_id) if ctx.task else None
+    project = (
+        await get_workspace_project(db, project_id=ctx.project_id)
+        if ctx.project_id
+        else None
+    )
     collaboration = collaboration_config(project)
     segments = [
         segment_out(

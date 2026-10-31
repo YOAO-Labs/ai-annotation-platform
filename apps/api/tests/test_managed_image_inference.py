@@ -37,7 +37,6 @@ from app.services.content_snapshot import ContentError
 from aap_inference_contract.backend_control import BackendControlSetupResult
 from aap_inference_contract.execution import ModelTaskResult, thaw_json
 from tests.inference_execution_test_ports import FakeModelExecutionPort
-from tests import live_provider_guard
 from tests.factory import create_project
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
@@ -867,16 +866,14 @@ async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
     from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
     from app.db.models.audit_log import AuditLog
 
-    # This regression deliberately exercises the run's own disposable Redis,
-    # never an authentication substitute or a developer service selected by a
-    # default.
-    live_provider_guard.owned_redis()
+    # Commit revocation in the same disposable database as the request's guards.
+    # The global application session factory targets a different database.
     world = managed_world
     world.mask = True
     claims = decode_access_token(super_admin[1])
     jti = claims["jti"]
     assert isinstance(jti, str) and jti
-    assert not await token_blacklist.is_blacklisted(jti)
+    assert not await token_blacklist.is_blacklisted(jti, db=db_session)
     candidate = await call(httpx_client, world, auth(super_admin))
     assert candidate.status_code == 200, candidate.text
     body = accept_body(candidate.json())
@@ -886,8 +883,10 @@ async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
         writes.append(True)
         remaining = int(claims["exp"] - datetime.now(timezone.utc).timestamp())
         assert remaining > 0
-        await token_blacklist.blacklist_token(jti, remaining)
-        assert await token_blacklist.is_blacklisted(jti)
+        async with world.sources.factory() as authority_db:
+            await token_blacklist.blacklist_token(jti, remaining, db=authority_db)
+            await authority_db.commit()
+            assert await token_blacklist.is_blacklisted(jti, db=authority_db)
 
     accept_storage_mocks[0].side_effect = store
     try:
@@ -919,10 +918,5 @@ async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
             )
             == 0
         )
-        await clean(world, monkeypatch)
     finally:
-        redis = token_blacklist._get_redis()
-        try:
-            await redis.delete(token_blacklist._KEY_PREFIX + jti)
-        finally:
-            await redis.aclose()
+        await clean(world, monkeypatch)

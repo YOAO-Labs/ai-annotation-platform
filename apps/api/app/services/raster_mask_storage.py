@@ -279,7 +279,7 @@ async def _validate_mask_payload_for_task(
                 video_result_receipt=video_result_receipt,
                 video_acceptance_receipt=video_acceptance_receipt,
             )
-        except RasterMaskContractError:
+        except (RasterMaskContractError, ContentError):
             raise
         except ValueError as exc:
             raise RasterMaskContractError(

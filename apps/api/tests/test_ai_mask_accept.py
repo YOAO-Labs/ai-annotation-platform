@@ -328,7 +328,7 @@ async def test_exemplar_both_accept_uses_original_mask_index(
             "prompt_revision": "rev:test:1",
         },
         expected_size=(3, 2),
-        client=SimpleNamespace(pool_id=pool.id, last_instance_id=backend.id),
+        provenance=SimpleNamespace(pool_id=pool.id, instance_id=backend.id),
         requested_backend_id=backend.id,
         model_id="sam-image",
         task_id=task.id,

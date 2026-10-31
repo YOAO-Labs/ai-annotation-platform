@@ -154,6 +154,8 @@ JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.read_job_progress_for_update(uuid,text,text)",
     "aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)",
     "aap_jobs_v1.read_job(uuid)",
+    "aap_jobs_v1.find_video_retry_job(uuid,uuid,text)",
+    "aap_jobs_v1.lock_video_retry_jobs(uuid)",
     "aap_jobs_v1.jobs_by_execution_id(text)",
     "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
     "aap_jobs_v1.apply_lifecycle(uuid,jsonb)",
