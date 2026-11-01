@@ -605,3 +605,13 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 - G3 导出锁迁移顺延为 `bo0414 → bo0415`，单一 head 已检查；四个相关 Python 项目的依赖锁均通过一致性检查。此处不等于新数据库迁移或集成运行通过。
 
 下一项完整验收内容为 **G2 的 Identity／Workspace 原生场景 helper 隔离**：保留各角色、真实受限连接、事务及拒绝结果，把测试函数互调和隐式 autouse 依赖迁到邻近 support 模块；主进程集中执行集成验收。N3 公开发行名、已知 LiDAR／视频问题、全仓 fixture 整理和物理 GPU 资格不在这一切片内。上文源分支的历史失败和限制不因合并而关闭。
+
+### 12.7 G2 后续：SDK 支持模块与原生夹具权限边界
+
+两个独立工作树的提交已由主进程审核并集成：原生场景支持模块为 `c70fdac94`，SDK 支持模块为 `25b042486`。静态审核确认 SDK 120 个原测试函数和 18 个原 seed 场景的业务主体保持不变；这不替代运行验收。
+
+- SDK 全套首轮为 1255 通过、1 失败，失败是合并后离线操作目录过期。沿现有生成器重建后，discovery／OpenAPI 契约 35 项复验通过；按 case 合并两轮最新结果为 1256 通过、无失败或跳过。与合入前 collection 对照时，仅规范化每次 collection 新生成的 UUID 参数，其余 nodeid 保持一致。原始报告保存在 `.worktree/plugin-opt-integration/sdk-g2.xml`、`sdk-catalog-fixed.xml` 与 `sdk-latest-results.json`，不是第二次全套执行的计数。
+- 独立 PostgreSQL 与十个自有存储桶已从空库迁移至 `bo0415`。保留中的主工作树 `bo0400` 测试环境未被改动。原生首轮 124 个 case 中 60 通过、64 失败，另有 28 个 teardown 错误；后续级联失败不能当作独立产品缺陷计数。
+- 原生失败暴露旧 seed consumer 假设与当前存储 owner 边界冲突；另有验收脚本漏装 Identity consumer profile、过时的会话替身及已不命中的故障注入。仅把清理范围改为公开只读关系仍无法完成附件清理，试探修改已撤回，未扩展生产权限。
+
+用户明确选择统一到已有 **owner 夹具通道**：准备／清理由 owner 进程执行，真实业务请求保持受限 API；旧 seed 资格用例与报告必须同步调整，不能把 owner 执行计作受限 consumer 能力。该原生切片仍待完成和验收，不以 SDK 通过、helper 提交或历史资格代替。

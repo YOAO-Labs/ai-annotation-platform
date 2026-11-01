@@ -86,6 +86,10 @@ cd apps/web && pnpm exec playwright test --list --project=pointcloud
 
 夹具创建／清理由 `e2e/helpers/seed-owner-transport.ts` 在独立 Python 进程调用现有 seed router；夹具准备时仅该进程以测试 owner 身份连接数据库，并校验与 runtime 指向同一个显式 `_test`／`_e2e` 数据库。真实浏览器业务请求仍走受限 HTTP API，不恢复私表授权。该夹具通道是进程内 ASGI，不是独立 HTTP 部署资格证据。截图配置使用明确的 `SCREENSHOT_DATABASE_URL` 为夹具选库，不能指向日常开发或生产数据库。
 
+跨测试模块复用的 SDK 构造器、客户端替身和 TUI 等待逻辑放在邻近的 `support_*.py`，不要从 `test_*.py` 导入。原生场景也应复用不参与 collection 的场景模块，而不是直接调用另一个 pytest 测试函数；原场景的业务断言和必要夹具依赖必须保留。
+
+合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
+
 ---
 
 ## 后端：pytest (`apps/api`)

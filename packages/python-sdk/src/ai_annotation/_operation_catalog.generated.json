@@ -972,7 +972,7 @@
   "guide_resource": "ai_annotation/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 764,
+  "operation_count": 766,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -3540,6 +3540,58 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets",
+      "method": "GET",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets",
+      "operation_id": "get_asset_approval_api_v1_admin_ml_integrations_plugins_installations__installation_id__assets_get",
+      "summary": "Get Asset Approval",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.asset_approval"
+      ],
+      "cli_aliases": [
+        "plugins.asset-approvals"
+      ],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginAssetApprovalState"
               }
             }
           }
@@ -50943,6 +50995,66 @@
       }
     },
     {
+      "name": "PUT /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets",
+      "method": "PUT",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets",
+      "operation_id": "set_asset_approval_api_v1_admin_ml_integrations_plugins_installations__installation_id__assets_put",
+      "summary": "Set Asset Approval",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.set_asset_approval"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginAssetApprovalState"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PluginAssetApprovalUpdate"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "PUT /api/v1/admin/ml-integrations/registry/{registry_id}",
       "method": "PUT",
       "path": "/api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -63570,6 +63682,35 @@
       "external_http": false
     },
     {
+      "name": "plugins.asset_approval",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "asset_approval",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginAssetApprovalState",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.asset-approvals"
+      ]
+    },
+    {
       "name": "plugins.cancel_prepared",
       "module": "ai_annotation.plugins",
       "class": "PluginInstallations",
@@ -63775,6 +63916,39 @@
       ],
       "api_operations": [
         "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/retire"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "plugins.set_asset_approval",
+      "module": "ai_annotation.plugins",
+      "class": "PluginInstallations",
+      "method": "set_asset_approval",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "request",
+          "kind": "positional_or_keyword",
+          "annotation": "PluginAssetApprovalUpdate",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginAssetApprovalState",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "PUT /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets"
+      ],
+      "api_operations": [
+        "PUT /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/assets"
       ],
       "calls": [],
       "external_http": false
@@ -93202,6 +93376,113 @@
       ],
       "sdk_methods": [
         "pipelines.update"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "aap plugins approve-assets",
+      "alias": "plugins.approve-assets",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "descriptor",
+          "kind": "option",
+          "options": [
+            "--descriptor"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Plugin-produced selection descriptor JSON"
+        },
+        {
+          "name": "choices",
+          "kind": "option",
+          "options": [
+            "--choices"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "JSON object containing explicitly approved selections"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
+    },
+    {
+      "path": "aap plugins asset-approvals",
+      "alias": "plugins.asset-approvals",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "plugins.asset_approval"
       ],
       "confirmation": false
     },
