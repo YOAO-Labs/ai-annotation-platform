@@ -96,6 +96,12 @@ Identity／Workspace 原生场景使用 `identity_e2e_support.py` 的组合客�
 
 评论附件／指南图片的共享对象提供方与构造／上传 helper 位于 `seed_attachment_support.py`，各自的 context 与专属清理保持本地所有权。这两组是使用真实 PostgreSQL／HTTP 和受控对象提供方的 owner 层集成测试，不代表受限业务角色或真实 S3 的资格。
 
+RLE 的共享对象提供方、`Harness` 与 `harness` 位于 `raster_mask_support.py`；对象、GC、Annotations 消费者和 managed mask repair 测试直接导入该支持模块。它们使用真实 PostgreSQL 事务与受控对象提供方，不代表真实 S3 或渲染器资格。
+
+`raster_mask_isolation.py` 按测试 engine 登记 ORM 对象／publication 插入及原生 `storage_access.acquire` 的单行 Core 许可写入。根事务或 savepoint 回滚撤销相应归属；实际 COMMIT 失败也撤销该次登记，但保留其他独立提交。预存或更新记录、另一 engine 的写入和冲突未插入的 ID 不被认领，调用者的 `RETURNING` 结果不被消费。Core 登记不覆盖批量、upsert 和原始 SQL；不将当前原生单行路径的验证扩大为任意 SQL 支持。
+
+RLE 清理仍拒绝删除带有未归属 publication 的对象，拒绝时整次元数据清理回滚。独立提交后上传失败的分配仍可准确回收；这不是物理对象回收或整套同库并行的资格，既有独立资源与串行约束不变。
+
 合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
 
 ---

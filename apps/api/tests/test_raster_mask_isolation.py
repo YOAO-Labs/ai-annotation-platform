@@ -4,9 +4,19 @@ from datetime import datetime, timezone
 import uuid
 
 import pytest
-from sqlalchemy import insert, select
+from sqlalchemy import (
+    Column,
+    Integer,
+    MetaData,
+    Table,
+    UniqueConstraint,
+    insert,
+    select,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.schema import CreateTable
 
 from app.db.models.raster_mask_object import RasterMaskObject, RasterMaskPublication
 from app.db.models.storage_maintenance import StorageOperation
@@ -166,5 +176,68 @@ async def test_cleanup_preserves_rolled_back_and_conflicting_permits(
                 ).all()
             )
         assert remaining == {existing_id, rolled_id}
+    finally:
+        await neighbor_engine.dispose()
+
+
+async def test_failed_commit_preserves_reused_ids_and_other_commits(
+    harness, test_engine, test_db_url
+):
+    _, reference, data = harness.content()
+    _, own_reference, own_data = harness.content()
+    rolled_id, rolled_guard, rolled_operation = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    own_id, own_guard = uuid.uuid4(), uuid.uuid4()
+    harness.identifiers.update({rolled_id, own_id})
+    purpose = owners.purpose("write", rolled_id)
+    neighbor_engine = create_async_engine(test_db_url)
+    try:
+        with track_raster_owners(test_engine) as created:
+            async with harness.factory() as db:
+                await add_owner(db, own_id, own_guard, own_reference, own_data)
+                await db.commit()
+                permit = await storage_access.acquire(
+                    db, LEGACY_LOCATION_ID, owners.purpose("write", own_id)
+                )
+            async with harness.factory() as db:
+                await add_owner(db, rolled_id, rolled_guard, reference, data)
+                await db.execute(
+                    insert(StorageOperation).values(
+                        **operation(rolled_operation, purpose)
+                    )
+                )
+                constraint = Table(
+                    "raster_commit_guard",
+                    MetaData(),
+                    Column("id", Integer),
+                    UniqueConstraint("id", deferrable=True, initially="DEFERRED"),
+                    prefixes=["TEMPORARY"],
+                    postgresql_on_commit="DROP",
+                )
+                await db.execute(CreateTable(constraint))
+                await db.execute(insert(constraint), [{"id": 1}, {"id": 1}])
+                with pytest.raises(IntegrityError) as failure:
+                    await db.commit()
+                assert failure.value.orig.sqlstate == "23505"
+            async with async_sessionmaker(neighbor_engine)() as neighbor:
+                await add_owner(neighbor, rolled_id, rolled_guard, reference, data)
+                await neighbor.execute(
+                    insert(StorageOperation).values(
+                        **operation(rolled_operation, purpose)
+                    )
+                )
+                await neighbor.commit()
+
+        await remove_test_raster_owners(test_engine, created)
+        assert {row.id for row in await harness.rows()} == {rolled_id}
+        assert {guard.id for guard in await harness.guards()} == {rolled_guard}
+        async with harness.factory() as db:
+            remaining = set(
+                await db.scalars(
+                    select(StorageOperation.id).where(
+                        StorageOperation.id.in_([rolled_operation, permit.id])
+                    )
+                )
+            )
+        assert remaining == {rolled_operation}
     finally:
         await neighbor_engine.dispose()

@@ -195,7 +195,7 @@ LibreYOLO 首切片的最新 Outcome 已记录真实训练、GPU 试用、人工
 
 - 沿现有 worktree test／e2e mode 验证数据库、桶、Redis、端口和 worker 归属；日常库不可用作测试库。
 - 同事务 fixture 保留 rollback；独立提交测试采用已证明的私有 schema、独立数据库或精确创建资源登记，按实际约束选择，不强推一种方案。
-- 替换 `raster_mask_isolation.py` 等全表前后差集清理。记录准确 ID、对象版本、命名空间、角色／进程和清理责任，不能把时间窗口内别人的新增数据当成自己的。
+- 替换全表前后差集清理，并验证既有 ID 登记的事务边界；`raster_mask_isolation.py` 已采用准确 ID，需检验回滚与实际提交结果，而不是再次迁移差集。记录准确 ID、对象版本、命名空间、角色／进程和清理责任，不能把时间窗口内别人的新增数据当成自己的。
 - 在启用同库并行前，实际交错两个测试的提交和清理，证明邻居及预存数据不受影响；失败／取消后的资源也可核对。没有此证据时保持已有串行或每 worker 独立资源策略，不先打开 xdist。
 - 测试设置、受限执行角色与清理角色分开；设置方可以使用已授权的测试 owner，但被测请求不能借此获得宽权限。
 
@@ -473,7 +473,7 @@ CPU 套件可以并行；真实数据库／对象存储先证明资源隔离；�
 | `test_task_creation_job_contract.py` 的当前行为文字断言                                    | REWRITE              | 当前 head 的真实命令／失败／回滚；历史工件一致性另保留                 | G3     |
 | `test_identity_actor_context_gateway.py`／`test_project_member_profiles.py` 的局部名称检查 | DELETE／REWRITE      | 真实身份调用、受限 DB 角色、成员响应和越权拒绝                         | G3     |
 | `test_identity_e2e_native.py`／`test_workspace_e2e_native.py` 等测试互调                   | MOVE                 | 场景 helper 显式依赖，保留不同角色／绑定的真实消费者覆盖               | G2     |
-| `raster_mask_isolation.py` 及类似差集清理                                                  | REWRITE              | 准确资源所有权和邻居安全，不靠随机 ID 推断归属                         | G2     |
+| `raster_mask_isolation.py` 的事务归属登记及其他资源清理                                    | REWRITE              | 准确资源所有权、提交／回滚边界和邻居安全，不靠随机 ID 推断归属         | G2     |
 | `AuditArchiveBindingChangeButton.test.tsx`／`StorageBindingChangeButton.test.tsx`          | REWRITE／MERGE       | 各用途真实错误码、清空选择与重新选择，保留专属权限                     | G1／G6 |
 | `filterCoverage.test.ts`／Overlay CSS 文字／Shell 假节点断言                               | DELETE／明确静态归属 | 页面交互、实际几何／可见性和真正状态回调；不保留 mock 回声             | G6     |
 | `mask-editor.spec.ts`                                                                      | MERGE／REWRITE       | 复用 native 强创建场景；保留 AI 精修 lineage 与持久内容                | G6     |
@@ -644,3 +644,27 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 本轮只关闭上述原生 keeper 差集及两组附件测试的互相导入；`raster_mask_isolation.py` 等其他设施仍按各自切片治理。附件的 33 项仍使用受控对象提供方，不扩大为真实 S3、完整冷安装／恢复、全仓 fixture 或模型／GPU 资格。
 
 两个 worker 均已释放，工作树和分支在 patch 等价性核对后回收。本任务 `70f13779ec8740b0:test` 的 PostgreSQL、Redis、十个桶及 PostgreSQL 匿名卷已按归属销毁，`cleanup.json` 记录零错误；源工作树、日常环境及用户 `.gitignore` 修改未接管。
+
+### 12.9 G2 后续：RLE 事务归属与共享设施
+
+以 `494d060e4` 为基线，Orca Run `run_5af70b55d4fa` 在两个独立工作树实际使用 `openai-codex/gpt-6.1-terra:xhigh`。主进程审核并集成支持模块提交 `4096021e4`、事务登记提交 `6c3ff5950`，并补齐审核发现的实际提交失败问题。未修改生产代码、权限、迁移、插件仓库或发行名。
+
+- `raster_mask_isolation.py` 原本已经按 ID 清理，本轮不是再做差集迁移。真实 PostgreSQL 探针确认旧实现漏记 ORM-aware Core INSERT 的已提交许可，并在 ORM 根事务／savepoint 回滚后误删另一 engine 复用 ID 的 publication。
+- 登记按连接与 savepoint 暂存，回滚撤销，成功释放 savepoint 合并到上层；根提交保留独立分配。Core 只跟踪当前原生许可路径的单行插入，不认领冲突未插入、upsert 更新或其他 engine 的记录，也不消费 `RETURNING`。批量、upsert 与原始 SQL 不属于这个窄登记合同。
+- SQLAlchemy 的 commit 事件先于真实 COMMIT。主进程以临时表的延迟唯一约束触发实际提交失败，确认初版修复仍会误认领邻居复用的许可；随后增加失败撤销及覆盖对象、publication、许可和独立成功提交的回归。前后 smoke 使用相同数据库操作，不模拟事件调用次数。
+- `Objects`、`Harness` 与 `harness` 迁到 `raster_mask_support.py`；对象、GC、Annotations 消费者和 managed mask repair 四个模块直接导入。三个 helper 及原 103 个测试函数的 AST 保持不变，无旧模块转发别名。
+- 脱离 pytest 的八个数据库 smoke 通过：根／savepoint 回滚后邻居保留，冲突未插入不认领，本用例已提交许可／publication 准确删除，实际 COMMIT 失败后的邻居仍保留。前后证据为 `.worktree/g2-raster-isolation/` 下的 `smoke-before.json`／`smoke-after.json`、`orm-smoke-before.json`／`orm-smoke-after.json` 和 `commit-smoke-candidate.json`／`commit-smoke-after.json`。
+
+本轮是 owner 层真实 PostgreSQL 元数据与受控对象提供方验证，不扩大为受限模块运行、真实 S3、渲染器、模型／GPU、完整冷安装／恢复或整套同库并行资格。既有固定 namespace 的串行约束保持；其他跨测试模块导入按后续范围治理。
+
+完整选集保留原 201 个 nodeid，增加七项归属回归，实际结果为 **184 通过、24 失败、0 错误／跳过**；新增七项全部通过，JUnit 与 collection 的 208 项逐项一致。`raster-final.xml` 是这次完整执行的原始报告，不是全绿报告；`collection-comparison.json`、`test-body-preservation.json` 与 `acceptance-summary.json` 保留范围核对。
+
+为区分本轮回归和已有问题，主进程从基线 `494d060e4` 导出完整原测试目录，恢复旧 tracker、原 fixture 和导入路径，在同一获准一次性数据库定向执行这 24 项；**24 项均以同类断言或缺失属性失败，无 setup 错误**。`baseline-failures.xml` 与 `baseline-attribution.json` 保留对照，不把它们删掉或改成跳过：
+
+- 17 项涉及预测导入的类型化错误／多文件中止／回滚合同：现有普通 `ValueError` 分支把 409／503 变为 422，多文件分支还会继续处理。这些既有生产边界问题未由本轮夹具修复关闭。
+- 六项 publication caller 场景的故障注入仍指向已不存在的 `predictions_import.lock_tasks_for_evidence` 或 `mask_qc.store_coco_rle`；应按当前 owner 能力迁移验收，不重新固定内部符号。
+- 一项指南图片 unlink 后仍观察到 `ready` 而非期望的 `retired`，旧测试目录也复现；需要单独核对当前引用移除与退役合同，不能通过修改该断言宣称修复。
+
+下一独立验收内容优先处理预测导入的失败原子性与公开错误合同，再同步当前 publication owner 场景和指南图片退役验收。当前只关闭 RLE 元数据归属与上述共享设施迁移，不宣称 G2 全部完成或扩展选集全绿。文档站构建通过，保留既有 anyio 重写、审计跨 event loop、语法高亮回退和 chunk 大小警告；没有以未执行的 SDK／Web／浏览器结果充数。
+
+两个 worker 均已释放，两个工作树及分支已在 patch 等价性核对后删除。本任务 `35f95044222ad7c1:test` 的数据库、Redis、十个桶及 PostgreSQL 容器／匿名卷已按归属销毁，`cleanup.json` 记录零错误；基线导出、运行脚本和凭据一并移除，仅保留受保护的验收证据。`feat/plugin-opt` 源工作树、日常环境、保留中的主工作树测试资源及用户 `.gitignore` 修改未接管。

@@ -25,6 +25,7 @@ def track_raster_owners(engine):
     """Track inserts committed by this engine, including independent allocations."""
     created = RasterOwners()
     pending = {}
+    committing = {}
 
     def current(connection):
         return pending.setdefault(connection, [RasterOwners()])[-1]
@@ -75,21 +76,43 @@ def track_raster_owners(engine):
     def rollback_savepoint(connection, _name, _context):
         pending[connection].pop()
 
+    def begin(connection):
+        committing.pop(connection, None)
+
     def commit(connection):
-        stack = pending.pop(connection, [])
-        for owned in stack:
-            merge(created, owned)
+        owned = RasterOwners()
+        for scope in pending.pop(connection, []):
+            merge(owned, scope)
+        owned.objects.difference_update(created.objects)
+        owned.publications.difference_update(created.publications)
+        owned.operations.difference_update(created.operations)
+        committing[connection] = owned
+        merge(created, owned)
+
+    def commit_failed(context):
+        # The commit event precedes DBAPI COMMIT. Revoke only that attempt's
+        # additions on failure; successful independent commits remain owned.
+        if context.execution_context is not None:
+            return
+        owned = committing.pop(context.connection, None)
+        if owned is not None:
+            created.objects.difference_update(owned.objects)
+            created.publications.difference_update(owned.publications)
+            created.operations.difference_update(owned.operations)
 
     def rollback(connection):
         pending.pop(connection, None)
+        committing.pop(connection, None)
 
     listeners = (
+        ("begin", begin),
         ("after_cursor_execute", register_operation),
         ("savepoint", savepoint),
         ("release_savepoint", release_savepoint),
         ("rollback_savepoint", rollback_savepoint),
         ("commit", commit),
         ("rollback", rollback),
+        ("handle_error", commit_failed),
     )
     event.listen(Session, "after_flush", register)
     for name, listener in listeners:
