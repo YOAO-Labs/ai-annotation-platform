@@ -1,6 +1,5 @@
 """ML backend 协议 v2 跨 backend 共用的请求 / 响应 Pydantic 模型。
 
-来源：sam3-backend / grounded-sam2-backend 现有 schemas.py 的公共部分（v0.10.x ~ v0.14.x）。
 单一来源后, 协议层字段命名 / 类型扩展只改这一处。
 
 每个 backend 自己的 `Context`（prompt 字段集差异巨大）不放在这里, 由各 backend 本地定义。

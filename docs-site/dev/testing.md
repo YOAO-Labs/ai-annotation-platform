@@ -38,7 +38,7 @@ last_reviewed: 2026-10-26
 
 当前测试基线的两条重要事实：
 
-- **ML CPU 与共享契约套件**：平台工作流 `.github/workflows/ml-cpu-test.yml` 在独立虚拟环境运行协议、受控资产、Grounded SAM2 和 SAM3 套件；后两者使用 CPU torch。YOLO、RapidOCR 和 ONNXTools 源码测试在官方插件仓执行；CPU 测试不替代目标设备资格验收。
+- **ML CPU 与共享契约套件**：平台工作流 `.github/workflows/ml-cpu-test.yml` 在独立虚拟环境运行协议与受控资产套件。官方插件源码测试在插件仓执行；CPU 测试不替代目标设备资格验收。
 - **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
 
 ---

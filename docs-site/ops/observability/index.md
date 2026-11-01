@@ -368,19 +368,19 @@ Prometheus Gauge 当作 API `/metrics` 可见的跨进程指标。
 
 ## 6. 关键文件索引
 
-| 主题                              | 路径                                                                                 |
-| --------------------------------- | ------------------------------------------------------------------------------------ |
-| Metrics 定义                      | `apps/api/app/observability/metrics.py`                                              |
-| Raster Mask 活跃量巡检            | `apps/api/app/observability/raster_mask.py`                                          |
-| ML backend 指标埋点               | `apps/grounded-sam2-backend/observability.py` · `apps/sam3-backend/observability.py` |
-| ML backend http_sd 端点           | `apps/api/app/api/v1/` → `GET /api/v1/internal/metrics-targets`                      |
-| ML backend 告警规则               | `infra/prometheus/alerts.yml`                                                        |
-| Alertmanager 配置                 | `infra/alertmanager/alertmanager.yml`                                                |
-| FastAPI `/metrics` 挂载           | `apps/api/app/main.py:108-130`                                                       |
-| Sentry 初始化                     | `apps/api/app/main.py:22-45`                                                         |
-| Grafana dashboard JSON            | `infra/grafana/dashboards/anno-overview.json`                                        |
-| Grafana provisioning              | `infra/grafana/provisioning/`                                                        |
-| Prometheus scrape                 | `infra/prometheus/prometheus.yml`                                                    |
-| docker-compose monitoring profile | `docker-compose.yml`                                                                 |
-| 超管系统健康聚合端点              | `apps/api/app/api/v1/admin_system_health.py`                                         |
-| GPU/ML backend 实时浮窗 (PerfHud) | [concepts/perfhud](/dev/concepts/perfhud)                                            |
+| 主题                              | 路径                                                                                |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| Metrics 定义                      | `apps/api/app/observability/metrics.py`                                             |
+| Raster Mask 活跃量巡检            | `apps/api/app/observability/raster_mask.py`                                         |
+| ML backend 指标埋点               | [官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) |
+| ML backend http_sd 端点           | `apps/api/app/api/v1/` → `GET /api/v1/internal/metrics-targets`                     |
+| ML backend 告警规则               | `infra/prometheus/alerts.yml`                                                       |
+| Alertmanager 配置                 | `infra/alertmanager/alertmanager.yml`                                               |
+| FastAPI `/metrics` 挂载           | `apps/api/app/main.py:108-130`                                                      |
+| Sentry 初始化                     | `apps/api/app/main.py:22-45`                                                        |
+| Grafana dashboard JSON            | `infra/grafana/dashboards/anno-overview.json`                                       |
+| Grafana provisioning              | `infra/grafana/provisioning/`                                                       |
+| Prometheus scrape                 | `infra/prometheus/prometheus.yml`                                                   |
+| docker-compose monitoring profile | `docker-compose.yml`                                                                |
+| 超管系统健康聚合端点              | `apps/api/app/api/v1/admin_system_health.py`                                        |
+| GPU/ML backend 实时浮窗 (PerfHud) | [concepts/perfhud](/dev/concepts/perfhud)                                           |

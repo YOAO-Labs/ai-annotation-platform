@@ -35,7 +35,6 @@ const SHARED_CONTRACT_SUITES = {
       "apps/_shared/protocol_v2/",
       "apps/_shared/task_contract/",
       "scripts/run-ml-cpu-tests.sh",
-      "scripts/ml-cpu-deps/",
       ".github/workflows/ml-cpu-test.yml",
     ],
     reason: "protocol v2 schema/vocab/mask-codec contracts; 163 tests",
@@ -53,26 +52,6 @@ const SHARED_CONTRACT_SUITES = {
     ],
     reason: "controlled asset import and cache verification",
     dependencies: "pytest + training and task contracts; CPU only",
-  },
-  "ml-grounded-sam2": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run grounded-sam2",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/grounded-sam2-backend/"],
-    reason:
-      "grounded-sam2 backend contract tests: 10 torch-free files (68 tests) + 9 CPU-torch files (82 tests); full directory runs clean with CPU torch",
-    dependencies: "backend dev extra + CPU torch (cpu wheel index); CPU only",
-  },
-  "ml-sam3": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run sam3",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: ["apps/sam3-backend/"],
-    reason:
-      "sam3 backend contract tests: 17 torch-free files (153 tests) + 3 CPU-torch files (43 tests); full directory runs clean with CPU torch",
-    dependencies: "backend dev extra + CPU torch (cpu wheel index); CPU only",
   },
 };
 
@@ -688,7 +667,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
     "scripts/run-ml-cpu-tests.sh",
-    "scripts/ml-cpu-deps/",
     ".github/workflows/ml-cpu-test.yml",
   ];
   let mlCpu;

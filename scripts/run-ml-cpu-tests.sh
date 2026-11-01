@@ -21,14 +21,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEPS_DIR="$ROOT/scripts/ml-cpu-deps"
-TORCH_CPU_INDEX="https://download.pytorch.org/whl/cpu"
 
 SUITES=(
   shared-protocol-v2
   controlled-assets
-  grounded-sam2
-  sam3
 )
 
 VENV_DIRS=()
@@ -133,25 +129,6 @@ install_editable() {
   run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]" "$@"
 }
 
-install_backend() {
-  local dir="$1" python_version="$2" mask="${3:-false}" extras="${4:-dev}" cpu_vision="${5:-false}"
-  new_venv "$python_version"
-  if [ "$cpu_vision" = true ]; then
-    # timm depends on torch/torchvision; install their CPU builds before
-    # resolving the backend so pip cannot pull the CUDA graph from PyPI.
-    run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" \
-      -r "$DEPS_DIR/torch-cpu.txt" torchvision --index-url "$TORCH_CPU_INDEX"
-  fi
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" --no-deps --require-hashes \
-    -r "$ROOT/apps/_shared/requirements-plugin-runtime.txt"
-  if [ "$mask" = true ]; then
-    run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" --no-deps --require-hashes \
-      -r "$ROOT/apps/_shared/requirements-plugin-mask.txt"
-  fi
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" \
-    -e "$ROOT/apps/_shared/task_contract" -e "$ROOT/apps/_shared/protocol_v2" \
-    -e "$ROOT/apps/_shared/lifecycle_contract" -e ".[$extras]"
-}
 
 run_pytest() {
   local dir="$1" venv="$2"
@@ -175,15 +152,6 @@ run() {
         -e "$ROOT/apps/_shared/task_contract" -e "$ROOT/apps/_shared/training_contract" pytest
       run_pytest "." "$VENV_PATH" scripts/test_controlled_model_assets.py
       ;;
-    grounded-sam2)
-      install_backend "apps/grounded-sam2-backend" "3.10" true "dev" true
-      run_pytest "apps/grounded-sam2-backend" "$VENV_PATH"
-      ;;
-    sam3)
-      install_backend "apps/sam3-backend" "3.12" true
-      run_in "apps/sam3-backend" uv pip install --python "$VENV_PATH/bin/python" -r "$DEPS_DIR/torch-cpu.txt" --index-url "$TORCH_CPU_INDEX"
-      run_pytest "apps/sam3-backend" "$VENV_PATH"
-      ;;
     *)
       printf 'unknown suite %q; expected one of: %s\n' "$suite" "${SUITES[*]}" >&2
       exit 1
@@ -196,7 +164,7 @@ run() {
 # wildcard case that must not glob. Exits nonzero on any mismatch.
 selftest() {
   local failures=0
-  local suite_list="shared_protocol_v2,controlled_assets,grounded_sam2,sam3"
+  local suite_list="shared_protocol_v2,controlled_assets"
 
   _selftest_plan() {
     local spec="$1"
@@ -249,18 +217,18 @@ selftest() {
   }
 
   _selftest_ok "all" "$suite_list"
-  _selftest_ok "shared-protocol-v2,sam3" "shared_protocol_v2,sam3"
-  _selftest_ok "shared-protocol-v2 sam3 grounded-sam2" "shared_protocol_v2,grounded_sam2,sam3"
-  _selftest_ok $'shared-protocol-v2\tsam3' "shared_protocol_v2,sam3"
-  _selftest_ok $'shared-protocol-v2\nsam3' "shared_protocol_v2,sam3"
-  _selftest_ok $'shared-protocol-v2\n\t sam3,\tgrounded-sam2' "shared_protocol_v2,grounded_sam2,sam3"
-  _selftest_ok "shared-protocol-v2,,sam3" "shared_protocol_v2,sam3"
-  _selftest_ok "sam3,sam3" "sam3"
+  _selftest_ok "shared-protocol-v2,controlled-assets" "shared_protocol_v2,controlled_assets"
+  _selftest_ok "shared-protocol-v2 controlled-assets" "shared_protocol_v2,controlled_assets"
+  _selftest_ok $'shared-protocol-v2\tcontrolled-assets' "shared_protocol_v2,controlled_assets"
+  _selftest_ok $'shared-protocol-v2\ncontrolled-assets' "shared_protocol_v2,controlled_assets"
+  _selftest_ok $'shared-protocol-v2\n\t controlled-assets,\tshared-protocol-v2' "shared_protocol_v2,controlled_assets"
+  _selftest_ok "shared-protocol-v2,,controlled-assets" "shared_protocol_v2,controlled_assets"
+  _selftest_ok "controlled-assets,controlled-assets" "controlled_assets"
   _selftest_fail ""
   _selftest_fail $' \t\r\n '
   _selftest_fail ",,"
   _selftest_fail "bogus"
-  _selftest_fail "sam3,bogus"
+  _selftest_fail "controlled-assets,bogus"
   _selftest_fail "*"
 
   if [ "$failures" -eq 0 ]; then

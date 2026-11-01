@@ -1,1 +1,0 @@
-# Run `bash sam3-backend/scripts/sync_vendor.sh <commit-sha>` to populate vendor/sam3/.

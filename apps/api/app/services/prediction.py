@@ -458,7 +458,7 @@ def to_internal_shape(s: dict) -> dict:
         #   ① 旧: {points: [[x,y]...]}                      → polygon (无 hole)
         #   ② 新单连通带 hole: {points, holes: [[[x,y]...]]} → polygon (带 hole)
         #   ③ 新多连通: {polygons: [{points, holes?}, ...]}  → multi_polygon
-        # ② / ③ 由 grounded-sam2-backend predictor.py 在 mask 多连通或带 hole 时输出.
+        # ② / ③ 用于表达带 hole 或多连通的 mask。
         # 老路径 (无 holes / polygons) 输出字面与 v0.9.13 之前完全一致, 不写 holes 字段
         # 给老 fixture / 老 DB JSONB 持续兼容; PolygonGeometry.holes 默认 [] 由 Pydantic 补.
         polygons_raw = val.get("polygons")

@@ -8,8 +8,6 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 LOG_SOURCES = (
     WORKSPACE / "api/app/services/video_tracking/runner.py",
     WORKSPACE / "api/app/workers/cleanup.py",
-    WORKSPACE / "grounded-sam2-backend/predictor.py",
-    WORKSPACE / "sam3-backend/predictor.py",
 )
 SENSITIVE_NAMES = {
     "caption",

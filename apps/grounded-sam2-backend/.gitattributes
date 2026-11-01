@@ -1,7 +1,0 @@
-# vendor/ 下是上游 IDEA-Research/Grounded-SAM-2 的 vendored copy (固定 commit, 见 README.md).
-# 标记后 GitHub 会:
-#   - 排除出仓库语言统计 (Languages bar 不被第三方代码刷数据)
-#   - PR diff 默认折叠 (review 时不被噪声淹没, 点开仍可看)
-#   - git blame UI 跳过 (找责任人不会指向 vendor)
-vendor/** linguist-vendored=true
-vendor/** linguist-generated=true

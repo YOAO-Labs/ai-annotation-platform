@@ -23,7 +23,7 @@ from seed_pointcloud import (  # noqa: E402
     seed_pointcloud,
 )
 from seed_coco8 import seed_coco8  # noqa: E402  (依赖 sys.path 先扩)
-from seed_video import seed_video  # noqa: E402  (开源视频 video-track 夹具)
+from seed_video import seed_video  # noqa: E402  (视频 video-track 夹具)
 from seed_ocr import seed_ocr  # noqa: E402  (OCR 截图夹具)
 from seed_assets import (  # noqa: E402  (版本化网络素材)
     SeedAssetError,
@@ -240,6 +240,7 @@ async def seed(
     profile: str = "demo",
     cache_dir: Path | None = None,
     asset_dir: Path | None = None,
+    video: Path | None = None,
     offline: bool = False,
     repair: bool = False,
     ml_backend_mode: str = "live",
@@ -327,35 +328,37 @@ async def seed(
                     raise
                 print(f"  WARN  coco8 夹具跳过: {e}")
 
-            # 视频时序追踪项目:截图 profile 用真实城市交通片段的确定性转码。
-            # 依赖 MinIO + 宿主 ffprobe, 缺失则跳过。幂等:P-VIDEO-DEV 已存在则跳过。
-            try:
-                info = await seed_video(
-                    db,
-                    owner_id=img_owner_id,
-                    video=(generated_assets.video_path if strict else None),
-                )
-                await db.commit()
-                if info is None:
-                    print("  skip  video P-VIDEO-DEV (已存在)")
-                else:
-                    if not strict:
-                        from app.workers.media import generate_video_metadata
-
-                        generate_video_metadata.delay(
-                            info["item_id"], delegation=info["video_delegation"]
-                        )
-                    m = info["video_meta"]
-                    print(
-                        f"  add   video {info['project']}  "
-                        f"{m['width']}x{m['height']} {m['fps']}fps "
-                        f"frames={m['frame_count']} tasks={info['tasks']}"
+            # 截图 profile 使用确定性素材；普通 demo 仅在显式提供视频时创建项目。
+            if strict or video is not None:
+                try:
+                    info = await seed_video(
+                        db,
+                        owner_id=img_owner_id,
+                        video=generated_assets.video_path if strict else video,
                     )
-            except Exception as e:  # noqa: BLE001 — 夹具/MinIO/ffprobe 不可用时不阻断 seed
-                await db.rollback()
-                if strict:
-                    raise
-                print(f"  WARN  video 夹具跳过: {e}")
+                    await db.commit()
+                    if info is None:
+                        print("  skip  video P-VIDEO-DEV (已存在)")
+                    else:
+                        if not strict:
+                            from app.workers.media import generate_video_metadata
+
+                            generate_video_metadata.delay(
+                                info["item_id"], delegation=info["video_delegation"]
+                            )
+                        m = info["video_meta"]
+                        print(
+                            f"  add   video {info['project']}  "
+                            f"{m['width']}x{m['height']} {m['fps']}fps "
+                            f"frames={m['frame_count']} tasks={info['tasks']}"
+                        )
+                except Exception as e:  # noqa: BLE001 — 夹具/MinIO/ffprobe 不可用时不阻断 seed
+                    await db.rollback()
+                    if strict:
+                        raise
+                    print(f"  WARN  video 夹具跳过: {e}")
+            else:
+                print("  skip  video P-VIDEO-DEV (使用 --video 提供素材)")
 
             if strict:
                 info = await seed_ocr(
@@ -635,6 +638,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--asset-dir", type=Path)
+    parser.add_argument("--video", type=Path, help="demo profile 的本地视频素材路径")
     parser.add_argument("--offline", action="store_true")
     parser.add_argument(
         "--repair",
@@ -665,6 +669,8 @@ def parse_args() -> argparse.Namespace:
         parser.error(str(exc))
     if args.backend_requirements is not None and args.profile != "screenshots":
         parser.error("--backend-requirements requires --profile screenshots")
+    if args.video is not None and args.profile != "demo":
+        parser.error("--video requires --profile demo")
     return args
 
 
@@ -675,6 +681,7 @@ async def main() -> None:
         profile=args.profile,
         cache_dir=args.cache_dir,
         asset_dir=args.asset_dir,
+        video=args.video,
         offline=args.offline,
         repair=args.repair,
         ml_backend_mode=args.ml_backend_mode,

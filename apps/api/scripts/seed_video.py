@@ -1,9 +1,6 @@
-"""dev-only · 用**开源视频**灌一个 video-track(视频时序追踪)项目 + 一个 Task,
-供浏览器实测视频工作台(时间轴 / 逐帧 / bbox 轨迹)与文档站 GIF 录制。
+"""dev-only · 用调用方提供的视频灌一个 video-track 项目和一个 Task。
 
-为何单独做这个 seed:线上已有的视频项目用的是内部隐私素材,不能进文档。这里改用仓库
-自带的开源素材 `tracking_car.mp4`(来自 grounded-sam-2 vendor,Apache-2.0,行车track 演示),
-可公开分享。
+调用方负责确认素材可以用于预期用途，包括公开分享和文档录制。
 
 视频元数据、时间表与 poster 通过已登记原件的统一 generation 发布。seed 只登记本次
 PUT 的真实字节，调用方提交业务记录后，以显式委派派发媒体任务；不预填原始派生路径。
@@ -13,22 +10,16 @@ owner 用传入用户(seed.py 传 admin;独立跑兜底 admin),与其余 seed �
 幂等:固定 display_id(P-VIDEO-DEV / DS-VIDEO-DEV),项目已存在则跳过,重复跑安全。
 
 独立跑:
-    cd apps/api && PYTHONPATH=. uv run python scripts/seed_video.py
+    cd apps/api && PYTHONPATH=. uv run python scripts/seed_video.py --video /path/to/video.mp4
 """
 
+import argparse
 import asyncio
 import hashlib
+import mimetypes
 import uuid
 from pathlib import Path
 
-# repo root。host 布局 apps/api/scripts/<this> 取 parents[3];浅布局(如容器把代码挂在
-# /app)parents[3] 会越界,退化为文件系统根 → 夹具 .exists()=False 时各 seed 优雅跳过不崩。
-_parents = Path(__file__).resolve().parents
-REPO = _parents[3] if len(_parents) > 3 else _parents[-1]
-# 开源素材:grounded-sam-2 vendor 自带的行车跟踪片段(Apache-2.0)。
-VIDEO = (
-    REPO / "apps/grounded-sam2-backend/vendor/grounded-sam-2/assets/tracking_car.mp4"
-)
 
 PROJECT_DISPLAY_ID = "P-VIDEO-DEV"
 DATASET_DISPLAY_ID = "DS-VIDEO-DEV"
@@ -77,10 +68,8 @@ async def _ensure_admin(db) -> uuid.UUID:
     return account_id
 
 
-async def seed_video(
-    db, *, owner_id: uuid.UUID, video: Path | None = None
-) -> dict | None:
-    """把开源行车视频灌入当前栈,建 video-track 项目 + 1 个 Task,owner 为传入用户。
+async def seed_video(db, *, owner_id: uuid.UUID, video: Path) -> dict | None:
+    """把调用方视频灌入当前栈,建 video-track 项目 + 1 个 Task,owner 为传入用户。
 
     幂等:项目 P-VIDEO-DEV 已存在则直接返回 None(不重复造)。
     调用方负责最终 commit(task creation workflow 内部已分块 commit)。
@@ -109,9 +98,8 @@ async def seed_video(
     if existing:
         return None
 
-    video = video or VIDEO
     if not video.exists():
-        raise FileNotFoundError(f"开源视频素材缺失: {video}")
+        raise FileNotFoundError(f"视频素材缺失: {video}")
 
     # Local probe is reporting only; persisted derivatives use the owned pipeline.
     video_meta = probe_video_file(video)
@@ -120,7 +108,7 @@ async def seed_video(
         display_id=DATASET_DISPLAY_ID,
         name=DATASET_NAME,
         data_type="video",
-        description="开源行车跟踪片段(grounded-sam-2 vendor, Apache-2.0)dev 夹具",
+        description="调用方提供的视频 dev 夹具",
         created_by=owner_id,
     )
     db.add(ds)
@@ -142,7 +130,7 @@ async def seed_video(
         Bucket=bucket,
         Key=key,
         Body=payload,
-        ContentType="video/mp4",
+        ContentType=mimetypes.guess_type(video.name)[0] or "application/octet-stream",
     )
 
     item = DatasetItem(
@@ -191,11 +179,15 @@ async def seed_video(
 
 
 async def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--video", type=Path, required=True, help="本地视频素材路径")
+    args = parser.parse_args()
+
     from app.db.base import async_session
 
     async with async_session() as db:
         owner_id = await _ensure_admin(db)
-        info = await seed_video(db, owner_id=owner_id)
+        info = await seed_video(db, owner_id=owner_id, video=args.video)
         await db.commit()
 
         if info is not None:
@@ -205,13 +197,13 @@ async def main() -> None:
                 info["item_id"], delegation=info["video_delegation"]
             )
 
-    print("=== 开源视频 video-track dev 数据 ===")
+    print("=== 视频 video-track dev 数据 ===")
     if info is None:
         print(f"项目 {PROJECT_DISPLAY_ID} 已存在,跳过")
     else:
         m = info["video_meta"]
         print(
-            f"上传视频: {VIDEO.name}  {m['width']}x{m['height']} "
+            f"上传视频: {args.video.name}  {m['width']}x{m['height']} "
             f"{m['fps']}fps {m['frame_count']}帧  建任务: {info['tasks']}  "
             f"帧时间表: {info['frames']} 条"
         )

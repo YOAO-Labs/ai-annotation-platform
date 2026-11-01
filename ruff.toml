@@ -10,14 +10,5 @@ extend-exclude = [
 
 [per-file-target-version]
 "apps/api/**" = "py311"
-"apps/sam3-backend/**" = "py312"
 "packages/python-sdk/**" = "py311"
 "scripts/*.py" = "py311"
-
-[lint.per-file-ignores]
-# 这些入口必须先把 vendor 根目录放进 sys.path，随后才能导入模型依赖。
-"apps/grounded-sam2-backend/predictor.py" = ["E402"]
-"apps/grounded-sam2-backend/video_predictor.py" = ["E402"]
-"apps/sam3-backend/predictor.py" = ["E402"]
-"apps/sam3-backend/pvs_video_predictor.py" = ["E402"]
-"apps/sam3-backend/video_predictor.py" = ["E402"]

@@ -446,7 +446,6 @@ test("large PR reports use files while suite dispatch and final audit outputs st
     assert.ok(summary.includes(`planned: ${broadened.join(", ")}`));
     assert.ok(summary.includes("ML CPU contract caller triggered: true"));
     assert.ok(summary.includes(paths[1729]));
-    assert.ok(summary.includes("ml-sam3"));
 
     // The final audit retains the full required manifest but no changed paths,
     // so its existing environment-to-file transfer is bounded too.

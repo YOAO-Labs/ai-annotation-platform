@@ -345,7 +345,7 @@ last_reviewed: 2026-10-26
 - 后端纯规则测试不落库；事务/锁/通知顺序测试用独立连接。
 - 前端页面测试优先在 MSW API 边界描述响应（`src/test/` 提供最小 fixture）；
   纯 URL/几何规则下沉到 `*UrlState.test.ts` / 几何单测。
-- 平台 ML CPU 工作流 `.github/workflows/ml-cpu-test.yml` 与 `scripts/run-ml-cpu-tests.sh` 运行平台契约、受控资产及 SAM 服务套件；独立插件源码套件在插件仓运行。真实设备资格需另行验收。
+- 平台 ML CPU 工作流 `.github/workflows/ml-cpu-test.yml` 与 `scripts/run-ml-cpu-tests.sh` 运行平台契约与受控资产套件；独立插件源码套件在插件仓运行。真实设备资格需另行验收。
 
 ## 7. 改动时的对齐参考
 

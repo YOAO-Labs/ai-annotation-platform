@@ -1,11 +1,10 @@
-# Reusable CPU test workflow for platform contracts, asset tooling and SAM backends.
+# Reusable CPU test workflow for platform contracts and asset tooling.
 #
 # Caller contract:
 #   uses: ./.github/workflows/ml-cpu-test.yml
 #   with:
 #     suites: all                     # default; or a comma/space separated subset of:
-#                                     #   shared-protocol-v2, controlled-assets,
-#                                     #   grounded-sam2, sam3
+#                                     #   shared-protocol-v2, controlled-assets
 #   (a call with no `suites` input runs every suite)
 #
 # Manual full entry: Actions -> "ML CPU tests" -> Run workflow.
@@ -20,8 +19,7 @@ on:
     inputs:
       suites:
         description: >-
-          Comma/space separated subset of shared-protocol-v2, controlled-assets,
-          grounded-sam2, sam3; or "all".
+          Comma/space separated subset of shared-protocol-v2, controlled-assets; or "all".
         required: false
         default: all
         type: string
@@ -29,8 +27,7 @@ on:
     inputs:
       suites:
         description: >-
-          Comma/space separated subset of shared-protocol-v2, controlled-assets,
-          grounded-sam2, sam3; or "all".
+          Comma/space separated subset of shared-protocol-v2, controlled-assets; or "all".
         required: false
         default: all
         type: string
@@ -45,8 +42,6 @@ jobs:
     outputs:
       shared_protocol_v2: ${{ steps.plan.outputs.shared_protocol_v2 }}
       controlled_assets: ${{ steps.plan.outputs.controlled_assets }}
-      grounded_sam2: ${{ steps.plan.outputs.grounded_sam2 }}
-      sam3: ${{ steps.plan.outputs.sam3 }}
     steps:
       - uses: actions/checkout@v4
       - name: Resolve requested suites
@@ -86,55 +81,3 @@ jobs:
         run: pip install uv
       - name: Run controlled asset administration tests
         run: bash scripts/run-ml-cpu-tests.sh run controlled-assets
-
-  grounded-sam2:
-    name: ML CPU grounded sam2 backend
-    needs: plan
-    if: needs.plan.outputs.grounded_sam2 == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install uv
-        run: pip install uv
-      - name: Cache uv downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ml-cpu-uv-${{ runner.os }}-grounded-sam2-${{ hashFiles('apps/grounded-sam2-backend/uv.lock') }}
-          restore-keys: |
-            ml-cpu-uv-${{ runner.os }}-grounded-sam2-
-      - name: Run grounded-sam2 backend tests
-        run: bash scripts/run-ml-cpu-tests.sh run grounded-sam2
-
-  sam3:
-    name: ML CPU sam3 backend
-    needs: plan
-    if: needs.plan.outputs.sam3 == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install uv
-        run: pip install uv
-      - name: Cache uv downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ml-cpu-uv-${{ runner.os }}-sam3-${{ hashFiles('apps/sam3-backend/uv.lock') }}
-          restore-keys: |
-            ml-cpu-uv-${{ runner.os }}-sam3-
-      - name: Run sam3 backend tests
-        run: bash scripts/run-ml-cpu-tests.sh run sam3
