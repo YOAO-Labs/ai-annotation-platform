@@ -214,6 +214,49 @@ async def test_typed_failure_survives_missing_job_or_failed_failure_receipt(
         assert context.db.events == ["import", "rollback"]
 
 
+@pytest.mark.parametrize("format", ["aap_json", "coco"])
+@pytest.mark.parametrize("ledger_fails", [False, True])
+async def test_unexpected_failure_survives_missing_job_or_failed_receipt(
+    monkeypatch, format, ledger_fails
+):
+    error = RuntimeError("unexpected import failure")
+    context = _route(
+        monkeypatch, format, error, job=ledger_fails, ledger_fails=ledger_fails
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        await context.invoke()
+
+    assert caught.value is error
+    assert context.db.pending == []
+    assert context.db.committed == ([()] if ledger_fails else [])
+
+
+@pytest.mark.parametrize("format", ["aap_json", "coco"])
+async def test_typed_failure_without_job_still_rolls_back_non_dry_import(
+    monkeypatch, format
+):
+    error = RasterMaskContractError(
+        status_code=409,
+        reason="mask_content_busy",
+        message="Retry the mask operation",
+        retryable=True,
+    )
+    context = _route(monkeypatch, format, error)
+    monkeypatch.setattr(
+        async_job, "create_job", AsyncMock(side_effect=RuntimeError("job unavailable"))
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await context.invoke()
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == error.detail
+    assert context.db.pending == []
+    assert context.db.committed == []
+    context.failed.assert_not_awaited()
+
+
 @pytest.mark.parametrize("route", ["annotations", "aap_json", "coco"])
 async def test_plain_input_value_error_still_returns_422(monkeypatch, route):
     context = _route(monkeypatch, route, ValueError("invalid input"), job=False)
