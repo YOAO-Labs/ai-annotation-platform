@@ -142,21 +142,22 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 
 仅当启用 `docker-compose.ml-gsam2.yml` 的 `--profile gpu` 时生效。镜像不包含模型，也不会在启动时下载；管理员须准备已审核资产。
 
-| 变量                              | 默认   | 说明                                                                                                                                           |
-| --------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SAM_VARIANT`                     | `tiny` | 精度 / 显存递增：`tiny` → `small` → `base_plus` → `large`（4060 8G 选 tiny）。                                                                 |
-| `DINO_VARIANT`                    | `T`    | `T`（Swin-T 默认）/ `B`（Swin-B 更准但显存翻倍）。                                                                                             |
-| `BOX_THRESHOLD`                   | `0.35` | DINO 检测阈值；召回不足 → `0.25`，误检多 → `0.45`。                                                                                            |
-| `TEXT_THRESHOLD`                  | `0.25` | DINO 文本-标签匹配阈值；短语 prompt 一般 0.25 即可。                                                                                           |
-| `GSAM2_LOG_LEVEL`                 | `INFO` | `DEBUG / INFO / WARNING`。                                                                                                                     |
-| `MODEL_POOL_CAP`                  | `1`    | 同容器内并存的 `(sam_variant, dino_variant)` 变体数上限（LRU 驱逐）。`1` = 维持单变体常驻；切变体走「驱逐旧 + 冷启新」。按显存预算调，见下表。 |
-| `MODEL_POOL_BUILD_TIMEOUT`        | `30`   | pool 满 + 并发 miss 时排队等显存腾挪的超时（秒），超时返回 503「显存繁忙，稍后重试」。                                                         |
-| `IDLE_UNLOAD_SECONDS`             | `600`  | 空闲 N 秒后自动卸载模型释放显存；`<=0` 关闭定时卸载（仍可手动 `POST /unload`）。                                                               |
-| `IDLE_CHECK_INTERVAL`             | `60`   | 上面空闲判断的轮询间隔（秒）。                                                                                                                 |
-| `VIDEO_MODEL_POOL_CAP`            | `1`    | v0.10.35 · sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                               |
-| `VIDEO_MODEL_POOL_BUILD_TIMEOUT`  | `60`   | video 池满 + 并发 miss 时排队等显存的超时（秒）。                                                                                              |
-| `VIDEO_TRACKER_MAX_WINDOW_FRAMES` | `300`  | 单次 `init_state` 一次性加载的最大帧数（安全上限，防超长窗口灌爆显存）。                                                                       |
-| `VIDEO_IDLE_UNLOAD_SECONDS`       | `600`  | video 池独立 idle 卸载（与图片池 `IDLE_UNLOAD_SECONDS` 各自计时）；`<=0` 关闭。                                                                |
+| 变量                               | 默认   | 说明                                                                                                                                           |
+| ---------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SAM_VARIANT`                      | `tiny` | 精度 / 显存递增：`tiny` → `small` → `base_plus` → `large`（4060 8G 选 tiny）。                                                                 |
+| `DINO_VARIANT`                     | `T`    | `T`（Swin-T 默认）/ `B`（Swin-B 更准但显存翻倍）。                                                                                             |
+| `BOX_THRESHOLD`                    | `0.35` | DINO 检测阈值；召回不足 → `0.25`，误检多 → `0.45`。                                                                                            |
+| `TEXT_THRESHOLD`                   | `0.25` | DINO 文本-标签匹配阈值；短语 prompt 一般 0.25 即可。                                                                                           |
+| `GSAM2_LOG_LEVEL`                  | `INFO` | `DEBUG / INFO / WARNING`。                                                                                                                     |
+| `MODEL_POOL_CAP`                   | `1`    | 同容器内并存的 `(sam_variant, dino_variant)` 变体数上限（LRU 驱逐）。`1` = 维持单变体常驻；切变体走「驱逐旧 + 冷启新」。按显存预算调，见下表。 |
+| `MODEL_POOL_BUILD_TIMEOUT`         | `30`   | pool 满 + 并发 miss 时排队等显存腾挪的超时（秒），超时返回 503「显存繁忙，稍后重试」。                                                         |
+| `IDLE_UNLOAD_SECONDS`              | `600`  | 空闲 N 秒后自动卸载模型释放显存；`<=0` 关闭定时卸载（仍可手动 `POST /unload`）。                                                               |
+| `IDLE_CHECK_INTERVAL`              | `60`   | 上面空闲判断的轮询间隔（秒）。                                                                                                                 |
+| `VIDEO_MODEL_POOL_CAP`             | `1`    | v0.10.35 · sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                               |
+| `VIDEO_MODEL_POOL_BUILD_TIMEOUT`   | `60`   | video 池满 + 并发 miss 时排队等显存的超时（秒）。                                                                                              |
+| `VIDEO_TRACKER_MAX_WINDOW_FRAMES`  | `16`   | 单窗口最大帧数；提高前须按目标设备重新验证。                                                                                                   |
+| `VIDEO_TRACKER_MAX_CONTEXT_FRAMES` | `64`   | 同一 session 的源帧上下文上限；大于窗口时启用跨窗能力。                                                                                        |
+| `VIDEO_IDLE_UNLOAD_SECONDS`        | `600`  | video 池独立 idle 卸载（与图片池 `IDLE_UNLOAD_SECONDS` 各自计时）；`<=0` 关闭。                                                                |
 
 > **多变体资产**：运行期可切换已准备的变体。每个图像变体需要 SAM、DINO 和 `bert-base-uncased`；缺失资产的请求失败，不会自动下载。
 >
@@ -654,7 +655,11 @@ URL 改动、探测失败或快照过期后都按 unknown 保守报告，不会�
 
 管理员按插件目录与资产 catalog 审核许可和文件身份后，预先准备模型。Grounded-SAM-2 的 `gsam2_checkpoints:/app/checkpoints` 包含所需 SAM、DINO 和 `bert-base-uncased/{config.json,tokenizer.json,tokenizer_config.json,vocab.txt,model.safetensors}`；SAM3 的 `sam3_checkpoints:/app/checkpoints` 包含 image/PVS 的 `sam3.pt` 和 multiplex 的 `sam3.1_multiplex.pt`。两者不在启动时下载；SAM3 的两个 gated 仓库须各自取得授权，持有文件或 token 不代表许可。缓存卷仍保留供现有部署迁移。ONNXTools 与 RapidOCR 使用各自已审核的只读宿主目录，YOLO 保留 checkpoint 卷与只读模型资产。
 
-`ML_MANAGED_BACKEND_URLS` 是凭据的部署信任映射，不是插件发现机制。SAM 不再有隐式映射；Compose 管理部署需显式加入 `gsam2` / `sam3` 的实际 URL，并保留所需其他 provider 映射；原生安装使用其自身凭据和身份，不能靠这个映射接管。配置 public key、实际 registry UUID 与 `node/physical-device-token` 后才能使用相应签名生命周期控制。
+`ML_MANAGED_BACKEND_URLS` 是凭据的部署信任映射，不是插件发现机制。SAM 不再有隐式映射；Compose 管理部署需显式加入 `gsam2` / `sam3` 的实际 URL，并保留所需其他 provider 映射；原生安装使用其自身凭据和身份，不能靠这个映射接管。启动环境同步读取 `ML_BACKEND_OBSERVE_URLS`，空列表时回退到非空的 `ML_BACKEND_DEFAULT_URL`；迁移后应删除不再观测的旧 URL，不能只改凭据映射。原生安装的身份不会被环境同步覆盖。
+
+签名生命周期控制共用公开验证密钥，但身份按实例配置：Grounded-SAM2 使用 `GSAM2_GPU_LIFECYCLE_REGISTRY_ID`／`GSAM2_GPU_LIFECYCLE_RESOURCE_ID`，SAM3 使用对应 `SAM3_` 变量。两者不会继承 YOLO 的无前缀身份变量。registry UUID 必须分别匹配实际注册记录，resource 必须匹配实际 `node/physical-device-token`，不能通过请求 claim 推断。
+
+SAM2 与 SAM3 PVS 的 overlay 默认窗口为 16、context 为 64；SAM3 multiplex 仍独立按窗口执行。这些配置不会自动开启生命周期资格，实际设备、镜像、权重与池拓扑仍须验收，开关默认保持 `0`。
 
 ```bash
 # 默认不启任何 GPU service（基础栈不含 ML backend，节约本地资源）

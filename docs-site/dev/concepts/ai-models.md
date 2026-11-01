@@ -47,49 +47,25 @@ apps/api (FastAPI 3.11) ──HTTP /predict──▶ grounded-sam2-backend
 
 **SAM 系列必须独立服务进程**：grounded-sam2-backend 与 sam3-backend 使用不同 Python、torch、CUDA 与权重依赖；GroundingDINO Deformable Attention 算子还需要 nvcc 现场编译。共用进程会触发 ABI 冲突（TORCH_CUDA_ARCH_LIST、cudnn 版本）。
 
-### 1.1 docker-compose.ml.yml profile + nvidia 资源预留
+### 1.1 固定插件镜像与独立 GPU profile
 
-SAM 服务定义在 `docker-compose.ml.yml`，三个独立插件各使用一个可选叠加文件。GPU 服务采用独立端口、opt-in profile、NVIDIA device reservation 与健康检查；首次模型加载仍需按实际镜像和权重验收。
+所有官方推理实现由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护。平台不再构建本地 SAM 源码；`docker-compose.ml.yml` 仅保留截图 stub，各插件使用独立、显式启用的叠加文件。
 
-```yaml
-# docker-compose.ml.yml 节选
-services:
-  grounded-sam2-backend:
-    profiles: ["gpu"] # 默认不启, -f docker-compose.yml -f docker-compose.ml.yml --profile gpu opt-in
-    build:
-      context: ./apps
-      dockerfile: grounded-sam2-backend/Dockerfile
-    ports:
-      - "8001:8001"
-    environment:
-      SAM_VARIANT: ${SAM_VARIANT:-tiny} # tiny|small|base_plus|large; 显存预算见 §1.2
-      DINO_VARIANT: ${DINO_VARIANT:-T} # T|B
-      CHECKPOINT_DIR: /data/checkpoints
-    volumes:
-      - gsam2_checkpoints:/data/checkpoints # 持久化命名卷, 避免镜像重建重拉权重
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
-      start_period: 180s # 首次冷启 + checkpoint 加载
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1 # 每 backend 1 张卡; 多变体并存看 §1.2
-              capabilities: [gpu]
+| 插件          | 叠加文件                          | profile         | 端口   |
+| ------------- | --------------------------------- | --------------- | ------ |
+| Grounded-SAM2 | `docker-compose.ml-gsam2.yml`     | `gpu`           | `8001` |
+| SAM3          | `docker-compose.ml-sam3.yml`      | `gpu-sam3`      | `8002` |
+| YOLO          | `docker-compose.ml-yolo.yml`      | `gpu-yolo`      | `8003` |
+| ONNXTools     | `docker-compose.ml-onnxtools.yml` | `gpu-onnxtools` | `8004` |
+| RapidOCR      | `docker-compose.ml-rapidocr.yml`  | `gpu-rapidocr`  | `8005` |
+
+启用前配置对应镜像仓库、已审核的 manifest digest 与生命周期源码摘要，并准备获准模型资产和凭据映射。例如：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
 ```
 
-**dev vs 生产差异**（以下示例使用 SAM 叠加文件；插件部署另加对应文件并配置审核过的镜像 digest）：
-
-| 场景                  | 启动命令                                                | GPU 需求                     | 显存预算    | 备注                                                                 |
-| --------------------- | ------------------------------------------------------- | ---------------------------- | ----------- | -------------------------------------------------------------------- |
-| **dev (无 GPU 机)**   | `docker compose up`                                     | 0                            | 0           | GPU backend 不启动，注册表实例不可用，标注页前端走 disabled UI       |
-| **dev (有 GPU)**      | `docker compose --profile gpu up`                       | 1 卡                         | ~3GB (tiny) | 默认启动 grounded-sam2 主变体，额外变体按 prefetch / model pool 配置 |
-| **生产 (单租户)**     | `docker compose --profile gpu up -d`                    | ≥ 1 卡                       | 见 §1.2     | 按显存档位选 SAM_VARIANT                                             |
-| **生产 (多变体并存)** | 拆 service: `gsam2-tiny` / `gsam2-large` (各自 profile) | ≥ 2 卡 (推荐) 或 1 张 ≥ 24GB | 累加 §1.2   | 按显存预算拆分独立容器或使用单容器 ModelPool                         |
+不启用插件时无需提供镜像变量或 GPU。每个服务只绑定一张明确的物理卡；多个 SAM 服务使用各自的 registry／resource 身份，不能共享一个 registry UUID。Compose 所有权不等于原生安装所有权，维护 runner 不会接管原生插件容器。完整配置与停机顺序见[部署说明](/ops/deploy/docker-compose#docker-compose-启用-gpu-service)。
 
 ### 1.2 显存预算 + variant 选型
 
@@ -115,15 +91,15 @@ embedding cache buffer：`EMBEDDING_CACHE_SIZE` 默认 16 entries；按 GPU 显�
 | 3090 / A4000 (24GB) | large             | T 或 B    | ~7.7-8.5GB   | 2-3 (多容器并存)    |
 | A100 40GB / H100    | large             | B         | ~8.5GB       | 4+ (整租户多变体池) |
 
-**多容器并存**（生产高负载）：把 `grounded-sam2-backend` 拆成 `gsam2-tiny` / `gsam2-large` 两个 service（独立 profile + 独立端口），按业务 tier 路由不同 batch（tier-A 高精度走 large，tier-B 快通走 tiny）。单容器内需要少量变体切换时，优先使用 ModelPool 并配置 `PREFETCH_SAM_VARIANTS` / `PREFETCH_DINO_VARIANTS`。
+**多容器并存**：每个实例分别固定镜像、物理 GPU、注册身份和资源预算，再通过服务池治理路由。单容器内需要少量变体切换时，可使用 ModelPool；所有变体的 SAM、DINO 与 BERT 资产都须由管理员事先准备，不能依靠运行时自动下载。
 
 单容器内的图像与视频模型由两个独立容量的 LRU 池管理，但共享冷构建串行锁；图像 predictor 与 embedding cache 作为同一条目共同借出和释放。受管卸载会同时清空 image/video 两池，只有两池的 builder、borrower 与 GPU artifact 都可信归零时，`residency.gpu_loaded=false` 才能作为显存账本减账依据。每个部署仍须完成真实模型的加载、淘汰和全量卸载回落验收后，才可开启受管能力。
 
 ### 1.3 镜像基础 + checkpoint 同步
 
-镜像基于 `pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel`（**devel** 必需，runtime 镜像缺 nvcc 触发 GroundingDINO 编译失败）。Dockerfile 末段 `pip install -e ../_shared/mask_utils` 把共享 mask 转换包链入容器，避免 grounded-sam2 与 sam3 各自维护 mask → polygon 转换逻辑。
+插件仓库独立固定 Python、Torch、CUDA、vendor 提交和第一方依赖；平台仅消费审核后的镜像，不再通过平台 checkout 链接模型实现或共享 Mask 源码。Mask 工具来自独立 Plugin-SDK 的固定制品。
 
-checkpoint 同步：`apps/grounded-sam2-backend/scripts/download_checkpoints.py` 按 SAM_VARIANT / DINO_VARIANT env 拉 hf-mirror 镜像；首次冷启或换 variant 时跑一次。生产环境推荐挂 PV / EBS 把 `/data/checkpoints` 持久化（~900MB-2GB），避免 image rebuild 重新下载。
+Grounded-SAM2 与 SAM3 的模型目录均为 `/app/checkpoints`，由各自持久卷提供。管理员按插件随版本发布的资产清单核验大小、SHA256、来源和许可证；启动不下载权重、不接受 gated 许可，也不向插件提供 S3 管理凭据。图片、PVS 和 multiplex 需要的文件分别准备，目录可见或健康检查通过不代表已获准使用。
 
 ---
 
@@ -284,7 +260,7 @@ histogram_quantile(0.95,
 
 ## 6. YOLO / ONNX / OCR 通用推理 backend
 
-`grounded-sam2-backend` / `sam3-backend` 之外，[官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)提供 `yolo-backend`、`onnxtools-backend` 与 `rapidocr-backend`。平台按已审核的镜像 digest 部署这些独立服务，模型权重和项目启用仍须单独批准。
+[官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)统一维护 Grounded-SAM2、SAM3、YOLO、ONNXTools、RapidOCR 与 LibreYOLO。平台按已审核的镜像 digest 部署独立服务，模型权重和项目启用仍须单独批准。
 
 ### 6.1 yolo-backend（8003 / `gpu-yolo`）
 

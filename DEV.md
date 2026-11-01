@@ -2301,6 +2301,8 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 重跑 seed 会保留已有任务和标注，并从 nuScenes `sample_data` 幂等回填旧相机条目缺失的
 像素宽高，供 3D 投影、持久化 2D 成员和残差质检共用。
 
+普通 demo 只有在传入 `--video /path/to/video.mp4` 时才创建视频示例；不再依赖 SAM vendor 内的文件。独立入口为 `PYTHONPATH=. uv run python scripts/seed_video.py --video /path/to/video.mp4`（在 `apps/api` 执行）。调用方负责确认素材可用于预期用途，文档／公开截图还须另行核验传播许可；`screenshots` profile 保留自己的确定性素材，不接受这个覆盖参数。
+
 ### COCO8 在线训练夹具
 
 只生成在线训练测试项目，不导入视频、点云等其他示例：

@@ -210,6 +210,8 @@ cd apps/api
 PYTHONPATH=. uv run python scripts/seed.py
 ```
 
+默认 demo 不再从模型 vendor 读取视频。需要视频项目时显式传入 `--video /path/to/video.mp4`；仅播种视频可运行 `PYTHONPATH=. uv run python scripts/seed_video.py --video /path/to/video.mp4`。调用方负责素材的使用与公开展示许可；截图 profile 继续使用其已审核素材。
+
 ### 常用入口
 
 | 服务          | 地址                       | 说明                            |

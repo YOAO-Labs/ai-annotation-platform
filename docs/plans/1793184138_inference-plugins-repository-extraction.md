@@ -1,8 +1,8 @@
 # 推理后端插件化、Plugin-SDK 与官方插件独立仓库规划
 
-> 状态：阶段 C、C2 及阶段 D 的限定本机验收已完成；阶段 E 的两个有状态后端已有官方源码与固定镜像，Grounded-SAM2 取得限定 GPU 资格和部分平台请求证据，但平台接纳与其他验收门仍待完成；SAM3 尚无 GPU 推理或原生激活验收。阶段 E 未完成，平台旧 SAM 源码的退役属于阶段 F。
+> 状态：阶段 C、C2、D、E 的限定本机交付已完成。阶段 F 已合并 SAM 固定部署制品切换及平台旧源码退役，正在完成运行环境刷新、文档核验和工作树清理；不扩大既有 GPU、模型许可或生产容量资格。
 >
-> 日期：规划于 2026-10-28，实施记录更新于 2026-10-31。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
+> 日期：规划于 2026-10-28，实施记录更新于 2026-11-01。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
 >
 > 授权范围：使用 Orca、OMP `openai-codex/gpt-6.1-terra`／`xhigh` 和独立工作树，由主进程审核并合并提交。用户已授权公开必要第一方制品、补齐既有 MIT 许可，并要求原有 vendor 改为固定 tag／哈希的 Git 子模块；不因此发布应用版本、扩展前端 SDK 或公开未获授权的权重。
 >
@@ -45,14 +45,14 @@
 
 现有五个后端加上独立 LibreYOLO，共六个迁移单元。以现有后端的运行依赖和生命周期为单位，不按每个模型规格建仓或建插件。
 
-| 插件单元         | 当前代码入口                                                                           | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
-| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| LibreYOLO        | 官方仓 `plugins/inference/libreyolo`，原生 loader 位于其 `native/`                     | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
-| Ultralytics YOLO | 官方仓 `plugins/inference/yolo`                                                        | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
-| RapidOCR         | 官方仓 `plugins/inference/rapidocr`                                                    | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
-| ONNXTools        | 官方仓 `plugins/inference/onnxtools`                                                   | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、四个业务 sessions；两份权重仅获准内部验收，不代表可公开分发    |
-| Grounded-SAM2    | 官方仓 `plugins/inference/grounded-sam2/`；平台旧源码暂留 `apps/grounded-sam2-backend` | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
-| SAM3             | 官方仓 `plugins/inference/sam3/`；平台旧源码暂留 `apps/sam3-backend`                   | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
+| 插件单元         | 当前代码入口                                                       | 必须保留的实际能力                                                                                             | 主要特殊性                                                             |
+| ---------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| LibreYOLO        | 官方仓 `plugins/inference/libreyolo`，原生 loader 位于其 `native/` | 原生 YOLOv9 t/s/m/c 检测、受控训练权重安装与试用；显式 CPU 和经验证的 CUDA 路径                                | 首个试点；不能再走 Ultralytics loader，也不能改写历史 CPU 产物身份     |
+| Ultralytics YOLO | 官方仓 `plugins/inference/yolo`                                    | 检测、分割、姿态、旋转框；YOLO-World／YOLOE 文本与 exemplar；ByteTrack／BoT-SORT；已有受控检测／分割与评估资格 | 不能把“YOLO 插件”缩成 bbox 检测，也不能因 LibreYOLO 拆出而删除这些能力 |
+| RapidOCR         | 官方仓 `plugins/inference/rapidocr`                                | `ocr-det`、`ocr-rec`、`ocr-e2e`；文本、方向、语言属性与合法模型组合                                            | ONNX Runtime；动态引擎池及每个引擎实际 det／cls／rec sessions          |
+| ONNXTools        | 官方仓 `plugins/inference/onnxtools`                               | 车辆检测、车型／颜色分类原子，以及检测后分类 composite                                                         | 三句柄、四个业务 sessions；两份权重仅获准内部验收，不代表可公开分发    |
+| Grounded-SAM2    | 官方仓 `plugins/inference/grounded-sam2/`                          | 文本检测／分割、点／框／Mask／涂抹、多候选、框批量分割、SAM2 视频追踪                                          | image／video 双池、embedding、跨窗 session、对象身份与精确 Mask        |
+| SAM3             | 官方仓 `plugins/inference/sam3/`                                   | 文本检测／分割、交互提示、exemplar；SAM3.1 multiplex 与 SAM3 PVS 两类视频能力                                  | GPU-only，image／multiplex／PVS 三池；独立权重授权与有状态追踪         |
 
 这张表基于当前实现调查，不代表六个插件均已独立发布或取得 GPU 资格。SAM vendor 的训练代码或训练 extra 不等于平台已支持 SAM 训练回流。
 
@@ -61,8 +61,8 @@
 - [YOLO 模型矩阵](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/model_registry.py)、[YOLO HTTP 服务](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/main.py)、[受控分割](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/yolo/managed_segmentation.py)。
 - [RapidOCR 目录](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/rapidocr/catalog.py)、[引擎池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/rapidocr/engine_pool.py)。
 - [ONNXTools 服务](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/main.py)、[属性 schema](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/attribute_schema.py)、[句柄池](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/onnxtools/handle_pool.py)。
-- [Grounded-SAM2 官方实现](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/grounded-sam2)；平台旧服务暂留至阶段 F。
-- [SAM3 官方实现](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/sam3)；平台旧服务暂留至阶段 F。
+- [Grounded-SAM2 官方实现](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/grounded-sam2)。
+- [SAM3 官方实现](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/sam3)。
 
 ### LibreYOLO 当前进度不能扩大解释
 
@@ -247,11 +247,22 @@ SDK 边界另需通过独立安装验证：API SDK 核心安装可导入并调�
 
 ### F. 按插件完成平台切换与历史退役
 
-平台 Compose 从本地 `build: ./apps` 切换为固定发布制品，原开发覆盖层只用于明确的插件开发联调。逐项更新原环境发现／`ML_MANAGED_BACKEND_URLS` 等配置，避免环境同步重新创建旧注册项或覆盖插件身份。
+平台 Compose 现使用固定插件镜像，不再从平台 `apps/` 构建 SAM；每个插件有独立 opt-in overlay，基础和截图配置不要求未选插件的变量。`ML_MANAGED_BACKEND_URLS` 是凭据信任映射，启动发现实际使用 `ML_BACKEND_OBSERVE_URLS` 或非空 `ML_BACKEND_DEFAULT_URL`；两类配置分别维护，原生安装身份不会被环境同步覆盖。
 
 新安装获得新身份；项目明确启用与切换，受控模型重新试用、人工发布。旧的任务、作业、release、收据和冻结引用不重写。关闭新引用后，等待在途执行与视频会话按原规则完成或取消，取得全池排空／物理停止证据和零依赖证明后，才退役旧实例。
 
 代码退役与历史数据保留分开；保留可审计记录和固定旧镜像用于已授权的历史执行／恢复，不留下无期限的兼容代码旁路。
+
+#### 阶段 F 实施与验收记录
+
+- Orca 独立工作树提交 `1298b4f933c95ba02102b03167f251935e21b97d` 与 `87c65f39852bcad4f64ebe96db44d960c441bf23` 已经主进程审核，分别合入为 `295b6aeb2`、`126e7e2f8`。实际启动回执均为 `omp / openai-codex/gpt-6.1-terra:xhigh`。
+- 删除平台两套 SAM 源码、vendor gitlink、本地构建／下载入口与模型源码 CI；保留平台协议、受控资产和 TrackEval。官方实现及其固定 vendor 继续由 YOAO-Plugins 维护。原有 Grounded vendor 的 839 个暂存删除已保存原始 index、HEAD、配置和可验证 Git bundle，不作为本轮提交。
+- 宿主 runner 对五个 provider 统一拉取、核验固定镜像；保留 Compose 所有权、持久挂载与优雅退出检查，不接管原生安装。主进程用真实 Compose 复现并修正两个 SAM 共用 registry 身份的问题，改用各自前缀配置；默认 16 帧窗口／64 帧 context 与阶段 E 的限定配置一致，资格开关仍为 `0`。
+- 实际读取私有 registry manifest 并核对两份既有镜像 ID；真实 runner 在无网络、无 GPU 的容器中核验 shutdown 和生命周期源码，并拒绝错误摘要与可变标签。基础及截图配置均可在缺少 SAM 镜像变量时解析。未重建镜像，也未重复实卡推理；模型、PVS、multiplex 和 GPU 证据沿用阶段 E 的同一固定制品与明确配置，不把这次离线检查冒充新的 Compose GPU 资格。
+- 正常 SDK 盘点确认 13 个 SAM 安装均已退役，两个项目各 13 个启用项全部关闭，13 个路由成员的 inflight 均为 0；7 份实际启动记录对应的停止容器均已不存在，其余为未启动候选。视频历史保留 18 个终态作业：8 完成、5 取消、5 失败；图片项目无异步作业。没有重写历史身份、发布、收据或冻结引用，也没有为源码退役新增一次删除／退役操作。运行时汇总仍报告 partial，不据此宣称整体 Ready。
+- 维护队列 19 项、CI 选择器 19 项、选择器 selftest 和工作流命名检查通过。独立环境的共享协议套件补齐自身缺失的异步测试依赖后，任务契约 36 项、协议 219 项、受控资产 6 项通过；仅更新该测试依赖及三个受影响锁文件。
+- API 相关检查 30 项通过，另有 9 项旧鉴权／观测测试仍依赖迁出前的方法或旧装配，10 项 Native 检查初次按门禁跳过。单独启用视频 Native 检查后，夹具在既有 Assets cleanup 角色权限断言处失败；没有放宽授权或修改旁支实现。主进程另用全新可销毁 PostgreSQL／MinIO／Redis 运行实际视频播种：48 帧、1 个任务，原件及 S3 字节 SHA256 一致，重复播种保留原记录；这证明管理员播种路径，不冒充最小权限部署验收。CLI 缺少 `--video` 时在访问数据库前返回参数错误。
+- OpenAPI 仅更新已删除源码路径的描述，生成与一致性检查通过，HTTP 字段不变。当前文档更新独立镜像、资产准备、身份、窗口和历史退役规则；环境变量参考由源码重新生成。
 
 ## 7. 通用完成标准
 
@@ -277,7 +288,7 @@ GPU 验收按可用且已获授权的独占设备安排，不接管其他人的�
 - ONNXTools 两个权重的来源／授权仍是明确的分发前置；不把本机已有文件当成授权证明。
 - 不提交模型大文件、用户训练 checkpoint、数据集、验收环境凭据或个人 HF Token。gated 资产采用管理员明确授权的准备步骤，之后按摘要使用。
 
-来源：[Ultralytics 发布元数据](https://pypi.org/pypi/ultralytics/8.4.183/json)、[LibreYOLO 发布元数据](https://pypi.org/pypi/libreyolo/1.6.0/json)、[RapidOCR 模型许可](https://rapidai.github.io/RapidOCRDocs/main/en/model_licenses/)、[ONNXTools 固定来源许可证](https://github.com/yyq19990828/onnxtools/blob/102fcfeb08fc00f865c334a181bfd0bb518e5ed8/LICENSE)、[SAM3 vendor LICENSE](../../apps/sam3-backend/vendor/sam3/LICENSE)、[Grounded-SAM2 vendor](../../apps/grounded-sam2-backend/vendor/grounded-sam-2/LICENSE)。这些资料不构成尚未核验权重的分发授权。
+来源：[Ultralytics 发布元数据](https://pypi.org/pypi/ultralytics/8.4.183/json)、[LibreYOLO 发布元数据](https://pypi.org/pypi/libreyolo/1.6.0/json)、[RapidOCR 模型许可](https://rapidai.github.io/RapidOCRDocs/main/en/model_licenses/)、[ONNXTools 固定来源许可证](https://github.com/yyq19990828/onnxtools/blob/102fcfeb08fc00f865c334a181bfd0bb518e5ed8/LICENSE)、[SAM3 固定 vendor LICENSE](https://github.com/facebookresearch/sam3/blob/4cbac146c1b5a1e3a7f5c6a894901090b4dfd65b/LICENSE)、[Grounded-SAM2 固定 vendor LICENSE](https://github.com/IDEA-Research/Grounded-SAM-2/blob/b7a9c29f196edff0eb54dbe14588d7ae5e3dde28/LICENSE)。这些资料不构成尚未核验权重的分发授权。
 
 ## 9. 与现有后端重构的关系
 

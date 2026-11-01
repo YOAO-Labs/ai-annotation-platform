@@ -55,7 +55,7 @@ Mask 格式的静态 registry 仍向适配器传入 Session／ORM，也不能直
 推理相关代码统一位于 `packages/inference/`，内部的 `sdk/`、`runtime/`、`mask-utils/` 保留独立分发边界；Python 3.10 的运行时／Mask 消费者不必安装要求 Python 3.11 的作者 SDK。
 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件，现有实现按 `plugins/inference/` 分组；
 LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第三方作者不需要依赖官方模型或将自己的插件提交到官方仓库。
-核心 Inference、其他领域 owner、公共契约权威源码与 API SDK 留在平台。已切换的消费者通过固定发布制品衔接；Grounded-SAM2 与 SAM3 的官方实现现已进入官方仓库，但平台旧源码和 Compose 仍待后续退役，不能视为切换已完成。
+核心 Inference、其他领域 owner、公共契约权威源码与 API SDK 留在平台。六个官方实现均由独立插件仓库维护；平台旧 SAM 源码、vendor gitlink 与构建入口已退役，五个 Compose 消费者仅拉取和核验固定镜像。原生安装与 Compose 维护保持各自所有权，历史安装和冻结引用不因源码删除而改写。
 未来能力有独立包、依赖及一致性检查；只在实际共享需求出现时提取跨能力公共层，不预建空目录、万能 hook 或带模型字段的通用插件基类。
 
 ### API SDK 与插件 SDK {#api-sdk-and-plugin-sdk}
@@ -236,7 +236,7 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
-| 插件装配与扩展安装 | 推理准入、作者 SDK、管理员安装器与 HTTP 适配分工明确；全扩展点装配仍未交付 | SDK／运行时／Mask 工具归独立 Plugin-SDK；六个官方插件实现归 YOAO-Plugins，三个普通后端旧源码已删除，两个 SAM 平台旧副本暂留 | 阶段 D、E 的限定本机资格完成；两种 SAM 均通过原生 Mask、正反向跨窗视频、全池两轮 GPU 生命周期及正常退役；SAM3 另覆盖 exemplar、PVS 和 multiplex，独立第一方制品已发布，原 LibreYOLO 服务已恢复 | 阶段 F 再切换固定部署制品并退役旧 SAM；核心装配、其他扩展、第三方许可与生产容量门禁独立推进 |
+| 插件装配与扩展安装 | 推理准入、作者 SDK、管理员安装器与 HTTP 适配分工明确；全扩展点装配仍未交付 | SDK／运行时／Mask 工具归独立 Plugin-SDK；六个官方插件实现归 YOAO-Plugins，平台旧模型源码已退役，Compose 使用独立固定镜像 overlay | 阶段 D、E 的限定本机资格保留；两种 SAM 均通过原生 Mask、正反向跨窗视频、全池两轮 GPU 生命周期及正常退役；SAM3 另覆盖 exemplar、PVS 和 multiplex | 新部署仍须按真实镜像、设备与权重验收并明确切换项目；核心装配、其他扩展、第三方许可与生产容量门禁独立推进 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
 
@@ -248,7 +248,7 @@ manifest 的 `models` 是插件完整声明目录的最小安全投影，不是�
 
 有状态插件保持各自运行环境：Grounded-SAM2 使用 Python 3.10、Torch 2.3.1／torchvision 0.18.1 和 CUDA 12.1；SAM3 使用 Python 3.12、Torch 2.7.1 和 CUDA 12.8，推理仅支持 GPU。插件各自发布轻量目录和资产选择，目录展示不构成资产下载、执行或再分发授权。插件不得持有 S3 管理凭据或生命周期签名私钥。
 
-Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同。平台原生 Mask 接纳和 seed 读回已通过真实模型验证，输入、授权与最终提交仍由原 owner 负责。默认 context 上限与窗口均为 300，tracker context 显示 `none`；明确配置 context 64、window 16 后，48 帧正反向任务均通过三个窗口，并记录持久会话关闭。该资格不自动覆盖默认配置、其他权重或其他镜像。固定制品及验收范围见[拆仓计划阶段 E](../../../docs/plans/1793184138_inference-plugins-repository-extraction.md#e-有状态交互与视频后端)。
+Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同。平台原生 Mask 接纳和 seed 读回已通过真实模型验证，输入、授权与最终提交仍由原 owner 负责。部署模板采用 context 64、window 16；同一明确配置的 48 帧正反向任务已通过三个窗口，并记录持久会话关闭。该资格不自动覆盖扩大窗口／context、其他权重或其他镜像。固定制品及验收范围见仓库计划 `docs/plans/1793184138_inference-plugins-repository-extraction.md` 阶段 E。
 
 空闲 tracker 会话归属实际模型池条目，每个命令只在真实执行期间借用该条目；续用不能按相同模型 key 静默重建。驱逐、排空或关闭先使旧上下文失效，再等待归属会话清理，释放模型强引用后才执行分配器缓存清理。清理失败保留资源根和未知驻留状态，不能以请求取消、borrower 归零或池为空代替物理释放证明。每个新窗口仍需独立签名准入与完成计账，持久会话不是重复使用旧授权的凭据。
 

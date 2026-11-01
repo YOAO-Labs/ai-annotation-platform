@@ -57088,7 +57088,7 @@
         "type": "object"
       },
       "TrackerExemplar": {
-        "description": "v0.21.19 · text-driven 追踪 (sam3_video) 的单个视觉示例框。\n\nbbox: 归一化 xyxy [x1, y1, x2, y2]; label: True=正框(扩召回) / False=负框(排误检)。\n复用 sam3 图片侧 `Exemplar` 形状 (sam3-backend/schemas.py), 沿用归一化坐标红线。",
+        "description": "v0.21.19 · text-driven 追踪 (sam3_video) 的单个视觉示例框。\n\nbbox: 归一化 xyxy [x1, y1, x2, y2]; label: True=正框(扩召回) / False=负框(排误检)。\n复用 sam3 图片侧 `Exemplar` 形状，沿用归一化坐标红线。",
         "properties": {
           "bbox": {
             "items": {

@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-01
 ---
 
 # 环境变量参考
@@ -135,11 +135,11 @@ last_reviewed: 2026-10-30
 | `MINIO_DATA_DIR` | `/mnt/fast-disk/ai-annotation-platform/minio` | 留空时继续使用 Docker 托管的 miniodata 命名卷。 |
 | `ML_BACKEND_STORAGE_HOST` | `172.17.0.1:9000` | ML backend 在 docker compose 网内、平台 api 在 host 进程时, SAM 容器无法 hit host 的 localhost:9000; 设为 docker bridge 网关地址即可。 Linux: 172.17.0.1:9000; macOS/Win Docker Desktop: host.docker.internal:9000; 生产 (api/sam/minio 同 K8s 网) 留空。 |
 
-## ML Backend 注册表单 URL 默认值预填 hint (avoid 手敲).
+## Optional startup observation URL and registration hint; empty avoids implicit registration.
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ML_BACKEND_DEFAULT_URL` | `http://172.17.0.1:8001` | 留空则用前端硬编码默认 http://172.17.0.1:8001; 生产 K8s 同 namespace 时可设为 service DNS, 让运维注册时直接 ready. |
+| `ML_BACKEND_DEFAULT_URL` | `—` | — |
 
 ## 模型市场「容器直连观测」面板要观测的后端容器 URL 列表 (逗号分隔 / JSON list)。
 
@@ -175,7 +175,13 @@ last_reviewed: 2026-10-30
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `YOLO_IMAGE` | `—` | independently reviewed lifecycle source hashes. Required only for the corresponding opt-in Compose overlay. Use the manifest digest, not an image ID. |
+| `GSAM2_IMAGE` | `—` | independently reviewed lifecycle source hashes. Required only for the corresponding opt-in Compose overlay. Use the manifest digest, not an image ID. |
+| `GSAM2_IMAGE_DIGEST` | `—` | — |
+| `GSAM2_LIFECYCLE_SHA256` | `—` | — |
+| `SAM3_IMAGE` | `—` | — |
+| `SAM3_IMAGE_DIGEST` | `—` | — |
+| `SAM3_LIFECYCLE_SHA256` | `—` | — |
+| `YOLO_IMAGE` | `—` | — |
 | `YOLO_IMAGE_DIGEST` | `—` | — |
 | `YOLO_LIFECYCLE_SHA256` | `—` | — |
 | `ONNXTOOLS_IMAGE` | `—` | — |
@@ -194,8 +200,8 @@ last_reviewed: 2026-10-30
 | `YOLO_DEVICE` | `cuda:0` | — |
 | `YOLO_MODEL_POOL_CAP` | `2` | — |
 | `YOLO_MANAGED_MODELS_TOKEN` | `—` | Optional manual override. Empty uses the system-managed per-service credential. Existing manual credentials are never overwritten; use the same Token in its registry. |
-| `ML_MANAGED_AUTH_DIR` | `./data/inference-auth` | Private shared defaults for five first-party inference services; no token values go in .env. |
-| `ML_MANAGED_BACKEND_URLS` | `—` | Deployment-owned trust map. Leave unset for built-in host/Compose defaults; never a UI URL allowlist. |
+| `ML_MANAGED_AUTH_DIR` | `./data/inference-auth` | Private credentials are created only for deployment-owned trust-map entries. |
+| `ML_MANAGED_BACKEND_URLS` | `—` | Credential trust map, not discovery. SAM requires an explicit mapping; unrelated defaults remain. |
 | `ML_MANAGED_BACKEND_URLS` | `{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}` | — |
 | `ML_BACKEND_OPERATIONS_DIR` | `./data/backend-manager` | Restricted local operation queue; the separate host runner owns Docker access. |
 | `YOLO_BUILD_TIMEOUT` | `30` | — |
@@ -206,8 +212,12 @@ last_reviewed: 2026-10-30
 | `YOLO_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在当前部署完成 YOLO 多模型池真实 GPU load → full unload → baseline 验收后设为 1。 只接受字面量 0 或 1；其他值拒绝启动。未验证时 /setup 不发布 managed_lifecycle，且拒绝切入 enforce gate。 |
 | `YOLO_LOG_LEVEL` | `INFO` | — |
 | `GPU_LIFECYCLE_VERIFY_KEYS_JSON` | `—` | Managed GPU lifecycle Ed25519 public-key ring (kid -> unpadded base64url key). Empty keeps the backend in legacy-compatible mode; a non-empty invalid value fails startup. |
-| `GPU_LIFECYCLE_REGISTRY_ID` | `—` | YOLO signed admission/control requires these exact per-instance identities. Registry UUID and the platform's <node>/<physical-device-token>; never inferred from a claim. |
+| `GPU_LIFECYCLE_REGISTRY_ID` | `—` | YOLO signed admission/control requires the exact per-instance registry UUID and platform resource identity `<node>/<physical-device-token>`; never infer either from a claim. |
 | `GPU_LIFECYCLE_RESOURCE_ID` | `—` | — |
+| `GSAM2_GPU_LIFECYCLE_REGISTRY_ID` | `—` | SAM services have separate identities even when their overlays share a Compose project. |
+| `GSAM2_GPU_LIFECYCLE_RESOURCE_ID` | `—` | — |
+| `SAM3_GPU_LIFECYCLE_REGISTRY_ID` | `—` | — |
+| `SAM3_GPU_LIFECYCLE_RESOURCE_ID` | `—` | — |
 
 ## ONNXTools 固定句柄池与受管生命周期
 
@@ -418,11 +428,11 @@ last_reviewed: 2026-10-30
 |---|---|---|
 | `CORS_ALLOW_HEADERS` | `["Authorization","Content-Type","X-Request-ID","Idempotency-Key"]` | Allowed cross-origin clients can read the echoed Idempotency-Key response header. |
 
-## Grounded-SAM-2 ML Backend
+## Grounded-SAM-2 official plugin (GPU profile)
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SAM_VARIANT` | `tiny` | 仅当启用叠加文件 docker-compose.ml.yml 的 --profile gpu 拉起 grounded-sam2-backend 时生效. 模型变体 (按精度/显存递增): tiny | small | base_plus | large; 默认 tiny (4060 友好). |
+| `SAM_VARIANT` | `tiny` | Enable docker-compose.ml-gsam2.yml with --profile gpu after preparing approved assets. 模型变体 (按精度/显存递增): tiny | small | base_plus | large; 默认 tiny (4060 友好). |
 | `DINO_VARIANT` | `T` | GroundingDINO 变体: T (Swin-T, 默认) | B (Swin-B, 更准但显存翻倍). |
 | `BOX_THRESHOLD` | `0.35` | DINO 检测阈值; 业务图召回不足可下调到 0.25, 误检多则上调到 0.45. |
 | `TEXT_THRESHOLD` | `0.25` | DINO 文本-标签匹配阈值; 短语 prompt 通常 0.25 即可. |
@@ -431,40 +441,33 @@ last_reviewed: 2026-10-30
 | `IDLE_CHECK_INTERVAL` | `60` | B-28+ · idle 检查器轮询间隔 (默认 60s). |
 | `MODEL_POOL_CAP` | `1` | ModelPool 同容器内并存的变体数上限 (LRU 驱逐). 显存预算: 4060(8G) 用 1, 3090(24G) 1-2, A100 2-4. 默认 1 = 维持单变体常驻行为, 切变体走"驱逐旧+冷启新". |
 | `MODEL_POOL_BUILD_TIMEOUT` | `30` | pool 满 + 并发 miss 时排队等待显存的超时 (秒), 超时返回 503 "显存繁忙". |
-| `PREFETCH_SAM_VARIANTS` | `tiny,small,base_plus,large` | entrypoint 启动时额外预拉的变体 checkpoint (主变体之外). pool 能服务多变体, 但只有这里声明 (+ 主变体) 的 checkpoint 会落盘; 运行期请求未预拉的变体会 503. 逗号分隔. 默认全量, 让 pool 任意切换不踩缺失; 磁盘紧张时裁剪 (大致 tiny~150M/small~180M/base_plus~320M/large~900M, SwinB~940M). |
-| `PREFETCH_DINO_VARIANTS` | `T,B` | — |
-| `VIDEO_MODEL_POOL_CAP` | `1` | sam2_video tracker 独立显存池 (与图片池预算分离, 互不驱逐). 同容器内并存的 video 变体上限 (LRU); 默认 1. |
+| `VIDEO_MODEL_POOL_CAP` | `1` | Startup does not download variants. An administrator prepares approved SAM, DINO and bert-base-uncased files in the persistent checkpoint volume. sam2_video tracker 独立显存池 (与图片池预算分离, 互不驱逐). 同容器内并存的 video 变体上限 (LRU); 默认 1. |
 | `VIDEO_MODEL_POOL_BUILD_TIMEOUT` | `60` | video 池满 + 并发 miss 排队等显存的超时 (秒), 超时 503; video build 比图片慢, 默认 60. |
-| `VIDEO_TRACKER_MAX_WINDOW_FRAMES` | `300` | 单次 init_state 一次性加载的最大帧数 (安全上限, 防超长窗口灌爆显存); 超此值的窗口拒绝. |
-| `VIDEO_TRACKER_MAX_CONTEXT_FRAMES` | `300` | 同一 SAM2 predictor session 可覆盖的最大源帧数。大于 window 才启用跨窗 context；提高前需按目标 GPU 验收峰值。 |
+| `VIDEO_TRACKER_MAX_WINDOW_FRAMES` | `16` | 单次 init_state 一次性加载的最大帧数 (安全上限, 防超长窗口灌爆显存); 超此值的窗口拒绝. |
+| `VIDEO_TRACKER_MAX_CONTEXT_FRAMES` | `64` | 同一 SAM2 predictor session 可覆盖的最大源帧数。大于 window 才启用跨窗 context；提高前需按目标 GPU 验收峰值。 |
 | `VIDEO_IDLE_UNLOAD_SECONDS` | `600` | video 池独立 idle 卸载 (与图片池 IDLE_UNLOAD_SECONDS 各自计时); <=0 关闭. |
 | `GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在 Grounded-SAM2 完成实卡 image/video/双池/full-unload 验收后设为 1。 只接受字面量 0 或 1；其他值拒绝启动。未验证时 /setup 不发布 managed_lifecycle，且拒绝切入 enforce gate。 |
 
-## SAM 3 ML Backend
+## SAM 3 official plugin (GPU profile gpu-sam3)
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `HF_TOKEN` | `hf_xxxxxxxxxxxx` | ⚠️ HF_TOKEN 必填: facebook/sam3 (图像 PCS + inst) 与 facebook/sam3.1 (视频权重, 预留) 均为 gated repo, 必须先分别在 HuggingFace 接受 license (https://huggingface.co/facebook/sam3 与 https://huggingface.co/facebook/sam3.1), 再创建 read-only token (https://huggingface.co/settings/tokens) 填到这里. |
-| `SAM3_IMAGE_HF_REPO_ID` | `facebook/sam3` | 图像模型 (实际 /predict 加载) 仓库与权重文件; 默认 sam3.pt (3.0, 官方 image+inst 路径). |
-| `SAM3_IMAGE_CHECKPOINT_FILE` | `sam3.pt` | — |
-| `SAM3_DOWNLOAD_VIDEO` | `1` | 视频 multiplex 仓库与权重文件; 容器启动时默认一并拉取 (~3.2GB, 需 facebook/sam3.1 license). 设为 0 可关闭 (仅用图像交互, 不需要 sam3.1 license). |
-| `SAM3_HF_REPO_ID` | `facebook/sam3.1` | — |
-| `SAM3_CHECKPOINT_FILE` | `sam3.1_multiplex.pt` | — |
 | `SAM3_EMBEDDING_CACHE_SIZE` | `32` | Embedding cache LRU 容量; A100 充裕可调到 64, 4060 别部 sam3. |
 | `SAM3_SCORE_THRESHOLD` | `0.5` | SAM 3 PCS text / exemplar 路径 score 过滤阈值; 召回不足下调到 0.3, 误检多调到 0.6. |
 | `SAM3_LOG_LEVEL` | `INFO` | Backend 日志级别 (DEBUG / INFO / WARNING). |
 | `SAM3_IDLE_UNLOAD_SECONDS` | `600` | 空闲 N 秒后自动卸载模型释放显存 (sam3 开 inst FP16 ~5.8GB, 与 grounded-sam2 并存强烈建议保留); <=0 关闭定时卸载, 仍可通过 POST /unload 手动卸载. 下次 /predict 自动懒重载 (冷启动 ~8-12s). |
 | `SAM3_IDLE_CHECK_INTERVAL` | `60` | idle 检查器轮询间隔 (默认 60s). |
 | `SAM3_MODEL_POOL_BUILD_TIMEOUT` | `120` | 三个模型池等待冷构建的超时 (秒); 超时后真实 builder 仍由 backend 跟踪至结束。 |
+| `SAM3_VIDEO_MAX_WINDOW_FRAMES` | `16` | Multiplex video single-window bound; qualify larger values on the target GPU. |
 | `SAM3_PVS_MAX_WINDOW_FRAMES` | `16` | SAM3 interactive PVS 单窗与同一 session context 的帧数上限。context 大于 window 才启用跨窗续追。 |
-| `SAM3_PVS_MAX_CONTEXT_FRAMES` | `16` | — |
+| `SAM3_PVS_MAX_CONTEXT_FRAMES` | `64` | — |
 | `SAM3_MANAGED_LIFECYCLE_VERIFIED` | `0` | 仅在当前部署完成 image/multiplex/PVS 真实推理与全池显存回落验收后设为 1。 只接受字面量 0 或 1；其他值拒绝启动。未验证时 /setup 不发布 managed_lifecycle，且拒绝切入 enforce gate。 |
 
 ## ML Backend GPU 分卡 (多卡机器可选)
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `GSAM2_GPU_DEVICE_ID` | `0` | 各 GPU profile backend 固定绑定的物理显卡号 (docker-compose.ml.yml 的 deploy.reservations.devices.device_ids，并由 Compose 复用为容器内物理卡身份)。 NVIDIA runtime 可能把 PID 1 的 NVIDIA_VISIBLE_DEVICES 重写为 void；后端会 报告 Compose 从同一 *_GPU_DEVICE_ID 派生的 token，不用逻辑 cuda:0 猜测物理卡。 默认 GSAM2/YOLO/ONNXTOOLS/RAPIDOCR 占卡 0、SAM3 占卡 1, 双卡机器可错开显存。 单卡机器必须把 SAM3_GPU_DEVICE_ID 覆盖成 0, 否则容器找不到卡 1 起不来。 每个 backend 只允许一个物理 GPU/MIG；0,1、多 UUID 或已暴露 GPU 的 all 会在启动时拒绝。 |
+| `GSAM2_GPU_DEVICE_ID` | `0` | 各 GPU plugin overlay 的 deploy.reservations.devices.device_ids 固定物理显卡， Compose 同时传给容器作为物理卡身份。 NVIDIA runtime 可能把 PID 1 的 NVIDIA_VISIBLE_DEVICES 重写为 void；后端会 报告 Compose 从同一 *_GPU_DEVICE_ID 派生的 token，不用逻辑 cuda:0 猜测物理卡。 默认 GSAM2/YOLO/ONNXTOOLS/RAPIDOCR 占卡 0、SAM3 占卡 1, 双卡机器可错开显存。 单卡机器必须把 SAM3_GPU_DEVICE_ID 覆盖成 0, 否则容器找不到卡 1 起不来。 每个 backend 只允许一个物理 GPU/MIG；0,1、多 UUID 或已暴露 GPU 的 all 会在启动时拒绝。 |
 | `SAM3_GPU_DEVICE_ID` | `1` | — |
 | `YOLO_GPU_DEVICE_ID` | `0` | — |
 | `ONNXTOOLS_GPU_DEVICE_ID` | `0` | — |
