@@ -1185,6 +1185,11 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --test-file tests/test_gpu_registry_delete_noop_native.py
 ```
 
+当前源码原生矩阵的准备／清理通过独立 owner 夹具进程执行，普通业务 HTTP 仍使用
+受限连接；Identity 清理 replay 也显式标为 owner 验收。Node 固定能力、私表拒绝和
+借用事务保持独立资格，不将 owner 成功或下列历史冷工件结果折算成完整 seed 的受限权限证明。
+当前选集及结果见[测试治理计划](docs/plans/1793261328_test-governance-module-plugin-contracts.md)的 G2 后续记录。
+
 27 项不同定向检查及 64 项既有路由／隔离回归通过。源码检查 393 项通过、150 项既有
 架构规则跳过；工具检查 58 项及 OpenAPI 核对通过。原始基线与失败收据保留，不相加
 作为整模块覆盖率。API 镜像固定携带原 `smart-point.webm`，源码环境继续使用文档目录
@@ -3413,6 +3418,11 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --test-file tests/test_workspace_e2e_native.py \
   --test-file tests/test_worktree_filtering_identity_native.py
 ```
+
+当前 `test_workspace_e2e_native.py` 将 seed 请求送入 owner 进程，仅业务请求使用
+受限连接。整行默认值快照及其 capture 模式已移除；项目角色、namespace 隔离、幂等、
+邻居保留、事务与拒绝行为继续由原功能场景验收。完整 seed 的旧受限冷工件流程属于
+独立资格边界，本轮源码／owner 验收不继承或宣称该流程已重新通过。
 
 真实筛选 CLI 覆盖已有数据拒绝、首次创建及保留修改后的重启，使用普通 E2E LOGIN，
 显式拒绝 Workspace 私表。冷工件验收复用 `test_identity_e2e_live.py`，同时检查

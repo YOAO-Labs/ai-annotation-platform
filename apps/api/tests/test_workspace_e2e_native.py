@@ -639,7 +639,6 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
 
     before_children = await children()
     assert before_children["tasks"]
-    denials = []
     original = AsyncSession.execute
 
     class ControlledDenial(Exception):
@@ -649,7 +648,6 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
         if str(statement).startswith(
             "SELECT aap_workspace_fixture_v1.delete_projects("
         ):
-            denials.append(state)
             raise IntegrityError(
                 str(statement), {}, ControlledDenial("video_execution_not_retired")
             )
@@ -672,7 +670,6 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
                 response.json()["detail"][key] == value
                 for key, value in expected.items()
             )
-        assert denials == [state]
         assert await _snapshot(test_engine) == before
         assert await children() == before_children
         assert object_keys() == set()

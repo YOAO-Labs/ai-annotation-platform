@@ -616,4 +616,16 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 
 用户明确选择统一到已有 **owner 夹具通道**：准备／清理由 owner 进程执行，真实业务请求保持受限 API；旧 seed 资格用例与报告必须同步调整，不能把 owner 执行计作受限 consumer 能力。对应提交 `5b17e49f9`、`441880faa` 已集成，进程内故障注入另使用只挂载 seed 路由的测试应用，不切换普通业务应用的数据库权限。
 
-首轮 owner 通道集成验收选择 121 项，112 通过、9 失败、无 teardown 错误；报告为 `.worktree/plugin-opt-integration/native-owner-channel.xml`。较原 124 项移除的三项是跨进程后无法生效的重复 monkeypatch 场景，原 owner 层故障用例仍在同一选集中执行。剩余两项 Identity 清理 replay 尚未迁移 owner；四项 Workspace 全行快照因新增字段失配；三项清理保护需要核对物理收尾与最终记录删除的先后约定。该原生切片仍待完成，不以 SDK 通过、helper 提交或历史资格代替。
+首轮 owner 通道集成验收选择 121 项，112 通过、9 失败、无 teardown 错误；报告为 `.worktree/plugin-opt-integration/native-owner-channel.xml`。较原 124 项移除的三项是跨进程后无法生效的重复 monkeypatch 场景，原 owner 层故障用例仍在同一选集中执行。当时剩余两项 Identity 清理 replay 尚未迁移 owner；四项 Workspace 全行快照因新增字段失配；三项清理保护需要核对物理收尾与最终记录删除的先后约定，不能以 SDK 通过、helper 提交或历史资格代替。
+
+后续提交 `990dbeb75` 将 Identity 清理 replay 迁入 owner 子进程，保留原 surviving-account 快照与重复清理结果；移除四项只固定整行默认值的 Workspace oracle、孤立 JSON 和 capture 分支，不重新记录新默认值。项目职责、namespace 隔离、重建幂等与邻居保留仍由原功能场景覆盖。
+
+提交 `687c256bf` 修复了真实的提前删对象风险：完整清理在准备 owner／删除对象前复用现有项目退役守卫；预检 savepoint 回滚，不提前持久化从未启动作业的许可，最终删除仍复核。两项最终数据库拒绝测试保留 SQLSTATE、子记录回滚、无提前许可及成功重试，明确已完成的对象删除不随最终事务回滚。
+
+- 最终原生选集 **117 通过、0 失败／错误／跳过**，与 collection 的每个 nodeid 精确相等；`native-owner-final.xml`、`native-owner-final-nodeids.json` 和 `native-owner-final-summary.json` 均位于 `.worktree/plugin-opt-integration/`。报告实际读回 25 项 owner 夹具＋受限业务场景、2 项 owner 清理 replay，独立 Node、权限拒绝和借用事务证据分别保留。既有 anyio／JUnit property 格式警告仍在，不扩大为完整 verifier 或冷工件资格。
+- 相邻评论附件／指南图片清理回归 **33 通过、0 失败／错误／跳过**，报告为 `seed-physical-cleanup.xml`；这些用例使用真实 SQL／HTTP 和受控对象提供方。
+- 脱离 pytest 的实际 owner 子进程＋普通 API smoke 完成准备、表单同契约登录、项目读取和清理。添加本任务未退役 started-history 后，清理返回 409，五个真实 MinIO PNG 的 SHA256 与五条任务均保持，未生成退役许可；移除准确的测试历史后清理返回 200，项目和对象均已移除。证据为 `owner-pipe-safety-smoke.json`，fixture 连接为 `owner`、普通服务连接为 `legacy_runtime`，没有 owner fallback。
+
+本切片不代表全仓 fixture 已整理、差集清理已支持并行、完整冷安装／恢复重新通过，或已知 LiDAR 内容身份／视频 FPS 问题已关闭。SDK、Web／文档构建与浏览器观察分别按其真实层级记录，不合并成模型、GPU 或发行资格。
+
+收尾时文档站实际构建再次通过。六个已集成 Orca 工作树及分支已按 patch 等价性回收，API／Web 预览、浏览器和离线 TUI 均已停止；仅本任务 `04f88a7231ae7f6f:test` 的 PostgreSQL、Redis、十个桶及 PostgreSQL 匿名卷被销毁，`native-cleanup.json` 记录零清理错误。保留源工作树与用户未提交的 `.gitignore` 修改，不接管日常环境。

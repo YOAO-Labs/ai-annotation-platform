@@ -97,6 +97,8 @@ API 的五函数／两视图配置。`aap_identity_fixture_v1.account_profiles` 
 普通 API 不能追加此配置。其他领域的可信测试写入及对象权限需分别提供。配置与
 实际资格见 `DEV.md` 和[模块台账](/dev/concepts/module-deployment#identity-门控-e2e-夹具)。
 
+完整 E2E 数据准备／清理使用独立 owner 夹具进程，而非给普通 API 追加这些权限。Identity／Workspace 原生场景将 seed 请求与受限业务 HTTP 显式分流；受限固定能力、私表拒绝和借用事务的检查仍独立保留。owner 通道成功不计作受限角色执行完整 seed 的资格，见[测试边界](/dev/testing)。
+
 ## 截图夹具的账号与偏好
 
 恢复／拒绝夹具按精确 email 从公开 `account_profiles` 关系读取 UUID，不增加角色或

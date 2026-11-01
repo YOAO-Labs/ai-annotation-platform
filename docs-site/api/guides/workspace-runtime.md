@@ -284,9 +284,11 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 
 先安装 owner grants 和普通 consumer 围栏，再为受信任测试操作账号追加
 `workspace-seed-operator-grants.sql` 与 `workspace-e2e-fixture-grants.sql`。
-调用方仍持有 namespace、原 flush／savepoint 顺序及提交／回滚。未退役视频或忙锁
-返回 409，停止继续清理；二次守卫拒绝时外层事务也回滚。不得补造退役凭证。
-项目和模板残留均使清理失败；shared reset 前先显式清理各 owned namespace。
+完整 E2E 准备／清理由独立 owner 夹具进程执行，普通业务 HTTP 保持受限；上述固定
+能力仍分别验证调用方事务和权限边界。物理对象收尾前先预检项目退役状态，未退役视频
+或忙锁返回 409；预检 savepoint 回滚，避免提前持久化从未启动作业的清理许可。
+最终删除再次检查，拒绝时回滚项目和子记录并保留重试锚点，但不撤销已完成的对象删除。
+不得补造退役凭证。项目和模板残留均使清理失败；shared reset 前先显式清理各 owned namespace。
 
 ### 规模种子与截图支持读取
 

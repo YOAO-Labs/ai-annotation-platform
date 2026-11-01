@@ -1,4 +1,4 @@
-"""Freeze actual guarded E2E Identity consumers before owner migration."""
+"""Identity fixture read contracts and owner-process cleanup replay."""
 
 from __future__ import annotations
 
