@@ -564,6 +564,93 @@ async def test_stopped_boot_cannot_activate_a_new_recorded_launch(
     assert active.installation.status == "active"
 
 
+@pytest.mark.parametrize("first", ["disable", "scope"])
+async def test_plugin_disable_and_tracker_scope_insertion_serialize(
+    test_engine, first
+):
+    await assert_owned_test_database(test_engine)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    payload = _payload()
+    registry_id = payload.installation_id
+    scope_id = uuid4()
+    owner = await _connect(test_engine)
+    world = {"registry_id": registry_id, "pool_id": None}
+    try:
+        async with maker.begin() as db:
+            data = InferenceTopologyData(db)
+            await data.prepare_plugin_installation(payload)
+            await data.command_plugin_installation(
+                registry_id, 1, "record_launch", _receipt(payload)
+            )
+            await data.command_plugin_installation(
+                registry_id, 2, "activate", _evidence(payload)
+            )
+            pool = await data.pool_for_registry(registry_id)
+            assert pool is not None
+            world["pool_id"] = pool.id
+
+        async with maker() as holder, maker() as contender, maker() as observer:
+            holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+            contender_pid = await contender.scalar(text("SELECT pg_backend_pid()"))
+
+            async def insert_scope(db):
+                return await db.execute(
+                    text(
+                        "INSERT INTO aap_inference_routing_v1.scopes "
+                        "(id,command_sha256,registry_id,mode,owner,operation,"
+                        "config_revision,eligibility_revision,authority_epoch,realm,"
+                        "state,closed,heartbeat_deadline) "
+                        "SELECT :scope,:digest,registry_id,'direct','tracker:race',"
+                        "'tracker',config_revision,eligibility_revision,authority_epoch,"
+                        "realm,'reserved',false,pg_catalog.clock_timestamp()+"
+                        "interval '1 minute' FROM aap_inference_routing_v1.registry_state "
+                        "WHERE registry_id=:registry"
+                    ),
+                    {"scope": scope_id, "digest": "a" * 64, "registry": registry_id},
+                )
+
+            async def disable(db):
+                return await InferenceTopologyData(db).command_plugin_installation(
+                    registry_id, 3, "disable"
+                )
+
+            if first == "disable":
+                assert (await disable(holder)).installation.status == "disabled"
+                blocked = asyncio.create_task(insert_scope(contender))
+            else:
+                await insert_scope(holder)
+                blocked = asyncio.create_task(disable(contender))
+            try:
+                async with asyncio.timeout(10):
+                    while not await observer.scalar(
+                        text("SELECT :holder = ANY(pg_catalog.pg_blocking_pids(:waiter))"),
+                        {"holder": holder_pid, "waiter": contender_pid},
+                    ):
+                        await asyncio.sleep(0.02)
+                await holder.commit()
+                with pytest.raises(DBAPIError if first == "disable" else ValueError):
+                    await asyncio.wait_for(blocked, timeout=10)
+                await contender.rollback()
+                current = await InferenceTopologyData(observer).get_plugin_installation(
+                    registry_id
+                )
+                assert current.installation.status == (
+                    "disabled" if first == "disable" else "active"
+                )
+            finally:
+                await holder.rollback()
+                if not blocked.done():
+                    blocked.cancel()
+                await asyncio.gather(blocked, return_exceptions=True)
+                await contender.rollback()
+    finally:
+        try:
+            if world["pool_id"] is not None:
+                await _cleanup(owner, world)
+        finally:
+            await owner.close()
+
+
 async def test_concurrent_commands_with_same_revision_have_one_winner(test_engine):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
