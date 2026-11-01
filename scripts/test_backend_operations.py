@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import hashlib
 import importlib.util
 import json
 import os
@@ -106,12 +105,19 @@ class FakeRunner(runner_module.Runner):
         if "image" in args and "inspect" in args:
             return json.dumps([{"Id": self.image_id, "RepoDigests": [self.image_ref]}])
         if "config" in args:
-            if "gpu-yolo" not in args:
+            provider = next(
+                p
+                for p, service in runner_module.PROVIDERS.items()
+                if service
+                == self.container["Config"]["Labels"]["com.docker.compose.service"]
+            )
+            profile = "gpu" if provider == "gsam2" else f"gpu-{provider}"
+            if profile not in args:
                 return json.dumps({"services": {}})
             return json.dumps(
                 {
                     "services": {
-                        "yolo-backend": {
+                        runner_module.PROVIDERS[provider]: {
                             "image": self.image_ref,
                             "labels": {
                                 runner_module.LIFECYCLE_HASH_LABEL: self.lifecycle_hash
@@ -284,58 +290,42 @@ class QueueTests(unittest.TestCase):
             any("stop" in args or "up" in args for args in self.runner.commands)
         )
 
-    def test_platform_owned_backend_still_builds_before_stopping(self):
-        runner = self.runner
-        runner.services = [{"provider": "sam3", "can_maintain": True, "reason": None}]
-        runner.heartbeat()
-        runner.container["Config"]["Labels"]["com.docker.compose.service"] = (
-            "sam3-backend"
-        )
-        runner.container["Config"]["Entrypoint"] = [
-            "/bin/bash",
-            "-c",
-            "python /app/scripts/download_checkpoints.py && exec uvicorn main:app --host 0.0.0.0 --port 8002 --workers 1",
-        ]
-        runner.container["Mounts"] = [
-            {
-                "Destination": path,
-                "Type": "volume",
-                "Name": path,
-                "Source": path,
-                "RW": True,
-            }
-            for path in ("/app/checkpoints", "/app/.cache/huggingface")
-        ]
-        runner.probe = {
-            "argv": [
-                "uvicorn",
-                "main:app",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "8002",
-                "--workers",
-                "1",
-            ],
-            "shutdown": True,
-            "lifecycle_sha256": hashlib.sha256(
-                (ROOT / "apps/sam3-backend/gpu_lifecycle.py").read_bytes()
-            ).hexdigest(),
-        }
-        job = self.store.reserve(
-            "sam3",
-            expected_deployment=runner.project,
-            expected_runner_id=runner.runner_id,
-        )
-        runner.run_job(self.store.publish(job["id"]))
-        self.assertEqual(self.store.read(f"{job['id']}.json")["status"], "succeeded")
-        actions = [
-            args
-            for args in runner.commands
-            if "build" in args or "pull" in args or "stop" in args
-        ]
-        self.assertIn("build", actions[0])
-        self.assertFalse(any("pull" in args for args in actions))
+    def test_sam_plugins_require_reviewed_image_before_stopping(self):
+        for provider, port in (("gsam2", 8001), ("sam3", 8002)):
+            with self.subTest(provider=provider):
+                runner = FakeRunner(self.store)
+                runner.services = [
+                    {"provider": provider, "can_maintain": True, "reason": None}
+                ]
+                runner.heartbeat()
+                runner.container["Config"]["Labels"]["com.docker.compose.service"] = (
+                    runner_module.PROVIDERS[provider]
+                )
+                runner.container["Config"]["Entrypoint"][5] = str(port)
+                runner.probe["argv"][5] = str(port)
+                runner.container["Mounts"] = [
+                    {
+                        "Destination": path,
+                        "Type": "volume",
+                        "Name": path,
+                        "Source": path,
+                        "RW": True,
+                    }
+                    for path in ("/app/checkpoints", "/app/.cache/huggingface")
+                ]
+                runner.failure = "target_hash"
+                job = self.store.reserve(
+                    provider,
+                    expected_deployment=runner.project,
+                    expected_runner_id=runner.runner_id,
+                )
+                runner.run_job(self.store.publish(job["id"]))
+                self.assertEqual(
+                    self.store.read(f"{job['id']}.json")["status"], "failed"
+                )
+                self.assertFalse(
+                    any("stop" in args or "up" in args for args in runner.commands)
+                )
 
     def test_unreviewed_target_lifecycle_never_stops_running_service(self):
         self.runner.failure = "target_hash"

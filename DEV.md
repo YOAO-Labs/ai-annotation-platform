@@ -70,12 +70,7 @@ ai-annotation-platform/
 │   │
 │   ├── storage-agent/           # 跨网络只读站点存储 Agent
 │   ├── training-executor/       # 受控单 GPU 在线学习训练执行器
-│   ├── grounded-sam2-backend/   # Grounded-SAM-2 GPU backend
-│   │   ├── vendor/              # 固定提交的 IDEA-Research/Grounded-SAM-2 子模块
-│   │   ├── predictor.py         # 三种 prompt (point/bbox/text) 路由
-│   │   ├── main.py              # FastAPI 4 端点 + /metrics + /cache/stats
-│   │   └── Dockerfile           # build context 为 apps/，可复用共享包
-│   ├── sam3-backend/            # SAM 3 图像 / 视频 backend
+│   ├── ...                      # 官方推理实现由独立 YOAO-Plugins 仓库提供
 │   │
 │   └── _shared/                 # 跨子应用共享 Python 包
 │       ├── filesystem_read/     # 受控根目录解析与只读快照原语
@@ -338,9 +333,7 @@ node scripts/test-codex-session-start.mjs
 
 标准前置依赖、本地启动步骤与技术栈总览见 [README.md#快速开始](README.md#快速开始)。以下补充本地开发常用的环境变量、GPU 绑定与热重载细则：
 
-首次准备或切换工作树后，先执行 `git submodule update --init --recursive`，按父仓库 gitlink 拉取 SAM3、Grounded-SAM-2 与 TrackEval 固定提交；不要使用 `--remote` 随上游分支漂移。SAM3 的请求级 autocast 补丁由 Docker 构建应用到干净副本，宿主机子模块保持原始状态。修改或升级 vendor 时同步审查固定提交、许可和补丁，并重建实际消费它的镜像。
-
-Orca 初始化与 `dev:worktree init/up/exec/reset` 会在 API／Alembic 导入前自动补齐缺失的 TrackEval 子模块，不拉取两个模型源码仓库，也不覆盖已有本地修改。`doctor` 只报告缺失及初始化指引，`stop/destroy` 不因缺失源码触发网络操作；模型镜像构建前仍须显式递归初始化全部子模块。
+首次准备或切换工作树后，按需要初始化 TrackEval 固定子模块；不要使用 `--remote` 随上游分支漂移。Orca 初始化与 `dev:worktree init/up/exec/reset` 会在 API／Alembic 导入前自动补齐缺失的 TrackEval 子模块，`doctor` 只报告缺失及初始化指引。官方推理镜像由独立 YOAO-Plugins 仓库构建和审核，不使用平台源码构建。
 
 常规平台开发无需插件源码。需要修改插件时，在平台根目录单独执行 `git clone https://github.com/YOAO-Labs/YOAO-Plugins.git plugins/YOAO-plugins`，按该仓库 README 准备独立环境；该目录被忽略，不作为平台可编辑依赖或 Docker 源码挂载。插件 SDK、共享运行时、Mask 工具和原生 LibreYOLO 适配器的修改、测试及发布只在独立仓库进行，平台通过固定 URL 与锁文件摘要更新依赖。
 
@@ -364,15 +357,13 @@ MINIO_DATA_DIR=/mnt/fast-disk/ai-annotation-platform/minio
 
 该变量只影响 MinIO 的 `/data` 挂载；留空时仍使用 Docker 托管的 `miniodata` 命名卷。切换前后数据不会自动迁移，已有对象需要先复制到新目录。
 
-> **GPU profile（可选，需要标注工作台 SAM 工具或 `/ai-pre` 文本批量预标）**：GPU backend 在叠加文件 `docker-compose.ml.yml`，须同时 `-f` 两个文件：
+> **GPU profile（可选，需要标注工作台 SAM 工具或 `/ai-pre` 文本批量预标）**：叠加基础文件、共享 ML 文件及对应插件文件：
 >
 > ```bash
-> docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend
+> docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
 > ```
 >
-> 嫌麻烦可在 `.env` 设 `COMPOSE_FILE=docker-compose.yml:docker-compose.ml.yml`，之后省去 `-f`。首次启动自动下载 ~900MB checkpoints（cache 在 `gsam2_checkpoints` volume）；启动 health 探活周期 120s，`curl http://localhost:8001/health` 应返回 `{"ok":true,"loaded":true}`。需 NVIDIA driver ≥ 525 + nvidia-container-toolkit。
->
-> YOLO、ONNXTools 与 RapidOCR 分别使用 `docker-compose.ml-yolo.yml`、`docker-compose.ml-onnxtools.yml`、`docker-compose.ml-rapidocr.yml`，还需设置相应的镜像仓库、已审核的 manifest digest 和生命周期源码 SHA-256；权重由部署管理员审核后单独准备。详见[部署说明](docs-site/ops/deploy/docker-compose.md#docker-compose-启用-gpu-service)。
+> 先配置该插件已审核的镜像仓库、manifest digest 和生命周期源码 SHA-256，管理员准备获准 SAM、DINO 与 BERT 资产并配置凭据映射。启动不会下载权重。SAM3、YOLO、ONNXTools 与 RapidOCR 使用各自的 opt-in overlay；详见[部署说明](docs-site/ops/deploy/docker-compose.md#docker-compose-启用-gpu-service)。
 >
 > **多卡机器指定 GPU backend 用哪张卡**：SAM 文件及插件叠加文件中的 GPU service 固定绑定一张物理卡（`deploy.reservations.devices.device_ids`）。默认 GSAM2/YOLO/ONNXTOOLS/RAPIDOCR 用卡 0、SAM3 用卡 1；可在 `.env` 用 `GSAM2_GPU_DEVICE_ID` / `SAM3_GPU_DEVICE_ID` / `YOLO_GPU_DEVICE_ID` / `ONNXTOOLS_GPU_DEVICE_ID` / `RAPIDOCR_GPU_DEVICE_ID` 覆盖。**单卡机器必须把 `SAM3_GPU_DEVICE_ID=0`**。
 
@@ -1936,34 +1927,19 @@ HTTP API 统一挂载在 `/api/v1`，而 WebSocket 单独挂载在 `/ws/...`。�
 
 ## Grounded-SAM-2 ML Backend
 
-`apps/grounded-sam2-backend/` 独立 GPU 服务，提供工作台 `S` 工具与 `/ai-pre` 文本批量预标的 SAM mask 推理。三种 prompt（point / bbox / text）路由到 SAM 2.1 + GroundingDINO；mask→polygon 简化使用公开 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK/tree/main/packages/inference/mask-utils) 中的 `anno-mask-utils` 固定制品，与 SAM3 共用。
+Grounded-SAM-2 与 SAM3 的实现和镜像由独立 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供。Compose 使用已审核的不可变镜像，不从平台源码构建；原生安装和 Compose 管理是独立的所有权路径，不会互相接管。
 
 ### 起 / 停
 
-> GPU backend 在叠加文件 `docker-compose.ml.yml`，下方命令均须带 `-f docker-compose.yml -f docker-compose.ml.yml`（或在 `.env` 设 `COMPOSE_FILE=docker-compose.yml:docker-compose.ml.yml` 后省略）。
+先按[部署说明](docs-site/ops/deploy/docker-compose.md#docker-compose-启用-gpu-service)配置镜像摘要、生命周期摘要、凭据映射及获准模型资产：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend   # 起
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu down                          # 停（保留 checkpoints / hf_cache volumes）
-docker logs -f ai-annotation-platform-grounded-sam2-backend-1     # 看 "models loaded; device=cuda"
-curl -fsS http://localhost:8001/health                             # 探活
-curl -fsS http://localhost:8001/cache/stats                        # SAM 2 image embedding LRU 命中率（v0.9.1）
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml stop grounded-sam2-backend
+curl -fsS http://localhost:8001/health
 ```
 
-### Rebuild（修改后端代码、Dockerfile 或固定依赖后必跑）
-
-build context 为 `apps/`，包含后端源码、已初始化的 vendor 子模块和平台契约；共享运行时与 Mask 工具安装固定 wheel，不再复制其旧源码目录。不能使用 `docker build apps/grounded-sam2-backend/` 作为独立构建上下文。
-
-```bash
-# 推荐：走 docker compose
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu build grounded-sam2-backend
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend   # 重建后重起容器
-
-# 或直接 docker build（需手指定 Dockerfile 路径 + 父目录 context）
-docker build -f apps/grounded-sam2-backend/Dockerfile apps/
-```
-
-> **首次构建 ~10 min**（vendor Deformable Attention CUDA 算子要 nvcc 现场编译）；只改业务代码时只重做后两层 COPY ~3 min。改 vendor 才会触发完整重编。
+停止服务保留持久模型卷。模型加载是按需执行；健康检查不能替代实际模型和 GPU 验收。
 
 ### 协议契约
 
@@ -2049,7 +2025,7 @@ pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
 # 后端 / 共享包测试
 cd apps/api && uv run pytest                                            # FastAPI 平台后端
 # 在独立 Plugin-SDK checkout 中：uv run --project packages/inference/mask-utils --extra test pytest packages/inference/mask-utils/tests/
-cd apps/grounded-sam2-backend && uv run --extra dev pytest tests/       # SAM backend 单测（无 GPU 走 mock）
+# 官方 SAM 插件测试在独立 YOAO-Plugins checkout 中运行。
 
 # OpenAPI 契约
 pnpm openapi:export              # 改了 API 后必须刷新 snapshot

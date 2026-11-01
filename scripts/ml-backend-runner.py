@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps/api"))
 from app.services.backend_operations import JobStore, PROVIDERS, TERMINAL  # noqa: E402
 
 PORTS = {"gsam2": 8001, "sam3": 8002, "yolo": 8003, "onnxtools": 8004, "rapidocr": 8005}
-PLUGIN_PROVIDERS = {"yolo", "onnxtools", "rapidocr"}
 LIFECYCLE_HASH_LABEL = "com.aap.lifecycle-sha256"
 MODEL_MOUNTS = {
     "gsam2": {"/app/checkpoints", "/app/.cache/huggingface"},
@@ -70,6 +68,8 @@ class Runner:
             for name in (
                 "docker-compose.yml",
                 "docker-compose.ml.yml",
+                "docker-compose.ml-gsam2.yml",
+                "docker-compose.ml-sam3.yml",
                 "docker-compose.ml-yolo.yml",
                 "docker-compose.ml-onnxtools.yml",
                 "docker-compose.ml-rapidocr.yml",
@@ -180,7 +180,11 @@ class Runner:
         config = json.loads(
             self.command(
                 self.compose(
-                    "--profile", f"gpu-{provider}", "config", "--format", "json"
+                    "--profile",
+                    "gpu" if provider == "gsam2" else f"gpu-{provider}",
+                    "config",
+                    "--format",
+                    "json",
                 )
             )
         )
@@ -239,14 +243,13 @@ class Runner:
         ):
             raise UnsafeRuntime("Container deployment identity mismatch")
         config = container["Config"]
-        if provider in PLUGIN_PROVIDERS:
-            image_ref = config.get("Image")
-            expected_hash = labels.get(LIFECYCLE_HASH_LABEL)
-            if not isinstance(expected_hash, str) or not re.fullmatch(
-                r"[0-9a-f]{64}", expected_hash
-            ):
-                raise UnsafeRuntime("Running plugin lacks reviewed lifecycle identity")
-            self.verify_image(image_ref, expected_id=container["Image"])
+        image_ref = config.get("Image")
+        expected_hash = labels.get(LIFECYCLE_HASH_LABEL)
+        if not isinstance(expected_hash, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected_hash
+        ):
+            raise UnsafeRuntime("Running plugin lacks reviewed lifecycle identity")
+        self.verify_image(image_ref, expected_id=container["Image"])
         environment = dict(
             value.split("=", 1) for value in config.get("Env", []) if "=" in value
         )
@@ -271,13 +274,7 @@ class Runner:
             "1",
         ]
         expected = (
-            [
-                "/bin/bash",
-                "-c",
-                f"python /app/scripts/download_checkpoints.py{' primary' if provider == 'gsam2' else ''} && exec uvicorn main:app --host 0.0.0.0 --port {PORTS[provider]} --workers 1",
-            ]
-            if provider in {"gsam2", "sam3"}
-            else ["python3", "-m", *direct]
+            ["python3", "-m", *direct]
             if provider in {"onnxtools", "rapidocr"}
             else direct
         )
@@ -310,12 +307,6 @@ class Runner:
                 raise UnsafeRuntime(
                     "PID 1 or graceful shutdown hook differs from supported runtime"
                 )
-            if provider not in PLUGIN_PROVIDERS:
-                expected_hash = hashlib.sha256(
-                    (
-                        self.root / "apps" / PROVIDERS[provider] / "gpu_lifecycle.py"
-                    ).read_bytes()
-                ).hexdigest()
             if observed["lifecycle_sha256"] != expected_hash:
                 raise UnsafeRuntime(
                     "Runtime lacks the verified lifecycle shutdown implementation"
@@ -407,30 +398,23 @@ class Runner:
         try:
             old = self.locate(provider)
             mounts = self.validate(provider, old)
-            plugin = provider in PLUGIN_PROVIDERS
-            if plugin:
-                target = self.plugin_target(provider)
-                self.store.event(
-                    job, "pulling", "正在拉取并核验已审核的固定镜像；现有容器继续服务。"
-                )
-            else:
-                self.store.event(
-                    job, "building", "正在构建目标镜像；现有容器继续服务。"
-                )
+            target = self.plugin_target(provider)
+            self.store.event(
+                job, "pulling", "正在拉取并核验已审核的固定镜像；现有容器继续服务。"
+            )
             log_path = self.store.directory / f"{job['id']}.log"
             fd = os.open(
                 log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
             )
             with os.fdopen(fd, "w") as logfile:
                 self.command(
-                    self.compose("pull" if plugin else "build", PROVIDERS[provider]),
+                    self.compose("pull", PROVIDERS[provider]),
                     logfile=logfile,
                     timeout=self.timeout,
                 )
-                if plugin:
-                    target_id = self.verify_plugin_target(*target)
-                    if self.plugin_target(provider) != target:
-                        raise UnsafeRuntime("Plugin image configuration changed")
+                target_id = self.verify_plugin_target(*target)
+                if self.plugin_target(provider) != target:
+                    raise UnsafeRuntime("Plugin image configuration changed")
                 current = self.locate(provider)
                 if (
                     current["Id"] != old["Id"]
@@ -466,7 +450,7 @@ class Runner:
                     or exited["State"].get("ExitCode", 0) != 0
                 ):
                     raise UnsafeRuntime("Container did not exit cleanly")
-                if plugin and self.plugin_target(provider) != target:
+                if self.plugin_target(provider) != target:
                     raise UnsafeRuntime(
                         "Plugin image configuration changed during shutdown"
                     )
@@ -497,7 +481,7 @@ class Runner:
                     raise UnsafeRuntime(
                         "Persistent model mount changed during recreation"
                     )
-                if plugin and (
+                if (
                     new["Config"].get("Image") != target[0]
                     or (new["Config"].get("Labels") or {}).get(LIFECYCLE_HASH_LABEL)
                     != target[1]

@@ -1,0 +1,59 @@
+# Optional official SAM3 plugin; combine with docker-compose.ml.yml.
+services:
+  sam3-backend:
+    image: ${SAM3_IMAGE:?Set the accepted SAM3 image repository}@${SAM3_IMAGE_DIGEST:?Set the SAM3 manifest digest}
+    labels:
+      com.aap.lifecycle-sha256: ${SAM3_LIFECYCLE_SHA256:?Set the reviewed SAM3 lifecycle source SHA-256}
+    profiles: ["gpu-sam3"]
+    ports:
+      - "8002:8002"
+    environment:
+      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
+      HF_HOME: /app/.cache/huggingface
+      SAM3_EMBEDDING_CACHE_SIZE: ${SAM3_EMBEDDING_CACHE_SIZE:-32}
+      SAM3_SCORE_THRESHOLD: ${SAM3_SCORE_THRESHOLD:-0.5}
+      LOG_LEVEL: ${SAM3_LOG_LEVEL:-INFO}
+      NVIDIA_VISIBLE_DEVICES: ${SAM3_GPU_DEVICE_ID:-1}
+      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${SAM3_GPU_DEVICE_ID:-1}
+      SAM3_IDLE_UNLOAD_SECONDS: ${SAM3_IDLE_UNLOAD_SECONDS:-600}
+      SAM3_IDLE_CHECK_INTERVAL: ${SAM3_IDLE_CHECK_INTERVAL:-60}
+      SAM3_MODEL_POOL_BUILD_TIMEOUT: ${SAM3_MODEL_POOL_BUILD_TIMEOUT:-120}
+      SAM3_VIDEO_MAX_WINDOW_FRAMES: ${SAM3_VIDEO_MAX_WINDOW_FRAMES:-16}
+      SAM3_PVS_MAX_WINDOW_FRAMES: ${SAM3_PVS_MAX_WINDOW_FRAMES:-16}
+      SAM3_PVS_MAX_CONTEXT_FRAMES: ${SAM3_PVS_MAX_CONTEXT_FRAMES:-16}
+      GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
+      GPU_LIFECYCLE_REGISTRY_ID: ${GPU_LIFECYCLE_REGISTRY_ID:-}
+      GPU_LIFECYCLE_RESOURCE_ID: ${GPU_LIFECYCLE_RESOURCE_ID:-}
+      SAM3_MANAGED_LIFECYCLE_VERIFIED: ${SAM3_MANAGED_LIFECYCLE_VERIFIED:-0}
+      PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+    volumes:
+      - type: bind
+        source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/sam3
+        target: /run/aap-inference-auth
+        read_only: true
+        bind:
+          create_host_path: false
+      - sam3_checkpoints:/app/checkpoints
+      - sam3_hf_cache:/app/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SAM3_GPU_DEVICE_ID:-1}"]
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+volumes:
+  sam3_checkpoints:
+  sam3_hf_cache:

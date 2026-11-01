@@ -231,14 +231,15 @@ PYTHONPATH=. uv run python scripts/seed.py
 # Celery 后台任务：通用队列、维护、GPU / CPU 预标、导出、视频帧、通知等
 docker compose up -d celery-worker celery-worker-maintenance celery-worker-gpu celery-worker-cpu celery-worker-export celery-beat
 
-# GPU ML Backend 在叠加文件 docker-compose.ml.yml，按显存预算选择独立 profile
-# Grounded-SAM-2：适合图片 SAM / DINO 与视频 tracker
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend
+# GPU ML Backend 按插件选择独立 overlay；先配置已审核镜像仓库、
+# manifest digest、生命周期 SHA-256、凭据映射并准备获准模型资产。
+# Grounded-SAM-2：图片 SAM / DINO 与视频 tracker
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
 
-# SAM 3：独立 GPU profile，需要 HF_TOKEN 与更高显存
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
+# SAM 3：分别审核 gated 权重访问与许可，启动不会下载权重
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-sam3.yml --profile gpu-sam3 up -d sam3-backend
 
-# 其它可选后端：先配置镜像仓库、已审核的 manifest digest 和生命周期源码 SHA-256
+# 其它可选后端
 docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-yolo.yml --profile gpu-yolo up -d yolo-backend
 docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-onnxtools.yml --profile gpu-onnxtools up -d onnxtools-backend
 docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-rapidocr.yml --profile gpu-rapidocr up -d rapidocr-backend
@@ -330,8 +331,7 @@ ai-annotation-platform/
 │   ├── web/                       # React 18 + TypeScript + Vite 标注前端
 │   ├── storage-agent/             # 跨网络只读站点存储 Agent
 │   ├── training-executor/         # 受控单 GPU 在线学习训练执行器
-│   ├── grounded-sam2-backend/     # Grounded-SAM-2 GPU ML Backend
-│   ├── sam3-backend/              # SAM 3 GPU ML Backend
+│   ├── ...                        # 官方推理插件由 YOAO-Plugins 独立提供
 │   └── _shared/                   # 7 个共享包（backend_runtime / filesystem_read / mask_utils / protocol_v2 / site_agent_contract / task_contract / training_contract）
 ├── packages/
 │   └── python-sdk/                # Python SDK、CLI 与 TUI 客户端

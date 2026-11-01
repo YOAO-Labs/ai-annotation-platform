@@ -459,8 +459,6 @@ class Settings(BaseSettings):
 
     # Deployment-owned identities. UI input cannot extend the credential allowlist.
     ml_managed_backend_urls: Annotated[dict[str, str], NoDecode] = {
-        "gsam2": "http://172.17.0.1:8001",
-        "sam3": "http://172.17.0.1:8002",
         "yolo": "http://172.17.0.1:8003",
         "onnxtools": "http://172.17.0.1:8004",
         "rapidocr": "http://172.17.0.1:8005",

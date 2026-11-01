@@ -140,29 +140,25 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 
 ### 2.8 Grounded-SAM-2 ML Backend (GPU profile)
 
-仅当启用 `docker-compose.ml.yml` 的 `--profile gpu` 拉起 grounded-sam2-backend 时生效。详见 §8.5。
+仅当启用 `docker-compose.ml-gsam2.yml` 的 `--profile gpu` 时生效。镜像不包含模型，也不会在启动时下载；管理员须准备已审核资产。
 
-| 变量                              | 默认                         | 说明                                                                                                                                                                                                            |
-| --------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SAM_VARIANT`                     | `tiny`                       | 精度 / 显存递增：`tiny` → `small` → `base_plus` → `large`（4060 8G 选 tiny）。                                                                                                                                  |
-| `DINO_VARIANT`                    | `T`                          | `T`（Swin-T 默认）/ `B`（Swin-B 更准但显存翻倍）。                                                                                                                                                              |
-| `BOX_THRESHOLD`                   | `0.35`                       | DINO 检测阈值；召回不足 → `0.25`，误检多 → `0.45`。                                                                                                                                                             |
-| `TEXT_THRESHOLD`                  | `0.25`                       | DINO 文本-标签匹配阈值；短语 prompt 一般 0.25 即可。                                                                                                                                                            |
-| `GSAM2_LOG_LEVEL`                 | `INFO`                       | `DEBUG / INFO / WARNING`。                                                                                                                                                                                      |
-| `MODEL_POOL_CAP`                  | `1`                          | 同容器内并存的 `(sam_variant, dino_variant)` 变体数上限（LRU 驱逐）。`1` = 维持单变体常驻；切变体走「驱逐旧 + 冷启新」。按显存预算调，见下表。                                                                  |
-| `MODEL_POOL_BUILD_TIMEOUT`        | `30`                         | pool 满 + 并发 miss 时排队等显存腾挪的超时（秒），超时返回 503「显存繁忙，稍后重试」。                                                                                                                          |
-| `PREFETCH_SAM_VARIANTS`           | `tiny,small,base_plus,large` | entrypoint 启动时额外预拉的 SAM 变体 checkpoint（主变体 `SAM_VARIANT` 之外）。逗号分隔。pool 能服务多变体，但只有这里声明（+ 主变体）的 checkpoint 会落盘，**运行期请求未预拉的变体返回 503**。磁盘紧张时裁剪。 |
-| `PREFETCH_DINO_VARIANTS`          | `T,B`                        | 同上，GroundingDINO 变体。                                                                                                                                                                                      |
-| `IDLE_UNLOAD_SECONDS`             | `600`                        | 空闲 N 秒后自动卸载模型释放显存；`<=0` 关闭定时卸载（仍可手动 `POST /unload`）。                                                                                                                                |
-| `IDLE_CHECK_INTERVAL`             | `60`                         | 上面空闲判断的轮询间隔（秒）。                                                                                                                                                                                  |
-| `VIDEO_MODEL_POOL_CAP`            | `1`                          | v0.10.35 · sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                                                                                                |
-| `VIDEO_MODEL_POOL_BUILD_TIMEOUT`  | `60`                         | video 池满 + 并发 miss 时排队等显存的超时（秒）。                                                                                                                                                               |
-| `VIDEO_TRACKER_MAX_WINDOW_FRAMES` | `300`                        | 单次 `init_state` 一次性加载的最大帧数（安全上限，防超长窗口灌爆显存）。                                                                                                                                        |
-| `VIDEO_IDLE_UNLOAD_SECONDS`       | `600`                        | video 池独立 idle 卸载（与图片池 `IDLE_UNLOAD_SECONDS` 各自计时）；`<=0` 关闭。                                                                                                                                 |
+| 变量                              | 默认   | 说明                                                                                                                                           |
+| --------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SAM_VARIANT`                     | `tiny` | 精度 / 显存递增：`tiny` → `small` → `base_plus` → `large`（4060 8G 选 tiny）。                                                                 |
+| `DINO_VARIANT`                    | `T`    | `T`（Swin-T 默认）/ `B`（Swin-B 更准但显存翻倍）。                                                                                             |
+| `BOX_THRESHOLD`                   | `0.35` | DINO 检测阈值；召回不足 → `0.25`，误检多 → `0.45`。                                                                                            |
+| `TEXT_THRESHOLD`                  | `0.25` | DINO 文本-标签匹配阈值；短语 prompt 一般 0.25 即可。                                                                                           |
+| `GSAM2_LOG_LEVEL`                 | `INFO` | `DEBUG / INFO / WARNING`。                                                                                                                     |
+| `MODEL_POOL_CAP`                  | `1`    | 同容器内并存的 `(sam_variant, dino_variant)` 变体数上限（LRU 驱逐）。`1` = 维持单变体常驻；切变体走「驱逐旧 + 冷启新」。按显存预算调，见下表。 |
+| `MODEL_POOL_BUILD_TIMEOUT`        | `30`   | pool 满 + 并发 miss 时排队等显存腾挪的超时（秒），超时返回 503「显存繁忙，稍后重试」。                                                         |
+| `IDLE_UNLOAD_SECONDS`             | `600`  | 空闲 N 秒后自动卸载模型释放显存；`<=0` 关闭定时卸载（仍可手动 `POST /unload`）。                                                               |
+| `IDLE_CHECK_INTERVAL`             | `60`   | 上面空闲判断的轮询间隔（秒）。                                                                                                                 |
+| `VIDEO_MODEL_POOL_CAP`            | `1`    | v0.10.35 · sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                               |
+| `VIDEO_MODEL_POOL_BUILD_TIMEOUT`  | `60`   | video 池满 + 并发 miss 时排队等显存的超时（秒）。                                                                                              |
+| `VIDEO_TRACKER_MAX_WINDOW_FRAMES` | `300`  | 单次 `init_state` 一次性加载的最大帧数（安全上限，防超长窗口灌爆显存）。                                                                       |
+| `VIDEO_IDLE_UNLOAD_SECONDS`       | `600`  | video 池独立 idle 卸载（与图片池 `IDLE_UNLOAD_SECONDS` 各自计时）；`<=0` 关闭。                                                                |
 
-> **多变体 checkpoint 预拉**：ModelPool 让运行期能切任意 `(sam_variant, dino_variant)`，但 checkpoint 必须先落盘。磁盘预算大致 `tiny ~150M / small ~180M / base_plus ~320M / large ~900M`，DINO `T ~680M / B(SwinB) ~940M`；全量约 3.2GB。
->
-> 启动顺序（避免全量 ~3GB 阻塞期间容器对外 `error`）：entrypoint 只**阻塞**下载主变体（`SAM_VARIANT`/`DINO_VARIANT`，单档、秒级）→ uvicorn 立即起、`/health` 可达 → app startup 后台异步下载 `PREFETCH_*` 列表里的额外变体（边服务边补）。`/health.provisioning.status` 反映进度：`downloading`（额外变体下载中，容器仍 healthy）→ `ready`（全下完）/ `partial`（部分失败）/ `error`。下载期间请求尚未下完的变体返回 503（可诊断），主变体始终可用。主变体下载失败则容器启动失败（不带半残上线）；额外变体失败仅 warn 不阻塞。
+> **多变体资产**：运行期可切换已准备的变体。每个图像变体需要 SAM、DINO 和 `bert-base-uncased`；缺失资产的请求失败，不会自动下载。
 >
 > **按显存预算配 `MODEL_POOL_CAP`**：变体热切换让前端可按会话切 `(sam_variant, dino_variant)`，pool 把多个变体常驻显存以省冷启。cap 越大并存越多、切换越快，但显存占用线性上升（单变体 tiny/small ~2–4GB，large + SwinB 峰值 ~6–8GB）。
 >
@@ -176,12 +172,10 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 
 ### 2.8.1 SAM 3 ML Backend (gpu-sam3 profile)
 
-v0.10.0+ 的高精度 backend（`facebookresearch/sam3` + `facebook/sam3.1` 权重），独立 profile `gpu-sam3`，与 grounded-sam2 的 `gpu` profile 解耦、两者可并存（sam3 高精度首选，grounded-sam2 4060 友好兜底）。仅当启用 `docker-compose.ml.yml` 的 `--profile gpu-sam3` 拉起 sam3-backend 时生效，监听 `8002`。
+SAM3 图像、PVS 与 multiplex 视频分别依赖获准的 `sam3.pt` 和 `sam3.1_multiplex.pt`。独立 profile `gpu-sam3` 使用 `docker-compose.ml-sam3.yml`，监听 `8002`；管理员须分别审核 gated 仓库的访问与许可并事先准备资产。
 
 | 变量                        | 默认   | 说明                                                                                                                                                         |
 | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `HF_TOKEN` **必填**         | 空     | sam3（图像）与 sam3.1（视频，预留）权重均为 gated repo（合计 ~6.6GB），首次启动下载必须带；`start_period=180s`。                                             |
-| `SAM3_DOWNLOAD_VIDEO`       | `1`    | 启动时是否下载 sam3.1 视频权重与 config；设 `0` 可只运行图像能力，但 `sam3_video*` 调用会不可用。                                                            |
 | `SAM3_EMBEDDING_CACHE_SIZE` | `32`   | 图像 embedding LRU 缓存条数。                                                                                                                                |
 | `SAM3_SCORE_THRESHOLD`      | `0.5`  | 检测置信度阈值；召回不足下调、误检多上调。                                                                                                                   |
 | `SAM3_LOG_LEVEL`            | `INFO` | `DEBUG / INFO / WARNING`。                                                                                                                                   |
@@ -189,7 +183,7 @@ v0.10.0+ 的高精度 backend（`facebookresearch/sam3` + `facebook/sam3.1` 权�
 | `SAM3_IDLE_CHECK_INTERVAL`  | `60`   | 空闲判断轮询间隔（秒）。                                                                                                                                     |
 | `SAM3_GPU_DEVICE_ID`        | `1`    | Compose 绑定的物理 GPU。默认与其它 backend 错开到卡 1；单卡机器必须改为 `0`。每个 backend 只能绑定一个 GPU/MIG，多值或已暴露 GPU 的 `all` 会在启动时被拒绝。 |
 
-> 镜像基础 `pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel`（比 grounded-sam2 的 2.3.1-cuda12.1 更新，注意宿主 nvidia 驱动需支持 CUDA 12.8）。`docker-compose.ml.yml` 会显式透传 `SAM3_DOWNLOAD_VIDEO`；修改 `.env` 后需 recreate `sam3-backend`。
+> 镜像使用 CUDA 12.8，宿主驱动必须兼容。启动不会接受许可或下载模型，修改配置后需 recreate `sam3-backend`。
 
 ### 2.9 部署环境
 
@@ -466,7 +460,7 @@ Redis 当前没有 volume，也不是业务系统真值，但其中运行状态�
 
 ### 5.4 卷存储位置（命名卷 vs 宿主机统一前缀）
 
-`docker-compose.yml` 与 `docker-compose.ml.yml` 默认使用 **Docker 托管的命名卷**（`pgdata` / `miniodata` / 模型权重 / 监控），数据落在 `/var/lib/docker/volumes/<project>_<vol>`。`docker-compose.hostvols.yml` 可把其中明确列出的卷集中到宿主机统一目录，便于备份、迁移或放到指定磁盘：
+`docker-compose.yml` 与各插件 overlay 默认使用 **Docker 托管的命名卷**（`pgdata` / `miniodata` / 模型权重 / 监控），数据落在 `/var/lib/docker/volumes/<project>_<vol>`。`docker-compose.hostvols.yml` 可把其中明确列出的卷集中到宿主机统一目录，便于备份、迁移或放到指定磁盘：
 
 ```bash
 export DATA_ROOT=/srv/annotation-data   # 绝对路径
@@ -654,21 +648,23 @@ URL 改动、探测失败或快照过期后都按 unknown 保守报告，不会�
 
 ### docker compose 启用 GPU service
 
-SAM backend 定义在 `docker-compose.ml.yml`；YOLO、ONNXTools 与 RapidOCR 各自使用独立叠加文件。它们均 profile-gated 且与核心 infra 无 depends_on，可单独启用或并存。
+五个官方推理插件分别使用独立 overlay；`docker-compose.ml.yml` 保留截图 stub，可在不设置插件变量时使用。服务 profile 与核心 infra 无 depends_on，可单独启用或并存。
 
-官方插件的实现和镜像由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供，不再从平台 checkout 构建。使用对应插件叠加文件前，设置该插件的 `YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应的 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`；值来自部署已审核镜像仓库、真实 manifest digest 和镜像内受审生命周期源码摘要，而非镜像 ID。未启用插件时无需配置这些变量。
+官方实现和镜像由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供。启用对应 overlay 前配置 `GSAM2_IMAGE`、`SAM3_IMAGE`、`YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`，使用已审核的仓库、manifest digest 和镜像内生命周期源码摘要，而非 image ID。未启用的插件无需配置。Compose 和原生插件安装的所有权不同，不会自动接管彼此。
 
-ONNXTools 与 RapidOCR 的权重不打进镜像；以 `ONNXTOOLS_MODELS_PATH`、`RAPIDOCR_MODELS_PATH` 指向已审核的宿主目录并只读挂载。目录必须已存在，资产目录可见不等于授权使用。YOLO 保留 checkpoint 卷和平台受控资产只读挂载；平台仍负责审批、项目授权和存储。
+管理员按插件目录与资产 catalog 审核许可和文件身份后，预先准备模型。Grounded-SAM-2 的 `gsam2_checkpoints:/app/checkpoints` 包含所需 SAM、DINO 和 `bert-base-uncased/{config.json,tokenizer.json,tokenizer_config.json,vocab.txt,model.safetensors}`；SAM3 的 `sam3_checkpoints:/app/checkpoints` 包含 image/PVS 的 `sam3.pt` 和 multiplex 的 `sam3.1_multiplex.pt`。两者不在启动时下载；SAM3 的两个 gated 仓库须各自取得授权，持有文件或 token 不代表许可。缓存卷仍保留供现有部署迁移。ONNXTools 与 RapidOCR 使用各自已审核的只读宿主目录，YOLO 保留 checkpoint 卷与只读模型资产。
+
+`ML_MANAGED_BACKEND_URLS` 是凭据的部署信任映射，不是插件发现机制。SAM 不再有隐式映射；Compose 管理部署需显式加入 `gsam2` / `sam3` 的实际 URL，并保留所需其他 provider 映射；原生安装使用其自身凭据和身份，不能靠这个映射接管。配置 public key、实际 registry UUID 与 `node/physical-device-token` 后才能使用相应签名生命周期控制。
 
 ```bash
 # 默认不启任何 GPU service（基础栈不含 ML backend，节约本地资源）
 docker compose up -d
 
 # 启 grounded-sam2（profile gpu，端口 8001）
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
 
 # 启 sam3（profile gpu-sam3，端口 8002）
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-sam3 up -d sam3-backend
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-sam3.yml --profile gpu-sam3 up -d sam3-backend
 
 # 启 yolo（profile gpu-yolo，端口 8003）
 docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-yolo.yml --profile gpu-yolo up -d yolo-backend
@@ -680,13 +676,15 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.
 docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-rapidocr.yml --profile gpu-rapidocr up -d rapidocr-backend
 ```
 
-> 嫌每次敲两个 `-f` 麻烦，可在 shell 或 `.env` 固化 `COMPOSE_FILE=docker-compose.yml:docker-compose.ml.yml`，之后 `docker compose --profile gpu up -d grounded-sam2-backend` 即可（profile-gated 不影响默认 `docker compose up`）。
+> 可将选定的三个文件写入 `COMPOSE_FILE`；不要把未选用插件的 overlay 一并加入，否则 Compose 也会要求其镜像变量。
+
+宿主维护 runner 必须使用与现有容器 Compose 标签完全一致的 project、工作目录和文件集合；例如部署 Grounded-SAM-2 时，将 `docker-compose.yml`、`docker-compose.ml.yml`、`docker-compose.ml-gsam2.yml` 各用一个 `--compose-file` 传给 `scripts/ml-backend-runner.py`，并包含实际部署所用的其他 overlay。它先拉取并离线检查固定镜像与生命周期摘要，再等待原容器优雅退出、重建并核对同一持久挂载；不会构建本地 SAM 源码或管理原生安装。
 
 要点：
 
-- 镜像基础：grounded-sam2 = `pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel`，sam3 = `pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel`（**devel 必需**：GroundingDINO 算子要 nvcc 现场编译；sam3 的 CUDA 12.8 要求宿主驱动够新）
+- 镜像包含运行时依赖，宿主驱动需支持对应 CUDA 版本。
 - nvidia device reservation 已配置；需要 host 装 nvidia-container-toolkit。默认 grounded-sam2 / yolo / onnxtools / rapidocr 用卡 0，sam3 用卡 1；单卡机器设置 `SAM3_GPU_DEVICE_ID=0`。任一 `*_GPU_DEVICE_ID` 都必须是单个索引或 UUID，不接受逗号列表和已暴露 GPU runtime 的 `all`。
-- healthcheck `start_period`：grounded-sam2 `120s`（冷启加载 ~80-100s）、sam3 `180s`（首次启动默认下载图像 + 视频约 6.6GB gated 权重）
+- 健康检查只证明服务可响应，不证明权重、推理或 GPU 生命周期已验收；窗口与跨窗 context 超过默认值需针对目标设备单独验证。
 - 显存 / 变体相关 env 见 §2.8（grounded-sam2）与 §2.8.1（sam3）；两者 `IDLE_*` / `MODEL_POOL_*` 前缀解耦，可独立调
 - 五个 Backend 的受管生命周期能力都采用部署级验收开关，且默认关闭。只有当前镜像、权重与物理 GPU 完成对应的真实加载、全池卸载和显存回落验收后，才把 `GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED`、`SAM3_MANAGED_LIFECYCLE_VERIFIED`、`YOLO_MANAGED_LIFECYCLE_VERIFIED`、`ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 或 `RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED` 设为字面量 `1`；值只能是 `0` 或 `1`，非法值会使对应 Backend 拒绝启动。复制其他机器的结论不能替代当前部署证据。
 
