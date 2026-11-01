@@ -1456,6 +1456,7 @@ DECLARE
     v_public text[] := ARRAY[
         'aap_inference_topology_v1.topology_policy()',
         'aap_inference_topology_v1.registry_facts(uuid)',
+        'aap_inference_topology_v1.registry_auth_snapshot(uuid)',
         'aap_inference_topology_v1.lock_plugin_registry(uuid)',
         'aap_inference_topology_v1.prepare_plugin_installation(text)',
         'aap_inference_topology_v1.plugin_installation(uuid)',
@@ -1483,7 +1484,7 @@ DECLARE
         'aap_inference_topology_v1.singleton_pool(uuid)',
         'aap_inference_topology_v1.create_singleton_pool(uuid,uuid,text,text,text)',
         'aap_inference_topology_v1.create_singleton_member(uuid,uuid,uuid)',
-        'aap_inference_topology_v1.patch_registry(uuid,text)',
+        'aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)',
         'aap_inference_topology_v1.validate_registry_delete(uuid)',
         'aap_inference_topology_v1.delete_registry(uuid,text)',
         'aap_inference_topology_v1.create_pool(uuid,text)',

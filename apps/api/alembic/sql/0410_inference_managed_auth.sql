@@ -44,3 +44,30 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint) FROM PUBLIC;
+-- aap-statement-break
+-- The old implementation remains callable only by its owner through the fenced entrypoint.
+REVOKE ALL ON FUNCTION aap_inference_topology_v1.patch_registry(uuid,text) FROM PUBLIC;
+-- aap-statement-break
+DO $revoke_unfenced_patch$
+DECLARE
+    v_role record;
+BEGIN
+    FOR v_role IN
+        SELECT role.rolname
+        FROM pg_catalog.pg_proc AS proc
+        CROSS JOIN LATERAL pg_catalog.aclexplode(
+            COALESCE(proc.proacl, pg_catalog.acldefault('f', proc.proowner))
+        ) AS grant_row
+        JOIN pg_catalog.pg_roles AS role ON role.oid = grant_row.grantee
+        WHERE proc.oid = 'aap_inference_topology_v1.patch_registry(uuid,text)'::pg_catalog.regprocedure
+          AND grant_row.grantee <> proc.proowner
+          AND grant_row.grantee <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user)
+          AND grant_row.privilege_type = 'EXECUTE'
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE EXECUTE ON FUNCTION aap_inference_topology_v1.patch_registry(uuid,text) FROM %I',
+            v_role.rolname
+        );
+    END LOOP;
+END;
+$revoke_unfenced_patch$;

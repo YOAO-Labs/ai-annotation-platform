@@ -119,9 +119,6 @@ _CREATE_SINGLETON_MEMBER = text(
     f"SELECT {_SCHEMA}.create_singleton_member(CAST(:registry_id AS uuid),"
     "CAST(:pool_id AS uuid),CAST(:member_id AS uuid))"
 )
-_PATCH_REGISTRY = text(
-    f"SELECT {_SCHEMA}.patch_registry(CAST(:registry_id AS uuid),CAST(:patch AS text))"
-)
 _VALIDATE_REGISTRY_DELETE = text(
     f"SELECT {_SCHEMA}.validate_registry_delete(CAST(:registry_id AS uuid))"
 )
@@ -706,18 +703,6 @@ class InferenceTopologyData:
         if row is None:
             raise RuntimeError("topology singleton creation returned no member")
         return PoolMemberFacts.from_record(row)
-
-    async def patch_registry(
-        self, registry_id: UUID, patch: Mapping[str, Any]
-    ) -> RegistryPublicFacts | None:
-        row = _object(
-            await self._scalar(
-                _PATCH_REGISTRY,
-                {"registry_id": registry_id, "patch": _json(patch)},
-            )
-        )
-        await self.db.flush()
-        return RegistryPublicFacts.from_record(row) if row is not None else None
 
     async def validate_registry_delete(self, registry_id: UUID) -> tuple[bool, int]:
         row = _object(

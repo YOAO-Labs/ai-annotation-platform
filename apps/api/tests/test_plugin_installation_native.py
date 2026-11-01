@@ -274,6 +274,7 @@ async def test_generic_registry_mutation_and_delete_cannot_bypass_owner(
     data = InferenceTopologyData(db_session)
     payload = _payload()
     first = await data.prepare_plugin_installation(payload)
+    snapshot = await data.registry_auth_snapshot(payload.installation_id)
     for patch in (
         {"url": "http://replacement.invalid"},
         {"extra_params": {}},
@@ -281,7 +282,7 @@ async def test_generic_registry_mutation_and_delete_cannot_bypass_owner(
     ):
         with pytest.raises(DBAPIError, match="plugin Registry"):
             async with db_session.begin_nested():
-                await data.patch_registry(payload.installation_id, patch)
+                await data.patch_registry_auth_cas(payload.installation_id, patch, snapshot)
     with pytest.raises(DBAPIError, match="plugin Registry"):
         async with db_session.begin_nested():
             await data.delete_registry(payload.installation_id, None)

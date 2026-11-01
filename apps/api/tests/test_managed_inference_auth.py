@@ -1,4 +1,5 @@
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
@@ -330,3 +331,29 @@ def test_default_credentials_are_independent_persistent_and_checkout_local(
         provider: read_credential(auth.credential_directory(provider))
         for provider in BACKEND_SERVICES
     } == tokens
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data PostgreSQL verifier",
+)
+async def test_runtime_cannot_execute_unfenced_registry_patch(test_engine):
+    from tests.test_jobs_creation_runtime_native import _lan_runtime
+
+    runtime = await _lan_runtime(test_engine)
+    try:
+        async with runtime.connect() as connection:
+            result = await connection.execute(
+                text(
+                    "SELECT "
+                    "has_function_privilege(current_user,"
+                    "'aap_inference_topology_v1.registry_auth_snapshot(uuid)','EXECUTE'),"
+                    "has_function_privilege(current_user,"
+                    "'aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)','EXECUTE'),"
+                    "has_function_privilege(current_user,"
+                    "'aap_inference_topology_v1.patch_registry(uuid,text)','EXECUTE')"
+                )
+            )
+            assert tuple(result.one()) == (True, True, False)
+    finally:
+        await runtime.dispose()

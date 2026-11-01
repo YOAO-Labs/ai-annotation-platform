@@ -137,6 +137,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
     "aap_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
     "aap_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
+    "aap_inference_topology_v1.registry_auth_snapshot(uuid)": "0410_inference_managed_auth.sql",
+    "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)": "0410_inference_managed_auth.sql",
     "aap_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])": "0386_inference_repair_model_lock.sql",
     "aap_inference_topology_v1.lock_plugin_registry(uuid)": "0393_plugin_registry_admission_fence.sql",
     "aap_inference_topology_v1.prepare_plugin_installation(text)": "0388_inference_plugin_installation.sql",
