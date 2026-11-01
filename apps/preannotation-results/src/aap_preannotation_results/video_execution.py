@@ -44,6 +44,12 @@ class ExecutionClaim(ExecutionProof):
         )
 
 
+class ExecutionSettled(c.Value):
+    """Positive owner proof that this terminal job has no remaining execution work."""
+
+    job_id: c.CanonicalUUID
+
+
 class ClaimRequest(c.Value):
     job_id: c.CanonicalUUID
     worker_id: c.CanonicalUUID
@@ -102,6 +108,11 @@ def decode_native_reply(action: str, request: c.Value, value: Any) -> dict[str, 
             raise VideoExecutionFailure(parsed["reason"])
         if parsed.get("status") != "ok":
             raise ValueError("invalid status")
+        if action == "claim" and set(parsed) == {"schema", "status", "settled"}:
+            settled = ExecutionSettled.model_validate(parsed["settled"])
+            if settled.job_id != request.job_id:
+                raise ValueError("settled identity mismatch")
+            return {"settled": settled}
         if action in {"claim", "renew"}:
             if set(parsed) != {"schema", "status", "execution"}:
                 raise ValueError("invalid claim envelope")

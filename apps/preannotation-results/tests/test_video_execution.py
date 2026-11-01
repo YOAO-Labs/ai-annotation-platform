@@ -9,6 +9,7 @@ from aap_preannotation_results.video_execution import (
     ClaimRequest,
     ExecutionClaim,
     ExecutionProof,
+    ExecutionSettled,
     GuardRequest,
     RenewRequest,
     VideoExecutionFailure,
@@ -83,6 +84,27 @@ def test_initial_claim_cannot_return_another_workers_capability():
                 "execution": claim.model_dump(mode="json"),
             },
         )
+
+
+def test_settled_claim_is_typed_and_bound_to_the_requested_job():
+    request = ClaimRequest(job_id=uuid4(), worker_id=uuid4())
+    reply = {
+        "schema": SCHEMA,
+        "status": "ok",
+        "settled": {"job_id": str(request.job_id)},
+    }
+    assert decode_native_reply("claim", request, reply)["settled"] == ExecutionSettled(
+        job_id=request.job_id
+    )
+    for bad in (
+        {**reply, "settled": {"job_id": str(uuid4())}},
+        {**reply, "settled": {"job_id": str(request.job_id), "extra": True}},
+        {**reply, "execution": None},
+    ):
+        with pytest.raises(VideoExecutionFailure, match="^invalid_response$"):
+            decode_native_reply("claim", request, bad)
+    with pytest.raises(VideoExecutionFailure, match="^invalid_response$"):
+        decode_native_reply("renew", request, reply)
 
 
 @pytest.mark.parametrize(

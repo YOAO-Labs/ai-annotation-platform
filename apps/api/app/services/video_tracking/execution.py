@@ -120,7 +120,7 @@ async def tracker_execution(
         job_id=job_id, worker_id=uuid4(), lease_seconds=_LEASE_SECONDS
     )
     try:
-        claim = (await _call(db, "claim", request))["execution"]
+        result = await _call(db, "claim", request)
         await db.commit()
     except VideoExecutionFailure as exc:
         await db.rollback()
@@ -131,6 +131,10 @@ async def tracker_execution(
     except BaseException:
         await db.rollback()
         raise
+    if "settled" in result:
+        yield result["settled"]
+        return
+    claim = result["execution"]
     current = _Execution(claim)
     context = _CURRENT.set(current)
     factory = session_factory or async_sessionmaker(

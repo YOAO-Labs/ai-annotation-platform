@@ -16,6 +16,7 @@ import redis.asyncio as aioredis
 from fastapi import HTTPException
 from aap_protocol_v2 import CorrectionFramePrompt
 from aap_preannotation_results import contract as video_contract
+from aap_preannotation_results.video_execution import ExecutionSettled
 from aap_preannotation_results.video_execution_plan import VideoContinuationPostState
 from aap_preannotation_results.video_execution_planner import (
     build_video_execution_plan,
@@ -3287,6 +3288,12 @@ async def run_tracker_job(
         async with tracker_execution(
             db, job_id, session_factory=shadow_session_factory
         ) as execution:
+            if isinstance(execution, ExecutionSettled):
+                # Claim checked the current canonical Job, not our pre-claim snapshot.
+                try:
+                    return await _read_worker_job(db, job_id)
+                except (SQLAlchemyError, OSError, VideoControlRejected):
+                    raise TrackerExecutionDeferred("storage_unavailable") from None
             if not active:
                 if job is not None and job.status == "cancelled":
                     if execution.state == "recovery_required":

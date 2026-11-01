@@ -132,3 +132,122 @@ async def test_unknown_legacy_tracker_roots_preserve_fail_closed_policy(
             )
             is fail_closed
         )
+
+
+@pytest.mark.parametrize(
+    "open_artifact", ["none", "route", "journal", "attempt", "capture"]
+)
+async def test_cancelled_replay_requires_all_owner_artifacts_closed(
+    db_session, open_artifact
+):
+    job, input_id, claim = await _claimed_running_job(db_session)
+    route = await _install_ready_tracker_scope(db_session, job.id, claim)
+    job.status = "cancelled"
+    await db_session.flush()
+    if open_artifact != "route":
+        await db_session.execute(
+            text(
+                "UPDATE aap_inference_routing_v1.scopes SET state='reconciled',"
+                "closed=true WHERE id=:scope"
+            ),
+            {"scope": route["scope_id"]},
+        )
+        await db_session.execute(
+            text(
+                "INSERT INTO aap_inference_routing_v1.scope_retirements "
+                "(retirement_id,scope_id,registry_id,authority_epoch,"
+                "backend_incarnation,challenge,fence_until,admission_expires_at,"
+                "transport_identity_sha256,config_revision,realm,phase) "
+                "SELECT :retirement,id,registry_id,authority_epoch,:incarnation,"
+                ":digest,0,pg_catalog.clock_timestamp(),:digest,config_revision,"
+                "realm,'completed' FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+            ),
+            {
+                "retirement": uuid.uuid4(),
+                "scope": route["scope_id"],
+                "incarnation": uuid.uuid4(),
+                "digest": "a" * 64,
+            },
+        )
+    if open_artifact != "journal":
+        await db_session.execute(
+            text(
+                "UPDATE aap_jobs_v1.video_execution_journals SET writer_terminal=true,"
+                "writer_terminal_outcome='cancelled',execution_retired=true WHERE job_id=:job"
+            ),
+            {"job": job.id},
+        )
+    if open_artifact in {"attempt", "capture"}:
+        capture_id = uuid.uuid4()
+        params = {
+            "job": job.id,
+            "run": uuid.UUID(claim["run_id"]),
+            "generation": claim["generation"],
+            "capture": capture_id,
+            "digest": "b" * 64,
+        }
+        await db_session.execute(
+            text(
+                "INSERT INTO aap_jobs_v1.video_execution_window_attempts "
+                "(job_id,run_id,generation,window_ordinal,window_digest,mode,state,capture_id) "
+                "VALUES (:job,:run,:generation,0,:digest,'execute',:state,:capture)"
+            ),
+            {**params, "state": "capturing" if open_artifact == "capture" else "started"},
+        )
+        if open_artifact == "capture":
+            await db_session.execute(
+                text(
+                    "INSERT INTO aap_jobs_v1.video_execution_captures "
+                    "(capture_id,job_id,run_id,generation,window_ordinal,"
+                    "manifest_digest,manifest,state) VALUES "
+                    "(:capture,:job,:run,:generation,0,:digest,'{}'::jsonb,'receiving')"
+                ),
+                params,
+            )
+    request = {
+        "job_id": str(job.id),
+        "worker_id": str(uuid.uuid4()),
+        "lease_seconds": 30,
+    }
+    # An extant lease always wins even over otherwise complete retirement.
+    busy = await _step(db_session, "claim", request)
+    assert busy["reason"] == "execution_busy"
+    await db_session.execute(
+        text(
+            "UPDATE aap_jobs_v1.video_executions SET "
+            "lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
+            "WHERE job_id=:job"
+        ),
+        {"job": job.id},
+    )
+    response = await _step(db_session, "claim", request)
+    if open_artifact == "none":
+        assert response["settled"] == {"job_id": str(job.id)}
+        assert (
+            await db_session.scalar(
+                text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+                {"input": input_id},
+            )
+            is False
+        )
+        stale = await _step(
+            db_session,
+            "release",
+            {key: claim[key] for key in (
+                "job_id", "run_id", "worker_id", "generation", "lease_token"
+            )},
+        )
+        assert stale["reason"] == "lease_lost"
+        assert (await _step(db_session, "claim", request))["settled"] == {
+            "job_id": str(job.id)
+        }
+    else:
+        if open_artifact == "journal":
+            assert (
+                await db_session.scalar(
+                    text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+                    {"input": input_id},
+                )
+                is True
+            )
+        assert response["execution"]["state"] == "recovery_required"

@@ -13,6 +13,7 @@ import pytest
 
 from aap_preannotation_results.video_execution import (
     ExecutionClaim,
+    ExecutionSettled,
     VideoExecutionFailure,
 )
 from app.services.video_tracking import execution, runner, tracker_mask_roots
@@ -343,6 +344,58 @@ async def test_lost_renewal_keeps_active_tracker_delivery_retryable(
         await runner.run_tracker_job(db, job_id, shadow_session_factory=sessions)
     assert job.status == "running"
     assert job.staged_result == {"original": True}
+
+
+async def test_settled_claim_skips_tracker_and_routing_even_with_stale_active_snapshot(
+    monkeypatch,
+):
+    job_id = uuid4()
+    stale = SimpleNamespace(id=job_id, status="running")
+    canonical = SimpleNamespace(id=job_id, status="failed")
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr(runner, "_get_worker_job", AsyncMock(return_value=stale))
+    monkeypatch.setattr(runner, "_read_worker_job", AsyncMock(return_value=canonical))
+    work = AsyncMock(side_effect=AssertionError("settled execution started work"))
+    retire = AsyncMock(side_effect=AssertionError("settled execution contacted routing"))
+    monkeypatch.setattr(runner, "_run_tracker_job_claimed", work)
+    monkeypatch.setattr(runner, "retire_terminal_tracker_execution", retire)
+    monkeypatch.setattr(
+        execution,
+        "_call",
+        AsyncMock(return_value={"settled": ExecutionSettled(job_id=job_id)}),
+    )
+    assert await runner.run_tracker_job(db, job_id) is canonical
+    work.assert_not_awaited()
+    retire.assert_not_awaited()
+
+
+async def test_unavailable_claim_does_not_turn_terminal_delivery_into_success(monkeypatch):
+    job_id = uuid4()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr(
+        runner, "_get_worker_job", AsyncMock(return_value=SimpleNamespace(status="failed"))
+    )
+    monkeypatch.setattr(
+        execution, "_call", AsyncMock(side_effect=VideoExecutionFailure("storage_unavailable"))
+    )
+    with pytest.raises(execution.TrackerExecutionDeferred, match="storage_unavailable"):
+        await runner.run_tracker_job(db, job_id)
+
+
+async def test_settled_claim_still_defers_if_canonical_read_is_unavailable(monkeypatch):
+    job_id = uuid4()
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr(
+        runner, "_get_worker_job", AsyncMock(return_value=SimpleNamespace(status="failed"))
+    )
+    monkeypatch.setattr(runner, "_read_worker_job", AsyncMock(side_effect=OSError()))
+    monkeypatch.setattr(
+        execution,
+        "_call",
+        AsyncMock(return_value={"settled": ExecutionSettled(job_id=job_id)}),
+    )
+    with pytest.raises(execution.TrackerExecutionDeferred, match="storage_unavailable"):
+        await runner.run_tracker_job(db, job_id)
 
 
 @pytest.mark.parametrize("kind", ["video_tracker", "video_correction"])

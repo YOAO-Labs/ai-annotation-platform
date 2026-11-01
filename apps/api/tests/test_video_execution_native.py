@@ -559,6 +559,78 @@ async def test_video_execution_lock_contention_returns_management_busy(test_engi
             )
 
 
+async def test_settled_duplicate_waits_for_owner_fence_then_replays(test_engine):
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    actor_id = project_id = dataset_id = item_id = task_id = job_id = None
+    try:
+        async with maker.begin() as setup:
+            actor_id, project, item_id, task_id, job = await _seed_tracker_job(setup)
+            project_id, job_id = project.id, job.id
+            dataset_id = await setup.scalar(
+                text("SELECT dataset_id FROM public.dataset_items WHERE id=:item"),
+                {"item": item_id},
+            )
+            await _seed_claimable_input(
+                setup, actor_id, project_id, item_id, task_id, job_id
+            )
+            first = (
+                await _step(
+                    setup,
+                    "claim",
+                    {"job_id": str(job_id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30},
+                )
+            )["execution"]
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await setup.flush()
+            job.status = "failed"
+            job.completed_at = datetime.now(timezone.utc)
+            await setup.flush()
+            await setup.execute(
+                text(
+                    "UPDATE aap_jobs_v1.video_executions SET "
+                    "lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
+                    "WHERE job_id=:job"
+                ),
+                {"job": job_id},
+            )
+
+        request = {
+            "job_id": str(job_id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30
+        }
+        async with maker() as one, maker() as two:
+            assert (await _step(one, "claim", request))["settled"] == {
+                "job_id": str(job_id)
+            }
+            assert (await _step(two, "claim", request))["reason"] == "execution_busy"
+            await two.rollback()
+            await one.commit()
+            assert (await _step(two, "claim", request))["settled"] == {
+                "job_id": str(job_id)
+            }
+            assert (await _step(two, "release", _proof(job_id, first)))["reason"] == "lease_lost"
+            await two.commit()
+    finally:
+        if all(value is not None for value in (
+            actor_id, project_id, dataset_id, item_id, task_id, job_id
+        )):
+            async with test_engine.begin() as cleanup:
+                await cleanup.execute(
+                    text("DELETE FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"),
+                    {"job": job_id},
+                )
+            await _cleanup_claimed_scope(
+                test_engine,
+                actor_id=actor_id,
+                project_id=project_id,
+                dataset_id=dataset_id,
+                item_id=item_id,
+                task_id=task_id,
+                job_id=job_id,
+                scope_id=uuid.uuid4(),
+            )
+
+
 async def test_deleted_job_can_only_recover_its_retained_route_intent(db_session):
     actor, _, _, _, job = await _seed_tracker_job(db_session)
     await _capture(db_session, actor, job.id)
@@ -678,7 +750,7 @@ async def test_pending_review_job_can_claim_only_bound_route_cleanup(db_session)
     assert renewed["execution"]["state"] == "recovery_required"
 
 
-async def test_terminal_job_without_bound_intent_cannot_be_reclaimed(db_session):
+async def test_terminal_job_without_bound_intent_replays_only_after_retirement(db_session):
     actor, _, _, _, job = await _seed_tracker_job(db_session)
     await _capture(db_session, actor, job.id)
     initial = await _step(
@@ -701,14 +773,77 @@ async def test_terminal_job_without_bound_intent_cannot_be_reclaimed(db_session)
         {"job": job.id},
     )
 
-    rejected = await _step(
+    settled = await _step(
         db_session,
         "claim",
         {"job_id": str(job.id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30},
     )
-    assert rejected["status"] == "rejected"
-    assert rejected["reason"] == "job_not_active"
-    assert initial["execution"]["state"] == "ready"
+    assert settled == {
+        "schema": "aap-video-execution-data/v1",
+        "status": "ok",
+        "settled": {"job_id": str(job.id)},
+    }
+    stale = await _step(db_session, "release", _proof(job.id, initial["execution"]))
+    assert stale["reason"] == "lease_lost"
+
+
+@pytest.mark.parametrize("rejected", [False, True])
+async def test_terminal_prepared_intent_requires_durable_no_scope_rejection(
+    db_session, rejected
+):
+    actor, _, _, _, job = await _seed_tracker_job(db_session)
+    await _capture(db_session, actor, job.id)
+    claim = (
+        await _step(
+            db_session,
+            "claim",
+            {"job_id": str(job.id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30},
+        )
+    )["execution"]
+    job.status = "running"
+    job.started_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    request_id, _ = await _install_bound_route_intent(db_session, job.id, claim)
+    await db_session.execute(
+        text(
+            "UPDATE aap_jobs_v1.video_execution_route_intents SET state='prepared' "
+            "WHERE request_id=:request"
+        ),
+        {"request": request_id},
+    )
+    if rejected:
+        await db_session.execute(
+            text(
+                "INSERT INTO aap_inference_routing_v1.command_receipts "
+                "(id,command_sha256,operation,result,creating_xid,realm) "
+                "SELECT request_id,command_sha256,'video_acquire',"
+                "'{\"reason\":\"pool_not_enabled\"}'::jsonb,"
+                "pg_catalog.pg_current_xact_id(),aap_inference_routing_v1._routing_realm() "
+                "FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
+            ),
+            {"request": request_id},
+        )
+    job.status = "failed"
+    job.completed_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "(job_id,run_id,writer_terminal,writer_terminal_outcome,execution_retired) "
+            "VALUES (:job,:run,true,'failed',true) ON CONFLICT(job_id) DO UPDATE SET "
+            "writer_terminal=true,writer_terminal_outcome='failed',execution_retired=true"
+        ),
+        {"job": job.id, "run": uuid.UUID(claim["run_id"])},
+    )
+    response = await _step(
+        db_session,
+        "claim",
+        {"job_id": str(job.id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30},
+    )
+    if rejected:
+        assert response["settled"] == {"job_id": str(job.id)}
+    else:
+        assert response["execution"]["state"] == "recovery_required"
 
 
 @pytest.mark.parametrize("outcome", ("unknown", "rejected", "scope_exists"))
