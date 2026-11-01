@@ -26,8 +26,8 @@ from app.services import guide_asset_storage as storage, guide_asset_uploads as 
 from app.services import storage as storage_module, storage_access
 from app.application.project_deletion import delete_project
 from tests._owned_s3 import patch_owned_client
-from tests.test_seed_comment_attachments import Objects, build as build_comments
-from tests.test_seed_comment_attachments import upload as upload_comment
+from tests.seed_attachment_support import Objects, build as build_comments
+from tests.seed_attachment_support import upload as upload_comment
 
 
 @pytest.fixture
