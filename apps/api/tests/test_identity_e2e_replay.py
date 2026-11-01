@@ -20,6 +20,8 @@ from tests.identity_e2e_support import (
     ROOT,
     accounts,
     e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
     snapshot,
 )
 
@@ -52,7 +54,7 @@ def canonical(value):
     return value
 
 
-def replay(name, value, record_property):
+def replay(name, value, record_property, *, qualification="identity_e2e_replay"):
     value = canonical(value)
     if CAPTURE:
         directory = ROOT / ".worktree/identity-e2e-baseline-cases"
@@ -62,7 +64,7 @@ def replay(name, value, record_property):
         )
     else:
         assert value == GOLDEN[name]
-    record_property("identity_e2e_replay", name)
+    record_property(qualification, name)
 
 
 @pytest.mark.parametrize("case", ["full", "missing", "cached_email"])
@@ -129,20 +131,23 @@ async def test_e2e_peek_keeps_precedence_and_inactive_accounts(
 
 
 @pytest.mark.parametrize("shared", [False, True])
-async def test_e2e_cleanup_identity_dependencies_and_scope(
-    test_engine, e2e_consumer, shared, record_property
+async def test_owner_cleanup_identity_dependencies_and_scope(
+    test_engine, fixture_and_fenced_http, shared, record_property
 ):
     async with accounts(test_engine):
-        async with async_sessionmaker(e2e_consumer, expire_on_commit=False)() as db:
-            scope = None if shared else routes._parse_owned_namespace("probea")
-            await routes._cleanup_e2e_fixtures(db, scope)
-            await db.commit()
-            first = await snapshot(test_engine)
-            assert len(first["users"]) == (1 if shared else 2)
-            assert first["reset_tokens"] == first["invitations"] == []
-            await routes._cleanup_e2e_fixtures(db, scope)
-            await db.commit()
-            assert await snapshot(test_engine) == first
-            replay(
-                "cleanup-" + ("shared" if shared else "owned"), first, record_property
-            )
+        path = "/api/v1/__test/seed/" + ("cleanup" if shared else "owned-cleanup")
+        payload = {} if shared else {"json": {"namespace": "probea"}}
+        response = await fixture_and_fenced_http.post(path, **payload)
+        assert response.status_code == 200, response.text
+        first = await snapshot(test_engine)
+        assert len(first["users"]) == (1 if shared else 2)
+        assert first["reset_tokens"] == first["invitations"] == []
+        response = await fixture_and_fenced_http.post(path, **payload)
+        assert response.status_code == 200, response.text
+        assert await snapshot(test_engine) == first
+        replay(
+            "cleanup-" + ("shared" if shared else "owned"),
+            first,
+            record_property,
+            qualification="identity_owner_cleanup_replay",
+        )

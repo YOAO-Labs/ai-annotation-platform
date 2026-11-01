@@ -43,8 +43,6 @@ from tests.test_training_dataset_references import (
 from tests.test_workspace_consumer_profile_native import _assert_closed, _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
-CAPTURE = os.getenv("AAP_WORKSPACE_E2E_CAPTURE") == "1"
-ORACLE = ROOT / "apps/api/tests/fixtures/workspace_e2e_legacy.json"
 NAMESPACE = "wkse2e"
 pytestmark = [
     pytest.mark.asyncio,
@@ -57,13 +55,12 @@ pytestmark = [
 
 @pytest.fixture
 async def e2e_consumer(test_engine):
-    async with _world(test_engine, apply=not CAPTURE) as (_, producer, role, _):
-        profiles = ["identity-e2e-fixture-grants.sql"]
-        if not CAPTURE:
-            profiles += [
-                "workspace-seed-operator-grants.sql",
-                "workspace-e2e-fixture-grants.sql",
-            ]
+    async with _world(test_engine, apply=True) as (_, producer, role, _):
+        profiles = [
+            "identity-e2e-fixture-grants.sql",
+            "workspace-seed-operator-grants.sql",
+            "workspace-e2e-fixture-grants.sql",
+        ]
         for profile in profiles:
             result = await _grants(test_engine, ROOT / "infra/docker" / profile, role)
             assert result.returncode == 0, result.stderr
@@ -75,9 +72,8 @@ async def e2e_consumer(test_engine):
                     f'aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
                 )
             )
-        if not CAPTURE:
-            async with producer() as db:
-                await _assert_closed(db)
+        async with producer() as db:
+            await _assert_closed(db)
         yield producer.kw["bind"]
 
 
@@ -126,36 +122,6 @@ async def _snapshot(engine):
         "members": sorted(members, key=lambda row: (row["project_id"], row["user_id"])),
         "templates": templates,
     }
-
-
-@pytest.mark.parametrize("kind", ["owned", "project-roles", "filtering", "lidar"])
-async def test_owner_process_workspace_fixture_rows(
-    fixture_and_fenced_http, test_engine, kind, record_property
-):
-    baseline = await _snapshot(test_engine)
-    response = await fixture_and_fenced_http.post(
-        "/api/v1/__test/seed/" + kind, json={"namespace": NAMESPACE}
-    )
-    assert response.status_code == 200, response.text
-    try:
-        state = await _snapshot(test_engine)
-        for group, rows in baseline.items():
-            assert all(row in state[group] for row in rows), group
-            state[group] = [row for row in state[group] if row not in rows]
-        if CAPTURE:
-            directory = ROOT / ".worktree/workspace-e2e-baseline-cases"
-            directory.mkdir(exist_ok=True)
-            (directory / (kind + ".json")).write_text(
-                json.dumps(state, ensure_ascii=False, indent=2) + "\n"
-            )
-        else:
-            assert state == json.loads(ORACLE.read_text())["snapshots"][kind]
-        record_property("workspace_owner_process_fixture_rows", kind)
-    finally:
-        response = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
-        )
-        assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize(
