@@ -74,3 +74,50 @@ async def test_concurrent_redelivery_keeps_one_summary_and_never_resets_terminal
         async with sessions() as db:
             await db.execute(delete(AsyncJob).where(AsyncJob.id == job_id))
             await db.commit()
+
+
+async def test_running_replacement_preserves_summary_after_worker_failure(db_session):
+    from app.db.models.video_tracker_job import VideoTrackerJob
+    from app.workers.video_tracker import _sync_terminal_summary
+    from tests.test_video_tracker_input_native import _seed_tracker_job
+
+    _, _, _, _, job = await _seed_tracker_job(db_session)
+    job.status = "running"
+    job.staged_result = {"replacement": True}
+    job_id = job.id
+    summary = await ensure_video_tracker_summary(
+        db_session,
+        tracker_job_id=job_id,
+        kind="video_tracker",
+        user_id=None,
+        project_id=None,
+        payload={"video_tracker_job_id": str(job_id)},
+        celery_task_id="replacement-worker",
+    )
+    await db_session.commit()
+    original = (
+        summary.status,
+        summary.progress_pct,
+        summary.started_at,
+        summary.completed_at,
+        summary.error_message,
+        summary.result,
+    )
+    await _sync_terminal_summary(
+        db_session,
+        tracker_job_id=job_id,
+        async_job_id=summary.id,
+        gpu_arbiter_error={"reason": "previous_worker_failed"},
+    )
+    current = await db_session.get(AsyncJob, job_id)
+    assert (
+        current.status,
+        current.progress_pct,
+        current.started_at,
+        current.completed_at,
+        current.error_message,
+        current.result,
+    ) == original
+    canonical = await db_session.get(VideoTrackerJob, job_id)
+    assert canonical.status == "running"
+    assert canonical.staged_result == {"replacement": True}

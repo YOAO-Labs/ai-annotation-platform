@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-managed-auth-native/v1",
+  "title": "Inference Registry authentication snapshot and fenced mutation",
+  "type": "object",
+  "$defs": {},
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_inference_topology_v1.registry_auth_snapshot(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Returns endpoint, authentication method and monotonic authentication revision for one Registry, or null when absent. Credential bytes are never returned."
+    },
+    {
+      "signature": "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_patch",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_expected_url",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_expected_revision",
+          "type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
+      "semantics": "Locks the Registry and compares endpoint plus nonnegative authentication revision before applying the existing guarded patch. Missing Registry returns null; changed endpoint or authentication rejects with registry_auth_changed. The unfenced patch function is owner-private."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_topology_v1.registry_auth_snapshot(uuid)",
+    "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)"
+  ]
+}

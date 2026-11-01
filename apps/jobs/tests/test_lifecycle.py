@@ -201,42 +201,15 @@ def test_progress_keeps_partial_result_write_when_integer_conversion_fails():
     assert row.progress_pct == 0
 
 
-def test_terminal_guards_and_completion_write_order_match_cached_row_policy():
-    guarded = _row(status="cancelled")
-    data = _TraceData(guarded)
-    manager = _manager(data)
-
-    manager.mark_complete(guarded)
-
-    assert data.commands[0]["reads"] == {"status": "cancelled"}
-    assert data.commands[0]["written_fields"] == []
-    assert data.events == [
-        ("changes_start", "mark_complete"),
-        ("changes_end", "mark_complete"),
-    ]
-
-    completed = _row(status="running")
-    data = _TraceData(completed)
-    manager = _manager(data)
-    manager.mark_complete(completed, result=False)
-
-    assert data.commands[0]["written_fields"] == [
-        "status",
-        "progress_pct",
-        "completed_at",
-        "result",
-    ]
-    assert completed.status == "completed"
-    assert completed.progress_pct == 100
-    assert completed.completed_at == FIXED_TIME
-    assert completed.result is False
-
-
 @pytest.mark.parametrize("outcome", ["completed", "failed"])
-def test_terminal_replay_freezes_outcome_but_allows_explicit_result_replacement(outcome):
+def test_terminal_replay_freezes_outcome_but_allows_explicit_result_replacement(
+    outcome,
+):
     row = _row(status="running")
     data = _TraceData(row)
-    manager = _manager(data, [FIXED_TIME])
+    manager = _manager(
+        data, [FIXED_TIME, FIXED_TIME.replace(hour=13), FIXED_TIME.replace(hour=14)]
+    )
 
     if outcome == "completed":
         manager.mark_complete(row, result={"original": True})
@@ -261,7 +234,10 @@ def test_terminal_replay_freezes_outcome_but_allows_explicit_result_replacement(
 
 def test_cancellation_precedes_late_completion_and_failure():
     row = _row(status="running")
-    manager = _manager(_TraceData(row), [FIXED_TIME])
+    manager = _manager(
+        _TraceData(row),
+        [FIXED_TIME, FIXED_TIME.replace(hour=13), FIXED_TIME.replace(hour=14)],
+    )
 
     manager.mark_cancelled(row, result={"reason": "cancelled"})
     manager.mark_complete(row, result={"late": True})

@@ -55,6 +55,7 @@ class _FakeDatasetSourceStorage:
         if Key in self.objects:
             raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         self.objects[Key] = body
+        return {"ETag": self._etag(body)}
 
     def head_object(self, *, Bucket, Key, IfMatch=None):
         body = self.objects.get(Key)

@@ -11,7 +11,9 @@ branch_labels = depends_on = None
 
 
 def upgrade() -> None:
-    source = Path(__file__).resolve().parents[1] / "sql" / "0410_inference_managed_auth.sql"
+    source = (
+        Path(__file__).resolve().parents[1] / "sql" / "0410_inference_managed_auth.sql"
+    )
     for statement in source.read_text(encoding="utf-8").split("-- aap-statement-break"):
         if statement.strip():
             op.execute(
@@ -22,5 +24,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP FUNCTION aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)")
-    op.execute("DROP FUNCTION aap_inference_topology_v1.registry_auth_snapshot(uuid)")
+    raise RuntimeError("Cannot restore unfenced Registry authentication writes")

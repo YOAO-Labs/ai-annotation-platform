@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # 后端模块解耦、插件化与独立部署
@@ -14,6 +14,8 @@ last_reviewed: 2026-10-31
 目标范围包括 `identity`、`workspace`、`assets`、`labeling`、`inference`、`learning`、`insights`，以及 `jobs`、`audit`、`notifications` 三项支撑能力。运行装配、迁移、队列、对象存储和运维入口也必须明确归属，才算模块可以独立构建、部署和维护。
 
 路由 tag、Python package、Celery queue 或一个独立 worker 都不等于完整业务模块。一个模块只有同时拥有稳定的语言无关公开协议、独立运行工件、明确数据和凭据范围、完整消费者迁移及故障恢复证据，才算具备独立部署能力。所有公开交互还需证明不依赖提供方的语言运行时；实际选中的语言替换实现须通过相同合同与真实消费者验收。共享 PostgreSQL 实例可以保留，但不能让模块绕过其他所有者的契约读写其表。
+
+`scripts/verify_module_data_boundary.py` 在同一自有临时 PostgreSQL 容器中使用两个数据库核对迁移与冻结 SQL：一个正常升级至当前 head；另一个从空库升级至主线基线 `0267`，在事务中安装并回滚冻结 SQL，再沿正常迁移升级至 head。两边核对公开关系定义、列元数据与固定函数体，不为验收恢复已经禁止的旧认证写入能力。数据库、角色和对象存储的受限场景仍分别核验；此步骤不等于全模块生产资格。
 
 ### 内置插件与可安装扩展的目标边界
 
@@ -2876,6 +2878,11 @@ Registry 事实不含 auth token；密封端点在原 UOW 捕获，由 owner 打
 registry 中的一种路由 selector；冻结的 `required_instance_id` 不会被其他成员替代。
 视频窗口复用已有 scope、原始输入与执行身份；旧 getter 已从 tracker／帧消费者移除，
 不可变能力中的 models、默认值和 dispatch 参数仍参与同一兼容性摘要。
+
+Registry 认证更新先读取不含凭据的地址与认证修订快照，握手之后通过
+`registry_auth_snapshot`／`patch_registry_auth_cas` 的 Native 边界锁定并比较后保存；
+并发修改返回冲突，旧无围栏写入口仅供 owner 内部复用。观测按规范化地址选择
+已注册实例，显式匿名不回退托管凭据，歧义目标拒绝发送。
 
 ### 当前工件与恢复证据
 

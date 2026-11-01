@@ -136,6 +136,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.claim_dispatches(jsonb)": "0368_jobs_dispatch_ledger.sql",
     "aap_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
     "aap_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
+    "aap_jobs_v1._video_execution_settled(uuid,uuid,text,text,uuid)": "0409_video_execution_settlement.sql",
+    "aap_jobs_v1.video_execution_step(text,text)": "0411_video_execution_physical_closure.sql",
     "aap_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
     "aap_inference_topology_v1.registry_auth_snapshot(uuid)": "0410_inference_managed_auth.sql",
     "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)": "0410_inference_managed_auth.sql",
@@ -145,8 +147,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_topology_v1.plugin_installation(uuid)": "0388_inference_plugin_installation.sql",
     "aap_inference_topology_v1.plugin_installations()": "0388_inference_plugin_installation.sql",
     "aap_inference_topology_v1.plugin_installation_evidence(uuid)": "0388_inference_plugin_installation.sql",
-    "aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0400_plugin_routing_replacement.sql",
+    "aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0412_plugin_tracker_retirement_order.sql",
     "aap_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0400_plugin_routing_replacement.sql",
+    "aap_inference_routing_v1._tracker_scopes_physically_retired(uuid)": "0412_plugin_tracker_retirement_order.sql",
+    "aap_inference_routing_v1._guard_disabled_plugin_tracker_scope()": "0412_plugin_tracker_retirement_order.sql",
     "aap_inference_topology_v1.plugin_asset_approval(uuid)": "0403_plugin_asset_approval.sql",
     "aap_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0403_plugin_asset_approval.sql",
     "aap_inference_topology_v1.create_manual_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
@@ -1220,6 +1224,11 @@ SQL_ARTIFACTS = (
     "0402_plugin_terminal_drain_route.sql",
     "0406_labeling_mask_decision_lock.sql",
     "0407_jobs_video_retry.sql",
+    "0409_video_execution_settlement.sql",
+    "0410_inference_managed_auth.sql",
+    "0411_video_execution_physical_closure.sql",
+    "0412_plugin_tracker_retirement_order.sql",
+    "0413_tracker_retirement_function_settings.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",
@@ -1231,6 +1240,7 @@ SCHEMA_ARTIFACTS = (
     "0367_labeling_filtering_rendering.schema.json",
     "0368_jobs_dispatch_ledger.schema.json",
     "0369_inference_topology.schema.json",
+    "0410_inference_managed_auth.schema.json",
     "0388_inference_plugin_installation.schema.json",
     "0389_inference_deployment_usage.schema.json",
     "0389_labeling_deployment_usage.schema.json",
@@ -3924,11 +3934,23 @@ def _create_module_roles(
     )
 
 
-def _run_alembic(backend, action: str, revision: str) -> None:
+def _run_alembic(
+    backend, action: str, revision: str, *, database: str | None = None
+) -> None:
+    from sqlalchemy.engine import make_url
+
+    environment = backend.environment()
+    if database is not None:
+        for key in ("DATABASE_URL", "MIGRATION_DATABASE_URL"):
+            environment[key] = (
+                make_url(environment[key])
+                .set(database=database)
+                .render_as_string(hide_password=False)
+            )
     result = subprocess.run(
         [sys.executable, "-m", "alembic", action, revision],
         cwd=ROOT / "apps/api",
-        env=backend.environment(),
+        env=environment,
         capture_output=True,
         text=True,
         timeout=180,
@@ -4589,19 +4611,20 @@ def main(argv: list[str] | None = None) -> int:
         "junit_xml": str(junit),
         "test_exit_code": None,
         "migrations": {
-            "head_before_downgrade": None,
+            "head_before_frozen_install": None,
             "installed_function_body_sha256": {},
             "read_relation_hash_method": {
                 "view_definition": "SHA-256 of UTF-8 pg_catalog.pg_get_viewdef(oid, true) output",
                 "migration_sql": "SHA-256 of exact migration SQL file bytes; not compared to the deparser digest",
             },
             "read_relation_sql_input_sha256": {},
-            "read_relations_before_downgrade": None,
+            "read_relations_before_frozen_install": None,
             "read_relations_frozen_sql_transaction": None,
             "read_relations_after_upgrade": None,
             "read_relations_after_owner_grants": None,
             "base_revision": "0267",
-            "downgraded_to_main_base": False,
+            "frozen_database": None,
+            "fresh_main_base_prepared": False,
             "frozen_sql_installed_and_rolled_back": False,
             "upgraded_to_head": False,
             "head_after_upgrade": None,
@@ -5540,7 +5563,7 @@ def main(argv: list[str] | None = None) -> int:
         _, heads = migration_graph(ROOT)
         if len(heads) != 1:
             raise RuntimeError("module-data acceptance requires one migration head")
-        evidence["migrations"]["head_before_downgrade"] = heads[0]
+        evidence["migrations"]["head_before_frozen_install"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
         read_relations_before = _installed_read_relation_evidence(
@@ -5551,7 +5574,7 @@ def main(argv: list[str] | None = None) -> int:
             owner_password=owner_password,
             expected_owner="owner",
         )
-        evidence["migrations"]["read_relations_before_downgrade"] = (
+        evidence["migrations"]["read_relations_before_frozen_install"] = (
             read_relations_before
         )
         installed_function_bodies = {
@@ -5569,15 +5592,36 @@ def main(argv: list[str] | None = None) -> int:
         evidence["migrations"]["installed_function_body_sha256"] = (
             installed_function_bodies
         )
-        phase = "downgrade-to-main-base"
-        _container_details(
-            container_id, container_name, container_identity, require_running=True
+        phase = "prepare-fresh-main-base"
+        frozen_database = f"{database.removesuffix('_test')}_frozen_test"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database="postgres",
+            sql='CREATE DATABASE :"frozen_database" OWNER owner;',
+            variables={"frozen_database": frozen_database},
         )
+        evidence["migrations"]["frozen_database"] = frozen_database
         base_revision = evidence["migrations"]["base_revision"]
-        _run_alembic(backend, "downgrade", base_revision)
-        if asyncio.run(backend.revisions()) != [base_revision]:
+        # Security migrations need not restore obsolete write capabilities.
+        # Compare frozen SQL against a second fresh database in the same owned
+        # disposable container rather than downgrading the accepted head.
+        _run_alembic(backend, "upgrade", base_revision, database=frozen_database)
+        observed_base = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=frozen_database,
+            sql="SELECT version_num FROM alembic_version;",
+        ).strip()
+        if observed_base != base_revision:
             raise RuntimeError("disposable database did not reach the main schema base")
-        evidence["migrations"]["downgraded_to_main_base"] = True
+        evidence["migrations"]["fresh_main_base_prepared"] = True
         phase = "native-frozen-sql-roundtrip"
         _container_details(
             container_id, container_name, container_identity, require_running=True
@@ -5586,7 +5630,7 @@ def main(argv: list[str] | None = None) -> int:
             container_id,
             container_name,
             container_identity,
-            database,
+            frozen_database,
             owner_password,
             artifacts,
             migration_role="owner",
@@ -5604,16 +5648,25 @@ def main(argv: list[str] | None = None) -> int:
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
-        _run_alembic(backend, "upgrade", "head")
-        if set(asyncio.run(backend.revisions())) != set(heads):
-            raise RuntimeError("disposable database did not return to migration head")
+        _run_alembic(backend, "upgrade", "head", database=frozen_database)
+        observed_head = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=frozen_database,
+            sql="SELECT version_num FROM alembic_version;",
+        ).strip()
+        if observed_head != heads[0]:
+            raise RuntimeError("fresh frozen-SQL database did not reach migration head")
         evidence["migrations"]["upgraded_to_head"] = True
         evidence["migrations"]["head_after_upgrade"] = heads[0]
         read_relations_after = _installed_read_relation_evidence(
             container_id,
             container_name,
             container_identity,
-            database=database,
+            database=frozen_database,
             owner_password=owner_password,
             expected_owner="owner",
         )
@@ -5628,7 +5681,7 @@ def main(argv: list[str] | None = None) -> int:
                 container_id,
                 container_name,
                 container_identity,
-                database=database,
+                database=frozen_database,
                 owner_password=owner_password,
                 signature=signature,
                 sql_name=sql_name,
@@ -5636,7 +5689,7 @@ def main(argv: list[str] | None = None) -> int:
             for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
         } != installed_function_bodies:
             raise RuntimeError(
-                "installed SQL function bodies changed after migration roundtrip"
+                "installed SQL function bodies differ after fresh-base upgrade"
             )
         _container_details(
             container_id, container_name, container_identity, require_running=True

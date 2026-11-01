@@ -133,8 +133,8 @@ async def _state(owner, display_id):
 
 
 @pytest.mark.parametrize("kind", ["coco8", "ocr", "video"])
-async def test_fresh_media_seed_original_fields_and_resume(
-    media_world, kind, monkeypatch, tmp_path, record_property
+async def test_media_seed_creates_linked_assets_and_preserves_repeat(
+    media_world, kind, monkeypatch, tmp_path
 ):
     owner, producer = media_world
     module = {"coco8": seed_coco8, "ocr": seed_ocr, "video": seed_video}[kind]
@@ -166,37 +166,55 @@ async def test_fresh_media_seed_original_fields_and_resume(
         video = ROOT / "docs-site/public/home/sam-tools/smart-point.webm"
         media_hash = hashlib.sha256(video.read_bytes()).hexdigest()
         options = {"video": video}
+
+    async def persisted_assets():
+        async with owner() as db:
+            project_id = await db.scalar(
+                text("SELECT id FROM projects WHERE display_id=:id"),
+                {"id": display_id},
+            )
+            items = (
+                await db.execute(
+                    text(
+                        "SELECT i.id,i.file_path,i.content_hash FROM dataset_items i "
+                        "JOIN project_datasets d ON d.dataset_id=i.dataset_id "
+                        "WHERE d.project_id=:id ORDER BY i.id"
+                    ),
+                    {"id": project_id},
+                )
+            ).all()
+            tasks = (
+                await db.execute(
+                    text(
+                        "SELECT id,dataset_item_id FROM tasks "
+                        "WHERE project_id=:id ORDER BY id"
+                    ),
+                    {"id": project_id},
+                )
+            ).all()
+        return project_id, items, tasks
+
     async with producer() as db:
-        result = await getattr(module, "seed_" + kind)(db, owner_id=actor_id, **options)
+        await getattr(module, "seed_" + kind)(db, owner_id=actor_id, **options)
         await db.commit()
-        repeated = await getattr(module, "seed_" + kind)(
-            db, owner_id=actor_id, **options
+    before = await persisted_assets()
+    _project_id, items, tasks = before
+    expected_items = 2 if kind == "coco8" else 1
+    assert len(items) == len(tasks) == expected_items
+    assert {task.dataset_item_id for task in tasks} == {item.id for item in items}
+    assert len(fake.objects) == expected_items
+    for item in items:
+        assert (
+            hashlib.sha256(fake.objects[item.file_path]).hexdigest()
+            == item.content_hash
         )
+    async with producer() as db:
+        await getattr(module, "seed_" + kind)(db, owner_id=actor_id, **options)
         await db.commit()
-    assert result is not None
+    assert await persisted_assets() == before
+    assert len(fake.objects) == expected_items
     if kind == "video":
         assert hashlib.sha256(video.read_bytes()).hexdigest() == media_hash
-    state = await _state(owner, display_id)
-    async with owner() as db:
-        state["task_count"] = await db.scalar(
-            text(
-                "SELECT count(*) FROM tasks t JOIN projects p ON t.project_id=p.id WHERE p.display_id=:id"
-            ),
-            {"id": display_id},
-        )
-        state["prediction_count"] = await db.scalar(
-            text(
-                "SELECT count(*) FROM predictions t JOIN projects p ON t.project_id=p.id WHERE p.display_id=:id"
-            ),
-            {"id": display_id},
-        )
-    state["uploaded_object_count"] = len(fake.objects)
-    state["resume_result"] = repeated
-    if isinstance(repeated, dict):
-        state["resume_result"] = {
-            key: value for key, value in repeated.items() if key != "project"
-        }
-    _replay("fresh-" + kind, state, record_property)
 
 
 @pytest.mark.parametrize("autoflush", [True, False])

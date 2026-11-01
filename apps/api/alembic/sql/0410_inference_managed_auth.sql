@@ -71,3 +71,24 @@ BEGIN
     END LOOP;
 END;
 $revoke_unfenced_patch$;
+-- aap-statement-break
+DO $publish_fenced_topology_policy$
+DECLARE
+    v_definition text := pg_catalog.pg_get_functiondef(
+        'aap_inference_topology_v1.topology_policy()'::pg_catalog.regprocedure
+    );
+    v_old text := pg_catalog.quote_literal(
+        'aap_inference_topology_v1.patch_registry(uuid,text)'
+    );
+    v_new text := pg_catalog.quote_literal(
+        'aap_inference_topology_v1.registry_auth_snapshot(uuid)'
+    ) || ',' || pg_catalog.quote_literal(
+        'aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)'
+    );
+BEGIN
+    IF pg_catalog.strpos(v_definition, v_old) = 0 THEN
+        RAISE EXCEPTION 'Expected Registry write capability is absent from topology policy';
+    END IF;
+    EXECUTE pg_catalog.replace(v_definition, v_old, v_new);
+END;
+$publish_fenced_topology_policy$;

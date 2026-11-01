@@ -136,7 +136,9 @@ async def _prepare_tracker_route(db, registry_id):
         "scope_id": str(scope_id),
     }
     result = await db.scalar(
-        text("SELECT aap_inference_routing_v1.video_execution_scope_step('prepare',:args)"),
+        text(
+            "SELECT aap_inference_routing_v1.video_execution_scope_step('prepare',:args)"
+        ),
         {"args": json.dumps(arguments, separators=(",", ":"))},
     )
     if isinstance(result, str):
@@ -177,7 +179,9 @@ async def _reserve_tracker_route(db, route):
     if snapshot["status"] != "ok":
         return snapshot
     result = await db.scalar(
-        text("SELECT aap_inference_routing_v1.video_execution_scope_step('reserve',:args)"),
+        text(
+            "SELECT aap_inference_routing_v1.video_execution_scope_step('reserve',:args)"
+        ),
         {
             "args": json.dumps(
                 {
@@ -386,7 +390,9 @@ async def test_generic_registry_mutation_and_delete_cannot_bypass_owner(
     ):
         with pytest.raises(DBAPIError, match="plugin Registry"):
             async with db_session.begin_nested():
-                await data.patch_registry_auth_cas(payload.installation_id, patch, snapshot)
+                await data.patch_registry_auth_cas(
+                    payload.installation_id, patch, snapshot
+                )
     with pytest.raises(DBAPIError, match="plugin Registry"):
         async with db_session.begin_nested():
             await data.delete_registry(payload.installation_id, None)
@@ -431,7 +437,9 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
     await data.command_plugin_installation(
         payload.installation_id, 1, "record_launch", _receipt(payload)
     )
-    await data.command_plugin_installation(payload.installation_id, 2, "activate", evidence)
+    await data.command_plugin_installation(
+        payload.installation_id, 2, "activate", evidence
+    )
     route = await _prepare_tracker_route(db_session, payload.installation_id)
     assert (await _reserve_tracker_route(db_session, route))["status"] == "ok"
     scope_id = route["scope_id"]
@@ -445,7 +453,9 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
     later = await _prepare_tracker_route(db_session, payload.installation_id)
     with pytest.raises(ValueError):
         async with db_session.begin_nested():
-            await data.command_plugin_installation(payload.installation_id, 3, "disable")
+            await data.command_plugin_installation(
+                payload.installation_id, 3, "disable"
+            )
 
     # A completed exact Native retirement, not logical scope closure, permits
     # disabling and subsequently authorizes the stop check.
@@ -473,13 +483,23 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
             "digest": "b" * 64,
         },
     )
-    disabled = await data.command_plugin_installation(payload.installation_id, 3, "disable")
+    disabled = await data.command_plugin_installation(
+        payload.installation_id, 3, "disable"
+    )
     await data.check_plugin_tracker_retirement(
         payload.installation_id, disabled.installation.revision
     )
-    with pytest.raises(DBAPIError, match="disabled plugin cannot admit tracker scopes"):
-        async with db_session.begin_nested():
-            await _reserve_tracker_route(db_session, later)
+    rejected = await _reserve_tracker_route(db_session, later)
+    assert rejected["status"] == "rejected"
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+            ),
+            {"scope": later["scope_id"]},
+        )
+        == 0
+    )
 
 
 async def test_revision_quiescence_retirement_and_launch_fence(db_session, test_engine):
@@ -650,9 +670,7 @@ async def test_stopped_boot_cannot_activate_a_new_recorded_launch(
 
 
 @pytest.mark.parametrize("first", ["disable", "scope"])
-async def test_plugin_disable_and_tracker_scope_insertion_serialize(
-    test_engine, first
-):
+async def test_plugin_disable_and_tracker_scope_insertion_serialize(test_engine, first):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     payload = _payload()
@@ -679,7 +697,6 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(
             holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
             contender_pid = await contender.scalar(text("SELECT pg_backend_pid()"))
 
-
             async def disable(db):
                 return await InferenceTopologyData(db).command_plugin_installation(
                     registry_id, 3, "disable"
@@ -692,9 +709,17 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(
                 assert result["reason"] == "management_busy"
                 await contender.rollback()
                 await holder.commit()
-                with pytest.raises(DBAPIError, match="disabled plugin cannot admit tracker scopes"):
-                    async with contender.begin_nested():
-                        await _reserve_tracker_route(contender, route)
+                rejected = await _reserve_tracker_route(contender, route)
+                assert rejected["status"] == "rejected"
+                assert (
+                    await contender.scalar(
+                        text(
+                            "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+                        ),
+                        {"scope": route["scope_id"]},
+                    )
+                    == 0
+                )
                 await contender.rollback()
             else:
                 assert (await _reserve_tracker_route(holder, route))["status"] == "ok"
@@ -702,7 +727,9 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(
                 try:
                     async with asyncio.timeout(10):
                         while not await observer.scalar(
-                            text("SELECT :holder = ANY(pg_catalog.pg_blocking_pids(:waiter))"),
+                            text(
+                                "SELECT :holder = ANY(pg_catalog.pg_blocking_pids(:waiter))"
+                            ),
                             {"holder": holder_pid, "waiter": contender_pid},
                         ):
                             await asyncio.sleep(0.02)

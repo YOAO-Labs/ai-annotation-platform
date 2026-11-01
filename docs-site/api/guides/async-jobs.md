@@ -2,7 +2,7 @@
 audience: [project_admin, super_admin, developer]
 type: reference
 status: stable
-last_reviewed: 2026-10-26
+last_reviewed: 2026-11-01
 ---
 
 # 异步任务（async_jobs）
@@ -11,6 +11,8 @@ last_reviewed: 2026-10-26
 （Topbar `JobsBell`）和 `/ai-pre/jobs` 历史页的统一数据源；视频追踪记录在该页的「视频」标签（`?tab=video`）。底层各类长任务（预标、视频追踪、审计归档、预测导入、数据集导入、导出）
 按需保留各自专表作为 domain 真值（VideoTrackerJob 等），`async_jobs` 只记
 最小元数据作为汇总索引。视频追踪的候选预览、接受和丢弃以 VideoTrackerJob 为准，仍在视频工作台完成；这种"双写双轨"让前端只需 polling 一个端点就能看到全部进行中的任务。
+
+同一终态的重复写入不重新计算 `completed_at`，也不把已有取消改为完成或失败；显式结果统计补充仍按对应入口合同处理。视频追踪使用 Tracker UUID 对应唯一汇总，重复队列交付不另建汇总或清零进度。汇总不是执行清理证明：只有执行 owner 确认日志、捕获、尝试和精确路由范围均已闭合，重投才可返回无工作。
 
 <!-- history: async_jobs started as a release slice and now describes the current long-job surface. -->
 

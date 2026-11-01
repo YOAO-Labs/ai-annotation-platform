@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import asyncpg
@@ -145,6 +146,8 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
         fence_tracker_write,
         tracker_execution,
     )
+    from app.services.video_tracking.control import video_control_job
+    from aap_labeling.video_control_contract import StartWorkerJob
 
     functions = (
         "aap_jobs_v1.video_execution_step(text,text)",
@@ -158,6 +161,7 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
         "aap_inference_routing_v1.routing_step(text,text)",
         "aap_inference_routing_v1.scope_retirement_step(text,text)",
         "aap_inference_routing_v1.video_execution_scope_step(text,text)",
+        "aap_labeling_v1.video_control_command(jsonb)",
     )
     owners = async_sessionmaker(test_engine, expire_on_commit=False)
     if grant_profile == "lan":
@@ -198,12 +202,17 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
             async with tracker_execution(db, job_id, session_factory=sessions):
                 assert execution_proof(job_id).generation == 1
                 await fence_tracker_write(db, job_id, "start")
-                await db.execute(
-                    text(
-                        "UPDATE public.video_tracker_jobs SET status='running' WHERE id=:job"
+                started = await video_control_job(
+                    db,
+                    StartWorkerJob(
+                        schema="aap-labeling-video-control/v1",
+                        operation="start_worker_job",
+                        job_id=job_id,
+                        celery_task_id="compatibility-worker",
+                        started_at=datetime.now(timezone.utc),
                     ),
-                    {"job": job_id},
                 )
+                assert started.status == "running"
                 await db.commit()
     finally:
         await runtime.dispose()

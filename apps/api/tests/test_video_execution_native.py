@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
 import uuid
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
+from aap_preannotation_results.video_execution import VideoExecutionFailure
+from app.db.models.video_tracker_job import VideoTrackerJob
+from app.services.video_tracking import execution, runner
 
 pytestmark = pytest.mark.asyncio
 
@@ -577,7 +582,11 @@ async def test_settled_release_fences_concurrent_delivery_then_replays(test_engi
                 await _step(
                     setup,
                     "claim",
-                    {"job_id": str(job_id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30},
+                    {
+                        "job_id": str(job_id),
+                        "worker_id": str(uuid.uuid4()),
+                        "lease_seconds": 30,
+                    },
                 )
             )["execution"]
             job.status = "running"
@@ -588,25 +597,34 @@ async def test_settled_release_fences_concurrent_delivery_then_replays(test_engi
             await setup.flush()
 
         request = {
-            "job_id": str(job_id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30
+            "job_id": str(job_id),
+            "worker_id": str(uuid.uuid4()),
+            "lease_seconds": 30,
         }
         async with maker() as one, maker() as two:
-            assert (await _step(one, "release", _proof(job_id, first)))["released"] is True
+            assert (await _step(one, "release", _proof(job_id, first)))[
+                "released"
+            ] is True
             assert (await _step(two, "claim", request))["reason"] == "execution_busy"
             await two.rollback()
             await one.commit()
             assert (await _step(two, "claim", request))["settled"] == {
                 "job_id": str(job_id)
             }
-            assert (await _step(two, "release", _proof(job_id, first)))["reason"] == "lease_lost"
+            assert (await _step(two, "release", _proof(job_id, first)))[
+                "reason"
+            ] == "lease_lost"
             await two.commit()
     finally:
-        if all(value is not None for value in (
-            actor_id, project_id, dataset_id, item_id, task_id, job_id
-        )):
+        if all(
+            value is not None
+            for value in (actor_id, project_id, dataset_id, item_id, task_id, job_id)
+        ):
             async with test_engine.begin() as cleanup:
                 await cleanup.execute(
-                    text("DELETE FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"),
+                    text(
+                        "DELETE FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                    ),
                     {"job": job_id},
                 )
             await _cleanup_claimed_scope(
@@ -668,7 +686,9 @@ async def test_deleted_job_can_only_recover_its_retained_route_intent(db_session
     )
     assert write_guard["status"] == "rejected"
     assert write_guard["reason"] == "job_missing"
-    assert (await _step(db_session, "release", cleanup_proof))["reason"] == "job_missing"
+    assert (await _step(db_session, "release", cleanup_proof))[
+        "reason"
+    ] == "job_missing"
 
 
 async def test_failed_job_can_claim_only_bound_route_cleanup(db_session):
@@ -741,7 +761,9 @@ async def test_pending_review_job_can_claim_only_bound_route_cleanup(db_session)
     assert renewed["execution"]["state"] == "recovery_required"
 
 
-async def test_terminal_job_without_bound_intent_replays_only_after_retirement(db_session):
+async def test_terminal_job_without_bound_intent_replays_only_after_retirement(
+    db_session,
+):
     actor, _, _, _, job = await _seed_tracker_job(db_session)
     await _capture(db_session, actor, job.id)
     initial = await _step(
@@ -788,7 +810,11 @@ async def test_terminal_prepared_intent_requires_durable_no_scope_rejection(
         await _step(
             db_session,
             "claim",
-            {"job_id": str(job.id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30},
+            {
+                "job_id": str(job.id),
+                "worker_id": str(uuid.uuid4()),
+                "lease_seconds": 30,
+            },
         )
     )["execution"]
     job.status = "running"
@@ -808,7 +834,7 @@ async def test_terminal_prepared_intent_requires_durable_no_scope_rejection(
                 "INSERT INTO aap_inference_routing_v1.command_receipts "
                 "(id,command_sha256,operation,result,creating_xid,realm) "
                 "SELECT request_id,command_sha256,'video_acquire',"
-                "'{\"reason\":\"pool_not_enabled\"}'::jsonb,"
+                '\'{"reason":"pool_not_enabled"}\'::jsonb,'
                 "pg_catalog.pg_current_xact_id(),aap_inference_routing_v1._routing_realm() "
                 "FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
             ),
@@ -1106,3 +1132,59 @@ async def test_video_route_intent_binds_approved_candidates_to_claim(
     )
     assert stale["status"] == "rejected"
     assert stale["reason"] == "lease_lost"
+
+
+@pytest.mark.parametrize(
+    "renewal_failure",
+    ["storage_unavailable", "lease_lost", "transport", "canonical_read_outage"],
+)
+async def test_lost_renewal_preserves_canonical_active_job(
+    db_session, test_engine, monkeypatch, renewal_failure
+):
+    actor, _, _, _, job = await _seed_tracker_job(db_session)
+    job_id = job.id
+    await _capture(db_session, actor, job_id)
+    job.status = "running"
+    job.staged_result = {"original": True}
+    await db_session.commit()
+    renewal_attempted = asyncio.Event()
+    original_call = execution._call
+
+    async def native_call(db, action, request):
+        if action != "renew":
+            return await original_call(db, action, request)
+        renewal_attempted.set()
+        if renewal_failure == "transport":
+            raise OSError("test: renewal reply unavailable")
+        raise VideoExecutionFailure(
+            "lease_lost" if renewal_failure == "lease_lost" else "storage_unavailable"
+        )
+
+    async def computation(db, job_id, **_kwargs):
+        await asyncio.wait_for(renewal_attempted.wait(), 1)
+        await asyncio.sleep(0)
+        await execution.fence_tracker_write(db, job_id, "stage")
+
+    def interrupt_read(*_args):
+        if renewal_failure == "canonical_read_outage" and renewal_attempted.is_set():
+            raise OSError("test: canonical read unavailable")
+
+    @asynccontextmanager
+    async def sessions():
+        yield db_session
+
+    monkeypatch.setattr(execution, "_call", native_call)
+    monkeypatch.setattr(execution, "_RENEW_SECONDS", 0)
+    monkeypatch.setattr(runner, "_run_tracker_job_claimed", computation)
+    event.listen(test_engine.sync_engine, "before_cursor_execute", interrupt_read)
+    try:
+        with pytest.raises(execution.TrackerExecutionDeferred):
+            await runner.run_tracker_job(
+                db_session, job_id, shadow_session_factory=sessions
+            )
+    finally:
+        event.remove(test_engine.sync_engine, "before_cursor_execute", interrupt_read)
+
+    canonical = await db_session.get(VideoTrackerJob, job_id)
+    assert canonical.status == "running"
+    assert canonical.staged_result == {"original": True}

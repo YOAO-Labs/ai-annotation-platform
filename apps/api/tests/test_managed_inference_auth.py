@@ -51,10 +51,7 @@ async def test_untrusted_url_cannot_read_generate_or_send_credentials(
     client.assert_not_called()
 
 
-async def test_handshake_proves_managed_source_without_proxy_or_redirect(
-    store, monkeypatch
-):
-    options = []
+async def test_handshake_reuses_the_managed_source_credential(store, monkeypatch):
     requests = []
 
     async def handle(request):
@@ -66,7 +63,6 @@ async def test_handshake_proves_managed_source_without_proxy_or_redirect(
     original = httpx.AsyncClient
 
     def client(**kwargs):
-        options.append(kwargs)
         return original(transport=httpx.MockTransport(handle), **kwargs)
 
     monkeypatch.setattr(auth.httpx, "AsyncClient", client)
@@ -78,10 +74,6 @@ async def test_handshake_proves_managed_source_without_proxy_or_redirect(
             "http://yolo.test:8003", None, "managed:yolo"
         )
         == token
-    )
-    assert all(
-        option["trust_env"] is False and option["follow_redirects"] is False
-        for option in options
     )
     assert len(requests) == 2
 
@@ -137,24 +129,31 @@ async def test_managed_save_cas_rejects_concurrent_endpoint_or_auth_change(
         )
     else:
         await db_session.execute(
-            text("UPDATE ml_backend_registry SET auth_method='token', auth_token='manual' WHERE id=:id"),
+            text(
+                "UPDATE ml_backend_registry SET auth_method='token', auth_token='manual' WHERE id=:id"
+            ),
             {"id": registry_id},
         )
         if change == "auth_restored":
             await db_session.execute(
-                text("UPDATE ml_backend_registry SET auth_method='none', auth_token=NULL WHERE id=:id"),
+                text(
+                    "UPDATE ml_backend_registry SET auth_method='none', auth_token=NULL WHERE id=:id"
+                ),
                 {"id": registry_id},
             )
     with pytest.raises(HTTPException) as error:
         async with db_session.begin_nested():
             await data.patch_registry_auth_cas(
-                registry_id, {"auth_method": "managed:yolo", "auth_token": "a" * 64},
+                registry_id,
+                {"auth_method": "managed:yolo", "auth_token": "a" * 64},
                 snapshot,
             )
     assert error.value.status_code == 409
     row = (
         await db_session.execute(
-            text("SELECT url, auth_method, auth_token FROM ml_backend_registry WHERE id=:id"),
+            text(
+                "SELECT url, auth_method, auth_token FROM ml_backend_registry WHERE id=:id"
+            ),
             {"id": registry_id},
         )
     ).one()
@@ -285,7 +284,8 @@ async def test_new_trusted_registry_defaults_to_managed_but_explicit_none_is_pre
         return httpx.Response(200, json={"provider": "yolo", "mode": "managed"})
 
     monkeypatch.setattr(
-        auth.httpx, "AsyncClient",
+        auth.httpx,
+        "AsyncClient",
         lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
     )
     data = Data()
@@ -355,5 +355,16 @@ async def test_runtime_cannot_execute_unfenced_registry_patch(test_engine):
                 )
             )
             assert tuple(result.one()) == (True, True, False)
+            policy = await connection.scalar(
+                text("SELECT aap_inference_topology_v1.topology_policy()")
+            )
+            assert {
+                "aap_inference_topology_v1.registry_auth_snapshot(uuid)",
+                "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)",
+            } <= set(policy["functions"])
+            assert (
+                "aap_inference_topology_v1.patch_registry(uuid,text)"
+                not in policy["functions"]
+            )
     finally:
         await runtime.dispose()

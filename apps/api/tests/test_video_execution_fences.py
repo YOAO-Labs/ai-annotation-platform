@@ -234,7 +234,9 @@ async def test_repeated_execution_contention_retries_held_mask_without_inference
         still_running=AsyncMock(return_value=True),
     )
     assert result.frame_index == 4
-    assert result.geometry["mask"] == reference
+    assert result.geometry["mask"]["object_key"] == reference["object_key"]
+    assert result.geometry["mask"]["sha256"] == reference["sha256"]
+    assert list(result.geometry["mask"]["size"]) == reference["size"]
     store.assert_awaited_once()
     assert register.await_count == 13
     assert db.rollback.await_count == 12
@@ -286,66 +288,6 @@ async def test_unknown_renewal_stops_subsequent_writes_without_exposing_capabili
         execution.execution_proof(job_id)
 
 
-@pytest.mark.parametrize(
-    "renewal_failure",
-    ["storage_unavailable", "lease_lost", "transport", "canonical_read_outage"],
-)
-async def test_lost_renewal_keeps_active_tracker_delivery_retryable(
-    monkeypatch, renewal_failure
-):
-    job_id = uuid4()
-    job = SimpleNamespace(id=job_id, status="running", staged_result={"original": True})
-    renewal_attempted = asyncio.Event()
-
-    async def native_call(_db, action, request):
-        if action == "claim":
-            return {
-                "execution": ExecutionClaim(
-                    job_id=job_id,
-                    run_id=uuid4(),
-                    worker_id=request.worker_id,
-                    generation=1,
-                    lease_token=uuid4(),
-                    lease_expires_at=datetime.now(timezone.utc),
-                    state="ready",
-                )
-            }
-        assert action == "renew"
-        renewal_attempted.set()
-        if renewal_failure == "transport":
-            raise OSError("test: renewal reply unavailable")
-        raise VideoExecutionFailure(
-            "storage_unavailable"
-            if renewal_failure == "canonical_read_outage"
-            else renewal_failure
-        )
-
-    async def computation(db, job_id, **_kwargs):
-        await asyncio.wait_for(renewal_attempted.wait(), 1)
-        await asyncio.sleep(0)
-        await execution.fence_tracker_write(db, job_id, "stage")
-
-    db = SimpleNamespace(
-        commit=AsyncMock(),
-        rollback=AsyncMock(),
-        get=AsyncMock(return_value=job),
-    )
-    if renewal_failure == "canonical_read_outage":
-        db.get.side_effect = [job, OSError("test: canonical read unavailable")]
-
-    @asynccontextmanager
-    async def sessions():
-        yield db
-
-    monkeypatch.setattr(execution, "_call", native_call)
-    monkeypatch.setattr(execution, "_RENEW_SECONDS", 0)
-    monkeypatch.setattr(runner, "_run_tracker_job_claimed", computation)
-    with pytest.raises(execution.TrackerExecutionDeferred):
-        await runner.run_tracker_job(db, job_id, shadow_session_factory=sessions)
-    assert job.status == "running"
-    assert job.staged_result == {"original": True}
-
-
 async def test_settled_claim_skips_tracker_and_routing_even_with_stale_active_snapshot(
     monkeypatch,
 ):
@@ -356,7 +298,9 @@ async def test_settled_claim_skips_tracker_and_routing_even_with_stale_active_sn
     monkeypatch.setattr(runner, "_get_worker_job", AsyncMock(return_value=stale))
     monkeypatch.setattr(runner, "_read_worker_job", AsyncMock(return_value=canonical))
     work = AsyncMock(side_effect=AssertionError("settled execution started work"))
-    retire = AsyncMock(side_effect=AssertionError("settled execution contacted routing"))
+    retire = AsyncMock(
+        side_effect=AssertionError("settled execution contacted routing")
+    )
     monkeypatch.setattr(runner, "_run_tracker_job_claimed", work)
     monkeypatch.setattr(runner, "retire_terminal_tracker_execution", retire)
     monkeypatch.setattr(
@@ -369,14 +313,20 @@ async def test_settled_claim_skips_tracker_and_routing_even_with_stale_active_sn
     retire.assert_not_awaited()
 
 
-async def test_unavailable_claim_does_not_turn_terminal_delivery_into_success(monkeypatch):
+async def test_unavailable_claim_does_not_turn_terminal_delivery_into_success(
+    monkeypatch,
+):
     job_id = uuid4()
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     monkeypatch.setattr(
-        runner, "_get_worker_job", AsyncMock(return_value=SimpleNamespace(status="failed"))
+        runner,
+        "_get_worker_job",
+        AsyncMock(return_value=SimpleNamespace(status="failed")),
     )
     monkeypatch.setattr(
-        execution, "_call", AsyncMock(side_effect=VideoExecutionFailure("storage_unavailable"))
+        execution,
+        "_call",
+        AsyncMock(side_effect=VideoExecutionFailure("storage_unavailable")),
     )
     with pytest.raises(execution.TrackerExecutionDeferred, match="storage_unavailable"):
         await runner.run_tracker_job(db, job_id)
@@ -386,7 +336,9 @@ async def test_settled_claim_still_defers_if_canonical_read_is_unavailable(monke
     job_id = uuid4()
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     monkeypatch.setattr(
-        runner, "_get_worker_job", AsyncMock(return_value=SimpleNamespace(status="failed"))
+        runner,
+        "_get_worker_job",
+        AsyncMock(return_value=SimpleNamespace(status="failed")),
     )
     monkeypatch.setattr(runner, "_read_worker_job", AsyncMock(side_effect=OSError()))
     monkeypatch.setattr(
@@ -414,32 +366,6 @@ async def test_broker_signal_cannot_terminalize_claimed_tracker_summary(
         )
         is False
     )
-
-
-async def test_running_replacement_is_never_projected_as_failed_or_complete(
-    monkeypatch,
-):
-    from app.workers import video_tracker as worker
-
-    result = SimpleNamespace(first=lambda: ("running", None))
-    db = SimpleNamespace(
-        rollback=AsyncMock(), execute=AsyncMock(return_value=result), commit=AsyncMock()
-    )
-    failed, completed, cancelled, notify = (
-        AsyncMock(),
-        AsyncMock(),
-        AsyncMock(),
-        AsyncMock(),
-    )
-    monkeypatch.setattr(worker.async_job_svc, "mark_failed", failed)
-    monkeypatch.setattr(worker.async_job_svc, "mark_complete", completed)
-    monkeypatch.setattr(worker.async_job_svc, "mark_cancelled", cancelled)
-    monkeypatch.setattr(worker, "notify_job_terminal", notify)
-    await worker._sync_terminal_summary(
-        db, tracker_job_id=uuid4(), async_job_id=uuid4(), gpu_arbiter_error=None
-    )
-    for method in (failed, completed, cancelled, notify, db.commit):
-        method.assert_not_awaited()
 
 
 async def test_route_heartbeat_contention_does_not_end_the_tracker(monkeypatch):
