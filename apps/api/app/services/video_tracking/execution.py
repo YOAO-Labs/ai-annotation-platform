@@ -181,8 +181,8 @@ async def tracker_execution(
             with suppress(asyncio.CancelledError):
                 await heartbeat
             if not current.lost:
-                # Native releases a prepared intent only with a durable
-                # rejection and no scope. Possibly admitted work needs retirement.
+                # Native releases a terminal claim only after the journal and
+                # every retained route have positive settlement proof.
                 try:
                     async with factory() as cleanup:
                         await _call(

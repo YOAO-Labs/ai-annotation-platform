@@ -559,7 +559,7 @@ async def test_video_execution_lock_contention_returns_management_busy(test_engi
             )
 
 
-async def test_settled_duplicate_waits_for_owner_fence_then_replays(test_engine):
+async def test_settled_release_fences_concurrent_delivery_then_replays(test_engine):
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     actor_id = project_id = dataset_id = item_id = task_id = job_id = None
     try:
@@ -586,22 +586,12 @@ async def test_settled_duplicate_waits_for_owner_fence_then_replays(test_engine)
             job.status = "failed"
             job.completed_at = datetime.now(timezone.utc)
             await setup.flush()
-            await setup.execute(
-                text(
-                    "UPDATE aap_jobs_v1.video_executions SET "
-                    "lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
-                    "WHERE job_id=:job"
-                ),
-                {"job": job_id},
-            )
 
         request = {
             "job_id": str(job_id), "worker_id": str(uuid.uuid4()), "lease_seconds": 30
         }
         async with maker() as one, maker() as two:
-            assert (await _step(one, "claim", request))["settled"] == {
-                "job_id": str(job_id)
-            }
+            assert (await _step(one, "release", _proof(job_id, first)))["released"] is True
             assert (await _step(two, "claim", request))["reason"] == "execution_busy"
             await two.rollback()
             await one.commit()
@@ -678,6 +668,7 @@ async def test_deleted_job_can_only_recover_its_retained_route_intent(db_session
     )
     assert write_guard["status"] == "rejected"
     assert write_guard["reason"] == "job_missing"
+    assert (await _step(db_session, "release", cleanup_proof))["reason"] == "job_missing"
 
 
 async def test_failed_job_can_claim_only_bound_route_cleanup(db_session):

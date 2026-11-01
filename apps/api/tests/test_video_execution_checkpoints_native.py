@@ -135,15 +135,31 @@ async def test_unknown_legacy_tracker_roots_preserve_fail_closed_policy(
 
 
 @pytest.mark.parametrize(
-    "open_artifact", ["none", "route", "journal", "attempt", "capture"]
+    ("job_status", "writer_outcome"),
+    [("cancelled", "cancelled"), ("failed", "failed"), ("pending_review", "completed")],
 )
-async def test_cancelled_replay_requires_all_owner_artifacts_closed(
-    db_session, open_artifact
+@pytest.mark.parametrize(
+    "open_artifact",
+    ["none", "route", "journal", "outcome", "realm", "run", "attempt", "capture"],
+)
+async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
+    db_session, open_artifact, job_status, writer_outcome
 ):
     job, input_id, claim = await _claimed_running_job(db_session)
     route = await _install_ready_tracker_scope(db_session, job.id, claim)
-    job.status = "cancelled"
+    job.status = job_status
     await db_session.flush()
+    if open_artifact == "route":
+        await db_session.execute(
+            text(
+                "UPDATE aap_inference_routing_v1.scopes SET state=:state, "
+                "closed=true WHERE id=:scope"
+            ),
+            {
+                "scope": route["scope_id"],
+                "state": "cancelled" if job_status == "cancelled" else "finished",
+            },
+        )
     if open_artifact != "route":
         await db_session.execute(
             text(
@@ -173,9 +189,32 @@ async def test_cancelled_replay_requires_all_owner_artifacts_closed(
         await db_session.execute(
             text(
                 "UPDATE aap_jobs_v1.video_execution_journals SET writer_terminal=true,"
-                "writer_terminal_outcome='cancelled',execution_retired=true WHERE job_id=:job"
+                "writer_terminal_outcome=:outcome,execution_retired=true WHERE job_id=:job"
             ),
-            {"job": job.id},
+            {
+                "job": job.id,
+                "outcome": (
+                    ("cancelled" if writer_outcome != "cancelled" else "failed")
+                    if open_artifact == "outcome"
+                    else writer_outcome
+                ),
+            },
+        )
+    if open_artifact == "realm":
+        await db_session.execute(
+            text(
+                "UPDATE aap_jobs_v1.video_execution_route_intents SET realm='foreign' "
+                "WHERE request_id=:request"
+            ),
+            {"request": route["request_id"]},
+        )
+    if open_artifact == "run":
+        await db_session.execute(
+            text(
+                "UPDATE aap_jobs_v1.video_execution_route_intents SET run_id=:run "
+                "WHERE request_id=:request"
+            ),
+            {"request": route["request_id"], "run": uuid.uuid4()},
         )
     if open_artifact in {"attempt", "capture"}:
         capture_id = uuid.uuid4()
@@ -212,6 +251,29 @@ async def test_cancelled_replay_requires_all_owner_artifacts_closed(
     # An extant lease always wins even over otherwise complete retirement.
     busy = await _step(db_session, "claim", request)
     assert busy["reason"] == "execution_busy"
+    proof = {key: claim[key] for key in (
+        "job_id", "run_id", "worker_id", "generation", "lease_token"
+    )}
+    release = await _step(db_session, "release", proof)
+    if open_artifact == "none":
+        assert release["released"] is True
+        assert (await _step(db_session, "release", proof))["reason"] == "lease_lost"
+        assert (await _step(db_session, "claim", request))["settled"] == {
+            "job_id": str(job.id)
+        }
+        assert await db_session.scalar(
+            text("SELECT route_request_id FROM aap_jobs_v1.video_executions WHERE job_id=:job"),
+            {"job": job.id},
+        ) == route["request_id"]
+        assert (
+            await db_session.scalar(
+                text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+                {"input": input_id},
+            )
+            is False
+        )
+        return
+    assert release["reason"] == "recovery_required"
     await db_session.execute(
         text(
             "UPDATE aap_jobs_v1.video_executions SET "
@@ -221,33 +283,12 @@ async def test_cancelled_replay_requires_all_owner_artifacts_closed(
         {"job": job.id},
     )
     response = await _step(db_session, "claim", request)
-    if open_artifact == "none":
-        assert response["settled"] == {"job_id": str(job.id)}
+    if open_artifact == "journal":
         assert (
             await db_session.scalar(
                 text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
                 {"input": input_id},
             )
-            is False
+            is True
         )
-        stale = await _step(
-            db_session,
-            "release",
-            {key: claim[key] for key in (
-                "job_id", "run_id", "worker_id", "generation", "lease_token"
-            )},
-        )
-        assert stale["reason"] == "lease_lost"
-        assert (await _step(db_session, "claim", request))["settled"] == {
-            "job_id": str(job.id)
-        }
-    else:
-        if open_artifact == "journal":
-            assert (
-                await db_session.scalar(
-                    text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
-                    {"input": input_id},
-                )
-                is True
-            )
-        assert response["execution"]["state"] == "recovery_required"
+    assert response["execution"]["state"] == "recovery_required"
