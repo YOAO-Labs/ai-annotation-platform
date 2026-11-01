@@ -279,6 +279,8 @@ async def test_fixture_writes_keep_cache_pending_work_and_transaction(
 async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
     owner_fault_http, test_engine, e2e_consumer, monkeypatch
 ):
+    from app.api.v1 import _test_seed_attachments as attachments
+
     response = await owner_fault_http.post(
         "/api/v1/__test/seed/owned", json={"namespace": NAMESPACE}
     )
@@ -324,6 +326,13 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
             def no_object_delete(*args, **kwargs):
                 pytest.fail("retirement refusal must precede storage deletion")
 
+            async def no_owned_object_delete(*args, **kwargs):
+                pytest.fail("retirement refusal must precede owner object deletion")
+
+            patch.setattr(attachments, "delete_objects", no_owned_object_delete)
+            patch.setattr(
+                routes, "_delete_fixture_video_objects", no_owned_object_delete
+            )
             patch.setattr(routes, "_delete_seed_object_prefix", no_object_delete)
             response = await owner_fault_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
@@ -569,15 +578,50 @@ async def test_fixture_capabilities_require_explicit_operator_profile(test_engin
 
 
 @pytest.mark.parametrize("state", ["23514", "55P03"])
-async def test_owner_final_cleanup_denial_rolls_back_children_and_stops_storage(
+async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
     owner_fault_http, test_engine, monkeypatch, state
 ):
+    from app.services.storage import storage_service
+
     response = await owner_fault_http.post(
         "/api/v1/__test/seed/owned", json={"namespace": NAMESPACE}
     )
     assert response.status_code == 200, response.text
-    before = await _snapshot(test_engine)
     project_id = uuid.UUID(response.json()["project_id"])
+    job_id = uuid.uuid4()
+    async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as db:
+        task = (
+            await db.execute(
+                text(
+                    "SELECT id,dataset_item_id FROM tasks WHERE project_id=:id ORDER BY id LIMIT 1"
+                ),
+                {"id": project_id},
+            )
+        ).one()
+        db.add(
+            VideoTrackerJob(
+                id=job_id,
+                task_id=task.id,
+                dataset_item_id=task.dataset_item_id,
+                status="queued",
+                model_key="fixture",
+                direction="forward",
+                from_frame=0,
+                to_frame=1,
+                prompt={},
+                event_channel="e2e-retirement",
+            )
+        )
+    before = await _snapshot(test_engine)
+    prefix = routes._parse_owned_namespace(NAMESPACE).image_key_prefix
+
+    def object_keys():
+        result = storage_service.client.list_objects_v2(
+            Bucket=storage_service.datasets_bucket, Prefix=prefix
+        )
+        return {item["Key"] for item in result.get("Contents", [])}
+
+    assert object_keys()
 
     async def children():
         async with test_engine.connect() as db:
@@ -594,6 +638,8 @@ async def test_owner_final_cleanup_denial_rolls_back_children_and_stops_storage(
             }
 
     before_children = await children()
+    assert before_children["tasks"]
+    denials = []
     original = AsyncSession.execute
 
     class ControlledDenial(Exception):
@@ -603,6 +649,7 @@ async def test_owner_final_cleanup_denial_rolls_back_children_and_stops_storage(
         if str(statement).startswith(
             "SELECT aap_workspace_fixture_v1.delete_projects("
         ):
+            denials.append(state)
             raise IntegrityError(
                 str(statement), {}, ControlledDenial("video_execution_not_retired")
             )
@@ -611,11 +658,7 @@ async def test_owner_final_cleanup_denial_rolls_back_children_and_stops_storage(
     try:
         with monkeypatch.context() as patch:
             patch.setattr(AsyncSession, "execute", denied)
-            patch.setattr(
-                routes,
-                "_delete_seed_object_prefix",
-                lambda *a, **k: pytest.fail("denied deletion continued to storage"),
-            )
+            # Physical fixture objects are removed before this final DB rejection.
             response = await owner_fault_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
             )
@@ -629,10 +672,45 @@ async def test_owner_final_cleanup_denial_rolls_back_children_and_stops_storage(
                 response.json()["detail"][key] == value
                 for key, value in expected.items()
             )
+        assert denials == [state]
         assert await _snapshot(test_engine) == before
         assert await children() == before_children
+        assert object_keys() == set()
+        async with test_engine.connect() as db:
+            assert (
+                await db.scalar(
+                    text("SELECT status FROM video_tracker_jobs WHERE id=:id"),
+                    {"id": job_id},
+                )
+                == "queued"
+            )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:id"
+                    ),
+                    {"id": job_id},
+                )
+                == 0
+            )
     finally:
         response = await owner_fault_http.post(
             "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
         )
         assert response.status_code == 200, response.text
+        async with test_engine.connect() as db:
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM projects WHERE id=:id"),
+                    {"id": project_id},
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM video_tracker_jobs WHERE id=:id"),
+                    {"id": job_id},
+                )
+                == 0
+            )
+        assert object_keys() == set()
