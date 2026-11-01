@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import delete, event, select, text
+from sqlalchemy.dialects.postgresql.dml import OnConflictDoUpdate
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import Session
 
@@ -21,40 +22,83 @@ class RasterOwners:
 
 @contextmanager
 def track_raster_owners(engine):
-    """Register allocations flushed through this function-scoped test engine.
-
-    Capture before commit, so a committed allocation is still owned if its
-    subsequent upload fails. Existing owners reused by the test are not new.
-    Other tests use their own engines and cannot enter this registry.
-    """
+    """Track inserts committed by this engine, including independent allocations."""
     created = RasterOwners()
+    pending = {}
+
+    def current(connection):
+        return pending.setdefault(connection, [RasterOwners()])[-1]
+
+    def merge(target, source):
+        target.objects.update(source.objects)
+        target.publications.update(source.publications)
+        target.operations.update(source.operations)
 
     def register(session, _flush_context):
-        if session.get_bind() is engine.sync_engine:
-            for row in session.new:
-                if isinstance(row, RasterMaskObject):
-                    created.objects.add(row.id)
-                elif isinstance(row, RasterMaskPublication):
-                    created.publications.add(row.id)
+        bind = session.get_bind()
+        if bind.engine is not engine.sync_engine:
+            return
+        owned = current(session.connection())
+        for row in session.new:
+            if isinstance(row, RasterMaskObject):
+                owned.objects.add(row.id)
+            elif isinstance(row, RasterMaskPublication):
+                owned.publications.add(row.id)
 
-    def register_operation(
-        _connection, _cursor, _statement, _parameters, context, _many
-    ):
+    def register_operation(connection, cursor, _statement, _parameters, context, _many):
         compiled = context.compiled
         if compiled is None or not getattr(compiled.statement, "is_insert", False):
             return
-        if compiled.statement.table is not StorageOperation.__table__:
+        statement = compiled.statement
+        if statement.table._deannotate() is not StorageOperation.__table__:
             return
-        for values in context.compiled_parameters:
-            if str(values.get("purpose", "")).startswith("raster_object_"):
-                created.operations.add(UUID(str(values["id"])))
+        # The permit path inserts one explicit ID. A no-op conflict inserts none;
+        # an upsert update and a mixed multi-row insert cannot establish ownership.
+        if (
+            cursor.rowcount != 1
+            or len(context.compiled_parameters) != 1
+            or statement._multi_values
+            or isinstance(statement._post_values_clause, OnConflictDoUpdate)
+        ):
+            return
+        values = context.compiled_parameters[0]
+        if str(values.get("purpose", "")).startswith("raster_object_"):
+            current(connection).operations.add(UUID(str(values["id"])))
 
+    def savepoint(connection, _name):
+        pending.setdefault(connection, [RasterOwners()]).append(RasterOwners())
+
+    def release_savepoint(connection, _name, _context):
+        stack = pending[connection]
+        merge(stack[-2], stack.pop())
+
+    def rollback_savepoint(connection, _name, _context):
+        pending[connection].pop()
+
+    def commit(connection):
+        stack = pending.pop(connection, [])
+        for owned in stack:
+            merge(created, owned)
+
+    def rollback(connection):
+        pending.pop(connection, None)
+
+    listeners = (
+        ("after_cursor_execute", register_operation),
+        ("savepoint", savepoint),
+        ("release_savepoint", release_savepoint),
+        ("rollback_savepoint", rollback_savepoint),
+        ("commit", commit),
+        ("rollback", rollback),
+    )
     event.listen(Session, "after_flush", register)
-    event.listen(engine.sync_engine, "after_cursor_execute", register_operation)
+    for name, listener in listeners:
+        event.listen(engine.sync_engine, name, listener)
     try:
         yield created
     finally:
-        event.remove(engine.sync_engine, "after_cursor_execute", register_operation)
+        for name, listener in listeners:
+            event.remove(engine.sync_engine, name, listener)
         event.remove(Session, "after_flush", register)
 
 
