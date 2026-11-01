@@ -9035,7 +9035,13 @@ SELECT pg_catalog.jsonb_build_object(
             'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
         'read_accepted_api_key_facts', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)', 'EXECUTE'))
+            'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)', 'EXECUTE'),
+        'is_jti_revoked', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.is_jti_revoked(uuid)', 'EXECUTE'),
+        'get_credential_generation', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.get_credential_generation(uuid)', 'EXECUTE'))
 )::text;
 """,
             ).strip()
@@ -9050,6 +9056,8 @@ SELECT pg_catalog.jsonb_build_object(
             "lock_accounts_key_share": True,
             "check_accepted_api_key": True,
             "read_accepted_api_key_facts": True,
+            "is_jti_revoked": True,
+            "get_credential_generation": True,
         }:
             raise RuntimeError(
                 "Identity API consumer is missing an approved read capability"

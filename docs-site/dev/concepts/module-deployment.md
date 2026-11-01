@@ -632,7 +632,9 @@ scope、停止 Media／后端 peer，并撤销数据库和存储旧凭据。新 
 
 复用 `docker-compose.identity.yml`，一个独立 HTTP 进程配置全部 17 类 Identity 能力，另起 MailV1、MailV2 和 Notifications publisher；远程 API 使用单独的冷镜像。五个进程通过同一 Compose 私网连接验收器独占的 PostgreSQL／Redis，不经宿主机发布端口访问数据库。SMTP 和 API 启动所需的对象存储元数据仍使用隔离夹具；Identity 不持有对象存储凭据。
 
-API 使用既有远程 consumer 权限模型：在 owner 及兼容应用授权之后，最后应用 `identity-consumer-grants.sql`。真实 LOGIN 只能读取两个公开关系及执行五项同事务事实／锁函数；密码、key hash、私有回执和 User 写入均拒绝。独立提供方保管签名密钥，API 使用不同的 edge secret；实际登录、刷新、注册、REST 和 Socket 均使用 owner 凭据。API 不持有 Identity 命令 DSN、签名密钥或邮件 key，远程故障返回 503。
+API 使用既有远程 consumer 权限模型：在 owner 及兼容应用授权之后，最后应用 `identity-consumer-grants.sql`。真实 LOGIN 只能读取两个公开关系及执行八项精确事实／锁函数；其中 `is_jti_revoked(uuid)` 和 `get_credential_generation(uuid)` 只读取 JWT 撤销状态和凭据代次，供项目删除、指引素材和评论附件在调用方事务内重新授权。密码、key hash、私有回执、原始撤销表和 User 写入均拒绝，也不授予撤销 JWT、提升代次或退役账号凭据的写命令。独立提供方保管签名密钥，API 使用不同的 edge secret；实际登录、刷新、注册、REST 和 Socket 均使用 owner 凭据。API 不持有 Identity 命令 DSN、签名密钥或邮件 key，远程故障返回 503。
+
+已有独立部署需由迁移账号对原 consumer 重新应用上述脚本，以补齐只读 JWT 复核授权；不需要新增数据库迁移，不应通过授予整个 Identity command profile、owner 成员资格或私表权限代替。凭据已撤销或代次失效仍拒绝业务提交。
 
 冷安装的非 editable 包通过 658 项检查；129 个包文件与独立安装及两个镜像匹配，API 镜像另核对 1,294 个应用／Native／元数据文件。完整迁移通过该次验收 head 0287 的五阶段 fresh、升级、降级再升级及快照恢复检查。已有操作级事务、锁、撤销及协议资格继续有效，各批数字独立保留，不与 658 项相加。
 

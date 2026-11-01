@@ -11,17 +11,21 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
+from fastapi import HTTPException
 import pytest
 from sqlalchemy import Uuid, create_engine, literal, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from starlette.requests import Request
 
 from aap_identity.read_relation_contract import identity_read_relation_schema
+from app.core.security import create_access_token, decode_access_token
 from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
+from app.services import comment_attachment_authority as authority
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_read_relations import (
     account_profiles,
@@ -29,6 +33,7 @@ from app.services.identity_read_relations import (
     read_account_profile,
     read_account_profiles,
 )
+from app.services.identity_session_data import IdentitySessionData
 from app.services.notification import NotificationService
 from app.services.project_aggregates import member_user_ids, membership_project_ids
 from tests.factory import create_project
@@ -54,6 +59,9 @@ _FUNCTIONS = {
     "lock_accounts_update(uuid[],boolean)",
     "lock_accounts_key_share(uuid[],boolean)",
     "check_accepted_api_key(uuid,uuid,text[])",
+    "read_accepted_api_key_facts(uuid,uuid)",
+    "is_jti_revoked(uuid)",
+    "get_credential_generation(uuid)",
 }
 
 
@@ -450,7 +458,7 @@ async def test_restricted_profile_reads_follow_the_callers_snapshot(
 
 
 @pytest.mark.asyncio
-async def test_independent_consumer_retains_only_public_reads_and_five_transactional_capabilities(
+async def test_independent_consumer_retains_only_approved_reads_and_transactional_capabilities(
     test_engine, restricted_identity_consumer
 ):
     fixture = await _seed(test_engine)
@@ -488,10 +496,15 @@ async def test_independent_consumer_retains_only_public_reads_and_five_transacti
                 "SELECT password_hash FROM public.users",
                 "SELECT token FROM public.user_invitations",
                 "SELECT key_hash FROM public.api_keys",
+                "SELECT credential_generation FROM public.users",
+                "SELECT jti FROM public.identity_revoked_jtis",
                 "UPDATE users SET name='bad' WHERE false",
                 "DELETE FROM users WHERE false",
                 "INSERT INTO users DEFAULT VALUES",
                 "SELECT aap_identity_v1.authentication_policy()",
+                "SELECT aap_identity_v1.advance_credential_generation(NULL::uuid)",
+                "SELECT aap_identity_v1.revoke_jti(NULL::uuid,now())",
+                "SELECT aap_identity_v1.retire_account_credentials(NULL::uuid)",
             ]
             for view in _RELATIONS:
                 statements += [
@@ -508,6 +521,47 @@ async def test_independent_consumer_retains_only_public_reads_and_five_transacti
                 await db.rollback()
     finally:
         await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revocation", ["jti", "generation"])
+async def test_consumer_reauthorization_rejects_revoked_jwt(
+    test_engine, restricted_identity_consumer, revocation
+):
+    fixture = await _seed(test_engine, create_key=False)
+    token = create_access_token(subject=str(fixture["actor_id"]), role="employee")
+    jti = uuid.UUID(decode_access_token(token)["jti"])
+    request = Request(
+        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    )
+    reader = async_sessionmaker(restricted_identity_consumer, expire_on_commit=False)
+    owner = async_sessionmaker(test_engine, expire_on_commit=False)
+    try:
+        async with reader() as db:
+            actor = await read_account_profile(db, fixture["actor_id"])
+            _, proof = await authority.lock_authority(db, actor, request)
+            await authority.reauthorize(db, proof)
+            await db.rollback()
+        async with owner.begin() as db:
+            data = IdentitySessionData(db)
+            if revocation == "jti":
+                assert await data.revoke_jti(
+                    jti, datetime.now(UTC) + timedelta(hours=1)
+                )
+            else:
+                assert (
+                    await data.advance_credential_generation(fixture["actor_id"]) == 1
+                )
+        async with reader() as db:
+            with pytest.raises(HTTPException) as denied:
+                await authority.reauthorize(db, proof)
+            assert denied.value.status_code == 403
+            assert denied.value.detail == {
+                "code": "comment_attachment_authority_revoked"
+            }
+            await db.rollback()
+    finally:
+        await _cleanup(test_engine, fixture, jtis=[jti])
 
 
 @pytest.mark.asyncio

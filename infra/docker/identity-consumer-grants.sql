@@ -19,7 +19,9 @@ DECLARE
         'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid
+        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
+        'aap_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
+        'aap_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
     ];
     v_relation record;
 BEGIN
@@ -126,12 +128,15 @@ GRANT USAGE ON SCHEMA aap_identity_v1 TO :"consumer_role";
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"consumer_role";
 GRANT EXECUTE ON FUNCTION
+    -- Read-only JWT rechecks in the caller transaction; no revocation commands.
     aap_identity_v1.read_accepted_api_key_facts(uuid,uuid),
     aap_identity_v1.read_actor_facts(uuid),
     aap_identity_v1.lock_accounts_share(uuid[],boolean),
     aap_identity_v1.lock_accounts_update(uuid[],boolean),
     aap_identity_v1.lock_accounts_key_share(uuid[],boolean),
-    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])
+    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
+    aap_identity_v1.is_jti_revoked(uuid),
+    aap_identity_v1.get_credential_generation(uuid)
     TO :"consumer_role";
 
 DO $verify$
@@ -143,7 +148,9 @@ DECLARE
         'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid
+        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
+        'aap_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
+        'aap_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
     ];
 BEGIN
     IF EXISTS (
