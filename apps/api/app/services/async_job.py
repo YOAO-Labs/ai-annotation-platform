@@ -210,7 +210,7 @@ async def replace_result(db: AsyncSession, job_id: uuid.UUID, *, result: dict) -
 async def mark_complete(
     db: AsyncSession, job_id: uuid.UUID, *, result: dict | None = None
 ) -> None:
-    """v0.10.16 · 完成态。幂等：若已 cancelled/failed 不覆盖。"""
+    """Complete a live job; repeated or conflicting terminal writes are ignored."""
     job = await get_job(db, job_id)
     if job is not None:
         _manager(db).mark_complete(job, result=result)
@@ -237,11 +237,10 @@ async def mark_failed(
     error: str,
     result: dict | None = None,
 ) -> None:
-    """v0.10.16 · 失败态。幂等。
+    """Fail a live job, preserving any existing terminal outcome.
 
-    B-45 · 可选 result：当 batch_predict 全部子项失败需标记 job 为 failed 时，
-    仍要把统计（success/failed_count、failed_prediction_ids）写进 result，
-    以便前端失败重试链路可用。"""
+    A supplied result records failure statistics for consumers such as batch retries.
+    """
     job = await get_job(db, job_id)
     if job is not None:
         _manager(db).mark_failed(job, error=error, result=result)

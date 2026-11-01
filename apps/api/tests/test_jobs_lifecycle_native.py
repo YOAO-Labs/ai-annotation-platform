@@ -236,6 +236,53 @@ async def test_lifecycle_roundtrips_native_jsonb_result_values(db_session):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "failed"])
+async def test_terminal_replay_preserves_persisted_outcome_in_caller_uow(
+    db_session, outcome
+):
+    job = await async_job_svc.create_job(db_session, kind="audit_archive")
+    await async_job_svc.mark_running(db_session, job.id)
+    if outcome == "completed":
+        await async_job_svc.mark_complete(
+            db_session, job.id, result={"original": True}
+        )
+    else:
+        await async_job_svc.mark_failed(
+            db_session, job.id, error="original failure", result={"original": True}
+        )
+    await db_session.flush()
+    job = await async_job_svc.get_job(db_session, job.id, populate_existing=True)
+    completed_at = job.completed_at
+    assert completed_at is not None
+
+    if outcome == "completed":
+        await async_job_svc.mark_complete(
+            db_session, job.id, result={"replacement": True}
+        )
+        await async_job_svc.mark_failed(db_session, job.id, error="late failure")
+    else:
+        await async_job_svc.mark_failed(
+            db_session, job.id, error="late failure", result={"replacement": True}
+        )
+        await async_job_svc.mark_complete(
+            db_session, job.id, result={"replacement": True}
+        )
+    await db_session.flush()
+    job = await async_job_svc.get_job(db_session, job.id, populate_existing=True)
+    assert job.status == outcome
+    assert job.completed_at == completed_at
+    assert job.result == {"original": True}
+    assert job.error_message == ("original failure" if outcome == "failed" else None)
+
+    await async_job_svc.replace_result(db_session, job.id, result={"enriched": True})
+    await db_session.flush()
+    job = await async_job_svc.get_job(db_session, job.id, populate_existing=True)
+    assert job.result == {"enriched": True}
+    assert job.status == outcome
+    assert job.completed_at == completed_at
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_batches_commands_per_row_and_keeps_partial_flush_order(
     db_session,
 ):

@@ -136,10 +136,10 @@ class JobsLifecycleManager:
             job.result = result
 
     def mark_complete(self, row: Any, *, result: Any = None) -> None:
-        """Complete unless the cached row is already cancelled or failed."""
+        """Complete a live row; preserve any existing terminal outcome."""
         arguments = {"result": result}
         with self._data.changes(row, "mark_complete", arguments) as job:
-            if job.status in {CANCELLED, FAILED}:
+            if job.status in {COMPLETED, CANCELLED, FAILED}:
                 return
             job.status = COMPLETED
             job.progress_pct = 100
@@ -148,10 +148,10 @@ class JobsLifecycleManager:
                 job.result = result
 
     def mark_failed(self, row: Any, *, error: str, result: Any = None) -> None:
-        """Fail unless the cached row is already completed or cancelled."""
+        """Fail a live row; preserve any existing terminal outcome."""
         arguments = {"error": error, "result": result}
         with self._data.changes(row, "mark_failed", arguments) as job:
-            if job.status in {COMPLETED, CANCELLED}:
+            if job.status in {COMPLETED, CANCELLED, FAILED}:
                 return
             job.status = FAILED
             job.completed_at = self._clock()

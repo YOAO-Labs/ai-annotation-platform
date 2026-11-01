@@ -232,6 +232,47 @@ def test_terminal_guards_and_completion_write_order_match_cached_row_policy():
     assert completed.result is False
 
 
+@pytest.mark.parametrize("outcome", ["completed", "failed"])
+def test_terminal_replay_freezes_outcome_but_allows_explicit_result_replacement(outcome):
+    row = _row(status="running")
+    data = _TraceData(row)
+    manager = _manager(data, [FIXED_TIME])
+
+    if outcome == "completed":
+        manager.mark_complete(row, result={"original": True})
+        manager.mark_complete(row, result={"replacement": True})
+        manager.mark_failed(row, error="late failure", result={"replacement": True})
+        assert row.progress_pct == 100
+        assert row.error_message is None
+    else:
+        manager.mark_failed(row, error="original failure", result={"original": True})
+        manager.mark_failed(row, error="late failure", result={"replacement": True})
+        manager.mark_complete(row, result={"replacement": True})
+        assert row.error_message == "original failure"
+
+    assert row.status == outcome
+    assert row.completed_at == FIXED_TIME
+    assert row.result == {"original": True}
+
+    manager.replace_result(row, result={"enriched": True})
+    assert row.result == {"enriched": True}
+    assert row.completed_at == FIXED_TIME
+
+
+def test_cancellation_precedes_late_completion_and_failure():
+    row = _row(status="running")
+    manager = _manager(_TraceData(row), [FIXED_TIME])
+
+    manager.mark_cancelled(row, result={"reason": "cancelled"})
+    manager.mark_complete(row, result={"late": True})
+    manager.mark_failed(row, error="late failure", result={"late": True})
+
+    assert row.status == "cancelled"
+    assert row.completed_at == FIXED_TIME
+    assert row.result == {"reason": "cancelled"}
+    assert row.error_message is None
+
+
 def test_failure_clips_error_and_cancel_returns_the_original_row_identity():
     failed = _row(status="running")
     data = _TraceData(failed)
