@@ -56,7 +56,7 @@ from tests.inference_execution_test_ports import (
     run_batch_request,
 )
 from tests.managed_prediction_worker_fixtures import worker_engine
-from tests.test_managed_original_creation import Client, stage_client
+from tests.managed_original_client_support import Client, stage_client
 from tests.test_prediction_inputs import MemoryStorage
 from tests.test_video_prediction_inputs import real_video as real_video
 

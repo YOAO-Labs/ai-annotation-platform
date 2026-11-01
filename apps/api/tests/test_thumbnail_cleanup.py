@@ -154,7 +154,7 @@ async def test_uncertain_owner_is_never_blindly_deleted(media_db, client, monkey
 async def test_refused_write_leaves_tombstone_without_deleting_collision(
     media_db, client, monkeypatch
 ):
-    from tests.test_managed_original_writer import error
+    from tests.managed_original_provider_support import error
 
     def refused(operation, params):
         if operation == "put":
@@ -176,7 +176,7 @@ async def test_refused_write_leaves_tombstone_without_deleting_collision(
 async def test_cleanup_permission_denial_keeps_receipt_but_releases_operation(
     media_db, client, monkeypatch
 ):
-    from tests.test_managed_original_writer import error
+    from tests.managed_original_provider_support import error
     from app.db.models.storage_maintenance import StorageOperation
 
     output = await create(media_db)

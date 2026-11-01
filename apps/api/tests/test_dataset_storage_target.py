@@ -8,7 +8,7 @@ import pytest
 from app.services import dataset_storage_target as target_service
 from app.services.dataset_storage import DatasetStorageError
 from app.services.managed_s3_target import Target
-from tests.test_managed_original_writer import MemoryS3, error, response
+from tests.managed_original_provider_support import MemoryS3, error, response
 
 
 class ProbeS3(MemoryS3):

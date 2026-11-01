@@ -8,7 +8,7 @@ import pytest
 from app.services import training_storage_target as service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from tests.test_dataset_storage_target import ProbeS3, target
-from tests.test_managed_original_writer import error, response
+from tests.managed_original_provider_support import error, response
 
 
 class TrainingS3(ProbeS3):

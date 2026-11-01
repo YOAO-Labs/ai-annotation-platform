@@ -29,7 +29,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.services import managed_original_creation as creation
-from tests.test_managed_original_creation import Client
+from tests.managed_original_client_support import Client
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project

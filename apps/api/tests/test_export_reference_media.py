@@ -63,7 +63,7 @@ from tests.test_dataset_references import reference_world as reference_world
 from tests.test_s3_references import s3_world as s3_world
 from tests.test_sftp_references import sftp_world as sftp_world
 from tests.test_export_media_storage import Client as MediaClient
-from tests.test_managed_original_creation import Client as CreationClient
+from tests.managed_original_client_support import Client as CreationClient
 from tests.test_managed_original_reader import Provider
 from tests.test_image_export_inputs import registered_dataset_image
 from tests.test_training_dataset_references import (

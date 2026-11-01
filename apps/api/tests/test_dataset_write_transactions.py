@@ -139,7 +139,7 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     from app.services.dataset_references import register_entry
     from app.services.source_readers.s3 import S3Access
     from tests.test_s3_references import s3_world, scan
-    from tests.test_managed_original_creation import Client
+    from tests.managed_original_client_support import Client
 
     db = copy_db
     actor = User(

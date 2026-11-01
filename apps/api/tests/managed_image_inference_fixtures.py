@@ -35,7 +35,7 @@ from app.services import prediction_inputs, prediction_originals as originals
 from app.services import task_originals
 from app.services.dataset_assets import register_item_asset
 from tests.factory import create_task
-from tests.test_managed_original_creation import Client
+from tests.managed_original_client_support import Client
 from tests.test_prediction_inputs import input_storage_world
 
 
@@ -242,7 +242,7 @@ async def attach_managed(
         # This is a provider seam, not a creation/publication receipt shortcut.
         with world.monkeypatch.context() as patch:
             patch.setattr(creation, "create_client", lambda **_: client)
-            from tests.test_managed_original_creation import stage_client
+            from tests.managed_original_client_support import stage_client
 
             stage_client(patch, client)
             created = await creation.complete_direct(db, allocation)

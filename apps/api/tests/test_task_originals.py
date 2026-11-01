@@ -26,7 +26,7 @@ from app.services import task_originals as service
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
-from tests.test_managed_original_creation import Client, stage_client
+from tests.managed_original_client_support import Client, stage_client
 
 
 def migration(connection, number):

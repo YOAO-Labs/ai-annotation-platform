@@ -15,7 +15,7 @@ from app import services
 from app.services import managed_original_creation as creation
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from tests.test_managed_original_creation import Client
+from tests.managed_original_client_support import Client
 
 
 class ImportError(ValueError):

@@ -17,7 +17,7 @@ from app.db.models.storage_usage import StorageUsageMutation
 from app.services import managed_original_creation as service
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
-from tests.test_managed_original_creation import Client, stage_client
+from tests.managed_original_client_support import Client, stage_client
 from tests.test_migration_0230_managed_original_task_scope import (
     allocation,
     legacy_creation_db as _legacy_creation_db,

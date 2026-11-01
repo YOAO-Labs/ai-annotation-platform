@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import managed_original_writer as writer
-from tests.test_managed_original_writer import Body, MemoryS3, check_error
+from tests.managed_original_provider_support import Body, MemoryS3, check_error
 
 
 @pytest.fixture

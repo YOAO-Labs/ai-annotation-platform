@@ -8,7 +8,7 @@ import pytest
 from app.services import media_cache_storage_target as service
 from app.services.managed_s3_target import Target
 from tests.test_dataset_storage_target import ProbeS3
-from tests.test_managed_original_writer import error, response
+from tests.managed_original_provider_support import error, response
 
 
 class CacheS3(ProbeS3):

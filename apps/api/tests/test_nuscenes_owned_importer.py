@@ -27,7 +27,7 @@ from scripts.import_nuscenes_scene import (
     import_nuscenes,
 )
 from tests.test_import_nuscenes_lite import _write_fake_nuscenes
-from tests.test_managed_original_creation import Client
+from tests.managed_original_client_support import Client
 
 
 @pytest.fixture(autouse=True)

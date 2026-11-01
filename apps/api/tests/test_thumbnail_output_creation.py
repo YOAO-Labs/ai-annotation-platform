@@ -18,7 +18,7 @@ from app.services import media_cache_accounting, storage_usage_accounting
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.source_readers.s3 import S3Access
-from tests.test_managed_original_writer import MemoryS3, error, response
+from tests.managed_original_provider_support import MemoryS3, error, response
 from tests.test_media_cache_targets import media_db as media_db, switch
 
 

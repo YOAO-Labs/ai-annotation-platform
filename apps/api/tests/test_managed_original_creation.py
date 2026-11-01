@@ -6,7 +6,6 @@ import importlib.util
 import io
 from pathlib import Path
 import threading
-from types import SimpleNamespace
 import uuid
 
 from alembic.migration import MigrationContext
@@ -27,7 +26,7 @@ from app.db.models.storage_maintenance import StorageOperation
 from app.services import managed_original_creation as service
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from tests.test_managed_original_writer import MemoryS3
+from tests.managed_original_client_support import Client, stage_client
 
 
 def migration(connection, filename="0219_managed_original_creations.py"):
@@ -103,32 +102,12 @@ async def creation_db(test_engine):
             await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
-class Client(MemoryS3):
-    def __init__(self):
-        super().__init__()
-        self.closed = 0
-        self.close_failure = False
-
-    def close(self):
-        self.closed += 1
-        if self.close_failure:
-            raise OSError("private close detail")
-
-
 @pytest.fixture
 def client(monkeypatch):
     value = Client()
     monkeypatch.setattr(service, "create_client", lambda **_: value)
     stage_client(monkeypatch, value)
     return value
-
-
-def stage_client(monkeypatch, value):
-    scheme = "https" if service.settings.minio_use_ssl else "http"
-    value.meta = SimpleNamespace(
-        endpoint_url=f"{scheme}://{service.settings.minio_endpoint}"
-    )
-    monkeypatch.setattr(service.storage_service, "client", value)
 
 
 async def allocation(db, **fields):

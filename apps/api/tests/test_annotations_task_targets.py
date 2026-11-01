@@ -75,7 +75,7 @@ async def test_old_inflight_a_new_b_back_to_a_keep_saved_addresses_and_current_c
     old_task, old_allocation = await allocated(db, legacy=True)
     old_configuration = deepcopy(old_allocation["configuration"])
     connection, location = await registered_target(db)
-    from tests.test_managed_original_creation import Client
+    from tests.managed_original_client_support import Client
 
     external = Client()
     external.meta = SimpleNamespace(endpoint_url=connection.config["endpoint"])
