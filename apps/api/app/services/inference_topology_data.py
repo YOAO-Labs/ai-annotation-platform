@@ -469,6 +469,19 @@ class InferenceTopologyData:
             )
         )
 
+    async def check_plugin_tracker_retirement(
+        self, installation_id: UUID, expected_revision: int
+    ) -> None:
+        await self._plugin_scalar(
+            _COMMAND_PLUGIN,
+            {
+                "id": installation_id,
+                "revision": expected_revision,
+                "action": "check_tracker_retirement",
+                "evidence": None,
+            },
+        )
+
     async def command_plugin_installation(
         self,
         installation_id: UUID,

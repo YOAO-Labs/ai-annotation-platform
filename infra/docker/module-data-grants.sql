@@ -2978,6 +2978,8 @@ ALTER TABLE aap_jobs_v1.video_execution_authority OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.video_executions OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.video_execution_route_intents OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.video_execution_step(text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_settled(uuid,uuid,text,text,uuid)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._video_execution_route_step(text,text)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)
@@ -3722,6 +3724,10 @@ REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_retired(uuid) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_facts(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._tracker_scopes_physically_retired(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._guard_disabled_plugin_tracker_scope()
+    OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_execution_request_facts(uuid) TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.video_execution_input_facts(uuid) TO :"jobs_owner";

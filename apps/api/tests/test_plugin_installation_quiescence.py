@@ -3,6 +3,7 @@
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import text
 
 from app.api.v1 import admin_plugin_installations as routes
 from app.services.inference_topology_data import InferenceTopologyData
@@ -11,7 +12,9 @@ from tests.test_plugin_installation_api import BASE, allow_routing_binding, payl
 pytestmark = pytest.mark.asyncio
 
 
-async def prepared_launch(httpx_client, super_admin, monkeypatch, *, pools=None):
+async def prepared_launch(
+    httpx_client, super_admin, monkeypatch, *, pools=None, leave_active=False
+):
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = payload(uuid4())
@@ -45,6 +48,8 @@ async def prepared_launch(httpx_client, super_admin, monkeypatch, *, pools=None)
         json={"expected_revision": 1, "receipt": receipt},
     )
     assert activated.status_code == 200, activated.text
+    if leave_active:
+        return path, headers, receipt, activated.json()["installation"]["revision"]
     disabled = await httpx_client.post(
         path + "/disable",
         headers=headers,
@@ -52,6 +57,80 @@ async def prepared_launch(httpx_client, super_admin, monkeypatch, *, pools=None)
     )
     assert disabled.status_code == 200, disabled.text
     return path, headers, receipt, disabled.json()["installation"]["revision"]
+
+
+async def test_stop_refuses_unretired_tracker_even_after_logical_close(
+    httpx_client, super_admin, monkeypatch, db_session
+):
+    path, headers, receipt, revision = await prepared_launch(
+        httpx_client, super_admin, monkeypatch, leave_active=True
+    )
+    scope_id = uuid4()
+    registry_id = UUID(receipt["registry_id"])
+    await db_session.execute(
+        text(
+            "INSERT INTO aap_inference_routing_v1.scopes "
+            "(id,command_sha256,registry_id,mode,owner,operation,config_revision,"
+            "eligibility_revision,authority_epoch,realm,state,closed,heartbeat_deadline) "
+            "SELECT :scope,:digest,registry_id,'direct','tracker:fixture','tracker',"
+            "config_revision,eligibility_revision,authority_epoch,realm,'finished',"
+            "true,pg_catalog.clock_timestamp()+interval '1 minute' "
+            "FROM aap_inference_routing_v1.registry_state WHERE registry_id=:registry"
+        ),
+        {"scope": scope_id, "digest": "a" * 64, "registry": registry_id},
+    )
+    await db_session.commit()
+    rejected = await httpx_client.post(
+        path + "/disable", headers=headers, json={"expected_revision": revision}
+    )
+    assert rejected.status_code == 409
+    await db_session.rollback()
+
+    await db_session.execute(
+        text(
+            "UPDATE aap_inference_routing_v1.scopes SET state='reconciled' "
+            "WHERE id=:scope"
+        ),
+        {"scope": scope_id},
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO aap_inference_routing_v1.scope_retirements "
+            "(retirement_id,scope_id,registry_id,authority_epoch,backend_incarnation,"
+            "challenge,fence_until,admission_expires_at,transport_identity_sha256,"
+            "config_revision,realm,phase) "
+            "SELECT :retirement,id,registry_id,authority_epoch,:incarnation,:digest,0,"
+            "admission_expires_at,:digest,config_revision,realm,'completed' "
+            "FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+        ),
+        {
+            "retirement": uuid4(),
+            "scope": scope_id,
+            "incarnation": uuid4(),
+            "digest": "b" * 64,
+        },
+    )
+    disabled = await httpx_client.post(
+        path + "/disable", headers=headers, json={"expected_revision": revision}
+    )
+    assert disabled.status_code == 200
+
+    # Model a pre-migration disabled installation with no physical proof.
+    await db_session.execute(
+        text("DELETE FROM aap_inference_routing_v1.scope_retirements WHERE scope_id=:scope"),
+        {"scope": scope_id},
+    )
+    await db_session.execute(
+        text("UPDATE aap_inference_routing_v1.scopes SET state='finished' WHERE id=:scope"),
+        {"scope": scope_id},
+    )
+    rejected = await httpx_client.post(
+        path + "/quiesce",
+        headers=headers,
+        json={"expected_revision": disabled.json()["installation"]["revision"]},
+    )
+    assert rejected.status_code == 409
+    assert "safe_to_stop" not in rejected.json()
 
 
 async def test_cpu_quiescence_commits_terminal_proof_and_fences_reactivation(

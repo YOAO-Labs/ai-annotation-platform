@@ -315,6 +315,88 @@ async def test_activation_evidence_is_bound_to_installation_and_artifact(
         assert await data.get_plugin_installation(payload.installation_id) == prepared
 
 
+@pytest.mark.parametrize("scope_state", ["active", "finished", "cancelled"])
+async def test_plugin_stop_requires_physical_tracker_retirement(
+    db_session, test_engine, scope_state
+):
+    await assert_owned_test_database(test_engine)
+    data = InferenceTopologyData(db_session)
+    payload = _payload()
+    await data.prepare_plugin_installation(payload)
+    evidence = _evidence(payload)
+    await data.command_plugin_installation(
+        payload.installation_id, 1, "record_launch", _receipt(payload)
+    )
+    await data.command_plugin_installation(payload.installation_id, 2, "activate", evidence)
+    scope_id = uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO aap_inference_routing_v1.scopes "
+            "(id,command_sha256,registry_id,mode,owner,operation,config_revision,"
+            "eligibility_revision,authority_epoch,realm,state,closed,heartbeat_deadline) "
+            "SELECT :scope,:digest,registry_id,'direct','tracker:fixture','tracker',"
+            "config_revision,eligibility_revision,authority_epoch,realm,:state,"
+            ":closed,pg_catalog.clock_timestamp()+interval '1 minute' "
+            "FROM aap_inference_routing_v1.registry_state WHERE registry_id=:registry"
+        ),
+        {
+            "scope": scope_id,
+            "digest": "a" * 64,
+            "registry": payload.installation_id,
+            "state": scope_state,
+            "closed": scope_state != "active",
+        },
+    )
+    with pytest.raises(ValueError):
+        async with db_session.begin_nested():
+            await data.command_plugin_installation(payload.installation_id, 3, "disable")
+
+    # A completed exact Native retirement, not logical scope closure, permits
+    # disabling and subsequently authorizes the stop check.
+    await db_session.execute(
+        text(
+            "UPDATE aap_inference_routing_v1.scopes SET state='reconciled',closed=true "
+            "WHERE id=:scope"
+        ),
+        {"scope": scope_id},
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO aap_inference_routing_v1.scope_retirements "
+            "(retirement_id,scope_id,registry_id,authority_epoch,backend_incarnation,"
+            "challenge,fence_until,admission_expires_at,transport_identity_sha256,"
+            "config_revision,realm,phase) "
+            "SELECT :retirement,id,registry_id,authority_epoch,:incarnation,:digest,0,"
+            "admission_expires_at,:digest,config_revision,realm,'completed' "
+            "FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+        ),
+        {
+            "retirement": uuid4(),
+            "scope": scope_id,
+            "incarnation": uuid4(),
+            "digest": "b" * 64,
+        },
+    )
+    disabled = await data.command_plugin_installation(payload.installation_id, 3, "disable")
+    await data.check_plugin_tracker_retirement(
+        payload.installation_id, disabled.installation.revision
+    )
+    with pytest.raises(DBAPIError):
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text(
+                    "INSERT INTO aap_inference_routing_v1.scopes "
+                    "(id,command_sha256,registry_id,mode,owner,operation,config_revision,"
+                    "eligibility_revision,authority_epoch,realm,state,closed,heartbeat_deadline) "
+                    "SELECT :scope,:digest,registry_id,'direct','tracker:late','tracker',"
+                    "config_revision,eligibility_revision,authority_epoch,realm,'reserved',"
+                    "false,pg_catalog.clock_timestamp()+interval '1 minute' "
+                    "FROM aap_inference_routing_v1.registry_state WHERE registry_id=:registry"
+                ),
+                {"scope": uuid4(), "digest": "c" * 64, "registry": payload.installation_id},
+            )
+
+
 async def test_revision_quiescence_retirement_and_launch_fence(db_session, test_engine):
     await assert_owned_test_database(test_engine)
     data = InferenceTopologyData(db_session)

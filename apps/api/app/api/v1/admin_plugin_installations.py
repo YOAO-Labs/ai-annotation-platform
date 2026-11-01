@@ -395,6 +395,12 @@ async def quiesce(
         raise HTTPException(
             status_code=409, detail={"error_code": "plugin_launch_unrecorded"}
         )
+    try:
+        await topology.check_plugin_tracker_retirement(
+            installation_id, data.expected_revision
+        )
+    except ValueError:
+        raise _conflict() from None
     prior = lifecycle.get("proof")
     if isinstance(prior, dict) and prior.get("revision") == data.expected_revision:
         try:
@@ -409,6 +415,9 @@ async def quiesce(
         return PluginQuiesceResponse(
             **installation.model_dump(), safe_to_stop=True, launch=launch
         )
+    # Release the owner lock before remote drain. The Native quiesce command
+    # repeats the check under its Registry lock before issuing safe-to-stop.
+    await db.commit()
     pool = await topology.pool_for_registry(installation.registry_id)
     if pool is not None:
         member = await topology.drain_member(pool.id, installation.registry_id)
