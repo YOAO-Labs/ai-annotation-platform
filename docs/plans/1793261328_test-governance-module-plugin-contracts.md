@@ -614,4 +614,6 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 - 独立 PostgreSQL 与十个自有存储桶已从空库迁移至 `bo0415`。保留中的主工作树 `bo0400` 测试环境未被改动。原生首轮 124 个 case 中 60 通过、64 失败，另有 28 个 teardown 错误；后续级联失败不能当作独立产品缺陷计数。
 - 原生失败暴露旧 seed consumer 假设与当前存储 owner 边界冲突；另有验收脚本漏装 Identity consumer profile、过时的会话替身及已不命中的故障注入。仅把清理范围改为公开只读关系仍无法完成附件清理，试探修改已撤回，未扩展生产权限。
 
-用户明确选择统一到已有 **owner 夹具通道**：准备／清理由 owner 进程执行，真实业务请求保持受限 API；旧 seed 资格用例与报告必须同步调整，不能把 owner 执行计作受限 consumer 能力。该原生切片仍待完成和验收，不以 SDK 通过、helper 提交或历史资格代替。
+用户明确选择统一到已有 **owner 夹具通道**：准备／清理由 owner 进程执行，真实业务请求保持受限 API；旧 seed 资格用例与报告必须同步调整，不能把 owner 执行计作受限 consumer 能力。对应提交 `5b17e49f9`、`441880faa` 已集成，进程内故障注入另使用只挂载 seed 路由的测试应用，不切换普通业务应用的数据库权限。
+
+首轮 owner 通道集成验收选择 121 项，112 通过、9 失败、无 teardown 错误；报告为 `.worktree/plugin-opt-integration/native-owner-channel.xml`。较原 124 项移除的三项是跨进程后无法生效的重复 monkeypatch 场景，原 owner 层故障用例仍在同一选集中执行。剩余两项 Identity 清理 replay 尚未迁移 owner；四项 Workspace 全行快照因新增字段失配；三项清理保护需要核对物理收尾与最终记录删除的先后约定。该原生切片仍待完成，不以 SDK 通过、helper 提交或历史资格代替。

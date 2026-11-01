@@ -86,6 +86,10 @@ cd apps/web && pnpm exec playwright test --list --project=pointcloud
 
 夹具创建／清理由 `e2e/helpers/seed-owner-transport.ts` 在独立 Python 进程调用现有 seed router；夹具准备时仅该进程以测试 owner 身份连接数据库，并校验与 runtime 指向同一个显式 `_test`／`_e2e` 数据库。真实浏览器业务请求仍走受限 HTTP API，不恢复私表授权。该夹具通道是进程内 ASGI，不是独立 HTTP 部署资格证据。截图配置使用明确的 `SCREENSHOT_DATABASE_URL` 为夹具选库，不能指向日常开发或生产数据库。
 
+Identity／Workspace 原生场景使用 `identity_e2e_support.py` 的组合客户端，只有 `/api/v1/__test/seed/` 请求进入同一个受保护 owner 子进程；其他业务请求保持真实受限连接，失败不会切换到 owner 重试。报告将这些场景标为 owner 夹具加受限业务 HTTP，不再计作受限角色执行整个 seed 流程的资格。独立 Node 合同、私表拒绝和借用事务回滚仍分别验收。
+
+需要进程内 monkeypatch 的清理故障注入留在 owner 层，并使用仅挂载 seed 路由的独立测试应用；不能给普通业务应用临时切换 owner 凭据，也不能声称父进程的注入影响了子进程。原生场景补偿清理按前后记录差集执行，仍要求独占测试数据库串行运行。
+
 跨测试模块复用的 SDK 构造器、客户端替身和 TUI 等待逻辑放在邻近的 `support_*.py`，不要从 `test_*.py` 导入。原生场景也应复用不参与 collection 的场景模块，而不是直接调用另一个 pytest 测试函数；原场景的业务断言和必要夹具依赖必须保留。
 
 合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
@@ -342,7 +346,7 @@ Playwright 会自动准备专用逻辑数据库 `annotation_e2e`、执行迁移�
 
 ### `_test_seed` 路由与 E2E Fixture
 
-E2E 用例通过 `apps/web/e2e/fixtures/seed.ts` 调用后端 `/api/v1/__test/seed/*` 端点快速构造测试数据：
+E2E 用例通过 `apps/web/e2e/fixtures/seed.ts` 的 owner 进程通道调用夹具专用应用中的 `/api/v1/__test/seed/*` 路由，快速构造测试数据；不要求普通业务 API 获得完整 seed 清理权限：
 
 ```ts
 // apps/web/e2e/tests/auth.spec.ts

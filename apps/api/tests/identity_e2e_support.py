@@ -264,9 +264,7 @@ async def fixture_and_fenced_http(fenced_http, test_engine):
                         )
                     process.stdin.write((json.dumps(payload) + "\n").encode())
                     await process.stdin.drain()
-                    line = await asyncio.wait_for(
-                        process.stdout.readline(), timeout=120
-                    )
+                    line = await asyncio.wait_for(process.stdout.readline(), timeout=30)
                     if not line:
                         await process.wait()
                         errors.seek(0)
@@ -314,20 +312,26 @@ async def fixture_and_fenced_http(fenced_http, test_engine):
 
 
 @pytest.fixture
-async def owner_fault_http(fenced_http, test_engine, app_module):
-    """In-process owner client for fault injection that cannot cross processes."""
-    previous = app_module.dependency_overrides[get_db]
+async def owner_fault_http(test_engine):
+    """Keep in-process fault injection on a fixture-only app, not business HTTP."""
+    from fastapi import FastAPI
+
+    from app.api.v1._test_seed import router
+
+    owner_app = FastAPI()
+    owner_app.include_router(router, prefix="/api/v1/__test")
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
     async def connection():
         async with maker() as db:
             yield db
 
-    app_module.dependency_overrides[get_db] = connection
-    try:
-        yield fenced_http
-    finally:
-        app_module.dependency_overrides[get_db] = previous
+    owner_app.dependency_overrides[get_db] = connection
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=owner_app),
+        base_url="http://fixture.local",
+    ) as client:
+        yield client
 
 
 @pytest.fixture
