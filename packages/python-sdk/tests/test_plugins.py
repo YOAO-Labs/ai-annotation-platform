@@ -15,7 +15,7 @@ from aap_inference_contract.plugin import (
     PluginResourceBinding,
 )
 from .conftest import API
-from .test_plugin_deployment import Core, LocalDocker, config, report_file
+from .support_plugin_deployment import Core, LocalDocker, config, report_file
 
 
 def test_prepare_error_never_echoes_token(client, respx_mock):

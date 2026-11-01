@@ -9,17 +9,7 @@ from ai_annotation.errors import PermissionDeniedError
 from ai_annotation.models import Project, ProjectAccess
 
 from .conftest import API
-
-PROJECT = {
-    "id": str(uuid4()),
-    "display_id": "P-1",
-    "name": "demo",
-    "type_label": "目标检测",
-    "type_key": "object_detection",
-    "data_type": "image",
-    "status": "active",
-    "created_at": "2026-06-11T00:00:00Z",
-}
+from .support_projects import PROJECT
 
 
 @pytest.mark.parametrize("schema_version", [2, 3])

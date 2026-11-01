@@ -9,29 +9,9 @@ import pytest
 from ai_annotation import AAPError, AuthenticationError, StreamError, describe_operation
 from ai_annotation.streams import describe_stream_channel, list_stream_channels
 
+from .support_streams import NOW, Socket
+
 ID = "11111111-1111-4111-8111-111111111111"
-NOW = "2026-10-17T00:00:00Z"
-
-
-class Socket:
-    def __init__(self, messages):
-        self.messages = iter(messages)
-        self.closed = False
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        try:
-            value = next(self.messages)
-        except StopIteration:
-            raise StopAsyncIteration from None
-        if isinstance(value, Exception):
-            raise value
-        return value
-
-    async def close(self):
-        self.closed = True
 
 
 CASES = [

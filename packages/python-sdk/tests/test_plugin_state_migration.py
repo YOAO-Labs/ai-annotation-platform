@@ -6,7 +6,7 @@ import pytest
 
 from ai_annotation.errors import AAPError
 from ai_annotation.plugin_deployment import LocalPluginDeployment
-from .test_plugin_deployment import Core, LocalDocker, config, report_file
+from .support_plugin_deployment import Core, LocalDocker, config, report_file
 
 
 def test_legacy_receipt_migration_requires_same_image_and_immutable_manifest(tmp_path):

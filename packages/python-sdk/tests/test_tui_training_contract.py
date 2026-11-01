@@ -9,8 +9,8 @@ from textual.widgets import DataTable, TabbedContent
 from ai_annotation.tui.app import AapTuiApp, TrainingRunDetailScreen
 
 from .conftest import API, BASE
-from .test_training_runs import _run
-from .test_tui_app import _settle, _settle_screen
+from .support_training_runs import _run
+from .support_tui import _settle, _settle_screen
 
 
 @pytest.mark.asyncio

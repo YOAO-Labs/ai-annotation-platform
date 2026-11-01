@@ -12,8 +12,9 @@ from textual.widgets import DataTable, Select, Static, TabbedContent
 
 from ai_annotation.models import JobPage
 from ai_annotation.tui.app import AapTuiApp, TrainingRunDetailScreen
-from tests.test_tui_app import (
-    BASE,
+
+from .conftest import BASE
+from .support_tui import (
     _StubClient,
     _dataset,
     _job,

@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 from ai_annotation.cli.main import app
 
 from .conftest import API, BASE
-from .test_projects import PROJECT
+from .support_projects import PROJECT
 
 PARENT = "11111111-1111-4111-8111-111111111111"
 ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}

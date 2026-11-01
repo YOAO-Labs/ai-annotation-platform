@@ -10,8 +10,9 @@ from textual.widgets import Button, DataTable, Input, Static, TabbedContent
 
 from ai_annotation.models import Dataset, JobPage, Page
 from ai_annotation.tui.app import AapTuiApp, ExportConfigModal, ProjectDetailScreen
-from tests.test_tui_app import (
-    BASE,
+
+from .conftest import BASE
+from .support_tui import (
     _StubClient,
     _dataset,
     _job,

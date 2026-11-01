@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from ai_annotation.cli.main import app
-from .test_streams import NOW, Socket
+from .support_streams import NOW, Socket
 
 runner = CliRunner()
 ENV = {"AAP_BASE_URL": "http://testserver", "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
