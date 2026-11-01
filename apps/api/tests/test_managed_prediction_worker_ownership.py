@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import uuid
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -115,11 +115,16 @@ async def test_managed_worker_cleanup_respects_transaction_ownership(
                     elif boundary == "close":
                         await db.close()
                     elif boundary == "failed_commit":
-                        db.add(
-                            User(
-                                email=owner_email,
-                                name="duplicate",
-                                password_hash="test",
+                        await db.execute(
+                            text(
+                                "CREATE TEMP TABLE managed_owner_commit_guard "
+                                "(value integer UNIQUE DEFERRABLE INITIALLY DEFERRED) "
+                                "ON COMMIT DROP"
+                            )
+                        )
+                        await db.execute(
+                            text(
+                                "INSERT INTO managed_owner_commit_guard VALUES (1), (1)"
                             )
                         )
                         with pytest.raises(IntegrityError):

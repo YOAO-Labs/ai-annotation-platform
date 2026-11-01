@@ -104,6 +104,10 @@ RLE 的共享对象提供方、`Harness`、`harness` 及图像任务／QC seed h
 
 RLE 清理仍拒绝删除带有未归属 publication 的对象，拒绝时整次元数据清理回滚。独立提交后上传失败的分配仍可准确回收；这不是物理对象回收或整套同库并行的资格，既有独立资源与串行约束不变。
 
+托管预测 worker 的 `managed_worker_world` 只登记当前 world 会话创建的 User、Project、Dataset 和模型服务实例。根事务／savepoint 回滚、未提交就关闭会话或实际 COMMIT 失败都会撤销对应归属，已成功提交的早先记录仍可清理；预存并更新的记录和其他会话复用回滚 ID 后提交的记录不被认领。该合同只覆盖 ORM 插入，调用者仍须关闭自己的会话；不代表任意 SQL 跟踪或整套同库并行资格。
+
+托管原件的 `error`、`response`、`Body`、`MemoryS3`、`check_error` 位于 `managed_original_provider_support.py`，`Client`、`stage_client` 位于 `managed_original_client_support.py`。调用者直接导入支持模块，协议替身不依赖可收集的测试模块；历史迁移／创建场景夹具保留原所有权。受控提供方验证精确版本读回、当前版本漂移拒绝、条件写冲突及句柄关闭，不等于真实 S3 验收。
+
 合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
 
 ---

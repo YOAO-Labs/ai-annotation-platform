@@ -693,3 +693,33 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 API／用户说明、README、测试指南与 Unreleased 已同步；仓库固定 Ruff 检查及文档站构建通过。保留既有 anyio 重写、语法高亮回退和 chunk 大小警告。当前结论只关闭上述失败合同与测试归属问题，不等于重跑此前全部 208 项、G2 全部完成、受限模块部署、真实 S3、浏览器／渲染器、模型／GPU、冷安装／恢复或整套同库并行资格。
 
 两个 worker 已释放，两个工作树及分支在 patch 等价性核对后删除。本任务 `db91e217d18c9ada:test` 的数据库、Redis、十个桶及 PostgreSQL 容器／匿名卷已按归属销毁，`cleanup.json` 记录零错误；运行脚本、私有连接配置、临时 token 和 scratch 已清除，只保留受保护的验收证据。`feat/plugin-opt` 源工作树、日常及保留中的测试资源未接管，用户 `.gitignore` 内容与既有 stash 保持。
+
+### 12.11 G2 后续：托管原件支持模块与 worker 清理归属
+
+以 `f24951d61` 为基线，Orca Run `run_40650e6c85f2` 的两个独立工作树均实际使用 `openai-codex/gpt-6.1-terra:xhigh`。主进程审核并集成支持模块提交 `cc6c75beb`、归属修复提交 `441548084`，再把提交失败回归改为延迟唯一约束触发的真实 COMMIT 失败。本轮仅修改测试设施、回归与测试说明，未修改生产 API、权限、迁移、插件仓库或发行配置。
+
+- `managed_original_provider_support.py` 接管 `error`、`response`、`Body`、`MemoryS3`、`check_error`；`managed_original_client_support.py` 接管 `Client`、`stage_client`。七个 helper 的 AST 原样保留，所有这些符号的调用者直接导入支持模块；历史创建／迁移夹具不在这次搬迁范围内。
+- 受影响的 170 个测试函数在仅归一化上述导入路径后，装饰器、函数体与断言 AST 均保持。原 360 个 collection nodeid 全部保留，新增十项；三个 nuScenes／视频调用者文件的 60 项只做 collection 和导入迁移核对，没有重跑已知 LiDAR 内容身份／视频 FPS 问题，也不计作通过。
+- `managed_worker_world` 原来只登记插入 ID，不撤销回滚归属。四个独立 PostgreSQL smoke 在基线实际观察到：根事务／savepoint 回滚后，另一会话提交的同 ID 账号会被正常或异常退出时的清理删除。
+- 修复按当前 world 的 ORM 实例保留归属，成功根提交保留记录，回滚或未提交关闭撤销对应记录；不会因后续事务失败丢弃早先独立提交。载入／更新预存记录和其他会话的写入不被认领，监听器在正常和异常退出时解除。原始 SQL／Core 插入不在这个窄合同内。
+- 新增十项真实数据库回归，覆盖根回滚、savepoint 回滚、释放 savepoint 后根回滚、未提交关闭及实际 COMMIT 失败，分别走正常／异常收尾，并核对四类业务记录的删除与邻居保留。十项全部通过；相同四个独立 smoke 修复后均保留邻居及预存更新，只删除本用例已提交记录。
+- 脱离 pytest 的受控提供方 smoke 验证 staging 客户端接入、精确版本读回、当前版本变化拒绝、条件写冲突、保留替换版本，以及 body／客户端关闭；没有把旧版本仍可读取误作允许当前原件漂移，也不宣称真实 S3 资格。
+
+扩展选集执行 **310 个唯一用例：248 通过、62 未通过、0 跳过**。原始 pytest 阶段结果为 18 个 failure、46 个 error，其中两个用例同时在执行和 teardown 失败；JUnit 按 nodeid 去重后与 collection 逐项一致。没有删掉失败用例或将报告替换成仅十项回归的全绿结果。
+
+主进程从基线导出完整原测试目录，核验所有 `tests.*` 导入均来自该目录，并在第二套全新、同 migration head 的一次性数据库执行这 62 项：全部仍未通过。61 项的失败阶段和首行异常签名一致；ZIP 用例同样是期望 403、实际 200，但基线响应含存储失败、集成响应含两项成功写入，不能将两者的完整执行路径宣称等价。
+
+| 既有失败组                  | 唯一用例数 | 当前观察                                                          |
+| --------------------------- | ---------: | ----------------------------------------------------------------- |
+| 预测提交边界夹具            |         26 | 仍调用已移除的 `PredictionService.create_from_ml_result`          |
+| 原件及 Task target 历史夹具 |         18 | 重复安装 `dataset_item_scene_references`，setup 失败              |
+| Task target 内部注入        |          2 | 仍引用已移除的读取／二次推理内部符号                              |
+| 引用媒体导出                |         10 | 当前权限拒绝、连接替身及来源合同不匹配                            |
+| Dataset 写入事务            |          2 | ZIP 预期拒绝未发生，以及复制场景的 job 外键失败                   |
+| 预测执行／重试              |          4 | 重试回执、可见性及 snapshot 绑定合同漂移；两项还在 job 清理时报错 |
+
+这些既有问题没有由本轮支持模块搬迁关闭。下一独立验收内容优先收敛预测提交／重试的当前 owner 场景和历史原件迁移夹具；ZIP 的拒绝合同及上述响应差异需单独诊断，不通过恢复旧入口、放宽断言或扩大 owner 权限处理。
+
+证据位于 `.worktree/managed-fixture-ownership/`：`ownership-before.json`／`ownership-after.json`、`provider-smoke.json`、`acceptance.xml`、`acceptance-summary.json`、`baseline-failures.xml`、`baseline-attribution.json`、collection 对照及 helper／测试函数保留记录。固定 Ruff 检查通过；当前结论只覆盖 owner 夹具、真实 PostgreSQL 事务与受控提供方，不扩大为受限模块部署、真实 S3、浏览器、模型／GPU 或整套同库并行资格。
+
+两个 worker 已释放，两个工作树和分支经 patch 等价性核对后回收。两套资源 `914ae98103a0dfc0:test`、`ebf0c4d1a301e93f:test` 的数据库、Redis、各十个桶及 PostgreSQL 容器／匿名卷均已按归属销毁，清理记录零错误；未接管源工作树、日常环境及用户保留的资源。
