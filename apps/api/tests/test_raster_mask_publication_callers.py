@@ -1,22 +1,39 @@
-"""Publication boundaries preserve caller ownership before conditional responses."""
+"""Qualify mask publication against the current transactional owners."""
 
 from __future__ import annotations
 
 import json
-import sys
 import uuid
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
 import pytest
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.v1._mask_content import mask_content_response
+from app.application.raster_mask_retention import referenced_raster_mask_keys
+from app.config import settings
+from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.mask_qc import MaskQCIssue
+from app.db.models.prediction import Prediction
+from app.db.models.project import Project
+from app.db.models.task import Task
+from app.db.models.user import User
+from app.schemas.mask_qc import MaskQCRunRequest
 from app.services import predictions_import
 from app.services.annotation_conversion import AnnotationConversionService
-from app.services.raster_mask_storage import build_rle_reference
-from app.workers import mask_qc
+from app.services.labeling_prediction_contract import ApplyPredictionResultError
+from app.services.mask_qc import execution as qc_execution
+from app.services.mask_qc.service import create_mask_qc_run
+from app.services.prediction import PredictionService, to_internal_shape
+from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
+from tests.factory import create_user
+from tests.raster_mask_support import harness as harness
+from tests.test_mask_qc_m2 import _seed_mask
+from tests.test_raster_mask_portability import _image_project_task
 
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
@@ -84,20 +101,20 @@ async def test_conditional_mask_read_keeps_provider_failures_generic():
     assert "private provider details" not in caught.value.detail["message"]
 
 
-def _prediction_payload(format):
+def _prediction_payload(format, rle):
     if format == "aap":
-        reference = build_rle_reference(RLE)
+        reference = build_rle_reference(rle)
         return json.dumps(
             {
                 "schema_version": "1.3",
-                "mask_objects": {reference["sha256"]: RLE},
+                "mask_objects": {reference["sha256"]: rle},
                 "tasks": [
                     {
                         "task_match": {"file_path": "image.png"},
                         "media_type": "image",
                         "predictions": [
                             {
-                                "class_name": "object",
+                                "class_name": "car",
                                 "geometry": {"type": "raster_mask", "mask": reference},
                             }
                         ],
@@ -105,69 +122,200 @@ def _prediction_payload(format):
                 ],
             }
         ).encode()
+    height, width = rle["size"]
     return json.dumps(
         {
-            "images": [{"id": 1, "file_name": "image.png", "width": 3, "height": 2}],
-            "categories": [{"id": 1, "name": "object"}],
-            "annotations": [{"image_id": 1, "category_id": 1, "segmentation": RLE}],
+            "images": [
+                {"id": 1, "file_name": "image.png", "width": width, "height": height}
+            ],
+            "categories": [{"id": 1, "name": "car"}],
+            "annotations": [{"image_id": 1, "category_id": 1, "segmentation": rle}],
         }
     ).encode()
 
 
-@pytest.mark.parametrize("format", ["aap", "coco"])
-@pytest.mark.parametrize("busy", [False, True])
-async def test_prediction_import_locks_task_before_any_mask_publication(
-    monkeypatch, format, busy
-):
-    task = SimpleNamespace(id=uuid.uuid4())
-    project_id = uuid.uuid4()
-    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace()))
-    events = []
-
-    async def lock(caller, ids, *, nowait):
-        assert caller is db and ids == [task.id] and nowait
-        events.append("task")
-        if busy:
-            raise HTTPException(409, {"reason": "task_evidence_busy"})
-
-    async def store(*args, **kwargs):
-        assert (args[0] is db) if format == "aap" else (kwargs["db"] is db)
-        events.append("store")
-        return build_rle_reference(RLE)
-
-    async def create(*args, **kwargs):
-        events.append("prediction")
-
-    monkeypatch.setattr(
-        predictions_import, "resolve_task", AsyncMock(return_value=task)
-    )
-    monkeypatch.setattr(predictions_import, "lock_tasks_for_evidence", lock)
-    monkeypatch.setattr(
-        predictions_import, "assert_raster_mask_write_enabled", lambda _: None
-    )
-    monkeypatch.setattr(
-        predictions_import, "validate_mask_geometry_for_task", AsyncMock()
-    )
-    monkeypatch.setattr(predictions_import, "store_mask_reference_objects", store)
-    monkeypatch.setattr(predictions_import, "store_coco_rle", store)
-    monkeypatch.setattr(
-        predictions_import.PredictionService, "create_from_ml_result", create
-    )
-    importer = (
+def _importer(format):
+    return (
         predictions_import.import_native_json
         if format == "aap"
         else predictions_import.import_coco
     )
 
-    if busy:
+
+@pytest.mark.parametrize("format", ["aap", "coco"])
+@pytest.mark.parametrize("authority", ["current", "missing", "stale"])
+async def test_prediction_import_publishes_only_with_current_authority(
+    db_session, super_admin, harness, monkeypatch, test_db_url, format, authority
+):
+    user, _ = super_admin
+    rle, reference, _ = harness.content()
+    height, width = rle["size"]
+    project, task = await _image_project_task(
+        db_session, owner_id=user.id, file_path="image.png", width=width, height=height
+    )
+    previous = Prediction(
+        task_id=task.id, project_id=project.id, result=[], source="external_import"
+    )
+    db_session.add(previous)
+    task.total_predictions = 1
+    await db_session.flush()
+    previous_id, task_id, project_id = previous.id, task.id, project.id
+    monkeypatch.setattr(settings, "database_url", test_db_url)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+
+    if authority == "stale":
+        apply_result = PredictionService.apply_prediction_result
+
+        async def change_source_then_apply(service, request):
+            await service.db.execute(
+                update(Task)
+                .where(Task.id == task_id)
+                .values(file_path="replacement.png")
+                .execution_options(synchronize_session=False)
+            )
+            return await apply_result(service, request)
+
+        monkeypatch.setattr(
+            PredictionService, "apply_prediction_result", change_source_then_apply
+        )
+
+    transaction = await db_session.begin_nested()
+    if authority == "missing":
         with pytest.raises(HTTPException) as caught:
-            await importer(db, project_id, _prediction_payload(format))
+            await _importer(format)(
+                db_session,
+                project_id,
+                _prediction_payload(format, rle),
+                actor_id=None,
+                job_id=None,
+                overwrite_existing=True,
+            )
+        assert caught.value.status_code == 401
+    elif authority == "stale":
+        with pytest.raises(ApplyPredictionResultError) as caught:
+            await _importer(format)(
+                db_session,
+                project_id,
+                _prediction_payload(format, rle),
+                actor_id=user.id,
+                job_id=None,
+                overwrite_existing=True,
+            )
+        assert caught.value.code == "prediction_source_changed"
         assert caught.value.status_code == 409
-        assert events == ["task"]
     else:
-        result = await importer(db, project_id, _prediction_payload(format))
-        assert result.imported == 1 and result.skipped == 0
-        assert events == ["task", "store", "prediction"]
+        result = await _importer(format)(
+            db_session,
+            project_id,
+            _prediction_payload(format, rle),
+            actor_id=user.id,
+            job_id=None,
+            overwrite_existing=True,
+        )
+        assert result.imported == 1 and result.skipped == 0 and result.errors == []
+        prediction = (
+            await db_session.scalars(
+                select(Prediction).where(Prediction.task_id == task_id)
+            )
+        ).one()
+        assert prediction.id != previous_id
+        assert prediction.source == "external_import"
+        assert to_internal_shape(prediction.result[0])["geometry"]["mask"] == reference
+        assert reference["object_key"] in await referenced_raster_mask_keys(db_session)
+
+    await transaction.rollback()
+    rows = (
+        await db_session.scalars(
+            select(Prediction).where(Prediction.task_id == task_id)
+        )
+    ).all()
+    assert [row.id for row in rows] == [previous_id]
+    await db_session.refresh(task)
+    assert task.total_predictions == 1
+    assert task.file_path == "image.png"
+    assert reference["object_key"] not in await referenced_raster_mask_keys(db_session)
+    owners = await harness.rows()
+    if authority == "missing":
+        assert owners == []
+    else:
+        assert [(row.logical_key, row.state) for row in owners] == [
+            (reference["object_key"], "ready")
+        ]
+
+
+@pytest.mark.parametrize("format", ["aap", "coco"])
+async def test_prediction_import_rejects_busy_final_task_fence(
+    harness, monkeypatch, test_db_url, format
+):
+    rle, reference, _ = harness.content()
+    height, width = rle["size"]
+    monkeypatch.setattr(settings, "database_url", test_db_url)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    async with harness.factory() as setup:
+        user = await create_user(
+            setup, "super_admin", f"{uuid.uuid4().hex}@test.local", "Owner"
+        )
+        project, task = await _image_project_task(
+            setup, owner_id=user.id, file_path="image.png", width=width, height=height
+        )
+        previous = Prediction(
+            task_id=task.id, project_id=project.id, result=[], source="external_import"
+        )
+        setup.add(previous)
+        task.total_predictions = 1
+        await setup.flush()
+        user_id, project_id, task_id = user.id, project.id, task.id
+        item_id = task.dataset_item_id
+        dataset_id = (await setup.get(DatasetItem, item_id)).dataset_id
+        previous_id = previous.id
+        await setup.commit()
+
+    try:
+        async with harness.factory() as locker, harness.factory() as writer:
+            await locker.scalar(
+                select(Task).where(Task.id == task_id).with_for_update()
+            )
+            with pytest.raises(ApplyPredictionResultError) as caught:
+                await _importer(format)(
+                    writer,
+                    project_id,
+                    _prediction_payload(format, rle),
+                    actor_id=user_id,
+                    job_id=None,
+                    overwrite_existing=True,
+                )
+            assert caught.value.code == "task_busy"
+            assert caught.value.status_code == 409
+            assert caught.value.retryable
+            await writer.rollback()
+            await locker.rollback()
+        async with harness.factory() as observer:
+            rows = (
+                await observer.scalars(
+                    select(Prediction).where(Prediction.task_id == task_id)
+                )
+            ).all()
+            assert [row.id for row in rows] == [previous_id]
+            assert (await observer.get(Task, task_id)).total_predictions == 1
+            assert reference["object_key"] not in await referenced_raster_mask_keys(
+                observer
+            )
+            assert [(row.logical_key, row.state) for row in await harness.rows()] == [
+                (reference["object_key"], "ready")
+            ]
+    finally:
+        async with harness.factory() as cleanup:
+            await cleanup.execute(
+                delete(Prediction).where(Prediction.task_id == task_id)
+            )
+            await cleanup.execute(delete(Task).where(Task.id == task_id))
+            await cleanup.execute(delete(DatasetItem).where(DatasetItem.id == item_id))
+            await cleanup.execute(delete(Dataset).where(Dataset.id == dataset_id))
+            await cleanup.execute(delete(Project).where(Project.id == project_id))
+            await cleanup.execute(delete(User).where(User.id == user_id))
+            await cleanup.commit()
 
 
 async def test_conversion_passes_original_session_to_generated_content(monkeypatch):
@@ -183,48 +331,38 @@ async def test_conversion_passes_original_session_to_generated_content(monkeypat
 
 
 @pytest.mark.parametrize("insert_failed", [False, True])
-async def test_qc_region_settles_guard_only_after_issue_upsert(
-    monkeypatch, insert_failed
+async def test_qc_region_and_issue_follow_caller_transaction(
+    db_session, super_admin, harness, monkeypatch, test_db_url, insert_failed
 ):
-    reference = build_rle_reference(RLE)
-    events = []
-    db = SimpleNamespace(commit=AsyncMock())
-
-    caller_db = db
-
-    async def store(rle, *, db):
-        assert db is caller_db
-        events.append("store")
-        return reference
-
-    async def execute(statement):
-        events.append("issue")
-        if insert_failed:
-            raise RuntimeError("issue upsert failed")
-
-    async def bind(caller, value):
-        assert caller is db and value == reference
-        events.append("bind")
-
-    db.execute = AsyncMock(side_effect=execute)
-    module = ModuleType("app.services.raster_mask_objects")
-    module.bind_publications = AsyncMock(side_effect=bind)
-    monkeypatch.setitem(sys.modules, module.__name__, module)
-    monkeypatch.setattr(mask_qc, "store_coco_rle", store)
-    primary = mask_qc._FrameMask(
-        annotation_id=uuid.uuid4(),
-        annotation_version=1,
-        task_id=uuid.uuid4(),
+    user, _ = super_admin
+    project, task, annotation, _ = await _seed_mask(db_session, owner_id=user.id)
+    run, _, _ = await create_mask_qc_run(
+        db_session,
+        project=project,
+        actor_id=user.id,
+        request=MaskQCRunRequest(scope="project"),
+    )
+    project_id = project.id
+    rle, reference, _ = harness.content()
+    monkeypatch.setattr(settings, "database_url", test_db_url)
+    primary = qc_execution._FrameMask(
+        annotation_id=annotation.id,
+        annotation_version=annotation.version,
+        task_id=task.id,
         class_name="object",
         frame_index=None,
         state="manual",
         source=None,
-        rle=RLE,
+        rle=rle,
         geometry_digest="a" * 64,
         content_digest="b" * 64,
     )
     kwargs = dict(
-        run=SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4()),
+        run=(
+            SimpleNamespace(id=uuid.uuid4(), project_id=project_id)
+            if insert_failed
+            else run
+        ),
         primary=primary,
         related=(),
         code="small_island",
@@ -233,17 +371,35 @@ async def test_qc_region_settles_guard_only_after_issue_upsert(
         threshold={},
         frame_start=None,
         frame_end=None,
-        region_rle=RLE,
+        region_rle=rle,
         source={},
         seen_keys=set(),
     )
-
+    transaction = await db_session.begin_nested()
     if insert_failed:
-        with pytest.raises(RuntimeError, match="issue upsert failed"):
-            await mask_qc._persist_issue(db, **kwargs)
-        assert events == ["store", "issue"]
-        module.bind_publications.assert_not_awaited()
+        # A nonexistent run reaches the real owner's foreign-key constraint
+        # after the independently owned region bytes have been stored.
+        with pytest.raises(IntegrityError):
+            await qc_execution._persist_issue(db_session, **kwargs)
     else:
-        await mask_qc._persist_issue(db, **kwargs)
-        assert events == ["store", "issue", "bind"]
-    db.commit.assert_not_awaited()
+        await qc_execution._persist_issue(db_session, **kwargs)
+        issue = (
+            await db_session.scalars(
+                select(MaskQCIssue).where(MaskQCIssue.project_id == project_id)
+            )
+        ).one()
+        assert issue.region_mask_ref == reference
+        assert issue.region_digest == reference["sha256"]
+        assert reference["object_key"] in await referenced_raster_mask_keys(db_session)
+
+    await transaction.rollback()
+    assert (
+        await db_session.scalars(
+            select(MaskQCIssue).where(MaskQCIssue.project_id == project_id)
+        )
+    ).all() == []
+    assert reference["object_key"] not in await referenced_raster_mask_keys(db_session)
+    assert await load_coco_rle(reference) == rle
+    assert [(row.logical_key, row.state) for row in await harness.rows()] == [
+        (reference["object_key"], "ready")
+    ]
