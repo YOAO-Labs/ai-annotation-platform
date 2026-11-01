@@ -14,8 +14,8 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.services import raster_mask_objects as owners, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from tests.test_raster_mask_objects import harness as harness
 from tests.factory import create_project, create_task, create_user
+from tests.raster_mask_support import harness as harness
 
 
 async def ready(harness):

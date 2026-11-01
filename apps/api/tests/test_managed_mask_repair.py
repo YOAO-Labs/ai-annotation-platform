@@ -63,12 +63,12 @@ from tests.managed_image_inference_fixtures import (
     input_world as input_world,
     sync_world as sync_world,
 )
+from tests.raster_mask_support import Objects
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_managed_image_inference import httpx_client as httpx_client
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
 from tests.test_prediction_reference_actions import api_key
-from tests.test_raster_mask_objects import Objects
 
 
 pytestmark = pytest.mark.asyncio

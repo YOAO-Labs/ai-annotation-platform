@@ -28,6 +28,7 @@ from app.services.source_readers.s3 import S3Access
 from tests import test_comment_attachment_storage as comment_facts
 from tests import test_guide_asset_storage as guide_facts
 from tests import test_raster_object_storage as raster_facts
+from tests.raster_mask_support import harness as harness
 from tests.test_comment_attachment_uploads import (
     comment as bind_comment,
     discussion as discussion,
@@ -40,7 +41,6 @@ from tests.test_guide_assets import (
     unlink as unlink_guide,
     upload as upload_guide,
 )
-from tests.test_raster_mask_objects import harness as harness
 
 CASES = [
     (comments, comment_facts.record, comment_facts.RAW, CommentAttachmentUpload),
