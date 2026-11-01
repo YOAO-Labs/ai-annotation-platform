@@ -629,3 +629,18 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 本切片不代表全仓 fixture 已整理、差集清理已支持并行、完整冷安装／恢复重新通过，或已知 LiDAR 内容身份／视频 FPS 问题已关闭。SDK、Web／文档构建与浏览器观察分别按其真实层级记录，不合并成模型、GPU 或发行资格。
 
 收尾时文档站实际构建再次通过。六个已集成 Orca 工作树及分支已按 patch 等价性回收，API／Web 预览、浏览器和离线 TUI 均已停止；仅本任务 `04f88a7231ae7f6f:test` 的 PostgreSQL、Redis、十个桶及 PostgreSQL 匿名卷被销毁，`native-cleanup.json` 记录零清理错误。保留源工作树与用户未提交的 `.gitignore` 修改，不接管日常环境。
+
+### 12.8 G2 后续：精确 keeper 清理与附件设施隔离
+
+以 `1e71b02e7` 为基线，Orca Run `run_34fbb3c16367` 的两个独立工作树均实际使用 `openai-codex/gpt-6.1-terra:xhigh`。主进程审核并集成精确清理提交 `413d7eb96` 和附件支持模块提交 `9a2846a2b`，未改变生产代码、权限、迁移或发行名。
+
+- `committed_owner` 不再查询全表前后差集；仅登记当前 owner 会话的 User／Project／模型服务实例 ORM 插入，回滚撤销归属，未提交事务先回滚，再按准确 ID 清理。载入／更新原有记录不认领归属，其他会话的插入不进入登记；原始 SQL 不在这个窄登记合同内。原 seed 范围仍由 owner 子进程清理，失败不被吞掉，业务 HTTP 没有 owner fallback。
+- 新增正常／异常退出两项真实 PostgreSQL 回归，覆盖预存并更新的记录、独立会话新增数据、插入回滚后邻居复用 ID、未提交记录和准确 keeper 清理。固定 seed namespace 仍串行，不开放 xdist 或宣称整套同库并行。
+- 评论附件／指南图片的 `Objects`、`build`、`upload` 迁到 `seed_attachment_support.py`，两组测试直接导入，不再互相导入测试模块。两个 context 及各自清理仍本地维护；三个迁移 helper 和原 82 个测试函数的 AST 均保持。
+- 原 150 个 nodeid 全部保留，仅新增两项回归；主进程在新建 `bo0415` 隔离环境运行八个文件，**152 通过、0 失败／错误／跳过**，JUnit 与 collection 逐项相等。证据为 `.worktree/g2-precise-fixtures/native-final.xml`、`acceptance-summary.json`、`collection-comparison.json` 和 `test-body-preservation.json`。
+- 独立于 pytest 的同一跨进程 smoke 在变更前实际复现：清理删除了另一个进程在登记开始后提交的账号。变更后，本用例记录被删除，预存并更新的账号和并发进程账号均保留；seed 收尾经过真实 owner 子进程。前后证据为 `smoke-before.json`／`smoke-after.json`，不是模拟事件调用次数。
+- 文档站构建通过；保留既有 anyio／JUnit property、语法高亮回退及构建 chunk 警告。没有重跑未受影响的 SDK／Web，也不沿用其历史通过数充作本轮结果。
+
+本轮只关闭上述原生 keeper 差集及两组附件测试的互相导入；`raster_mask_isolation.py` 等其他设施仍按各自切片治理。附件的 33 项仍使用受控对象提供方，不扩大为真实 S3、完整冷安装／恢复、全仓 fixture 或模型／GPU 资格。
+
+两个 worker 均已释放，工作树和分支在 patch 等价性核对后回收。本任务 `70f13779ec8740b0:test` 的 PostgreSQL、Redis、十个桶及 PostgreSQL 匿名卷已按归属销毁，`cleanup.json` 记录零错误；源工作树、日常环境及用户 `.gitignore` 修改未接管。

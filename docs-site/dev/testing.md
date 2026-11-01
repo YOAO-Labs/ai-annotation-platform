@@ -88,9 +88,13 @@ cd apps/web && pnpm exec playwright test --list --project=pointcloud
 
 Identity／Workspace 原生场景使用 `identity_e2e_support.py` 的组合客户端，只有 `/api/v1/__test/seed/` 请求进入同一个受保护 owner 子进程；其他业务请求保持真实受限连接，失败不会切换到 owner 重试。报告将这些场景标为 owner 夹具加受限业务 HTTP，不再计作受限角色执行整个 seed 流程的资格。独立 Node 合同、私表拒绝和借用事务回滚仍分别验收。
 
-需要进程内 monkeypatch 的清理故障注入留在 owner 层，并使用仅挂载 seed 路由的独立测试应用；不能给普通业务应用临时切换 owner 凭据，也不能声称父进程的注入影响了子进程。原生场景补偿清理按前后记录差集执行，仍要求独占测试数据库串行运行。
+需要进程内 monkeypatch 的清理故障注入留在 owner 层，并使用仅挂载 seed 路由的独立测试应用；不能给普通业务应用临时切换 owner 凭据，也不能声称父进程的注入影响了子进程。
+
+原生场景的普通 keeper 记录由当前 owner 会话按 ORM 插入事件登记准确 ID；插入回滚撤销登记，清理前回滚未提交事务。载入或更新既有记录不会认领其归属，其他会话新增的记录也不进入清理集合。该登记只覆盖 User、Project 和模型服务实例的 ORM 插入，不跟踪原始 SQL；seed 资源仍由 owner 子进程按既有范围清理。固定 seed namespace 的场景继续独占测试数据库串行运行，不将 keeper 的邻居保护扩大为整套测试并行资格。
 
 跨测试模块复用的 SDK 构造器、客户端替身和 TUI 等待逻辑放在邻近的 `support_*.py`，不要从 `test_*.py` 导入。原生场景也应复用不参与 collection 的场景模块，而不是直接调用另一个 pytest 测试函数；原场景的业务断言和必要夹具依赖必须保留。
+
+评论附件／指南图片的共享对象提供方与构造／上传 helper 位于 `seed_attachment_support.py`，各自的 context 与专属清理保持本地所有权。这两组是使用真实 PostgreSQL／HTTP 和受控对象提供方的 owner 层集成测试，不代表受限业务角色或真实 S3 的资格。
 
 合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
 
