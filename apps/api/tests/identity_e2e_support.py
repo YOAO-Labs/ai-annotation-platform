@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+import json
 import os
 from pathlib import Path
+import re
+import sys
+import tempfile
 import uuid
 
 import httpx
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.password_reset_token import PasswordResetToken
@@ -217,9 +223,117 @@ async def fenced_http(
 
 
 @pytest.fixture
-async def committed_owner(fenced_http, test_engine):
+async def fixture_and_fenced_http(fenced_http, test_engine):
+    """Route only seed requests to the guarded owner process, never on error."""
+    owner = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
+    target = test_engine.url
+    assert (owner.host, owner.port or 5432, owner.database) == (
+        target.host,
+        target.port or 5432,
+        target.database,
+    ), "Fixture owner and test engine must use the same disposable database"
+
+    process = None
+    lock = asyncio.Lock()
+    with tempfile.TemporaryFile() as errors:
+
+        class CompositeClient:
+            async def post(self, path, **kwargs):
+                nonlocal process
+                if not path.startswith("/api/v1/__test/seed/"):
+                    return await fenced_http.post(path, **kwargs)
+                async with lock:
+                    if process is None:
+                        process = await asyncio.create_subprocess_exec(
+                            sys.executable,
+                            str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
+                            cwd=ROOT / "apps/api",
+                            stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=errors,
+                            limit=16 * 1024 * 1024,
+                        )
+                    payload = {
+                        "path": path,
+                        "data": kwargs.pop("json", None),
+                        "headers": kwargs.pop("headers", None),
+                    }
+                    if kwargs:
+                        raise TypeError(
+                            f"Unsupported fixture request options: {list(kwargs)}"
+                        )
+                    process.stdin.write((json.dumps(payload) + "\n").encode())
+                    await process.stdin.drain()
+                    line = await asyncio.wait_for(
+                        process.stdout.readline(), timeout=120
+                    )
+                    if not line:
+                        await process.wait()
+                        errors.seek(0)
+                        failure = re.findall(
+                            rb"^Fixture setup failed: (\w+)$",
+                            errors.read(),
+                            re.MULTILINE,
+                        )
+                        kind = (
+                            failure[-1].decode()
+                            if failure
+                            else f"exit {process.returncode}"
+                        )
+                        raise RuntimeError(f"Fixture owner process failed: {kind}")
+                    result = json.loads(line)
+                    return httpx.Response(
+                        result["status"],
+                        text=result["body"],
+                        request=httpx.Request("POST", "http://fixture.local" + path),
+                    )
+
+            async def get(self, path, **kwargs):
+                if path.startswith("/api/v1/__test/seed/"):
+                    raise ValueError("The fixture owner supports POST requests only")
+                return await fenced_http.get(path, **kwargs)
+
+        try:
+            yield CompositeClient()
+        finally:
+            if process is not None:
+                if process.returncode is None:
+                    process.stdin.close()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=15)
+                    except TimeoutError:
+                        process.kill()
+                        await process.wait()
+                        raise RuntimeError(
+                            "Fixture owner process did not shut down"
+                        ) from None
+                if process.returncode:
+                    raise RuntimeError(
+                        f"Fixture owner process exited with status {process.returncode}"
+                    )
+
+
+@pytest.fixture
+async def owner_fault_http(fenced_http, test_engine, app_module):
+    """In-process owner client for fault injection that cannot cross processes."""
+    previous = app_module.dependency_overrides[get_db]
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async def connection():
+        async with maker() as db:
+            yield db
+
+    app_module.dependency_overrides[get_db] = connection
+    try:
+        yield fenced_http
+    finally:
+        app_module.dependency_overrides[get_db] = previous
+
+
+@pytest.fixture
+async def committed_owner(fixture_and_fenced_http, test_engine):
     # Original cases share an uncommitted connection with their API fixture.
-    # Independent LOGIN requests need metadata setup to commit for real.
+    # Independent processes need committed setup. Row-difference cleanup is serial-only.
     tables = ("users", "projects", "ml_backend_registry")
     async with test_engine.connect() as db:
         before = {
@@ -231,11 +345,11 @@ async def committed_owner(fenced_http, test_engine):
             yield db
     finally:
         for namespace in (owned_cases.A, owned_cases.B):
-            response = await fenced_http.post(
+            response = await fixture_and_fenced_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
             )
             assert response.status_code == 200, response.text
-        response = await fenced_http.post("/api/v1/__test/seed/cleanup")
+        response = await fixture_and_fenced_http.post("/api/v1/__test/seed/cleanup")
         assert response.status_code == 200, response.text
         # Keeper rows prove product cleanup preserves ordinary data. The test
         # owner removes only the exact rows this case created after that proof.

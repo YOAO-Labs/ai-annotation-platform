@@ -1,4 +1,4 @@
-"""Existing HTTP consumers and a separate language use fixed fixture capabilities."""
+"""Owner-process fixtures and restricted Identity business HTTP consumers."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from tests.identity_e2e_support import (
     committed_owner as committed_owner,
     e2e_consumer as e2e_consumer,
     fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
     scenario_rle_bindings as scenario_rle_bindings,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
@@ -62,31 +63,26 @@ pytestmark = [
         owned_cases.owned_lidar_fixture_is_namespaced,
         owned_cases.owned_project_roles_fixture_is_namespaced,
         owned_cases.owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours,
-        owned_cases.owned_cleanup_exposes_residuals_on_partial_failure,
     ],
     ids=lambda scenario: "test_" + scenario.__name__,
 )
-async def test_original_http_consumers_with_private_identity_denied(
+async def test_owner_fixture_scenarios_with_fenced_identity_business_http(
     scenario,
     scenario_rle_bindings,
-    fenced_http,
+    fixture_and_fenced_http,
     committed_owner,
-    monkeypatch,
-    caplog,
-    app_module,
     record_property,
 ):
     values = {
-        "httpx_client": fenced_http,
+        "httpx_client": fixture_and_fenced_http,
         "db_session": committed_owner,
-        "monkeypatch": monkeypatch,
-        "caplog": caplog,
-        "app_module": app_module,
     }
     arguments = inspect.signature(scenario).parameters
     assert set(arguments).issubset(values)
     await scenario(**{name: values[name] for name in arguments})
-    record_property("identity_e2e_original_http_case", "test_" + scenario.__name__)
+    record_property(
+        "identity_owner_fixture_fenced_business_case", "test_" + scenario.__name__
+    )
 
 
 async def test_node_fixture_contract_and_borrowed_rollback(

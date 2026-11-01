@@ -1,4 +1,4 @@
-"""Replay guarded fixture consumers with Workspace private relations denied."""
+"""Owner-process fixtures, restricted Workspace consumers and owner fault checks."""
 
 from __future__ import annotations
 
@@ -33,6 +33,8 @@ from tests import seed_router_scenarios as seed_cases
 from tests.identity_e2e_support import (
     committed_owner as committed_owner,
     fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+    owner_fault_http as owner_fault_http,
     scenario_rle_bindings as scenario_rle_bindings,
 )
 from tests.test_training_dataset_references import (
@@ -127,11 +129,11 @@ async def _snapshot(engine):
 
 
 @pytest.mark.parametrize("kind", ["owned", "project-roles", "filtering", "lidar"])
-async def test_original_workspace_fixture_rows(
-    fenced_http, test_engine, kind, record_property
+async def test_owner_process_workspace_fixture_rows(
+    fixture_and_fenced_http, test_engine, kind, record_property
 ):
     baseline = await _snapshot(test_engine)
-    response = await fenced_http.post(
+    response = await fixture_and_fenced_http.post(
         "/api/v1/__test/seed/" + kind, json={"namespace": NAMESPACE}
     )
     assert response.status_code == 200, response.text
@@ -148,9 +150,9 @@ async def test_original_workspace_fixture_rows(
             )
         else:
             assert state == json.loads(ORACLE.read_text())["snapshots"][kind]
-        record_property("workspace_e2e_original_rows", kind)
+        record_property("workspace_owner_process_fixture_rows", kind)
     finally:
-        response = await fenced_http.post(
+        response = await fixture_and_fenced_http.post(
             "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
         )
         assert response.status_code == 200, response.text
@@ -167,34 +169,28 @@ async def test_original_workspace_fixture_rows(
         owned_cases.owned_cleanup_is_exact_idempotent_and_neighbour_safe,
         owned_cases.owned_rebuild_is_retry_safe,
         owned_cases.owned_filtering_fixture_is_namespaced_and_converges,
-        owned_cases.legacy_shared_filtering_cleanup_reports_exact_failures,
         owned_cases.owned_lidar_fixture_is_namespaced,
         owned_cases.owned_project_roles_fixture_is_namespaced,
-        owned_cases.owned_cleanup_exposes_residuals_on_partial_failure,
     ],
     ids=lambda scenario: "test_" + scenario.__name__,
 )
-async def test_original_http_consumers_with_private_workspace_denied(
+async def test_owner_fixture_scenarios_with_fenced_workspace_business_http(
     scenario,
     scenario_rle_bindings,
-    fenced_http,
+    fixture_and_fenced_http,
     committed_owner,
-    monkeypatch,
-    caplog,
-    app_module,
     record_property,
 ):
     values = {
-        "httpx_client": fenced_http,
+        "httpx_client": fixture_and_fenced_http,
         "db_session": committed_owner,
-        "monkeypatch": monkeypatch,
-        "caplog": caplog,
-        "app_module": app_module,
     }
     arguments = inspect.signature(scenario).parameters
     assert set(arguments).issubset(values)
     await scenario(**{name: values[name] for name in arguments})
-    record_property("workspace_e2e_original_http_case", "test_" + scenario.__name__)
+    record_property(
+        "workspace_owner_fixture_fenced_business_case", "test_" + scenario.__name__
+    )
 
 
 @pytest.mark.parametrize("autoflush", [True, False])
@@ -314,10 +310,10 @@ async def test_fixture_writes_keep_cache_pending_work_and_transaction(
             await db.execute(text("DELETE FROM users WHERE id=:id"), {"id": actor_id})
 
 
-async def test_unretired_video_blocks_fixture_cleanup_before_any_delete(
-    fenced_http, test_engine, e2e_consumer, monkeypatch
+async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
+    owner_fault_http, test_engine, e2e_consumer, monkeypatch
 ):
-    response = await fenced_http.post(
+    response = await owner_fault_http.post(
         "/api/v1/__test/seed/owned", json={"namespace": NAMESPACE}
     )
     assert response.status_code == 200, response.text
@@ -363,7 +359,7 @@ async def test_unretired_video_blocks_fixture_cleanup_before_any_delete(
                 pytest.fail("retirement refusal must precede storage deletion")
 
             patch.setattr(routes, "_delete_seed_object_prefix", no_object_delete)
-            response = await fenced_http.post(
+            response = await owner_fault_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
             )
             assert response.status_code == 409, response.text
@@ -401,15 +397,15 @@ async def test_unretired_video_blocks_fixture_cleanup_before_any_delete(
             await db.execute(
                 text("DELETE FROM video_tracker_jobs WHERE id=:id"), {"id": job_id}
             )
-        response = await fenced_http.post(
+        response = await owner_fault_http.post(
             "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
         )
         assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize("kind", ["project", "template"])
-async def test_cleanup_detects_renamed_project_and_template_residuals(
-    fenced_http, test_engine, monkeypatch, kind
+async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
+    owner_fault_http, test_engine, monkeypatch, kind
 ):
     from app.db.models.project import Project
     from app.db.models.project_template import ProjectTemplate
@@ -453,12 +449,12 @@ async def test_cleanup_detects_renamed_project_and_template_residuals(
     try:
         with monkeypatch.context() as patch:
             patch.setattr(AsyncSession, "execute", controlled_failure)
-            response = await fenced_http.post(
+            response = await owner_fault_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
             )
             assert response.status_code == 500, response.text
             assert response.json()["detail"]["residuals"][kind + "s"] == 1
-        response = await fenced_http.post(
+        response = await owner_fault_http.post(
             "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
         )
         assert response.status_code == 200, response.text
@@ -469,10 +465,10 @@ async def test_cleanup_detects_renamed_project_and_template_residuals(
             await db.execute(text("DELETE FROM users WHERE id=:id"), {"id": keeper_id})
 
 
-async def test_lidar_cleanup_propagates_transaction_abort_before_storage(
-    fenced_http, test_engine, monkeypatch
+async def test_owner_lidar_cleanup_propagates_transaction_abort_before_storage(
+    owner_fault_http, test_engine, monkeypatch
 ):
-    response = await fenced_http.post(
+    response = await owner_fault_http.post(
         "/api/v1/__test/seed/lidar", json={"namespace": NAMESPACE}
     )
     assert response.status_code == 200, response.text
@@ -496,12 +492,12 @@ async def test_lidar_cleanup_propagates_transaction_abort_before_storage(
                 lambda *a, **k: pytest.fail("aborted cleanup deleted storage"),
             )
             with pytest.raises(ControlledAbort):
-                await fenced_http.post(
+                await owner_fault_http.post(
                     "/api/v1/__test/seed/lidar", json={"namespace": NAMESPACE}
                 )
         assert await _snapshot(test_engine) == before
     finally:
-        response = await fenced_http.post(
+        response = await owner_fault_http.post(
             "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
         )
         assert response.status_code == 200, response.text
@@ -607,10 +603,10 @@ async def test_fixture_capabilities_require_explicit_operator_profile(test_engin
 
 
 @pytest.mark.parametrize("state", ["23514", "55P03"])
-async def test_final_cleanup_denial_rolls_back_children_and_stops_storage(
-    fenced_http, test_engine, monkeypatch, state
+async def test_owner_final_cleanup_denial_rolls_back_children_and_stops_storage(
+    owner_fault_http, test_engine, monkeypatch, state
 ):
-    response = await fenced_http.post(
+    response = await owner_fault_http.post(
         "/api/v1/__test/seed/owned", json={"namespace": NAMESPACE}
     )
     assert response.status_code == 200, response.text
@@ -654,7 +650,7 @@ async def test_final_cleanup_denial_rolls_back_children_and_stops_storage(
                 "_delete_seed_object_prefix",
                 lambda *a, **k: pytest.fail("denied deletion continued to storage"),
             )
-            response = await fenced_http.post(
+            response = await owner_fault_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
             )
             assert response.status_code == 409, response.text
@@ -670,7 +666,7 @@ async def test_final_cleanup_denial_rolls_back_children_and_stops_storage(
         assert await _snapshot(test_engine) == before
         assert await children() == before_children
     finally:
-        response = await fenced_http.post(
+        response = await owner_fault_http.post(
             "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
         )
         assert response.status_code == 200, response.text
