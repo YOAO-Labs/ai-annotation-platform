@@ -234,127 +234,113 @@ async def test_seed_video_webcodecs_rejects_unknown_fixture():
     assert exc_info.value.detail == "unknown_fixture"
 
 
-async def test_video_issue_context_history_preserves_the_original_feedback(monkeypatch):
-    from copy import deepcopy
-    from types import SimpleNamespace
+async def _video_issue_feedback(db_session, invalid=None):
     from uuid import uuid4
 
-    from app.api.v1 import _test_seed
     from app.db.models.annotation_feedback import AnnotationFeedback
-    from app.db.models.project import Project
-    from app.db.models.task import Task
+    from tests.factory import create_project, create_task, create_user
 
-    feedback = SimpleNamespace(
-        id=uuid4(),
-        project_id=uuid4(),
-        task_id=uuid4(),
-        annotation_id=uuid4(),
+    owner = await create_user(
+        db_session, "employee", f"video-issue-{uuid4()}@example.com", "Issue author"
+    )
+    project = await create_project(
+        db_session,
+        owner_id=owner.id,
+        name="Ordinary Project" if invalid == "non_e2e" else "E2E Demo Project",
+    )
+    if invalid == "non_e2e":
+        project.display_id = f"P-ORDINARY-{uuid4().hex[:6]}"
+    task_project = project
+    if invalid == "cross_project":
+        task_project = await create_project(db_session, owner_id=owner.id)
+    task = await create_task(db_session, project_id=task_project.id)
+    task.file_type = "image" if invalid == "image" else "video"
+    anchor = {"x": 0.4, "y": 0.6, "legacy_key": "kept"}
+    if invalid != "no_frame":
+        anchor["frame"] = 120
+    feedback = AnnotationFeedback(
+        project_id=project.id,
+        task_id=task.id,
+        author_id=owner.id,
         kind="issue",
-        anchor_type="pixel",
-        is_active=True,
+        anchor_type="task" if invalid == "task_anchor" else "pixel",
+        is_active=invalid != "inactive",
         body="Keep this body",
-        anchor_position={"x": 0.4, "y": 0.6, "frame": 120, "legacy_key": "kept"},
+        anchor_position=None if invalid == "task_anchor" else anchor,
     )
-    before = deepcopy(vars(feedback))
-    records = {
-        AnnotationFeedback: feedback,
-        Task: SimpleNamespace(project_id=feedback.project_id, file_type="video"),
-        Project: SimpleNamespace(name="E2E Demo Project", display_id="P-E2E-1"),
+    db_session.add(feedback)
+    await db_session.flush()
+    await db_session.refresh(feedback)
+    return feedback
+
+
+async def test_video_issue_context_history_preserves_the_original_feedback(db_session):
+    from copy import deepcopy
+
+    from sqlalchemy import inspect
+
+    from app.api.v1 import _test_seed
+
+    feedback = await _video_issue_feedback(db_session)
+    before = {
+        column.key: deepcopy(getattr(feedback, column.key))
+        for column in inspect(type(feedback)).column_attrs
+        if column.key not in {"anchor_position", "updated_at"}
     }
-
-    class Session:
-        commits = 0
-
-        async def get(self, model, identifier):
-            return records[model]
-
-        async def commit(self):
-            self.commits += 1
-
-    db = Session()
-
-    async def workspace_project(db, *, project_id):
-        assert project_id == feedback.project_id
-        return records[Project]
-
-    monkeypatch.setattr(_test_seed, "get_workspace_project", workspace_project)
     response = await _test_seed.seed_video_issue_context_history(
-        _test_seed.SeedVideoIssueContextHistoryRequest(feedback_id=feedback.id), db
+        _test_seed.SeedVideoIssueContextHistoryRequest(feedback_id=feedback.id),
+        db_session,
     )
-    assert db.commits == 1
+    expected_anchor = {
+        "x": 0.4,
+        "y": 0.6,
+        "frame": 120,
+        "legacy_key": "kept",
+        "video_context": {
+            "schema_version": 999,
+            "viewport": {"future_camera": "unsupported"},
+            "frame_range": {"from_frame": 900, "to_frame": 901},
+        },
+    }
+    await db_session.refresh(feedback)
     assert response.feedback_id == feedback.id
-    assert response.anchor_position["video_context"]["schema_version"] == 999
+    assert response.anchor_position == expected_anchor
+    assert feedback.anchor_position == expected_anchor
     assert {
-        key: value
-        for key, value in response.anchor_position.items()
-        if key != "video_context"
-    } == before["anchor_position"]
-    assert {
-        key: value for key, value in vars(feedback).items() if key != "anchor_position"
-    } == {key: value for key, value in before.items() if key != "anchor_position"}
+        column.key: getattr(feedback, column.key)
+        for column in inspect(type(feedback)).column_attrs
+        if column.key not in {"anchor_position", "updated_at"}
+    } == before
 
 
 @pytest.mark.parametrize(
     "invalid",
     ["non_e2e", "image", "cross_project", "task_anchor", "no_frame", "inactive"],
 )
-async def test_video_issue_context_history_rejects_other_records(invalid, monkeypatch):
-    from types import SimpleNamespace
-    from uuid import uuid4
+async def test_video_issue_context_history_rejects_other_records(invalid, db_session):
+    from copy import deepcopy
 
     from fastapi import HTTPException
+    from sqlalchemy import inspect
 
     from app.api.v1 import _test_seed
-    from app.db.models.annotation_feedback import AnnotationFeedback
-    from app.db.models.project import Project
-    from app.db.models.task import Task
 
-    feedback = SimpleNamespace(
-        id=uuid4(),
-        project_id=uuid4(),
-        task_id=uuid4(),
-        kind="issue",
-        anchor_type="task" if invalid == "task_anchor" else "pixel",
-        is_active=invalid != "inactive",
-        anchor_position={
-            "x": 0.4,
-            "y": 0.6,
-            **({} if invalid == "no_frame" else {"frame": 120}),
-        },
-    )
-    original_anchor = feedback.anchor_position.copy()
-    records = {
-        AnnotationFeedback: feedback,
-        Task: SimpleNamespace(
-            project_id=uuid4() if invalid == "cross_project" else feedback.project_id,
-            file_type="image" if invalid == "image" else "video",
-        ),
-        Project: SimpleNamespace(
-            name="Ordinary Project" if invalid == "non_e2e" else "E2E Demo Project",
-            display_id="P-ORDINARY",
-        ),
+    feedback = await _video_issue_feedback(db_session, invalid)
+    before = {
+        column.key: deepcopy(getattr(feedback, column.key))
+        for column in inspect(type(feedback)).column_attrs
     }
-
-    class Session:
-        async def get(self, model, identifier):
-            return records[model]
-
-        async def commit(self):
-            pytest.fail("An invalid historical fixture must not be committed")
-
-    async def workspace_project(db, *, project_id):
-        assert project_id == feedback.project_id
-        return records[Project]
-
-    monkeypatch.setattr(_test_seed, "get_workspace_project", workspace_project)
-
     with pytest.raises(HTTPException) as error:
         await _test_seed.seed_video_issue_context_history(
             _test_seed.SeedVideoIssueContextHistoryRequest(feedback_id=feedback.id),
-            Session(),
+            db_session,
         )
     assert error.value.status_code == 422
-    assert feedback.anchor_position == original_anchor
+    await db_session.refresh(feedback)
+    assert {
+        column.key: getattr(feedback, column.key)
+        for column in inspect(type(feedback)).column_attrs
+    } == before
 
 
 async def test_video_issue_context_history_input_cannot_choose_arbitrary_fields():

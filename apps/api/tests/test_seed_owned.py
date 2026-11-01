@@ -584,52 +584,101 @@ async def test_owned_cleanup_does_not_match_legacy_shared_bug_prefix(
 async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
     httpx_client, db_session: AsyncSession, monkeypatch
 ):
-    """A recognised deadlock/serialization failure must fail fast, not mask.
-
-    Behaviour regression for the `_try_delete` policy: run the real cleanup path
-    against a real session, inject a controlled abort on the `tasks` DELETE, and
-    prove (a) the original error propagates out of the cleanup and (b) the later
-    destructive statements (projects/users) are never attempted, so a
-    contention failure can never be reported as a successful cleanup. The
-    existing `test_owned_cleanup_exposes_residuals_on_partial_failure` keeps the
-    benign per-table-failure (swallow and let the residual guard reject) path.
-    """
-    from app.api.v1._test_seed import _cleanup_e2e_fixtures, _parse_owned_namespace
+    """A Labeling owner abort rolls back cleanup and leaves the fixture reusable."""
+    from app.api.v1._test_seed import (
+        _LABELING_FIXTURE_DELETE_SQL,
+        _cleanup_e2e_fixtures,
+        _parse_owned_namespace,
+    )
+    from app.db.models.bug_report import BugReport
+    from app.db.models.project import Project
+    from app.db.models.task import Task
+    from app.db.models.user import User
 
     class DeadlockDetectedError(Exception):
-        """Stand-in carrying the recognised deadlock SQLSTATE via `orig`."""
-
         class _Orig:
             sqlstate = "40P01"
 
         orig = _Orig()
 
-    await _build_owned(httpx_client, A)
-
+    body = await _build_owned(httpx_client, A)
+    project_id = uuid.UUID(body["project_id"])
+    task_ids = {uuid.UUID(task_id) for task_id in body["task_ids"]}
+    reporter_id = await db_session.scalar(
+        select(User.id).where(User.email == body["admin_email"])
+    )
+    bug_id = uuid.uuid4()
+    db_session.add(
+        BugReport(
+            id=bug_id,
+            display_id=f"BUG-E2E-{uuid.uuid4().hex[:12]}",
+            project_id=project_id,
+            reporter_id=reporter_id,
+            route="/e2e",
+            user_role="employee",
+            title="Cleanup rollback",
+            description="Earlier deletion must roll back",
+            severity="low",
+            status="new",
+        )
+    )
+    await db_session.commit()
+    emails = {body["admin_email"], body["annotator_email"], body["reviewer_email"]}
+    abort = DeadlockDetectedError()
     real_execute = db_session.execute
-    executed: list[str] = []
 
-    async def fake_execute(statement, *args, **kwargs):
-        sql = str(getattr(statement, "text", statement))
-        executed.append(sql)
-        if "DELETE FROM tasks WHERE project_id" in sql:
-            raise DeadlockDetectedError()
+    async def abort_labeling_delete(statement, *args, **kwargs):
+        if str(statement) == _LABELING_FIXTURE_DELETE_SQL:
+            assert (
+                await real_execute(select(BugReport.id).where(BugReport.id == bug_id))
+            ).scalar_one_or_none() is None
+            raise abort
         return await real_execute(statement, *args, **kwargs)
 
-    monkeypatch.setattr(db_session, "execute", fake_execute)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(db_session, "execute", abort_labeling_delete)
+            with pytest.raises(DeadlockDetectedError) as caught:
+                await _cleanup_e2e_fixtures(db_session, _parse_owned_namespace(A))
+            assert caught.value is abort
 
-    with pytest.raises(DeadlockDetectedError):
-        await _cleanup_e2e_fixtures(db_session, _parse_owned_namespace(A))
+        # Cleanup's rollback preserves the project, its tasks, and its users;
+        # later owner deletions must not have taken effect.
+        assert (
+            await db_session.scalar(select(Project.id).where(Project.id == project_id))
+            == project_id
+        )
+        assert (
+            await db_session.scalar(select(BugReport.id).where(BugReport.id == bug_id))
+            == bug_id
+        )
+        assert (
+            set(await db_session.scalars(select(Task.id).where(Task.id.in_(task_ids))))
+            == task_ids
+        )
+        assert (
+            set(
+                await db_session.scalars(
+                    select(User.email).where(User.email.in_(emails))
+                )
+            )
+            == emails
+        )
+    finally:
+        response = await _cleanup_owned(httpx_client, A)
+        assert response.status_code == 200, response.text
 
-    assert any("DELETE FROM tasks WHERE project_id" in sql for sql in executed)
-    # Destructive statements after the abort must not run, so the cleanup cannot
-    # silently continue (or be reported as success) on a broken transaction.
-    assert not any("DELETE FROM projects" in sql for sql in executed)
-    assert not any("DELETE FROM users" in sql for sql in executed)
-    assert not any("aap_identity_fixture_v1.delete_accounts" in sql for sql in executed)
-
-    # Release the aborted test transaction and the injected execute override, then
-    # the namespace is still intact and cleanable by a fresh (uninjected) cleanup.
-    monkeypatch.setattr(db_session, "execute", real_execute)
-    await db_session.rollback()
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (
+        await db_session.scalar(select(Project.id).where(Project.id == project_id))
+        is None
+    )
+    assert (
+        await db_session.scalar(select(BugReport.id).where(BugReport.id == bug_id))
+        is None
+    )
+    assert not set(
+        await db_session.scalars(select(Task.id).where(Task.id.in_(task_ids)))
+    )
+    assert not set(
+        await db_session.scalars(select(User.email).where(User.email.in_(emails)))
+    )
