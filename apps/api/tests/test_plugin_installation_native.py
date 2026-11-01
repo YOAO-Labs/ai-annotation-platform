@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +15,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_inference_contract.plugin import PreparePluginInstallation
+from aap_inference_contract.routing import (
+    make_routing_command,
+    routing_command_bytes,
+    routing_command_sha256,
+)
 from app.config import settings
 from app.services.inference_backend_control import capture_backend_endpoint_subject
 from app.services.inference_topology_data import InferenceTopologyData
@@ -25,6 +30,13 @@ from tests.test_inference_routing_native import (
     _identity_hash,
     _step,
 )
+from tests.test_video_execution_native import (
+    _cleanup_claimed_scope,
+    _proof,
+    _routing_step as _routing_db_step,
+    _step as _jobs_step,
+)
+from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -90,6 +102,98 @@ def _evidence(payload, *, boot_id=None, control_epoch=None):
         "boot_id": boot_id or str(uuid4()),
         "control_epoch": control_epoch,
     }
+
+
+async def _prepare_tracker_route(db, registry_id):
+    actor, project, item_id, task_id, job = await _seed_tracker_job(db)
+    await _capture(db, actor, job.id)
+    claim = (
+        await _jobs_step(
+            db,
+            "claim",
+            {"job_id": str(job.id), "worker_id": str(uuid4()), "lease_seconds": 120},
+        )
+    )["execution"]
+    proof = _proof(job.id, claim)
+    request_id = uuid4()
+    scope_id = uuid5(request_id, "aap-video-execution-scope/v1")
+    body = {
+        "pool_id": None,
+        "registry_id": str(registry_id),
+        "project_id": str(project.id),
+        "mode": "direct",
+        "required_instance_id": str(registry_id),
+        "owner": f"tracker:{job.id}",
+        "operation": "tracker",
+        "execution": proof,
+    }
+    command = make_routing_command("video_acquire", body, request_id=request_id)
+    arguments = {
+        **proof,
+        "request_id": str(request_id),
+        "command": json.loads(routing_command_bytes(command)),
+        "command_sha256": routing_command_sha256(command),
+        "scope_id": str(scope_id),
+    }
+    result = await db.scalar(
+        text("SELECT aap_inference_routing_v1.video_execution_scope_step('prepare',:args)"),
+        {"args": json.dumps(arguments, separators=(",", ":"))},
+    )
+    if isinstance(result, str):
+        result = json.loads(result)
+    assert result["status"] == "ok"
+    dataset_id = await db.scalar(
+        text("SELECT dataset_id FROM public.dataset_items WHERE id=:id"),
+        {"id": item_id},
+    )
+    return {
+        "scope_id": scope_id,
+        "registry_id": registry_id,
+        "proof": proof,
+        "request_id": request_id,
+        "digest": arguments["command_sha256"],
+        "actor_id": actor,
+        "project_id": project.id,
+        "dataset_id": dataset_id,
+        "item_id": item_id,
+        "task_id": task_id,
+        "job_id": job.id,
+    }
+
+
+async def _reserve_tracker_route(db, route):
+    snapshot = await _routing_db_step(
+        db,
+        "admission_snapshot",
+        {
+            "pool_id": None,
+            "registry_id": str(route["registry_id"]),
+            "project_id": str(route["project_id"]),
+            "mode": "direct",
+            "required_instance_id": str(route["registry_id"]),
+            "health_max_age_seconds": 60,
+        },
+    )
+    if snapshot["status"] != "ok":
+        return snapshot
+    result = await db.scalar(
+        text("SELECT aap_inference_routing_v1.video_execution_scope_step('reserve',:args)"),
+        {
+            "args": json.dumps(
+                {
+                    **route["proof"],
+                    "request_id": str(route["request_id"]),
+                    "command_sha256": route["digest"],
+                    "scope_id": str(route["scope_id"]),
+                    "snapshot": snapshot["snapshot"],
+                    "candidate_ids": [str(route["registry_id"])],
+                    "ttl_ms": 60000,
+                },
+                separators=(",", ":"),
+            )
+        },
+    )
+    return json.loads(result) if isinstance(result, str) else result
 
 
 async def test_cancel_prepared_is_revision_fenced_and_retains_history(
@@ -328,25 +432,17 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
         payload.installation_id, 1, "record_launch", _receipt(payload)
     )
     await data.command_plugin_installation(payload.installation_id, 2, "activate", evidence)
-    scope_id = uuid4()
+    route = await _prepare_tracker_route(db_session, payload.installation_id)
+    assert (await _reserve_tracker_route(db_session, route))["status"] == "ok"
+    scope_id = route["scope_id"]
     await db_session.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.scopes "
-            "(id,command_sha256,registry_id,mode,owner,operation,config_revision,"
-            "eligibility_revision,authority_epoch,realm,state,closed,heartbeat_deadline) "
-            "SELECT :scope,:digest,registry_id,'direct','tracker:fixture','tracker',"
-            "config_revision,eligibility_revision,authority_epoch,realm,:state,"
-            ":closed,pg_catalog.clock_timestamp()+interval '1 minute' "
-            "FROM aap_inference_routing_v1.registry_state WHERE registry_id=:registry"
+            "UPDATE aap_inference_routing_v1.scopes SET state=:state,closed=:closed "
+            "WHERE id=:scope"
         ),
-        {
-            "scope": scope_id,
-            "digest": "a" * 64,
-            "registry": payload.installation_id,
-            "state": scope_state,
-            "closed": scope_state != "active",
-        },
+        {"scope": scope_id, "state": scope_state, "closed": scope_state != "active"},
     )
+    later = await _prepare_tracker_route(db_session, payload.installation_id)
     with pytest.raises(ValueError):
         async with db_session.begin_nested():
             await data.command_plugin_installation(payload.installation_id, 3, "disable")
@@ -381,20 +477,9 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
     await data.check_plugin_tracker_retirement(
         payload.installation_id, disabled.installation.revision
     )
-    with pytest.raises(DBAPIError):
+    with pytest.raises(DBAPIError, match="disabled plugin cannot admit tracker scopes"):
         async with db_session.begin_nested():
-            await db_session.execute(
-                text(
-                    "INSERT INTO aap_inference_routing_v1.scopes "
-                    "(id,command_sha256,registry_id,mode,owner,operation,config_revision,"
-                    "eligibility_revision,authority_epoch,realm,state,closed,heartbeat_deadline) "
-                    "SELECT :scope,:digest,registry_id,'direct','tracker:late','tracker',"
-                    "config_revision,eligibility_revision,authority_epoch,realm,'reserved',"
-                    "false,pg_catalog.clock_timestamp()+interval '1 minute' "
-                    "FROM aap_inference_routing_v1.registry_state WHERE registry_id=:registry"
-                ),
-                {"scope": uuid4(), "digest": "c" * 64, "registry": payload.installation_id},
-            )
+            await _reserve_tracker_route(db_session, later)
 
 
 async def test_revision_quiescence_retirement_and_launch_fence(db_session, test_engine):
@@ -572,7 +657,7 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     payload = _payload()
     registry_id = payload.installation_id
-    scope_id = uuid4()
+    route = None
     owner = await _connect(test_engine)
     world = {"registry_id": registry_id, "pool_id": None}
     try:
@@ -588,26 +673,12 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(
             pool = await data.pool_for_registry(registry_id)
             assert pool is not None
             world["pool_id"] = pool.id
+            route = await _prepare_tracker_route(db, registry_id)
 
         async with maker() as holder, maker() as contender, maker() as observer:
             holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
             contender_pid = await contender.scalar(text("SELECT pg_backend_pid()"))
 
-            async def insert_scope(db):
-                return await db.execute(
-                    text(
-                        "INSERT INTO aap_inference_routing_v1.scopes "
-                        "(id,command_sha256,registry_id,mode,owner,operation,"
-                        "config_revision,eligibility_revision,authority_epoch,realm,"
-                        "state,closed,heartbeat_deadline) "
-                        "SELECT :scope,:digest,registry_id,'direct','tracker:race',"
-                        "'tracker',config_revision,eligibility_revision,authority_epoch,"
-                        "realm,'reserved',false,pg_catalog.clock_timestamp()+"
-                        "interval '1 minute' FROM aap_inference_routing_v1.registry_state "
-                        "WHERE registry_id=:registry"
-                    ),
-                    {"scope": scope_id, "digest": "a" * 64, "registry": registry_id},
-                )
 
             async def disable(db):
                 return await InferenceTopologyData(db).command_plugin_installation(
@@ -616,37 +687,56 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(
 
             if first == "disable":
                 assert (await disable(holder)).installation.status == "disabled"
-                blocked = asyncio.create_task(insert_scope(contender))
-            else:
-                await insert_scope(holder)
-                blocked = asyncio.create_task(disable(contender))
-            try:
-                async with asyncio.timeout(10):
-                    while not await observer.scalar(
-                        text("SELECT :holder = ANY(pg_catalog.pg_blocking_pids(:waiter))"),
-                        {"holder": holder_pid, "waiter": contender_pid},
-                    ):
-                        await asyncio.sleep(0.02)
+                result = await _reserve_tracker_route(contender, route)
+                assert result["status"] == "rejected"
+                assert result["reason"] == "management_busy"
+                await contender.rollback()
                 await holder.commit()
-                with pytest.raises(DBAPIError if first == "disable" else ValueError):
-                    await asyncio.wait_for(blocked, timeout=10)
+                with pytest.raises(DBAPIError, match="disabled plugin cannot admit tracker scopes"):
+                    async with contender.begin_nested():
+                        await _reserve_tracker_route(contender, route)
                 await contender.rollback()
-                current = await InferenceTopologyData(observer).get_plugin_installation(
-                    registry_id
-                )
-                assert current.installation.status == (
-                    "disabled" if first == "disable" else "active"
-                )
-            finally:
-                await holder.rollback()
-                if not blocked.done():
-                    blocked.cancel()
-                await asyncio.gather(blocked, return_exceptions=True)
-                await contender.rollback()
+            else:
+                assert (await _reserve_tracker_route(holder, route))["status"] == "ok"
+                blocked = asyncio.create_task(disable(contender))
+                try:
+                    async with asyncio.timeout(10):
+                        while not await observer.scalar(
+                            text("SELECT :holder = ANY(pg_catalog.pg_blocking_pids(:waiter))"),
+                            {"holder": holder_pid, "waiter": contender_pid},
+                        ):
+                            await asyncio.sleep(0.02)
+                    await holder.commit()
+                    with pytest.raises(ValueError):
+                        await asyncio.wait_for(blocked, timeout=10)
+                    await contender.rollback()
+                finally:
+                    await holder.rollback()
+                    if not blocked.done():
+                        blocked.cancel()
+                    await asyncio.gather(blocked, return_exceptions=True)
+                    await contender.rollback()
+            current = await InferenceTopologyData(observer).get_plugin_installation(
+                registry_id
+            )
+            assert current.installation.status == (
+                "disabled" if first == "disable" else "active"
+            )
     finally:
         try:
             if world["pool_id"] is not None:
                 await _cleanup(owner, world)
+            if route is not None:
+                await _cleanup_claimed_scope(
+                    test_engine,
+                    actor_id=route["actor_id"],
+                    project_id=route["project_id"],
+                    dataset_id=route["dataset_id"],
+                    item_id=route["item_id"],
+                    task_id=route["task_id"],
+                    job_id=route["job_id"],
+                    scope_id=route["scope_id"],
+                )
         finally:
             await owner.close()
 

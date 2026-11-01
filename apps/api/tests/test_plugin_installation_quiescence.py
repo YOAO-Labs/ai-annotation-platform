@@ -8,6 +8,10 @@ from sqlalchemy import text
 from app.api.v1 import admin_plugin_installations as routes
 from app.services.inference_topology_data import InferenceTopologyData
 from tests.test_plugin_installation_api import BASE, allow_routing_binding, payload
+from tests.test_plugin_installation_native import (
+    _prepare_tracker_route,
+    _reserve_tracker_route,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -65,19 +69,15 @@ async def test_stop_refuses_unretired_tracker_even_after_logical_close(
     path, headers, receipt, revision = await prepared_launch(
         httpx_client, super_admin, monkeypatch, leave_active=True
     )
-    scope_id = uuid4()
-    registry_id = UUID(receipt["registry_id"])
+    route = await _prepare_tracker_route(db_session, UUID(receipt["registry_id"]))
+    assert (await _reserve_tracker_route(db_session, route))["status"] == "ok"
+    scope_id = route["scope_id"]
     await db_session.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.scopes "
-            "(id,command_sha256,registry_id,mode,owner,operation,config_revision,"
-            "eligibility_revision,authority_epoch,realm,state,closed,heartbeat_deadline) "
-            "SELECT :scope,:digest,registry_id,'direct','tracker:fixture','tracker',"
-            "config_revision,eligibility_revision,authority_epoch,realm,'finished',"
-            "true,pg_catalog.clock_timestamp()+interval '1 minute' "
-            "FROM aap_inference_routing_v1.registry_state WHERE registry_id=:registry"
+            "UPDATE aap_inference_routing_v1.scopes SET state='finished',closed=true "
+            "WHERE id=:scope"
         ),
-        {"scope": scope_id, "digest": "a" * 64, "registry": registry_id},
+        {"scope": scope_id},
     )
     await db_session.commit()
     rejected = await httpx_client.post(
