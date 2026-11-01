@@ -28,18 +28,22 @@ from app.services.workspace_e2e_fixtures import (
 )
 from app.services.workspace_seed_data import register_seed_project_projection
 from tests.factory import create_user
-from tests import test_seed_owned as owned_cases
-from tests import test_seed_router as seed_cases
-from tests.test_identity_e2e_native import fenced_http as _fenced_http
-from tests.test_identity_e2e_native import committed_owner as _committed_owner
+from tests import seed_owned_scenarios as owned_cases
+from tests import seed_router_scenarios as seed_cases
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    fenced_http as fenced_http,
+    scenario_rle_bindings as scenario_rle_bindings,
+)
+from tests.test_training_dataset_references import (
+    committed_rle_bindings as committed_rle_bindings,
+)
 from tests.test_workspace_consumer_profile_native import _assert_closed, _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
 CAPTURE = os.getenv("AAP_WORKSPACE_E2E_CAPTURE") == "1"
 ORACLE = ROOT / "apps/api/tests/fixtures/workspace_e2e_legacy.json"
 NAMESPACE = "wkse2e"
-fenced_http = _fenced_http
-committed_owner = _committed_owner
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -155,23 +159,24 @@ async def test_original_workspace_fixture_rows(
 @pytest.mark.parametrize(
     "scenario",
     [
-        seed_cases.test_project_roles_seed_builds_multi_project_employee_matrix,
-        seed_cases.test_project_roles_seed_is_idempotent,
-        seed_cases.test_seed_reset_is_idempotent_with_singleton_pool,
-        seed_cases.test_seed_cleanup_is_idempotent_and_preserves_non_e2e_data,
-        seed_cases.test_seed_raster_mask_project_opt_in_and_content_fixtures,
-        owned_cases.test_owned_cleanup_is_exact_idempotent_and_neighbour_safe,
-        owned_cases.test_owned_rebuild_is_retry_safe,
-        owned_cases.test_owned_filtering_fixture_is_namespaced_and_converges,
-        owned_cases.test_legacy_shared_filtering_cleanup_reports_exact_failures,
-        owned_cases.test_owned_lidar_fixture_is_namespaced,
-        owned_cases.test_owned_project_roles_fixture_is_namespaced,
-        owned_cases.test_owned_cleanup_exposes_residuals_on_partial_failure,
+        seed_cases.project_roles_seed_builds_multi_project_employee_matrix,
+        seed_cases.project_roles_seed_is_idempotent,
+        seed_cases.seed_reset_is_idempotent_with_singleton_pool,
+        seed_cases.seed_cleanup_is_idempotent_and_preserves_non_e2e_data,
+        seed_cases.seed_raster_mask_project_opt_in_and_content_fixtures,
+        owned_cases.owned_cleanup_is_exact_idempotent_and_neighbour_safe,
+        owned_cases.owned_rebuild_is_retry_safe,
+        owned_cases.owned_filtering_fixture_is_namespaced_and_converges,
+        owned_cases.legacy_shared_filtering_cleanup_reports_exact_failures,
+        owned_cases.owned_lidar_fixture_is_namespaced,
+        owned_cases.owned_project_roles_fixture_is_namespaced,
+        owned_cases.owned_cleanup_exposes_residuals_on_partial_failure,
     ],
-    ids=lambda scenario: scenario.__name__,
+    ids=lambda scenario: "test_" + scenario.__name__,
 )
 async def test_original_http_consumers_with_private_workspace_denied(
     scenario,
+    scenario_rle_bindings,
     fenced_http,
     committed_owner,
     monkeypatch,
@@ -189,7 +194,7 @@ async def test_original_http_consumers_with_private_workspace_denied(
     arguments = inspect.signature(scenario).parameters
     assert set(arguments).issubset(values)
     await scenario(**{name: values[name] for name in arguments})
-    record_property("workspace_e2e_original_http_case", scenario.__name__)
+    record_property("workspace_e2e_original_http_case", "test_" + scenario.__name__)
 
 
 @pytest.mark.parametrize("autoflush", [True, False])

@@ -10,29 +10,31 @@ import os
 import subprocess
 import uuid
 
-import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from aap_identity.e2e_fixture_contract import ACCOUNT_PROFILE_FIELDS
-from app.deps import get_db
-from tests import test_seed_owned as owned_cases
-from tests import test_seed_router as seed_cases
-from tests.test_labeling_counter_deltas_workflows_native import _configure_actual_api
-from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-from tests.test_identity_e2e_replay import (
+from tests import seed_owned_scenarios as owned_cases
+from tests import seed_router_scenarios as seed_cases
+from tests.identity_e2e_support import (
     ROOT,
     IDS,
     STAMP,
     accounts,
     snapshot,
-    e2e_consumer as _e2e_consumer,
+    committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    scenario_rle_bindings as scenario_rle_bindings,
+)
+from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_training_dataset_references import (
+    committed_rle_bindings as committed_rle_bindings,
 )
 
-e2e_consumer = _e2e_consumer
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -42,112 +44,31 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
-async def fenced_http(
-    app_module,
-    e2e_consumer,
-    test_engine,
-    monkeypatch,
-    media_dispatcher,
-    dataset_dispatcher,
-):
-    _configure_actual_api(test_engine, monkeypatch)
-    original = app_module.dependency_overrides.get(get_db)
-    maker = async_sessionmaker(e2e_consumer, expire_on_commit=False)
-
-    async def connection():
-        async with maker() as db:
-            yield db
-
-    app_module.dependency_overrides[get_db] = connection
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app_module),
-        base_url="http://identity-e2e.test",
-    ) as client:
-        try:
-            yield client
-        finally:
-            if original is None:
-                app_module.dependency_overrides.pop(get_db, None)
-            else:
-                app_module.dependency_overrides[get_db] = original
-
-
-@pytest.fixture
-async def committed_owner(fenced_http, test_engine):
-    # Original cases share an uncommitted connection with their API fixture.
-    # Independent LOGIN requests need metadata setup to commit for real.
-    tables = ("users", "projects", "ml_backend_registry")
-    async with test_engine.connect() as db:
-        before = {
-            table: set((await db.scalars(text(f"SELECT id FROM {table}"))).all())
-            for table in tables
-        }
-    try:
-        async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
-            yield db
-    finally:
-        for namespace in (owned_cases.A, owned_cases.B):
-            response = await fenced_http.post(
-                "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
-            )
-            assert response.status_code == 200, response.text
-        response = await fenced_http.post("/api/v1/__test/seed/cleanup")
-        assert response.status_code == 200, response.text
-        # Keeper rows prove product cleanup preserves ordinary data. The test
-        # owner removes only the exact rows this case created after that proof.
-        async with test_engine.begin() as db:
-            added = {
-                table: list(
-                    set((await db.scalars(text(f"SELECT id FROM {table}"))).all())
-                    - before[table]
-                )
-                for table in tables
-            }
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(
-                text("DELETE FROM projects WHERE id=ANY(:ids)"),
-                {"ids": added["projects"]},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM ml_backend_service_pools WHERE legacy_instance_id=ANY(:ids)"
-                ),
-                {"ids": added["ml_backend_registry"]},
-            )
-            await db.execute(
-                text("DELETE FROM ml_backend_registry WHERE id=ANY(:ids)"),
-                {"ids": added["ml_backend_registry"]},
-            )
-            await db.execute(
-                text("DELETE FROM users WHERE id=ANY(:ids)"), {"ids": added["users"]}
-            )
-
-
 @pytest.mark.parametrize(
     "scenario",
     [
-        seed_cases.test_seed_reset_returns_fixture_payload,
-        seed_cases.test_project_roles_seed_builds_multi_project_employee_matrix,
-        seed_cases.test_project_roles_seed_is_idempotent,
-        seed_cases.test_seed_reset_is_idempotent_with_singleton_pool,
-        seed_cases.test_seed_login_after_reset_returns_jwt,
-        seed_cases.test_seed_login_unknown_email_404,
-        seed_cases.test_seed_raster_mask_project_opt_in_and_content_fixtures,
-        seed_cases.test_seed_raster_mask_media_canvas_preserves_item_dimensions,
-        seed_cases.test_seed_reset_preserves_dev_data,
-        owned_cases.test_owned_cleanup_is_exact_idempotent_and_neighbour_safe,
-        owned_cases.test_owned_rebuild_is_retry_safe,
-        owned_cases.test_owned_filtering_fixture_is_namespaced_and_converges,
-        owned_cases.test_owned_lidar_fixture_is_namespaced,
-        owned_cases.test_owned_project_roles_fixture_is_namespaced,
-        owned_cases.test_owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours,
-        owned_cases.test_owned_cleanup_exposes_residuals_on_partial_failure,
+        seed_cases.seed_reset_returns_fixture_payload,
+        seed_cases.project_roles_seed_builds_multi_project_employee_matrix,
+        seed_cases.project_roles_seed_is_idempotent,
+        seed_cases.seed_reset_is_idempotent_with_singleton_pool,
+        seed_cases.seed_login_after_reset_returns_jwt,
+        seed_cases.seed_login_unknown_email_404,
+        seed_cases.seed_raster_mask_project_opt_in_and_content_fixtures,
+        seed_cases.seed_raster_mask_media_canvas_preserves_item_dimensions,
+        seed_cases.seed_reset_preserves_dev_data,
+        owned_cases.owned_cleanup_is_exact_idempotent_and_neighbour_safe,
+        owned_cases.owned_rebuild_is_retry_safe,
+        owned_cases.owned_filtering_fixture_is_namespaced_and_converges,
+        owned_cases.owned_lidar_fixture_is_namespaced,
+        owned_cases.owned_project_roles_fixture_is_namespaced,
+        owned_cases.owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours,
+        owned_cases.owned_cleanup_exposes_residuals_on_partial_failure,
     ],
-    ids=lambda scenario: scenario.__name__,
+    ids=lambda scenario: "test_" + scenario.__name__,
 )
 async def test_original_http_consumers_with_private_identity_denied(
     scenario,
+    scenario_rle_bindings,
     fenced_http,
     committed_owner,
     monkeypatch,
@@ -165,7 +86,7 @@ async def test_original_http_consumers_with_private_identity_denied(
     arguments = inspect.signature(scenario).parameters
     assert set(arguments).issubset(values)
     await scenario(**{name: values[name] for name in arguments})
-    record_property("identity_e2e_original_http_case", scenario.__name__)
+    record_property("identity_e2e_original_http_case", "test_" + scenario.__name__)
 
 
 async def test_node_fixture_contract_and_borrowed_rollback(
@@ -228,22 +149,66 @@ async def test_node_fixture_contract_and_borrowed_rollback(
             await transaction.rollback()
         assert await snapshot(test_engine) == before
         async with test_engine.connect() as db:
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
-                    )
-                )
-                == 5
+            signatures = (
+                "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+                "aap_identity_v1.read_actor_facts(uuid)",
+                "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
+                "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
+                "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+                "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+                "aap_identity_v1.is_jti_revoked(uuid)",
+                "aap_identity_v1.get_credential_generation(uuid)",
             )
-            assert (
+            expected = {
                 await db.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' AND c.relkind='v' AND has_table_privilege('identity_api_consumer',c.oid,'SELECT')"
-                    )
+                    text("SELECT CAST(:signature AS regprocedure)::oid"),
+                    {"signature": signature},
                 )
-                == 2
+                for signature in signatures
+            }
+            actual = set(
+                (
+                    await db.scalars(
+                        text(
+                            "SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                            "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                            "AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
+                        )
+                    )
+                ).all()
             )
+            assert actual == expected
+            for relation in (
+                "users",
+                "user_invitations",
+                "password_reset_tokens",
+                "organization_members",
+            ):
+                assert not await db.scalar(
+                    text(
+                        "SELECT has_table_privilege('identity_api_consumer', :relation, "
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
+                        "OR has_any_column_privilege('identity_api_consumer', :relation, "
+                        "'SELECT,INSERT,UPDATE,REFERENCES')"
+                    ),
+                    {"relation": "public." + relation},
+                )
+            views = set(
+                (
+                    await db.scalars(
+                        text(
+                            "SELECT n.nspname || '.' || c.relname FROM pg_class c "
+                            "JOIN pg_namespace n ON n.oid=c.relnamespace "
+                            "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                            "AND c.relkind='v' AND has_table_privilege('identity_api_consumer',c.oid,'SELECT')"
+                        )
+                    )
+                ).all()
+            )
+            assert views == {
+                "aap_identity_v1.account_profiles",
+                "aap_identity_v1.invitation_audit_targets",
+            }
         record_property("identity_e2e_node", output)
 
 

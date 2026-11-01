@@ -8,7 +8,7 @@ from app.db.models.task import Task
 from app.db.models.task_original import TaskOriginal
 from app.services import managed_original_creation as creations
 from app.services.storage import storage_service
-from tests.test_seed_owned import _build_owned, _cleanup_owned
+from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
 
 
 async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(
