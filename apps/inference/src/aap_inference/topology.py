@@ -98,6 +98,7 @@ class BackendTopologyData(Protocol):
     async def flush(self) -> None: ...
     async def lock_project_reference(self, project_id: UUID) -> None: ...
     async def registry_facts(self, registry_id: UUID) -> RegistryPublicFacts | None: ...
+    async def registry_auth_snapshot(self, registry_id: UUID) -> dict | None: ...
     async def registry_url_owner(self, url: str) -> RegistryName | None: ...
     async def registry_catalog(self) -> list[RegistryPublicFacts]: ...
     async def registry_names(self, registry_ids: Sequence[UUID]) -> dict[UUID, str]: ...
@@ -139,8 +140,8 @@ class BackendTopologyData(Protocol):
     async def create_singleton_member(
         self, registry_id: UUID, pool_id: UUID, member_id: UUID
     ) -> PoolMemberFacts: ...
-    async def patch_registry(
-        self, registry_id: UUID, patch: Mapping[str, Any]
+    async def patch_registry_auth_cas(
+        self, registry_id: UUID, patch: Mapping[str, Any], snapshot: Mapping[str, Any]
     ) -> RegistryPublicFacts | None: ...
     async def validate_registry_delete(self, registry_id: UUID) -> tuple[bool, int]: ...
     async def delete_registry(
@@ -421,6 +422,9 @@ class BackendTopologyCoordinator:
     async def get_registry(self, registry_id: UUID) -> RegistryPublicFacts | None:
         return await self.data.registry_facts(registry_id)
 
+    async def registry_auth_snapshot(self, registry_id: UUID) -> dict | None:
+        return await self.data.registry_auth_snapshot(registry_id)
+
     async def get_by_url(self, url: str) -> RegistryPublicFacts | None:
         owner = await self.data.registry_url_owner(url.rstrip("/"))
         return await self.data.registry_facts(owner.id) if owner is not None else None
@@ -435,7 +439,7 @@ class BackendTopologyCoordinator:
         return await self.data.registry_reference(registry_id)
 
     async def update_registry(
-        self, registry_id: UUID, **kwargs: Any
+        self, registry_id: UUID, *, expected_auth: Mapping[str, Any], **kwargs: Any
     ) -> RegistryPublicFacts | None:
         mutable_fields = {
             "name",
@@ -469,7 +473,7 @@ class BackendTopologyCoordinator:
             owner = await self.data.registry_url_owner(patch["url"])
             if owner is not None and owner.id != row.id:
                 raise RegistryURLConflict(owner.name)
-        updated = await self.data.patch_registry(registry_id, patch)
+        updated = await self.data.patch_registry_auth_cas(registry_id, patch, expected_auth)
         await self.data.flush()
         return updated
 

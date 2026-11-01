@@ -263,11 +263,16 @@ def _patch_unregistered_smoke(
 
     async def smoke_unregistered(endpoint, body):
         calls.append(("smoke", endpoint.url, body))
-        return smoke_result or {
-            "reload": {"ok": True, "reloaded": True, **body},
-            "auto_unloaded": True,
-            "load_latency_ms": 11,
-        }
+        from aap_inference_contract.backend_control import BackendUnregisteredSmokeResult
+
+        return BackendUnregisteredSmokeResult.model_validate(
+            smoke_result
+            or {
+                "reload": {"ok": True, "reloaded": True, **body},
+                "auto_unloaded": True,
+                "load_latency_ms": 11,
+            }
+        )
 
     _patch_control(
         monkeypatch,

@@ -346,10 +346,6 @@ class BackendRequestOnlyProbeRequest(_StrictModel):
             raise ValueError("request-only probe requires an endpoint")
         if len({endpoint.url for endpoint in self.endpoints}) != len(self.endpoints):
             raise ValueError("request-only endpoints must be unique")
-        if self.operation == "environment_observation" and any(
-            endpoint.auth_method != "none" for endpoint in self.endpoints
-        ):
-            raise ValueError("environment observations cannot carry credentials")
         return self
 
 

@@ -1,14 +1,18 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 import uuid
 
 import httpx
 import pytest
+from aap_inference.topology import BackendTopologyCoordinator
 from aap_protocol_v2.managed_credential import read_credential
 from fastapi import HTTPException
+from sqlalchemy import text
 
 from app.config import settings
+from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services import managed_inference_auth as auth
 from app.services.ml_backend import MLBackendService
 from tests.test_ml_client_metrics import _transport
@@ -114,47 +118,79 @@ async def test_failure_keeps_private_file_for_retry_and_never_succeeds(
     assert read_credential(store) == token
 
 
-async def test_managed_save_cas_rejects_concurrent_endpoint_change(store, monkeypatch):
-    row = SimpleNamespace(
-        url="http://yolo.test:8003",
-        auth_revision=0,
-        auth_method="none",
-        auth_token=None,
+@pytest.mark.parametrize("change", ["url", "auth", "auth_restored"])
+async def test_managed_save_cas_rejects_concurrent_endpoint_or_auth_change(
+    db_session, change
+):
+    registry_id = uuid.uuid4()
+    db_session.add(
+        MLBackendRegistry(id=registry_id, name="auth-cas", url="http://yolo.test:8003")
     )
-
-    async def initialize(*_):
-        row.url = "http://third-party.test"
-        return "a" * 64
-
-    monkeypatch.setattr(auth, "initialize_managed_auth", initialize)
-    db = AsyncMock()
-    db.scalar.return_value = row
-    svc = MLBackendService(db)
-    monkeypatch.setattr(svc, "get", AsyncMock(return_value=row))
+    await db_session.flush()
+    data = InferenceTopologyData(db_session)
+    snapshot = await data.registry_auth_snapshot(registry_id)
+    if change == "url":
+        await db_session.execute(
+            text("UPDATE ml_backend_registry SET url=:url WHERE id=:id"),
+            {"url": "http://other.test", "id": registry_id},
+        )
+    else:
+        await db_session.execute(
+            text("UPDATE ml_backend_registry SET auth_method='token', auth_token='manual' WHERE id=:id"),
+            {"id": registry_id},
+        )
+        if change == "auth_restored":
+            await db_session.execute(
+                text("UPDATE ml_backend_registry SET auth_method='none', auth_token=NULL WHERE id=:id"),
+                {"id": registry_id},
+            )
     with pytest.raises(HTTPException) as error:
-        await svc.update(uuid.uuid4(), auth_method="managed:yolo")
+        async with db_session.begin_nested():
+            await data.patch_registry_auth_cas(
+                registry_id, {"auth_method": "managed:yolo", "auth_token": "a" * 64},
+                snapshot,
+            )
     assert error.value.status_code == 409
-    assert row.auth_token is None and row.auth_method == "none"
-    db.flush.assert_not_called()
+    row = (
+        await db_session.execute(
+            text("SELECT url, auth_method, auth_token FROM ml_backend_registry WHERE id=:id"),
+            {"id": registry_id},
+        )
+    ).one()
+    assert row == (
+        "http://other.test" if change == "url" else "http://yolo.test:8003",
+        "token" if change == "auth" else "none",
+        "manual" if change == "auth" else None,
+    )
 
 
 async def test_switching_managed_to_manual_cannot_reuse_local_secret(
     store, monkeypatch
 ):
     row = SimpleNamespace(
+        id=uuid.uuid4(),
         url="http://yolo.test:8003",
-        auth_revision=1,
+        extra_params=None,
         auth_method="managed:yolo",
-        auth_token="a" * 64,
     )
-    db = AsyncMock()
-    db.scalar.return_value = row
-    svc = MLBackendService(db)
-    monkeypatch.setattr(svc, "get", AsyncMock(return_value=row))
-    with pytest.raises(HTTPException):
-        await svc.update(uuid.uuid4(), auth_method="token")
+
+    class Data:
+        async def registry_facts(self, registry_id):
+            return row if registry_id == row.id else None
+
+        async def registry_auth_snapshot(self, registry_id):
+            return {"url": row.url, "auth_method": row.auth_method, "auth_revision": 1}
+
+        async def patch_registry_auth_cas(self, *_):
+            pytest.fail("rejected update must not change the registry")
+
+    monkeypatch.setattr(
+        MLBackendService, "_topology", lambda _: BackendTopologyCoordinator(Data())
+    )
+    with pytest.raises(HTTPException) as error:
+        await MLBackendService(AsyncMock()).update(row.id, auth_method="token")
+    assert error.value.status_code == 422
     assert row.auth_method == "managed:yolo"
-    db.flush.assert_not_called()
 
 
 def test_client_none_stays_public_and_managed_requires_materialized_value(store):
@@ -173,52 +209,104 @@ def test_client_none_stays_public_and_managed_requires_materialized_value(store)
         asyncio.run(_transport(row).health_meta())
     row.auth_token = "a" * 64
     assert _transport(row)._headers()["Authorization"] == f"Bearer {row.auth_token}"
-    client = _transport(row)._http_client(timeout=1)
-    assert client._trust_env is False and client.follow_redirects is False
 
 
 async def test_batch_sync_preserves_manual_auth_saved_after_status_snapshot(
     store, monkeypatch
 ):
     row = SimpleNamespace(
+        id=uuid.uuid4(),
         url="http://yolo.test:8003",
-        auth_revision=2,
+        extra_params=None,
         auth_method="token",
-        auth_token="manual-existing",
     )
-    initialize = AsyncMock()
-    monkeypatch.setattr(auth, "initialize_managed_auth", initialize)
-    db = AsyncMock()
-    svc = MLBackendService(db)
-    monkeypatch.setattr(svc, "get", AsyncMock(return_value=row))
+
+    class Data:
+        async def registry_facts(self, registry_id):
+            return row if registry_id == row.id else None
+
+        async def registry_auth_snapshot(self, registry_id):
+            return {"url": row.url, "auth_method": row.auth_method, "auth_revision": 2}
+
+        async def patch_registry_auth_cas(self, *_):
+            pytest.fail("manual credentials must not be overwritten")
+
+    monkeypatch.setattr(
+        MLBackendService, "_topology", lambda _: BackendTopologyCoordinator(Data())
+    )
     with pytest.raises(HTTPException) as error:
-        await svc.update(
-            uuid.uuid4(), preserve_manual_auth=True, auth_method="managed:yolo"
+        await MLBackendService(AsyncMock()).update(
+            row.id, preserve_manual_auth=True, auth_method="managed:yolo"
         )
     assert error.value.detail["error_code"] == "manual_auth_preserved"
-    assert row.auth_token == "manual-existing" and row.auth_method == "token"
-    initialize.assert_not_called()
-    db.flush.assert_not_called()
+    assert row.auth_method == "token"
+    assert not store.exists()
 
 
+@pytest.mark.parametrize("explicit_none", [False, True])
 async def test_new_trusted_registry_defaults_to_managed_but_explicit_none_is_preserved(
-    store, monkeypatch
+    store, monkeypatch, explicit_none
 ):
-    initialize = AsyncMock(return_value="b" * 64)
-    monkeypatch.setattr(auth, "initialize_managed_auth", initialize)
-    db = AsyncMock()
-    db.add = MagicMock()
-    svc = MLBackendService(db)
-    monkeypatch.setattr(svc, "_create_singleton_pool", AsyncMock())
-    created = await svc.create_registry("YOLO", "http://yolo.test:8003")
-    assert created.auth_method == "managed:yolo" and created.auth_token == "b" * 64
-    initialize.assert_awaited_once_with("http://yolo.test:8003", None, "managed:yolo")
-    initialize.reset_mock()
-    public = await svc.create_registry(
-        "Explicit public", "http://yolo.test:8003", auth_method="none"
+    class Data:
+        def __init__(self):
+            self.rows = {}
+
+        async def registry_url_owner(self, url):
+            return None
+
+        async def flush(self):
+            pass
+
+        async def create_manual_registry(self, registry_id, values):
+            self.rows[registry_id] = dict(values)
+            return SimpleNamespace(
+                id=registry_id,
+                name=values["name"],
+                auth_method=values["auth_method"],
+                credential_configured=bool(values.get("auth_token")),
+                health_meta=None,
+            )
+
+        async def singleton_pool(self, _registry_id):
+            return None
+
+        async def create_singleton_pool(self, _registry_id, pool_id, *_):
+            return SimpleNamespace(id=pool_id)
+
+        async def create_singleton_member(self, *_):
+            pass
+
+    requests = []
+    original = httpx.AsyncClient
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json={"provider": "yolo", "mode": "managed"})
+
+    monkeypatch.setattr(
+        auth.httpx, "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
     )
-    assert public.auth_method == "none" and public.auth_token is None
-    initialize.assert_not_called()
+    data = Data()
+    monkeypatch.setattr(
+        MLBackendService, "_topology", lambda _: BackendTopologyCoordinator(data)
+    )
+    kwargs = {"auth_method": "none"} if explicit_none else {}
+    created = await MLBackendService(AsyncMock()).create_registry(
+        "YOLO", "http://yolo.test:8003", **kwargs
+    )
+    stored = data.rows[created.id]
+    if explicit_none:
+        assert created.auth_method == "none"
+        assert not created.credential_configured
+        assert stored.get("auth_token") is None
+        assert requests == [] and not store.exists()
+    else:
+        assert created.auth_method == "managed:yolo"
+        assert created.credential_configured
+        assert stored["auth_token"] == read_credential(store)
+        assert len(requests) == 1
+        assert requests[0].headers["Authorization"] == f"Bearer {stored['auth_token']}"
 
 
 def test_default_credentials_are_independent_persistent_and_checkout_local(

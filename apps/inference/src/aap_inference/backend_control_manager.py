@@ -67,7 +67,9 @@ _HEALTH_META_KEYS = (
     "compute",
     "residency",
 )
-_MANUAL_HEALTH_KEYS = ("gpu_info", "cache", "model_version")
+_MANUAL_HEALTH_KEYS = (
+    "gpu_info", "cache", "model_version", "loaded", "pool", "video_pool", "residency"
+)
 _VARIANT_KEYS = ("sam_variant", "dino_variant")
 _RELOAD_KEYS = ("sam_variant", "dino_variant", "modality", "task_type")
 _SMOKE_RELOAD_RESULT_KEYS = ("sam_variant", "dino_variant", "reloaded")
@@ -344,7 +346,9 @@ class BackendControlManager:
                 await self._manual_probe(request.endpoints[0], request.timeout_seconds)
             ]
         elif request.operation == "environment_observation":
-            async with httpx.AsyncClient(timeout=request.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=request.timeout_seconds, trust_env=False, follow_redirects=False
+            ) as client:
                 facts = list(
                     await asyncio.gather(
                         *(
@@ -368,7 +372,9 @@ class BackendControlManager:
         base = endpoint.url.rstrip("/")
         started = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout_seconds, trust_env=False, follow_redirects=False
+            ) as client:
                 response = await client.get(
                     f"{base}/health", headers=_endpoint_headers(endpoint)
                 )
@@ -459,7 +465,9 @@ class BackendControlManager:
             )
         setup = None
         try:
-            setup_response = await client.get(f"{base}/setup")
+            setup_response = await client.get(
+                f"{base}/setup", headers=_endpoint_headers(endpoint)
+            )
             if setup_response.status_code == 200:
                 setup_data = setup_response.json()
                 if type(setup_data) is dict:
@@ -483,30 +491,41 @@ class BackendControlManager:
         payload = request.body.model_dump(exclude_none=True)
         headers = _endpoint_headers(endpoint)
         started = time.monotonic()
+        reload_succeeded = False
+        reload_error = None
         try:
             async with self.unregistered_smoke_dispatch(base, "reload"):
                 async with httpx.AsyncClient(
-                    timeout=self.options.ml_predict_timeout
+                    timeout=self.options.ml_predict_timeout,
+                    trust_env=False,
+                    follow_redirects=False,
                 ) as client:
                     response = await client.post(
                         f"{base}/reload", json=payload or None, headers=headers
                     )
                     response.raise_for_status()
+                    reload_succeeded = True
                     data = response.json()
             reload_result = _require_object(data)
             load_latency_ms = max(0, int((time.monotonic() - started) * 1000))
         except Exception as error:
-            return self._error_reply(request.request_id, error, [])
+            if not reload_succeeded:
+                return self._error_reply(request.request_id, error, [])
+            reload_error = error
         auto_unloaded = False
         try:
             async with self.unregistered_smoke_dispatch(base, "unload"):
                 async with httpx.AsyncClient(
-                    timeout=self.options.ml_health_timeout
+                    timeout=self.options.ml_health_timeout,
+                    trust_env=False,
+                    follow_redirects=False,
                 ) as client:
                     response = await client.post(f"{base}/unload", headers=headers)
                     auto_unloaded = response.status_code == 200
         except Exception:
             auto_unloaded = False
+        if reload_error is not None:
+            return self._error_reply(request.request_id, reload_error, [])
         return BackendControlReply(
             schema=BACKEND_CONTROL_PROTOCOL,
             request_id=request.request_id,

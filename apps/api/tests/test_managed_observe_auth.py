@@ -1,14 +1,17 @@
 """Exercise discovery and unregistered smoke-test transport without a DB or GPU."""
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from aap_inference.backend_control_manager import BackendControlManager
 from aap_protocol_v2.managed_credential import ensure_credential
 
 from app.api.v1 import admin_ml_integrations as routes
 from app.config import settings
+from app.services.inference_backend_control import BackendControlService
 from app.services.managed_inference_auth import local_managed_headers
 
 
@@ -52,9 +55,34 @@ def transport(tmp_path, monkeypatch):
     monkeypatch.setattr(routes.httpx, "AsyncClient", client)
     db = AsyncMock()
     rows = []
-    db.execute.return_value = SimpleNamespace(
-        scalars=lambda: SimpleNamespace(all=lambda: rows),
-        scalar_one_or_none=lambda: None,
+    async def catalog(_self):
+        return rows
+
+    monkeypatch.setattr(routes.InferenceTopologyData, "registry_catalog", catalog)
+
+    @asynccontextmanager
+    async def dispatch(*_args):
+        yield
+
+    opener = SimpleNamespace(open=AsyncMock(), readiness=AsyncMock(return_value=True))
+    stats = SimpleNamespace(snapshots=AsyncMock(), readiness=AsyncMock(return_value=True))
+    manager = BackendControlManager(
+        {
+            purpose: opener
+            for purpose in (
+                "setup", "health_observation", "catalog_fallback", "stats",
+                "backend_read", "lifecycle", "execution",
+            )
+        },
+        SimpleNamespace(ml_health_timeout=1, ml_predict_timeout=1),
+        request_context_factory=lambda *_: None,
+        dispatch_context_factory=lambda *_: dispatch(),
+        unregistered_smoke_dispatch=dispatch,
+        stats_data=stats,
+    )
+    monkeypatch.setattr(
+        routes, "backend_control_service",
+        lambda session: BackendControlService(session, request_only_client=manager),
     )
     return db, rows, calls, options, secret
 
@@ -120,22 +148,33 @@ async def test_observe_never_equates_unrecognized_origins(transport, monkeypatch
     assert all("Authorization" not in request.headers for request in calls)
     assert not result.targets[0].registered
 
+async def test_ambiguous_same_origin_registrations_never_send_credentials(
+    transport, monkeypatch
+):
+    db, rows, calls, _, _ = transport
+    rows.extend(
+        [
+            SimpleNamespace(url="http://YOLO.test:8003/", source="manual"),
+            SimpleNamespace(url="http://yolo.test:8003", source="env"),
+        ]
+    )
+    monkeypatch.setattr(settings, "ml_backend_observe_urls", ["http://yolo.test:8003"])
+    with pytest.raises(routes.HTTPException) as error:
+        await routes.observe_backends(db=db, _admin=None)
+    assert error.value.status_code == 409
+    assert calls == []
+
+
 
 async def test_unregistered_smoke_test_keeps_auth_on_its_fixed_target(
     transport, monkeypatch
 ):
     db, _, calls, options, secret = transport
     monkeypatch.setattr(routes.AuditService, "log", AsyncMock())
-    monkeypatch.setattr(routes, "unregistered_gpu_loading_blocked", lambda: False)
-    monkeypatch.setattr(
-        routes, "record_unregistered_gpu_shadow_dispatch", lambda *_: None
-    )
     result = await routes.smoke_test_backend(
         routes.SmokeTestRequest(url="http://yolo.test:8003"),
         request=SimpleNamespace(),
         db=db,
-        shadow_session_factory=None,
-        dispatch_context_factory=None,
         admin=SimpleNamespace(),
     )
     assert result.ok and result.auto_unloaded

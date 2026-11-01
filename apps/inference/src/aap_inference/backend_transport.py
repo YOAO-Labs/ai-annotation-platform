@@ -278,6 +278,8 @@ class BackendTransport:
     def _http_client(self, *, dispatch_grant=None, **kwargs):
         return http_client(
             self._request_context,
+            trust_env=False,
+            follow_redirects=False,
             on_not_sent=(lambda: dispatch_grant.report_not_sent())
             if dispatch_grant is not None
             else None,

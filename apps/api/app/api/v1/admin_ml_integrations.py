@@ -27,6 +27,7 @@ from aap_inference.gpu.contracts import (
 from aap_inference.gpu.policy import GPUClaimConfigurationError
 from aap_inference_contract.topology import to_record
 from aap_inference_contract.backend_control import BackendRequestOnlyEndpoint
+from aap_protocol_v2.backend_auth import normalized_backend_url
 from aap_inference.gpu.policy import strict_gpu_loaded_evidence
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
@@ -72,6 +73,7 @@ from app.services.inference_backend_control import (
 from app.services.inference_gpu import gpu_authority_client
 from app.services.inference_gpu_data import bind_gpu_authority_data
 from app.services.inference_topology_data import InferenceTopologyData
+from app.services.managed_inference_auth import local_managed_headers
 from app.services.ml_backend import (
     GPUBackendManagedMutationBlocked,
     MLBackendCapabilityRevalidationError,
@@ -1295,6 +1297,30 @@ def _extract_supported_variants(setup: dict | None) -> list[dict]:
                 merged[key] = group
     return list(merged.values())
 
+def _observation_registry(url: str, registry_facts):
+    origin = normalized_backend_url(url)
+    matches = [
+        row
+        for row in registry_facts
+        if (
+            origin and normalized_backend_url(row.url) == origin
+            or not origin and row.url.rstrip("/") == url.rstrip("/")
+        )
+    ]
+    if len(matches) > 1:
+        raise HTTPException(409, detail="Ambiguous backend registration")
+    return matches[0] if matches else None
+
+
+def _unregistered_observation_endpoint(url: str) -> BackendRequestOnlyEndpoint:
+    authorization = local_managed_headers(url).get("Authorization")
+    return BackendRequestOnlyEndpoint(
+        url=url,
+        auth_method="token" if authorization else "none",
+        auth_token=authorization.removeprefix("Bearer ") if authorization else None,
+    )
+
+
 
 def _probe_one(fact) -> ObserveTarget:
     """Project one fixed, typed environment observation into the public response."""
@@ -1345,20 +1371,31 @@ async def observe_backends(
     if not urls:
         return ObserveResponse(targets=[], configured_count=0)
 
-    endpoints = tuple(BackendRequestOnlyEndpoint(url=url) for url in urls)
+    registry_facts = await InferenceTopologyData(db).registry_catalog()
+    registrations = [_observation_registry(url, registry_facts) for url in urls]
+    endpoints = tuple(
+        BackendRequestOnlyEndpoint(url=url)
+        if registered is not None
+        else _unregistered_observation_endpoint(url)
+        for url, registered in zip(urls, registrations, strict=True)
+    )
     control = backend_control_service(db)
     reply = await control.environment_observation(
         endpoints, timeout_seconds=settings.ml_health_timeout
     )
-    targets = [_probe_one(fact) for fact in reply.results]
-    labels = await control.registration_labels(urls)
-    source_by_url = {label.url.rstrip("/"): label.source for label in labels}
-
-    for target in targets:
-        source = source_by_url.get(target.url.rstrip("/"))
-        if source:
+    targets = []
+    for fact, registered in zip(reply.results, registrations, strict=True):
+        if registered is not None and registered.auth_method != "none" and fact.ok:
+            setup = await control.setup(registered.id)
+            if setup.error is not None and setup.error.status_code == 503:
+                raise HTTPException(503, detail="Inference backend control unavailable")
+            if setup.setup is not None:
+                fact = fact.model_copy(update={"setup": setup.setup})
+        target = _probe_one(fact)
+        if registered is not None:
             target.registered = True
-            target.registered_label = f"已注册 ({source})"
+            target.registered_label = f"已注册 ({registered.source})"
+        targets.append(target)
 
     return ObserveResponse(targets=targets, configured_count=len(urls))
 
@@ -1526,12 +1563,17 @@ async def smoke_test_backend(
     """Try a registered or explicitly unregistered backend without proxying arbitrary requests."""
     _validate_probe_base_url(payload.url)
     base = payload.url.rstrip("/")
-    registered_backend = await MLBackendService(db).get_by_url(base)
+    registry_facts = await InferenceTopologyData(db).registry_catalog()
+    registered_backend = _observation_registry(base, registry_facts)
     await db.commit()
     variant = {"sam_variant": payload.sam_variant, "dino_variant": payload.dino_variant}
     generic_variant = payload.variant or None
     audit_detail: dict = {"url": base, **variant, "variant": generic_variant}
-    endpoint = BackendRequestOnlyEndpoint(url=base)
+    endpoint = (
+        BackendRequestOnlyEndpoint(url=base)
+        if registered_backend is not None
+        else _unregistered_observation_endpoint(base)
+    )
     control = backend_control_service(db)
 
     async def _audit(result: SmokeTestResponse) -> None:
@@ -1642,17 +1684,9 @@ async def smoke_test_backend(
             load_latency_ms = int((time.monotonic() - load_started) * 1000)
         else:
             smoke_result = await control.smoke_unregistered(endpoint, body)
-            if (
-                set(smoke_result) != {"reload", "auto_unloaded", "load_latency_ms"}
-                or not isinstance(smoke_result["reload"], dict)
-                or type(smoke_result["auto_unloaded"]) is not bool
-                or type(smoke_result["load_latency_ms"]) is not int
-                or smoke_result["load_latency_ms"] < 0
-            ):
-                raise ValueError("invalid unregistered smoke response")
-            reload_data = smoke_result["reload"]
-            auto_unloaded = smoke_result["auto_unloaded"]
-            load_latency_ms = smoke_result["load_latency_ms"]
+            reload_data = smoke_result.reload
+            auto_unloaded = smoke_result.auto_unloaded
+            load_latency_ms = smoke_result.load_latency_ms
     except GPUArbiterDispatchError as exc:
         raise _gpu_dispatch_http_error(exc) from exc
     except BackendControlOperationError as exc:

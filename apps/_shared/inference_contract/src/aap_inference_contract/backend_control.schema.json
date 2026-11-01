@@ -389,24 +389,7 @@
           "items": { "$ref": "#/$defs/request_only_endpoint" }
         },
         "timeout_seconds": { "type": "number", "exclusiveMinimum": 0 }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "operation": { "const": "environment_observation" } } },
-          "then": {
-            "properties": {
-              "endpoints": {
-                "items": {
-                  "properties": {
-                    "auth_method": { "const": "none" },
-                    "auth_token": { "type": "null" }
-                  }
-                }
-              }
-            }
-          }
-        }
-      ]
+      }
     },
     "unregistered_smoke": {
       "type": "object",

@@ -14,7 +14,7 @@ class RegistryData:
     async def registry_facts(self, registry_id):
         return SimpleNamespace(id=registry_id, extra_params=self.extra)
 
-    async def patch_registry(self, registry_id, patch):
+    async def patch_registry_auth_cas(self, registry_id, patch, snapshot):
         self.patches.append(patch)
         return SimpleNamespace(id=registry_id, extra_params=patch.get("extra_params", self.extra))
 
@@ -43,7 +43,9 @@ async def test_generic_create_rejects_reserved_metadata(reserved):
 async def test_generic_update_cannot_add_remove_or_mutate_installation(original, patch):
     data = RegistryData(original)
     with pytest.raises(ManagedMutationBlocked):
-        await BackendTopologyCoordinator(data).update_registry(uuid4(), **patch)
+        await BackendTopologyCoordinator(data).update_registry(
+            uuid4(), expected_auth={"url": "http://backend", "auth_revision": 0}, **patch
+        )
     assert data.patches == []
 
 @pytest.mark.asyncio
@@ -60,6 +62,8 @@ async def test_generic_delete_preserves_historical_plugin_registry(extra):
 @pytest.mark.asyncio
 async def test_legacy_registry_update_is_unaffected():
     data = RegistryData({"max_concurrency": 4})
-    result = await BackendTopologyCoordinator(data).update_registry(uuid4(), name="other")
+    result = await BackendTopologyCoordinator(data).update_registry(
+        uuid4(), expected_auth={"url": "http://backend", "auth_revision": 0}, name="other"
+    )
     assert result is not None
     assert data.patches == [{"name": "other"}]

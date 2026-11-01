@@ -292,6 +292,9 @@ class MLBackendService:
         if unknown:
             raise TypeError(f"unsupported ML backend fields: {sorted(unknown)}")
         coordinator = self._topology()
+        snapshot = await coordinator.registry_auth_snapshot(registry_id)
+        if snapshot is None:
+            return None
         row = await coordinator.get_registry(registry_id)
         if row is None:
             return None
@@ -303,8 +306,8 @@ class MLBackendService:
             )
         if (
             preserve_manual_auth
-            and row.auth_method != "none"
-            and managed_provider(row.auth_method) is None
+            and snapshot["auth_method"] != "none"
+            and managed_provider(snapshot["auth_method"]) is None
         ):
             raise HTTPException(
                 409,
@@ -322,7 +325,7 @@ class MLBackendService:
             if conflict is not None and conflict.id != row.id:
                 raise MLBackendURLConflict(conflict.name)
             kwargs["url"] = normalized_url
-        next_method = kwargs.get("auth_method", row.auth_method)
+        next_method = kwargs.get("auth_method", snapshot["auth_method"])
         if managed_provider(next_method) is not None and (
             "auth_method" in kwargs or "url" in kwargs or "auth_token" in kwargs
         ):
@@ -330,10 +333,10 @@ class MLBackendService:
             from app.services.managed_inference_auth import initialize_managed_auth
 
             kwargs["auth_token"] = await initialize_managed_auth(
-                kwargs.get("url", row.url), kwargs.get("auth_token"), next_method
+                kwargs.get("url", snapshot["url"]), kwargs.get("auth_token"), next_method
             )
         elif (
-            managed_provider(row.auth_method) is not None
+            managed_provider(snapshot["auth_method"]) is not None
             and managed_provider(next_method) is None
         ):
             if next_method == "token" and not kwargs.get("auth_token"):
@@ -351,7 +354,7 @@ class MLBackendService:
         if "eviction_priority" in kwargs and kwargs["eviction_priority"] is None:
             raise ValueError("eviction_priority must not be null")
         return await self._topology_call(
-            coordinator.update_registry(registry_id, **kwargs)
+            coordinator.update_registry(registry_id, expected_auth=snapshot, **kwargs)
         )
 
     async def validate_delete(self, registry_id: uuid.UUID) -> bool:

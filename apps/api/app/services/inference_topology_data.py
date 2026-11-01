@@ -38,6 +38,13 @@ _REPAIR_MODEL_LOCK_STATUSES = frozenset(
     {"ready", "backend_unavailable", "model_changed"}
 )
 _REGISTRY_FACTS = text(f"SELECT {_SCHEMA}.registry_facts(CAST(:registry_id AS uuid))")
+_REGISTRY_AUTH_SNAPSHOT = text(
+    f"SELECT {_SCHEMA}.registry_auth_snapshot(CAST(:registry_id AS uuid))"
+)
+_PATCH_REGISTRY_AUTH_CAS = text(
+    f"SELECT {_SCHEMA}.patch_registry_auth_cas(CAST(:registry_id AS uuid),"
+    "CAST(:patch AS text),CAST(:expected_url AS text),CAST(:expected_revision AS bigint))"
+)
 _LOCK_PLUGIN_REGISTRY = text(
     f"SELECT {_SCHEMA}.lock_plugin_registry(CAST(:registry_id AS uuid))"
 )
@@ -280,6 +287,13 @@ class InferenceTopologyData:
                 raise PoolCapabilityUnavailable(detail) from error
             if code == "registry_url_conflict":
                 raise RegistryURLConflict(detail) from error
+            if code == "registry_auth_changed":
+                from fastapi import HTTPException
+
+                raise HTTPException(
+                    status_code=409,
+                    detail={"error_code": "registry_auth_changed", "message": detail},
+                ) from error
             if code == "registry_delete_blocked":
                 raise RegistryDeleteBlocked(int(extra or "0")) from error
             if code.startswith("capability_"):
@@ -347,6 +361,37 @@ class InferenceTopologyData:
 
     async def registry_facts(self, registry_id: UUID) -> RegistryPublicFacts | None:
         row = _object(await self._scalar(_REGISTRY_FACTS, {"registry_id": registry_id}))
+        return RegistryPublicFacts.from_record(row) if row is not None else None
+
+    async def registry_auth_snapshot(self, registry_id: UUID) -> dict | None:
+        row = _object(
+            await self._scalar(_REGISTRY_AUTH_SNAPSHOT, {"registry_id": registry_id})
+        )
+        if row is not None and (
+            set(row) != {"url", "auth_method", "auth_revision"}
+            or type(row["url"]) is not str
+            or type(row["auth_method"]) is not str
+            or type(row["auth_revision"]) is not int
+            or row["auth_revision"] < 0
+        ):
+            raise RuntimeError("invalid Registry authentication snapshot")
+        return row
+
+    async def patch_registry_auth_cas(
+        self, registry_id: UUID, patch: Mapping[str, Any], snapshot: Mapping[str, Any]
+    ) -> RegistryPublicFacts | None:
+        row = _object(
+            await self._scalar(
+                _PATCH_REGISTRY_AUTH_CAS,
+                {
+                    "registry_id": registry_id,
+                    "patch": _json(patch),
+                    "expected_url": snapshot["url"],
+                    "expected_revision": snapshot["auth_revision"],
+                },
+            )
+        )
+        await self.db.flush()
         return RegistryPublicFacts.from_record(row) if row is not None else None
 
     async def lock_plugin_registry(
