@@ -74,6 +74,20 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
         )
         await db.commit()
 
+    # Retain instances through rollback and distinguish committed rows from
+    # flushed rows whose session closes without a commit.
+    created = {}
+
+    def forget(row):
+        owned = created.pop(row, None)
+        if owned is not None:
+            collection, row_id, _, _ = owned
+            if not any(
+                other is collection and other_id == row_id
+                for other, other_id, _, _ in created.values()
+            ):
+                collection.discard(row_id)
+
     def track(session, row):
         if session.info.get("managed_worker_world") is not world:
             return
@@ -84,9 +98,31 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
             (MLBackendRegistry, world.backends),
         ):
             if isinstance(row, model):
+                created[row] = (collection, row.id, session, False)
                 collection.add(row.id)
+                break
 
-    event.listen(Session, "pending_to_persistent", track)
+    def revoke(session, row):
+        if session.info.get("managed_worker_world") is not world:
+            return
+        forget(row)
+
+    def committed(session):
+        if session.info.get("managed_worker_world") is not world:
+            return
+        if session.in_nested_transaction():
+            return
+        for row, (collection, row_id, owner, is_committed) in created.items():
+            if owner is session and not is_committed:
+                created[row] = (collection, row_id, owner, True)
+
+    def transaction_ended(session, transaction):
+        if session.info.get("managed_worker_world") is not world:
+            return
+        if transaction.parent is None:
+            for row, (_, _, owner, is_committed) in list(created.items()):
+                if owner is session and not is_committed:
+                    forget(row)
 
     def capture(spec, maximum, seconds, deadline, stop, release, **kwargs):
         # The native-reader boundary is the only substituted original read.
@@ -110,10 +146,21 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
         "app.services.prediction_progress.publish_progress",
         lambda *args, **kwargs: None,
     )
+    listeners = (
+        ("pending_to_persistent", track),
+        ("persistent_to_transient", revoke),
+        ("after_commit", committed),
+        ("after_transaction_end", transaction_ended),
+    )
+    registered = []
     try:
+        for name, listener in listeners:
+            event.listen(Session, name, listener)
+            registered.append((name, listener))
         yield world
     finally:
-        event.remove(Session, "pending_to_persistent", track)
+        for name, listener in reversed(registered):
+            event.remove(Session, name, listener)
         async with world.factory() as db:
             predictions = select(Prediction.id).where(
                 Prediction.project_id.in_(world.projects)
