@@ -19,6 +19,12 @@ docker compose exec -T postgres psql -U user -d annotation -c \
 
 Use the requested report ID and correlate its route, request failures, and console evidence with a current reproduction. Historical reports can describe an older build.
 
+If an action appears inert, establish whether it emitted a request at all. Inspect dialog/prompt behavior, permission/selection state and event handling before debugging a server endpoint that was never called. If a request failed, diagnose its real service, response and console evidence; do not hide a stopped backend behind a new toast rule.
+
+For a documentation or app preview, distinguish process readiness, loopback HTTP success, listening interface and reachability from the user's browser. A localhost probe does not establish remote access. Preserve the user's intended service owner and expose only the requested development surface.
+
+For slow or pending remote CI, inspect scheduler/runner wait separately from step execution, retries, package downloads and test timeouts. Local pass counts do not prove remote CI completed; a longer timeout or weaker assertion does not resolve an unobserved bottleneck.
+
 ## Database-backed verification
 
 `apps/api/tests/conftest.py` derives the default `annotation_test` connection from the configured migration connection and permits `TEST_DATABASE_URL` override. Verify the effective target is disposable before tests run migrations or write rows. Keep the existing isolation/role safeguards.

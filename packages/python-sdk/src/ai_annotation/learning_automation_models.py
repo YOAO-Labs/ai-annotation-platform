@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 from ai_annotation.training_models import TrainingRunCreate
 
 
@@ -162,12 +162,12 @@ class ActiveLearningFeedbackCreate(BaseModel):
         return self
 
 
-class TrainingStudyPreview(_AAPModel):
+class TrainingStudyPreview(_SDKModel):
     plan: dict[str, Any]
     preview_digest: str
 
 
-class TrainingStudyListItem(_AAPModel):
+class TrainingStudyListItem(_SDKModel):
     id: UUID
     name: str
     status: str
@@ -177,12 +177,12 @@ class TrainingStudyListItem(_AAPModel):
     trial_count: int
 
 
-class TrainingStudyPage(_AAPModel):
+class TrainingStudyPage(_SDKModel):
     items: list[TrainingStudyListItem]
     total: int
 
 
-class TrainingStudyTrial(_AAPModel):
+class TrainingStudyTrial(_SDKModel):
     id: UUID
     ordinal: int
     values: dict[str, JsonValue]
@@ -200,7 +200,7 @@ class TrainingStudyTrial(_AAPModel):
     native_time_unknown: bool
 
 
-class TrainingStudyDetail(_AAPModel):
+class TrainingStudyDetail(_SDKModel):
     id: UUID
     project_id: UUID
     name: str
@@ -215,7 +215,7 @@ class TrainingStudyDetail(_AAPModel):
     created_at: datetime
 
 
-class ActiveLearningPoolItem(_AAPModel):
+class ActiveLearningPoolItem(_SDKModel):
     task_id: UUID
     display_id: str
     file_name: str
@@ -223,14 +223,14 @@ class ActiveLearningPoolItem(_AAPModel):
     scene_id: UUID | None
 
 
-class ActiveLearningPoolPage(_AAPModel):
+class ActiveLearningPoolPage(_SDKModel):
     items: list[ActiveLearningPoolItem]
     total: int
     limit: int
     offset: int
 
 
-class ActiveLearningPreview(_AAPModel):
+class ActiveLearningPreview(_SDKModel):
     preview_digest: str
     pool_size: int
     candidate_count: int
@@ -246,7 +246,7 @@ class ActiveLearningPreview(_AAPModel):
     claim: str
 
 
-class ActiveLearningAttempt(_AAPModel):
+class ActiveLearningAttempt(_SDKModel):
     id: UUID
     ordinal: int
     status: str
@@ -258,7 +258,7 @@ class ActiveLearningAttempt(_AAPModel):
     has_report: bool
 
 
-class ActiveLearningRound(_AAPModel):
+class ActiveLearningRound(_SDKModel):
     id: UUID
     project_id: UUID
     name: str
@@ -278,12 +278,12 @@ class ActiveLearningRound(_AAPModel):
     attempts: list[ActiveLearningAttempt] = Field(default_factory=list)
 
 
-class ActiveLearningRoundPage(_AAPModel):
+class ActiveLearningRoundPage(_SDKModel):
     items: list[ActiveLearningRound]
     total: int
 
 
-class ActiveLearningCandidate(_AAPModel):
+class ActiveLearningCandidate(_SDKModel):
     ordinal: int
     task_id: UUID
     status: Literal["pending", "inflight", "succeeded", "failed"]
@@ -294,11 +294,11 @@ class ActiveLearningCandidate(_AAPModel):
     evidence: dict[str, Any] | None
 
 
-class ActiveLearningCandidateList(_AAPModel):
+class ActiveLearningCandidateList(_SDKModel):
     items: list[ActiveLearningCandidate]
 
 
-class ActiveLearningReport(_AAPModel):
+class ActiveLearningReport(_SDKModel):
     schema_version: int = Field(alias="schema")
     round_id: UUID
     attempt_id: UUID
@@ -312,7 +312,7 @@ class ActiveLearningReport(_AAPModel):
     report_digest: str
 
 
-class ActiveLearningDecision(_AAPModel):
+class ActiveLearningDecision(_SDKModel):
     id: UUID
     request_id: UUID
     action: Literal["accept", "reject"]
@@ -322,11 +322,11 @@ class ActiveLearningDecision(_AAPModel):
     created_at: datetime
 
 
-class ActiveLearningDecisionList(_AAPModel):
+class ActiveLearningDecisionList(_SDKModel):
     items: list[ActiveLearningDecision]
 
 
-class ActiveLearningFeedback(_AAPModel):
+class ActiveLearningFeedback(_SDKModel):
     id: UUID
     request_id: UUID
     snapshot: dict[str, Any]
@@ -334,5 +334,5 @@ class ActiveLearningFeedback(_AAPModel):
     created_at: datetime
 
 
-class ActiveLearningFeedbackList(_AAPModel):
+class ActiveLearningFeedbackList(_SDKModel):
     items: list[ActiveLearningFeedback]

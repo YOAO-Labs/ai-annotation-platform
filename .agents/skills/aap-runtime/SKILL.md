@@ -7,6 +7,8 @@ description: Set up this project's worktree environment or diagnose and refresh 
 
 Determine which checkout, Compose project, process, and database serve the reported behavior. A worktree's files do not prove a running service uses that checkout. Inspect service names, mounts, working directories, ports, and queue consumers without printing secrets.
 
+For work spanning branches or deleted worktrees, distinguish historical evidence from the checkout that will run the change. Re-discover service names, migrations, capability selectors and storage purposes from that checkout; do not apply another branch's module/plugin deployment recipe just because its session is newer. An absent old directory does not invalidate its session, but its old runtime evidence does not certify today's source.
+
 ## Primary checkout
 
 The main development API/Web may be owned by the user services `aap-development-api.service` and `aap-development-web.service`, while eight Celery worker/beat containers belong to the primary Compose project. Read the current primary-checkout section in `DEV.md`, inspect PID/cwd and Compose labels, and use the installed `ai-annotation-platform-dev-restart` wrapper when configured. Its source is `scripts/development-restart.py`; it validates ownership and readiness before restarting. Do not kill an unknown process merely because it owns port 3000 or 8000, and do not use `dev:worktree` to manage the primary checkout.
@@ -40,6 +42,14 @@ Check `docker-compose.yml` and `apps/api/app/workers/celery_app.py` for queue ro
 
 For a changed task signature, verify the callable inside each affected running container and exercise the relevant dispatch. An unexpected-keyword `TypeError` can mean stale worker code. A healthy API alone does not establish worker readiness.
 
+Training uses the separate `apps/training-executor` process/image and its claim, capability and heartbeat checks. Healthy inference backends do not prove trainer readiness; an executor image with baked source needs its own rebuild/recreation. If the UI hangs, distinguish blocked API I/O, stopped services and capability-disabled pools before changing error presentation.
+
 For long checks, retain the real exit code plus JUnit/JSON or another bounded summary before output can be truncated. Do not repeat a completed suite only to recover console counts. After verification, remove only task-owned logs, databases, Redis instances, buckets, browser profiles, and probes; destroy worktree modes before deleting their worktrees.
 
 Read [diagnostics](references/diagnostics.md) for stuck jobs, stored bug reports, or database-backed checks. Finish with evidence from the affected runtime, or name the unavailable service precisely.
+
+Dataset/storage changes use [aap-dataset-storage](../aap-dataset-storage/SKILL.md); native training and model return use [aap-online-learning](../aap-online-learning/SKILL.md). Load those only when the affected operation crosses that boundary.
+
+## Skill-maintenance evidence
+
+Only when consolidating project skills or past sessions, read the [cross-agent audit](references/session-audit.md). Its [session inventory](references/session-inventory.tsv) and [branch/worktree snapshot](references/branch-worktrees.tsv) retain deleted-worktree aliases and evidence limits without copying raw messages. Do not load these catalogs for ordinary runtime changes.

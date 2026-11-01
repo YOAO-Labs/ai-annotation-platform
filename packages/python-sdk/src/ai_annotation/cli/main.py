@@ -194,7 +194,7 @@ app = typer.Typer(
     name="aap",
     cls=_ErrorReportingGroup,
     help=(
-        "AI 标注平台命令行工具 —— 项目 / 数据集 / 预测 / 导出 / 训练与在线学习的脚本化入口。\n\n"
+        "YOAO 命令行工具 —— 项目 / 数据集 / 预测 / 导出 / 训练与在线学习的脚本化入口。\n\n"
         "凭据二选一: 运行 [bold cyan]aap login[/] 写入配置, "
         "或设环境变量 [bold]AAP_BASE_URL[/] / [bold]AAP_API_KEY[/]。\n"
         "脚本 / CI 场景给任意命令加 [bold]--json[/] 输出裸 JSON (无装饰, 错误走 stderr)。"
@@ -356,14 +356,14 @@ def _main(
         "text", "--error-format", help="错误输出格式: text 或 json"
     ),
 ) -> None:
-    """AI 标注平台 CLI。"""
+    """YOAO CLI。"""
     if error_format not in {"text", "json"}:
         raise typer.BadParameter("--error-format must be text or json")
 
 
 @app.command(rich_help_panel=PANEL_CONFIG)
 def tui() -> None:
-    """启动终端监控面板 (Projects / Datasets / Jobs / ML Backends / Training)。
+    """启动终端监控面板 (Projects / Datasets / Jobs / 模型服务 / Training)。
 
     安装: [bold]pip install 'ai-annotation-sdk\\[tui]'[/]
     """

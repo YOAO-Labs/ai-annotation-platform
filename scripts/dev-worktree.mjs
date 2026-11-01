@@ -372,7 +372,7 @@ export async function runDevWorktree(
       children,
       "Web",
       "pnpm",
-      ["--filter", "@anno/web", "dev", "--host", host, "--port", String(webPort), "--strictPort"],
+      ["--filter", "web", "dev", "--host", host, "--port", String(webPort), "--strictPort"],
       {
         cwd: repositoryRoot,
         env: {

@@ -10,11 +10,11 @@ last_reviewed: 2026-10-24
 
 ![导出格式选择](../images/export/format-select.png)
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 导出对话框，COCO / YOLO / AAP JSON 选项 + 当前选中状态 + 导出范围（项目 / 批次）。 -->
+<!-- TODO(0.8.1) IMAGE_CHECKLIST: 导出对话框，COCO / YOLO / 原生 JSON 选项 + 当前选中状态 + 导出范围（项目 / 批次）。 -->
 
 项目 Dashboard 的「导出」入口会打开居中的导出弹窗。导出目标可多选，一次导出产出**一个**压缩包：勾选单个目标时落包根，勾选多个目标时各目标落各自的 `{target}/` 子目录。
 
-图片项目可选 **COCO / YOLO 检测 / YOLO 旋转框 / YOLO 分割 / Label Studio Brush / 逐实例 Binary PNG / Indexed PNG / AAP JSON**；视频轨迹项目可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / AAP JSON / MOT / KITTI**；点云项目可选 **AAP JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。nuScenes 只允许来源真实且包含完整 Scene 的数据入队。
+图片项目可选 **COCO / YOLO 检测 / YOLO 旋转框 / YOLO 分割 / Label Studio Brush / 逐实例 Binary PNG / Indexed PNG / 原生 JSON**；视频轨迹项目可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / 原生 JSON / MOT / KITTI**；点云项目可选 **原生 JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。nuScenes 只允许来源真实且包含完整 Scene 的数据入队。
 
 > **YOLO 拆三个变体（几何映射不同）**：`YOLO 检测`(det) 导矩形框、`YOLO 旋转框`(obb) 导 rotated_bbox 四角、`YOLO 分割`(seg) 导 polygon / mask 多边形。每个变体只取匹配的几何，其余跳过。
 
@@ -22,7 +22,7 @@ last_reviewed: 2026-10-24
 
 引用图片可从整个项目、单个批次或 Data Manager 选中的任务导出，支持上列全部后台图片格式，也可与托管图片混合。平台在排队时固定本次任务和内容，worker 完整核验原图摘要后将图片放进 ZIP；源离线、文件变化或权限撤回时整包失败，不以预览代替原图。
 
-引用原图在 `images/<数据集 ID>/<样本 ID>/<任务 ID>/<文件名>`，不同任务和同名文件互不覆盖。YOLO 的 `labels/` 使用同一 ID 层级；多目标包还在各 YOLO 目标目录内提供对应图片。COCO、AAP JSON、Brush 和 PNG manifest 使用同一图片路径。托管图片由 `fetch_images.py` 下载独立交付副本，逻辑路径为 `images/tasks/<任务 ID>/<安全文件名>`，标签使用同一 Task 层级。
+引用原图在 `images/<数据集 ID>/<样本 ID>/<任务 ID>/<文件名>`，不同任务和同名文件互不覆盖。YOLO 的 `labels/` 使用同一 ID 层级；多目标包还在各 YOLO 目标目录内提供对应图片。COCO、原生 JSON、Brush 和 PNG manifest 使用同一图片路径。托管图片由 `fetch_images.py` 下载独立交付副本，逻辑路径为 `images/tasks/<任务 ID>/<安全文件名>`，标签使用同一 Task 层级。
 
 解压后可运行 `python fetch_images.py` 校验包内引用图片并下载托管图片。即使托管链接已过期，脚本仍会先核对引用原图的 SHA-256；失败会明确列出校验错误。托管链接是相对地址时，使用 `python fetch_images.py --base-url https://平台地址`。运行中的导出可在后台任务列表取消，取消和失败不会发布部分包。同步 VOC 暂不支持引用图片。
 
@@ -39,7 +39,7 @@ last_reviewed: 2026-10-24
 | 图像         | Label Studio Brush | `label-studio-brush`          | 与 Label Studio BrushLabels 交换实例 Mask                           |
 | 图像         | 逐实例 Binary PNG  | `binary-png`                  | 以独立 0/255 PNG 无损保留重叠实例                                   |
 | 图像         | Indexed PNG        | `indexed-png`                 | 交换单张 palette instance map；重叠时需显式 winner 策略             |
-| 图像         | AAP JSON           | `aap_json`                    | 跨实例无损迁移 / 客户自训模型预测灌入 / 备份                        |
+| 图像         | 原生 JSON          | `aap_json`                    | 跨实例迁移 / 导入外部模型预测供人工审阅 / 备份                      |
 | **视频轨迹** | Video JSON         | `video_json`                  | 轨迹备份 / 质检 / 继续编辑                                          |
 | 视频轨迹     | YOLO 逐帧检测      | `yolo-frames-det`             | 视频逐帧检测训练（polygon / polyline 降级为顶点外接框）             |
 | 视频轨迹     | YOLO 逐帧分割      | `yolo-frames-seg`             | 视频逐帧分割训练（保留多边形顶点；bbox / polyline 跳过）            |
@@ -47,10 +47,10 @@ last_reviewed: 2026-10-24
 | 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（序列级 palette PNG）                       |
 | 视频轨迹     | YouTube-VOS        | `youtube-vos`                 | 稀疏关键帧对象分割数据交换                                          |
 | 视频轨迹     | MOTS               | `mots`                        | compressed RLE 多对象跟踪与分割数据交换                             |
-| 视频轨迹     | AAP JSON           | `aap_json`                    | 视频跨实例无损迁移                                                  |
+| 视频轨迹     | 原生 JSON          | `aap_json`                    | 视频跨实例迁移                                                      |
 | 视频轨迹     | MOT 16/17/20       | `mot`                         | 多目标跟踪评测（trackeval）                                         |
 | 视频轨迹     | KITTI Tracking     | `kitti`                       | KITTI 跟踪工具链                                                    |
-| **点云**     | AAP JSON           | `aap_json`                    | 点云跨实例无损迁移 / 备份（保留 3D 几何）                           |
+| **点云**     | 原生 JSON          | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                               |
 | 点云         | Multi-camera COCO  | `coco-multicamera`            | 把全部相机的持久化人工 2D 框合并为 COCO 训练集                      |
 | 点云         | KITTI 3D           | `kitti`                       | KITTI 3D 检测训练前处理（KITTI camera 坐标）                        |
 | 点云         | nuScenes           | `nuscenes`                    | 官方 devkit 可加载的完整 Scene 关键帧表集                           |
@@ -58,13 +58,13 @@ last_reviewed: 2026-10-24
 
 > **VOC** 仍存在于后端（`voc` 目标，仅可单选、走同步下载），但**前端导出弹窗已隐藏**，普通用户在 UI 里看不到，故不在上表。
 
-> **视频几何的导出边界**：AAP JSON 与 Video JSON 保真保存单帧 OBB 的 `cx/cy/w/h/angle`、关键点的完整 `{x,y,v}` 数组，以及 bbox、polygon、polyline 与 Mask 轨迹；Video JSON 的媒体引用不具备跨实例可移植性。MOT / KITTI / YOLO / COCO 逐帧、DAVIS、YouTube-VOS 与 MOTS 没有单帧 OBB 或关键点表示，预检会将其列为不支持，不会静默降级。既有 polygon / polyline 和 Mask 的格式映射保持不变。
+> **视频几何的导出边界**：原生 JSON 与 Video JSON 保真保存单帧 OBB 的 `cx/cy/w/h/angle`、关键点的完整 `{x,y,v}` 数组，以及 bbox、polygon、polyline 与 Mask 轨迹；Video JSON 的媒体引用不具备跨实例可移植性。MOT / KITTI / YOLO / COCO 逐帧、DAVIS、YouTube-VOS 与 MOTS 没有单帧 OBB 或关键点表示，预检会将其列为不支持，不会静默降级。既有 polygon / polyline 和 Mask 的格式映射保持不变。
 >
 > **同名 target 跨模态语义不同**：`kitti` 在视频项目里是 **KITTI Tracking 2D**（逐帧 2D 框），在点云项目里是 **KITTI 3D**（label_2 3D 框 + calib），二者不可混淆。
 
 ## 导入 Mask 标注
 
-项目卡片 `⋮` 菜单的「导入 Mask 标注」由后端格式 registry 驱动，只列出当前项目媒体类型下已验证且开放 UI 的 adapter。图片项目可导入 AAP JSON、COCO Instance、Label Studio BrushLabels、逐实例 Binary PNG、Indexed PNG 和 YOLO Segmentation；视频项目可导入 COCO Frames、DAVIS、YouTube-VOS 与 MOTS。
+项目卡片 `⋮` 菜单的「导入 Mask 标注」由后端格式 registry 驱动，只列出当前项目媒体类型下已验证且开放 UI 的 adapter。图片项目可导入 原生 JSON、COCO Instance、Label Studio BrushLabels、逐实例 Binary PNG、Indexed PNG 和 YOLO Segmentation；视频项目可导入 COCO Frames、DAVIS、YouTube-VOS 与 MOTS。
 
 1. 选择格式并上传 JSON 或 ZIP；浏览器会计算 SHA-256，上传后先生成短时预检收据。
 2. 预检展示无损、有损或不支持，并列出尺寸冲突、任务未匹配和未知类别。未知类别必须映射到项目类别并重新预检。
@@ -135,7 +135,7 @@ python fetch_images.py
 
 单次最多20000个图片任务（含引用），托管单件256MiB，所有唯一托管原件加引用声明累计20GiB，冻结 JSON256MiB；标注和预测各最多100000行。引用仍限制64MiB／3200万像素，Data Manager 选中最多200题。超限请缩小范围。未知托管原件须先完成核验登记，旧未完成任务缺少新合同需重新发起。
 
-AAP JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON；Indexed PNG 每图最多255个实例、累计400万条游程，实例数量在读取 mask 前检查。超限需拆分导出；Binary PNG 和 Brush 仍逐实例处理。
+原生 JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON；Indexed PNG 每图最多255个实例、累计400万条游程，实例数量在读取 mask 前检查。超限需拆分导出；Binary PNG 和 Brush 仍逐实例处理。
 
 各格式的标注落点不同，详见下文。
 
@@ -152,7 +152,7 @@ COCO 单文件可同时承载多种几何：
 - `keypoints` + `num_keypoints`：keypoint 标注的 `[x,y,v,…]`（v=0 未标注 / 1 遮挡 / 2 可见）。骨架拓扑写在对应 `categories[].keypoints`（节点名）+ `categories[].skeleton`（连线，COCO 1-indexed），直接来自项目 keypoint 工具单位的 `keypoint_schema`。
 - `attributes.__track_id`：跨帧同一对象的 `track_id`（启用 `include_attributes` 时）。<!-- since v0.21.2 · ADR-0045：原 `__group_id`（Ctrl+G 组号），编组下线后统一到 track_id -->
 
-> `rotated_bbox` / `polyline` 无 COCO 原生表示，不进 COCO（rotated 走 `YOLO 旋转框`，polyline 走 AAP JSON）；被跳过的条数记在 `info.skipped_annotations`。
+> `rotated_bbox` / `polyline` 无 COCO 原生表示，不进 COCO（rotated 走 `YOLO 旋转框`，polyline 走 原生 JSON）；被跳过的条数记在 `info.skipped_annotations`。
 
 > **id 从 0 起**：`images[].id`、`annotations[].id`、`categories[].id` 都是 **0-based** 连续整数（不是 COCO 官方常见的 1-based）。`image_id` / `category_id` 引用的是这些 0 起的 id。下游若假设 1-based 需自行偏移。
 
@@ -215,7 +215,7 @@ labels/tasks/<task UUID>/<安全文件名去扩展名>.txt
 附带 `data.yaml`（YOLOv8 Ultralytics 入口格式，`names` 是 **`索引: 类名` 字典**而非 list；`path/train/val` 都指向回源后的 `images/`）：
 
 ```yaml
-# YOLO 数据集入口（由 AAP 导出生成）
+# YOLO 数据集入口（由平台导出生成）
 # images/ 由 fetch_images.py 按 images_manifest.json 回源；labels/ 已在包内。
 path: .
 train: images
@@ -272,13 +272,13 @@ names:
     └── annotations.json
 ```
 
-> 单目标且只选 COCO / AAP JSON（无 YOLO）时，包根仍补一份 `data.yaml`（兼容旧布局），COCO/AAP 的标注落包根 `annotations.json`。
+> 单目标且只选 COCO / 原生 JSON（无 YOLO）时，包根仍补一份 `data.yaml`（兼容旧布局），COCO/AAP 的标注落包根 `annotations.json`。
 
-## AAP JSON 1.5（无损）
+## 原生 JSON {#aap-json-1-5-无损}
 
-> 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。AAP 格式为 `aap`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
+> 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。原生格式的文件标识为 `aap`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
 
-> AAP JSON 是平台原生无损中间格式。当前 schema 在 task 层包含 `media_type` 与视频元数据，可无损透传图片 `raster_mask` 和视频 `video_track_mask`；顶层 `scene_tracks` 保留 3D 时序对象身份、轨迹级属性和多个存在区间。`mask_objects` 携带内容寻址 RLE 对象，使引用在导出后仍可移植并校验哈希。与 COCO / YOLO 并列，但**包含**它们丢失的项目、来源、属性与渲染配置。
+> 原生 JSON 是 YOAO 原生交换格式。当前 schema 在 task 层包含 `media_type` 与视频元数据，可无损透传图片 `raster_mask` 和视频 `video_track_mask`；顶层 `scene_tracks` 保留 3D 时序对象身份、轨迹级属性和多个存在区间。`mask_objects` 携带内容寻址 RLE 对象，使引用在导出后仍可移植并校验哈希。与 COCO / YOLO 并列，但**包含**它们丢失的项目、来源、属性与渲染配置。
 
 <!-- history: 1.1 tool bindings; 1.2 media blocks; 1.3 portable raster mask objects; 1.5 scene tracks and temporal roles. -->
 
@@ -288,7 +288,7 @@ names:
 - **客户自家模型预测导入**：导出空项目结构 → 客户用自家模型填 `predictions[]` → 在 Dashboard 项目卡片 `⋮` 菜单选择「导入预测」，或上传到 `/projects/{id}/predictions/import` 端点。
 - **dataset snapshot 锚点**：版本化备份 / 训练复现。
 
-AAP JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image label 文件）。
+原生 JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image label 文件）。
 
 结构（简化）：
 
@@ -380,7 +380,7 @@ AAP JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image
 
 ## 点云标准训练格式
 
-`lidar` 项目导出统一走异步 ZIP 管线，可选 **AAP JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。标准点云目标打包标注、标定、manifest 和下载脚本。
+`lidar` 项目导出统一走异步 ZIP 管线，可选 **原生 JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。标准点云目标打包标注、标定、manifest 和下载脚本。
 
 KITTI、Point Mask、Multi-camera COCO 与 NuScenes 在请求时固定标注、关联和标定。后台按原件登记的位置完整核对 SHA-256 和大小，再逐字节保存独立交付副本；manifest 中的链接指向这些副本，不依赖当前数据集默认桶。ZIP 和副本共用请求时起七天的截止，重复导出命中缓存也不会延长。下载脚本校验 SHA-256、大小及安全相对路径；当链接为站内相对路径时，使用 `python fetch_images.py --base-url https://平台地址`（点云脚本为 `fetch_pointclouds.py`，多相机 COCO 为 `fetch_media.py`，NuScenes 为 `fetch_nuscenes_media.py`）。链接过期后请重新发起导出。恢复到新桶后，应重新导出生成新的媒体链接。
 
@@ -407,7 +407,7 @@ nuScenes 会在入队前核对来源 scene / log / map、完整帧链、逐传�
 - `axis_frame=iso`（默认）：3D box 的 PSR（position / size / rotation）保持平台**内部归一化 ISO 约定**（+X 前 / +Y 左 / +Z 上）。
 - `axis_frame=source`：把 box 映射回该数据集导入时声明的 `axis_convention`（dataset metadata 里的轴约定），还原到用户原始坐标系。
 
-注意作用范围：对点云项目，`axis_frame` 只影响 **AAP JSON** 携带的 3D geometry。**KITTI 3D 导出与 `axis_frame` 无关——它会把平台 ISO 框先映射回每帧数据源 LiDAR 轴，再应用所选相机的真实标定，最终固定输出 KITTI camera 坐标。**
+注意作用范围：对点云项目，`axis_frame` 只影响 **原生 JSON** 携带的 3D geometry。**KITTI 3D 导出与 `axis_frame` 无关——它会把平台 ISO 框先映射回每帧数据源 LiDAR 轴，再应用所选相机的真实标定，最终固定输出 KITTI camera 坐标。**
 
 ### 标定缺失时严格失败
 
@@ -444,7 +444,7 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 ## 视频轨迹
 
-`video-track` 项目导出统一走异步 zip 管线，可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / AAP JSON / MOT / KITTI**。导出包含标注主体 + `manifest.json` + `fetch_videos.py`；需要图像序列的目标另带 `fetch_frames.py`，按每个输出目录自己的起始编号、位数与扩展名抽帧。
+`video-track` 项目导出统一走异步 zip 管线，可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / 原生 JSON / MOT / KITTI**。导出包含标注主体 + `manifest.json` + `fetch_videos.py`；需要图像序列的目标另带 `fetch_frames.py`，按每个输出目录自己的起始编号、位数与扩展名抽帧。
 
 项目和批次导出在排队时固定本次任务、标注、采样设置、分段和质检关联。已登记的数据集视频与独立 TaskOriginal 视频沿保存位置完整核验，再实际解码计帧；旧 JSON 帧数、播放转码或最大标注帧不作为源长度。探测得到的 fps、实际帧数、尺寸与原件 SHA-256／大小组成 `metadata_receipt`，随 manifest、Video JSON 和 AAP 视频来源保存。输入、权限或内容在执行期间变化时整包失败，需要重新导出。
 
@@ -481,7 +481,7 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 **KITTI Tracking 2D**：每视频落 `labels/{sequence}.txt`，**17 列**空格分隔，列顺序为 `frame track_id type truncated occluded alpha x1 y1 x2 y2 h w l x y z rotation_y`。2D 版本里 `truncated=0`、`occluded∈{0,1}`、`alpha` 与全部 3D 字段（`h w l x y z rotation_y`）占位 `-1`，只有 `x1 y1 x2 y2` 是真实 2D 框（像素）。帧号取采样网格序号 0-based。
 
-**AAP JSON**：单文档无损中间格式，所有视频轨迹 geometry 原样保留；Mask 内容通过 `mask_objects` 随包迁移。详见上节。
+**原生 JSON**：YOAO 原生交换格式，所有视频轨迹 geometry 原样保留；Mask 内容通过 `mask_objects` 随包迁移。详见上节。
 
 ### 视频 ZIP 包目录树（多目标 MOT + YOLO 逐帧示例）
 
@@ -536,8 +536,8 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 | 训练 YOLOv8 旋转框 (OBB)                              | YOLO 旋转框          |
 | 训练 YOLOv8 分割                                      | YOLO 分割            |
 | 训练 Detectron2 / MMDetection（检测 / 分割 / 关键点） | COCO                 |
-| **跨实例无损迁移 / 客户自训模型预测灌入**             | **AAP JSON**         |
-| 数据迁移 / 备份                                       | AAP JSON             |
+| **跨实例迁移 / 导入外部模型预测供人工审阅**           | **原生 JSON**        |
+| 数据迁移 / 备份                                       | 原生 JSON            |
 | 视频轨迹备份 / 质检                                   | Video JSON（关键帧） |
 | 视频逐帧训练（目标检测）                              | YOLO 逐帧            |
 | 视频逐帧质检 / 自定义脚本处理                         | Video JSON（所有帧） |
@@ -546,4 +546,4 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 | 多对象跟踪与分割数据交换                              | MOTS                 |
 | 视频多目标跟踪评测（trackeval）                       | MOT 16/17/20         |
 | 视频跟踪（KITTI 工具链）                              | KITTI Tracking       |
-| 视频跨实例无损迁移                                    | AAP JSON             |
+| 视频跨实例迁移                                        | 原生 JSON            |

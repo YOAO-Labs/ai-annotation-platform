@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -23,37 +23,25 @@ import { pathToFileURL } from "node:url";
  * visible alongside the selection.
  */
 
-// Platform-owned suites run in the ML CPU workflow; independent plugins run
-// their source suites in their own repository.
-const SHARED_CONTRACT_SUITES = {
-  "shared-protocol-v2": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: [
-      "apps/_shared/protocol_v2/",
-      "apps/_shared/task_contract/",
-      "scripts/run-ml-cpu-tests.sh",
-      ".github/workflows/ml-cpu-test.yml",
-    ],
-    reason: "protocol v2 schema/vocab/mask-codec contracts; 163 tests",
-    dependencies: "pytest + cryptography/fastapi/pydantic/PyJWT + numpy (test extra); CPU only",
-  },
-  "controlled-assets": {
-    command: "pnpm exec bash scripts/run-ml-cpu-tests.sh run controlled-assets",
-    scope: "specialty",
-    built: false,
-    wired: false,
-    triggers: [
-      "scripts/prepare-controlled-model-assets.py",
-      "scripts/test_controlled_model_assets.py",
-      "apps/_shared/training_contract/",
-    ],
-    reason: "controlled asset import and cache verification",
-    dependencies: "pytest + training and task contracts; CPU only",
-  },
-};
+// The CPU runner and this planner share ownership and path inputs. E2E path
+// rules remain independent; these entries describe the delegated CPU workflow.
+const cpuSuites = JSON.parse(
+  readFileSync(new URL("./test-suites.json", import.meta.url), "utf8"),
+).ml_cpu;
+const SHARED_CONTRACT_SUITES = Object.fromEntries(
+  cpuSuites.map(({ id, owner, paths, resources }) => [
+    id,
+    {
+      command: `pnpm exec bash scripts/run-ml-cpu-tests.sh run ${id}`,
+      scope: "specialty",
+      built: false,
+      wired: false,
+      triggers: paths,
+      reason: `${owner} CPU suite`,
+      dependencies: resources,
+    },
+  ]),
+);
 
 const smoke = [
   {
@@ -666,6 +654,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   //   full scope runs them, extended-only does not; schedule: always.
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
+    "scripts/test-suites.json",
     "scripts/run-ml-cpu-tests.sh",
     ".github/workflows/ml-cpu-test.yml",
   ];
@@ -673,9 +662,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (eventName === "push" || eventName === "schedule") mlCpu = true;
   else if (eventName === "workflow_dispatch")
     mlCpu = (process.env.E2E_DISPATCH_SCOPE ?? "extended") === "full";
-  else if (eventName === "pull_request")
-    mlCpu = (paths ?? []).some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix)));
-  else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
+  else if (eventName === "pull_request") {
+    const changed = paths ?? [];
+    // A new or unmapped source path can add a suite or alter a shared input.
+    // Only the existing documentation-only classification is safe to omit.
+    mlCpu =
+      changed.length === 0 ||
+      changed.some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix))) ||
+      !classifyPaths(changed).docsOnly;
+  } else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
 
   // The documented rollback retains pointcloud outside the chromium-only shards.
   // GitHub renders an unset repository variable as an empty string, so

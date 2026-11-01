@@ -23,6 +23,8 @@ The historical [macOS report](../../../docs/research/25-macos-webgpu-performance
 
 Probe `navigator.gpu` from the same secure application origin and launch configuration as the qualification run; `about:blank` is not valid adapter evidence. Record the browser-reported vendor/architecture and `isFallbackAdapter` when exposed. A missing/null fallback field or a capable feature set does not prove hardware rendering by itself.
 
+Keep rendered inputs and evaluation ground truth distinct. XYZ-only display PCD is not automatically raw LiDAR model input; preserve the real feature layout, coordinate/calibration, pose and sweep provenance when that path is in scope. Interpolated display frames do not create new RGB ground truth or temporal samples, and multiple camera views are not independent time observations. Async geometry and displayed metrics must belong to the same scene/generation.
+
 ## Raster masks and precise video
 
 Read [mask and video checks](references/mask-video.md) only for those subsystems.

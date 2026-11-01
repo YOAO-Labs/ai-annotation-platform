@@ -104,7 +104,7 @@ last_reviewed: 2026-09-07
 **Mask 轨迹**分区。切换帧不会把单帧 Mask 延展成轨迹；需要跨帧编辑时应选择「Mask 轨迹」工具。
 
 AI 工具产出的都是**单帧**标注，不是轨迹。它们是否出现，取决于项目的「交互式 AI 工具」总开关、
-ML 后端支持的交互模式，以及其产出几何所属工具单位是否启用——所以只启用矩形框时，Magic Box 仍在，
+模型服务支持的交互模式，以及其产出几何所属工具单位是否启用——所以只启用矩形框时，Magic Box 仍在，
 而智能点 / 智能框 / 示例框（产多边形）会隐藏。
 
 各类标注只读取自身工具单位的类别与属性：矩形框使用 `bbox`，旋转框使用 `rotated_bbox`，关键点使用 `keypoint`，多边形与 Mask 使用 `region`，折线使用 `polyline`。关键点单位没有骨骼模板时入口会保留但置灰。项目管理员可在**项目设置 → 类别与属性**里控制可用形态；关闭的创建工具不会出现在工具栏，选择工具始终保留。选择、移动、缩放已有标注在选择工具下明确可用，平移视图使用右键拖拽或 `Space`+拖拽。
@@ -259,7 +259,7 @@ AI 结果无需先落库就能核对，画布与右栏统一用 **violet** 表�
 
 ## 导出格式结构
 
-视频导出支持 Video JSON、YOLO / COCO 逐帧、MOT、KITTI、DAVIS 与 AAP JSON。单帧 OBB 和关键点在 Video JSON / AAP JSON 中保真；其它专业格式没有对应表示时，预检会明确报告不支持。Mask 轨迹在 Video JSON / AAP JSON 中保真，在 COCO 中输出标准 RLE，在 bbox-only 格式中按非空像素外接框降级，在 DAVIS 中输出 palette PNG；章节信息暂不进这些导出格式。
+视频导出支持 Video JSON、YOLO / COCO 逐帧、MOT、KITTI、DAVIS 与 原生 JSON。单帧 OBB 和关键点在 Video JSON / 原生 JSON 中保真；其它专业格式没有对应表示时，预检会明确报告不支持。Mask 轨迹在 Video JSON / 原生 JSON 中保真，在 COCO 中输出标准 RLE，在 bbox-only 格式中按非空像素外接框降级，在 DAVIS 中输出 palette PNG；章节信息暂不进这些导出格式。
 
 ### Video Tracks JSON 顶层字段
 

@@ -2016,11 +2016,11 @@ node --test scripts/check-workflow-names.test.mjs
 
 # 前端测试
 pnpm test                        # vitest 单测
-pnpm --filter @anno/web test:coverage  # 前端带覆盖率
+pnpm --filter web test:coverage  # 前端带覆盖率
 pnpm test:e2e                    # Playwright E2E（自启 :3001/:8010，使用 annotation_e2e）
-pnpm --filter @anno/web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
-pnpm --filter @anno/web test:e2e:visual  # 独立视觉基线
-pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
+pnpm --filter web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
+pnpm --filter web test:e2e:visual  # 独立视觉基线
+pnpm --filter web test:e2e:stress  # 完整布局压力矩阵
 
 # 后端 / 共享包测试
 cd apps/api && uv run pytest                                            # FastAPI 平台后端
@@ -2037,7 +2037,7 @@ pnpm docs:build
 # 从共享训练契约更新两训练仓库的完整参数表；--check 只核对一致性
 apps/api/.venv/bin/python docs-site/scripts/generate-training-reference.py
 apps/api/.venv/bin/python docs-site/scripts/generate-training-reference.py --check
-pnpm --filter @anno/docs-site check:all  # 文档元数据、导航与生成物检查
+pnpm --filter docs-site check:all  # 文档元数据、导航与生成物检查
 ```
 
 后端 CI 输出最慢 30 个 pytest 阶段，完整用例耗时保存在 `backend-test-results`
@@ -2090,7 +2090,7 @@ CI 检查名称统一使用 `领域 职责`，例如 `Backend tests`、`Frontend
 `assets-images-worker` 启动后，可下载、入库并等待生成完成；共享控制端和图片 Worker 使用同一测试数据库及缓存桶，API 的 `ASSETS_MEDIA_URL` 指向共享控制端：
 
 ```bash
-pnpm --filter @anno/web image:seeds
+pnpm --filter web image:seeds
 cd apps/api
 PYTHONPATH=. uv run python scripts/seed_large_images.py \
   --enqueue-pyramids --wait-seconds 1800
@@ -2167,7 +2167,7 @@ point、interactive box 与 exemplar，视频要求交互 tracker，OCR 要求�
 `large_image_demo`；其他截图与流程不依赖它。
 
 ```bash
-pnpm --filter @anno/web image:seeds
+pnpm --filter web image:seeds
 cd apps/api
 DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed_large_images.py \
   --id nasa-cosmic-cliffs --enqueue-pyramids --wait-seconds 1800
@@ -2177,7 +2177,7 @@ DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed_
 
 ### 触发
 
-Mac / Linux 分工录制优先使用 `pnpm --filter @anno/web screenshots:record -- --list`，
+Mac / Linux 分工录制优先使用 `pnpm --filter web screenshots:record -- --list`，
 再用 `--flow bbox-draw --plan` 预览依赖。正式录制默认采集 `marketing` 高清母版，
 再同源衍生项目需要的视频、GIF 与封面；`--profile docs --validate-only` 只预演，不生成正式源。
 手工场景无需模型，真实 ML 母版目前使用 Linux X11/NVIDIA，模型服务可独立部署。

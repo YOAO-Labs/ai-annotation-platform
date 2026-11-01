@@ -585,7 +585,7 @@ export function CapabilityCatalogPanel() {
             {primaryToolbar}
             <div className={EMPTY_STATE_CLASS}>
               <Icon name="layers" size={28} className="opacity-30" />
-              <div>尚无项目注册 ML Backend</div>
+              <div>尚无项目注册模型服务</div>
               <div className="text-xs">
                 切到「分组: task」可查看平台协议层支持的全部能力； 或在项目设置注册 backend 后,
                 其能力目录会出现在这里。

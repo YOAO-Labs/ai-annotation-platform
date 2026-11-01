@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
-import subprocess
 import uuid
 
 import pytest
@@ -95,45 +93,34 @@ def _preview_reply(data=None):
     }
 
 
-@pytest.mark.parametrize("kind", ["command", "reply"])
-def test_python_uuid_values_match_original_contract(kind):
-    if kind == "command":
-        payload = _command(actor_id=_ACTOR_ID, project_id=_PROJECT_ID)
-        expected = DatasetUnlinkCommand.model_validate(payload)
-        assert decode_unlink_command(payload) == expected
-        return
-
-    from aap_workspace import dataset_unlink_contract as contract
-
-    base = "17992f64cd97bdd1af322066d5d41c0bdae9ec99"
-    source = subprocess.check_output(
-        ["git", "show", base + ":apps/api/app/services/dataset_unlink_contract.py"],
-        cwd=Path(__file__).resolve().parents[3],
-        text=True,
+def test_python_uuid_values_preserve_unlink_identities_and_public_result():
+    command = decode_unlink_command(
+        _command(actor_id=_ACTOR_ID, project_id=_PROJECT_ID)
     )
-    original = next(
-        node
-        for node in ast.parse(source).body
-        if isinstance(node, ast.FunctionDef) and node.name == "decode_unlink_reply"
+    assert (command.actor_id, command.project_id) == (
+        uuid.UUID("4c524267-d44b-4419-9dcb-1afd9630d80a"),
+        uuid.UUID("705ffe3a-dddc-4d15-8bb8-870f88af6586"),
     )
-    namespace = dict(vars(contract))
-    exec(
-        compile(
-            ast.Module(body=[original], type_ignores=[]),
-            base + ":dataset_unlink_contract.py",
-            "exec",
-        ),
-        namespace,
-    )
-    payload = _unlink_reply(
-        _receipt(
-            actor_id=_ACTOR_ID,
-            association_id=_ASSOCIATION_ID,
-            deleted_batch_ids=(_BATCH_ID,),
+    receipt = decode_unlink_reply(
+        _unlink_reply(
+            _receipt(
+                actor_id=_ACTOR_ID,
+                association_id=_ASSOCIATION_ID,
+                deleted_batch_ids=(_BATCH_ID,),
+            )
         )
     )
-    expected = namespace["decode_unlink_reply"](payload)
-    assert decode_unlink_reply(payload) == expected
+    assert (receipt.actor_id, receipt.association_id) == (
+        uuid.UUID("4c524267-d44b-4419-9dcb-1afd9630d80a"),
+        uuid.UUID("c71a1997-c3c5-457c-8cf3-53be3f7cf207"),
+    )
+    assert receipt.public_result() == {
+        "deleted_tasks": 4,
+        "deleted_annotations": 3,
+        "deleted_batches": 1,
+        "deleted_batch_ids": ["5d49ffae-67f8-4893-8c75-86df553cc772"],
+        "soft": False,
+    }
 
 
 def test_moved_models_preserve_the_frozen_native_schema_and_defaults():

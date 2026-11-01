@@ -1,9 +1,9 @@
 """aap tui 监控面板 (Textual)。
 
-监控六视图: Projects / Datasets / Jobs / ML Backends / 看板 / 绩效; jobs 默认 3s 轮询。
+监控视图: Projects / Datasets / Jobs / Training / 模型服务 / 看板 / 绩效; jobs 默认 3s 轮询。
 轻量动作: Projects tab `e` 发起导出, Jobs tab `c` 软取消 job, 均经二次确认弹窗。
 下钻子路由: 行选中 / `o` / 「打开」按钮 push 专属详情 Screen (面包屑 + 返回);
-项目详情屏内嵌 概览 / 本项目任务 / 本项目 Backend 三个 scoped 子 tab。每个主 tab 顶部有动作按钮栏。
+项目详情屏内嵌 概览 / 本项目任务 / 本项目模型服务 三个 scoped 子 tab。每个主 tab 顶部有动作按钮栏。
 SDK Client 是同步 httpx —— 所有网络调用放 thread worker, 经 call_from_thread 回 UI 线程。
 TUI 是 Client 公开 API 的纯消费方, 不碰 _http / 内部实现。
 """
@@ -123,17 +123,17 @@ _EXPORT_TARGETS: dict[str, list[tuple[str, str]]] = {
         ("yolo-det", "YOLO 检测"),
         ("yolo-obb", "YOLO 旋转框"),
         ("yolo-seg", "YOLO 分割"),
-        ("aap_json", "AAP JSON"),
+        ("aap_json", "原生 JSON"),
     ],
     "video": [
         ("video_json", "Video JSON"),
         ("yolo-frames-det", "YOLO 逐帧"),
-        ("aap_json", "AAP JSON"),
+        ("aap_json", "原生 JSON"),
         ("mot", "MOT"),
         ("kitti", "KITTI"),
     ],
     "lidar": [
-        ("aap_json", "AAP JSON"),
+        ("aap_json", "原生 JSON"),
         ("kitti", "KITTI 3D"),
         ("nuscenes", "nuScenes"),
         ("pointmask", "Point Mask"),
@@ -737,7 +737,7 @@ class DetailScreen(Screen[None]):
         self._on_action = on_action
 
     def compose(self) -> ComposeResult:
-        yield Static(f"aap tui ▸ {self._crumb}", classes="breadcrumb")
+        yield Static(f"YOAO ▸ {self._crumb}", classes="breadcrumb")
         with VerticalScroll(classes="detail-body") as box:
             box.border_title = self._dtitle
             yield Static(self._body, id="detail-body")
@@ -794,7 +794,7 @@ class BatchDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"aap tui ▸ 批次 {self._batch.display_id} · {self._batch.name}",
+            f"YOAO ▸ 批次 {self._batch.display_id} · {self._batch.name}",
             classes="breadcrumb",
         )
         with VerticalScroll(classes="detail-body") as box:
@@ -865,9 +865,7 @@ class DatasetDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         d = self._dataset
-        yield Static(
-            f"aap tui ▸ 数据集 {d.display_id} · {d.name}", classes="breadcrumb"
-        )
+        yield Static(f"YOAO ▸ 数据集 {d.display_id} · {d.name}", classes="breadcrumb")
         with TabbedContent(id="dd-tabs"):
             with TabPane("📋 Overview", id="dd-overview"):
                 yield Static(_format_fields(d), classes="detail-body")
@@ -1100,7 +1098,7 @@ class MlBackendDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"aap tui ▸ Backend {self._backend.name} · 实时", classes="breadcrumb"
+            f"YOAO ▸ Backend {self._backend.name} · 实时", classes="breadcrumb"
         )
         with VerticalScroll(classes="detail-body") as box:
             box.border_title = "Backend 实时监控 (WS 1s)"
@@ -1240,7 +1238,7 @@ class ProjectDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         p = self._project
-        yield Static(f"aap tui ▸ 项目 {p.display_id} · {p.name}", classes="breadcrumb")
+        yield Static(f"YOAO ▸ 项目 {p.display_id} · {p.name}", classes="breadcrumb")
         with TabbedContent(id="pd-tabs"):
             with TabPane("📋 概览", id="pd-overview"):
                 yield Static(
@@ -1288,7 +1286,7 @@ class ProjectDetailScreen(Screen[None]):
                 yield DataTable(
                     id="pd-jobs-table", cursor_type="row", zebra_stripes=True
                 )
-            with TabPane("🖥 Backends", id="pd-backends"):
+            with TabPane("🖥 模型服务", id="pd-backends"):
                 yield DataTable(
                     id="pd-backends-table", cursor_type="row", zebra_stripes=True
                 )
@@ -1319,7 +1317,7 @@ class ProjectDetailScreen(Screen[None]):
         bt = self.query_one("#pd-backends-table", DataTable)
         bt.add_columns("name", "state", "model_version", "GPU", "显存", "last_checked")
         bt.fixed_columns = 1
-        bt.border_title = "本项目 Backend"
+        bt.border_title = "本项目模型服务"
         pools = self.query_one("#pd-pools-table", DataTable)
         pools.add_columns(
             "name",
@@ -1388,7 +1386,7 @@ class ProjectDetailScreen(Screen[None]):
             rows = list(self._client.ml_backends.list(self._project.id))
         except Exception as exc:  # noqa: BLE001
             self.app.call_from_thread(
-                self._pane_error, "pd-backends-table", "本项目 Backend", exc
+                self._pane_error, "pd-backends-table", "本项目模型服务", exc
             )
             return
         self.app.call_from_thread(self._render_backends, rows)
@@ -1476,7 +1474,7 @@ class ProjectDetailScreen(Screen[None]):
                 _fmt_dt(b.last_checked_at),
                 key=str(b.id),
             )
-        bt.border_title = f"本项目 Backend · {len(backends)}"
+        bt.border_title = f"本项目模型服务 · {len(backends)}"
         bt.loading = False
         self.query_one("#pd-backends", TabPane).loading = False
 
@@ -1936,8 +1934,8 @@ class TrainingRunDetailScreen(Screen[None]):
 class AapTuiApp(App[None]):
     """监控面板主 App。client 由构造方注入 (测试可传 stub)。"""
 
-    TITLE = "aap tui"
-    SUB_TITLE = "标注平台监控面板"
+    TITLE = "YOAO"
+    SUB_TITLE = "监控面板"
     HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]
     # 内置 nord 主题做基线配色, 不自造调色板; 全程走主题变量 ($accent/$panel/$text-muted)
     theme = "nord"
@@ -2206,7 +2204,7 @@ class AapTuiApp(App[None]):
                 yield DataTable(
                     id="training-table", cursor_type="row", zebra_stripes=True
                 )
-            with TabPane("🖥 ML Backends", id="tab-ml-backends"):
+            with TabPane("🖥 模型服务", id="tab-ml-backends"):
                 with Horizontal(classes="action-bar"):
                     yield Button(
                         "🔄 刷新",
@@ -2293,7 +2291,7 @@ class AapTuiApp(App[None]):
             "name", "项目", "state", "model_version", "GPU", "显存", "last_checked"
         )
         ml_table.fixed_columns = 1
-        ml_table.border_title = "ML Backend"
+        ml_table.border_title = "模型服务"
         people_table = self.query_one("#people-table", DataTable)
         people_table.add_columns(
             "姓名", "角色", "产出分", "质量分", "退回率", "7日趋势"
@@ -3037,7 +3035,7 @@ class AapTuiApp(App[None]):
                 key=str(b.id),
             )
         self._restore_cursor(table, "ml-backends-table")
-        table.border_title = f"ML Backend · {len(rows)}/{len(self._ml_rows)}"
+        table.border_title = f"模型服务 · {len(rows)}/{len(self._ml_rows)}"
 
     def _render_stats(self, stats: ProjectStats) -> None:
         rate = stats.ai_rate * 100 if stats.ai_rate <= 1 else stats.ai_rate

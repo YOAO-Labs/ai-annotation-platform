@@ -22,7 +22,6 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem, Scene, SensorCalibrationRevision
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
@@ -157,7 +156,7 @@ async def _complete_from_cache(
     )
     await check_cancelled(db, job_uuid, lock=True)
     await _reauthorize_export_final_write(db, job_uuid, task_ids, batch_id=batch_id)
-    current_job = await db.get(AsyncJob, job_uuid)
+    current_job = await async_job_svc.get_job(db, job_uuid)
     if current_job is None or current_job.project_id != project_id:
         export_outputs.reject("export_cache_output_mismatch")
     download_url = await export_outputs.sign_cached(
@@ -196,7 +195,7 @@ async def _emit_export_notification(
     失败不阻断主流程（与 notification 服务自身的 try/except 一致）。调用方负责后续 commit。
     """
     try:
-        job = await db.get(AsyncJob, job_uuid)
+        job = await async_job_svc.get_job(db, job_uuid)
         if job is None or job.user_id is None:
             return None
         payload_in = job.payload or {}
@@ -619,7 +618,7 @@ async def _reauthorize_export_final_write(
         lock_actor_project_authority,
     )
 
-    job = await db.get(AsyncJob, job_uuid)
+    job = await async_job_svc.get_job(db, job_uuid)
     if job is None or job.project_id is None or job.user_id is None:
         raise ValueError("export scope is no longer valid")
     actor = await IdentityAccountLockData(db).read_actor_status(job.user_id)
@@ -1041,8 +1040,11 @@ async def _run_export(
                     if isinstance(exc, ExportCancelled):
                         return
                     if owned_terminal_guard:
-                        terminal_status = await db.scalar(
-                            select(AsyncJob.status).where(AsyncJob.id == job_uuid)
+                        terminal = await async_job_svc.get_job(
+                            db, job_uuid, populate_existing=True
+                        )
+                        terminal_status = (
+                            terminal.status if terminal is not None else None
                         )
                         await db.rollback()
                         if terminal_status in {"cancelled", "completed"}:
@@ -1057,10 +1059,9 @@ async def _run_export(
                     return
                 try:
                     terminal = await db.scalar(
-                        select(AsyncJob)
-                        .where(AsyncJob.id == job_uuid)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
+                        job_lock_statement(
+                            job_uuid, mode="update", populate_existing=True
+                        )
                     )
                     if terminal is not None and terminal.status in {
                         "cancelled",

@@ -17,7 +17,7 @@ from pydantic import (
     field_validator,
 )
 
-from ai_annotation.models import MLBackend, _AAPModel
+from ai_annotation.models import MLBackend, _SDKModel
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 _MAX_INTERACTIVE_CONTEXT_BYTES = 1024 * 1024
@@ -79,21 +79,21 @@ class ProjectMLInteractiveRequest(_RequestModel):
     context: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class InteractiveRouting(_AAPModel):
+class InteractiveRouting(_SDKModel):
     requested_backend_id: UUID
     backend_pool_id: UUID | None = None
     backend_instance_id: UUID | None = None
     model_id: str | None = None
 
 
-class InteractiveDiagnostic(_AAPModel):
+class InteractiveDiagnostic(_SDKModel):
     reason: str
     retryable: bool = False
     message: str | None = None
     supported_geometric_outputs: list[str] | None = None
 
 
-class ProjectMLInteractiveResponse(_AAPModel):
+class ProjectMLInteractiveResponse(_SDKModel):
     result: list[dict[str, Any]] = Field(default_factory=list)
     score: float | None = None
     model_version: str | None = None
@@ -110,7 +110,7 @@ class ProjectMLInteractiveResponse(_AAPModel):
     accept_receipts: dict[str, str] = Field(default_factory=dict)
 
 
-class ProjectMLCapabilityWarning(_AAPModel):
+class ProjectMLCapabilityWarning(_SDKModel):
     level: str = "warning"
     model_id: str | None = None
     field: str
@@ -118,7 +118,7 @@ class ProjectMLCapabilityWarning(_AAPModel):
     message: str
 
 
-class ProjectMLModelCapability(_AAPModel):
+class ProjectMLModelCapability(_SDKModel):
     id: str
     display_name: str | None = None
     task: str = "unknown"
@@ -149,7 +149,7 @@ class ProjectMLModelCapability(_AAPModel):
     classes: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class ProjectMLBackendCapabilities(_AAPModel):
+class ProjectMLBackendCapabilities(_SDKModel):
     name: str | None = None
     version: str | None = None
     protocol_version: str = "1"
@@ -172,17 +172,17 @@ class ProjectMLBackendCapabilities(_AAPModel):
     warnings: list[ProjectMLCapabilityWarning] = Field(default_factory=list)
 
 
-class ProjectMLPredictionResult(_AAPModel):
+class ProjectMLPredictionResult(_SDKModel):
     task_id: str
     result: Any = None
     score: float | None = None
 
 
-class ProjectMLPredictTestResponse(_AAPModel):
+class ProjectMLPredictTestResponse(_SDKModel):
     results: list[ProjectMLPredictionResult]
 
 
-class ProjectMLPredictFrameResponse(_AAPModel):
+class ProjectMLPredictFrameResponse(_SDKModel):
     prediction_id: UUID
     candidate_count: int
     frame_index: int

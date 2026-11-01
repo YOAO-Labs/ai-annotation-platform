@@ -52,28 +52,28 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Snippet anchor consistency
-        run: pnpm --filter @anno/docs-site check:snippets
+        run: pnpm --filter docs-site check:snippets
 
       - name: ADR numbering & status
-        run: pnpm --filter @anno/docs-site check:adr
+        run: pnpm --filter docs-site check:adr
 
       - name: Plans freshness (warning only)
-        run: pnpm --filter @anno/docs-site check:plans
+        run: pnpm --filter docs-site check:plans
 
       - name: CHANGELOG vs git tag (warning only)
-        run: pnpm --filter @anno/docs-site check:changelog
+        run: pnpm --filter docs-site check:changelog
 
       - name: Generated docs in sync with code (hotkeys + settings + API routes)
-        run: pnpm --filter @anno/docs-site check:codegen
+        run: pnpm --filter docs-site check:codegen
 
       - name: Frontmatter metadata
-        run: pnpm --filter @anno/docs-site check:frontmatter
+        run: pnpm --filter docs-site check:frontmatter
 
       - name: Freshness report (advisory)
-        run: pnpm --filter @anno/docs-site check:freshness
+        run: pnpm --filter docs-site check:freshness
 
       - name: Navigation coverage
-        run: pnpm --filter @anno/docs-site check:navigation -- --strict
+        run: pnpm --filter docs-site check:navigation -- --strict
 
       # 死链检查前先物化 build 期生成的链接目标（public/openapi.json 由 sync-openapi
       # 生成、docs-site/dev/adr/ 由 mirror-adr 从 docs/adr/ 镜像），否则指向这些生成物的
@@ -90,19 +90,19 @@ jobs:
         run: node docs-site/scripts/check-image-manifest.mjs --strict && node docs-site/scripts/check-orphan-images.mjs --strict
 
       - name: Media audit policy tests
-        run: pnpm --filter @anno/docs-site media:test
+        run: pnpm --filter docs-site media:test
 
       # Review freshness belongs to manual acceptance, not each PR.
       - name: Published media integrity
-        run: pnpm --filter @anno/docs-site media:audit -- --integrity
+        run: pnpm --filter docs-site media:audit -- --integrity
 
       - name: Excalidraw diagram integrity
-        run: pnpm --filter @anno/docs-site check:diagrams
+        run: pnpm --filter docs-site check:diagrams
 
       - name: Build docs site (catches broken links via VitePress)
         env:
           DOCS_BASE: /ai-annotation-platform/
-        run: pnpm --filter @anno/docs-site build
+        run: pnpm --filter docs-site build
 
       # 链接外链校验：仅在 main 推送时跑（PR 不卡）
       - name: Link check (lychee)

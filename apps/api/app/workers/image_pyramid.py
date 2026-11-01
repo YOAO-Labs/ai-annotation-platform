@@ -384,7 +384,7 @@ def _verify_local_tiles(
 
 @contextmanager
 def _temporary_directory():
-    temporary = tempfile.TemporaryDirectory(prefix="aap-image-pyramid-")
+    temporary = tempfile.TemporaryDirectory(prefix="image-pyramid-")
     try:
         yield temporary.name
     finally:

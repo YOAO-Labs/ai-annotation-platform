@@ -67,7 +67,7 @@ def config():
 
 def report_file(tmp_path):
     from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
-    from aap_lifecycle_contract import REQUIRED_CONTRACT_CHECKS, memory_cycle_evidence
+    from aap_lifecycle_contract import memory_cycle_evidence
     from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
     receipt = json.loads((tmp_path / "state" / "receipt.json").read_text())
@@ -127,7 +127,20 @@ def report_file(tmp_path):
             "visible_device_count": 1,
         },
         cycles=cycles,
-        contract_checks={name: True for name in REQUIRED_CONTRACT_CHECKS},
+        contract_checks=dict.fromkeys(
+            (
+                "managed_lifecycle_advertised",
+                "real_inference",
+                "provider_or_device_gpu",
+                "busy_unload_rejected",
+                "cancel_accounting",
+                "stale_generation_rejected",
+                "token_replay_rejected",
+                "partial_headers_rejected",
+                "full_cleanup",
+            ),
+            True,
+        ),
         final_residency={
             "state": "unloaded",
             "gpu_loaded": False,

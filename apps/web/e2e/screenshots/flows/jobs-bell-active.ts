@@ -102,7 +102,7 @@ export async function runJobsBellActive(page: Page): Promise<DrawWindow> {
   await expect(dialog).toContainText("后台任务 (2 进行中)");
   await expect(dialog).toContainText("批量预标 · P-COCO8");
   await expect(dialog).toContainText("预测导入 · P-VIDEO-DEV");
-  await expect(dialog).toContainText("数据导出 · P-COCO8 · COCO + AAP JSON");
+  await expect(dialog).toContainText("数据导出 · P-COCO8 · COCO + 原生 JSON");
   const cancel = page.getByTestId("job-cancel-demo-preannotate-running");
   const download = page.getByTestId("job-download-demo-export-completed");
   await expect(cancel).toBeVisible();

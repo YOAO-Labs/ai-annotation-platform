@@ -524,7 +524,7 @@ async def start(db, actor, body, *, api_key_id=None, request=None):
 
 def evidence(values):
     """Hash validated logical evidence, independently of SQLite page layout."""
-    with tempfile.TemporaryDirectory(prefix="aap-copy-parent-") as directory:
+    with tempfile.TemporaryDirectory(prefix="copy-parent-") as directory:
         path = materialize(directory, values)
         with Checkpoint(path, max_bytes=BASELINE_LIMIT, strict_closure=True) as state:
             return state.evidence_digest()
@@ -1215,7 +1215,7 @@ def materialize(directory, values):
 
 
 def snapshot(values):
-    with tempfile.TemporaryDirectory(prefix="aap-copy-download-") as directory:
+    with tempfile.TemporaryDirectory(prefix="copy-download-") as directory:
         path = materialize(directory, values)
         with path.open("rb") as stream:
             raw = stream.read(BASELINE_LIMIT + 1)

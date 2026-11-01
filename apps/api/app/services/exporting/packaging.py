@@ -702,9 +702,7 @@ async def build_export_zip(
                     zf.writestr(f"{prefix}data.yaml", _build_data_yaml(classes_list))
 
             # Spool the manifest outside ZIP: only one ZIP write handle may be open.
-            with tempfile.TemporaryFile(
-                mode="w+b", prefix="aap-export-manifest-"
-            ) as mf:
+            with tempfile.TemporaryFile(mode="w+b", prefix="export-manifest-") as mf:
                 mf.write(
                     (
                         json.dumps(metadata, ensure_ascii=False)[:-1] + ', "images": ['
@@ -1908,7 +1906,7 @@ def main() -> int:
                     out_dir = os.path.dirname(frame_path)
                 # A permitted million-frame grid must not become a single
                 # command argument exceeding the operating system's argv limit.
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix="aap-video-select-", suffix=".txt") as selection:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix="video-select-", suffix=".txt") as selection:
                     selection.write("select='%s'" % select_expr)
                     selection.flush()
                     cmd = [

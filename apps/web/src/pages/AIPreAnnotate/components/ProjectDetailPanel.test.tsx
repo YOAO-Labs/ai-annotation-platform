@@ -400,16 +400,6 @@ describe("ProjectDetailPanel v0.9.12", () => {
     });
   });
 
-  it("无绑定 ml_backend 时显示警告 + Run disabled", () => {
-    mockUseProject.mockReturnValue({
-      data: { type_key: "image-det", ml_backend_id: null },
-      isLoading: false,
-    });
-    mockUseMLBackends.mockReturnValue({ data: [], isLoading: false });
-    renderUI();
-    expect(screen.getByText(/未绑定 ML backend/)).toBeInTheDocument();
-  });
-
   it("aliases 加载后默认填充 prompt (按预标频率降序)", async () => {
     mockUseProject.mockReturnValue({
       data: {

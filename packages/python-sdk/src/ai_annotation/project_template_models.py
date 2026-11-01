@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 TemplateScope = Literal["private", "organization", "public"]
 
@@ -96,7 +96,7 @@ class ProjectTemplateUpdate(_RequestModel):
     organization_id: UUID | None = None
 
 
-class ProjectTemplate(_AAPModel):
+class ProjectTemplate(_SDKModel):
     """Project template returned by the API; unknown response fields are retained."""
 
     id: UUID

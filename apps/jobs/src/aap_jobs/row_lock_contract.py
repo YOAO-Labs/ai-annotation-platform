@@ -15,6 +15,7 @@ JOBS_ROW_LOCK_PROTOCOL = "aap-jobs-row-locks/v1"
 JOBS_ROW_LOCK_FUNCTIONS = {
     "update": "aap_jobs_v1.read_job_for_update",
     "share_nowait": "aap_jobs_v1.read_job_for_share_nowait",
+    "update_nowait": "aap_jobs_v1.read_job_for_update_nowait",
 }
 JOBS_EXECUTION_SNAPSHOT_PROTOCOL = "aap-jobs-execution-snapshot/v1"
 JOBS_EXECUTION_SNAPSHOT_FUNCTION = "aap_jobs_v1.read_job_execution_snapshot"
@@ -59,7 +60,11 @@ def jobs_row_lock_schema():
                     for name in ASYNC_JOB_ROW_COLUMNS
                 )
                 + ")",
-                "lock": "FOR UPDATE" if mode == "update" else "FOR SHARE NOWAIT",
+                "lock": {
+                    "update": "FOR UPDATE",
+                    "share_nowait": "FOR SHARE NOWAIT",
+                    "update_nowait": "FOR UPDATE NOWAIT",
+                }[mode],
                 "volatility": "volatile",
             }
             for mode, function in JOBS_ROW_LOCK_FUNCTIONS.items()
@@ -82,4 +87,7 @@ def jobs_row_lock_schema():
 
 
 def jobs_row_lock_sql():
-    return files("aap_jobs").joinpath("sql/0328_jobs_row_locks.sql").read_text()
+    return "\n".join(
+        files("aap_jobs").joinpath(f"sql/{name}").read_text()
+        for name in ("0328_jobs_row_locks.sql", "0415_export_job_nowait.sql")
+    )

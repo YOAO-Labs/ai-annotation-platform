@@ -54,12 +54,12 @@ _Entry = TypeVar("_Entry", OperatorSourceEntry, OperatorSourcePatch)
 @event.listens_for(Session, "after_soft_rollback")
 def _forget_verified_receipts_on_rollback(session, _previous_transaction):
     """A rolled-back savepoint released its writes, so its proofs no longer hold."""
-    session.info.pop("aap_verified_receipts", None)
+    session.info.pop("assets_verified_receipts", None)
 
 
 @event.listens_for(Session, "after_rollback")
 def _forget_verified_receipts_on_outer_rollback(session):
-    session.info.pop("aap_verified_receipts", None)
+    session.info.pop("assets_verified_receipts", None)
 
 
 def _json_value(value: Any) -> Any:
@@ -200,14 +200,14 @@ class AssetsOperatorGateway:
         transaction = self._active_caller_transaction()
         info = self.db.info
         if transaction is None:
-            info.pop("aap_verified_receipts", None)
+            info.pop("assets_verified_receipts", None)
             self._receipt_transaction = None
             self._verified_receipts = {}
             return None
-        state = info.get("aap_verified_receipts")
+        state = info.get("assets_verified_receipts")
         if not isinstance(state, dict) or state.get("transaction") is not transaction:
             state = {"transaction": transaction, "receipts": {}}
-            info["aap_verified_receipts"] = state
+            info["assets_verified_receipts"] = state
         self._receipt_transaction = transaction
         self._verified_receipts = state["receipts"]
         return transaction

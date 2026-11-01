@@ -22,10 +22,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-SUITES=(
-  shared-protocol-v2
-  controlled-assets
-)
+mapfile -t SUITES < <(python3 -c 'import json,sys; print("\n".join(s["id"] for s in json.load(open(sys.argv[1]))["ml_cpu"]))' "$ROOT/scripts/test-suites.json")
+if [ "${#SUITES[@]}" -eq 0 ]; then
+  echo "CPU suite registry is empty or unreadable" >&2
+  exit 1
+fi
 
 VENV_DIRS=()
 cleanup_venvs() {
@@ -118,6 +119,7 @@ plan() {
     done
     printf '%s=%s\n' "${suite//-/_}" "$value"
   done
+  python3 -c 'import json,sys; suites=json.load(open(sys.argv[1]))["ml_cpu"]; wanted=set(sys.argv[2:]); print("matrix=" + json.dumps({"include":[{"suite":s["id"],"python":s["python"]} for s in suites if s["id"] in wanted]}, separators=(",",":")))' "$ROOT/scripts/test-suites.json" "${requested[@]}"
 }
 
 # Both installers set the global VENV_PATH and must be called as statements.
@@ -134,7 +136,8 @@ run_pytest() {
   local dir="$1" venv="$2"
   shift 2
   log "pytest $dir $*"
-  run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "$@"
+  local report="$ROOT/.artifacts/test-results/ml-cpu/$suite/${dir//\//-}.xml"
+  run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "--junitxml=$report" "$@"
 }
 
 # run: install the minimal dependencies for one suite and execute its tests.
@@ -164,7 +167,8 @@ run() {
 # wildcard case that must not glob. Exits nonzero on any mismatch.
 selftest() {
   local failures=0
-  local suite_list="shared_protocol_v2,controlled_assets"
+  local suite_list
+  suite_list="$(IFS=,; printf '%s' "${SUITES[*]//-/_}")"
 
   _selftest_plan() {
     local spec="$1"

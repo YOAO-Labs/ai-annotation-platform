@@ -7,7 +7,7 @@ last_reviewed: 2026-10-19
 
 # 前端分层
 
-前端应用位于 `apps/web/`（包名 `@anno/web`，路径别名 `@/*` → `apps/web/src/*`），采用 React 18 + TypeScript + Vite + React Router 构建。
+前端应用位于 `apps/web/`（包名 `web`，路径别名 `@/*` → `apps/web/src/*`），采用 React 18 + TypeScript + Vite + React Router 构建。
 
 ## 核心依赖方向
 
@@ -61,7 +61,7 @@ pages (路由页面与领域工作流)
 - `components/shell/`：应用级导航框架（`TopBar`、`Sidebar`、`BugReportDrawer`）。
 - **设计系统与令牌约束**（详见[设计系统](../reference/design-system)）：
   - 主题变量唯一真源为 `src/styles/shadcn.css`，CSS Modules 仅读取 `--sc-*` 变量（严禁使用旧 `--color-*` 或硬编码裸色值）。
-  - 暗色模式通过 `[data-theme="dark"]` 与 Tailwind `dark:` 驱动；修改样式后运行 `pnpm --filter @anno/web lint:css-tokens` 校验。
+  - 暗色模式通过 `[data-theme="dark"]` 与 Tailwind `dark:` 驱动；修改样式后运行 `pnpm --filter web lint:css-tokens` 校验。
 
 ## 5. 共用 Markdown 编辑与阅读组件（`src/components/markdown/`）
 

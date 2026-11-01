@@ -10,13 +10,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.schemas.aap_json import AAPJsonV1Envelope
+from app.schemas.native_json import NativeJsonEnvelope
 from app.schemas.mask_format import (
     MaskFormatCode,
     MaskFormatPlan,
     MaskFormatPlanItem,
 )
-from app.services.annotations_import import import_aap_json_annotations
+from app.services.annotations_import import import_native_json_annotations
 from app.services.labeling_core_read_relations import annotation_row, task_row
 from app.services.mask_formats.contracts import (
     MaskFormatDescriptor,
@@ -227,7 +227,7 @@ def _aap_error_code(reason: str) -> str:
     return "unsupported_geometry"
 
 
-def _aap_subset_bytes(envelope: AAPJsonV1Envelope, source_index: int) -> bytes:
+def _aap_subset_bytes(envelope: NativeJsonEnvelope, source_index: int) -> bytes:
     subset = envelope.model_copy(update={"tasks": [envelope.tasks[source_index]]})
     return json.dumps(
         subset.model_dump(mode="json"),
@@ -236,12 +236,12 @@ def _aap_subset_bytes(envelope: AAPJsonV1Envelope, source_index: int) -> bytes:
     ).encode("utf-8")
 
 
-class AAPJsonAdapter(LegacyPackagingAdapter):
-    async def _load(self, staged: StagedObject) -> AAPJsonV1Envelope:
+class NativeJsonAdapter(LegacyPackagingAdapter):
+    async def _load(self, staged: StagedObject) -> NativeJsonEnvelope:
         if staged.size_bytes > 64 * 1024 * 1024:
             raise ValueError("resource_budget_exceeded:max_aap_json_bytes")
         try:
-            return AAPJsonV1Envelope.model_validate_json(
+            return NativeJsonEnvelope.model_validate_json(
                 Path(staged.local_path).read_bytes()
             )
         except Exception as exc:
@@ -265,7 +265,7 @@ class AAPJsonAdapter(LegacyPackagingAdapter):
                 match["file_path"] = block.file_path
             task = await resolve_task(db, project.id, match)
             subset = _aap_subset_bytes(envelope, source_index)
-            preview = await import_aap_json_annotations(
+            preview = await import_native_json_annotations(
                 db,
                 project.id,
                 subset,
@@ -354,7 +354,7 @@ class AAPJsonAdapter(LegacyPackagingAdapter):
         resolved = await resolve_task(db, project.id, match)
         if resolved is None or resolved.id != item.task_id:
             raise ValueError("format_plan_task_conflict")
-        result = await import_aap_json_annotations(
+        result = await import_native_json_annotations(
             db,
             project.id,
             _aap_subset_bytes(envelope, item.source_index),

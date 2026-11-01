@@ -32,7 +32,7 @@ interface TargetOption {
   disabled?: boolean;
 }
 
-// v0.10.43 · 多目标导出。图像项目：COCO / AAP 单选卡 + YOLO 三变体分组（几何映射不同）。
+// 图像多目标导出：COCO／原生 JSON 单选卡与可多选的 YOLO 几何变体。
 type ImageOption =
   | ({ kind: "single" } & TargetOption)
   | { kind: "group"; label: string; description: string; members: TargetOption[] };
@@ -57,8 +57,8 @@ const IMAGE_OPTIONS: ImageOption[] = [
   {
     kind: "single",
     value: "aap_json",
-    label: "AAP JSON",
-    description: "平台原生无损，含 predictions + annotations 双数组。",
+    label: "原生 JSON",
+    description: "YOAO 原生交换格式，包含 predictions 和 annotations。",
   },
   {
     kind: "single",
@@ -118,15 +118,19 @@ const VIDEO_OPTIONS: TargetOption[] = [
   },
   {
     value: "aap_json",
-    label: "AAP JSON",
-    description: "无损保留 video_track geometry 与项目配置。",
+    label: "原生 JSON",
+    description: "YOAO 原生交换格式，保留 video_track geometry 与项目配置。",
   },
   { value: "mot", label: "MOT", description: "MOT 16/17/20 跟踪评测格式，按采样网格重排帧号。" },
   { value: "kitti", label: "KITTI", description: "KITTI Tracking 2D labels，适配 KITTI 工具链。" },
 ];
 
 const LIDAR_OPTIONS: TargetOption[] = [
-  { value: "aap_json", label: "AAP JSON", description: "平台原生无损，保留 3D 几何与项目配置。" },
+  {
+    value: "aap_json",
+    label: "原生 JSON",
+    description: "YOAO 原生交换格式，保留 3D 几何与项目配置。",
+  },
   {
     value: "kitti",
     label: "KITTI 3D",
@@ -893,7 +897,7 @@ function ExportForm({
             : "兼容旧版（v0.4.9 之前）格式，不含属性。"}
         </div>
         <div className="text-xs leading-snug text-muted-foreground">
-          仅对 COCO / YOLO / Video JSON / LiDAR 标准格式生效；AAP JSON 始终包含，MOT 无此字段。
+          仅对 COCO / YOLO / Video JSON / LiDAR 标准格式生效；原生 JSON 始终包含，MOT 无此字段。
         </div>
       </div>
       {preflight && (

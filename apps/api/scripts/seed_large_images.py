@@ -4,7 +4,7 @@ The canonical asset manifest and downloader live under ``apps/web`` so browser
 benchmarks, documentation screenshots, and this database seed all use the same
 bytes:
 
-    pnpm --filter @anno/web image:seeds
+    pnpm --filter web image:seeds
 
 Run from ``apps/api`` after the files are present:
 

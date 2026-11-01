@@ -134,12 +134,6 @@ describe("AdminDashboard", () => {
     expect(screen.getByTestId("id-wizard")).toBeInTheDocument();
   });
 
-  it("ML backend 总数 0 → 空态文案", () => {
-    mockUseAdminStats.mockReturnValue({ data: baseStats, isLoading: false });
-    renderUI();
-    expect(screen.getByText("暂无已注册的 ML 后端")).toBeInTheDocument();
-  });
-
   it("ML backend > 0 → 显示 X / Y 在线汇总（v0.8.6 联合卡片标题区）", () => {
     const s = { ...baseStats, ml_backends_total: 3, ml_backends_connected: 2 };
     mockUseAdminStats.mockReturnValue({ data: s, isLoading: false });

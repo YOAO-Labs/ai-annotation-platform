@@ -60,7 +60,9 @@ async def test_failed_storage_rolls_back_real_import_before_failure_receipt(
     importer = AsyncMock(side_effect=fail_after_partial_write)
     monkeypatch.setattr(
         annotations_import if route == "annotations" else predictions_import,
-        "import_aap_json_annotations" if route == "annotations" else "import_aap_json",
+        "import_native_json_annotations"
+        if route == "annotations"
+        else "import_native_json",
         importer,
     )
     upload = UploadFile(BytesIO(b"{}"), filename="probe.json")

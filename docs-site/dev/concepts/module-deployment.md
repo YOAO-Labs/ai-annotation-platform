@@ -2356,12 +2356,13 @@ API 角色对 Jobs 私表的 SELECT，确认实际拒绝后执行详情、取消
 
 ## Jobs 领域行访问与事务锁 {#jobs-row-access}
 
-二十一处普通作业读取复用现有 owner getter，保留原来的缓存、强制刷新、撤权检查和
-get／refresh 两阶段。九处按主键加锁读取使用 `aap-jobs-row-locks/v1` 的两项固定函数：
-`read_job_for_update(uuid)` 等待独占锁，`read_job_for_share_nowait(uuid)` 获取共享锁并
-立即报告竞争。迁移 `0328` 保留十五列原生行 ABI，函数以固定 search_path 的 Jobs owner
-执行；普通 API／worker 授权接入，严格 lifecycle LOGIN 仍只有原八项能力。
-锁在调用方事务中持有，错误与 scalar-one／缺失行行为不变，不新增重试或提交点。
+普通作业读取复用现有 owner getter，保留缓存、强制刷新、撤权检查和 get／refresh
+两阶段。主键加锁读取使用 `aap-jobs-row-locks/v1` 的三项固定函数：
+`read_job_for_update(uuid)` 等待独占锁，`read_job_for_update_nowait(uuid)` 立即获取
+独占锁或报告竞争，`read_job_for_share_nowait(uuid)` 获取共享锁并立即报告竞争。
+三者返回相同的十五列原生行 ABI，以固定 search_path 的 Jobs owner 执行；普通
+API／worker 授权接入，严格 lifecycle LOGIN 仍只有原八项能力。锁在调用方事务中
+持有，错误与 scalar-one／缺失行行为不变，不新增重试或提交点。
 
 无锁 ORM 字段刷新复用 `read_job`，保留原字段投影、脏缓存与过期语义；更新时间仍在
 属性刷新时观察数据库，不提前缓存本次写入时间。锁定刷新和不匹配的 ORM 形状保留
@@ -2405,6 +2406,25 @@ producer／canvas／options、其他执行恢复和替代语言提供方待收�
 非暂缓的跨帧 worker、Mask QC／Repair 及视频质量读取，再与专用查询统一验收，
 避免每个 getter 单独刷新工件。日常环境和主工作树未切换；训练／主动学习及资产的
 数据集／存储继续等待功能合并，Go 保持实验。
+
+### 冻结图像导出的公开读取与作业围栏 {#frozen-export-core-reads}
+
+图像冻结输入与共享点云 collector 使用 Workspace 项目事实、Labeling 的类型化核心
+关系，而不是普通账号直接读取私表。项目、批次、任务和标注沿既有公开锁能力执行；
+新增的预测、轨迹、轨迹区间和精确链接集合锁保留原范围、全局 ID 顺序、行数上限和
+UPDATE／SHARE NOWAIT。预测按项目和任务集合选择，复合主键不因 UUID 相同而合并。
+链接使用精确链接 ID 集合，避免点云主来源筛选锁住同任务其他角色的链接。
+
+collector 先锁小型身份列，再在 PostgreSQL 计算完整公开行的 JSON 字节预算；
+最终预算条件与 ORM 加载位于同一语句快照。父级插入围栏、累计预算、冻结摘要、
+取消与最终发布检查保持。冻结 worker 的 Job 读取使用 Jobs getter，领取和每次
+发布检查使用 `read_job_for_update_nowait`，不改为等待锁或额外事务。
+
+迁移、owner／普通运行授权、worktree 授权和便携包资源同步。两项 Labeling 原生
+案例及九项 Jobs 原生案例通过，涵盖精确范围、限量、竞争、回滚和预算拒绝；
+独立普通 API／worker 已完成图像原生 JSON 导出、浏览器下载和未改写文档的重新导入。
+当前限定证据见本仓 `docs/plans/1793261328_test-governance-module-plugin-contracts.md` 的 G3 Outcome。
+这不继承为完整模块、替代语言提供方、冷镜像／恢复或点云／视频全流程资格。
 
 ## Jobs 生命周期与队列交接 {#jobs-lifecycle-queue}
 

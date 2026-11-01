@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 from aap_task_contract import (
-    TASK_ALIASES,
-    TASK_VALUES,
     legacy_inference_task,
     legacy_training_task,
     normalize_task,
@@ -16,12 +14,45 @@ from aap_task_contract import (
 )
 
 
-@pytest.mark.parametrize("value", TASK_VALUES)
+@pytest.mark.parametrize(
+    "value",
+    [
+        "detect",
+        "segment",
+        "classify",
+        "pose",
+        "obb",
+        "ocr",
+        "doc_layout",
+        "tracker",
+        "interactive_seg",
+    ],
+)
 def test_canonical_tasks_are_stable(value):
     assert normalize_task(value) == value
 
 
-@pytest.mark.parametrize(("alias", "expected"), TASK_ALIASES.items())
+@pytest.mark.parametrize(
+    ("alias", "expected"),
+    [
+        ("detection", "detect"),
+        ("object_detection", "detect"),
+        ("image-detection", "detect"),
+        ("image_detection", "detect"),
+        ("segmentation", "segment"),
+        ("instance-segmentation", "segment"),
+        ("instance_segmentation", "segment"),
+        ("image-instance-segmentation", "segment"),
+        ("image_instance_segmentation", "segment"),
+        ("classification", "classify"),
+        ("image-classification", "classify"),
+        ("image_classification", "classify"),
+        ("cls", "classify"),
+        ("keypoint", "pose"),
+        ("keypoints", "pose"),
+        ("image-keypoints", "pose"),
+    ],
+)
 def test_legacy_aliases_have_one_canonical_identity(alias, expected):
     assert normalize_task(alias) == expected
     assert normalize_task(normalize_task(alias)) == expected

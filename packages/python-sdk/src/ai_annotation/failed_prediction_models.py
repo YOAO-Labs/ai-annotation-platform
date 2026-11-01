@@ -6,10 +6,10 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
-class FailedPredictionItem(_AAPModel):
+class FailedPredictionItem(_SDKModel):
     id: UUID
     task_id: UUID | None = None
     task_display_id: str | None = None
@@ -26,21 +26,21 @@ class FailedPredictionItem(_AAPModel):
     created_at: datetime
 
 
-class FailedPredictionPage(_AAPModel):
+class FailedPredictionPage(_SDKModel):
     items: list[FailedPredictionItem]
     total: int
     page: int
     page_size: int
 
 
-class FailedPredictionRetryReceipt(_AAPModel):
+class FailedPredictionRetryReceipt(_SDKModel):
     """HTTP 202 receipt; retry progress is reported asynchronously elsewhere."""
 
     status: Literal["queued"]
     failed_id: UUID
 
 
-class FailedPredictionDismissReceipt(_AAPModel):
+class FailedPredictionDismissReceipt(_SDKModel):
     status: Literal["dismissed", "restored"]
     failed_id: UUID
     dismissed_at: datetime | None = None

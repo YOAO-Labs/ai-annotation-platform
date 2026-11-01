@@ -123,8 +123,8 @@ BugReportDrawer 会在视频工作台提交反馈时自动读取当前 active ta
 本地性能回归入口：
 
 ```bash
-pnpm --filter @anno/web video:bench -- --dry-run
-pnpm --filter @anno/web video:bench
+pnpm --filter web video:bench -- --dry-run
+pnpm --filter web video:bench
 ```
 
 详细流程见 [视频工作台性能回归](/dev/how-to/video-workbench-performance-regression)。

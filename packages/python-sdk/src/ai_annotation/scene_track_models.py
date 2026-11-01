@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 TemporalRole = Literal["keyframe", "derived", "sample"]
 SceneTrackCommandKind = Literal[
@@ -94,14 +94,14 @@ class LegacyTrackOperationExecuteRequest(LegacyTrackOperationRequest):
     snapshot_token: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class SceneTimelineTrackOccurrence(_AAPModel):
+class SceneTimelineTrackOccurrence(_SDKModel):
     annotation_id: UUID
     source: str
     class_name: str
     temporal_role: TemporalRole = "sample"
 
 
-class SceneTimelineFrame(_AAPModel):
+class SceneTimelineFrame(_SDKModel):
     frame_index: int
     state: Literal["available", "unavailable", "missing"]
     task_id: UUID | None = None
@@ -111,7 +111,7 @@ class SceneTimelineFrame(_AAPModel):
     selected_track_present: bool | None = None
 
 
-class SceneTimeline(_AAPModel):
+class SceneTimeline(_SDKModel):
     summary_version: Literal[1] = 1
     scene_id: UUID | None = None
     scene_name: str | None = None
@@ -124,7 +124,7 @@ class SceneTimeline(_AAPModel):
     frames: list[SceneTimelineFrame] = Field(default_factory=list)
 
 
-class SceneTrackInterval(_AAPModel):
+class SceneTrackInterval(_SDKModel):
     id: UUID
     start_frame: int
     end_frame: int | None = None
@@ -132,7 +132,7 @@ class SceneTrackInterval(_AAPModel):
     version: int
 
 
-class SceneTrackMemberSummary(_AAPModel):
+class SceneTrackMemberSummary(_SDKModel):
     total: int
     by_temporal_role: dict[str, int] = Field(default_factory=dict)
     by_source: dict[str, int] = Field(default_factory=dict)
@@ -141,7 +141,7 @@ class SceneTrackMemberSummary(_AAPModel):
     sample_frames: list[int] = Field(default_factory=list)
 
 
-class SceneTrackDetail(_AAPModel):
+class SceneTrackDetail(_SDKModel):
     contract_version: Literal[1] = 1
     id: UUID
     project_id: UUID
@@ -160,14 +160,14 @@ class SceneTrackDetail(_AAPModel):
     available_commands: list[SceneTrackCommandKind] = Field(default_factory=list)
 
 
-class SceneTrackDiagnosticIssue(_AAPModel):
+class SceneTrackDiagnosticIssue(_SDKModel):
     code: str
     track_id: str | None = None
     annotation_id: UUID | None = None
     frame_index: int | None = None
 
 
-class SceneTrackDiagnosticReport(_AAPModel):
+class SceneTrackDiagnosticReport(_SDKModel):
     contract_version: Literal[1] = 1
     scene_id: UUID
     track_count: int
@@ -177,14 +177,14 @@ class SceneTrackDiagnosticReport(_AAPModel):
     truncated: bool = False
 
 
-class SceneTrackCommandMemberImpact(_AAPModel):
+class SceneTrackCommandMemberImpact(_SDKModel):
     total: int = 0
     by_temporal_role: dict[str, int] = Field(default_factory=dict)
     frames: list[int] = Field(default_factory=list)
     requires_confirmation: bool = False
 
 
-class SceneTrackCommandPreview(_AAPModel):
+class SceneTrackCommandPreview(_SDKModel):
     contract_version: Literal[1] = 1
     kind: SceneTrackCommandKind
     scene_id: UUID
@@ -207,7 +207,7 @@ class SceneTrackCommandResult(SceneTrackCommandPreview):
     result_revisions: dict[str, int] = Field(default_factory=dict)
 
 
-class SceneTrackOperationListItem(_AAPModel):
+class SceneTrackOperationListItem(_SDKModel):
     id: UUID
     kind: SceneTrackCommandKind
     status: Literal["committed", "reverted"]
@@ -216,12 +216,12 @@ class SceneTrackOperationListItem(_AAPModel):
     response: SceneTrackCommandResult
 
 
-class SceneTrackOperationList(_AAPModel):
+class SceneTrackOperationList(_SDKModel):
     contract_version: Literal[1] = 1
     operations: list[SceneTrackOperationListItem] = Field(default_factory=list)
 
 
-class TrackSummary(_AAPModel):
+class TrackSummary(_SDKModel):
     track_id: str
     class_name: str
     member_count: int
@@ -229,14 +229,14 @@ class TrackSummary(_AAPModel):
     last_frame: int
 
 
-class TrackOperationCandidates(_AAPModel):
+class TrackOperationCandidates(_SDKModel):
     contract_version: Literal[1] = 1
     primary: TrackSummary
     candidates: list[TrackSummary] = Field(default_factory=list)
     truncated: bool = False
 
 
-class LegacyTrackOperationPreview(_AAPModel):
+class LegacyTrackOperationPreview(_SDKModel):
     contract_version: Literal[1] = 1
     operation: LegacyTrackOperationKind
     scene_id: UUID

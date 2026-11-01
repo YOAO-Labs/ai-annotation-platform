@@ -224,9 +224,17 @@ existing import, conversion, camera editing and Mask format-import ledger.
 `task_maintenance_command` owns source-less Task cleanup and derived counters.
 All borrow the original caller transaction and preserve its commit boundary.
 
-Thirteen public core-row views retain native column types. Seven fixed row-lock
-functions return their explicit published column order and preserve the selected
-lock mode. The core-read LOGIN receives only these views and lock functions.
+Public core-row views retain native column types. Fixed row-lock functions
+return the explicit published column order and preserve their selected lock mode.
+`core_read_contract.CORE_READ_LOCK_FUNCTIONS` is the current lock inventory;
+the core-read LOGIN receives only the published views and lock functions.
+
+Frozen exports additionally lock bounded prediction rows by exact project/task
+scope, SceneTrack rows and their intervals, and exact TaskDatasetItemLink IDs.
+These capabilities retain global identity ordering, the caller's exact SQL
+limit, UPDATE/SHARE NOWAIT and caller-owned transaction lifetime. Composite
+Prediction identities remain distinct. The packaged export-lock SQL accompanies
+the forward migration; no private-table grants or separate transaction are needed.
 
 `mask_qc_command`, `mask_repair_command` and `raster_mask_retention_query` own the
 Mask quality/repair state and reference reads. `spatial_quality_command` owns the

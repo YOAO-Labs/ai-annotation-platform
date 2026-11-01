@@ -37,14 +37,14 @@ repos:
 
       - id: eslint
         name: eslint (apps/web)
-        entry: pnpm --filter @anno/web lint
+        entry: pnpm --filter web lint
         language: system
         files: ^apps/web/.+\.(ts|tsx|js|jsx)$
         pass_filenames: false
 
       - id: tsc-web
         name: tsc --noEmit (apps/web)
-        entry: pnpm --filter @anno/web exec tsc -b --noEmit
+        entry: pnpm --filter web exec tsc -b --noEmit
         language: system
         files: ^apps/web/.+\.(ts|tsx)$
         pass_filenames: false

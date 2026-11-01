@@ -38,7 +38,6 @@ const sample = {
   evidence_digest: "d".repeat(64),
 } satisfies EvaluationSampleResult;
 const bitmap = vi.fn(async (_data: ImageData) => ({ close: vi.fn() }));
-const drawImage = vi.fn();
 const originalCreate = URL.createObjectURL,
   originalRevoke = URL.revokeObjectURL;
 
@@ -63,7 +62,7 @@ beforeEach(() => {
   vi.stubGlobal("createImageBitmap", bitmap);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
     clearRect: vi.fn(),
-    drawImage,
+    drawImage: vi.fn(),
   } as never);
 });
 afterEach(() => {
@@ -99,7 +98,11 @@ describe("frozen mask evaluation pixels", () => {
         Array.from(alpha),
       );
     }
-    expect(drawImage).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("逐实例掩码像素预览")).toHaveAttribute("width", "5");
+      expect(screen.getByLabelText("逐实例掩码像素预览")).toHaveAttribute("height", "5");
+    });
     expect(view.container.querySelector("[data-layer]")).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: "真值掩码，蓝色" }));
     await waitFor(() => expect(bitmap).toHaveBeenCalledTimes(3));

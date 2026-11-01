@@ -253,7 +253,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         task = self._task
         actor = self._actor
         data = command.data
-        fields = data.model_dump(exclude_unset=True)
+        fields = data.model_dump(mode="json", exclude_unset=True)
         if not fields:
             raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -393,7 +393,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
                 )
         await self._db.commit()
         self._db.expire(annotation)
-        await get_core_row(self._db, annotation_row, annotation.id)
+        await get_core_row(self._db, annotation_row, command.annotation_id)
         return AnnotationOut.model_validate(annotation)
 
     async def delete(self, command: AnnotationDeleteCommand) -> bool:

@@ -1,52 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AAPImportErrorEntry": {
-        "properties": {
-          "reason": {
-            "title": "Reason",
-            "type": "string"
-          },
-          "task_match": {
-            "additionalProperties": true,
-            "title": "Task Match",
-            "type": "object"
-          }
-        },
-        "required": [
-          "reason"
-        ],
-        "title": "AAPImportErrorEntry",
-        "type": "object"
-      },
-      "AAPImportResult": {
-        "properties": {
-          "dry_run": {
-            "default": false,
-            "title": "Dry Run",
-            "type": "boolean"
-          },
-          "errors": {
-            "items": {
-              "$ref": "#/components/schemas/AAPImportErrorEntry"
-            },
-            "title": "Errors",
-            "type": "array"
-          },
-          "imported": {
-            "default": 0,
-            "title": "Imported",
-            "type": "integer"
-          },
-          "skipped": {
-            "default": 0,
-            "title": "Skipped",
-            "type": "integer"
-          }
-        },
-        "title": "AAPImportResult",
-        "type": "object"
-      },
       "AIToolPreferences": {
         "additionalProperties": false,
         "description": "每用户的 AI 工具偏好，按 ML backend id 分桶。\n\n不同 backend 的 /setup.params schema 不同（gsam2 有 box/text_threshold，sam3 有\nscore_threshold 等），故按 backend id 各存一份，互不污染；多用户各自一份 preferences，\n天然隔离不打架。值为 /setup.params 对应的自由 dict，平台只做存取不强校验字段。\n\n新增 model_by_backend：交互工具的引擎(模型)选择，同样按 backend 分桶。\n本子树为「深一层合并」(update_preferences)，故 params/model 两个子键可各自独立保存。",
@@ -23278,6 +23232,52 @@
           "key_prefix"
         ],
         "title": "ImportBindingTarget",
+        "type": "object"
+      },
+      "ImportErrorEntry": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "task_match": {
+            "additionalProperties": true,
+            "title": "Task Match",
+            "type": "object"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ImportErrorEntry",
+        "type": "object"
+      },
+      "ImportResult": {
+        "properties": {
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ImportErrorEntry"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "imported": {
+            "default": 0,
+            "title": "Imported",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "title": "ImportResult",
         "type": "object"
       },
       "InitializationArtifact": {
@@ -69509,8 +69509,8 @@
     }
   },
   "info": {
-    "title": "AI 标注平台 API",
-    "version": "0.26.1"
+    "title": "YOAO API",
+    "version": "0.26.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -88671,7 +88671,7 @@
     },
     "/api/v1/projects/{project_id}/annotations/import": {
       "post": {
-        "description": "导入 AAP JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
+        "description": "导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
         "operationId": "import_annotations_api_v1_projects__project_id__annotations_import_post",
         "parameters": [
           {
@@ -88721,7 +88721,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AAPImportResult"
+                  "$ref": "#/components/schemas/ImportResult"
                 }
               }
             },
@@ -96666,7 +96666,7 @@
     },
     "/api/v1/projects/{project_id}/predictions/import": {
       "post": {
-        "description": "外部模型预测结果导入端点 (v0.10.15).\n\n支持 COCO Detection、YOLO zip 与平台原生 AAP JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
+        "description": "导入外部模型预测结果。\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
         "operationId": "import_predictions_api_v1_projects__project_id__predictions_import_post",
         "parameters": [
           {
@@ -96727,7 +96727,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AAPImportResult"
+                  "$ref": "#/components/schemas/ImportResult"
                 }
               }
             },

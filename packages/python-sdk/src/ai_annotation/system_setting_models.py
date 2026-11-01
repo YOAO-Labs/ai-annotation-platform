@@ -15,7 +15,7 @@ from pydantic import (
     field_validator,
 )
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
 class _RequestModel(BaseModel):
@@ -24,7 +24,7 @@ class _RequestModel(BaseModel):
     )
 
 
-class SmtpStatus(_AAPModel):
+class SmtpStatus(_SDKModel):
     host: str | None
     port: int | None
     user: str | None
@@ -33,7 +33,7 @@ class SmtpStatus(_AAPModel):
     configured: bool
 
 
-class SystemSettingMetadata(_AAPModel):
+class SystemSettingMetadata(_SDKModel):
     source: Literal["deployment", "override"]
     deployment_default: Any
     updated_at: datetime | None = None
@@ -46,7 +46,7 @@ class SystemSettingMetadata(_AAPModel):
     in_range: bool
 
 
-class SystemSettingsOut(_AAPModel):
+class SystemSettingsOut(_SDKModel):
     environment: str
     invitation_ttl_days: int
     frontend_base_url: str
@@ -92,7 +92,7 @@ class SystemSettingsReset(_RequestModel):
         return values
 
 
-class SmtpTestResult(_AAPModel):
+class SmtpTestResult(_SDKModel):
     ok: bool
     to: str
     from_address: str = Field(alias="from")

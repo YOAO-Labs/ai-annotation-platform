@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_annotation.storage_models import BucketSummary
-from ai_annotation.models import GpuInfo, MLBackend, _AAPModel
+from ai_annotation.models import GpuInfo, MLBackend, _SDKModel
 
 
 class _RequestModel(BaseModel):
@@ -26,7 +26,7 @@ class ProbeRequest(_RequestModel):
     auth_token: str | None = Field(default=None, max_length=500, repr=False)
 
 
-class ProbeResponse(_AAPModel):
+class ProbeResponse(_SDKModel):
     ok: bool
     latency_ms: int
     status_code: int | None = None
@@ -36,30 +36,30 @@ class ProbeResponse(_AAPModel):
     model_version: str | None = None
 
 
-class RuntimeHints(_AAPModel):
+class RuntimeHints(_SDKModel):
     ml_backend_default_url: str | None = None
 
 
-class StorageOverview(_AAPModel):
+class StorageOverview(_SDKModel):
     items: list[BucketSummary]
     total_object_count: int
     total_size_bytes: int
 
 
-class ProjectMLBackendsGroup(_AAPModel):
+class ProjectMLBackendsGroup(_SDKModel):
     project_id: str
     project_name: str
     backends: list[MLBackend]
 
 
-class MLIntegrationsOverview(_AAPModel):
+class MLIntegrationsOverview(_SDKModel):
     storage: StorageOverview
     projects: list[ProjectMLBackendsGroup]
     total_backends: int
     connected_backends: int
 
 
-class GPUConfigDiagnostic(_AAPModel):
+class GPUConfigDiagnostic(_SDKModel):
     code: str
     level: Literal["info", "warning", "critical", "blocker"]
     message: str
@@ -75,7 +75,7 @@ GPURolloutState = Literal[
 GPUResourceStatus = Literal["ok", "info", "warning", "critical", "blocker"]
 
 
-class GPUArbiterRuntimeObservation(_AAPModel):
+class GPUArbiterRuntimeObservation(_SDKModel):
     status: Literal[
         "disabled",
         "missing",
@@ -102,7 +102,7 @@ class GPUArbiterRuntimeObservation(_AAPModel):
     durable_domain_matches: bool | None = None
 
 
-class GPUArbiterRollout(_AAPModel):
+class GPUArbiterRollout(_SDKModel):
     enabled: bool
     state: GPURolloutState
     effective_mode: GPUDesiredMode
@@ -114,7 +114,7 @@ class GPUArbiterRollout(_AAPModel):
     revision: int | None = None
 
 
-class GPUArbiterResource(_AAPModel):
+class GPUArbiterResource(_SDKModel):
     gpu_resource_id: str
     node_id: str
     physical_device_token: str
@@ -130,7 +130,7 @@ class GPUArbiterResource(_AAPModel):
     runtime: GPUArbiterRuntimeObservation
 
 
-class GPUArbiterResourcesResponse(_AAPModel):
+class GPUArbiterResourcesResponse(_SDKModel):
     global_desired_mode: GPUDesiredMode
     rollout_enabled: bool
     runtime_ready: bool
@@ -140,12 +140,12 @@ class GPUArbiterResourcesResponse(_AAPModel):
     diagnostics: list[GPUConfigDiagnostic]
 
 
-class VariantCatalog(_AAPModel):
+class VariantCatalog(_SDKModel):
     sam_variant: list[str] = Field(default_factory=list)
     dino_variant: list[str] = Field(default_factory=list)
 
 
-class ObserveTarget(_AAPModel):
+class ObserveTarget(_SDKModel):
     url: str
     ok: bool
     latency_ms: int
@@ -166,7 +166,7 @@ class ObserveTarget(_AAPModel):
     registered_label: str | None = None
 
 
-class ObserveResponse(_AAPModel):
+class ObserveResponse(_SDKModel):
     targets: list[ObserveTarget]
     configured_count: int
 
@@ -178,7 +178,7 @@ class SmokeTestRequest(_RequestModel):
     variant: dict[str, Any] | None = None
 
 
-class SmokeTestResponse(_AAPModel):
+class SmokeTestResponse(_SDKModel):
     ok: bool
     skipped: bool = False
     reloaded: bool | None = None

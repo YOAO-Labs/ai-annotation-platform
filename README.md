@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./apps/web/public/ai-annotation-platform-icon.svg" alt="AI Annotation Platform" width="112">
+<img src="./apps/web/public/ai-annotation-platform-icon.svg" alt="YOAO" width="112">
 
-<h1>AI Annotation Platform</h1>
+<h1>YOAO — You Only Annotate Once</h1>
 
 <p><strong>A production-grade labeling control plane for image, video, point-cloud, and AI-assisted dataset operations.</strong></p>
 
@@ -26,7 +26,7 @@
 
 </div>
 
-AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台、AI 预标注、审核、导出、后台任务与可观测性放在同一条产品链路里。它不是一个只画框的 Demo，而是一个用于持续迭代标注生产系统的全栈仓库。
+YOAO 把项目管理、Data Manager、多模态标注工作台、AI 预标注、审核、导出、后台任务与可观测性放在同一条产品链路里。它不是一个只画框的 Demo，而是一个用于持续迭代标注生产系统的全栈仓库。
 
 ## 数据集与存储
 
@@ -58,6 +58,8 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 受控模型兼容声明区分具名导出格式与显式 `format: null` 的原生 checkpoint；两者都必须与实际插件能力及平台模型回执精确匹配，清单声明不替代权重审批或 CPU／CUDA 资格。
 
 预训练模型／完整变体的描述随插件发布，批准、实际安装资产可用性及项目授权由平台分别管理。管理员 API SDK 在当前容器内测量文件大小与 SHA256，再按修订提交批准；目录展示、安装成功和 GPU 资格都不会自动授予使用权。目录、排队及实际发送共用准入规则，用户训练 checkpoint 仍走 Learning／Assets 的部署与发布流程，见[安装与资产审批](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。
+
+API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生成；导入响应的组件类型名与现有 wire 值说明见[导入接口](./docs-site/api/guides/import.md#响应)。
 
 ## 工作台 AI 案例
 
@@ -282,8 +284,8 @@ pnpm format
 # 前端测试
 pnpm test
 pnpm test:e2e          # 需要 Postgres/Redis/MinIO；自启 3001/8010 与 annotation_e2e
-pnpm --filter @anno/web test:e2e:visual  # 视觉基线（独立于默认功能集）
-pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
+pnpm --filter web test:e2e:visual  # 视觉基线（独立于默认功能集）
+pnpm --filter web test:e2e:stress  # 完整布局压力矩阵
 
 # 后端
 cd apps/api && uv run pytest

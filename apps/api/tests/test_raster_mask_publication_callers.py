@@ -154,7 +154,7 @@ async def test_prediction_import_locks_task_before_any_mask_publication(
         predictions_import.PredictionService, "create_from_ml_result", create
     )
     importer = (
-        predictions_import.import_aap_json
+        predictions_import.import_native_json
         if format == "aap"
         else predictions_import.import_coco
     )

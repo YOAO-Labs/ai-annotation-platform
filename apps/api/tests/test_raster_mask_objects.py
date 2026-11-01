@@ -11,7 +11,7 @@ import uuid
 from botocore.exceptions import ClientError
 import pytest
 from sqlalchemy import delete, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests._owned_s3 import patch_owned_client
 from app.config import settings
@@ -31,6 +31,7 @@ from app.services.raster_mask_storage import (
     build_rle_reference,
     canonical_rle_bytes,
 )
+from tests.raster_mask_isolation import remove_test_raster_owners, track_raster_owners
 
 
 class Objects:
@@ -198,6 +199,98 @@ async def harness(test_engine, monkeypatch):
                 gate.revision += 1
             await db.commit()
         blobs.objects.clear()
+
+
+async def test_cleanup_tracks_only_this_engine_allocations(
+    harness, test_engine, test_db_url
+):
+    # A pre-existing owner is reused; a neighbor commits while tracking is active.
+    _, existing_ref, existing_data = harness.content()
+    _, neighbor_ref, neighbor_data = harness.content()
+    _, own_ref, own_data = harness.content()
+    async with harness.factory() as caller:
+        await owners.store(
+            existing_ref, existing_data, db=caller, storage=harness.blobs
+        )
+        await caller.rollback()
+    existing_id = (await harness.rows())[0].id
+    neighbor_engine = create_async_engine(test_db_url)
+    try:
+        with track_raster_owners(test_engine) as created:
+            async with harness.factory() as caller:
+                await owners.store(
+                    existing_ref, existing_data, db=caller, storage=harness.blobs
+                )
+                await caller.rollback()
+            async with async_sessionmaker(neighbor_engine)() as neighbor:
+                await owners.store(
+                    neighbor_ref, neighbor_data, db=neighbor, storage=harness.blobs
+                )
+                await neighbor.rollback()
+            async with harness.factory() as caller:
+                await owners.store(own_ref, own_data, db=caller, storage=harness.blobs)
+                await caller.rollback()
+            rows = {row.logical_key: row for row in await harness.rows()}
+            neighbor_id = rows[neighbor_ref["object_key"]].id
+            own_id = rows[own_ref["object_key"]].id
+            neighbor_receipt = rows[neighbor_ref["object_key"]].storage_ref
+            assert created.objects == {own_id}
+        await remove_test_raster_owners(test_engine, created)
+        remaining = {row.id: row for row in await harness.rows()}
+        assert own_id not in remaining
+        assert existing_id in remaining
+        assert remaining[neighbor_id].storage_ref == neighbor_receipt
+    finally:
+        await neighbor_engine.dispose()
+
+
+async def test_cleanup_tracks_allocation_when_upload_fails(harness, test_engine):
+    _, reference, data = harness.content()
+    with track_raster_owners(test_engine) as created:
+        harness.blobs.fail_put = True
+        try:
+            async with harness.factory() as caller:
+                with pytest.raises(physical.RasterObjectStorageError):
+                    await owners.store(
+                        reference, data, db=caller, storage=harness.blobs
+                    )
+                await caller.rollback()
+        finally:
+            harness.blobs.fail_put = False
+        rows = await harness.rows()
+        assert len(rows) == 1 and rows[0].state == "pending"
+        assert created.objects == {rows[0].id}
+    await remove_test_raster_owners(test_engine, created)
+    assert await harness.rows() == []
+
+
+async def test_cleanup_rejects_neighbor_guard_on_owned_object(
+    harness, test_engine, test_db_url
+):
+    _, reference, data = harness.content()
+    neighbor_engine = create_async_engine(test_db_url)
+    try:
+        with track_raster_owners(test_engine) as created:
+            async with harness.factory() as caller:
+                await owners.store(reference, data, db=caller, storage=harness.blobs)
+                await caller.rollback()
+        with track_raster_owners(neighbor_engine) as neighbor_created:
+            async with async_sessionmaker(neighbor_engine)() as neighbor:
+                await owners.store(reference, data, db=neighbor, storage=harness.blobs)
+                await neighbor.rollback()
+        assert not neighbor_created.objects
+        assert neighbor_created.publications
+        with pytest.raises(RuntimeError, match="unowned publication"):
+            await remove_test_raster_owners(test_engine, created)
+        assert len(await harness.rows()) == 1
+        assert neighbor_created.publications <= {
+            guard.id for guard in await harness.guards()
+        }
+        await remove_test_raster_owners(neighbor_engine, neighbor_created)
+        await remove_test_raster_owners(test_engine, created)
+        assert await harness.rows() == []
+    finally:
+        await neighbor_engine.dispose()
 
 
 async def test_pending_and_guard_are_durable_before_put_without_business_commit(

@@ -9,32 +9,32 @@ last_reviewed: 2026-10-20
 
 # AI 预标注流水线
 
-本文描述 AI 预标注的完整流程：从全局注册 ML Backend → 项目启用 → 触发预标注 Job → 标注员采用结果。
+本文描述 AI 预标注的完整流程：从全局注册模型服务 → 项目启用 → 触发预标注 Job → 标注员采用结果。
 
 ## 前提条件
 
-- 已有可用 ML Backend（自部署或使用平台内置 Grounded-SAM-2）
-- 超管已在 **模型市场**（`/model-market`）的**全局注册表**完成 ML Backend 注册（env 配置的 backend 启动后自动注册）
+- 已有可用模型服务（自部署或使用平台内置 Grounded-SAM-2）
+- 超管已在 **模型市场**（`/model-market`）的**全局注册表**完成模型服务注册（env 配置的模型服务启动后自动注册）
 - 项目已创建并上传数据
 
 ## 流程概览
 
 ```
-超管全局注册 ML Backend → 项目启用 backend（设主后端） → 触发批量 Job → Job 完成 → 标注员采用 Prediction
+超管全局注册模型服务 → 项目启用模型服务（设主模型服务） → 触发批量 Job → Job 完成 → 标注员采用 Prediction
 ```
 
-## Step 1：全局注册 ML Backend（超管）
+## Step 1：全局注册模型服务（超管） {#step-1-全局注册-ml-backend-超管}
 
 1. 主导航 → **模型市场**（`/model-market`）→ **注册管理** tab
-2. 点「注册 backend」，填写服务 URL（如 `http://sam-backend:8001`，全局唯一）并点击**测试连接** — 返回 200 且协议版本匹配即可
-3. 保存后该 backend 进入全局注册表，可在**模型目录**中看到具体模型；**协议能力**解释支持的操作
+2. 注册模型服务，填写服务 URL（如 `http://sam-backend:8001`，全局唯一）并点击**测试连接** — 返回 200 且协议版本匹配即可
+3. 保存后该模型服务进入全局注册表，可在**模型目录**中看到具体模型；**协议能力**解释支持的操作
 
-详见 [ML Backend 协议](/dev/reference/ml-backend-protocol)。
+详见[模型服务注册](/user-guide/superadmin/ml-backend-registry)与 [ML Backend 协议](/dev/reference/ml-backend-protocol)。
 
-## Step 2：项目启用 backend（项目管理员操作）
+## Step 2：项目启用模型服务（项目管理员操作） {#step-2-项目启用-backend-项目管理员操作}
 
-1. 项目详情 → **设置** → **ML 模型** → 点「管理 backend」在全局 backend 启用清单里**勾选启用**（推理阈值在运行时跑批配置里调，不在此预设）
-2. 在 **项目主后端** 下拉里选一个已启用的 backend 并保存（不影响现有 Task 和 Prediction）
+1. 项目详情 → **设置** → **模型服务** → 点「管理模型服务」在全局模型服务启用清单里**勾选启用**（推理阈值在运行时跑批配置里调，不在此预设）
+2. 在 **项目主模型服务** 下拉里选一个已启用的模型服务（不影响现有 Task 和 Prediction）。详见[启用模型服务](../projects/ml-backends)。
 
 ## 使用已发布的训练模型
 
@@ -50,7 +50,7 @@ Ultralytics 图片检测训练完成后，在项目「模型与发布」注册�
 2. 勾选一个或多个 `active` 批次
 3. 选择幂等模式（`跳过已预标` / `覆盖` / `追加`，默认跳过已预标）
 4. 点击**跑预标**（单批次）或选择串行 / 并行后批量触发
-5. 系统为每个批次创建一个 Job（状态 `pending` → `running`）；Celery Worker 调用 ML Backend，逐 Task 写入 Prediction
+5. 系统为每个批次创建一个 Job（状态 `pending` → `running`）；Celery Worker 调用模型服务，逐 Task 写入 Prediction
 6. 所有 Task 处理完毕后 Job 状态变为 `completed`
 
 可在 `/ai-pre/jobs` 或右上角后台任务铃实时查看 Job 进度；失败任务在 `/ai-pre/jobs?status=failed` 查看并重试。
@@ -71,6 +71,6 @@ Ultralytics 图片检测训练完成后，在项目「模型与发布」注册�
 
 | 情况                            | 原因                           | 处理                                                                                                                                                       |
 | ------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Job 停在 `running` 超过 10 分钟 | Worker 崩溃或 Backend 超时     | 查 Celery Worker 日志（`docker logs ai-annotation-platform-celery-worker-1 --tail 100`）；参考 [Runbook: ML Backend 不可用](/ops/runbooks/ml-backend-down) |
-| 部分 Task 无 Prediction         | Backend 返回空结果（置信度低） | 检查 Backend 日志，调整阈值配置                                                                                                                            |
-| 连接 Backend 失败               | URL 配置错误或网络隔离         | 参考 [容器网络排查](/dev/troubleshooting/container-networking)                                                                                             |
+| Job 停在 `running` 超过 10 分钟 | Worker 崩溃或模型服务超时      | 查 Celery Worker 日志（`docker logs ai-annotation-platform-celery-worker-1 --tail 100`）；参考 [Runbook: ML Backend 不可用](/ops/runbooks/ml-backend-down) |
+| 部分 Task 无 Prediction         | 模型服务返回空结果（置信度低） | 检查模型服务日志，调整阈值配置                                                                                                                             |
+| 连接模型服务失败                | URL 配置错误或网络隔离         | 参考 [容器网络排查](/dev/troubleshooting/container-networking)                                                                                             |

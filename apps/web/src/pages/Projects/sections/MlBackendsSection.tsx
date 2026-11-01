@@ -62,18 +62,15 @@ function ManageBackendsPanel({
   onToggle: (item: ProjectMLBackendItem, next: boolean) => void;
 }) {
   return (
-    <Modal open={open} onClose={onClose} title="管理项目 ML backend" width={720}>
+    <Modal open={open} onClose={onClose} title="管理项目模型服务" width={720}>
       <div className="mb-3 text-xs text-muted-foreground">
-        勾选启用本项目要用的全局 backend，并可按项目调整阈值覆盖；全局 backend
-        由超管在「模型市场」注册。
+        勾选本项目要启用的模型服务，并可按项目调整阈值；全局模型服务 由超管在「模型市场」注册。
       </div>
       {items.length === 0 ? (
         <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           <Icon name="bot" size={28} className="mb-1.5 opacity-25" />
-          <div>暂无可用的全局 ML backend</div>
-          <div className="mt-1 text-xs">
-            请由超管在「模型市场」注册全局 backend 后，在此勾选启用
-          </div>
+          <div>暂无可用的全局模型服务</div>
+          <div className="mt-1 text-xs">请由超管在「模型市场」注册模型服务后，在此勾选启用</div>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -132,20 +129,20 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
 
   const setEnablement = useSetMLBackendEnablement(project.id);
   const health = useMLBackendHealth(project.id);
-  // 行内「设为主后端」快捷设置项目主后端，免回基本信息 tab 手选。
+  // 行内快捷设置项目主模型服务。
   const updateProject = useUpdateProject(project.id);
-  // v0.19.0 · ai_enabled 不再手动开关, 自动派生「设了项目主后端即视为启用 AI」。
+  // ai_enabled 自动派生：设置项目主模型服务即启用 AI。
   const [mlBackendId, setMlBackendId] = useState<string | null>(project.ml_backend_id ?? null);
   const [iouThreshold, setIouThreshold] = useState(project.iou_dedup_threshold ?? 0.7);
 
-  // 改动即时生效:下拉 / 行内「设为主后端」/ IoU 滑块都各自直接落库,不再有「保存」批量提交。
+  // 下拉、行内主服务操作和 IoU 滑块分别即时提交。
   // 本地态只作乐观显示 + 跟随服务端回灌(切项目、外部改动、提交失败回滚都靠它)。
   useEffect(() => {
     setMlBackendId(project.ml_backend_id ?? null);
     setIouThreshold(project.iou_dedup_threshold ?? 0.7);
   }, [project.id, project.ml_backend_id, project.iou_dedup_threshold]);
 
-  // 设/清项目主后端 → 即时落库(ai_enabled 跟随派生)。乐观更新本地下拉,失败回滚。
+  // 设／清项目主模型服务；提交失败时恢复服务端值。
   const commitBackend = (id: string | null, name?: string) => {
     setMlBackendId(id);
     updateProject.mutate(
@@ -153,7 +150,9 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
       {
         onSuccess: () =>
           pushToast({
-            msg: id ? `已设为项目主后端「${name ?? ""}」` : "已清除项目主后端（AI 预标注停用）",
+            msg: id
+              ? `已设为项目主模型服务「${name ?? ""}」`
+              : "已清除项目主模型服务（AI 预标注停用）",
             kind: "success",
           }),
         onError: (e) => {
@@ -241,7 +240,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
         <div>
           <h3 className="text-sm font-semibold">
-            ML 模型
+            模型服务
             <span
               data-testid="ml-backend-quota"
               className="ml-2 text-xs font-medium text-muted-foreground"
@@ -250,8 +249,8 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
             </span>
           </h3>
           <div className="mt-1 text-xs text-muted-foreground">
-            本表仅显示本项目已启用的 ML backend；点「管理 backend」可启用/停用全局
-            backend。推理参数在工作台 / 预标运行时按 backend 自报的 /setup 调。
+            本表仅显示本项目已启用的模型服务；点「管理模型服务」可启用或停用。
+            推理参数可在工作台或预标注配置中调整，以服务公布的能力为准。
           </div>
         </div>
         {canManage && (
@@ -262,7 +261,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
             disabled={isLoading || isError}
           >
             <Icon name="plus" />
-            管理 backend
+            管理模型服务
           </Button>
         )}
       </div>
@@ -276,10 +275,14 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
           <span className="text-xs text-muted-foreground">改动即时生效</span>
         </div>
 
-        <div className="grid grid-cols-[minmax(260px,1.2fr)_minmax(220px,1fr)] gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(260px,1.2fr)_minmax(220px,1fr)]">
           <div>
-            <label className={LABEL_CLASS}>项目主后端</label>
+            <label htmlFor="project-primary-model-service" className={LABEL_CLASS}>
+              项目主模型服务
+            </label>
             <select
+              id="project-primary-model-service"
+              aria-describedby="project-primary-model-service-hint"
               value={mlBackendId ?? ""}
               disabled={!canManage || updateProject.isPending}
               onChange={(e) => {
@@ -288,7 +291,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
               }}
               className={cn(CONTROL_CLASS, "cursor-pointer")}
             >
-              <option value="">不设置项目主后端</option>
+              <option value="">不设置</option>
               {enabledBackends.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -297,13 +300,16 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                 </option>
               ))}
             </select>
-            <div className="mt-1 text-xs leading-normal text-muted-foreground">
-              设了项目主后端即视为启用 AI 预标注（留空 = 不启用）。主后端用于工作台 AI
-              与新建预标配置的初始选择 / fallback；多阶段预标注中，每个阶段显式选择的 backend/model
-              仍然独立生效。平台所有“模型名”展示均直接来自 backend.name。
+            <div
+              id="project-primary-model-service-hint"
+              className="mt-1 text-xs leading-normal text-muted-foreground"
+            >
+              设置项目主模型服务即启用 AI 预标注，留空则不启用。主服务用于工作台 AI
+              与新建预标配置的初始选择和回退；多阶段预标中显式选择的服务和模型仍独立生效。
+              界面显示服务的注册名称。
               {enabledBackends.length === 0 && (
                 <span className="ml-1 text-status-caution">
-                  暂无已启用 backend；请点右上「管理 backend」勾选启用。
+                  暂无已启用的模型服务；请点右上「管理模型服务」勾选启用。
                 </span>
               )}
             </div>
@@ -376,11 +382,11 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         {!isLoading && !isError && enabledItems.length === 0 && (
           <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
             <Icon name="bot" size={28} className="mb-1.5 opacity-25" />
-            <div>本项目暂未启用任何 ML backend</div>
+            <div>本项目暂未启用任何模型服务</div>
             <div className="mt-1 text-xs">
               {items.length > 0
-                ? "点右上「管理 backend」从全局注册表勾选启用"
-                : "请由超管在「模型市场」注册全局 backend 后，再来此启用"}
+                ? "点右上「管理模型服务」从全局注册表勾选启用"
+                : "请由超管在「模型市场」注册模型服务后，再来此启用"}
             </div>
           </div>
         )}
@@ -459,14 +465,14 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                               disabled={!canManage || updateProject.isPending}
                               title={
                                 canManage
-                                  ? "设为本项目主后端（同时启用 AI）"
+                                  ? "设为本项目主模型服务（同时启用 AI）"
                                   : "需要 PROJECT_ADMIN 权限"
                               }
                             >
-                              设为主后端
+                              设为主服务
                             </Button>
                           )}
-                          {project.ml_backend_id === b.id && <Badge variant="ai">主后端</Badge>}
+                          {project.ml_backend_id === b.id && <Badge variant="ai">主服务</Badge>}
                           <Button
                             size="xs"
                             onClick={() => onHealth(b)}
@@ -487,7 +493,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
       </div>
 
       <ListPagination
-        label="推理服务"
+        label="模型服务"
         page={pagination.page}
         pageSize={pagination.pageSize}
         total={pagination.total}

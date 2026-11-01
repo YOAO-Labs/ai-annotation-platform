@@ -79,8 +79,8 @@ docs-site/public/diagrams/dev/concepts/system-overview.svg
 ### 3. 校验
 
 ```bash
-pnpm --filter @anno/docs-site check:diagrams
-DOCS_BASE=/ai-annotation-platform/ pnpm --filter @anno/docs-site build
+pnpm --filter docs-site check:diagrams
+DOCS_BASE=/ai-annotation-platform/ pnpm --filter docs-site build
 ```
 
 图表校验会拒绝：

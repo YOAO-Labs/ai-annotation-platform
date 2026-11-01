@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── schema 常量 ─────────────────────────────────────────────────────
 
-AAP_SCHEMA_MAJOR = 1
+SCHEMA_MAJOR = 1
 # v0.10.17 · 升 1.1: envelope 增加 project.tool_bindings (工具维度类别/属性绑定)
 # 与 annotations/predictions 数组每条 tool_unit_id. 1.0 reader 仍能读 (extra=ignore).
 # v0.10.31 · 升 1.2: task 层增加 media_type + video 子块 (视频采样/fps/帧元数据).
@@ -38,13 +38,13 @@ AAP_SCHEMA_MAJOR = 1
 # v0.22.0 · 升 1.3: envelope 增 mask_objects，令 coco_rle_ref 跨实例可移植。
 # 1.5: annotation entry 增 track_id / temporal_role，envelope 增 scene_tracks。
 # 1.6: annotation entry 增持久化多相机成员及其标定版本关系。
-AAP_SCHEMA_VERSION = "1.7"
+SCHEMA_VERSION = "1.7"
 
 
 # ── task_match (oneof) ───────────────────────────────────────────────
 
 
-class AAPTaskMatch(BaseModel):
+class TaskMatch(BaseModel):
     """跨实例匹配 task 的稳定键: display_id (全局唯一) + file_path (项目内)."""
 
     display_id: str | None = None
@@ -56,7 +56,7 @@ class AAPTaskMatch(BaseModel):
 # ── annotations / predictions entry ──────────────────────────────────
 
 
-class AAPAnnotationEntry(BaseModel):
+class AnnotationEntry(BaseModel):
     """导出严格写满 null；标注导入保持 lenient。"""
 
     geometry: dict[str, Any]
@@ -100,7 +100,7 @@ class AAPAnnotationEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class AAPPredictionEntry(BaseModel):
+class PredictionEntry(BaseModel):
     geometry: dict[str, Any] | None = None
     # v0.10.53 · 一个 prediction entry 可合并多个 shape 写入同一 Prediction.result.
     # 与 geometry 同时存在时 shapes 优先; 老单 geometry entry 继续兼容.
@@ -118,7 +118,7 @@ class AAPPredictionEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class AAPSceneTrackInterval(BaseModel):
+class SceneTrackIntervalEntry(BaseModel):
     start_frame: int = Field(ge=0)
     end_frame: int | None = Field(default=None, ge=0)
     source: Literal["legacy_envelope", "manual", "imported", "derived"] = "imported"
@@ -132,14 +132,14 @@ class AAPSceneTrackInterval(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class AAPSceneTrackEntry(BaseModel):
+class SceneTrackEntry(BaseModel):
     track_id: str = Field(min_length=1, max_length=64)
     scene_name: str | None = None
     class_name: str = Field(min_length=1, max_length=100)
     presence_mode: Literal["inferred", "explicit"] = "explicit"
     attributes: dict[str, Any] = Field(default_factory=dict)
     attributes_meta: dict[str, Any] = Field(default_factory=dict)
-    intervals: list[AAPSceneTrackInterval] = Field(default_factory=list)
+    intervals: list[SceneTrackIntervalEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -147,18 +147,18 @@ class AAPSceneTrackEntry(BaseModel):
 # ── task block ───────────────────────────────────────────────────────
 
 
-class AAPTaskBlock(BaseModel):
+class TaskBlock(BaseModel):
     task: VisualTaskName | None = None
     available_tasks: list[VisualTaskName] = Field(default_factory=list)
-    task_match: AAPTaskMatch
+    task_match: TaskMatch
     file_path: str | None = None
     # v0.10.31 · 媒体维度 (1.2+). 1.x reader 走 extra=ignore, 缺失默认 "image".
     media_type: Literal["image", "video", "lidar"] = "image"
     # v0.10.31 · 视频专属元数据: 采样配置/fps/frame_count/timetable 摘要/segment/chapter.
     video: dict[str, Any] | None = None
     external_id: str | None = None
-    annotations: list[AAPAnnotationEntry] = Field(default_factory=list)
-    predictions: list[AAPPredictionEntry] = Field(default_factory=list)
+    annotations: list[AnnotationEntry] = Field(default_factory=list)
+    predictions: list[PredictionEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -166,7 +166,7 @@ class AAPTaskBlock(BaseModel):
 # ── project / exported_from / envelope ──────────────────────────────
 
 
-class AAPExportedFrom(BaseModel):
+class ExportedFrom(BaseModel):
     platform: Literal["aap"] = "aap"
     platform_version: str | None = None
     project_display_id: str | None = None
@@ -175,7 +175,7 @@ class AAPExportedFrom(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class AAPProjectMeta(BaseModel):
+class ProjectMeta(BaseModel):
     name: str | None = None
     type_key: str | None = None
     # v0.10.17 · classes_config / attribute_schema 在 1.x 期间继续保留 (老 reader 派生用);
@@ -189,25 +189,25 @@ class AAPProjectMeta(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class AAPJsonV1Envelope(BaseModel):
+class NativeJsonEnvelope(BaseModel):
     """AAP JSON v1.0 envelope.
 
     导出端用 model_dump(mode="json") 严格写满 null; 导入端 model_validate()
     走 extra="ignore" 实现 lenient.
     """
 
-    schema_version: str = AAP_SCHEMA_VERSION
+    schema_version: str = SCHEMA_VERSION
     format: Literal["aap"] = "aap"
     task: VisualTaskName | None = None
     available_tasks: list[VisualTaskName] = Field(default_factory=list)
     media_type: Literal["image", "video", "lidar"] = "image"
     source: dict[str, Any] = Field(default_factory=dict)
     exported_at: datetime | None = None
-    exported_from: AAPExportedFrom = Field(default_factory=AAPExportedFrom)
-    project: AAPProjectMeta = Field(default_factory=AAPProjectMeta)
+    exported_from: ExportedFrom = Field(default_factory=ExportedFrom)
+    project: ProjectMeta = Field(default_factory=ProjectMeta)
     mask_objects: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    scene_tracks: list[AAPSceneTrackEntry] = Field(default_factory=list)
-    tasks: list[AAPTaskBlock] = Field(default_factory=list)
+    scene_tracks: list[SceneTrackEntry] = Field(default_factory=list)
+    tasks: list[TaskBlock] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -215,15 +215,15 @@ class AAPJsonV1Envelope(BaseModel):
 # ── ImportResult (predictions/import 端点响应) ──────────────────────
 
 
-class AAPImportErrorEntry(BaseModel):
+class ImportErrorEntry(BaseModel):
     task_match: dict[str, Any] = Field(default_factory=dict)
     reason: str
 
 
-class AAPImportResult(BaseModel):
+class ImportResult(BaseModel):
     imported: int = 0
     skipped: int = 0
-    errors: list[AAPImportErrorEntry] = Field(default_factory=list)
+    errors: list[ImportErrorEntry] = Field(default_factory=list)
     dry_run: bool = False
 
 
@@ -238,8 +238,8 @@ def check_schema_major(version: str) -> None:
         major = int(major_str)
     except (ValueError, IndexError):
         raise ValueError(f"schema_version {version!r} 格式非法, 应形如 '1.0'")
-    if major > AAP_SCHEMA_MAJOR:
+    if major > SCHEMA_MAJOR:
         raise ValueError(
             f"AAP JSON schema_version {version!r} 超出本平台支持范围 "
-            f"(当前最大支持 major={AAP_SCHEMA_MAJOR}); 请升级平台"
+            f"(当前最大支持 major={SCHEMA_MAJOR}); 请升级平台"
         )

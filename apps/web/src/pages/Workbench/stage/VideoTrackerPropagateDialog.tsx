@@ -49,7 +49,7 @@ function presetLabel(value: RangePresetValue, step: number): string {
 // v0.21.27 · U-pvs-3 · U3: label 用人类可读名 + 能力一句话 (原为裸 key, 对标注员无意义)。
 // value 保持不变 (提交/记忆/测试均按 value)。
 export const TRACKER_MODEL_OPTIONS: Array<{ value: string; label: string; note?: string }> = [
-  { value: "mock_bbox", label: "mock · 测试框", note: "测试用 (不依赖 ML backend)" },
+  { value: "mock_bbox", label: "mock · 测试框", note: "测试用 (不依赖模型服务)" },
   { value: "sam2_video", label: "SAM2 · 框追踪", note: "种子框跨帧追踪" },
   { value: "sam3_video", label: "SAM3 · 文本检测追踪", note: "按文本每帧检测" },
   // v0.21.26 · 阶段 B-pvs · SAM3 交互追踪 (点/框 seed + memory 跨帧, 非文本驱动)。与

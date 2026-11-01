@@ -171,6 +171,7 @@ JOBS_LIST_RUNTIME_CAPABILITIES = (
 JOBS_ROW_LOCK_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.read_job_for_update(uuid)",
     "aap_jobs_v1.read_job_for_share_nowait(uuid)",
+    "aap_jobs_v1.read_job_for_update_nowait(uuid)",
 )
 JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
@@ -1433,6 +1434,10 @@ class LocalResources:
                     "aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer), "
                     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean), "
                     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean), "
+                    "aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer), "
+                    "aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer), "
+                    "aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer), "
+                    "aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer), "
                     "aap_labeling_v1.mask_qc_command(jsonb), "
                     "aap_labeling_v1.mask_repair_command(jsonb), "
                     "aap_labeling_v1.raster_mask_retention_query(jsonb), "

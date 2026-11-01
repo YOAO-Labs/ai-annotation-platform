@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -92,6 +93,7 @@ JOBS_DOMAIN_QUERY_FUNCTIONS = (
 JOBS_ROW_LOCK_FUNCTIONS = (
     "aap_jobs_v1.read_job_for_update(uuid)",
     "aap_jobs_v1.read_job_for_share_nowait(uuid)",
+    "aap_jobs_v1.read_job_for_update_nowait(uuid)",
 )
 JOBS_LIFECYCLE_FUNCTIONS = (
     "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
@@ -198,6 +200,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)": "0396_labeling_original_relations.sql",
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
+    "aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)": "0414_export_core_locks.sql",
+    "aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)": "0414_export_core_locks.sql",
+    "aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
     "aap_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
     "aap_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
     "aap_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
@@ -243,6 +249,7 @@ FUNCTION_BODY_ARTIFACTS = {
     },
     "aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)": "0389_learning_deployment_retirement.sql",
     **{signature: "0328_jobs_row_locks.sql" for signature in JOBS_ROW_LOCK_FUNCTIONS},
+    "aap_jobs_v1.read_job_for_update_nowait(uuid)": "0415_export_job_nowait.sql",
     **{
         signature: "0327_jobs_lifecycle.sql"
         for signature in (
@@ -1229,6 +1236,8 @@ SQL_ARTIFACTS = (
     "0411_video_execution_physical_closure.sql",
     "0412_plugin_tracker_retirement_order.sql",
     "0413_tracker_retirement_function_settings.sql",
+    "0414_export_core_locks.sql",
+    "0415_export_job_nowait.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0371_assets_owner_main_integration.schema.json",
@@ -1397,6 +1406,7 @@ SCHEMA_ARTIFACTS = (
     "0326_jobs_list_query.schema.json",
     "0327_jobs_lifecycle.schema.json",
     "0328_jobs_row_locks.schema.json",
+    "0415_jobs_row_locks.schema.json",
     "0329_jobs_domain_queries.schema.json",
     "0330_jobs_fixture_cleanup.schema.json",
     "0331_jobs_filter_fixtures.schema.json",
@@ -1432,6 +1442,7 @@ TEST_FILES = (
     "tests/test_labeling_video_control_native.py",
     "tests/test_labeling_annotation_transfer_native.py",
     "tests/test_labeling_core_read_native.py",
+    "tests/test_labeling_export_core_locks_native.py",
     "tests/test_labeling_mask_quality_native.py",
     "tests/test_labeling_spatial_quality_native.py",
     "tests/test_labeling_task_maintenance_native.py",
@@ -1911,11 +1922,93 @@ def _write_evidence(path: Path, document: dict) -> None:
     )
 
 
-def _passed_test_count(junit: Path) -> int:
-    return sum(
-        all(case.find(state) is None for state in ("skipped", "failure", "error"))
-        for case in ET.parse(junit).findall(".//testcase")
-    )
+def _passed_test_count(
+    junit: Path, selected: tuple[str, ...], collected: list[str]
+) -> int:
+    root = ET.parse(junit).getroot()
+    if root.tag not in ("testsuites", "testsuite"):
+        raise RuntimeError("Invalid acceptance JUnit report")
+    suites = ([root] if root.tag == "testsuite" else []) + root.findall(".//testsuite")
+    for suite in suites:
+        for state in ("failures", "errors", "skipped"):
+            if int(suite.get(state, "0")) != 0:
+                raise RuntimeError(f"Acceptance JUnit reports {state}")
+        if any(
+            suite.find(state) is not None for state in ("failure", "error", "skipped")
+        ):
+            raise RuntimeError("Acceptance JUnit reports a suite-level failure")
+        if "tests" in suite.attrib and int(suite.attrib["tests"]) != len(
+            suite.findall(".//testcase")
+        ):
+            raise RuntimeError("Acceptance JUnit test count is incomplete")
+
+    cases = root.findall(".//testcase")
+    if not cases:
+        raise RuntimeError("Acceptance ran no test cases")
+    for case in cases:
+        if not case.get("classname") or not case.get("name"):
+            raise RuntimeError("Acceptance JUnit has an unidentified test case")
+        if any(
+            case.find(state) is not None for state in ("skipped", "failure", "error")
+        ):
+            raise RuntimeError("Acceptance JUnit has a non-passing test case")
+
+    def matches(target: str, case: ET.Element) -> bool:
+        selector, bracket, parameter = target.partition("[")
+        path, *nodes = selector.split("::")
+        if bracket and nodes:
+            nodes[-1] += bracket + parameter
+        module = path.removesuffix(".py").replace("/", ".")
+        classname = case.get("classname", "")
+        name = case.get("name", "")
+        if not nodes:
+            return classname == module or classname.startswith(module + ".")
+        # A selected class may contain several tests; a selected function may
+        # expand into parameterized cases, unless a specific parameter was selected.
+        class_name = module + "." + ".".join(nodes)
+        if classname == class_name or classname.startswith(class_name + "."):
+            return True
+        expected_class = ".".join([module, *nodes[:-1]])
+        expected_name = nodes[-1]
+        return classname == expected_class and (
+            name == expected_name
+            or ("[" not in expected_name and name.startswith(expected_name + "["))
+        )
+
+    if (
+        not isinstance(collected, list)
+        or not collected
+        or any(not isinstance(node, str) for node in collected)
+    ):
+        raise RuntimeError("Acceptance collection manifest is empty or invalid")
+    expected = Counter()
+    for node in collected:
+        selector, bracket, parameter = node.partition("[")
+        path, *parts = selector.split("::")
+        if not parts:
+            raise RuntimeError("Acceptance collection manifest has an invalid node ID")
+        expected_name = parts[-1] + (bracket + parameter if bracket else "")
+        expected_class = ".".join(
+            [path.removesuffix(".py").replace("/", "."), *parts[:-1]]
+        )
+        expected[(expected_class, expected_name)] += 1
+    reported = Counter((case.get("classname"), case.get("name")) for case in cases)
+    if expected != reported:
+        missing_cases = list((expected - reported).elements())
+        extra_cases = list((reported - expected).elements())
+        raise RuntimeError(
+            f"Acceptance JUnit differs from collection: missing={missing_cases}, extra={extra_cases}"
+        )
+    missing = [
+        target
+        for target in selected
+        if not any(matches(target, case) for case in cases)
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Acceptance JUnit is missing selected targets: {', '.join(missing)}"
+        )
+    return len(cases)
 
 
 def _node_failure_diagnostic(
@@ -4483,6 +4576,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--output and --junit-xml must be different paths")
     output.parent.mkdir(parents=True, exist_ok=True)
     junit.parent.mkdir(parents=True, exist_ok=True)
+    # A report from an earlier invocation must never stand in for this run.
+    junit.unlink(missing_ok=True)
 
     evidence = {
         "schema": 1,
@@ -9476,13 +9571,23 @@ SELECT pg_catalog.jsonb_build_object(
                         ],
                     }
                 )
+        collection_manifest = resource_root / "pytest-collection.json"
         command = [
             sys.executable,
             "-c",
-            "import os,sys; args=sys.argv[1:]; os.chdir(args.pop(0)); "
-            "sys.path.insert(0, os.getcwd()); sys.argv=['pytest', *args]; "
-            "from pytest import console_main; raise SystemExit(console_main())",
+            "import json,os,sys\n"
+            "args=sys.argv[1:]\n"
+            "os.chdir(args.pop(0))\n"
+            "manifest=args.pop(0)\n"
+            "sys.path.insert(0, os.getcwd())\n"
+            "import pytest\n"
+            "class CollectionManifest:\n"
+            "    def pytest_collection_finish(self, session):\n"
+            "        with open(manifest, 'w', encoding='utf-8') as output:\n"
+            "            json.dump([item.nodeid for item in session.items], output)\n"
+            "raise SystemExit(pytest.main(args, plugins=[CollectionManifest()]))\n",
             str(ROOT / "apps/api"),
+            str(collection_manifest),
             "-q",
             "--tb=short",
             f"--junitxml={junit}",
@@ -9574,22 +9679,33 @@ SELECT pg_catalog.jsonb_build_object(
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
-                exit_code = run_processes(backend, options)
-        evidence["test_exit_code"] = exit_code
-        evidence["passed_test_count"] = _passed_test_count(junit)
-        if exit_code == 0 and evidence["passed_test_count"] == 0:
-            raise RuntimeError("Acceptance ran no passing test cases")
+                test_exit_code = run_processes(backend, options)
+        evidence["test_exit_code"] = test_exit_code
+        if test_exit_code == 0:
+            collected = json.loads(collection_manifest.read_text(encoding="utf-8"))
+            evidence["collected_test_nodes"] = collected
+            evidence["passed_test_count"] = _passed_test_count(
+                junit, test_files, collected
+            )
+        exit_code = test_exit_code
         evidence["status"] = "passed" if exit_code == 0 else "failed"
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
-        if isinstance(error, RuntimeError) and str(error).startswith(
-            "psql acceptance phase failed with exit "
+        if isinstance(error, RuntimeError) and (
+            str(error).startswith("psql acceptance phase failed with exit ")
+            or (phase == "pytest" and str(error).startswith("Acceptance "))
         ):
             evidence["failure"]["diagnostic"] = str(error)
         if node_diagnostic is not None:
             evidence["failure"]["node_diagnostic"] = node_diagnostic
         exit_code = 1
+    except BaseException as error:
+        # Interruptions must not publish a passing result from a partial report.
+        exit_code = 1
+        evidence["status"] = "failed"
+        evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        raise
     finally:
         for label, scope in (
             ("audit_archive_writer", audit_archive_writer_storage),

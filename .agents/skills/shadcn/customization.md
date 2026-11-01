@@ -10,4 +10,4 @@ Use `bg-card`, `text-foreground`, `border-border`, `bg-primary text-primary-fore
 
 If an upstream update introduces incompatible CSS variables, map it into this token system while reviewing the component diff. A requested global theme change belongs in the token source and must cover both themes. A local component edit does not request a preset replacement.
 
-Check focus/contrast and affected interaction states, then run `pnpm --filter @anno/web lint:css-tokens`. The documentation site's `--docs-*`, `--home-*`, and `html.dark` are a separate system.
+Check focus/contrast and affected interaction states, then run `pnpm --filter web lint:css-tokens`. The documentation site's `--docs-*`, `--home-*`, and `html.dark` are a separate system.

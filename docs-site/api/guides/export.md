@@ -33,7 +33,7 @@ last_reviewed: 2026-10-24
 
 本合同最多20000个图片 Task（含引用），托管单件256MiB，唯一托管原件加各引用声明累计20GiB，冻结 JSON256MiB，相关标注和预测各100000行；Data Manager 选中200题限制不变。引用继续64MiB／3200万像素限制，已有 mask 和 ZIP 限制继续执行。超限在有界收集时明确拒绝，这些是交付预算，不是性能指标。旧未完成图片 Job 缺少 `image_media` 证明时需重新导出；私有证明不出现在公开 Job DTO，同步 VOC 保持原合同。
 
-AAP JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON；Indexed PNG 每图最多255个实例、累计400万条游程，实例数量在读取 mask 前检查。超限需拆分导出；Binary PNG 和 Brush 仍逐实例处理。
+原生 JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON；Indexed PNG 每图最多255个实例、累计400万条游程，实例数量在读取 mask 前检查。超限需拆分导出；Binary PNG 和 Brush 仍逐实例处理。
 
 ## 视频独立媒体交付
 
@@ -202,7 +202,7 @@ COCO / YOLO 会按各自能消费的几何映射。COCO 对图片 `raster_mask` 
 
 部分导出只读取一个 task：单帧 geometry 按闭区间过滤，track 保留范围内原始关键帧与 outside，并在可见区间边界补齐可解析状态。Video JSON 顶层、AAP task 的 `video` 字段和 ZIP `manifest.json` 都写入规范化后的 `export_scope`。逐帧格式保持项目的全局采样相位，再把选中帧密集编号；`grid_source_frames` 保存输出帧到源帧的映射。
 
-单帧 OBB 与关键点同样写入兼容字段 `video_bbox`：OBB 行保留 `type/frame_index/cx/cy/w/h/angle`，关键点行保留 `type/frame_index/points[{x,y,v}]`。AAP JSON 使用原始 geometry。专业视频目标没有这两种单帧几何的表示时，预检返回 `unsupported_geometry`，不会把 OBB 退化成外接框或丢弃关键点。
+单帧 OBB 与关键点同样写入兼容字段 `video_bbox`：OBB 行保留 `type/frame_index/cx/cy/w/h/angle`，关键点行保留 `type/frame_index/points[{x,y,v}]`。原生 JSON 使用原始 geometry。专业视频目标没有这两种单帧几何的表示时，预检返回 `unsupported_geometry`，不会把 OBB 退化成外接框或丢弃关键点。
 
 `targets=yolo-frames-det` 会生成逐帧 YOLO 检测集：
 

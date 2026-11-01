@@ -45,7 +45,7 @@ from app.deps import (
     require_project_owner,
     require_scopes,
 )
-from app.schemas.aap_json import AAPImportResult
+from app.schemas.native_json import ImportResult
 from app.schemas._jsonb_types import CocoRleContent
 from app.schemas.annotation import (
     AnnotationBulkUpdateRequest,
@@ -520,7 +520,7 @@ async def bulk_update_annotations(
 
 @router.post(
     "/projects/{project_id}/annotations/import",
-    response_model=AAPImportResult,
+    response_model=ImportResult,
     dependencies=[Depends(require_scopes("annotations:write"))],
 )
 async def import_annotations(
@@ -532,15 +532,15 @@ async def import_annotations(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
-) -> AAPImportResult:
-    """导入 AAP JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).
+) -> ImportResult:
+    """导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。
 
     geometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，
     source 保留原值，attributes._imported=true 溯源标记。
     """
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
-    from app.services.annotations_import import import_aap_json_annotations
+    from app.services.annotations_import import import_native_json_annotations
 
     from app.services.reference_access import reject_reference_scope
 
@@ -574,7 +574,7 @@ async def import_annotations(
             aj_id = None
 
     try:
-        result = await import_aap_json_annotations(
+        result = await import_native_json_annotations(
             db,
             project.id,
             raw,

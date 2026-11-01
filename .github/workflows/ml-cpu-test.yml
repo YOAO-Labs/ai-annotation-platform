@@ -1,33 +1,19 @@
-# Reusable CPU test workflow for platform contracts and asset tooling.
-#
-# Caller contract:
-#   uses: ./.github/workflows/ml-cpu-test.yml
-#   with:
-#     suites: all                     # default; or a comma/space separated subset of:
-#                                     #   shared-protocol-v2, controlled-assets
-#   (a call with no `suites` input runs every suite)
-#
-# Manual full entry: Actions -> "ML CPU tests" -> Run workflow.
-#
-# Each suite runs in its own throwaway venv so committed `sys.modules` torch
-# stubs cannot leak across suites. Plugin package tests run in their repository.
-
+# The registry in scripts/test-suites.json owns the selectable CPU suite list.
+# Each suite uses an isolated environment; CPU success is not GPU qualification.
 name: ML CPU tests
 
 on:
   workflow_call:
     inputs:
       suites:
-        description: >-
-          Comma/space separated subset of shared-protocol-v2, controlled-assets; or "all".
+        description: "Suite IDs from scripts/test-suites.json, comma/space separated, or all"
         required: false
         default: all
         type: string
   workflow_dispatch:
     inputs:
       suites:
-        description: >-
-          Comma/space separated subset of shared-protocol-v2, controlled-assets; or "all".
+        description: "Suite IDs from scripts/test-suites.json, comma/space separated, or all"
         required: false
         default: all
         type: string
@@ -40,8 +26,7 @@ jobs:
     name: ML CPU select suites
     runs-on: ubuntu-latest
     outputs:
-      shared_protocol_v2: ${{ steps.plan.outputs.shared_protocol_v2 }}
-      controlled_assets: ${{ steps.plan.outputs.controlled_assets }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - name: Resolve requested suites
@@ -50,34 +35,35 @@ jobs:
           SUITES: ${{ inputs.suites }}
         run: bash scripts/run-ml-cpu-tests.sh plan "$SUITES" >> "$GITHUB_OUTPUT"
 
-  shared-protocol-v2:
-    name: ML CPU shared protocol v2
+  test:
+    name: ML CPU suite execution
     needs: plan
-    if: needs.plan.outputs.shared_protocol_v2 == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python }}
       - name: Install uv
         run: pip install uv
-      - name: Run shared protocol v2 tests
-        run: bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2
-
-  controlled-assets:
-    name: ML CPU controlled asset administration
-    needs: plan
-    if: needs.plan.outputs.controlled_assets == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Cache uv downloads
+        uses: actions/cache@v4
         with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - name: Run controlled asset administration tests
-        run: bash scripts/run-ml-cpu-tests.sh run controlled-assets
+          path: ~/.cache/uv
+          key: ml-cpu-uv-${{ runner.os }}-${{ matrix.suite }}-${{ hashFiles('apps/_shared/*/uv.lock', 'apps/_shared/*/pyproject.toml', 'scripts/test-suites.json', 'scripts/run-ml-cpu-tests.sh') }}
+          restore-keys: |
+            ml-cpu-uv-${{ runner.os }}-${{ matrix.suite }}-
+      - name: Run suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: bash scripts/run-ml-cpu-tests.sh run "$SUITE"
+      - name: Upload suite results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-cpu-results-${{ matrix.suite }}
+          path: .artifacts/test-results/ml-cpu/${{ matrix.suite }}/
+          if-no-files-found: error

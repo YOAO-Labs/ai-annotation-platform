@@ -1,6 +1,6 @@
 # YOAO 产品语言与命名优化计划草案
 
-> 状态：草案，待实施审阅。本轮交付命名决策、清理范围、迁移顺序及验收门槛，不修改应用、测试、配置、数据或运行环境。
+> 状态：首批 N0＋N1＋N2 已完成下述限定实施与验收。实现、保留边界与实际证据见文末 Outcome；N3–N6 的分发、公开协议与持久状态／部署迁移不混入本批。
 >
 > 日期：2026-10-29。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
 >
@@ -21,13 +21,13 @@
 - [后端模组解耦计划](1792160873_backend-module-decoupling.md)及[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md)继续有效。名称变化不等于独立部署、消费者迁移或插件资格完成。
 - [插件能力边界研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)强调核心 owner 和扩展责任；这里的命名应表达责任，而不是把所有代码都称为“插件”。
 - [LibreYOLO 首切片](1793156248_libreyolo-inference-plugin.md)继续完成原业务与 GPU 验收；命名迁移不改写其原制品证据。
-- [YOAO-Plugins 拆仓计划](1793184138_inference-plugins-repository-extraction.md)负责实际仓库与制品迁移。相关包在迁仓时采用最终名称，避免先以旧名拆仓、再做第二轮整体更名；不能因此跳过首切片门槛。
+- [插件拆仓计划](1793184138_inference-plugins-repository-extraction.md)负责仓库与制品边界：Plugin-SDK 独立提供作者抽象，YOAO-Plugins 只维护官方插件。已经拆仓的制品不随本次显示名优化重新命名；后续发行入口迁移走 N3，不跳过各自资格门。
 
 ### 1.3 非目标
 
 本计划不授权改名或搬迁现有 GitHub 仓库、变更 GitHub Pages／生产域名、公开或推送私有仓、发布包或版本、重做 Logo、引入国际化框架、改动第三方产品名，也不修改真实用户配置或生产资源。
 
-当前 `YOAO-Labs/YOAO-Plugins` 的私有仓状态来自原拆仓计划，本轮未独立检查远端。以下 PyPI／其他 registry 新名称是目标命名，不是已注册、已发布或已经可安装的事实；实际分发前核实可用性与权限。
+用户已确认官方插件仓库公开；公开可见性不等于本轮获准推送、发布包或更换已有发行身份。以下 PyPI／其他 registry 新名称是目标命名，不是已注册、已发布或已经可安装的事实；实际分发前核实可用性与权限。
 
 ## 2. 盘点结论：同一个前缀承担了不同职责
 
@@ -364,6 +364,65 @@ UI 验证使用实际构建和隔离环境；文档／计划阶段不虚构浏�
 
 首批先执行 **N0＋N1＋N2**：建立 YOAO 产品身份、精简内部命名和私有 workspace；公开 schema 名变化单独审阅。它们不等待全后端解耦，也不要求先搬迁数据。
 
-随后 **N3 与现有插件拆仓对齐**，保证新制品从第一次独立分发就使用最终名称；**N4、N5、N6 按真实状态边界分别验收**，不能把高风险持久迁移混进一个“全局 rename”PR。
+随后 **N3 与已经独立分发的 SDK／插件边界对齐**，先清点现有制品与消费者，再单独切换发行入口；不回写旧制品身份。**N4、N5、N6 按真实状态边界分别验收**，不能把高风险持久迁移混进一个“全局 rename”PR。
 
-本轮仅交付这份草案。后续实施不保留无必要的旧代码兼容层，同时保留用户数据与安全协议应有的历史解释能力；每一类前缀都按它实际承担的职责决定，而不是按大小写机械替换。
+本轮按首批范围推进。实施不保留无必要的旧代码兼容层，同时保留用户数据与安全协议应有的历史解释能力；每一类前缀都按它实际承担的职责决定，而不是按大小写机械替换。
+
+## 12. Outcome：首批命名切片
+
+实施基线为合并 main 后的 `dc5ac3d46`。本批仅推进 N0／N1／N2；不分配发行版本，不发布包，不迁移浏览器持久状态、数据库 namespace、签名域或实际部署资源。
+
+### 12.1 N0 影响清单与保留边界
+
+**状态：首批目标和保留边界已冻结。** 下表按职责记录显示名、内部 DROP、必要 namespace 与持久 KEEP／后续 MIGRATE；生成物沿原生成源更新，不独立手改。外部 `yoao` 发行包／命令名称尚未验证可用性或完成渠道预留，本批不声称已经取得；公开发行入口切换属于 N3。
+
+| 原名称／范围                                                                                | 决策与本批目标                                                                                     | 所有者与真实消费者                                                | 持久化／生成源                                                 | 验证入口与保留依据                                                                                                                     |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 产品身份、登录／注册／顶栏、manifest、帮助与当前文档                                        | YOAO；完整名称 You Only Annotate Once；API 显示名 YOAO API                                         | Web、API、文档站、客户端与作者 SDK 的现有入口                     | HTML／组件／manifest／配置与帮助源；头像从现有生成器重建元数据 | Web 构建、实际页面、SDK／CLI 帮助和文档构建；不修改现有远端地址或正式媒体原始证据                                                      |
+| 普通操作中的 ML Backend／ML 后端                                                            | 模型服务；保留模型、服务、服务池和插件安装的不同含义                                               | 模型市场、项目设置、预标、用户指南与 CLI 描述                     | 当前组件与文档；不改 registry 已保存的用户名称                 | 现有页面测试及真实控制；技术协议、API 字段和可复制诊断保留精确标识                                                                     |
+| AAP JSON 显示名                                                                             | 原生 JSON；说明为 YOAO 原生交换格式                                                                | 导入／导出、任务名称、服务端 mask catalog、SDK／TUI 与文档        | 各真实 label 源，不增加第二份前端格式表                        | 现有往返用例及实际界面；`aap_json` selector、文件 `format: "aap"` 和原 schema 版本 KEEP，公开协议迁移属于 N4                           |
+| `app/schemas/aap_json.py`、`AAPJsonV1Envelope`、`AAP*Entry`、`import_aap_json*`             | `native_json.py`、`NativeJsonEnvelope`、领域类型及 `import_native_json*`；删除单纯转发的 mask 包装 | API 导入／导出、mask adapter、测试与动态 monkeypatch 消费者       | Python 单一实现；OpenAPI 从 API 重新导出                       | 导入与往返行为、真实动态消费者回归；无旧 import、alias 或 re-export。语言服务器引用／重命名能力不可用，使用结构化 AST 改名并核对消费者 |
+| `AAPImportResult`／`AAPImportErrorEntry`                                                    | `ImportResult`／`ImportErrorEntry`                                                                 | HTTP 响应 schema、OpenAPI、生成 Web 类型与 API 指南               | `openapi.snapshot.json` 与现有客户端生成器                     | 单独审阅组件名称和 `$ref` 差异；响应 JSON 字段不变，不与 SDK 既有独立结果类型混并                                                      |
+| 私有 SDK 基类 `_AAPModel`                                                                   | `_SDKModel`                                                                                        | SDK 模型定义和全部内部继承／导入模块                              | 仅进程内 Python 名称，不是发行包或公共异常名                   | SDK 全套现有行为用例；公共包 `ai_annotation`、命令 `aap`、`AAPError` 与发行元数据仍属 N3，本批不增加双入口                             |
+| 公共客户端命令、包和版本元数据                                                              | KEEP：`aap`、`ai_annotation`、`aap-plugin` 及既有版本标识；发行名切换属于 N3                       | 已安装 CLI／SDK、作者 SDK、制品与自动化消费者                     | 公共入口和发行元数据                                           | 本机实际 `aap --version` 仍为 `aap 0.20.0@AAP0.26.1`；帮助产品名可更新，不能借品牌工作擅自 bump 或改变公开发行身份                     |
+| 私有 `@anno/web`／`@anno/docs-site` 与根 workspace                                          | `web`／`docs-site`／`yoao`                                                                         | pnpm filters、根脚本、CI、启动器、hooks、当前开发文档及单一指令源 | 私有 package manifests；当前 lockfile 与依赖目标核对           | 实际 build、codegen、docs 和 worktree 入口；不通过共享 node_modules 链接安装，不改公开 Python 包                                       |
+| Session receipt key、ContextVar、document 事件                                              | `assets_verified_receipts`、领域 ContextVar、`shell:popover-open`                                  | 同请求／事务缓存、路由上下文和同 document 的发送／订阅双方        | 不跨重启持久化；事务结束清理规则不变                           | 缓存、提交／回滚及页面行为；不把持久训练草稿作为同类局部字符串处理                                                                     |
+| 调用自有 `aap-content-` 等临时前缀                                                          | 用途前缀，不加新品牌                                                                               | API、资产／媒体组件与调用方清理                                   | 本调用生命周期；不是受控存储路径                               | 现有内容与清理用例；`aap-reference-` 的外部清理消费者、调用方持有的 `aap-export-` 工件保留，不能在本批猜测退役                         |
+| `AAP_` 配置、数据库／grants、`_aap_managed`、冻结收据、Identity issuer 与现有 worktree 标签 | KEEP／MIGRATE，按 N3–N6 各自阶段处理                                                               | 公开客户端、持久 owner、安全守卫、部署与恢复工具                  | 已持久化或跨进程／外部使用；历史迁移和输入仍有真实消费者       | 本批不改名、不降低校验、不复制或销毁原数据；未知资源仍拒绝接管，历史签名与精确位置保留原解释                                           |
+
+### 12.2 N2：内部命名与私有 workspace 清理
+
+**状态：本批内部命名切片完成；不代表全仓 API 或原生导出门通过。**
+
+- Python SDK 的私有 `_AAPModel` 改为 `_SDKModel`，34 个模型模块的继承／导入同步，无旧 alias 或 re-export；公共 `AAPError`、发行包、CLI 和版本元数据保持 N0 的保留边界。
+- 原生交换 schema／导入函数与真实动态调用者使用领域名称，mask adapter 统一为 `NativeJsonAdapter`。`SceneTrackIntervalEntry` 与 ORM 的 `SceneTrackInterval` 明确分开，避免同名导入覆盖；三个实际导出消费者同步，不改区间字段或 JSON 几何。
+- 事务内 receipt cache、ContextVar、同 document 事件和调用自有临时前缀已按 N0 分类迁移。私有 workspace 使用 `yoao`／`web`／`docs-site`，根脚本、CI、启动器和当前开发命令同步；未跨共享依赖链接安装或改变持久存储位置。
+- 两个公开 OpenAPI 组件名称单独审阅：`AAPImportResult`／`AAPImportErrorEntry` 改为 `ImportResult`／`ImportErrorEntry`。归一化这两个名称后的差异只有 API 显示标题及两段导入说明，没有 wire 字段、selector 或 operation ID 改动；生成客户端与 SDK 操作目录沿现有生成器同步。
+- SDK 全套现有回归 **1250 通过，0 失败／错误／跳过**，原始 JUnit 为 `.artifacts/test-results/sdk-model-consumers.xml`。动态 importer 的 5 项定向回归通过；实际 CLI 从普通 runtime 读取本任务项目与 5 个任务，证明新模型基类的真实响应解析。Web 构建／类型检查、契约生成和文档构建通过；无 GPU 或分发渠道资格结论。
+
+冻结导出集中数据库回归仍保留既有 9 通过／8 失败的边界（LiDAR 内容身份及视频 FPS）；未用新 expected 掩盖这些问题。N1 的真实 UI 导出另暴露旧 collector 的私表锁定路径，现有公开 Labeling 合同当时缺少完整等价锁能力。该图像往返前置已由 G3 必需切片关闭，见下节；不是以内部重命名 smoke 替代往返验收，也未恢复私表授权或为无 scene-track 夹具特判。前述 LiDAR／视频失败不因此关闭。
+
+### 12.3 N1：产品语言与实际入口
+
+**状态：首批产品语言切片完成。** 显示名与机器身份分离；没有切换公开发行入口、原生文件协议、持久状态或部署资源。
+
+- Web、API 标题、文档站及现有 SDK／CLI／TUI 帮助使用 YOAO；普通项目与预标操作使用“模型服务”“项目主模型服务”和“原生 JSON”。选择器补齐关联 label／hint，窄屏导入向导与主服务选择控件不再裁切；预览、确认和即时保存仍走原流程。
+- `aap_json`、文件 `format: "aap"`、已有 schema 版本和来源、API 路由、服务 ID、公共包／命令及现有版本元数据均保留。实际 `aap --version` 仍为 `aap 0.20.0@AAP0.26.1`；这不是 N3 发行入口改名完成。
+- 实际 CLI 帮助、版本与只读项目／任务查询通过；TUI 实际启动，显示 YOAO 与模型服务页签，读取本任务项目后正常退出。作者 SDK 帮助可执行；不将源码环境的成功记为仓外 wheel／sdist 或发布渠道资格。
+- Web 类型检查与实际构建、文档站构建通过。最终受影响消费者回归 **114 通过，0 失败／错误／跳过**，原始报告为 `.artifacts/test-results/n1-final-consumers.junit.xml`；删除只固定旧文案的用例，保留无服务不发请求、项目切换和真实数据／状态断言。SDK 的 1250 项既有结果沿用 N2，不重复计数。现有 React Router／act、构建分包及 CSS token 警告仍保留。
+
+**浏览器证据：** 使用本工作树实际构建产物和任务自有 e2e 环境。登录、注册关闭态、项目模型服务、原生导入／导出与后台任务均检查桌面／窄屏和日／夜主题；最终截图清单为 `.artifacts/test-results/branding/current-browser-checks.json`。导入格式、预览、确认和主服务清除／恢复均实际操作，恢复请求成功后重新加载核对持久值；四张最终模型服务截图包含已恢复的服务与新分页可访问名称。窄屏控件边界证据见 `responsive-controls-proof.json`，后续恢复与往返以最终成功报告为准，不覆盖其中早期 503。
+
+文档旧书签保留显式锚点；最终构建中 `#aap-json-1-5-无损` 仍定位到“原生 JSON”，不再把旧版本号当作当前章节标题。旧锚点核对与日／夜、桌面／窄屏文档检查见 `legacy-heading-target-audit-after.json`、`final-guide-checks.json`，最终标题和真实书签截图见 `final-native-format-bookmark.json`；这些文件均位于 `.artifacts/test-results/branding/`。
+
+**原生往返：** 历史 schema 1.5 输入已通过实际导入。随后从普通 UI 提交全新图像导出，普通 worker 将作业执行为 `completed`、`cache_hit: false`，浏览器实际下载 ZIP，再把其中 schema 1.7 的 `annotations.json` 原样交回向导，预览与确认均返回 200，导入 3 条且无错误。普通 API 读回核对多边形坐标、类别、分数与原模型预测保留；不是只检查 202、下载链接或新 writer 自造的输入。
+
+严格轮次中，API／普通 worker 的 `aap_app` 对项目、任务、标注、预测、轨迹、区间及作业七张私表均没有表级或列级 SELECT；测试夹具撤除了该一次性库既有的 Jobs 兼容读取授权后重新执行完整往返。业务路径不使用 owner fallback，不扩大源码权限。完整证据为 `.artifacts/test-results/branding/native-strict-roundtrip-proof.json`；最初私表 500、缺少公开函数授权、领取前失败作业及 probe 未配置的 503 均保留为先前失败，未改写为通过，先前失败作业已正常取消。所需公开锁能力、独立角色验证及 wheel 资源证据归 G3 Outcome，不继承为整个模块资格。
+
+**限制与清理：** 模型服务使用明确的假服务，最终 `/setup` 仍返回 502；最终页面没有 console error 或未捕获异常，该失败请求单独记录于 `final-window-checks.json`，不宣称真实模型、权重或 GPU 验收。注册仅验证关闭态，正式媒体没有重录。任务自有浏览器、预览、API、普通／维护 worker 与 probe 已停止；临时 probe 角色与凭据已按精确 owner 删除，两处 agent worktree 及其分支已回收，`2c9849816c479c7f:e2e`／`:test` 资源已通过管理命令销毁。主工作树环境、未知资源与既有正式媒体未被接管或删除。
+
+### 12.4 后端优化分支整合
+
+`feat/plugin-opt` 的 `848e3cb22` 合入 `feat/backend-opt` 的 `ba225032b`，承接上述产品语言和测试治理成果，同时保留目标分支已完成的模块边界与独立 Plugin-SDK／官方插件仓库结构。旧插件目录不恢复；API SDK 的公开包、CLI、协议值及持久安全身份仍保持不变。
+
+源分支的两项导出迁移在目标分支接到 `bo0413` 之后，改用 `bo0414`、`bo0415`；既有历史迁移不改写。源分支 Outcome 中的测试数量、浏览器记录和已销毁环境属于该源码状态，不能作为合并后验收结果。整合后的验证与后续 G2 进展记录在测试治理计划，不宣称 N3–N6 已实施。

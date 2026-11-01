@@ -24,7 +24,7 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Audit published media
-        run: pnpm --filter @anno/docs-site media:audit -- --output ../.artifacts/docs-media-audit.json
+        run: pnpm --filter docs-site media:audit -- --output ../.artifacts/docs-media-audit.json
       - name: Upload audit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

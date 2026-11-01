@@ -3,9 +3,20 @@ from copy import deepcopy
 import pytest
 
 from aap_lifecycle_contract import (
-    REQUIRED_CONTRACT_CHECKS,
     memory_cycle_evidence,
     validate_managed_lifecycle_evidence,
+)
+
+OBLIGATIONS = (
+    "managed_lifecycle_advertised",
+    "real_inference",
+    "provider_or_device_gpu",
+    "busy_unload_rejected",
+    "cancel_accounting",
+    "stale_generation_rejected",
+    "token_replay_rejected",
+    "partial_headers_rejected",
+    "full_cleanup",
 )
 
 
@@ -62,7 +73,7 @@ def evidence():
             "visible_device_count": 1,
         },
         "cycles": cycles,
-        "contract_checks": {key: True for key in REQUIRED_CONTRACT_CHECKS},
+        "contract_checks": dict.fromkeys(OBLIGATIONS, True),
         "final_residency": {
             "state": "unloaded",
             "gpu_loaded": False,
@@ -134,5 +145,28 @@ def test_non_ort_report_remains_unchanged_without_session_observations():
 def test_workload_evidence_rejects_non_objects_secrets_and_non_json_numbers(workload):
     value = evidence()
     value["workload_evidence"] = workload
+    with pytest.raises(ValueError):
+        validate_managed_lifecycle_evidence(value)
+
+
+@pytest.mark.parametrize("name", OBLIGATIONS)
+@pytest.mark.parametrize("missing", [True, False], ids=["missing", "false"])
+def test_qualification_rejects_each_missing_or_failed_obligation(name, missing):
+    value = evidence()
+    if missing:
+        del value["contract_checks"][name]
+    else:
+        value["contract_checks"][name] = False
+    with pytest.raises(ValueError):
+        validate_managed_lifecycle_evidence(value)
+
+
+@pytest.mark.parametrize("missing", [True, False], ids=["absent", "empty"])
+def test_qualification_rejects_omitted_pool_inventory(missing):
+    value = evidence()
+    if missing:
+        del value["final_residency"]["pools"]
+    else:
+        value["final_residency"]["pools"] = {}
     with pytest.raises(ValueError):
         validate_managed_lifecycle_evidence(value)

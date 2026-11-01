@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 VideoTrackerStatus = Literal[
     "queued",
@@ -165,7 +165,7 @@ class VideoTrackerDecisionRequest(_VideoTrackerRequest):
         return self
 
 
-class VideoTrackerJob(_AAPModel):
+class VideoTrackerJob(_SDKModel):
     id: UUID
     task_id: UUID
     dataset_item_id: UUID
@@ -194,7 +194,7 @@ class VideoTrackerJob(_AAPModel):
     updated_at: datetime | None = None
 
 
-class VideoTrackerJobListItem(_AAPModel):
+class VideoTrackerJobListItem(_SDKModel):
     id: UUID
     task_id: UUID
     project_id: UUID
@@ -215,7 +215,7 @@ class VideoTrackerJobListItem(_AAPModel):
     created_at: datetime
 
 
-class VideoTrackerJobCounts(_AAPModel):
+class VideoTrackerJobCounts(_SDKModel):
     queued: int = 0
     running: int = 0
     completed: int = 0
@@ -227,13 +227,13 @@ class VideoTrackerJobCounts(_AAPModel):
     discarded: int = 0
 
 
-class VideoTrackerJobsResponse(_AAPModel):
+class VideoTrackerJobsResponse(_SDKModel):
     items: list[VideoTrackerJobListItem]
     next_cursor: str | None = None
     counts: VideoTrackerJobCounts
 
 
-class VideoTrackerPreviewResult(_AAPModel):
+class VideoTrackerPreviewResult(_SDKModel):
     frame_index: int
     geometry: dict[str, Any] | None = None
     confidence: float | None = None
@@ -247,7 +247,7 @@ class VideoTrackerPreviewResult(_AAPModel):
     manual_protected: bool = False
 
 
-class VideoTrackerJobPreview(_AAPModel):
+class VideoTrackerJobPreview(_SDKModel):
     job_id: UUID
     status: VideoTrackerStatus
     annotation_id: UUID | None = None
@@ -270,7 +270,7 @@ class VideoTrackerJobPreview(_AAPModel):
     candidate_rejected: int = 0
 
 
-class CocoRleMaskContent(_AAPModel):
+class CocoRleMaskContent(_SDKModel):
     """Materialized COCO RLE returned as JSON by the mask-content endpoint."""
 
     encoding: Literal["coco_rle"]

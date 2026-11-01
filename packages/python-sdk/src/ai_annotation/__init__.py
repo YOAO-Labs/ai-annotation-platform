@@ -1,4 +1,4 @@
-"""AI 标注平台官方 Python SDK。
+"""YOAO 官方 Python SDK。
 
 公开 API 面: Client、pydantic 模型、异常和能力发现函数。传输层 (_http) 是内部实现。
 """

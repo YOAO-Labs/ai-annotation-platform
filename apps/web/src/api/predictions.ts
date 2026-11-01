@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 import type { PredictionResponse, AnnotationResponse } from "@/types";
 
-/** v0.10.15 · 外部预测导入端点响应 (与后端 AAPImportResult 对齐). */
+/** v0.10.15 · 外部预测导入端点响应 (与后端 ImportResult 对齐). */
 export interface PredictionImportError {
   task_match: Record<string, unknown>;
   reason: string;

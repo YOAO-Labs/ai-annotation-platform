@@ -33,7 +33,7 @@ def build_read_mapping(values, *, window_id, window_revision):
     try:
         from app.services.storage_migration_copies import BASELINE_LIMIT, materialize
 
-        with tempfile.TemporaryDirectory(prefix="aap-read-mapping-") as directory:
+        with tempfile.TemporaryDirectory(prefix="read-mapping-") as directory:
             path = materialize(directory, values)
             with core.Checkpoint(
                 path, max_bytes=BASELINE_LIMIT, strict_closure=True

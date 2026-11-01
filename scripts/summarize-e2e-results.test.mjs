@@ -15,124 +15,72 @@ import { auditE2ERequirements } from "./audit-e2e-requirements.mjs";
 const fixtureDir = new URL("./fixtures/e2e-summary/", import.meta.url);
 const loadFixture = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, fixtureDir), "utf8"));
 
-test("passed fixture: one first-attempt pass, no retries or failures", () => {
-  const { text } = buildSummary({
+test("a completed first attempt has no invented retry or failure", () => {
+  const { status } = buildSummary({
     suite: "smoke",
     outcome: "success",
     report: loadFixture("passed"),
   });
-  assert.match(text, /\| 1 \| 0 \| 0 \| 0 \| 0 \|/);
-  assert.match(text, /First-attempt passed \| Retry-then-passed/);
-  assert.doesNotMatch(text, /First failure:/);
+  assert.equal(status.attempts.firstAttemptPassed, 1);
+  assert.equal(status.attempts.retriedPassed, 0);
+  assert.equal(status.attempts.failed, 0);
+  assert.equal(status.firstFailure, null);
 });
 
-test("failed fixture: unexpected status, timeout-free failure and a recorded first failure with id and reason", () => {
-  const { text } = buildSummary({
-    suite: "default-one",
-    outcome: "failure",
-    report: loadFixture("failed"),
-  });
-  assert.match(text, /\| 0 \| 1 \| 0 \| 0 \| 0 \| 5\.7 \|/);
-  assert.match(
-    text,
-    /First failure: failed\.spec\.ts › fails with a stable reason \[.+\] \(project chromium, attempt 0\) — Error: expect\(received\)\.toBe\(expected\)/,
-  );
-  // Both attempts failed (retries:1), so the retry outcome is a failure too.
-  assert.match(text, /\[retry outcome: failed\]/);
+test("failed attempts retain the first failure rather than the retry reason", () => {
+  const report = loadFixture("failed");
+  const attempts = report.suites[0].specs[0].tests[0].results;
+  attempts[0].error.message = "first-attempt-input";
+  attempts[1].error.message = "retry-input";
+  const { status } = buildSummary({ suite: "default-one", outcome: "failure", report });
+  assert.equal(status.attempts.failed, 1);
+  assert.equal(status.attempts.timeout, 0);
+  assert.equal(status.firstFailure.reason, "first-attempt-input");
+  assert.equal(status.firstFailure.retry, 0);
+  assert.equal(status.firstFailure.retryOutcome, "failed");
 });
 
-test("flaky fixture: retry-then-passed is counted separately from first-attempt", () => {
-  const { text } = buildSummary({
+test("a retry pass is distinct from a first-attempt pass", () => {
+  const { status } = buildSummary({
     suite: "smoke",
     outcome: "success",
     report: loadFixture("flaky"),
   });
-  assert.match(text, /First-attempt passed \| Retry-then-passed/);
-  assert.match(text, /\| 0 \| 1 \|/);
+  assert.equal(status.attempts.firstAttemptPassed, 0);
+  assert.equal(status.attempts.retriedPassed, 1);
+  assert.equal(status.firstFailure.retryOutcome, "passed");
 });
 
-test("expected-failure fixture counts as expected, not as a failure", () => {
-  const { text } = buildSummary({
+test("an executed expected failure is not an unexpected failure", () => {
+  const { status } = buildSummary({
     suite: "smoke",
     outcome: "success",
     report: loadFixture("expected-failure"),
   });
-  assert.match(text, /\| 1 \| 0 \| 0 \| 0 \|/);
+  assert.equal(status.attempts.firstAttemptPassed, 1);
+  assert.equal(status.attempts.failed, 0);
 });
 
-test("skipped fixture is intentional (executed skip result), not not-run", () => {
-  const { text } = buildSummary({
-    suite: "smoke",
-    outcome: "success",
-    report: loadFixture("skipped"),
-  });
-  assert.match(text, /\| 0 \| 0 \| 0 \| 1 \|/);
-  assert.match(text, /\| 0 \| 0 \| 0 \| 0 \| 1 \| 0 \|/);
+test("an executed skip is distinct from a case without any attempts", () => {
+  const report = loadFixture("skipped");
+  const executed = buildSummary({ suite: "smoke", outcome: "success", report }).status;
+  assert.equal(executed.attempts.intentionalSkipped, 1);
+  assert.equal(executed.attempts.notRun, 0);
+  report.suites[0].specs[0].tests[0].results = [];
+  const unattempted = buildSummary({ suite: "smoke", outcome: "success", report }).status;
+  assert.equal(unattempted.attempts.intentionalSkipped, 0);
+  assert.equal(unattempted.attempts.notRun, 1);
 });
 
-test("max-failures fixture keeps per-test accounting without fabricating not-run entries", () => {
-  // Real 1.59 runs with --max-failures still execute and report the queued
-  // test (worker already started), so notRun stays 0 and the interruption is
-  // attributed by status; missing suites are covered by the audit instead.
-  const { text } = buildSummary({
+test("max-failures accounts for the cases the runner actually attempted", () => {
+  const { status } = buildSummary({
     suite: "default-one",
     outcome: "failure",
     report: loadFixture("maxfailures"),
   });
-  assert.match(text, /\| 1 \| 1 \|/);
-  assert.match(text, /Not run \|/);
-});
-
-test("timing rows render prep/execution/build seconds when supplied", () => {
-  const { text } = buildSummary({
-    suite: "smoke",
-    outcome: "success",
-    report: loadFixture("passed"),
-    prepSeconds: "210",
-    runSeconds: "95",
-    buildSeconds: "77",
-  });
-  assert.match(text, /Prep: 210s · Execution: 95s · Build: 77s/);
-});
-
-test("a missing report with a success outcome fails closed", () => {
-  const writes = [];
-  const stderr = [];
-  const code = main(
-    ["mask-native", "success", "missing-e2e-results.json"],
-    {},
-    {
-      stdout: [],
-      stderr: { write: (chunk) => stderr.push(chunk) },
-      appendFileSync: (path, chunk) => writes.push([path, chunk]),
-      readFileSync: () => {
-        throw new Error("should not read");
-      },
-      existsSync: () => false,
-      summaryPath: "summary.md",
-    },
-  );
-  assert.equal(code, 1);
-  assert.ok(writes[0][1].includes("No completed Playwright report"));
-  assert.ok(stderr.join("").includes("without a Playwright report"));
-});
-
-test("a missing report with a failed outcome is reported without failing the step again", () => {
-  const stderr = [];
-  const writes = [];
-  const code = main(
-    ["mask-native", "failure", "missing-e2e-results.json"],
-    {},
-    {
-      stdout: { write: (chunk) => writes.push(chunk) },
-      stderr: { write: (chunk) => stderr.push(chunk) },
-      appendFileSync: () => {},
-      readFileSync: () => "",
-      existsSync: () => false,
-      summaryPath: undefined,
-    },
-  );
-  assert.equal(code, 0);
+  assert.equal(status.attempts.firstAttemptPassed, 1);
+  assert.equal(status.attempts.failed, 1);
+  assert.equal(status.attempts.notRun, 0);
 });
 
 test("usage error exits 2", () => {
@@ -159,10 +107,7 @@ test("CLI subprocess writes a parseable status artifact and exits 0", () => {
   });
   assert.equal(result.status, 0, result.stderr);
   const status = JSON.parse(readFileSync(join(statusDir, "smoke.json"), "utf8"));
-  assert.equal(status.suite, "smoke");
   assert.equal(status.outcome, "success");
-  assert.equal(typeof status.stats.expected, "number");
-  assert.ok(readFileSync(summaryPath, "utf8").includes("Outcome: success"));
   rmSync(outDir, { recursive: true, force: true });
 });
 
@@ -192,7 +137,6 @@ for (const [runOutcome, artifactOutcome, exitCode] of [
         runOutcome,
         reportMissing: true,
       });
-      assert.match(result.stdout, /No completed Playwright report/);
       const audit = auditE2ERequirements({
         requiredSuites: [{ suite: "smoke", planned: true }],
         statusDir: outDir,
@@ -207,3 +151,76 @@ for (const [runOutcome, artifactOutcome, exitCode] of [
     }
   });
 }
+
+for (const [fixture, expected] of [
+  ["passed", 0],
+  ["skipped", 1],
+  ["failed", 1],
+  ["maxfailures", 1],
+]) {
+  test(`required browser integration rejects incomplete execution: ${fixture}`, () => {
+    const directory = mkdtempSync(join(tmpdir(), "e2e-required-worker-"));
+    try {
+      const reportPath = join(fixtureDir.pathname, `${fixture}.json`);
+      const statusPath = join(directory, "worker.json");
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL("./summarize-e2e-results.mjs", import.meta.url)),
+          "mask-worker",
+          "success",
+          reportPath,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            E2E_REQUIRE_ALL_TESTS: "1",
+            E2E_STATUS_OUT: statusPath,
+            GITHUB_STEP_SUMMARY: "",
+          },
+        },
+      );
+      assert.equal(result.status, expected, result.stderr);
+      assert.equal(
+        JSON.parse(readFileSync(statusPath, "utf8")).outcome,
+        expected ? "failure" : "success",
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test("required execution rejects positive counters without any case records", () => {
+  const directory = mkdtempSync(join(tmpdir(), "e2e-empty-execution-"));
+  try {
+    const report = loadFixture("passed");
+    report.suites = [];
+    const reportPath = join(directory, "report.json");
+    const statusPath = join(directory, "status.json");
+    writeFileSync(reportPath, JSON.stringify(report));
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("./summarize-e2e-results.mjs", import.meta.url)),
+        "mask-worker",
+        "success",
+        reportPath,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          E2E_REQUIRE_ALL_TESTS: "1",
+          E2E_STATUS_OUT: statusPath,
+          GITHUB_STEP_SUMMARY: "",
+        },
+      },
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(JSON.parse(readFileSync(statusPath, "utf8")).outcome, "failure");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

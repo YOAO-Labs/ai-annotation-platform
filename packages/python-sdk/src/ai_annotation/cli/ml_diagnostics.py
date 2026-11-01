@@ -17,7 +17,7 @@ from ai_annotation.cli._output import (
 from ai_annotation.ml_diagnostic_models import ProbeRequest, SmokeTestRequest
 
 app = typer.Typer(
-    help="ML backend 运维诊断与运行时观测。",
+    help="模型服务诊断与运行状态。",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -81,7 +81,7 @@ def observe(
 def runtime_hints(
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """显示部署配置的默认 ML backend URL 提示。"""
+    """显示部署配置的默认模型服务 URL 提示。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             result = client.ml_diagnostics.runtime_hints()

@@ -1,15 +1,14 @@
-import { request, type FullConfig } from "@playwright/test";
+import type { FullConfig } from "@playwright/test";
+import { closeFixtureTransport, postFixture } from "./helpers/seed-owner-transport";
 
 export default async function globalTeardown(_config: FullConfig): Promise<void> {
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
-  const context = await request.newContext({ baseURL: apiBase, timeout: 5_000 });
-
   try {
-    const response = await context.post("/api/v1/__test/seed/cleanup");
+    const response = await postFixture(`${apiBase}/api/v1/__test/seed/cleanup`, { timeout: 5_000 });
     if (!response.ok()) {
       throw new Error(`seed/cleanup failed: ${response.status()} ${await response.text()}`);
     }
   } finally {
-    await context.dispose();
+    await closeFixtureTransport();
   }
 }

@@ -6,10 +6,10 @@ from typing import Any
 
 from pydantic import Field
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
-class SuggestedBackendItem(_AAPModel):
+class SuggestedBackendItem(_SDKModel):
     name: str
     repo_url: str
     summary: str
@@ -18,7 +18,7 @@ class SuggestedBackendItem(_AAPModel):
     builtin: bool = False
 
 
-class ProtocolTaskItem(_AAPModel):
+class ProtocolTaskItem(_SDKModel):
     id: str
     label: str
     summary: str
@@ -29,25 +29,25 @@ class ProtocolTaskItem(_AAPModel):
     suggested_backends: list[SuggestedBackendItem] = []
 
 
-class ProtocolInfraItem(_AAPModel):
+class ProtocolInfraItem(_SDKModel):
     id: str
     label: str
     summary: str
 
 
-class ProtocolModalityItem(_AAPModel):
+class ProtocolModalityItem(_SDKModel):
     id: str
     label: str
     summary: str
 
 
-class ProtocolGeometryItem(_AAPModel):
+class ProtocolGeometryItem(_SDKModel):
     id: str
     label: str
     summary: str
 
 
-class ProtocolPromptItem(_AAPModel):
+class ProtocolPromptItem(_SDKModel):
     id: str
     label: str
     summary: str
@@ -55,13 +55,13 @@ class ProtocolPromptItem(_AAPModel):
     interactive_route: bool
 
 
-class ProtocolInputItem(_AAPModel):
+class ProtocolInputItem(_SDKModel):
     id: str
     label: str
     summary: str
 
 
-class InstanceVariantOption(_AAPModel):
+class InstanceVariantOption(_SDKModel):
     value: str
     label: str | None = None
     vram_gb: float | None = None
@@ -70,14 +70,14 @@ class InstanceVariantOption(_AAPModel):
     note: str | None = None
 
 
-class InstanceVariantGroup(_AAPModel):
+class InstanceVariantGroup(_SDKModel):
     key: str
     title: str | None = None
     description: str | None = None
     variants: list[InstanceVariantOption] = []
 
 
-class InstanceModelItem(_AAPModel):
+class InstanceModelItem(_SDKModel):
     id: str
     display_name: str
     task: str = "unknown"
@@ -103,7 +103,7 @@ class InstanceModelItem(_AAPModel):
     composition: str = "atom"
 
 
-class CapabilityInstanceItem(_AAPModel):
+class CapabilityInstanceItem(_SDKModel):
     backend_id: str
     state: str
     source: str
@@ -113,11 +113,11 @@ class CapabilityInstanceItem(_AAPModel):
     models: list[InstanceModelItem] = []
 
 
-class CapabilityInstancesResponse(_AAPModel):
+class CapabilityInstancesResponse(_SDKModel):
     instances: list[CapabilityInstanceItem]
 
 
-class ProtocolCapabilitiesResponse(_AAPModel):
+class ProtocolCapabilitiesResponse(_SDKModel):
     version: str
     task_aliases: dict[str, str] = Field(default_factory=dict)
     tasks: list[ProtocolTaskItem]

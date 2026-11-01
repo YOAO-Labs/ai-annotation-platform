@@ -1,6 +1,7 @@
-"""Database-free HTTP regressions for list totals and supported page sizes."""
+"""HTTP regressions for list scoping, totals, and supported page sizes."""
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -47,52 +48,98 @@ async def list_api():
 
 
 @pytest.mark.parametrize("resource", ["decisions", "feedback"])
-@pytest.mark.parametrize("total,row_count", [(230, 2), (230, 0), (None, 0)])
-async def test_round_lists_count_all_scoped_rows_before_pagination(
-    list_api, monkeypatch, resource, total, row_count
+async def test_round_lists_count_and_page_only_the_requested_round(
+    db_session, super_admin, resource
 ):
-    client, db, project = list_api
-    round_id = uuid.uuid4()
-    loaded_round = SimpleNamespace(id=round_id)
-    load = AsyncMock(return_value=loaded_round)
-    monkeypatch.setattr(active_learning.service, "load_round", load)
-    rows = [SimpleNamespace(id=uuid.uuid4()) for _ in range(row_count)]
-    db.scalars.return_value.all.return_value = rows
-    db.scalar.return_value = total
-    serializer = MagicMock(side_effect=lambda row: {"id": str(row.id)})
-    if resource == "decisions":
-        monkeypatch.setattr(active_learning.service, "decision_output", serializer)
-        model = active_learning.Decision
-    else:
-        monkeypatch.setattr(active_learning.feedback, "output", serializer)
-        model = active_learning.Feedback
-
-    response = await client.get(
-        f"/api/v1/projects/{project.id}/active-learning-rounds/{round_id}/{resource}",
-        params={"limit": 100, "offset": 100},
+    from app.db.models.active_learning import (
+        ActiveLearningDecision,
+        ActiveLearningFeedback,
+        ActiveLearningRound,
     )
+    from app.services.training_dataset_bridge import content_digest
+    from tests.sample_evaluation_fixtures import Objects, seed
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "items": [{"id": str(row.id)} for row in rows],
-        "total": total or 0,
-    }
-    load.assert_awaited_once_with(db, project.id, round_id)
-    page_query = db.scalars.call_args.args[0]
-    count_query = db.scalar.call_args.args[0]
-    sql = str(page_query.compile(compile_kwargs={"literal_binds": True}))
-    table = model.__tablename__
-    assert "LIMIT 100 OFFSET 100" in sql
-    assert str(page_query._order_by_clause) == (
-        f"{table}.created_at DESC, {table}.id DESC"
+    actor = super_admin[0]
+    world = await seed(db_session, actor, Objects())
+    rounds = [
+        ActiveLearningRound(
+            id=uuid.uuid4(),
+            project_id=world.project.id,
+            creator_id=actor.id,
+            model_version_id=world.model.id,
+            deployment_id=world.deployment.id,
+            request_id=uuid.uuid4(),
+            request_digest="a" * 64,
+            name=f"round {i}",
+            status="failed",
+            spec={"schema": 1, "pool": []},
+            spec_digest="b" * 64,
+        )
+        for i in range(2)
+    ]
+    db_session.add_all(rounds)
+    await db_session.flush()
+    ids = [uuid.uuid4() for _ in range(5)]
+    model = (
+        ActiveLearningDecision if resource == "decisions" else ActiveLearningFeedback
     )
-    assert list(page_query.compile().params.values()).count(round_id) == 1
-    assert list(count_query.compile().params.values()) == [round_id]
-    assert str(count_query.whereclause) == str(page_query.whereclause)
-    count_sql = str(count_query)
-    assert "count(*)" in count_sql
-    assert f"FROM {table}" in count_sql
-    assert "LIMIT" not in count_sql and "OFFSET" not in count_sql
+    for i, identity in enumerate(ids):
+        snapshot = {}
+        fields = dict(
+            id=identity,
+            round_id=rounds[0 if i < 3 else 1].id,
+            actor_id=actor.id,
+            request_id=uuid.uuid4(),
+            request_digest="c" * 64,
+            snapshot=snapshot,
+            snapshot_digest=content_digest(snapshot),
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=i),
+        )
+        if resource == "decisions":
+            fields["action"] = "reject"
+        db_session.add(model(**fields))
+    await db_session.flush()
+
+    async def real_db():
+        yield db_session
+
+    async def project():
+        return world.project
+
+    async def user():
+        return actor
+
+    app = FastAPI()
+    app.include_router(active_learning.router, prefix="/api/v1")
+    app.dependency_overrides[get_db] = real_db
+    app.dependency_overrides[require_project_owner] = project
+    app.dependency_overrides[get_current_user] = user
+    base = f"/api/v1/projects/{world.project.id}/active-learning-rounds"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        for round_id, offset, expected, total in (
+            (rounds[0].id, 0, [ids[2], ids[1]], 3),
+            (rounds[0].id, 2, [ids[0]], 3),
+            (rounds[0].id, 3, [], 3),
+            (rounds[1].id, 0, [ids[4], ids[3]], 2),
+        ):
+            response = await client.get(
+                f"{base}/{round_id}/{resource}", params={"limit": 2, "offset": offset}
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["total"] == total
+            assert [item["id"] for item in payload["items"]] == [
+                str(i) for i in expected
+            ]
+
+        async def wrong_project():
+            return SimpleNamespace(id=uuid.uuid4())
+
+        app.dependency_overrides[require_project_owner] = wrong_project
+        response = await client.get(f"{base}/{rounds[0].id}/{resource}")
+        assert response.status_code == 404
 
 
 @pytest.mark.parametrize("resource", ["decisions", "feedback"])

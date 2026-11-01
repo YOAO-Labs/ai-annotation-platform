@@ -255,7 +255,7 @@ function openSearch(): void {
     <div class="hero-grid" aria-hidden="true"></div>
 
     <div class="hero-copy">
-      <div class="overline">Open source · Human in the loop</div>
+      <div class="overline">YOAO — You Only Annotate Once · Human in the loop</div>
       <h1>THE DATA<br />THAT TRAINS<br /><em>INTELLIGENCE</em></h1>
       <p class="hero-desc">
         把图像、视频和点云，从复杂原始数据转化为可审核、可追踪、可复用的训练资产。

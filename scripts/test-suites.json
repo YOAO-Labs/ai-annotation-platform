@@ -1,0 +1,106 @@
+{
+  "ml_cpu": [
+    {
+      "id": "shared-protocol-v2",
+      "owner": "protocol and task contracts",
+      "paths": ["apps/_shared/protocol_v2/", "apps/_shared/task_contract/"],
+      "python": "3.10",
+      "resources": "package test dependencies; CPU",
+      "skip_policy": "no native model qualification"
+    },
+    {
+      "id": "controlled-assets",
+      "owner": "platform controlled model assets",
+      "paths": [
+        "scripts/prepare-controlled-model-assets.py",
+        "scripts/test_controlled_model_assets.py",
+        "apps/_shared/training_contract/"
+      ],
+      "python": "3.12",
+      "resources": "task and training contracts; CPU",
+      "skip_policy": "no model or GPU qualification"
+    }
+  ],
+  "owner_contracts": [
+    { "directory": "apps/_shared/audit_contract", "options": "--extra test" },
+    { "directory": "apps/_shared/workspace_contract", "options": "--extra test" },
+    { "directory": "apps/_shared/inference_contract", "options": "--extra test" },
+    { "directory": "apps/_shared/lifecycle_contract", "options": "--with pytest" },
+    { "directory": "apps/_shared/training_contract", "options": "--with pytest" },
+    { "directory": "apps/_shared/mail_transport", "options": "--with pytest" },
+    { "directory": "apps/jobs", "options": "--extra test" },
+    { "directory": "apps/identity", "options": "--extra test --extra runtime" },
+    { "directory": "apps/workspace", "options": "--extra test --extra runtime" },
+    { "directory": "apps/inference", "options": "--extra test --extra runtime" },
+    { "directory": "apps/audit", "options": "--extra test --extra postgres" },
+    { "directory": "apps/notifications", "options": "--extra test --extra postgres" },
+    { "directory": "apps/labeling", "options": "--extra test --extra runtime" },
+    { "directory": "apps/labeling-mask-gc", "options": "--extra test" },
+    { "directory": "apps/preannotation-results", "options": "--extra test" },
+    {
+      "directory": "apps/media-probe",
+      "options": "--extra test --extra server",
+      "system_packages": "ffmpeg"
+    },
+    { "directory": "apps/assets-catalog", "options": "--group dev --extra server" },
+    { "directory": "apps/assets-cleanup", "options": "--group dev --extra worker" },
+    { "directory": "apps/assets-source", "options": "--extra test --extra server" },
+    {
+      "directory": "apps/assets-media",
+      "options": "--extra test --extra runtime --extra server",
+      "system_packages": "ffmpeg libvips-tools icc-profiles-free"
+    },
+    { "directory": "apps/assets-mask-content", "options": "--extra test" }
+  ],
+  "other_test_roots": [
+    {
+      "paths": ["apps/api/tests"],
+      "owner": "platform API and consumers",
+      "selection_source": "backend-test.yml",
+      "resources": "owned PostgreSQL, Redis and MinIO",
+      "skip_policy": "explicit live qualification prerequisites only"
+    },
+    {
+      "paths": ["packages/python-sdk/tests"],
+      "owner": "Python SDK, CLI and TUI",
+      "selection_source": "ci.yml python-sdk-pytest",
+      "resources": "SDK test and plugins extras",
+      "skip_policy": "not a GPU qualification"
+    },
+    {
+      "paths": ["apps/training-executor/tests"],
+      "owner": "training executor",
+      "selection_source": "ci.yml training-executor-tests",
+      "resources": "executor environment",
+      "skip_policy": "native model qualification remains separate"
+    },
+    {
+      "paths": [
+        "apps/storage-agent/tests",
+        "apps/_shared/filesystem_read/tests",
+        "apps/_shared/site_agent_contract/tests"
+      ],
+      "owner": "storage agent and portable filesystem contracts",
+      "selection_source": "ci.yml storage-agent-tests",
+      "resources": "temporary filesystem and local TLS",
+      "skip_policy": "not a deployed agent topology qualification"
+    },
+    {
+      "paths": [
+        "docs-site/dev/examples/echo-ml-backend/tests",
+        "docs-site/dev/examples/mock-v2-backend/tests"
+      ],
+      "owner": "protocol documentation examples",
+      "selection_source": "ci.yml examples-pytest",
+      "resources": "each example's test extra",
+      "skip_policy": "no native model qualification"
+    },
+    {
+      "paths": ["apps/api/experiments/tests"],
+      "owner": "isolated audit experiment",
+      "selection_source": "backend-go-experiment.yml manual workflow",
+      "resources": "API test environment and Go",
+      "skip_policy": "manual experiment, not a default product gate"
+    }
+  ]
+}

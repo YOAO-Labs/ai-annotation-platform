@@ -20,21 +20,21 @@ last_reviewed: 2026-07-11
 - 不同工具下的同名类是两条**独立**记录，可同名不同色。例如 bbox 工具下的「人」（红色）与 region 工具下的「人」（蓝色）互不干扰。
 - 工作台切换工具时，左侧调色板会自动切换为对应工具单位的类别集；当前激活类别若不在新工具的类别集里，会自动切到该工具的首个类。
 
-底层存储是 `Project.tool_bindings`，形状大致为 `{ 工具单位: { enabled, classes, attribute_schema, ... } }`，这是类别 / 属性配置的**唯一存储真值**。导出（COCO / YOLO / AAP JSON）时再从这里按工具单位拍平。详细架构决策见 [ADR-0026](../../dev/adr/archive/0026-tool-unit-class-and-attribute-binding)。
+底层存储是 `Project.tool_bindings`，形状大致为 `{ 工具单位: { enabled, classes, attribute_schema, ... } }`，这是类别 / 属性配置的**唯一存储真值**。导出（COCO / YOLO / 原生 JSON）时再从这里按工具单位拍平。详细架构决策见 [ADR-0026](../../dev/adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
 工具单位枚举（可在向导 / 项目设置勾选，与后端 `ToolUnitId` 对齐）：`bbox`、`region`（polygon + mask 打包）、`polyline`、`rotated_bbox`、`keypoint`、`lidar_box_3d`、`point_mask_3d`。每个工具单位的具体含义见 [创建项目 · 工具集](./index.md)。
 
-> **SAM 智能点 / 智能框 / Exemplar / Magic Box 不再是独立工具单位**。它们按**产出几何**归入 `region`（多边形）或 `bbox`，类别随所属几何单位配置；「本项目能否使用这些交互式 AI 工具」由项目级开关 **`ai_interactive_enabled`**（项目设置「[ML 模型](./ml-backends.md)」，默认开）统一控制。`ai_interactive` 已彻底退役，不再是合法工具单位：存量标注 / 预测 / 项目配置里的该值均已归位到 `region` / `bbox`（多边形系归 `region`，其余归 `bbox`）；遗留客户端若仍上报该值，后端会按几何类型自动归位而非报错。
+> **SAM 智能点 / 智能框 / Exemplar / Magic Box 不再是独立工具单位**。它们按**产出几何**归入 `region`（多边形）或 `bbox`，类别随所属几何单位配置；「本项目能否使用这些交互式 AI 工具」由项目级开关 **`ai_interactive_enabled`**（项目设置「[模型服务](./ml-backends.md)」，默认开）统一控制。`ai_interactive` 已彻底退役，不再是合法工具单位：存量标注 / 预测 / 项目配置里的该值均已归位到 `region` / `bbox`（多边形系归 `region`，其余归 `bbox`）；遗留客户端若仍上报该值，后端会按几何类型自动归位而非报错。
 
 ![项目设置「类别与属性」面板，按工具单位 tab 切换](../images/projects/tool-units-panel.png)
 
 ### 典型场景
 
-| 场景       | 工具集勾选    | 类别配置                                                                                       |
-| ---------- | ------------- | ---------------------------------------------------------------------------------------------- |
-| 道路检测   | bbox + region | bbox：人 / 车 / 交通标识；region：可行驶区 / 天空                                              |
-| 商品分割   | bbox + region | bbox：商品 / 价签；region：用 SAM 智能框勾勒商品轮廓（智能框产出多边形，归 region 单位）       |
-| 仅精细分割 | 仅 region     | region 下配类别，用 SAM 智能点 / 框反复迭代出多边形（交互式 AI 默认开启，可在「ML 模型」关闭） |
+| 场景       | 工具集勾选    | 类别配置                                                                                        |
+| ---------- | ------------- | ----------------------------------------------------------------------------------------------- |
+| 道路检测   | bbox + region | bbox：人 / 车 / 交通标识；region：可行驶区 / 天空                                               |
+| 商品分割   | bbox + region | bbox：商品 / 价签；region：用 SAM 智能框勾勒商品轮廓（智能框产出多边形，归 region 单位）        |
+| 仅精细分割 | 仅 region     | region 下配类别，用 SAM 智能点 / 框反复迭代出多边形（交互式 AI 默认开启，可在「模型服务」关闭） |
 
 ### 注意事项
 

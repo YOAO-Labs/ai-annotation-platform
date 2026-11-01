@@ -35,7 +35,7 @@ from app.deps import (
 )
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.schemas.aap_json import AAPImportErrorEntry, AAPImportResult
+from app.schemas.native_json import ImportErrorEntry, ImportResult
 from app.schemas.prediction import (
     PredictionPurgeCounts,
     PredictionPurgeRequest,
@@ -290,7 +290,7 @@ async def restore_failed_prediction(
 
 @router.post(
     "/projects/{project_id}/predictions/import",
-    response_model=AAPImportResult,
+    response_model=ImportResult,
 )
 async def import_predictions(
     request: Request,
@@ -305,17 +305,17 @@ async def import_predictions(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
-) -> AAPImportResult:
-    """外部模型预测结果导入端点 (v0.10.15).
+) -> ImportResult:
+    """导入外部模型预测结果。
 
-    支持 COCO Detection、YOLO zip 与平台原生 AAP JSON v1.0 三种 input format. 写入的
+    支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的
     Prediction 行 source='external_import', ml_backend_id=NULL.
     """
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.predictions_import import (
-        import_aap_json,
+        import_native_json,
         import_coco,
         import_yolo,
     )
@@ -368,12 +368,12 @@ async def import_predictions(
             aj_id = None
 
     try:
-        result = AAPImportResult(dry_run=dry_run)
+        result = ImportResult(dry_run=dry_run)
         purged_tasks: set[uuid.UUID] = set()
         for filename, raw in raw_files:
             try:
                 if format == "aap_json":
-                    part = await import_aap_json(
+                    part = await import_native_json(
                         db,
                         project.id,
                         raw,
@@ -415,7 +415,7 @@ async def import_predictions(
                     raise
                 result.skipped += 1
                 result.errors.append(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match={"file_name": filename},
                         reason=str(exc),
                     )
@@ -426,7 +426,7 @@ async def import_predictions(
             result.skipped += part.skipped
             if len(raw_files) > 1:
                 result.errors.extend(
-                    AAPImportErrorEntry(
+                    ImportErrorEntry(
                         task_match=err.task_match,
                         reason=f"{filename}: {err.reason}",
                     )

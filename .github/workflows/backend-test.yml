@@ -24,7 +24,7 @@ permissions:
 jobs:
   test:
     name: Backend test shard execution
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -80,6 +80,16 @@ jobs:
           fi
           ffmpeg -version
           ffprobe -version
+      - name: Configure PostgreSQL client tools
+        run: |
+          pg_bin=/usr/lib/postgresql/16/bin
+          if [ ! -x "$pg_bin/pg_dump" ] || [ ! -x "$pg_bin/pg_restore" ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client-16
+          fi
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          "$pg_bin/pg_dump" --version
+          "$pg_bin/pg_restore" --version
       - name: Install uv
         run: pip install uv
       - name: Sync deps
@@ -151,12 +161,18 @@ jobs:
       - name: Migration policy pure tests
         working-directory: apps/api
         run: uv run python ../../scripts/test_alembic_migration_policy.py
+      - name: Repository Python script tests
+        if: inputs.shard-index == 0
+        working-directory: apps/api
+        run: uv run pytest -q ../../scripts --junitxml=script-test-results.xml
       - name: Upload backend test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-test-results-${{ inputs.shard-index }}
-          path: apps/api/pytest-results.xml
+          path: |
+            apps/api/pytest-results.xml
+            apps/api/script-test-results.xml
           retention-days: 7
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

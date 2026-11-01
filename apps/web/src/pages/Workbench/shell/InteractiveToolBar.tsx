@@ -848,7 +848,7 @@ export function InteractiveToolBar({
                         disabled={!backendName}
                         hidden={!backendName}
                       >
-                        {backendName ?? "未绑定 ML 后端"}
+                        {backendName ?? "未绑定模型服务"}
                       </option>
                     )}
                   </select>

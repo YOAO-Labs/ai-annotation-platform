@@ -24,7 +24,7 @@ from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.schemas.aap_json import AAPTaskBlock, AAPTaskMatch
+from app.schemas.native_json import TaskBlock, TaskMatch
 from app.services.display_id import next_display_id
 from app.services.exporting.service import ExportService
 from tests.factory import create_project
@@ -329,7 +329,7 @@ async def test_export_aap_json_round_trip_after_external_import(
 async def test_aap_task_block_media_type_defaults_and_serialization():
     """v0.10.31 · schema 1.2: media_type 默认 image, video 默认 None;
     序列化时 media_type 字段必出现 (严格写满). (module 级 pytestmark=asyncio, 故 async def)"""
-    block = AAPTaskBlock(task_match=AAPTaskMatch(display_id="T-1"))
+    block = TaskBlock(task_match=TaskMatch(display_id="T-1"))
     assert block.media_type == "image"
     assert block.video is None
 
@@ -337,8 +337,8 @@ async def test_aap_task_block_media_type_defaults_and_serialization():
     assert dumped["media_type"] == "image"
     assert dumped["video"] is None
 
-    video_block = AAPTaskBlock(
-        task_match=AAPTaskMatch(display_id="T-2"),
+    video_block = TaskBlock(
+        task_match=TaskMatch(display_id="T-2"),
         media_type="video",
         video={"sampling": {"mode": "fps", "value": 5}, "fps": 30, "frame_count": 10},
     )

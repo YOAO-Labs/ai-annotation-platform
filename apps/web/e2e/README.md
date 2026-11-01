@@ -35,13 +35,20 @@ CI 功能用例最多重试一次；视觉基线不重试，压力用例最多�
 
 默认 `playwright.config.ts` 排除 `@visual`、`@stress`；扩展配置拆成两个入口，均复用相同项目、服务和数据隔离配置：`playwright.extended.config.ts` 只选择 `@visual`（零重试），`playwright.stress.config.ts` 选择 `@stress`（最多重试一次，用于区分确定性损坏与 runner 资源饥饿，重试通过仍标记 flaky）。不要在功能测试中混入整页或整个工作区的截图断言。给视觉测试添加 `{ tag: "@visual" }`，保持其标题、文件位置和项目名以复用既有基线；有意的外观变化经人工核对差异后，用 `pnpm test:e2e:visual --update-snapshots` 更新并提交基线，不能自动接受差异。
 
+Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
+`PLAYWRIGHT_RASTER_MASK_MATRIX` 选择，未指定矩阵时不选这两组标签；不要用条件
+`test.skip` 把另一部署开关下的场景混入当前选集。`test:e2e:mask-native` 先构建
+产品，再用 `playwright.mask-product.config.ts` 验证真实 API 和 `vite preview`；
+源码 Worker 由 `playwright.browser-integration.config.ts` 单独启动 Vite、独立报告，
+不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
+
 布局矩阵在图片/视频/点云 × 标注/审核六种上下文中都保留真实拖动、画布身份、上下文隔离、紧凑模式、保存与刷新恢复断言。功能集执行 14 次重排，`@stress` 执行完整 54 次；新增长循环必须放入压力集，并在功能集中保留覆盖关键状态转换的短流程。
 
 CI 调度规则由根目录 `scripts/plan-e2e-suites.mjs` 维护：
 
-- 每个 PR 始终执行四个功能分片和三个 Mask 套件。
+- 每个 PR 始终执行四个功能分片、三个 Mask 套件及独立点云专项。
 - `apps/web/`、`apps/api/`、`packages/`、共享依赖/容器配置、E2E workflow 或路由脚本变更时，追加视觉和压力套件。分类保守覆盖共享依赖；布局或样式 PR 也会跑完整压力矩阵，只是与功能检查独立执行和报告。
-- 主分支执行全部九个套件。`E2E extended` 每天 UTC 19:00（北京时间次日 03:00）及手动运行两个扩展套件。文档截图的每周 `Browser checks` 保持独立。
+- 主分支执行全部已登记套件。`E2E extended` 每天 UTC 19:00（北京时间次日 03:00）及手动运行两个扩展套件。文档截图的每周 `Browser checks` 保持独立。
 - PR 路径读取失败会使计划 job 失败；`Frontend E2E` 汇总同时要求计划和所有已选套件成功，不会把漏跑当作通过。
 
 `seed` 只用于准备前置数据。核心创建用例必须验证真实 UI 操作、保存响应、API 读回和刷新恢复；不能在 UI 保存失败后调用 `seed.advanceTask` 等接口伪造成功。Canvas 指针坐标应依据当前媒体位置和尺寸计算，并确认没有被浮层遮挡。连续执行相互独立的边缘绘制时，通过真实 UI 收起前一个标注的浮窗，并检查拖拽起点命中画布。截图检查不能替代保存检查，存储状态检查也不能替代真实渲染检查。
@@ -59,12 +66,20 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 
 ## 数据准备
 
-避免每个 spec 重复造数据：`e2e/fixtures/seed.ts` 通过
-`/api/v1/__test/seed/*` 创建 fixture。这组路由需要同时满足：
+`e2e/fixtures/seed.ts` 通过 worker 自有 Python 进程调用现有
+`/api/v1/__test/seed/*` router，准备和清理前置数据。只有该进程使用测试 owner
+凭据；普通产品 HTTP API 保持受限账号。进程复用导入，但每次响应前关闭数据库
+连接池，worker 结束时退出，不让夹具的连接或锁留到业务操作中。这不是独立 HTTP
+部署验收。这组路由与夹具通道需要同时满足：
 
 - `E2E_SEED_ENABLED=true`；
 - 当前数据库名以 `_e2e` 或 `_test` 结尾；
+- `PLAYWRIGHT_E2E_DATABASE_URL` 与 runtime `DATABASE_URL` 指向同一显式测试库；
 - `production` 环境永不挂载路由。
+
+截图配置从明确的 `SCREENSHOT_DATABASE_URL` 绑定这两个夹具选库值。仍须单独
+核对实际 API／worker 目标，不能以测试库后缀代替服务身份检查。真实创建／保存
+请求始终通过受限产品 API；夹具不能在保存失败后伪造结果。
 
 **默认使用私有命名空间 fixture**：`await seed.owned()` 按 spec 文件 + 测试标题
 确定性派生命名空间（`^[a-z0-9]{4,12}$`，重试稳定、跨测试唯一），由 `/seed/owned`
@@ -116,7 +131,7 @@ PLAYWRIGHT_AI_REQUEST_WORKER=1 pnpm test:e2e \
 
 ## WebCodecs 精确帧 E2E
 
-视频 Issue 的 180 帧夹具按测试 API 的 `VIDEO_CHUNK_SIZE_FRAMES` 生成完整真实分片，默认三块，每块 60 帧。测试开始前核对正式 manifest 与分片范围、就绪状态；不能依赖未启动的媒体 worker 补齐缺失分片。像素身份仍从实际编码视频验证。请求失败分类集中在 `helpers/request-errors.ts`：每条允许项都是「方法 + 精确路径 + 原因」的有类型规则，图片与视频套件按共享规则组组合；只允许明确端点的 `net::ERR_ABORTED` 生命周期取消（心跳、会话统计、bootstrap/任务上下文读、帧预览及分片元数据/样本），标注与 Issue 写入失败、其他网络错误与 HTTP 错误仍须报告。`pnpm --filter @anno/web test scripts/video-request-errors.test.ts` 同时验证这些边界的允许侧与禁止侧，CI 的前端单元测试同步执行。
+视频 Issue 的 180 帧夹具按测试 API 的 `VIDEO_CHUNK_SIZE_FRAMES` 生成完整真实分片，默认三块，每块 60 帧。测试开始前核对正式 manifest 与分片范围、就绪状态；不能依赖未启动的媒体 worker 补齐缺失分片。像素身份仍从实际编码视频验证。请求失败分类集中在 `helpers/request-errors.ts`：每条允许项都是「方法 + 精确路径 + 原因」的有类型规则，图片与视频套件按共享规则组组合；只允许明确端点的 `net::ERR_ABORTED` 生命周期取消（心跳、会话统计、bootstrap/任务上下文读、帧预览及分片元数据/样本），标注与 Issue 写入失败、其他网络错误与 HTTP 错误仍须报告。`pnpm --filter web test scripts/video-request-errors.test.ts` 同时验证这些边界的允许侧与禁止侧，CI 的前端单元测试同步执行。
 
 刷新前的布局保存等待必须匹配当前交互产生的 workspace 快照，并等响应接收完成。初始化、切换预设和激活讨论面板会分别发送偏好 PATCH，首条成功响应不能代表后续保存完成。任务级 Issue 用例延迟最终讨论布局响应，验证刷新不会抢先取消偏好写入；偏好 PATCH 的取消仍按错误处理。
 

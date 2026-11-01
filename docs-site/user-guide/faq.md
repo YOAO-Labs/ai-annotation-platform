@@ -88,7 +88,7 @@ last_reviewed: 2026-10-26
 <details>
 <summary><strong>Q: SAM 智能工具为什么没有响应或按钮置灰？</strong></summary>
 
-- 检查项目是否已在「项目设置 → ML 模型」中绑定并启用了支持交互能力的 ML Backend；
+- 检查项目是否已在「项目设置 → 模型服务」中绑定并启用了支持交互能力的模型服务；
 - 按钮置灰通常说明当前模型不支持该类 Prompt（悬停在工具图标上可查看提示原因）；
 - 若状态指示灯为红灯，说明 `/setup` 通信异常，可尝试刷新页面重新握手。
 </details>
@@ -121,14 +121,14 @@ last_reviewed: 2026-10-26
 <details>
 <summary><strong>Q: 平台支持导出哪些标注格式？</strong></summary>
 
-支持导出为标准 **COCO**、**YOLO (det / obb / seg)** 以及包含全模态几何的原生 **AAP JSON** 格式。详见 [导出格式参考](./reference/export-formats)。
+支持导出为标准 **COCO**、**YOLO (det / obb / seg)** 以及包含全模态几何的**原生 JSON** 格式。详见 [导出格式参考](./reference/export-formats)。
 
 </details>
 
 <details>
 <summary><strong>Q: 如何导入外部算法生成的模型预测？</strong></summary>
 
-在项目卡片菜单点击「导入预测」，选择对应的格式类型（YOLO / COCO / AAP JSON）并上传。导入完成后，预测将作为 AI 候选出现在工作台供标注员核验。详见 [预测导入与导出](./datasets/prediction-import-export)。
+在项目卡片菜单点击「导入预测」，选择对应的格式类型（YOLO / COCO / 原生 JSON）并上传。导入完成后，预测将作为 AI 候选出现在工作台供标注员核验。详见 [预测导入与导出](./datasets/prediction-import-export)。
 
 </details>
 

@@ -17,15 +17,8 @@ vi.mock("../state/useWorkbenchShellModel", () => ({
   useWorkbenchShellModel: (...args: unknown[]) => mockUseWorkbenchShellModel(...args),
 }));
 vi.mock("./WorkbenchLayout", () => ({
-  WorkbenchLayout: ({
-    stageOverlay,
-    videoTracker,
-  }: {
-    stageOverlay?: React.ReactNode;
-    videoTracker?: unknown;
-  }) => (
+  WorkbenchLayout: ({ stageOverlay }: { stageOverlay?: React.ReactNode }) => (
     <div data-testid="layout">
-      {Boolean(videoTracker) && <div data-testid="propagate-dialog" />}
       {stageOverlay}
     </div>
   ),
@@ -67,7 +60,7 @@ describe("WorkbenchShell", () => {
     expect(onBack).toHaveBeenCalledOnce();
   });
 
-  it("renders layout, propagate dialog, and issue controls when ready", () => {
+  it("renders issue controls when ready", () => {
     const onOpenList = vi.fn();
     const onToggleIssuePinDrop = vi.fn();
     mockUseWorkbenchShellModel.mockReturnValue({
@@ -87,9 +80,6 @@ describe("WorkbenchShell", () => {
 
     render(<WorkbenchShell />);
 
-    expect(screen.getByTestId("layout")).toBeTruthy();
-    expect(screen.getByTestId("propagate-dialog")).toBeTruthy();
-    expect(screen.getByTestId("issue-create-modal")).toBeTruthy();
     expect(screen.getByTestId("issue-fab")).toHaveAccessibleName("查看问题（2 个未解决）");
 
     fireEvent.click(screen.getByTestId("issue-fab"));

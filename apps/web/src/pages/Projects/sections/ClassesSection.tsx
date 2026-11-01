@@ -381,7 +381,8 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
         <h3 className="text-sm font-semibold">类别与属性</h3>
         <div className="flex items-center gap-1.5 whitespace-nowrap">
           <Button size="sm" variant="ghost" onClick={() => setPrefillOpen(true)}>
-            <Icon name="sparkles" />从 ML Backend 预填
+            <Icon name="sparkles" />
+            从模型服务预填
           </Button>
           {/* 导入 / 导出只覆盖属性 schema（类别无法经 JSON 导入导出，只能 ML Backend 预填
               或手动维护），收进下拉避免头部按钮横向堆叠。隐藏 input 留在头部，

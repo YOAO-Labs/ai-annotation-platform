@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
 class _RequestModel(BaseModel):
@@ -27,7 +27,7 @@ class SceneUpdate(_RequestModel):
     source_metadata: dict[str, Any] | None = None
 
 
-class Scene(_AAPModel):
+class Scene(_SDKModel):
     id: UUID
     display_id: str
     dataset_id: UUID
@@ -39,7 +39,7 @@ class Scene(_AAPModel):
     updated_at: datetime
 
 
-class SceneFramePose(_AAPModel):
+class SceneFramePose(_SDKModel):
     frame_index: int = Field(ge=0)
     timestamp_us: int | None = None
     ego_translation: list[float] = Field(min_length=3, max_length=3)
@@ -47,6 +47,6 @@ class SceneFramePose(_AAPModel):
     source_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class SceneTrajectory(_AAPModel):
+class SceneTrajectory(_SDKModel):
     scene_id: UUID
     poses: list[SceneFramePose] = Field(default_factory=list)

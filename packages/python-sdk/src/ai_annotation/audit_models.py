@@ -8,10 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
-class AuditLogOut(_AAPModel):
+class AuditLogOut(_SDKModel):
     id: int
     actor_id: UUID | None
     actor_email: str | None
@@ -28,7 +28,7 @@ class AuditLogOut(_AAPModel):
     created_at: datetime
 
 
-class AuditLogList(_AAPModel):
+class AuditLogList(_SDKModel):
     items: list[AuditLogOut]
     total: int
     page: int
@@ -36,24 +36,24 @@ class AuditLogList(_AAPModel):
     next_cursor: str | None = None
 
 
-class AuditSummaryTotals(_AAPModel):
+class AuditSummaryTotals(_SDKModel):
     event_count: int
     error_count: int
     action_kind_count: int
 
 
-class AuditSummaryDailyPoint(_AAPModel):
+class AuditSummaryDailyPoint(_SDKModel):
     day: date
     event_count: int
     error_count: int
 
 
-class AuditSummaryBucket(_AAPModel):
+class AuditSummaryBucket(_SDKModel):
     key: str
     event_count: int
 
 
-class AuditMonthlySummary(_AAPModel):
+class AuditMonthlySummary(_SDKModel):
     month: str
     timezone: str = "UTC"
     materialized_through: date | None
@@ -64,7 +64,7 @@ class AuditMonthlySummary(_AAPModel):
     actor_roles: list[AuditSummaryBucket]
 
 
-class AuditArchiveOut(_AAPModel):
+class AuditArchiveOut(_SDKModel):
     year: int
     month: int
     object_key: str
@@ -72,7 +72,7 @@ class AuditArchiveOut(_AAPModel):
     archived_at: str | None = None
 
 
-class AuditArchiveRowsOut(_AAPModel):
+class AuditArchiveRowsOut(_SDKModel):
     items: list[dict[str, Any]]
     total: int
     limit: int

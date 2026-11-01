@@ -14,7 +14,7 @@ from ai_annotation.cli._output import (
 )
 
 app = typer.Typer(
-    help="全局物理 ML Backend registry（super-admin）。",
+    help="全局模型服务注册表（超级管理员）。",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )

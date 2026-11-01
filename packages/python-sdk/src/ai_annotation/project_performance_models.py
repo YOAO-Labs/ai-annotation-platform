@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 ProjectPerformanceWorkType = Literal["annotation", "review"]
 ProjectPerformanceAccountStatus = Literal["all", "active", "inactive"]
@@ -19,7 +19,7 @@ ProjectPerformanceMetricUnit = Literal[
 DateBoundary = str | date | datetime
 
 
-class ProjectPerformanceQuery(_AAPModel):
+class ProjectPerformanceQuery(_SDKModel):
     """Shared filters; ``cursor`` pages members, events, or detail evidence."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -36,20 +36,20 @@ class ProjectPerformanceQuery(_AAPModel):
     limit: int = Field(default=50, ge=1, le=100)
 
 
-class ProjectPerformanceScope(_AAPModel):
+class ProjectPerformanceScope(_SDKModel):
     from_: datetime = Field(alias="from")
     to: datetime
     timezone: str
     as_of: datetime
 
 
-class ProjectPerformanceCoverage(_AAPModel):
+class ProjectPerformanceCoverage(_SDKModel):
     state: ProjectPerformanceCoverageState
     source: str
     detail: str | None = None
 
 
-class ProjectPerformanceMetric(_AAPModel):
+class ProjectPerformanceMetric(_SDKModel):
     value: int | float | None
     unit: ProjectPerformanceMetricUnit
     numerator: int | None = None
@@ -57,7 +57,7 @@ class ProjectPerformanceMetric(_AAPModel):
     coverage: ProjectPerformanceCoverageState | None = None
 
 
-class ProjectMemberPerformanceMetrics(_AAPModel):
+class ProjectMemberPerformanceMetrics(_SDKModel):
     submitted_tasks: ProjectPerformanceMetric
     resubmissions: ProjectPerformanceMetric
     contributed_tasks: ProjectPerformanceMetric
@@ -75,7 +75,7 @@ class ProjectMemberPerformanceMetrics(_AAPModel):
     review_backlog: ProjectPerformanceMetric
 
 
-class ProjectMemberPerformance(_AAPModel):
+class ProjectMemberPerformance(_SDKModel):
     user_id: UUID
     name: str
     email: str
@@ -88,7 +88,7 @@ class ProjectMemberPerformance(_AAPModel):
     metrics: ProjectMemberPerformanceMetrics
 
 
-class ProjectPerformanceTotals(_AAPModel):
+class ProjectPerformanceTotals(_SDKModel):
     submitted_tasks: ProjectPerformanceMetric
     approved_task_outcomes: ProjectPerformanceMetric
     first_review_pass_rate: ProjectPerformanceMetric
@@ -102,33 +102,33 @@ class ProjectPerformanceTotals(_AAPModel):
     retained_objects: ProjectPerformanceMetric
 
 
-class ProjectPerformanceTrendPoint(_AAPModel):
+class ProjectPerformanceTrendPoint(_SDKModel):
     date: str
     submitted_tasks: int | None
     approved_task_outcomes: int | None
     review_decisions: int | None
 
 
-class ProjectPerformanceBreakdown(_AAPModel):
+class ProjectPerformanceBreakdown(_SDKModel):
     reason_type: str | None = None
     class_name: str | None = None
     count: int
     pct: float | None = None
 
 
-class ProjectPerformanceSourceBreakdown(_AAPModel):
+class ProjectPerformanceSourceBreakdown(_SDKModel):
     source: str
     count: int
     pct: float | None = None
 
 
-class ProjectPerformanceGeometryBreakdown(_AAPModel):
+class ProjectPerformanceGeometryBreakdown(_SDKModel):
     annotation_type: str
     count: int
     pct: float | None = None
 
 
-class ProjectPerformanceEvidenceItem(_AAPModel):
+class ProjectPerformanceEvidenceItem(_SDKModel):
     id: str
     at: datetime
     action: str
@@ -138,7 +138,7 @@ class ProjectPerformanceEvidenceItem(_AAPModel):
     contributor_name: str | None = None
 
 
-class ProjectMembersPerformance(_AAPModel):
+class ProjectMembersPerformance(_SDKModel):
     scope: ProjectPerformanceScope
     coverage: ProjectPerformanceCoverage
     project_totals: ProjectPerformanceTotals
@@ -146,7 +146,7 @@ class ProjectMembersPerformance(_AAPModel):
     next_cursor: str | None = None
 
 
-class ProjectMemberPerformanceDetail(_AAPModel):
+class ProjectMemberPerformanceDetail(_SDKModel):
     scope: ProjectPerformanceScope
     coverage: ProjectPerformanceCoverage
     member: ProjectMemberPerformance
@@ -159,7 +159,7 @@ class ProjectMemberPerformanceDetail(_AAPModel):
     evidence_next_cursor: str | None = None
 
 
-class ProjectMemberPerformanceEvents(_AAPModel):
+class ProjectMemberPerformanceEvents(_SDKModel):
     scope: ProjectPerformanceScope
     items: list[ProjectPerformanceEvidenceItem]
     next_cursor: str | None = None

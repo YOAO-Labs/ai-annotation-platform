@@ -8,9 +8,9 @@ last_reviewed: 2026-08-12
 
 # 外部预测导入端点
 
-允许客户把**外部模型**（不通过平台 ML backend 跑的模型）生成的预测灌入平台，进入"AI 预标 → 人工修正 → 导出"工作流。
+允许客户将**外部模型**（不通过平台模型服务运行的模型）生成的预测导入平台，供人工审阅，进入"AI 预标 → 人工修正 → 导出"工作流。
 
-支持三种输入格式：**COCO Detection**、**YOLO zip** 与平台原生 **AAP JSON**（无损中间格式）。
+支持三种输入格式：**COCO Detection**、**YOLO zip** 与**原生 JSON**（YOAO 原生交换格式）。
 
 ## 端点
 
@@ -32,8 +32,8 @@ image_height=<optional COCO fallback height>
 | `format`                       | query | `aap_json` \| `coco` \| `yolo` | 是   | input 格式. 默认 `aap_json`.                                                                                      |
 | `yolo_variant`                 | query | `det` \| `obb` \| `seg`        | 否   | 仅 `format=yolo` 生效,默认 `det`.                                                                                 |
 | `dry_run`                      | query | bool                           | 否   | true 时走全部校验路径但**不入库**, 供前端 wizard 预览.                                                            |
-| `file`                         | form  | File                           | 是   | AAP/COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                                 |
-| `model_version`                | form  | string                         | 否   | AAP JSON 内 `model_version` 缺失时的兜底值.                                                                       |
+| `file`                         | form  | File                           | 是   | 原生 JSON / COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                         |
+| `model_version`                | form  | string                         | 否   | 原生 JSON 内 `model_version` 缺失时的兜底值.                                                                      |
 | `overwrite_existing`           | form  | bool                           | 否   | 默认 true。true 时按 task 维度删该 task 下 `source='external_import'` 的旧 prediction 后再写入;显式 false 时追加. |
 | `image_width` / `image_height` | form  | int                            | 否   | 仅 `format=coco` 生效。COCO `images[]` 缺 `width/height` 时作为全局兜底；图片自带尺寸优先。两个字段必须同时提供。 |
 
@@ -53,13 +53,15 @@ image_height=<optional COCO fallback height>
 }
 ```
 
+OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。界面中的“原生 JSON”仍对应 `format=aap_json`，文件内的 `format: "aap"` 不因显示名称改变。
+
 错误是逐 entry / shape 累计，不让整批挂。多文件上传时后端合并响应，并在 errors[].reason 前缀文件名。单文件 schema_version 不兼容 / JSON 不可解析会整体 422；多文件中的坏文件会作为一条错误累计，其他文件继续处理。
 
 多文件导入是 best-effort 语义：整批在一个事务内提交，但**不具备原子性**——若某个文件失败被累计为错误，已成功文件写入的预测仍会保留，不会因后续文件失败而回滚。
 
-## AAP JSON 格式
+## 原生 JSON 格式 {#aap-json-格式}
 
-详见 [用户文档 · AAP JSON](../../user-guide/reference/export-formats#aap-json-13无损) + [ADR-0024](../../dev/adr/archive/0024-aap-json-format)。预测导入消费 `predictions[]`；标注导入接口消费 `annotations[]`。图片 `raster_mask` 和视频 `video_track_mask` 都通过 `mask_objects` 恢复内容寻址正文；导入会先校验引用、摘要与尺寸，再写对象并挂载 Prediction 或 Annotation。
+详见 [用户文档 · 原生 JSON](../../user-guide/reference/export-formats#aap-json-1-5-无损) + [ADR-0024](../../dev/adr/archive/0024-aap-json-format)。预测导入消费 `predictions[]`；标注导入接口消费 `annotations[]`。图片 `raster_mask` 和视频 `video_track_mask` 都通过 `mask_objects` 恢复内容寻址正文；导入会先校验引用、摘要与尺寸，再写对象并挂载 Prediction 或 Annotation。
 
 COCO 导入同时识别 bbox、polygon segmentation 与 uncompressed RLE segmentation。RLE 会先写入共享内容层，再形成 `raster_mask` 候选；非法、空前景或尺寸不匹配的 segmentation 作为逐 annotation 错误返回，不会静默降级成 bbox。
 
@@ -135,13 +137,13 @@ task 匹配按 label 文件 stem 进行：`labels/animals/cat/001.txt` 会匹配
 ## 写入语义
 
 - 写入的 `predictions` 行：`source='external_import'`, `ml_backend_id=NULL`, `model_version=<entry 内值或 form 兜底>`, `result=<内部 LS shape 数组>`.
-- AAP JSON 每个 `predictions[i]` 对应**一条** Prediction 行；普通 `geometry` 写 1 个 shape，`shapes[]` 写多个 shape 到同一行的 `result[]`。COCO 每个 `annotations[i]` 对应一条。YOLO 每个非空 label 文件对应一条，文件内多行合并到同一条 `result[]`。
+- 原生 JSON 每个 `predictions[i]` 对应**一条** Prediction 行；普通 `geometry` 写 1 个 shape，`shapes[]` 写多个 shape 到同一行的 `result[]`。COCO 每个 `annotations[i]` 对应一条。YOLO 每个非空 label 文件对应一条，文件内多行合并到同一条 `result[]`。
 - `overwrite_existing` 默认 true，只清 `source='external_import'`；不会删除 ML Backend 生成的 `source='ml_backend'` 预测。多文件同一次上传共享 purge 作用域，同一 task 只清一次旧导入，随后各文件的新预测都会保留。
 - 写入路径复用 `PredictionService.create_from_ml_result`，确保与 ML backend 写入路径同源。
 
 ## task_match 匹配规则
 
-AAP JSON `task_match` 是 oneof：
+原生 JSON `task_match` 是 oneof：
 
 1. **`display_id` 优先**：全局唯一，最稳。命中后校验 `project_id` 一致；跨项目命中视为不匹配（防偷换项目）。
 2. **`file_path` fallback**：项目内查；命中第一条即返。

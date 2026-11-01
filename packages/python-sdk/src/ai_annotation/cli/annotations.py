@@ -96,7 +96,9 @@ def bulk_update(
 @app.command("import")
 def import_file(
     project_id: str = typer.Argument(..., help="项目 ID (需项目负责人或 super_admin)"),
-    file: Path = typer.Argument(..., exists=True, dir_okay=False, help="AAP JSON 文件"),
+    file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, help="原生 JSON 文件"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="只校验不写入"),
     overwrite: bool = typer.Option(
         False,
@@ -106,10 +108,10 @@ def import_file(
     yes: bool = typer.Option(False, "--yes", "-y", help="确认写入"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """导入 AAP JSON annotations[]；实际写入需要显式确认。"""
+    """导入 原生 JSON annotations[]；实际写入需要显式确认。"""
     with cli_errors(json_output):
         if file.stat().st_size > 64 * 1024 * 1024:
-            raise typer.BadParameter("AAP JSON 文件不能超过 64 MiB")
+            raise typer.BadParameter("原生 JSON 文件不能超过 64 MiB")
         if not dry_run:
             confirm_destructive(
                 f"确认导入 {file.name} 到项目 {project_id}?",

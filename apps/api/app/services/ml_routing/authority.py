@@ -188,11 +188,9 @@ class ControlBinding:
     control: Any
 
 
-_SCOPE: ContextVar[ScopeBinding | None] = ContextVar(
-    "aap_api_route_scope", default=None
-)
+_SCOPE: ContextVar[ScopeBinding | None] = ContextVar("api_route_scope", default=None)
 _CONTROL: ContextVar[ControlBinding | None] = ContextVar(
-    "aap_api_route_control", default=None
+    "api_route_control", default=None
 )
 
 

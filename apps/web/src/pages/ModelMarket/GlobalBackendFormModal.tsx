@@ -320,7 +320,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
     <Modal
       open={open}
       onClose={submitting ? () => {} : onClose}
-      title={isEdit ? "编辑全局 ML Backend" : "注册全局 ML Backend"}
+      title={isEdit ? "编辑全局模型服务" : "注册全局模型服务"}
       width={560}
     >
       <div className="flex flex-col gap-3.5">

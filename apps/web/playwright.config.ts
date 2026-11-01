@@ -14,6 +14,9 @@ if (worktreeMode && (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DA
 const rasterMaskMatrix = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX;
 const rasterMaskCreateEnabled = rasterMaskMatrix === "native";
 const chromiumChannel = process.env.PLAYWRIGHT_CHROMIUM_CHANNEL;
+const excludedTags = ["@visual", "@stress"];
+if (rasterMaskMatrix !== "native") excludedTags.push("@mask-native");
+if (rasterMaskMatrix !== "readonly") excludedTags.push("@mask-readonly");
 const pointcloudWebGpuQualification = process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1";
 const configDir = dirname(fileURLToPath(import.meta.url));
 const isCI = Boolean(process.env.CI);
@@ -73,7 +76,7 @@ export default defineConfig({
   // Documentation capture remains separate. Visual baselines and stress scenarios
   // in tests/ run through playwright.extended.config.ts with their own CI reports.
   testMatch: ["**/tests/**/*.spec.ts"],
-  grepInvert: /@visual|@stress/,
+  grepInvert: new RegExp(excludedTags.join("|")),
   // seed/reset and teardown delete the shared E2E fixture namespace. Keep one
   // worker per database; CI shards use independent runners and services.
   fullyParallel: false,

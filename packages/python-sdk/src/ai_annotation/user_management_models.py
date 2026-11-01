@@ -8,10 +8,10 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ai_annotation.models import PlatformRole, ProjectRole, _AAPModel
+from ai_annotation.models import PlatformRole, ProjectRole, _SDKModel
 
 
-class UserRecord(_AAPModel):
+class UserRecord(_SDKModel):
     id: UUID
     email: str
     name: str
@@ -42,7 +42,7 @@ class UserPageItem(UserRecord):
     is_lifecycle_managed: bool = True
 
 
-class UserPage(_AAPModel):
+class UserPage(_SDKModel):
     items: list[UserPageItem]
     total: int
     page: int
@@ -50,13 +50,13 @@ class UserPage(_AAPModel):
     pages: int
 
 
-class UsersStats(_AAPModel):
+class UsersStats(_SDKModel):
     total: int
     online: int
     weekly_active: int
 
 
-class Group(_AAPModel):
+class Group(_SDKModel):
     id: UUID
     name: str
     description: str | None = None
@@ -64,7 +64,7 @@ class Group(_AAPModel):
     created_at: datetime
 
 
-class GroupPage(_AAPModel):
+class GroupPage(_SDKModel):
     items: list[Group]
     total: int
     page: int
@@ -72,21 +72,21 @@ class GroupPage(_AAPModel):
     pages: int
 
 
-class GroupCreate(_AAPModel):
+class GroupCreate(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=500)
 
 
-class GroupUpdate(_AAPModel):
+class GroupUpdate(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=500)
 
 
-class InvitationCreate(_AAPModel):
+class InvitationCreate(_SDKModel):
     """Invitation creation; ``role`` is account role, project role is separate."""
 
     model_config = ConfigDict(extra="forbid")
@@ -121,7 +121,7 @@ class InvitationCreate(_AAPModel):
         return self
 
 
-class InvitationCreated(_AAPModel):
+class InvitationCreated(_SDKModel):
     """Creation returns a one-time invitation token and shareable URL."""
 
     invite_url: str = Field(repr=False)
@@ -132,7 +132,7 @@ class InvitationCreated(_AAPModel):
     project_member_role: str | None = None
 
 
-class BulkInviteItem(_AAPModel):
+class BulkInviteItem(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     email: str = Field(max_length=1000)
@@ -142,13 +142,13 @@ class BulkInviteItem(_AAPModel):
     project_member_role: str | None = Field(default=None, max_length=100)
 
 
-class BulkInviteRequest(_AAPModel):
+class BulkInviteRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[BulkInviteItem] = Field(min_length=1, max_length=500)
 
 
-class BulkInviteResultItem(_AAPModel):
+class BulkInviteResultItem(_SDKModel):
     index: int
     email: str
     ok: bool
@@ -161,14 +161,14 @@ class BulkInviteResultItem(_AAPModel):
     error: str | None = None
 
 
-class BulkInviteResponse(_AAPModel):
+class BulkInviteResponse(_SDKModel):
     items: list[BulkInviteResultItem]
     succeeded: int
     failed: int
     preview: bool = False
 
 
-class BulkGroupAssignmentRequest(_AAPModel):
+class BulkGroupAssignmentRequest(_SDKModel):
     """Assign users to a group; explicit ``group_id=None`` clears membership."""
 
     model_config = ConfigDict(extra="forbid")
@@ -177,7 +177,7 @@ class BulkGroupAssignmentRequest(_AAPModel):
     group_id: UUID | None
 
 
-class GroupAssignmentPreviewItem(_AAPModel):
+class GroupAssignmentPreviewItem(_SDKModel):
     user_id: UUID
     email: str | None = None
     name: str | None = None
@@ -189,7 +189,7 @@ class GroupAssignmentPreviewItem(_AAPModel):
     error: str | None = None
 
 
-class BulkGroupAssignmentPreview(_AAPModel):
+class BulkGroupAssignmentPreview(_SDKModel):
     group_id: UUID | None = None
     group_name: str | None = None
     items: list[GroupAssignmentPreviewItem]
@@ -197,20 +197,20 @@ class BulkGroupAssignmentPreview(_AAPModel):
     blocked: int
 
 
-class BulkGroupAssignmentResultItem(_AAPModel):
+class BulkGroupAssignmentResultItem(_SDKModel):
     user_id: UUID
     ok: bool
     retryable: bool = False
     error: str | None = None
 
 
-class BulkGroupAssignmentResponse(_AAPModel):
+class BulkGroupAssignmentResponse(_SDKModel):
     items: list[BulkGroupAssignmentResultItem]
     succeeded: int
     failed: int
 
 
-class RoleImpactProject(_AAPModel):
+class RoleImpactProject(_SDKModel):
     project_id: UUID
     project_name: str
     membership_role: str | None = None
@@ -220,7 +220,7 @@ class RoleImpactProject(_AAPModel):
     review_task_count: int = 0
 
 
-class RoleImpactPreview(_AAPModel):
+class RoleImpactPreview(_SDKModel):
     user_id: UUID
     email: str
     current_role: str
@@ -235,13 +235,13 @@ class RoleImpactPreview(_AAPModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class ChangeUserRoleRequest(_AAPModel):
+class ChangeUserRoleRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     role: PlatformRole
 
 
-class AdminResetPasswordResponse(_AAPModel):
+class AdminResetPasswordResponse(_SDKModel):
     """Contains a temporary password; callers must handle it as a secret."""
 
     temp_password: str = Field(repr=False)
@@ -249,23 +249,23 @@ class AdminResetPasswordResponse(_AAPModel):
     target_email: str
 
 
-class DeleteUserRequest(_AAPModel):
+class DeleteUserRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     transfer_to_user_id: UUID | None = None
 
 
-class OffboardingBlocker(_AAPModel):
+class OffboardingBlocker(_SDKModel):
     code: str
     message: str
 
 
-class OffboardingBatchRef(_AAPModel):
+class OffboardingBatchRef(_SDKModel):
     batch_id: UUID
     batch_name: str
 
 
-class UserReceiverOption(_AAPModel):
+class UserReceiverOption(_SDKModel):
     id: UUID
     name: str
     email: str
@@ -273,13 +273,13 @@ class UserReceiverOption(_AAPModel):
     project_member_role: str | None = None
 
 
-class OffboardingRolePreview(_AAPModel):
+class OffboardingRolePreview(_SDKModel):
     present: bool = False
     batches: list[OffboardingBatchRef] = Field(default_factory=list)
     receiver_options: list[UserReceiverOption] = Field(default_factory=list)
 
 
-class OffboardingProjectPreview(_AAPModel):
+class OffboardingProjectPreview(_SDKModel):
     project_id: UUID
     project_name: str
     roles: dict[str, OffboardingRolePreview]
@@ -288,7 +288,7 @@ class OffboardingProjectPreview(_AAPModel):
     blockers: list[OffboardingBlocker] = Field(default_factory=list)
 
 
-class OffboardingApiKeyPreview(_AAPModel):
+class OffboardingApiKeyPreview(_SDKModel):
     id: UUID
     name: str
     key_prefix: str
@@ -296,7 +296,7 @@ class OffboardingApiKeyPreview(_AAPModel):
     revoked_at: datetime | None = None
 
 
-class OffboardingPreview(_AAPModel):
+class OffboardingPreview(_SDKModel):
     user: UserRecord
     preview_version: str
     generated_at: datetime
@@ -306,7 +306,7 @@ class OffboardingPreview(_AAPModel):
     can_commit: bool = False
 
 
-class OffboardingProjectRequest(_AAPModel):
+class OffboardingProjectRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: UUID
@@ -315,7 +315,7 @@ class OffboardingProjectRequest(_AAPModel):
     reviewer_receiver_id: UUID | None = None
 
 
-class OffboardingCommitRequest(_AAPModel):
+class OffboardingCommitRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     preview_version: str
@@ -324,7 +324,7 @@ class OffboardingCommitRequest(_AAPModel):
     projects: list[OffboardingProjectRequest] = Field(default_factory=list)
 
 
-class OffboardingTransferResult(_AAPModel):
+class OffboardingTransferResult(_SDKModel):
     project_id: UUID
     role: str
     receiver_id: UUID | None = None
@@ -333,7 +333,7 @@ class OffboardingTransferResult(_AAPModel):
     lock_count: int = 0
 
 
-class OffboardingUnresolvedResult(_AAPModel):
+class OffboardingUnresolvedResult(_SDKModel):
     project_id: UUID | None = None
     role: str | None = None
     reason: str
@@ -342,7 +342,7 @@ class OffboardingUnresolvedResult(_AAPModel):
     lock_count: int = 0
 
 
-class OffboardingResult(_AAPModel):
+class OffboardingResult(_SDKModel):
     user: UserRecord
     status: str
     mode: Literal["handoff", "emergency_suspend"]
@@ -352,7 +352,7 @@ class OffboardingResult(_AAPModel):
     audit_id: int | None = None
 
 
-class ReactivateRequest(_AAPModel):
+class ReactivateRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str | None = Field(default=None, max_length=500)

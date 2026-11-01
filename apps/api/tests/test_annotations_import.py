@@ -30,7 +30,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
-from app.services.annotations_import import import_aap_json_annotations
+from app.services.annotations_import import import_native_json_annotations
 from app.services.task_dataset_link import link_items
 from tests.test_track_operations import _seed_scene
 from tests.factory import create_membership, build_tool_bindings
@@ -170,7 +170,7 @@ async def test_aap_scene_track_intervals_and_temporal_roles_round_trip(
             for frame in (0, 4)
         ],
     }
-    result = await import_aap_json_annotations(
+    result = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
@@ -287,7 +287,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
         missing_role_envelope["tasks"][0]["annotations"][0]
     ]
     missing_role_envelope["tasks"][0]["annotations"][0]["sensor_role"] = "camera_rear"
-    missing_role = await import_aap_json_annotations(
+    missing_role = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(missing_role_envelope).encode(),
@@ -302,7 +302,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
     missing_primary_envelope["tasks"][0]["annotations"] = [
         missing_primary_envelope["tasks"][0]["annotations"][0]
     ]
-    missing_primary = await import_aap_json_annotations(
+    missing_primary = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(missing_primary_envelope).encode(),
@@ -313,7 +313,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
     assert missing_primary.skipped == 1
     assert "has no primary 3D annotation" in missing_primary.errors[0].reason
 
-    dry_run_result = await import_aap_json_annotations(
+    dry_run_result = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
@@ -329,7 +329,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
         == 0
     )
 
-    result = await import_aap_json_annotations(
+    result = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
@@ -356,7 +356,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
     assert member.calibration_revision == 3
     assert member.calibration_digest == digest
 
-    duplicate = await import_aap_json_annotations(
+    duplicate = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
@@ -368,7 +368,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
     assert duplicate.skipped == 1
     assert any("already exists" in error.reason for error in duplicate.errors)
 
-    overwrite_missing_primary = await import_aap_json_annotations(
+    overwrite_missing_primary = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(missing_primary_envelope).encode(),
@@ -380,7 +380,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
     assert overwrite_missing_primary.skipped == 1
     assert "has no primary 3D annotation" in overwrite_missing_primary.errors[0].reason
 
-    overwrite_dry_run = await import_aap_json_annotations(
+    overwrite_dry_run = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
@@ -391,7 +391,7 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
     assert overwrite_dry_run.imported == 2
     assert overwrite_dry_run.errors == []
 
-    overwritten = await import_aap_json_annotations(
+    overwritten = await import_native_json_annotations(
         db_session,
         project.id,
         json.dumps(envelope).encode(),
@@ -823,11 +823,11 @@ async def test_import_annotations_batch_transitions_suppressed(
 
 
 async def test_aap_mask_objects_must_match_content_addressed_reference():
-    from app.services.annotations_import import (
-        _GEOMETRY_ADAPTER,
-        _validate_aap_mask_objects,
+    from app.services.annotations_import import _GEOMETRY_ADAPTER
+    from app.services.raster_mask_storage import (
+        build_rle_reference,
+        resolve_mask_reference_objects,
     )
-    from app.services.raster_mask_storage import build_rle_reference
 
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
     reference = build_rle_reference(rle)
@@ -839,20 +839,20 @@ async def test_aap_mask_objects_must_match_content_addressed_reference():
     geometry = _GEOMETRY_ADAPTER.validate_python(geometry).model_dump(
         mode="json", by_alias=True, exclude_unset=True
     )
-    assert _validate_aap_mask_objects(geometry, {reference["sha256"]: rle}) == [
+    assert resolve_mask_reference_objects(geometry, {reference["sha256"]: rle}) == [
         (geometry["keyframes"][0]["mask"], rle)
     ]
     with pytest.raises(ValueError, match="missing"):
-        _validate_aap_mask_objects(geometry, {})
+        resolve_mask_reference_objects(geometry, {})
     mismatched = {**reference, "runs": reference["runs"] + 1}
     geometry["keyframes"][0]["mask"] = mismatched
     with pytest.raises(ValueError, match="metadata mismatch"):
-        _validate_aap_mask_objects(geometry, {reference["sha256"]: rle})
+        resolve_mask_reference_objects(geometry, {reference["sha256"]: rle})
 
     raster_geometry = _GEOMETRY_ADAPTER.validate_python(
         {"type": "raster_mask", "mask": reference}
     ).model_dump(mode="json", by_alias=True, exclude_unset=True)
-    assert _validate_aap_mask_objects(
+    assert resolve_mask_reference_objects(
         [raster_geometry, raster_geometry], {reference["sha256"]: rle}
     ) == [(raster_geometry["mask"], rle)]
 

@@ -1,6 +1,6 @@
 # 面向后端模组解耦与能力插件化的测试治理计划草案
 
-> 状态：草案，待审阅；本轮只交付计划，不授权删除测试、修改生产实现、调整 CI 门禁、拆仓、发布或切换运行环境。
+> 状态：首批实施与验收中；本轮范围为 G0＋G1、G6a／G6b 稳定性样板、G2 有界清理样板及 N1 所需的 G3 冻结图像导出合同切片。实现与实际证据见文末 Outcome；不表示全计划完成，不授权拆仓、发布或生产采用。
 >
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
@@ -99,14 +99,14 @@ LibreYOLO 首切片的最新 Outcome 已记录真实训练、GPU 试用、人工
 
 ### 3.3 跨仓后的唯一归属
 
-| 内容                                                                                                   | 源码／规则归属              | 测试归属与消费者                                                               |
-| ------------------------------------------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------ |
-| Identity、Workspace、Assets、Labeling、Learning、Jobs、Audit、Notifications、Insights 与核心 Inference | 平台仓                      | owner 行为、真实消费者、权限与事务留平台；不随模型服务迁出                     |
-| wire schema、任务身份、训练产物、manifest、生命周期证明 schema 与权威纯校验                            | 平台维护的便携契约包        | 发布受审正反例和兼容向量；平台与插件消费同一版本，不各写一套规范               |
-| 模型池、检测 SDK、算法侧运行时、证据采集、Mask 工具、原生 loader                                       | 按拆仓计划迁至 YOAO-Plugins | 单元／原生／打包测试随实现迁移；平台不依赖某个插件来决定资格                   |
-| 六个算法插件与特定模型资产流程                                                                         | YOAO-Plugins 各插件         | 原生输出、完整能力目录、模型／设备／session 与制品测试；权重独立管理许可与摘要 |
-| 管理员 SDK／CLI／TUI                                                                                   | 平台 `packages/python-sdk`  | 公共 API、确认／退出码、安装操作和发行物测试；不引入 Torch 为运行依赖          |
-| 宿主安装、批准、项目启用、模型发布、最终写入和退役                                                     | 平台 owner／应用组合        | 使用实际插件制品的双端业务验收；插件不得自行批准自己的报告                     |
+| 内容                                                                                                   | 源码／规则归属             | 测试归属与消费者                                                               |
+| ------------------------------------------------------------------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------ |
+| Identity、Workspace、Assets、Labeling、Learning、Jobs、Audit、Notifications、Insights 与核心 Inference | 平台仓                     | owner 行为、真实消费者、权限与事务留平台；不随模型服务迁出                     |
+| wire schema、任务身份、训练产物、manifest、生命周期证明 schema 与权威纯校验                            | 平台维护的便携契约包       | 发布受审正反例和兼容向量；平台与插件消费同一版本，不各写一套规范               |
+| 模型池、检测 SDK、算法侧运行时、证据采集、Mask 工具、原生 loader                                       | 独立 Plugin-SDK 仓库       | 单元／原生／打包测试随实现迁移；平台不依赖某个插件来决定资格                   |
+| 六个算法插件与特定模型资产流程                                                                         | YOAO-Plugins 各插件        | 原生输出、完整能力目录、模型／设备／session 与制品测试；权重独立管理许可与摘要 |
+| 管理员 SDK／CLI／TUI                                                                                   | 平台 `packages/python-sdk` | 公共 API、确认／退出码、安装操作和发行物测试；不引入 Torch 为运行依赖          |
+| 宿主安装、批准、项目启用、模型发布、最终写入和退役                                                     | 平台 owner／应用组合       | 使用实际插件制品的双端业务验收；插件不得自行批准自己的报告                     |
 
 当前 `aap_backend_runtime.lifecycle_evidence` 同时被算法侧和宿主消费。迁移前先沿既有公共契约承接纯 schema／校验规则，再迁算法侧采集与运行代码；不让平台通过安装整个模型运行时获得权威校验器，也不复制第二份规则。
 
@@ -515,4 +515,93 @@ CPU 套件可以并行；真实数据库／对象存储先证明资源隔离；�
 
 G3 随核心 owner 切片接入；G5 跟随原拆仓计划逐插件授权与验收。这里的分批只是执行顺序，不删除本草案中的全范围目标。原解耦计划退役、通用插件宿主、前端 SDK、生产采用、仓库公开和发布仍需各自明确决策，不随本草案默认批准。
 
-本轮交付仅为这份详细草案。实施后的长期规则进入现有测试指南与对应开发／运维文档，阶段证据追加本计划 Outcome；不把计划正文变成第二份产品状态台账。
+实施后的长期规则进入现有测试指南与对应开发／运维文档，阶段证据追加本计划 Outcome；不把计划正文变成第二份产品状态台账。
+
+## 12. Outcome：按里程碑集成
+
+实施基线为 main 合并提交 `dc5ac3d46`。后续按用户要求，以具名里程碑分别提交实现、文档和验收记录；已存在的实施提交不改写。本节记录测试治理，不替代模块／插件的运行资格与环境采用台账。
+
+### 12.1 G0：测试清单与执行归属
+
+**状态：清单与入口门通过；实际套件执行并非全绿。**
+
+- `scripts/test-suites.json` 是 ML CPU、20 个独立 owner 套件及其他测试根的单一归属源。CI 从该清单生成 owner 矩阵，不再维护另一份项目／依赖参数列表。
+- `scripts/test-suite-inventory.mjs` 实际发现 40 个独立 Python 测试根，未登记项为 0；新增未登记根会使审计失败。实验、硬件、真实权重和特殊拓扑均保留独立入口与资源边界。
+- owner 项目使用各自环境、Node 22 及明确的原生工具配置。媒体 Node peer 直接调用 Node，不依赖开发机的 `rtk` 包装；Protocol 测试显式声明 asyncio 插件。
+- 清单回归 2 项通过；严格 workflow 命名检查通过。20 个 owner 根均已实际 collection，无 collection error；随后在独立 Python 3.11 环境实际执行，13 个根退出成功、7 个根退出失败，共记录 29 个失败报告、4 个因本机缺少 libvips 的跳过。collection 成功不计作执行成功。
+
+| 未通过的 owner 根                 | 失败报告数 |
+| --------------------------------- | ---------: |
+| `apps/_shared/workspace_contract` |          2 |
+| `apps/_shared/inference_contract` |         12 |
+| `apps/jobs`                       |          2 |
+| `apps/audit`                      |          5 |
+| `apps/notifications`              |          3 |
+| `apps/assets-catalog`             |          1 |
+| `apps/assets-media`               |          4 |
+
+逐项命令、退出状态、case 和原始 JUnit 保存在本地 `.artifacts/test-results/owner-execution/summary.json` 及同目录报告。现有合同、错误与冻结向量未为接线改写；上述失败保持真实失败门，交由对应 owner／G3 切片处理。未执行的真实硬件／发行物资格不在本里程碑结论中。
+
+### 12.2 G1：结果完整性与执行门
+
+**状态：本轮结果门与语义回归样板通过；全仓治理退出门仍未通过。**
+
+- ML CPU、owner、SDK 和仓库 Python 脚本分别保留真实 JUnit；缺失必需报告不能当作成功。SDK 测试的本地共享契约由项目 `tool.uv.sources` 解析，不依赖临时 `--with` 安装未发布制品。
+- 严格浏览器结果门核对实际 case 与通过统计。真实 CLI 已复现“统计为 1 个通过、case 为空”返回 0／success，修复后同一输入返回 1／failure；Markdown 和 JSON 同为失败。新增独立回归保护此边界，删除文案、计时转发与 mock I/O 回声断言，改用实际状态分类与失败尝试优先级。
+- 报告／选择回归 18 项通过，模块选择回归 5 项及 20 个 subtest 通过。真实 Native、readonly 和源码 Worker 报告分别通过严格消费者，未把 skip／not-run 改记成功。
+- 模块 verifier 已在任务自有 PostgreSQL 与 Node peer 下实际执行选定的两个分页 case，collection nodeid、JUnit 和通过数一致；已创建资源清理完成，报告无清理错误。证据为 `.artifacts/test-results/module-selected-cases-ready.json`，不等同整个模组部署或替代语言资格。
+- 独立语义样板保留多 round 分页、canonical／legacy 别名和生命周期必需义务。内存变体将 keypoints 错配为 detect 时出现 1 个失败；反转 round 过滤时出现 2 个失败，未改写生产文件或使用同源 expected。
+- 实际 ML runner 的 `inference-plugin-sdk` 冷环境执行为 33 通过／1 跳过，并生成独立 JUnit。跳过的是未安装 `aap_libreyolo_plugin` 时的真实 provider hook 用例，不是通过；SDK 最小环境不因这个用例引入算法框架，provider 资格另验。报告见 `.artifacts/test-results/ml-runner-artifact-smoke.json`。
+
+严格门的修复前后证据为 `.artifacts/test-results/empty-execution-regression-evidence.json`。新增接线实际揭示的问题继续保留：owner 根见 G0；共享 runtime 集中回归为 146 通过／1 失败，仓库 Python scripts 为 798 通过／24 失败，相关原始报告保存在 `.artifacts/test-results/`。这些结果不通过删测、修改合同或放宽权限处理；未验证的 GPU、真实权重与发行物不因治理接线获得资格。
+
+### 12.3 G2：owner 夹具隔离样板
+
+**状态：当前 Mask／Playwright owner 样板通过；不是全仓夹具迁移完成。**
+
+- 17 个前置准备／清理调用改由 worker 自有 Python 进程调用现有 seed router。普通产品创建／修改仍通过受限 HTTP API，不给 runtime 恢复私表权限。进程复用导入，每次响应前释放连接池，worker 与全局 teardown 显式结束进程；没有失败后改走 owner 写业务结果的 fallback。
+- 通道拒绝开发模式、非 PostgreSQL、非显式测试库、owner／runtime 目标不一致和 seed 路由外请求；截图配置从明确的 `SCREENSHOT_DATABASE_URL` 绑定夹具目标。实际子进程负例 6 项通过，错误不回显 DSN 或凭据。
+- 在任务自有 `aap_wt_2c9849816c479c7f_test` 实际运行 3 个清理回归：只移除本 engine 新分配的 owner；上传失败后仍能清理已提交分配；遇到其他 engine 的 publication 时拒绝删除并保留邻居 guard。连同通道负例共 9 项通过，JUnit 为 `.artifacts/test-results/g2-owner-isolation.xml`。
+- 真实 owner 通道准备／清理已执行；构建产物 Native 21 项及 readonly 2 项均经此夹具准备后，通过普通 API 完成业务与清理。浏览器证据归 G6a，不把夹具 ASGI 调用记作独立 HTTP 服务部署资格。
+
+本批保留 `seed.reset()` 的已记录全局串行例外；未迁移 workspace／Identity 的全部夹具，未改变原有数据库角色、存储归属或部署身份。
+
+### 12.4 G6a：构建产物 E2E 与源码 Worker 分层样板
+
+**状态：本轮 Mask 产品／Worker 切片通过；不是全部 E2E、真实 GPU 或插件资格完成。**
+
+- Native 入口先构建 Web，以独立 `playwright.mask-product.config.ts` 启动 `vite preview`；源码 Worker 转入单独配置及静态页面，只启动 Vite，不依赖 API、认证或数据库。配置不再合并重复的 webServer，也不把源码集成计入产品黑盒通过数。
+- Native／readonly 标签在 collection 时选择，不用条件 skip 掩盖未执行；持久化、RLE 像素、lineage 和刷新恢复断言保留。写入等待先匹配端点／方法，再核对状态与结果，错误响应不再伪装成超时。AI 精修用真实橡皮擦控制进入模式，专门的快捷键场景保留。
+- 实际失败暴露的窄生产前置问题已修复：创建／更新统一使用 JSON 模式几何序列化；提交后用 command 的不可变 annotation ID 读回，避免过期对象的异步属性加载；内容读取和预测接受前置检查使用现有公开只读关系，不扩大私表权限或放宽资格检查。
+- 任务自有普通 runtime、构建产物和 Chromium 实际执行：Native **21 通过**、readonly **2 通过**；真实源码 Worker **1 通过**。三份报告均无失败、skip、flaky 或 not-run，并由严格报告消费者核对。Worker 的一项 case 内验证真实完成／取消及受控错误；侵蚀面积使用独立矩形几何期望，不依赖仅非空、上下文转发或 mock 错误文案回声。
+
+原始证据分别为 `.artifacts/test-results/mask-product-native-final.json`、`mask-product-readonly-final.json`、`mask-worker-browser-integration.json`。失败前报告及 `annotation-write-diagnostic.json` 保留，未重生 golden 或改写几何 expected。上述结果不授予真实设备 GPU、模型权重、六个插件或完整模组部署资格；后续 G6b／G3–G5 沿各自切片推进。
+
+### 12.5 G3：冻结图像导出的公开 owner 合同
+
+**状态：N1 必需的同事务图像导出切片通过；不是完整核心模块或替代语言资格。**
+
+- Workspace 项目与 Labeling 核心行改用现有公开关系；新增四项有界精确锁覆盖预测、轨迹、区间及链接集合。保留 UPDATE／SHARE NOWAIT、全局 ID 顺序、父级插入围栏及 `max_rows + 1`，不按当前无轨迹夹具特判。完整行在数据库测量后才加载，最终预算和加载共享同一语句快照。
+- Jobs 增加十五列原生 ABI 的 `read_job_for_update_nowait`，冻结 worker 的领取／发布检查及相关 Job 读取不再访问私表。原等待锁仍保留等待语义；新锁不建立 RPC、独立 commit、重试或私表授权。owner、生产／worktree grants、迁移与当前包资源同步；历史 SQL／Schema 不改写。
+- 删除重复核对 Schema／SQL 文字和函数个数的纯用例。Jobs 的 autoflush 改为从公开能力观察实际已写／未写记录；新增实际冻结 worker 在普通受限角色下的 NOWAIT、范围及 savepoint 回滚回归，保留原行 ABI、缺失行、等待锁和只读事务证据。
+- 隔离 PostgreSQL 的 Labeling 选定 **2 项通过**，Jobs **9 项通过**，均无失败、错误或跳过；两个 verifier 自有数据库、容器和对象资源均已清理，零清理错误。原始记录为 `.artifacts/test-results/g3-core-locks.json`、`g3-core-locks.junit.xml`、`g3-jobs-nowait.json` 和 `g3-jobs-nowait.junit.xml`。
+- 本任务 e2e 库应用至 `bo0402`，普通 API 和实际 export worker 刷新后，以 `aap_json` 受理任务，后台完成并由浏览器下载 ZIP；包内未修改的 `annotations.json` 以原选择器预览、导入均返回 200，写入 2 条、错误 0。API 读回确认 0.73 多边形几何一致，原模型预测身份保留；输出仍为 `format: "aap"`、原生 schema `1.7`。证据为 `.artifacts/test-results/branding/native-roundtrip-proof.json`。
+
+失败前证据保留：旧 collector 的私表 500、首次普通 runtime 缺少新函数 EXECUTE 的 500，以及 worker 私表读取造成的领取前失败。后者的精确任务已通过普通取消 API 结束，不计通过。主服务恢复的 503 是隔离环境缺少 probe owner 配置；配置现有函数专用 owner 后，实际设置返回 200，刷新及 API 读回均保留绑定，未使用 owner 写业务结果兜底。
+
+权限核对同时记录了 worktree 原有 Jobs 兼容读权限；没有用它证明本切片。随后仅在自有验收库临时撤销 `async_jobs` 表和列的全部 CRUD，在 Workspace／Labeling 六项私表及 Jobs 均无直接 SELECT 的普通账号下，再次完成**非缓存**导出、精确任务下载及未修改 JSON 的预览／导入，写入 3 条、错误 0，原多边形与模型预测仍由普通 API 读回。严格证据为 `.artifacts/test-results/branding/native-strict-roundtrip-proof.json`；生产权限配置未扩展。
+
+Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资源均在归档内，摘要及成员记录于 `.artifacts/test-results/g3-package-resources.json`。这只是构建与归档资源核验，不替代完整独立安装／运行资格。
+
+既有点云内容身份／视频 FPS 失败报告未由本切片关闭；本轮不宣称它们通过，也不继承旧冷镜像、完整恢复、Node 替代提供方、真实模型或 GPU 资格。Assets 原有范围未提前撤权，模型端点仍是本任务的假夹具，不是推理资格证明。
+
+### 12.6 后端优化分支整合与下一切片
+
+源分支 `feat/plugin-opt@848e3cb22` 的成果整合到 `feat/backend-opt@ba225032b` 后，执行归属以已拆仓结构为准：
+
+- 平台 ML CPU runner 只保留协议／任务契约和受控权重入库工具；Plugin-SDK 与六个官方模型插件由独立仓库执行，不恢复已删除源码。
+- 生命周期资格的九项固定义务、缺失／false 拒绝及缺失／空池拒绝落入平台 `lifecycle_contract`；不再从被测实现的常量生成期望。
+- 清单发现只纳入有 Python 测试源码的测试根；旧目录中的字节码和忽略的外部插件 checkout 不再误报为活跃平台套件。合并环境实际发现 32 个平台测试根，未登记项为零；清单与选择器回归 22 项通过，ML CPU 选择器 selftest 通过，生命周期契约 35 项通过。
+- G3 导出锁迁移顺延为 `bo0414 → bo0415`，单一 head 已检查；四个相关 Python 项目的依赖锁均通过一致性检查。此处不等于新数据库迁移或集成运行通过。
+
+下一项完整验收内容为 **G2 的 Identity／Workspace 原生场景 helper 隔离**：保留各角色、真实受限连接、事务及拒绝结果，把测试函数互调和隐式 autouse 依赖迁到邻近 support 模块；主进程集中执行集成验收。N3 公开发行名、已知 LiDAR／视频问题、全仓 fixture 整理和物理 GPU 资格不在这一切片内。上文源分支的历史失败和限制不因合并而关闭。

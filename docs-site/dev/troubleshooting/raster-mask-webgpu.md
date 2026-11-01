@@ -73,9 +73,9 @@ gpuAllocatedBytes=0
 生产 runner 必须连接带对应 gate 的 Vite 页面：
 
 ```bash
-pnpm --filter @anno/web mask:webgpu-operation-bench
-pnpm --filter @anno/web mask:packed-cpu-bench
-pnpm --filter @anno/web mask:webgpu-separable-bench
+pnpm --filter web mask:webgpu-operation-bench
+pnpm --filter web mask:packed-cpu-bench
+pnpm --filter web mask:webgpu-separable-bench
 ```
 
 第三条只加载 benchmark-only 的横/纵可分离候选，用于复核已记录的 production no-go；它不会改变

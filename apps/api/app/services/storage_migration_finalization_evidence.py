@@ -322,7 +322,7 @@ def _build(values, window_id, window_revision):
             },
             "finalization_source_incomplete",
         )
-    with tempfile.TemporaryDirectory(prefix="aap-migration-final-") as directory:
+    with tempfile.TemporaryDirectory(prefix="migration-final-") as directory:
         root = Path(directory)
         for name, file in (
             ("source_report", "source.jsonl"),

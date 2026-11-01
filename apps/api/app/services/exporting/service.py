@@ -44,17 +44,17 @@ from aap_assets_catalog.axis_convention import (
     AxisFrame,
     transform_box_geometry_axis_frame,
 )
-from app.schemas.aap_json import (
-    AAP_SCHEMA_VERSION,
-    AAPAnnotationEntry,
-    AAPExportedFrom,
-    AAPJsonV1Envelope,
-    AAPPredictionEntry,
-    AAPProjectMeta,
-    AAPSceneTrackEntry,
-    AAPSceneTrackInterval,
-    AAPTaskBlock,
-    AAPTaskMatch,
+from app.schemas.native_json import (
+    SCHEMA_VERSION,
+    AnnotationEntry,
+    ExportedFrom,
+    NativeJsonEnvelope,
+    PredictionEntry,
+    ProjectMeta,
+    SceneTrackEntry,
+    SceneTrackIntervalEntry,
+    TaskBlock,
+    TaskMatch,
 )
 from app.services.exporting.video import (
     VIDEO_LOSSLESS_SINGLE_FRAME_GEOMETRY_TYPES,
@@ -1203,7 +1203,7 @@ class ExportService:
         exported_scene_track_ids = {
             ann.scene_track_id for ann in annotations if ann.scene_track_id is not None
         }
-        scene_track_entries: list[AAPSceneTrackEntry] = []
+        scene_track_entries: list[SceneTrackEntry] = []
         if exported_scene_track_ids:
             scene_reference = spatial_scene_references.alias("export_scene")
             scene_track_rows = (
@@ -1240,7 +1240,7 @@ class ExportService:
                     interval
                 )
             scene_track_entries = [
-                AAPSceneTrackEntry(
+                SceneTrackEntry(
                     track_id=track.track_id,
                     scene_name=scene_name,
                     class_name=track.class_name,
@@ -1248,7 +1248,7 @@ class ExportService:
                     attributes=track.attributes or {},
                     attributes_meta=track.attributes_meta or {},
                     intervals=[
-                        AAPSceneTrackInterval(
+                        SceneTrackIntervalEntry(
                             start_frame=interval.start_frame,
                             end_frame=interval.end_frame,
                             source=interval.source,
@@ -1315,10 +1315,10 @@ class ExportService:
             batch = await get_core_row(self.db, batch_row, batch_id)
             batch_display_id = batch.display_id if batch else None
 
-        task_blocks: list[AAPTaskBlock] = []
+        task_blocks: list[TaskBlock] = []
         mask_objects: dict[str, dict] = _PortableMaskObjects()
         for t in tasks:
-            ann_entries: list[AAPAnnotationEntry] = []
+            ann_entries: list[AnnotationEntry] = []
             await self._checkpoint()
             for ann in ann_by_task.get(t.id, []):
                 await self._checkpoint()
@@ -1329,7 +1329,7 @@ class ExportService:
                 )
                 await _collect_portable_mask_objects(geometry, mask_objects)
                 ann_entries.append(
-                    AAPAnnotationEntry(
+                    AnnotationEntry(
                         geometry=geometry,
                         class_name=ann.class_name,
                         # v0.10.17 · 工具维度绑定 (1.1+).
@@ -1349,7 +1349,7 @@ class ExportService:
                     )
                 )
 
-            pred_entries: list[AAPPredictionEntry] = []
+            pred_entries: list[PredictionEntry] = []
             for pred in pred_by_task.get(t.id, []):
                 # prediction.result 存 LS shape 数组; 每个 shape 对应一个目标物.
                 # 走 to_internal_shape() 反推内部 geometry + class_name.
@@ -1371,7 +1371,7 @@ class ExportService:
                             continue
                     await _collect_portable_mask_objects(geometry, mask_objects)
                     pred_entries.append(
-                        AAPPredictionEntry(
+                        PredictionEntry(
                             geometry=geometry,
                             class_name=internal.get("class_name") or None,
                             tool_unit_id=pred_unit,
@@ -1431,10 +1431,10 @@ class ExportService:
             available = tasks_for_tools(tool_ids)
             unmapped = tool_ids - TOOL_TASKS.keys()
             task_blocks.append(
-                AAPTaskBlock(
+                TaskBlock(
                     task=available[0] if len(available) == 1 and not unmapped else None,
                     available_tasks=available,
-                    task_match=AAPTaskMatch(
+                    task_match=TaskMatch(
                         display_id=t.display_id,
                         file_path=self.media_paths.get(t.id, t.file_path),
                     ),
@@ -1447,21 +1447,21 @@ class ExportService:
                 )
             )
 
-        envelope = AAPJsonV1Envelope(
-            schema_version=AAP_SCHEMA_VERSION,
+        envelope = NativeJsonEnvelope(
+            schema_version=SCHEMA_VERSION,
             format="aap",
             task=target_contract(project, "aap_json")["task"],
             available_tasks=project_tasks(project),
             media_type=project.data_type or "image",
             source=source_contract(project),
             exported_at=datetime.utcnow(),
-            exported_from=AAPExportedFrom(
+            exported_from=ExportedFrom(
                 platform="aap",
                 platform_version=None,
                 project_display_id=project.display_id,
                 batch_display_id=batch_display_id,
             ),
-            project=AAPProjectMeta(
+            project=ProjectMeta(
                 name=project.name,
                 type_key=project.type_key,
                 classes_config=derive_classes_config(project.tool_bindings),

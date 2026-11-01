@@ -92,7 +92,7 @@ last_reviewed: 2026-07-12
 }
 ```
 
-视频单帧关键点使用 `video_keypoint`，AAP JSON 与 Video JSON 会保留 `frame_index` 和完整 `{x,y,v}` 数组。逐帧检测、分割和跟踪格式没有对应表示，导出预检会明确报告不支持。
+视频单帧关键点使用 `video_keypoint`，原生 JSON 与 Video JSON 会保留 `frame_index` 和完整 `{x,y,v}` 数组。逐帧检测、分割和跟踪格式没有对应表示，导出预检会明确报告不支持。
 
 ## 模板示例
 

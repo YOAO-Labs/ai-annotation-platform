@@ -37,7 +37,7 @@ err_console = Console(stderr=True)
 # 进度条/spinner 是瞬态 UI 而非命令输出, 走 stderr, 避免污染管道中的 stdout
 progress_console = Console(stderr=True)
 ModelT = TypeVar("ModelT", bound=BaseModel)
-_ERROR_FORMAT: ContextVar[str] = ContextVar("aap_cli_error_format", default="text")
+_ERROR_FORMAT: ContextVar[str] = ContextVar("cli_error_format", default="text")
 
 
 @contextmanager

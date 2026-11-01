@@ -156,7 +156,7 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 
 选项只放辨识条目所需的名称、状态及来源；用途、操作指导等说明放在控件下方，以弱化文字展示，必要时通过 `aria-describedby` 关联。空列表按业务状态禁用控件。Radix Select 使用 `SelectValue` 的 `placeholder`，提示不应创建为 `SelectItem`，Trigger 已内置占位文字样式。
 
-浏览器回归使用 `pnpm --filter @anno/web test:e2e:layout --grep 'native prompts|real empty filter|Radix placeholders'`，覆盖明暗主题、窄屏、键盘选择、普通空值筛选和类别绑定清除，夹具不依赖 API 或数据库。
+浏览器回归使用 `pnpm --filter web test:e2e:layout --grep 'native prompts|real empty filter|Radix placeholders'`，覆盖明暗主题、窄屏、键盘选择、普通空值筛选和类别绑定清除，夹具不依赖 API 或数据库。
 
 ## 图标语义规范（Icon Semantics）
 
@@ -178,7 +178,7 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 
 文档站独立在 `docs-theme.css` 中覆盖根节点、侧栏、移动导航、菜单、目录下拉和搜索结果；保留横向表格、代码块及隐藏滚动条目录的行为。隔离在 iframe 内的 API Reference 由 `public/api-reference.html` 为其根节点及 Scalar 原生滚动容器单独设置 gutter。
 
-运行 `pnpm --filter @anno/web test:e2e:layout` 可在无 API、无数据库的浏览器夹具中验证长短内容切换、弹窗滚动锁、工作台画布及自绘／横向滚动。该测试使用真实共享样式和本地组件，覆盖桌面明暗主题与窄屏，并显式保留原生滚动条。
+运行 `pnpm --filter web test:e2e:layout` 可在无 API、无数据库的浏览器夹具中验证长短内容切换、弹窗滚动锁、工作台画布及自绘／横向滚动。该测试使用真实共享样式和本地组件，覆盖桌面明暗主题与窄屏，并显式保留原生滚动条。
 
 <span id="validation" aria-hidden="true"></span>
 
@@ -187,8 +187,8 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 修改前端样式后，必须运行 Web 令牌门禁与 Lint 检查：
 
 ```bash
-pnpm --filter @anno/web lint:css-tokens
-pnpm --filter @anno/web lint
+pnpm --filter web lint:css-tokens
+pnpm --filter web lint
 ```
 
 `lint:css-tokens` 会扫描 Tailwind 类名中的裸色值与暗色配对写法，对未使用语义工具类的状态色、任意像素字号或裸数字 `z-index` 发出告警，并在 CSS 读取遗留 `--color-*` 变量时直接报错拦截。

@@ -13,8 +13,8 @@
  *   https://www.dicebear.com/licenses/
  *
  * 用法:
- *   pnpm --filter @anno/web gen:avatars          # 重新生成
- *   pnpm --filter @anno/web gen:avatars --check  # 只校验产物是否与脚本一致
+ *   pnpm --filter web gen:avatars          # 重新生成
+ *   pnpm --filter web gen:avatars --check  # 只校验产物是否与脚本一致
  */
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -108,7 +108,7 @@ function buildManifest(items) {
         creator: "DiceBear",
         license: "CC0 1.0",
         licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
-        command: "pnpm --filter @anno/web gen:avatars",
+        command: "pnpm --filter web gen:avatars",
         idPolicy: "pixel-NN 为永久 id,已入库的 users.avatar_ref 指向它;只能追加,不得重排或复用。",
         items,
       },
@@ -175,7 +175,7 @@ async function main() {
     if (problems.length > 0) {
       console.error(`头像产物与生成脚本不一致（${problems.length} 项）:`);
       for (const problem of problems) console.error(`  - ${problem}`);
-      console.error("请运行 pnpm --filter @anno/web gen:avatars 并提交产物。");
+      console.error("请运行 pnpm --filter web gen:avatars 并提交产物。");
       process.exitCode = 1;
       return;
     }

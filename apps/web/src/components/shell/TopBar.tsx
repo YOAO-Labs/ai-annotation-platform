@@ -102,7 +102,7 @@ export function TopBar({
               aria-hidden="true"
               className="size-[22px] shrink-0 rounded-md"
             />
-            <span>标注中心</span>
+            <span>YOAO</span>
             {/* 版本号与登录后「本次更新」窗口联动:点击随时查看当前版本更新内容。 */}
             <button
               type="button"

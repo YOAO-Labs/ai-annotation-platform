@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from pydantic import ConfigDict, Field
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 
 
-class SearchQuery(_AAPModel):
+class SearchQuery(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     q: str = Field(min_length=1, max_length=64)
     limit: int = Field(default=5, ge=1, le=20)
 
 
-class SearchProjectItem(_AAPModel):
+class SearchProjectItem(_SDKModel):
     id: str
     display_id: str
     name: str
@@ -23,7 +23,7 @@ class SearchProjectItem(_AAPModel):
     type_label: str
 
 
-class SearchTaskItem(_AAPModel):
+class SearchTaskItem(_SDKModel):
     id: str
     display_id: str
     file_name: str
@@ -31,20 +31,20 @@ class SearchTaskItem(_AAPModel):
     project_name: str
 
 
-class SearchDatasetItem(_AAPModel):
+class SearchDatasetItem(_SDKModel):
     id: str
     name: str
     data_type: str
 
 
-class SearchMemberItem(_AAPModel):
+class SearchMemberItem(_SDKModel):
     id: str
     name: str
     email: str
     role: str
 
 
-class SearchResponse(_AAPModel):
+class SearchResponse(_SDKModel):
     projects: list[SearchProjectItem]
     tasks: list[SearchTaskItem]
     datasets: list[SearchDatasetItem]

@@ -27,6 +27,7 @@ coverage/
 playwright-report/
 test-results/
 /apps/web/e2e-results.json
+/apps/web/e2e-browser-integration-results.json
 /apps/web/e2e-api.log
 .artifacts/
 .pytest_cache/

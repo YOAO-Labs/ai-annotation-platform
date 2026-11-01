@@ -95,7 +95,7 @@ docs(dev): 梳理工作台状态边界与在线学习协议参考文档
 
 - **Python**：全仓第一方 Python 代码统一使用 **Ruff**（根配置位于 `ruff.toml`；`vendor` 目录保留上游格式）。
 - **前端与文档**：TypeScript、JavaScript、CSS、Markdown、JSON、YAML 统一使用根级 **Prettier** 配置。
-- **前端静态检查**：使用 ESLint Flat Config（`apps/web/eslint.config.js`）与设计令牌门禁（`pnpm --filter @anno/web lint:css-tokens`）。
+- **前端静态检查**：使用 ESLint Flat Config（`apps/web/eslint.config.js`）与设计令牌门禁（`pnpm --filter web lint:css-tokens`）。
 - **一键命令**：`pnpm format` 自动修复全仓格式，`pnpm format:check` 以只读模式执行与 CI 相同的格式校验。
 
 ## 工程克制原则（不引入的冗余工具）

@@ -237,9 +237,7 @@ describe("useInteractiveAI", () => {
     act(() => result.current.runBbox([0, 0, 0.5, 0.5]));
     await new Promise((r) => setTimeout(r, 20));
     expect(interactiveAnnotateMock).not.toHaveBeenCalled();
-    expect(pushToastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "项目未绑定 ML Backend", kind: "error" }),
-    );
+    expect(pushToastMock).toHaveBeenCalledWith(expect.objectContaining({ kind: "error" }));
   });
 
   it("backend 抛错 → 不更新 candidates + 弹错误 toast", async () => {

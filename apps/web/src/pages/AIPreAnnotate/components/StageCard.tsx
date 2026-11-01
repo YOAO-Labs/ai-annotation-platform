@@ -414,7 +414,7 @@ export function StageCard({
           后端下拉就此上移, 故下方不再向其传 backends/onSelectBackend (避免重复渲染)。 */}
       {backends.length > 1 && (
         <label className={styles.field}>
-          <span className={styles.fieldLabel}>ML Backend</span>
+          <span className={styles.fieldLabel}>模型服务</span>
           <select
             value={backendId ?? ""}
             onChange={(e) => {
@@ -426,7 +426,7 @@ export function StageCard({
             {backends.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
-                {b.id === projectMlBackendId ? "（项目主后端）" : ""}
+                {b.id === projectMlBackendId ? "（主服务）" : ""}
               </option>
             ))}
           </select>

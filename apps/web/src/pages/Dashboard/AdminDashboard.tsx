@@ -615,7 +615,7 @@ function MLBackendsAndCostCard({
     <Card>
       <div className={`${CARD_HEADER_CLASS} flex flex-wrap items-center justify-between gap-3`}>
         <div className="flex items-center gap-2.5">
-          <h3 className={CARD_TITLE_CLASS}>ML 后端 · 预测成本</h3>
+          <h3 className={CARD_TITLE_CLASS}>模型服务· 预测成本</h3>
           <Badge variant={backendsConnected > 0 ? "success" : "outline"}>
             {backendsConnected} / {backendsTotal} 在线
           </Badge>
@@ -640,7 +640,7 @@ function MLBackendsAndCostCard({
       {backendsTotal === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-muted-foreground">
           <Icon name="bot" size={28} className="mb-2 opacity-25" />
-          <div>暂无已注册的 ML 后端</div>
+          <div>暂无已注册的模型服务</div>
           <div className="mt-1 text-xs">在项目设置中添加模型服务</div>
         </div>
       ) : (

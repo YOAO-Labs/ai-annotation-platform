@@ -7,10 +7,10 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field
 
-from ai_annotation.models import UserBrief, _AAPModel
+from ai_annotation.models import UserBrief, _SDKModel
 
 
-class OnboardingProjectSummary(_AAPModel):
+class OnboardingProjectSummary(_SDKModel):
     project_id: UUID
     assigned_task_count: int = 0
     opened_task_count: int = 0
@@ -22,7 +22,7 @@ class OnboardingProjectSummary(_AAPModel):
     reviewed_task_reason: str | None = None
 
 
-class RecentReviewItem(_AAPModel):
+class RecentReviewItem(_SDKModel):
     task_id: str
     task_display_id: str
     file_name: str
@@ -32,7 +32,7 @@ class RecentReviewItem(_AAPModel):
     reviewed_at: str | None = None
 
 
-class MyBatchItem(_AAPModel):
+class MyBatchItem(_SDKModel):
     batch_id: str
     batch_display_id: str
     batch_name: str
@@ -53,13 +53,13 @@ class MyBatchItem(_AAPModel):
     reviewer: UserBrief | None = None
 
 
-class ReviewerMiniStats(_AAPModel):
+class ReviewerMiniStats(_SDKModel):
     approved_today: int = 0
     rejected_today: int = 0
     avg_review_seconds: float | None = None
 
 
-class AdminPersonDetail(_AAPModel):
+class AdminPersonDetail(_SDKModel):
     user_id: str
     name: str
     email: str
@@ -82,7 +82,7 @@ class AdminPersonDetail(_AAPModel):
     first_pass_yield: float | None = None
 
 
-class BackendCostBreakdown(_AAPModel):
+class BackendCostBreakdown(_SDKModel):
     backend_id: UUID | None = None
     backend_name: str | None = None
     predictions: int = 0
@@ -91,7 +91,7 @@ class BackendCostBreakdown(_AAPModel):
     avg_inference_time_ms: float | None = None
 
 
-class PredictionCostStats(_AAPModel):
+class PredictionCostStats(_SDKModel):
     range: Literal["7d", "30d"]
     total_predictions: int = 0
     failed_predictions: int = 0
@@ -105,12 +105,12 @@ class PredictionCostStats(_AAPModel):
     by_backend: list[BackendCostBreakdown] = Field(default_factory=list)
 
 
-class AnnotationImportErrorEntry(_AAPModel):
+class AnnotationImportErrorEntry(_SDKModel):
     task_match: dict[str, Any] = Field(default_factory=dict)
     reason: str
 
 
-class AnnotationImportResult(_AAPModel):
+class AnnotationImportResult(_SDKModel):
     imported: int = 0
     skipped: int = 0
     errors: list[AnnotationImportErrorEntry] = Field(default_factory=list)
@@ -120,7 +120,7 @@ class AnnotationImportResult(_AAPModel):
 PredictionSourceScope = Literal["ml_backend", "external_import", "all"]
 
 
-class PredictionPurgeRequest(_AAPModel):
+class PredictionPurgeRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     source_scope: PredictionSourceScope = "external_import"
@@ -128,14 +128,14 @@ class PredictionPurgeRequest(_AAPModel):
     dry_run: bool = False
 
 
-class PredictionPurgeCounts(_AAPModel):
+class PredictionPurgeCounts(_SDKModel):
     ml_backend: int = 0
     external_import: int = 0
     unknown: int = 0
     total: int = 0
 
 
-class PredictionPurgeResponse(_AAPModel):
+class PredictionPurgeResponse(_SDKModel):
     source_scope: PredictionSourceScope
     task_ids: list[UUID] | None = None
     dry_run: bool

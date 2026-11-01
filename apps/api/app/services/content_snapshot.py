@@ -142,7 +142,7 @@ def _capture(factory, expected_sha256, stop, inspect_quality=False):
     temporary = None
     transferred = False
     try:
-        temporary = tempfile.TemporaryFile(mode="w+b", prefix="aap-content-")
+        temporary = tempfile.TemporaryFile(mode="w+b", prefix="content-")
         digest, size = hashlib.sha256(), 0
         deadline = time.monotonic() + COPY_SECONDS
 

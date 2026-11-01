@@ -1320,8 +1320,8 @@ function ModelsContent({
                     已有实例无需重复注册。
                   </li>
                   <li>
-                    项目负责人：进入「项目设置 → ML 模型」，点击「管理
-                    backend」，勾选启用该服务，再返回此页选择。
+                    项目负责人：进入「项目设置 → 模型服务」，点击「管理模型服务」，
+                    勾选启用该服务，再返回此页选择。
                   </li>
                 </ol>
                 <div className="mt-3 flex flex-wrap gap-3">

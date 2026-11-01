@@ -5,6 +5,7 @@ import type { AvatarBindingPreview, StorageBindingOut } from "@/api/generated/ty
 import { ApiError } from "@/api/client";
 import { createTestQueryClient } from "@/test/queryClient";
 import { AvatarBindingChangeButton } from "./AvatarBindingChangeButton";
+import { expectDeletedTargetRecovery } from "./bindingRecoveryTestSupport";
 
 const auth = vi.hoisted(() => ({ revision: 1 }));
 const pushToast = vi.hoisted(() => vi.fn());
@@ -395,21 +396,10 @@ it("permits another target after the selected candidate is deleted", async () =>
   );
   mount();
   const dialog = await open();
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
-  const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
-  expect(select).toHaveValue("");
-  expect(select).toBeEnabled();
-  expect(within(dialog).queryByText("存储管理权限已变化，请刷新后重试。")).not.toBeInTheDocument();
-  api.avatarBindingCandidates.mockResolvedValueOnce({
-    items: [{ ...target, location_id: "other", name: "另一位置" }],
-    total: 1,
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "刷新位置" }));
-  await within(dialog).findByRole("option", { name: "另一位置" });
-  fireEvent.change(select, { target: { value: "other" } });
-  expect(within(dialog).getByRole("button", { name: "验证并预览" })).toBeEnabled();
+  await expectDeletedTargetRecovery(dialog, target.location_id, () =>
+    api.avatarBindingCandidates.mockResolvedValueOnce({
+      items: [{ ...target, location_id: "other", name: "另一位置" }],
+      total: 1,
+    }),
+  );
 });

@@ -277,7 +277,7 @@ export function PredictionImportWizard({
                     setImageHeight("");
                   }}
                 >
-                  <option value="aap_json">AAP JSON (平台无损)</option>
+                  <option value="aap_json">原生 JSON</option>
                   <option value="coco">COCO Detection</option>
                   <option value="yolo">YOLO (zip)</option>
                 </select>

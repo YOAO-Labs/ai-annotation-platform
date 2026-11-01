@@ -1084,7 +1084,7 @@ for _namespace, _methods, _note in [
     (
         "annotations",
         "import_file",
-        "Owner/superadmin plus annotations:write for API keys. One multipart file, AAP JSON only, at most 64 MiB. Returns a synchronous partial receipt, not a job; overwrite replaces only imported annotations. CLI emits full JSON then exits 1 on errors. No idempotency key or automatic POST retry.",
+        "Owner/superadmin plus annotations:write for API keys. One multipart file, native JSON only, at most 64 MiB. Returns a synchronous partial receipt, not a job; overwrite replaces only imported annotations. CLI emits full JSON then exits 1 on errors. No idempotency key or automatic POST retry.",
     ),
 ]:
     for _method in _methods.split():

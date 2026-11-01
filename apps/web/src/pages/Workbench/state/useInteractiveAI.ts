@@ -394,7 +394,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     if (!projectId || !taskId) return false;
     if (!mlBackendId) {
       pushToast({
-        msg: "项目未绑定 ML Backend",
+        msg: "项目未绑定模型服务",
         sub: "请先在项目设置中绑定 SAM 后端",
         kind: "error",
       });

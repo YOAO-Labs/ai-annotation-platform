@@ -125,10 +125,93 @@ jobs:
         run: pip install uv
       - name: SDK / CLI / TUI tests
         working-directory: packages/python-sdk
-        run: uv run --extra test --extra plugins --with-requirements ../../apps/_shared/requirements-plugin-runtime.txt --with ../../apps/_shared/task_contract --with ../../apps/_shared/lifecycle_contract --with ../../apps/_shared/protocol_v2 --with ../../apps/_shared/training_contract pytest -q
+        run: uv run --extra test --extra plugins --with-requirements ../../apps/_shared/requirements-plugin-runtime.txt --with ../../apps/_shared/task_contract --with ../../apps/_shared/lifecycle_contract --with ../../apps/_shared/protocol_v2 --with ../../apps/_shared/training_contract pytest -q --junitxml=sdk-test-results.xml
+      - name: Upload SDK results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-sdk-test-results
+          path: packages/python-sdk/sdk-test-results.xml
+          if-no-files-found: error
       - name: Build SDK distribution
         working-directory: packages/python-sdk
         run: uv build
+
+  owner-test-plan:
+    name: Owner suite inventory
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit independent test roots
+        id: plan
+        run: node scripts/test-suite-inventory.mjs --owner-matrix >> "$GITHUB_OUTPUT"
+
+  owner-contract-tests:
+    name: Owner contract suite execution
+    needs: owner-test-plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.owner-test-plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Install native tools
+        if: matrix.system_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.system_packages }}
+      - name: Run owner tests in their own environment
+        working-directory: ${{ matrix.directory }}
+        run: uv run ${{ matrix.options }} pytest -q --junitxml=owner-test-results.xml
+      - name: Upload owner results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-test-results-${{ strategy.job-index }}
+          path: ${{ matrix.directory }}/owner-test-results.xml
+          if-no-files-found: error
+
+  storage-agent-tests:
+    name: Storage agent tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Run storage agent and portable contracts
+        env:
+          PYTHONPATH: apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src
+        run: >-
+          uv run --no-project --with pytest pytest -q
+          apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests
+          apps/storage-agent/tests
+
+  training-executor-tests:
+    name: Training executor tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Run training executor tests
+        working-directory: apps/training-executor
+        run: uv run --with pytest --with pytest-asyncio pytest -q
 
   vitest:
     name: Frontend verification
@@ -197,11 +280,7 @@ jobs:
           uv tool run --from pre-commit==4.6.1 pre-commit run
           --all-files --hook-stage manual --show-diff-on-failure
       - name: Repository Node script tests
-        run: >-
-          node --test scripts/audit-e2e-requirements.test.mjs
-          scripts/check-workflow-names.test.mjs scripts/dev-worktree.test.mjs
-          scripts/image-reference-utils.test.mjs scripts/plan-e2e-suites.test.mjs
-          scripts/summarize-e2e-results.test.mjs
+        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs docs-site/scripts/*.test.mjs
       - name: Workflow naming
         run: node scripts/check-workflow-names.mjs --strict
 

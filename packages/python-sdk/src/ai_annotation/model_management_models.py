@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field, model_validator
 
-from ai_annotation.models import _AAPModel
+from ai_annotation.models import _SDKModel
 from ai_annotation.training_models import (
     TrainingConfiguration,
     TrainingInitialization,
@@ -33,7 +33,7 @@ EvaluationStatus = Literal[
 ]
 
 
-class TrainedModelCreateRequest(_AAPModel):
+class TrainedModelCreateRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     request_id: UUID
@@ -43,13 +43,13 @@ class TrainedModelCreateRequest(_AAPModel):
     bindings: list[str] = Field(min_length=1, max_length=1000)
 
 
-class ModelDeploymentCreateRequest(_AAPModel):
+class ModelDeploymentCreateRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     registry_id: UUID
 
 
-class ModelReleaseCreateRequest(_AAPModel):
+class ModelReleaseCreateRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: UUID
@@ -70,7 +70,7 @@ class ModelReleaseCreateRequest(_AAPModel):
         return self
 
 
-class ModelDecisionCreateRequest(_AAPModel):
+class ModelDecisionCreateRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     request_id: UUID
@@ -78,7 +78,7 @@ class ModelDecisionCreateRequest(_AAPModel):
     note: str = Field(min_length=1, max_length=2000)
 
 
-class LearningPolicySaveRequest(_AAPModel):
+class LearningPolicySaveRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_revision: int = Field(ge=0)
@@ -116,7 +116,7 @@ class LearningPolicySaveRequest(_AAPModel):
         return self
 
 
-class SampleEvaluationCreateRequest(_AAPModel):
+class SampleEvaluationCreateRequest(_SDKModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: UUID
@@ -147,7 +147,7 @@ class SampleEvaluationCreateRequest(_AAPModel):
         return self
 
 
-class TrainedModel(_AAPModel):
+class TrainedModel(_SDKModel):
     id: UUID
     project_id: UUID
     run_id: UUID
@@ -170,12 +170,12 @@ class TrainedModel(_AAPModel):
     is_current_release: bool = False
 
 
-class TrainedModelPage(_AAPModel):
+class TrainedModelPage(_SDKModel):
     items: list[TrainedModel]
     total: int
 
 
-class ModelDeployment(_AAPModel):
+class ModelDeployment(_SDKModel):
     id: UUID
     model_version_id: UUID
     registry_id: UUID
@@ -187,18 +187,18 @@ class ModelDeployment(_AAPModel):
     created_at: datetime
 
 
-class TrainedModelDetail(_AAPModel):
+class TrainedModelDetail(_SDKModel):
     model: TrainedModel
     deployments: list[ModelDeployment]
 
 
-class ModelDownload(_AAPModel):
+class ModelDownload(_SDKModel):
     url: str
     sha256: str
     size_bytes: int
 
 
-class ModelRelease(_AAPModel):
+class ModelRelease(_SDKModel):
     id: UUID
     project_id: UUID
     model_version_id: UUID | None
@@ -210,7 +210,7 @@ class ModelRelease(_AAPModel):
     created_at: datetime
 
 
-class ModelReleasePage(_AAPModel):
+class ModelReleasePage(_SDKModel):
     current: ModelRelease | None
     generation: int
     current_release_id: UUID | None
@@ -218,7 +218,7 @@ class ModelReleasePage(_AAPModel):
     items: list[ModelRelease]
 
 
-class ModelDecision(_AAPModel):
+class ModelDecision(_SDKModel):
     id: UUID
     project_id: UUID
     model_version_id: UUID
@@ -230,12 +230,12 @@ class ModelDecision(_AAPModel):
     created_at: datetime
 
 
-class ModelDecisionPage(_AAPModel):
+class ModelDecisionPage(_SDKModel):
     items: list[ModelDecision]
     next_before: int | None = None
 
 
-class LineageNode(_AAPModel):
+class LineageNode(_SDKModel):
     kind: NodeKind
     id: UUID
     name: str
@@ -244,13 +244,13 @@ class LineageNode(_AAPModel):
     facts: dict[str, str] = Field(default_factory=dict)
 
 
-class LineageLink(_AAPModel):
+class LineageLink(_SDKModel):
     relation: str
     target: LineageNode | None
     gap: str | None = None
 
 
-class LineageUsage(_AAPModel):
+class LineageUsage(_SDKModel):
     retained_count: int | None
     unavailable_reason: str | None = None
     truncated: bool
@@ -258,7 +258,7 @@ class LineageUsage(_AAPModel):
     scope: str = "retained_attributable_predictions"
 
 
-class ModelLineage(_AAPModel):
+class ModelLineage(_SDKModel):
     node: LineageNode
     inputs: list[LineageLink]
     sections: list[str]
@@ -268,7 +268,7 @@ class ModelLineage(_AAPModel):
     usage: LineageUsage | None = None
 
 
-class LearningPolicy(_AAPModel):
+class LearningPolicy(_SDKModel):
     id: UUID
     project_id: UUID
     creator_id: UUID | None
@@ -285,7 +285,7 @@ class LearningPolicy(_AAPModel):
     message: str | None
 
 
-class LearningTrigger(_AAPModel):
+class LearningTrigger(_SDKModel):
     id: UUID
     policy_revision: int
     dataset_id: UUID
@@ -300,12 +300,12 @@ class LearningTrigger(_AAPModel):
     run_id: UUID | None = None
 
 
-class LearningTriggerPage(_AAPModel):
+class LearningTriggerPage(_SDKModel):
     total: int
     items: list[LearningTrigger]
 
 
-class EvaluationProfile(_AAPModel):
+class EvaluationProfile(_SDKModel):
     schema_version: Literal[1] = Field(alias="schema")
     implementation: Literal["aap-ultralytics-detection"]
     revision: Literal[1]
@@ -321,7 +321,7 @@ class EvaluationProfile(_AAPModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
-class FrozenEvaluationSample(_AAPModel):
+class FrozenEvaluationSample(_SDKModel):
     ordinal: int
     task_id: UUID
     sha256: str
@@ -334,7 +334,7 @@ class FrozenEvaluationSample(_AAPModel):
     truth: list[dict[str, Any]]
 
 
-class EvaluationSpec(_AAPModel):
+class EvaluationSpec(_SDKModel):
     schema_version: Literal[1] = Field(alias="schema")
     evaluation_id: UUID
     model_ref: dict[str, Any]
@@ -362,7 +362,7 @@ class EvaluationSpec(_AAPModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
-class EvaluationSampleResult(_AAPModel):
+class EvaluationSampleResult(_SDKModel):
     ordinal: int
     task_id: UUID
     sha256: str
@@ -384,7 +384,7 @@ class EvaluationSampleResult(_AAPModel):
     evidence_digest: str | None = None
 
 
-class EvaluationQualification(_AAPModel):
+class EvaluationQualification(_SDKModel):
     model_ref: dict[str, Any]
     profile: EvaluationProfile
     evaluator: dict[str, Any]
@@ -392,7 +392,7 @@ class EvaluationQualification(_AAPModel):
     limits: dict[str, int]
 
 
-class SampleEvaluationAttempt(_AAPModel):
+class SampleEvaluationAttempt(_SDKModel):
     id: UUID
     ordinal: int
     generation: int
@@ -405,7 +405,7 @@ class SampleEvaluationAttempt(_AAPModel):
     report: dict[str, Any] | None
 
 
-class SampleEvaluation(_AAPModel):
+class SampleEvaluation(_SDKModel):
     id: UUID
     project_id: UUID
     name: str
@@ -429,12 +429,12 @@ class SampleEvaluation(_AAPModel):
     deletion_requested_at: datetime | None
 
 
-class SampleEvaluationPage(_AAPModel):
+class SampleEvaluationPage(_SDKModel):
     items: list[SampleEvaluation]
     total: int
 
 
-class EvaluationReport(_AAPModel):
+class EvaluationReport(_SDKModel):
     schema_version: Literal[1] = Field(alias="schema")
     evaluation_id: UUID
     attempt_id: UUID
@@ -455,7 +455,7 @@ class EvaluationReport(_AAPModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
-class EvaluationSampleResultPage(_AAPModel):
+class EvaluationSampleResultPage(_SDKModel):
     evaluation_id: UUID
     attempt_id: UUID
     report_sha256: str
@@ -466,7 +466,7 @@ class EvaluationSampleResultPage(_AAPModel):
     items: list[EvaluationSampleResult]
 
 
-class EvaluationSource(_AAPModel):
+class EvaluationSource(_SDKModel):
     evaluation_id: UUID
     attempt_id: UUID
     ordinal: int
@@ -487,7 +487,7 @@ class EvaluationSource(_AAPModel):
     reason: str | None
 
 
-class EvaluationComparisonCandidate(_AAPModel):
+class EvaluationComparisonCandidate(_SDKModel):
     evaluation_id: UUID
     name: str
     status: EvaluationStatus
@@ -498,7 +498,7 @@ class EvaluationComparisonCandidate(_AAPModel):
     aggregate: dict[str, Any] | None
 
 
-class EvaluationComparison(_AAPModel):
+class EvaluationComparison(_SDKModel):
     compatible: bool
     reasons: list[str]
     candidates: list[EvaluationComparisonCandidate]

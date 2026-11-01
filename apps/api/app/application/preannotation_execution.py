@@ -714,7 +714,7 @@ async def _prepare_manifest_member(manifest: _PreparedAcceptedManifest, member):
         task_id=member.task_id,
     )
     try:
-        temporary_directory = tempfile.TemporaryDirectory(prefix="aap-manifest-input-")
+        temporary_directory = tempfile.TemporaryDirectory(prefix="manifest-input-")
     except OSError:
         yield _PreparedManifestMember(
             reference=None,
@@ -1022,9 +1022,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
         ):
             raise ValueError("accepted image input receipt differs from admitted task")
         try:
-            temporary_directory = tempfile.TemporaryDirectory(
-                prefix="aap-accepted-input-"
-            )
+            temporary_directory = tempfile.TemporaryDirectory(prefix="accepted-input-")
         except OSError as exc:
             raise PreannotationInputDeferred("storage_unavailable") from exc
         with temporary_directory as directory:

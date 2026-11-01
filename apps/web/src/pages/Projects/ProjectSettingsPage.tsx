@@ -63,7 +63,7 @@ const SECTIONS: {
   { key: "members", label: "成员管理", icon: "users" },
   { key: "datasets", label: "关联数据集", icon: "db" },
   { key: "batches", label: "批次管理", icon: "layers" },
-  { key: "ml-backends", label: "ML 模型", icon: "bot" },
+  { key: "ml-backends", label: "模型服务", icon: "bot" },
   // v0.10.10 · I17.3
   { key: "rendering", label: "工作台规范", icon: "eye" },
   // v0.10.29 · 视频帧采样（仅 video 项目可见）

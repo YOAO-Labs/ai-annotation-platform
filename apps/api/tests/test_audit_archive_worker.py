@@ -322,6 +322,8 @@ async def test_terminal_notification_and_owner_cancel_have_consistent_lock_order
             async def blocked_on_owner():
                 async with jobs[0]() as observer:
                     while True:
+                        # Activity snapshots must include newly connected workers.
+                        await observer.execute(text("SELECT pg_stat_clear_snapshot()"))
                         blocked = await observer.scalar(
                             text(
                                 "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "

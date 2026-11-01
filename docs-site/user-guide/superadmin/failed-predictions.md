@@ -25,8 +25,8 @@ last_reviewed: 2026-06-10
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `Connection refused` / `Name resolution`     | [容器网络与 loopback](../../dev/troubleshooting/container-networking)                                 |
 | `TypeError: ... unexpected keyword argument` | [Docker rebuild vs restart](../../dev/troubleshooting/docker-rebuild-vs-restart)（worker stale code） |
-| ML Backend `422` / `400`                     | prompt 格式问题；工作台一键预标会自动用项目 alias 拼 prompt，避免空 prompt 导致 DINO 422              |
-| `Timeout`                                    | ML Backend 推理太慢；看监控 P95                                                                       |
+| 模型服务 `422` / `400`                       | prompt 格式问题；工作台一键预标会自动用项目 alias 拼 prompt，避免空 prompt 导致 DINO 422              |
+| `Timeout`                                    | 模型服务推理太慢；看监控 P95                                                                          |
 | `403` / `401`                                | API Key 配置错误                                                                                      |
 | 前端看不到候选但 job=succeeded               | [Schema 适配器陷阱](../../dev/troubleshooting/schema-adapter-pitfalls)                                |
 
@@ -38,8 +38,8 @@ last_reviewed: 2026-06-10
    - `created_at` → `started_at` 间隔大 → broker / worker 拥堵
    - `started_at` → `completed_at` 间隔大 → 推理超时
 4. **看 worker 日志**：`docker logs ai-annotation-platform-celery-worker-1 --since 1h | grep <job_id>`
-5. **看 ML Backend 日志**：grounded-sam2-backend 在 `/metrics` + 容器日志
-6. **复现**：拿 job 的 prompt + 一张样本图，直接 `curl` ML Backend `/predict`
+5. **看模型服务日志**：grounded-sam2-backend 在 `/metrics` + 容器日志
+6. **复现**：拿 job 的 prompt + 一张样本图，直接 `curl` 模型服务 `/predict`
 
 ## 重试与放弃
 
@@ -68,9 +68,9 @@ last_reviewed: 2026-06-10
 ## 大量失败如何排查
 
 - 模型市场 → Health Overview → 看错误率峰值
-- 同一时间窗集中失败 → 多半是 ML Backend 自身挂了，重启容器即可
-- 跨多个 backend 同时失败 → 看 worker 容器、Redis、网络
+- 同一时间窗集中失败 → 多半是模型服务自身挂了，重启容器即可
+- 跨多个模型服务同时失败 → 看 worker 容器、Redis、网络
 
 ## 监控告警
 
-平台暴露的 Prometheus 指标中，与预测失败相关的是 `ml_backend_request_duration_seconds{backend_id, outcome}` Histogram（`outcome="error"` 代表 ML backend 调用出错，`apps/api/app/observability/metrics.py:16`）。**不存在**名为 `prediction_job_failed_total` 的 Counter 指标。可通过 `rate(ml_backend_request_duration_seconds_count{outcome="error"}[5m])` 等 PromQL 设定告警阈值，详见 [可观测性](../../ops/observability/)。
+平台暴露的 Prometheus 指标中，与预测失败相关的是 `ml_backend_request_duration_seconds{backend_id, outcome}` Histogram（`outcome="error"` 代表模型服务调用出错，`apps/api/app/observability/metrics.py:16`）。**不存在**名为 `prediction_job_failed_total` 的 Counter 指标。可通过 `rate(ml_backend_request_duration_seconds_count{outcome="error"}[5m])` 等 PromQL 设定告警阈值，详见 [可观测性](../../ops/observability/)。
