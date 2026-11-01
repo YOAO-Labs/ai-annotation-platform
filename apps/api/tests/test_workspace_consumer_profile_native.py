@@ -298,6 +298,72 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
             await _assert_closed(db)
 
 
+async def test_lan_profile_revokes_public_mask_execution_and_keeps_runtime(test_engine):
+    signatures = (
+        "aap_labeling_v1.mask_edit_command(jsonb)",
+        "aap_labeling_v1.mask_revision_command(jsonb)",
+        "aap_labeling_v1.ai_mask_accept_command(jsonb)",
+    )
+    async with _world(test_engine, apply=False) as (_owner, api, role, _url):
+        cleanup = role + "_gc"
+        try:
+            async with test_engine.begin() as db:
+                for signature in signatures:
+                    await db.execute(
+                        text(f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC")
+                    )
+            for _ in range(2):
+                result = await _grants(
+                    test_engine,
+                    ROOT / "infra/docker/lan-production-grants.sql",
+                    role,
+                    asset_cleanup_role=cleanup,
+                )
+                assert result.returncode == 0, result.stderr
+                async with test_engine.connect() as db:
+                    functions = (
+                        await db.scalars(
+                            text(
+                                "SELECT p.oid::regprocedure::text FROM pg_proc p "
+                                "JOIN pg_namespace n ON n.oid=p.pronamespace "
+                                "WHERE left(n.nspname,4)='aap_' AND right(n.nspname,3)='_v1' "
+                                "AND has_function_privilege(:role,p.oid,'EXECUTE')"
+                            ),
+                            {"role": cleanup},
+                        )
+                    ).all()
+                    assert set(functions) == {
+                        "aap_assets_v1.pending_storage_deletions_v2(text,timestamp with time zone,uuid,uuid,integer)",
+                        "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+                        "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
+                        "aap_assets_v1.complete_image_garbage(uuid,uuid)",
+                        "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+                        "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+                        "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+                        "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+                    }
+                    assert not await db.scalar(
+                        text(
+                            "SELECT has_schema_privilege(:role,'aap_labeling_v1','USAGE')"
+                        ),
+                        {"role": cleanup},
+                    )
+                async with api() as db:
+                    for signature in signatures:
+                        assert await db.scalar(
+                            text(
+                                "SELECT has_function_privilege(current_user,:signature,'EXECUTE')"
+                            ),
+                            {"signature": signature},
+                        )
+        finally:
+            async with test_engine.begin() as db:
+                for signature in signatures:
+                    await db.execute(
+                        text(f"REVOKE EXECUTE ON FUNCTION {signature} FROM PUBLIC")
+                    )
+
+
 @pytest.mark.parametrize("invalid", ["database", "owner", "consumer", "membership"])
 async def test_profile_rejects_unsafe_identity_before_acl_changes(test_engine, invalid):
     async with _world(test_engine, apply=False) as (_owner, api, role, _url):

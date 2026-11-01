@@ -935,6 +935,10 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.copy_annotation_input_sources(uuid,uuid)
     TO :"application_role";
 
+-- Mask edit capabilities are restricted to explicitly granted consumers.
+REVOKE ALL ON FUNCTION aap_labeling_v1.mask_edit_command(jsonb),
+    aap_labeling_v1.mask_revision_command(jsonb),
+    aap_labeling_v1.ai_mask_accept_command(jsonb) FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON TABLE public.asset_storage_deletions FROM :"asset_cleanup_role";
