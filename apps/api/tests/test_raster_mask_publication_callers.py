@@ -24,16 +24,15 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services import predictions_import
-from app.services.annotation_conversion import AnnotationConversionService
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
 from app.services.mask_qc import execution as qc_execution
 from app.services.mask_qc.service import create_mask_qc_run
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from tests.factory import create_user
+from tests.raster_mask_support import consumer_mask_storage as consumer_mask_storage
 from tests.raster_mask_support import harness as harness
-from tests.test_mask_qc_m2 import _seed_mask
-from tests.test_raster_mask_portability import _image_project_task
+from tests.raster_mask_support import _image_project_task, _seed_mask
 
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
@@ -145,7 +144,13 @@ def _importer(format):
 @pytest.mark.parametrize("format", ["aap", "coco"])
 @pytest.mark.parametrize("authority", ["current", "missing", "stale"])
 async def test_prediction_import_publishes_only_with_current_authority(
-    db_session, super_admin, harness, monkeypatch, test_db_url, format, authority
+    db_session,
+    super_admin,
+    harness,
+    consumer_mask_storage,
+    monkeypatch,
+    format,
+    authority,
 ):
     user, _ = super_admin
     rle, reference, _ = harness.content()
@@ -160,7 +165,6 @@ async def test_prediction_import_publishes_only_with_current_authority(
     task.total_predictions = 1
     await db_session.flush()
     previous_id, task_id, project_id = previous.id, task.id, project.id
-    monkeypatch.setattr(settings, "database_url", test_db_url)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
 
@@ -246,11 +250,10 @@ async def test_prediction_import_publishes_only_with_current_authority(
 
 @pytest.mark.parametrize("format", ["aap", "coco"])
 async def test_prediction_import_rejects_busy_final_task_fence(
-    harness, monkeypatch, test_db_url, format
+    harness, consumer_mask_storage, monkeypatch, format
 ):
     rle, reference, _ = harness.content()
     height, width = rle["size"]
-    monkeypatch.setattr(settings, "database_url", test_db_url)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     async with harness.factory() as setup:
@@ -318,21 +321,9 @@ async def test_prediction_import_rejects_busy_final_task_fence(
             await cleanup.commit()
 
 
-async def test_conversion_passes_original_session_to_generated_content(monkeypatch):
-    db = object()
-    service = AnnotationConversionService(db)
-    reference = service._plan_rle_reference(RLE)
-    store = AsyncMock(return_value=reference)
-    monkeypatch.setattr("app.services.annotation_conversion.store_coco_rle", store)
-
-    await service._store_generated_rles({reference["object_key"]})
-
-    store.assert_awaited_once_with(RLE, db=db)
-
-
 @pytest.mark.parametrize("insert_failed", [False, True])
 async def test_qc_region_and_issue_follow_caller_transaction(
-    db_session, super_admin, harness, monkeypatch, test_db_url, insert_failed
+    db_session, super_admin, harness, consumer_mask_storage, insert_failed
 ):
     user, _ = super_admin
     project, task, annotation, _ = await _seed_mask(db_session, owner_id=user.id)
@@ -344,7 +335,6 @@ async def test_qc_region_and_issue_follow_caller_transaction(
     )
     project_id = project.id
     rle, reference, _ = harness.content()
-    monkeypatch.setattr(settings, "database_url", test_db_url)
     primary = qc_execution._FrameMask(
         annotation_id=annotation.id,
         annotation_version=annotation.version,

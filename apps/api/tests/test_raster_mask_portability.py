@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,73 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.project import Project
-from app.db.models.task import Task
 from app.services.annotations_import import import_native_json_annotations
 from app.services.exporting.service import ExportService
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
 from app.services.predictions_import import import_native_json
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import encode_coco_rle
+from tests.raster_mask_support import _image_project_task
 
 pytestmark = pytest.mark.asyncio
-
-
-async def _image_project_task(
-    db: AsyncSession,
-    *,
-    owner_id: uuid.UUID,
-    file_path: str,
-    width: int = 3,
-    height: int = 2,
-) -> tuple[Project, Task]:
-    suffix = uuid.uuid4().hex[:6]
-    project = Project(
-        display_id=f"P-RMP-{suffix}",
-        name=f"Raster portability {suffix}",
-        type_key="image-det",
-        type_label="测试",
-        owner_id=owner_id,
-        status="in_progress",
-        raster_mask_native_editing_enabled=True,
-        tool_bindings={
-            "region": {
-                "enabled": True,
-                "classes": [{"name": "car", "order": 0}],
-            }
-        },
-    )
-    dataset = Dataset(
-        display_id=f"DS-RMP-{suffix}",
-        name=f"Raster portability {suffix}",
-        data_type="image",
-        created_by=owner_id,
-    )
-    db.add_all([project, dataset])
-    await db.flush()
-    item = DatasetItem(
-        dataset_id=dataset.id,
-        file_name=file_path.rsplit("/", 1)[-1],
-        file_path=file_path,
-        file_type="image",
-        width=width,
-        height=height,
-    )
-    db.add(item)
-    await db.flush()
-    task = Task(
-        project_id=project.id,
-        dataset_item_id=item.id,
-        display_id=f"T-RMP-{suffix}",
-        file_name=item.file_name,
-        file_path=file_path,
-        file_type="image",
-        status="pending",
-    )
-    db.add(task)
-    await db.flush()
-    return project, task
 
 
 async def test_aap_raster_mask_round_trip_deduplicates_objects(

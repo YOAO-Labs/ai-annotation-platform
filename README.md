@@ -59,7 +59,7 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 预训练模型／完整变体的描述随插件发布，批准、实际安装资产可用性及项目授权由平台分别管理。管理员 API SDK 在当前容器内测量文件大小与 SHA256，再按修订提交批准；目录展示、安装成功和 GPU 资格都不会自动授予使用权。目录、排队及实际发送共用准入规则，用户训练 checkpoint 仍走 Learning／Assets 的部署与发布流程，见[安装与资产审批](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。
 
-API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生成；导入响应的组件类型名与现有 wire 值说明见[导入接口](./docs-site/api/guides/import.md#响应)。
+API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生成；导入响应的组件类型名与现有 wire 值说明见[导入接口](./docs-site/api/guides/import.md#响应)，外部预测导入的错误与回滚规则见[预测 API](./docs-site/api/guides/predictions.md#导入外部预测)。
 
 ## 工作台 AI 案例
 

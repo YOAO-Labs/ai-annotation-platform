@@ -43,10 +43,12 @@ from app.services.predictions_import import (
     import_coco,
     internal_geometry_to_ls_shape,
 )
-from app.services.raster_mask_storage import build_rle_reference
+from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from app.utils.raster_mask_rle import encode_coco_rle
 from tests.factory import create_membership
 from tests.media_owner_fixtures import media_owner as media_owner
+from tests.raster_mask_support import consumer_mask_storage as consumer_mask_storage
+from tests.raster_mask_support import harness as harness
 
 pytestmark = pytest.mark.asyncio
 
@@ -1995,15 +1997,26 @@ async def test_import_coco_uses_image_size_hint_when_missing_dimensions(
     assert bbox["height"] == pytest.approx(20.0)
 
 
+@pytest.mark.parametrize(
+    "invalid_counts", [[6], [5], "encoded"], ids=["empty", "invalid-size", "compressed"]
+)
 async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_items(
     super_admin,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
+    harness,
+    consumer_mask_storage,
+    invalid_counts,
 ):
     user, _ = super_admin
-    project, tasks = await _seed_project_with_tasks(db_session, user.id)
+    project, tasks = await _seed_yolo_project(db_session, user.id, size=(3, 2))
+    project.raster_mask_native_editing_enabled = True
+    project.tool_bindings = {
+        **project.tool_bindings,
+        "region": {"enabled": True, "classes": [{"name": "car", "order": 0}]},
+    }
+    await db_session.flush()
     single = encode_coco_rle([0, 0, 0, 0, 0, 1], 3, 2)
-    empty = encode_coco_rle([0] * 6, 3, 2)
     payload = json.dumps(
         {
             "images": [
@@ -2026,7 +2039,7 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
                     "id": 2,
                     "image_id": 1,
                     "category_id": 0,
-                    "segmentation": {"size": [2, 3], "counts": empty["counts"]},
+                    "segmentation": {"size": [2, 3], "counts": invalid_counts},
                 },
                 {
                     "id": 3,
@@ -2034,18 +2047,6 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
                     "category_id": 0,
                     "bbox": [0, 0, 3, 2],
                     "segmentation": [[0, 0, 3, 0, 3, 2]],
-                },
-                {
-                    "id": 4,
-                    "image_id": 1,
-                    "category_id": 0,
-                    "segmentation": {"size": [2, 3], "counts": [5]},
-                },
-                {
-                    "id": 5,
-                    "image_id": 1,
-                    "category_id": 0,
-                    "segmentation": {"size": [2, 3], "counts": "encoded"},
                 },
                 {
                     "id": 6,
@@ -2057,21 +2058,10 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
         }
     ).encode()
 
-    import app.services.predictions_import as predictions_import
-
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
 
-    async def _store(rle, *, db):
-        return build_rle_reference(rle)
-
-    store = AsyncMock(side_effect=_store)
-    create = AsyncMock()
-    monkeypatch.setattr(predictions_import, "store_coco_rle", store)
-    monkeypatch.setattr(
-        predictions_import.PredictionService,
-        "apply_prediction_result",
-        create,
-    )
+    reference = build_rle_reference(single)
+    harness.keys.add(reference["object_key"])
 
     result = await import_coco(
         db_session,
@@ -2082,21 +2072,29 @@ async def test_import_coco_rle_builds_portable_prediction_and_reports_invalid_it
     )
 
     assert result.imported == 3
-    assert result.skipped == 3
-    assert store.await_count == 1
-    assert create.await_count == 3
-    assert "foreground pixels" in result.errors[0].reason
-    assert "sum(counts)" in result.errors[1].reason
-    assert "compressed COCO RLE" in result.errors[2].reason
-
-    raster_shape = create.await_args_list[0].args[0].result[0]
-    assert raster_shape["type"] == "raster_mask"
-    assert raster_shape["tool_unit_id"] == "region"
-    assert raster_shape["geometry"]["type"] == "raster_mask"
-    assert "counts" not in raster_shape["geometry"]["mask"]
-    assert to_internal_shape(raster_shape)["geometry"] == raster_shape["geometry"]
-    assert create.await_args_list[1].args[0].result[0]["type"] == "polygonlabels"
-    assert create.await_args_list[2].args[0].result[0]["type"] == "raster_mask"
+    assert result.skipped == 1
+    assert len(result.errors) == 1
+    assert result.errors[0].task_match == {"file_path": tasks[0].file_path}
+    predictions = (
+        await db_session.scalars(
+            select(Prediction).where(Prediction.project_id == project.id)
+        )
+    ).all()
+    shapes = [shape for prediction in predictions for shape in prediction.result]
+    assert sorted(shape["type"] for shape in shapes) == [
+        "polygonlabels",
+        "raster_mask",
+        "raster_mask",
+    ]
+    for shape in shapes:
+        if shape["type"] == "raster_mask":
+            assert shape["tool_unit_id"] == "region"
+            assert shape["geometry"] == {"type": "raster_mask", "mask": reference}
+            assert to_internal_shape(shape)["geometry"] == shape["geometry"]
+    assert await load_coco_rle(reference) == single
+    assert [(row.logical_key, row.state) for row in await harness.rows()] == [
+        (reference["object_key"], "ready")
+    ]
 
 
 async def test_import_coco_rle_respects_create_flag(

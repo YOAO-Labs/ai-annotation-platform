@@ -438,6 +438,7 @@ async def test_guide_upload_logical_entry_read_and_existing_unlink_cleanup_follo
     assert (
         await unlink_guide(httpx_client, project_admin, project, value["key"])
     ).status_code == 200
+    await db_session.refresh(row)
     assert row.state == "retired"
     assert (await guide_asset_uploads.cleanup(db_session, identifiers=[identifier]))[
         "objects"

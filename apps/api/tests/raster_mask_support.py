@@ -11,9 +11,14 @@ import uuid
 from botocore.exceptions import ClientError
 import pytest
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
+from app.db.models.annotation import Annotation
+from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.project import Project
+from app.db.models.task import Task
+from aap_workspace.mask_configuration_values import MaskQCConfig
 from app.db.models.raster_mask_object import (
     RasterMaskObject as Object,
     RasterMaskPublication as Publication,
@@ -26,6 +31,8 @@ from app.services import (
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.raster_mask_storage import build_rle_reference, canonical_rle_bytes
+from app.services.storage import storage_service
+from app.utils.raster_mask_rle import encode_coco_rle
 from tests._owned_s3 import patch_owned_client
 
 
@@ -194,3 +201,154 @@ async def harness(test_engine, monkeypatch):
                 gate.revision += 1
             await db.commit()
         blobs.objects.clear()
+
+
+@pytest.fixture
+def consumer_mask_storage(harness, monkeypatch, test_db_url):
+    """Use the owned test transport for consumers with a captured default store."""
+    monkeypatch.setattr(storage_service, "client", harness.blobs.client)
+    monkeypatch.setattr(settings, "database_url", test_db_url)
+
+
+async def _image_project_task(
+    db: AsyncSession,
+    *,
+    owner_id: uuid.UUID,
+    file_path: str,
+    width: int = 3,
+    height: int = 2,
+) -> tuple[Project, Task]:
+    suffix = uuid.uuid4().hex[:6]
+    project = Project(
+        display_id=f"P-RMP-{suffix}",
+        name=f"Raster portability {suffix}",
+        type_key="image-det",
+        type_label="测试",
+        owner_id=owner_id,
+        status="in_progress",
+        raster_mask_native_editing_enabled=True,
+        tool_bindings={
+            "region": {
+                "enabled": True,
+                "classes": [{"name": "car", "order": 0}],
+            }
+        },
+    )
+    dataset = Dataset(
+        display_id=f"DS-RMP-{suffix}",
+        name=f"Raster portability {suffix}",
+        data_type="image",
+        created_by=owner_id,
+    )
+    db.add_all([project, dataset])
+    await db.flush()
+    item = DatasetItem(
+        dataset_id=dataset.id,
+        file_name=file_path.rsplit("/", 1)[-1],
+        file_path=file_path,
+        file_type="image",
+        width=width,
+        height=height,
+    )
+    db.add(item)
+    await db.flush()
+    task = Task(
+        project_id=project.id,
+        dataset_item_id=item.id,
+        display_id=f"T-RMP-{suffix}",
+        file_name=item.file_name,
+        file_path=file_path,
+        file_type="image",
+        status="pending",
+    )
+    db.add(task)
+    await db.flush()
+    return project, task
+
+
+def _rle(rows: list[str]) -> dict:
+    height = len(rows)
+    width = len(rows[0])
+    pixels = [1 if value == "#" else 0 for row in rows for value in row]
+    return encode_coco_rle(pixels, width, height)
+
+
+async def _seed_mask(
+    db,
+    *,
+    owner_id: uuid.UUID,
+    config: MaskQCConfig | None = None,
+    status: str = "in_progress",
+    annotator_id: uuid.UUID | None = None,
+) -> tuple[Project, Task, Annotation, dict]:
+    suffix = uuid.uuid4().hex[:8]
+    # The annotation author/effective annotator defaults to the owner; callers
+    # testing a manager review pass a distinct literal annotator so the frozen
+    # round evidence never names the reviewing actor.
+    worker_id = annotator_id or owner_id
+    project = Project(
+        display_id=f"P-QC-{suffix}",
+        name=f"Mask QC {suffix}",
+        type_label="图像-分割",
+        type_key="image-seg",
+        owner_id=owner_id,
+        mask_qc_config=(config or MaskQCConfig()).model_dump(mode="json"),
+        tool_bindings={
+            "region": {
+                "enabled": True,
+                "classes": [{"name": "object", "order": 0}],
+                "attribute_schema": {"fields": []},
+            }
+        },
+    )
+    db.add(project)
+    await db.flush()
+    evidence: dict = {}
+    if status == "review":
+        evidence = {
+            "annotation_contributor_ids": [str(worker_id)],
+            "review_contributor_ids": [str(worker_id)],
+            "review_submitter_id": worker_id,
+            "review_round_id": uuid.uuid4(),
+        }
+    task = Task(
+        project_id=project.id,
+        display_id=f"T-QC-{suffix}",
+        file_name="mask.png",
+        file_path="/tmp/mask.png",
+        file_type="image",
+        status=status,
+        assignee_id=worker_id,
+        **evidence,
+    )
+    db.add(task)
+    await db.flush()
+    rle = _rle(
+        [
+            "........",
+            "........",
+            "..#.....",
+            "........",
+            "........",
+            "........",
+            "........",
+            "........",
+        ]
+    )
+    reference = build_rle_reference(rle)
+    annotation = Annotation(
+        task_id=task.id,
+        project_id=project.id,
+        user_id=worker_id,
+        source="manual",
+        annotation_type="mask",
+        tool_unit_id="region",
+        class_name="object",
+        geometry={"type": "raster_mask", "mask": reference},
+        is_active=True,
+        was_cancelled=False,
+        version=1,
+    )
+    db.add(annotation)
+    await db.flush()
+    return project, task, annotation, rle

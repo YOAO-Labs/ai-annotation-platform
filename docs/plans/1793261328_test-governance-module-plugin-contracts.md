@@ -668,3 +668,28 @@ Jobs 与 Labeling 的实际 wheel 构建通过，新锁 SQL 和当前合同资�
 下一独立验收内容优先处理预测导入的失败原子性与公开错误合同，再同步当前 publication owner 场景和指南图片退役验收。当前只关闭 RLE 元数据归属与上述共享设施迁移，不宣称 G2 全部完成或扩展选集全绿。文档站构建通过，保留既有 anyio 重写、审计跨 event loop、语法高亮回退和 chunk 大小警告；没有以未执行的 SDK／Web／浏览器结果充数。
 
 两个 worker 均已释放，两个工作树及分支已在 patch 等价性核对后删除。本任务 `35f95044222ad7c1:test` 的数据库、Redis、十个桶及 PostgreSQL 容器／匿名卷已按归属销毁，`cleanup.json` 记录零错误；基线导出、运行脚本和凭据一并移除，仅保留受保护的验收证据。`feat/plugin-opt` 源工作树、日常环境、保留中的主工作树测试资源及用户 `.gitignore` 修改未接管。
+
+### 12.10 G2 后续：预测导入失败原子性与当前 publication 合同
+
+以 `767136c868` 为基线，Orca Run `run_6908477a1b9c` 的两个独立工作树均实际使用 `openai-codex/gpt-6.1-terra:xhigh`。主进程审核并集成预测导入修复 `e7c1e648b` 和 publication 验收 `cf82a26cb`，再修正集成中发现的测试客户端接入、旧 COCO mock 与共享 helper 归属。未修改权限、迁移、插件仓库、发行名或业务 SDK。
+
+- 预测导入将 `RasterMaskContractError` 与普通格式 `ValueError` 分开处理，保留结构化 409／503，立即停止后续文件。终止异常先回滚业务写入，再尽力记录失败回执；回执缺失或写入失败不会提交部分预测，也不替换原异常。普通多文件格式错误的跳过规则不变。
+- 上阶段 24 项失败中，17 项预测导入合同及一项指南附件断言保留并通过。六项依赖旧内部符号的 publication 用例迁为十项当前 owner 场景，覆盖原生／COCO 的当前、缺失、过期权限／来源，真实 Task NOWAIT 竞争，以及 QC issue 成功／失败后的引用与回滚。不是恢复旧锁或 worker 别名。
+- 指南 unlink 的独立 SQL／ASGI 探针观察到缓存值 `ready`、数据库值 `retired`，刷新后同为 `retired`；测试在原断言前刷新对象，未修改生产退役逻辑或放宽断言。
+- 默认存储消费者使用共享 `consumer_mask_storage`，让真实 owner 流程的已捕获客户端连接同一受控对象提供方。删除一项仅检查 session 转发的测试；旧 COCO mock／措辞断言改为三个真实持久化场景，分别覆盖空前景、错误像素总数和不支持的压缩计数，同时核对有效 Mask／polygon、内容读回及去重归属。
+- `_image_project_task`、`_rle`、`_seed_mask` 原样迁到 `raster_mask_support.py`，所有本轮调用者直接导入，不新增测试模块之间的依赖。三个 helper、既有 `Objects`／`Harness`／`harness` 及原 portability／QC 测试函数 AST 均保持。
+
+脱离 pytest 的四个完整 FastAPI ASGI 请求使用正常 `legacy_runtime` 连接；owner 子进程只负责造数、独立观察与清理，普通请求不持有 owner URL：
+
+| 请求（原生 JSON 与 COCO 各一例） | 变更前                               | 变更后                                         |
+| -------------------------------- | ------------------------------------ | ---------------------------------------------- |
+| 单文件遇到存储准入拒绝           | 返回 422，旧预测被删除               | 返回结构化 409，旧预测与计数保留               |
+| 三文件，中间文件遇到存储准入拒绝 | 返回 200，继续后续文件并提交部分预测 | 立即中止并回滚整批，保留旧预测、计数和失败回执 |
+
+隔离库的维护门禁实际触发 `ContentError(storage_maintenance)`；现有分配层再包装为 `raster_object_storage_binding_unproven`。异常链已通过独立分配探针读回，本轮保留这个公开原因，不宣称修改底层分类或完成 S3 故障验收。
+
+最终选集 **157 通过、0 失败／错误／跳过**，collection 与 JUnit 逐项一致：核心五文件 114 项、pipeline validator 41 项、两个 helper 原调用者各一项。核心选集的原 95 项保留 87 项，上述六项旧注入、一项转发检查、一项聚合 mock 被明确替代，新增 27 项；没有隐藏跳过或将先前失败报告改成全绿。证据位于 `.worktree/import-failure-contracts/`：`acceptance-complete.xml`、`acceptance-summary.json`、`collection-comparison.json`、`helper-preservation.json`、`observed-before.json`／`observed-after.json`、`allocation-cause.json` 和 `guide-state-smoke.json`。
+
+API／用户说明、README、测试指南与 Unreleased 已同步；仓库固定 Ruff 检查及文档站构建通过。保留既有 anyio 重写、语法高亮回退和 chunk 大小警告。当前结论只关闭上述失败合同与测试归属问题，不等于重跑此前全部 208 项、G2 全部完成、受限模块部署、真实 S3、浏览器／渲染器、模型／GPU、冷安装／恢复或整套同库并行资格。
+
+两个 worker 已释放，两个工作树及分支在 patch 等价性核对后删除。本任务 `db91e217d18c9ada:test` 的数据库、Redis、十个桶及 PostgreSQL 容器／匿名卷已按归属销毁，`cleanup.json` 记录零错误；运行脚本、私有连接配置、临时 token 和 scratch 已清除，只保留受保护的验收证据。`feat/plugin-opt` 源工作树、日常及保留中的测试资源未接管，用户 `.gitignore` 内容与既有 stash 保持。

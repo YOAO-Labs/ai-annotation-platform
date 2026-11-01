@@ -9,10 +9,8 @@ from sqlalchemy import func, select, text
 
 from app.application.quality_execution import execute_mask_qc
 from app.application.raster_mask_retention import referenced_raster_mask_keys
-from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from aap_workspace.mask_configuration_values import MaskQCConfig
@@ -26,101 +24,13 @@ from app.services.mask_qc.service import (
     qc_digest_for_issues,
 )
 from app.services.raster_mask_storage import build_rle_reference
-from app.utils.raster_mask_rle import encode_coco_rle
 
 from tests.factory import create_membership
+from tests.raster_mask_support import _rle, _seed_mask
 
 
 def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
-
-
-def _rle(rows: list[str]) -> dict:
-    height = len(rows)
-    width = len(rows[0])
-    pixels = [1 if value == "#" else 0 for row in rows for value in row]
-    return encode_coco_rle(pixels, width, height)
-
-
-async def _seed_mask(
-    db,
-    *,
-    owner_id: uuid.UUID,
-    config: MaskQCConfig | None = None,
-    status: str = "in_progress",
-    annotator_id: uuid.UUID | None = None,
-) -> tuple[Project, Task, Annotation, dict]:
-    suffix = uuid.uuid4().hex[:8]
-    # The annotation author/effective annotator defaults to the owner; callers
-    # testing a manager review pass a distinct literal annotator so the frozen
-    # round evidence never names the reviewing actor.
-    worker_id = annotator_id or owner_id
-    project = Project(
-        display_id=f"P-QC-{suffix}",
-        name=f"Mask QC {suffix}",
-        type_label="图像-分割",
-        type_key="image-seg",
-        owner_id=owner_id,
-        mask_qc_config=(config or MaskQCConfig()).model_dump(mode="json"),
-        tool_bindings={
-            "region": {
-                "enabled": True,
-                "classes": [{"name": "object", "order": 0}],
-                "attribute_schema": {"fields": []},
-            }
-        },
-    )
-    db.add(project)
-    await db.flush()
-    evidence: dict = {}
-    if status == "review":
-        evidence = {
-            "annotation_contributor_ids": [str(worker_id)],
-            "review_contributor_ids": [str(worker_id)],
-            "review_submitter_id": worker_id,
-            "review_round_id": uuid.uuid4(),
-        }
-    task = Task(
-        project_id=project.id,
-        display_id=f"T-QC-{suffix}",
-        file_name="mask.png",
-        file_path="/tmp/mask.png",
-        file_type="image",
-        status=status,
-        assignee_id=worker_id,
-        **evidence,
-    )
-    db.add(task)
-    await db.flush()
-    rle = _rle(
-        [
-            "........",
-            "........",
-            "..#.....",
-            "........",
-            "........",
-            "........",
-            "........",
-            "........",
-        ]
-    )
-    reference = build_rle_reference(rle)
-    annotation = Annotation(
-        task_id=task.id,
-        project_id=project.id,
-        user_id=worker_id,
-        source="manual",
-        annotation_type="mask",
-        tool_unit_id="region",
-        class_name="object",
-        geometry={"type": "raster_mask", "mask": reference},
-        is_active=True,
-        was_cancelled=False,
-        version=1,
-    )
-    db.add(annotation)
-    await db.flush()
-    return project, task, annotation, rle
 
 
 @pytest.mark.asyncio

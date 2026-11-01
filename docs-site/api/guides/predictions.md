@@ -138,6 +138,19 @@ GET /api/v1/tasks/:task_id/predictions?model_version=&min_confidence=&limit=&off
 
 Workbench 会用该字段显示来源标识，并支持按来源隐藏 / 恢复候选框。
 
+## 导入外部预测
+
+```http
+POST /api/v1/projects/:project_id/predictions/import?format=aap_json&dry_run=false
+```
+
+使用 multipart `file` 字段上传文件；支持的格式与替换选项见[预测导入与导出](../../user-guide/datasets/prediction-import-export)。
+
+- Mask 存储／准入的类型化错误保留原 HTTP 409／503，以及 `detail` 中的 `reason`、`message`、`retryable`，不转换为普通文件校验错误。
+- 此类错误或其他未预期异常会立即中止整批，不处理后续文件；先回滚本次预测写入、替换删除及相关业务引用，再尝试将已有任务回执记为失败。先前文件的内存成功计数不代表已提交。
+- 任务回执不可用或失败记录写入失败，不会导致业务更改被提交，也不替换原异常。独立保存的 Mask 内容不等于已有有效预测引用。
+- 普通文件格式错误仍按现有规则处理：单文件请求返回 422 并回滚；多文件请求记录到 `errors` 后继续处理其他文件。
+
 ## 按来源清理预测
 
 ```http
