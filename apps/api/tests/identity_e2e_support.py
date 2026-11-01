@@ -15,11 +15,13 @@ import uuid
 
 import httpx
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.password_reset_token import PasswordResetToken
+from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.deps import get_db
@@ -334,52 +336,71 @@ async def owner_fault_http(test_engine):
         yield client
 
 
-@pytest.fixture
-async def committed_owner(fixture_and_fenced_http, test_engine):
-    # Original cases share an uncommitted connection with their API fixture.
-    # Independent processes need committed setup. Row-difference cleanup is serial-only.
-    tables = ("users", "projects", "ml_backend_registry")
-    async with test_engine.connect() as db:
-        before = {
-            table: set((await db.scalars(text(f"SELECT id FROM {table}"))).all())
-            for table in tables
-        }
+@asynccontextmanager
+async def _committed_owner(engine, fixture_http):
+    # Track only ORM insertions by this session, not raw SQL or other sessions.
+    # Retain object references so rollback can discard the corresponding IDs.
+    created = {}
+    models = (User, Project, MLBackendRegistry)
+
+    def inserted(_session, instance):
+        if isinstance(instance, models):
+            created[instance] = (type(instance), instance.id)
+
+    def rolled_back(_session, instance):
+        created.pop(instance, None)
+
     try:
-        async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
-            yield db
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            event.listen(db.sync_session, "pending_to_persistent", inserted)
+            event.listen(db.sync_session, "persistent_to_transient", rolled_back)
+            try:
+                yield db
+            finally:
+                try:
+                    await db.rollback()
+                finally:
+                    event.remove(db.sync_session, "pending_to_persistent", inserted)
+                    event.remove(
+                        db.sync_session, "persistent_to_transient", rolled_back
+                    )
     finally:
         for namespace in (owned_cases.A, owned_cases.B):
-            response = await fixture_and_fenced_http.post(
+            response = await fixture_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
             )
             assert response.status_code == 200, response.text
-        response = await fixture_and_fenced_http.post("/api/v1/__test/seed/cleanup")
+        response = await fixture_http.post("/api/v1/__test/seed/cleanup")
         assert response.status_code == 200, response.text
         # Keeper rows prove product cleanup preserves ordinary data. The test
         # owner removes only the exact rows this case created after that proof.
-        async with test_engine.begin() as db:
-            added = {
-                table: list(
-                    set((await db.scalars(text(f"SELECT id FROM {table}"))).all())
-                    - before[table]
-                )
-                for table in tables
-            }
+        added = {
+            model: [id_ for cls, id_ in created.values() if cls is model]
+            for model in models
+        }
+        async with engine.begin() as db:
             await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await db.execute(
                 text("DELETE FROM projects WHERE id=ANY(:ids)"),
-                {"ids": added["projects"]},
+                {"ids": added[Project]},
             )
             await db.execute(
                 text(
                     "DELETE FROM ml_backend_service_pools WHERE legacy_instance_id=ANY(:ids)"
                 ),
-                {"ids": added["ml_backend_registry"]},
+                {"ids": added[MLBackendRegistry]},
             )
             await db.execute(
                 text("DELETE FROM ml_backend_registry WHERE id=ANY(:ids)"),
-                {"ids": added["ml_backend_registry"]},
+                {"ids": added[MLBackendRegistry]},
             )
             await db.execute(
-                text("DELETE FROM users WHERE id=ANY(:ids)"), {"ids": added["users"]}
+                text("DELETE FROM users WHERE id=ANY(:ids)"), {"ids": added[User]}
             )
+
+
+@pytest.fixture
+async def committed_owner(fixture_and_fenced_http, test_engine):
+    # Fixed seed namespaces remain serial-only even with exact keeper cleanup.
+    async with _committed_owner(test_engine, fixture_and_fenced_http) as db:
+        yield db

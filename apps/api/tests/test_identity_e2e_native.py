@@ -11,11 +11,14 @@ import subprocess
 import uuid
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import delete, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from aap_identity.e2e_fixture_contract import ACCOUNT_PROFILE_FIELDS
+from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.db.models.project import Project
+from app.db.models.user import User
 from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 from tests import seed_owned_scenarios as owned_cases
 from tests import seed_router_scenarios as seed_cases
@@ -23,6 +26,7 @@ from tests.identity_e2e_support import (
     ROOT,
     IDS,
     STAMP,
+    _committed_owner,
     accounts,
     snapshot,
     committed_owner as committed_owner,
@@ -83,6 +87,120 @@ async def test_owner_fixture_scenarios_with_fenced_identity_business_http(
     record_property(
         "identity_owner_fixture_fenced_business_case", "test_" + scenario.__name__
     )
+
+
+@pytest.mark.parametrize("case_error", [False, True], ids=["normal", "case-error"])
+async def test_committed_owner_cleans_only_its_committed_keepers(
+    test_engine, fixture_and_fenced_http, case_error
+):
+    """Existing, concurrent and rollback-reused identities are not owned."""
+    models = (User, Project, MLBackendRegistry)
+    all_ids = {model: set() for model in models}
+    suffix = uuid.uuid4().hex
+
+    async def make_rows(db, label, user_id=None):
+        user = User(
+            id=user_id,
+            email=f"{label}-{suffix}@example.com",
+            name=label,
+            password_hash="x",
+        )
+        db.add(user)
+        await db.flush()
+        all_ids[User].add(user.id)
+        project = Project(
+            display_id=f"P-{uuid.uuid4().hex[:16]}",
+            name=label,
+            type_label="image-det",
+            type_key="image-det",
+            owner_id=user.id,
+        )
+        backend = MLBackendRegistry(
+            name=label, url=f"http://{label}-{suffix}.test:9999"
+        )
+        db.add_all([project, backend])
+        await db.flush()
+        all_ids[Project].add(project.id)
+        all_ids[MLBackendRegistry].add(backend.id)
+        return {User: user.id, Project: project.id, MLBackendRegistry: backend.id}
+
+    class CaseError(Exception):
+        pass
+
+    try:
+        async with async_sessionmaker(test_engine, expire_on_commit=False)() as peer:
+            existing = await make_rows(peer, "existing")
+            await peer.commit()
+        owned = concurrent = uncommitted_id = None
+
+        async def run_case():
+            nonlocal owned, concurrent, uncommitted_id
+            async with _committed_owner(test_engine, fixture_and_fenced_http) as owner:
+                # Loading and modifying existing rows must not claim them.
+                for model, id_ in existing.items():
+                    row = await owner.get(model, id_)
+                    row.name = "updated"
+                owned = await make_rows(owner, "owned")
+                await owner.commit()
+
+                rolled_back = User(
+                    email=f"rolled-back-{suffix}@example.com",
+                    name="rolled back",
+                    password_hash="x",
+                )
+                owner.add(rolled_back)
+                await owner.flush()
+                rolled_back_id = rolled_back.id
+                await owner.rollback()
+
+                # This independent session commits after tracking started and
+                # reuses an ID whose owner-session insertion was rolled back.
+                async with async_sessionmaker(
+                    test_engine, expire_on_commit=False
+                )() as peer:
+                    concurrent = await make_rows(peer, "concurrent", rolled_back_id)
+                    await peer.commit()
+
+                uncommitted = User(
+                    email=f"uncommitted-{suffix}@example.com",
+                    name="uncommitted",
+                    password_hash="x",
+                )
+                owner.add(uncommitted)
+                await owner.flush()
+                uncommitted_id = uncommitted.id
+                all_ids[User].add(uncommitted_id)
+                if case_error:
+                    raise CaseError
+
+        if case_error:
+            # The same cleanup must run when a scenario raises.
+            with pytest.raises(CaseError):
+                await run_case()
+        else:
+            await run_case()
+        async with async_sessionmaker(test_engine)() as observer:
+            for model in models:
+                assert await observer.get(model, owned[model]) is None
+                assert (await observer.get(model, existing[model])).name == "updated"
+                assert await observer.get(model, concurrent[model]) is not None
+            assert await observer.get(User, uncommitted_id) is None
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
+            await db.execute(delete(Project).where(Project.id.in_(all_ids[Project])))
+            await db.execute(
+                text(
+                    "DELETE FROM ml_backend_service_pools WHERE legacy_instance_id=ANY(:ids)"
+                ),
+                {"ids": list(all_ids[MLBackendRegistry])},
+            )
+            await db.execute(
+                delete(MLBackendRegistry).where(
+                    MLBackendRegistry.id.in_(all_ids[MLBackendRegistry])
+                )
+            )
+            await db.execute(delete(User).where(User.id.in_(all_ids[User])))
 
 
 async def test_node_fixture_contract_and_borrowed_rollback(
