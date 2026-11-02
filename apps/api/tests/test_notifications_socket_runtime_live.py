@@ -455,6 +455,9 @@ async def test_cold_notifications_owner_behind_api_bridge(
                 admission_token=admission_token,
             )
             try:
+                # Seed setup leaves idle owner connections in the pool. Close
+                # them before the stack changes the PostgreSQL network.
+                await test_engine.dispose()
                 await stack.start()
                 evidence = stack.inspection_evidence
                 socket_evidence = evidence["notifications-socket"]
@@ -964,7 +967,11 @@ async def test_cold_notifications_owner_behind_api_bridge(
                     pass
                 raise
             finally:
-                await stack.stop()
+                try:
+                    await stack.stop()
+                finally:
+                    # Fixture teardown must not reuse sockets across detachment.
+                    await test_engine.dispose()
     finally:
         inbox.close()
         try:
