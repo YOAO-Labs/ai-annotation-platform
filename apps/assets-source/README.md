@@ -2,9 +2,10 @@
 
 `aap-assets-source` is the existing private Python control plane for source
 uploads, deletion, synchronous ZIP ingest, and legacy bucket scanning. Its
-public values live in the Pydantic-only `aap_assets_source`
-package; the server runs from `aap_assets_source_runtime`. The runtime uses
-asyncpg and boto3, and consumes the Pydantic-only `aap-assets-media` image
+public values live in `aap_assets_source`; importing them does not require
+the optional storage SDK. Managed-original I/O uses boto3/botocore from the
+server or importer extra. The server runs from `aap_assets_source_runtime`,
+uses asyncpg and boto3, and consumes the Pydantic-only `aap-assets-media` image
 contracts and policy. It does not import the API, SQLAlchemy, Celery, Redis,
 or ORM model packages.
 

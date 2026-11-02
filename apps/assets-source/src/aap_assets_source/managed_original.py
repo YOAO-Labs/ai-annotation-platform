@@ -18,8 +18,6 @@ import re
 import time
 from typing import Any, BinaryIO
 
-from botocore.exceptions import ClientError
-
 CHUNK_BYTES = 256 * 1024
 PART_BYTES = 8 * 1024 * 1024
 HEAD_BYTES = 256 * 1024
@@ -204,6 +202,8 @@ def abort_prepared(client: Any, bucket: str, key: str, prepared: Prepared) -> No
 
 
 def _start(client: Any, bucket: str, key: str, content_type: str) -> str:
+    from botocore.exceptions import ClientError
+
     try:
         response = client.create_multipart_upload(
             Bucket=bucket, Key=key, ContentType=content_type
@@ -223,7 +223,7 @@ def _start(client: Any, bucket: str, key: str, content_type: str) -> str:
         raise WriterError("creation_prepare_unknown", "unknown") from None
 
 
-def _error(exc: ClientError) -> tuple[str | None, int | None]:
+def _error(exc: Any) -> tuple[str | None, int | None]:
     response = exc.response if isinstance(exc.response, dict) else {}
     metadata, detail = response.get("ResponseMetadata"), response.get("Error")
     return (
@@ -232,12 +232,14 @@ def _error(exc: ClientError) -> tuple[str | None, int | None]:
     )
 
 
-def _denied(exc: ClientError) -> bool:
+def _denied(exc: Any) -> bool:
     code, status = _error(exc)
     return status in (401, 403) or code in ("AccessDenied", "403")
 
 
 def _part(call, **params: Any) -> dict:
+    from botocore.exceptions import ClientError
+
     try:
         response = call(**params)
         _status(response)
@@ -430,6 +432,8 @@ def _read(
 
 def _require_conditions(client: Any, params: dict) -> None:
     """Only an explicit, consistent precondition rejection qualifies the read."""
+    from botocore.exceptions import ClientError
+
     try:
         response = client.get_object(**{**params, "IfMatch": '"aap-impossible-etag"'})
     except ClientError as exc:
@@ -701,6 +705,8 @@ def complete(
     client: Any, bucket: str, key: str, prepared: Prepared, *, content_type: str
 ) -> WriteReceipt:
     """One attempt only. Never repeat completion or delete a possible final."""
+    from botocore.exceptions import ClientError
+
     _prepared(prepared, bucket, key)
     _content_type(content_type)
     try:
