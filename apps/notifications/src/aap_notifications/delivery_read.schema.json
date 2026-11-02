@@ -112,7 +112,8 @@
     "other_target_scope": "Python dict payload only; key presence restricts even when null",
     "owner": "active manager account owns project",
     "project_id_parser": "uuid.UUID(str(value))",
-    "super_admin": "active super-admin account and existing project"
+    "super_admin": "active super-admin account and existing project",
+    "private_migration": "active super-admin only; actual kind wins, retired job uses payload kind"
   },
   "x-policy-query-order": {
     "allowed_pair_reads": "four distinct ordered calls only for nonempty pairs",

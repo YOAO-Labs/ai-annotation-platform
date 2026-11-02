@@ -52,6 +52,7 @@ packages = ["src/aap_notifications"]
 "src/aap_notifications/sql/0321_notifications_terminal_append.sql" = "aap_notifications/sql/0321_notifications_terminal_append.sql"
 "src/aap_notifications/sql/0324_notifications_inbox_query.sql" = "aap_notifications/sql/0324_notifications_inbox_query.sql"
 "src/aap_notifications/sql/0325_notifications_delivery_read.sql" = "aap_notifications/sql/0325_notifications_delivery_read.sql"
+"src/aap_notifications/sql/0400_notification_job_scope.sql" = "aap_notifications/sql/0400_notification_job_scope.sql"
 "src/aap_notifications/preferences.schema.json" = "aap_notifications/preferences.schema.json"
 "src/aap_notifications/preferences.policy.json" = "aap_notifications/preferences.policy.json"
 "src/aap_notifications/append.schema.json" = "aap_notifications/append.schema.json"

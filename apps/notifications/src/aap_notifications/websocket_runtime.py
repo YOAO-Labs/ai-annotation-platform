@@ -165,8 +165,8 @@ def create_app(settings=None):
             token,
             authenticate=runtime["authenticate"],
             active_actor=runtime["active_actor"],
-            open_delivery=lambda: open_notification_socket_data(
-                runtime["postgres_pool"]
+            open_delivery=lambda principal: open_notification_socket_data(
+                runtime["postgres_pool"], principal
             ),
             redis_client=lambda: runtime["redis_client"],
             relay=run_pubsub_ws,

@@ -104,6 +104,9 @@ def notification_delivery_read_schema() -> dict[str, Any]:
                 "membership": "active current platform role, known project role, viewer pairing",
                 "owner": "active manager account owns project",
                 "super_admin": "active super-admin account and existing project",
+                "private_migration": (
+                    "active super-admin only; actual kind wins, retired job uses payload kind"
+                ),
             },
             "x-error-fallback": {
                 "after_scope_read_failure": (

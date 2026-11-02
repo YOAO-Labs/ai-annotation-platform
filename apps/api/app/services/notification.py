@@ -437,6 +437,32 @@ class NotificationService:
         )
         return await inbox.unread_count(user.id, user.role)
 
+    async def _unresolved_cached_job_ids(self, user_id: uuid.UUID) -> set[uuid.UUID]:
+        """Keep denied persisted job rows out of ORM bulk synchronization."""
+        session = getattr(self.db, "sync_session", self.db)
+        ids = set()
+        for row in session.identity_map.values():
+            if not isinstance(row, Notification):
+                continue
+            state = sa_inspect(row)
+            if state.identity is None:
+                continue
+            target = state.attrs.target_type
+            if (
+                "target_type" not in state.dict
+                or state.dict["target_type"] in {"async_job", "export"}
+                or any(
+                    value in {"async_job", "export"} for value in target.history.deleted
+                )
+            ):
+                ids.add(state.identity[0])
+        if not ids:
+            return set()
+        data = NotificationDeliveryReadPostgresData(self.db, Notification)
+        rows = await data.read_notification_facts(user_id, ids)
+        policy = NotificationDeliveryReadPolicy(data)
+        return {rows[index].id for index in await policy.unresolved_job_indices(rows)}
+
     async def mark_read(
         self,
         user_id: uuid.UUID,
@@ -452,10 +478,12 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).mark_read(user_id, notification_id, read_at)
+        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
         self._synchronize_read_state_identity(
             user_id,
             read_at,
             notification_id=notification_id,
+            excluded_job_ids=excluded_job_ids,
             include_migration_inventory=include_migration_inventory,
         )
         return result.updated
@@ -474,9 +502,11 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).mark_all_read(user_id, read_at)
+        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
         self._synchronize_read_state_identity(
             user_id,
             read_at,
+            excluded_job_ids=excluded_job_ids,
             include_migration_inventory=include_migration_inventory,
         )
         return result.updated
@@ -487,6 +517,7 @@ class NotificationService:
         read_at: datetime,
         *,
         notification_id: uuid.UUID | None = None,
+        excluded_job_ids: set[uuid.UUID],
         include_migration_inventory: bool = True,
     ) -> None:
         """Mirror SQLAlchemy's evaluate synchronization after the owner UPDATE.
@@ -504,6 +535,8 @@ class NotificationService:
         )
         if not include_migration_inventory:
             criteria.append(_without_migration_inventory())
+        if excluded_job_ids:
+            criteria.append(Notification.id.not_in(excluded_job_ids))
         statement = update(Notification).where(*criteria).values(read_at=read_at)
         mapper = sa_inspect(Notification)
         # shortcut: Uses pinned SQLAlchemy cache hooks; rebaseline on upgrades.
@@ -541,9 +574,11 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).delete_for_user(user_id, notification_id)
+        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
         self._synchronize_delete_identity(
             user_id,
             notification_id=notification_id,
+            excluded_job_ids=excluded_job_ids,
             include_migration_inventory=include_migration_inventory,
         )
         return result.deleted
@@ -561,9 +596,11 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).clear_read(user_id)
+        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
         self._synchronize_delete_identity(
             user_id,
             clear_read=True,
+            excluded_job_ids=excluded_job_ids,
             include_migration_inventory=include_migration_inventory,
         )
         return result.deleted
@@ -574,6 +611,7 @@ class NotificationService:
         *,
         notification_id: uuid.UUID | None = None,
         clear_read: bool = False,
+        excluded_job_ids: set[uuid.UUID],
         include_migration_inventory: bool = True,
     ) -> None:
         """Mirror SQLAlchemy's post-evaluate DELETE identity synchronization."""
@@ -591,6 +629,8 @@ class NotificationService:
             raise ValueError("delete cache synchronization needs an operation")
         if not include_migration_inventory:
             criteria.append(_without_migration_inventory())
+        if excluded_job_ids:
+            criteria.append(Notification.id.not_in(excluded_job_ids))
 
         # This ORM statement is only the pinned identity-map evaluator input;
         # the actual DELETE already ran through the Notifications owner.

@@ -228,7 +228,7 @@
     "sync": "Null authorization selects the notifications.sync control shape; open event type strings may also equal notifications.sync when authorization is present",
     "restricted": "member or owner or super_admin",
     "export": "reviewer or owner or super_admin",
-    "restricted_without_project": "denied",
+    "restricted_without_project": "active super_admin only for private migration jobs",
     "authorization": "trusted service caller snapshot, no owner DB reread",
     "message": "existing event/sync object preserved; native JSON payload values",
     "zero_subscribers": "Redis PUBLISH acceptance is success"

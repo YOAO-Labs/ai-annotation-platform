@@ -37,6 +37,7 @@ class _Data:
         self.reviewer_result = []
         self.owner_result = []
         self.super_result = []
+        self.global_super_result = set()
 
     async def job_scopes(self, job_ids):
         self.calls.append(("jobs", set(job_ids)))
@@ -61,6 +62,9 @@ class _Data:
     async def super_pairs(self, pairs):
         self.calls.append(("super", set(pairs)))
         return self.super_result
+
+    async def global_super_admins(self, users):
+        return self.global_super_result & users
 
 
 @pytest.mark.asyncio
@@ -170,6 +174,33 @@ async def test_actual_jobs_override_payload_and_unknown_or_missing_jobs_fail_clo
         )
     ]
     assert GLOBAL_ASYNC_JOB_KINDS == {"audit_archive", "dataset_import"}
+
+
+@pytest.mark.asyncio
+async def test_private_job_retirement_preserves_only_current_super_admin_delivery():
+    super_user, ordinary_user, other_id = [uuid.uuid4() for _ in range(3)]
+    retained_id, missing_id, unknown_id, allowed_id = [uuid.uuid4() for _ in range(4)]
+    rows = [
+        _row(user_id=super_user, target_type="async_job", target_id=retained_id),
+        _row(user_id=ordinary_user, target_type="async_job", target_id=retained_id),
+        _row(user_id=super_user, target_type="async_job", target_id=missing_id,
+             payload={"kind": "storage_migration_copy"}),
+        _row(user_id=super_user, target_type="async_job", target_id=unknown_id,
+             payload={"kind": "storage_migration_copy"}),
+        _row(user_id=ordinary_user, target_type="async_job", target_id=other_id),
+        _row(user_id=ordinary_user, target_type="async_job", target_id=allowed_id,
+             payload={"kind": "storage_migration_copy"}),
+    ]
+    data = _Data()
+    data.jobs = {
+        retained_id: (None, "storage_migration_inventory"),
+        unknown_id: (None, "future_job_kind"),
+        allowed_id: (None, "dataset_import"),
+    }
+    data.global_super_result = {super_user}
+    policy = NotificationDeliveryReadPolicy(data)
+    scopes = await policy.resolve_scopes(rows)
+    assert await policy.allowed_indices(rows, scopes) == {0, 2, 5}
 
 
 @pytest.mark.asyncio

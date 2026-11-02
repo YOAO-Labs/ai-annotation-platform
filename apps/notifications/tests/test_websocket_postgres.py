@@ -4,6 +4,7 @@ import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -120,7 +121,7 @@ async def test_found_notification_is_cached_for_the_second_delivery_read():
             notification_id=notification_id, user_id=actor_id, payload=[None, 7]
         )
     )
-    data = NotificationSocketPostgresData(connection)
+    data = NotificationSocketPostgresData(connection, SimpleNamespace(actor_id=actor_id))
 
     row = await data.notification_by_id(notification_id)
     assert row is not None
@@ -136,7 +137,9 @@ async def test_found_notification_is_cached_for_the_second_delivery_read():
 @pytest.mark.asyncio
 async def test_missing_notification_is_not_cached_between_retry_looks():
     connection = _Connection()
-    data = NotificationSocketPostgresData(connection)
+    data = NotificationSocketPostgresData(
+        connection, SimpleNamespace(actor_id=uuid.uuid4())
+    )
     notification_id = uuid.uuid4()
 
     assert await data.notification_by_id(notification_id) is None
@@ -156,7 +159,7 @@ async def test_scope_reads_use_native_jsonb_pairs_in_the_original_order():
         ),
         allowed_pairs=[pair],
     )
-    data = NotificationSocketPostgresData(connection)
+    data = NotificationSocketPostgresData(connection, SimpleNamespace(actor_id=actor_id))
 
     assert await data.notification_deliverable(notification_id, actor_id)
 
@@ -174,11 +177,55 @@ async def test_scope_reads_use_native_jsonb_pairs_in_the_original_order():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("role", "active", "expected"),
+    [
+        ("super_admin", True, True),
+        ("project_admin", True, False),
+        ("super_admin", False, False),
+    ],
+)
+async def test_retired_private_job_delivery_uses_current_principal(
+    role, active, expected
+):
+    actor_id, notification_id = uuid.uuid4(), uuid.uuid4()
+    connection = _Connection(
+        _notification(
+            notification_id=notification_id,
+            user_id=actor_id,
+            target_type="async_job",
+            payload={"kind": "storage_migration_inventory"},
+        )
+    )
+    principal = SimpleNamespace(actor_id=actor_id, role=role, is_active=active)
+    data = NotificationSocketPostgresData(connection, principal)
+    assert await data.notification_deliverable(notification_id, actor_id) is expected
+
+
+@pytest.mark.asyncio
+async def test_missing_unknown_job_is_not_delivered_even_to_super_admin():
+    actor_id, notification_id = uuid.uuid4(), uuid.uuid4()
+    connection = _Connection(
+        _notification(
+            notification_id=notification_id,
+            user_id=actor_id,
+            target_type="async_job",
+            payload={},
+        )
+    )
+    principal = SimpleNamespace(actor_id=actor_id, role="super_admin", is_active=True)
+    data = NotificationSocketPostgresData(connection, principal)
+    assert not await data.notification_deliverable(notification_id, actor_id)
+
+
+@pytest.mark.asyncio
 async def test_borrowed_connection_uses_read_committed_read_only_transaction():
     connection = _Connection()
     pool = _Pool(connection)
 
-    async with open_notification_socket_data(pool) as data:
+    async with open_notification_socket_data(
+        pool, SimpleNamespace(actor_id=uuid.uuid4())
+    ) as data:
         assert isinstance(data, NotificationSocketPostgresData)
 
     assert connection.transaction_options == {

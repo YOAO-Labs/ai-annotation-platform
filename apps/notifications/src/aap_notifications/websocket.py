@@ -60,7 +60,9 @@ class NotificationRedis(Protocol):
 
 Authenticate = Callable[[str], Awaitable[NotificationSocketPrincipal | None]]
 ActiveActor = Callable[[uuid.UUID], Awaitable[NotificationSocketActorStatus | None]]
-OpenDelivery = Callable[[], AbstractAsyncContextManager[NotificationSocketDelivery]]
+OpenDelivery = Callable[
+    [NotificationSocketPrincipal], AbstractAsyncContextManager[NotificationSocketDelivery]
+]
 Relay = Callable[..., Awaitable[None]]
 RedisClientFactory = Callable[[], NotificationRedis]
 
@@ -115,7 +117,7 @@ async def notification_message_allowed(
     except (TypeError, ValueError):
         return False
 
-    async with open_delivery() as delivery:
+    async with open_delivery(principal) as delivery:
         for attempt in range(_NOTIFICATION_GATE_ATTEMPTS):
             if await delivery.notification_by_id(notification_id) is not None:
                 if migration_inventory_visible:

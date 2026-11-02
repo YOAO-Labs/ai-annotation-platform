@@ -35,6 +35,18 @@ class NotificationDeliveryReadPostgresData:
         )
         return result.scalar_one_or_none()
 
+    async def read_notification_facts(self, user_id, notification_ids):
+        result = await self.session.execute(
+            text(
+                "SELECT n.id, n.user_id, n.target_type, n.target_id, n.payload "
+                "FROM pg_catalog.unnest(CAST(:ids AS pg_catalog.uuid[])) AS requested(id) "
+                "CROSS JOIN LATERAL aap_notifications_v1.read_notification(requested.id) AS n "
+                "WHERE n.user_id = CAST(:user_id AS pg_catalog.uuid)"
+            ),
+            {"ids": list(notification_ids), "user_id": user_id},
+        )
+        return result.all()
+
     async def find_terminal_notification(self, user_id, notification_type, target_id):
         return await self.session.scalar(
             select(

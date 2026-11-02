@@ -111,7 +111,7 @@ async def _notification_message_allowed(token: str, data) -> bool:
 
 
 @asynccontextmanager
-async def _open_notification_delivery():
+async def _open_notification_delivery(_principal):
     from app.db.base import async_session
     from app.services.notification import NotificationService
 

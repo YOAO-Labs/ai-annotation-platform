@@ -43,8 +43,9 @@ async def configure_notification_jsonb_codec(
 class NotificationSocketPostgresData:
     """Use fixed delivery-read functions on one borrowed connection."""
 
-    def __init__(self, connection: NotificationSocketConnection):
+    def __init__(self, connection: NotificationSocketConnection, principal):
         self.connection = connection
+        self.principal = principal
         self._found: dict[uuid.UUID, NotificationDeliveryReadFact] = {}
         self._policy = NotificationDeliveryReadPolicy(self)
 
@@ -115,15 +116,25 @@ class NotificationSocketPostgresData:
     async def super_pairs(self, pairs):
         return await self._pairs("delivery_super_pairs", pairs)
 
+    async def global_super_admins(self, user_ids: set[uuid.UUID]):
+        if (
+            self.principal.actor_id in user_ids
+            and self.principal.is_active
+            and self.principal.role == "super_admin"
+        ):
+            return {self.principal.actor_id}
+        return set()
+
 
 @asynccontextmanager
 async def open_notification_socket_data(
     pool: NotificationSocketPool,
+    principal,
 ) -> AsyncIterator[NotificationSocketPostgresData]:
     async with pool.acquire() as connection:
         transaction = connection.transaction(isolation="read_committed", readonly=True)
         await transaction.start()
         try:
-            yield NotificationSocketPostgresData(connection)
+            yield NotificationSocketPostgresData(connection, principal)
         finally:
             await transaction.rollback()

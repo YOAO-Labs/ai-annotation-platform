@@ -51,6 +51,10 @@ def test_publication_authorization_matches_membership_export_owner_policy():
     assert publication_allowed(_authorization(super_admin=True, export_required=True))
     assert not publication_allowed(_authorization(member=True, export_required=True))
     assert not publication_allowed(_authorization(project_id=None, member=True))
+    assert publication_allowed(_authorization(project_id=None, super_admin=True))
+    assert not publication_allowed(
+        _authorization(project_id=None, super_admin=True, export_required=True)
+    )
     assert publication_allowed(
         _authorization(restricted=False, project_id=None, export_required=True)
     )

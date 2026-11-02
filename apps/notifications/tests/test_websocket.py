@@ -108,7 +108,7 @@ async def test_message_gate_rejects_api_keys_before_identity_and_allows_sync():
         identity_calls.append(token)
         return _principal(actor_id)
 
-    def open_delivery():
+    def open_delivery(_principal):
         open_calls.append(True)
         raise AssertionError("sync and rejected API key must not open PostgreSQL")
 
@@ -142,7 +142,7 @@ async def test_message_gate_fails_closed_on_malformed_or_unidentifiable_frames(p
         identity_calls.append(token)
         return _principal(uuid.uuid4())
 
-    async def open_delivery():
+    async def open_delivery(_principal):
         raise AssertionError("invalid frame must not open PostgreSQL")
 
     assert not await notification_message_allowed(
@@ -163,7 +163,7 @@ async def test_message_gate_reauthenticates_and_reuses_found_row_for_delivery_ch
         return _principal(actor_id)
 
     @asynccontextmanager
-    async def open_delivery():
+    async def open_delivery(_principal):
         open_calls.append(True)
         yield delivery
 
@@ -187,7 +187,7 @@ async def test_missing_row_gets_four_looks_and_three_fixed_waits(monkeypatch):
         return _principal(actor_id)
 
     @asynccontextmanager
-    async def open_delivery():
+    async def open_delivery(_principal):
         yield delivery
 
     async def no_wait(delay):
@@ -214,7 +214,7 @@ async def test_first_notification_read_errors_propagate():
         return _principal(actor_id)
 
     @asynccontextmanager
-    async def open_delivery():
+    async def open_delivery(_principal):
         yield delivery
 
     with pytest.raises(RuntimeError) as raised:
@@ -242,7 +242,7 @@ async def test_handshake_rejects_api_key_or_inactive_actor_before_accept():
         calls.append(("status", user_id))
         return SimpleNamespace(is_active=False)
 
-    async def open_delivery():
+    async def open_delivery(_principal):
         raise AssertionError("rejected handshake must not open PostgreSQL")
 
     await serve_notification_socket(
@@ -285,7 +285,7 @@ async def test_active_actor_role_snapshot_is_not_compared_to_token_role():
         assert user_id == actor_id
         return SimpleNamespace(is_active=True, role="viewer")
 
-    async def open_delivery():
+    async def open_delivery(_principal):
         raise AssertionError("no frame needs a delivery read")
 
     async def relay(_websocket, _pubsub, *, allow_message):
@@ -324,7 +324,7 @@ async def test_socket_cleanup_closes_pubsub_after_errors(failure):
     async def active_actor(_actor_id):
         return SimpleNamespace(is_active=True)
 
-    async def open_delivery():
+    async def open_delivery(_principal):
         raise AssertionError("no per-message delivery check")
 
     async def no_stream(_websocket, _pubsub, *, allow_message):
@@ -356,7 +356,7 @@ async def test_socket_cleanup_closes_pubsub_when_subscribe_is_cancelled():
     async def active_actor(_actor_id):
         return SimpleNamespace(is_active=True)
 
-    async def open_delivery():
+    async def open_delivery(_principal):
         raise AssertionError("no per-message delivery check")
 
     with pytest.raises(asyncio.CancelledError):
@@ -388,7 +388,7 @@ async def test_socket_cleanup_preserves_cancellation_and_closes_pubsub(cancel_at
     async def active_actor(_actor_id):
         return SimpleNamespace(is_active=True)
 
-    async def open_delivery():
+    async def open_delivery(_principal):
         raise AssertionError("no per-message delivery check")
 
     async def relay(_websocket, _pubsub, *, allow_message):

@@ -77,7 +77,7 @@ def publication_allowed(authorization: PublicationAuthorization) -> bool:
     if not authorization.restricted:
         return True
     if authorization.project_id is None:
-        return False
+        return authorization.super_admin and not authorization.export_required
     if authorization.export_required:
         return (
             authorization.reviewer or authorization.owner or authorization.super_admin
@@ -282,7 +282,7 @@ def notification_publication_json_schema() -> dict[str, Any]:
             ),
             "restricted": "member or owner or super_admin",
             "export": "reviewer or owner or super_admin",
-            "restricted_without_project": "denied",
+            "restricted_without_project": "active super_admin only for private migration jobs",
             "authorization": "trusted service caller snapshot, no owner DB reread",
             "message": "existing event/sync object preserved; native JSON payload values",
             "zero_subscribers": "Redis PUBLISH acceptance is success",

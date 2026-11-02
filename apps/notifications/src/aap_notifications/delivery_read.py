@@ -95,7 +95,11 @@ class NotificationDeliveryReadPolicy:
                     restricted = True
                     export_required = True
                 else:
-                    restricted = job is None or job_project is not None
+                    restricted = (
+                        job is None
+                        or job_project is not None
+                        or job_kind not in GLOBAL_ASYNC_JOB_KINDS
+                    )
                     # The actual job kind wins; a retained private kind survives
                     # job-row retention through the payload fallback.
                     effective_kind = (
@@ -119,6 +123,18 @@ class NotificationDeliveryReadPolicy:
                 project_id = notification_project_id(row)
             scopes.append((restricted, project_id, export_required))
         return scopes
+
+    async def unresolved_job_indices(self, rows) -> set[int]:
+        """Identify job scope fences without applying project authorization."""
+        scopes = await self.resolve_scopes(rows)
+        return {
+            index
+            for index, (row, (restricted, project_id, _)) in enumerate(zip(rows, scopes))
+            if row.target_type in _ACTUAL_TARGET_TYPES
+            and restricted
+            and project_id is None
+            and not self._migration_inventory_rows.get(id(row), False)
+        }
 
     async def authorization_facts(
         self,
