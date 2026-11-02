@@ -67,3 +67,6 @@ pyrightconfig.json
 # 中间产物输出文件夹
 output/
 outputs/
+# >>> orca-dag planning artifacts (managed)
+.orca-dag/
+# <<< orca-dag planning artifacts (managed)
