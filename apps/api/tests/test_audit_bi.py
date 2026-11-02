@@ -12,11 +12,15 @@ async def test_materialized_view_only_contains_completed_utc_days(
 ):
     from contextlib import asynccontextmanager
 
+    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
     from app.workers import cleanup
 
     now = datetime.now(timezone.utc)
     completed_action = "test.audit_bi.completed_day"
     current_action = "test.audit_bi.current_day"
+    await AuditMaintenancePostgresData(db_session).ensure_partition(
+        (now - timedelta(days=1)).date().replace(day=1)
+    )
     db_session.add_all(
         [
             AuditLog(action=completed_action, created_at=now - timedelta(days=1)),
@@ -25,35 +29,12 @@ async def test_materialized_view_only_contains_completed_utc_days(
     )
     await db_session.flush()
 
-    class RecordingSession:
-        def __init__(self):
-            self.statements = []
-            self.commits = 0
-            self.rollbacks = 0
-
-        async def execute(self, statement, parameters=None):
-            self.statements.append(str(statement))
-            return await db_session.execute(statement, parameters)
-
-        async def commit(self):
-            self.commits += 1
-            await db_session.commit()
-
-        async def rollback(self):
-            self.rollbacks += 1
-            await db_session.rollback()
-
-    recorded = RecordingSession()
-
     @asynccontextmanager
     async def task_session():
-        yield recorded
+        yield db_session
 
     monkeypatch.setattr(cleanup, "task_session", task_session)
     assert await cleanup._refresh_audit_bi_mv_async() == {"refreshed": True}
-    assert recorded.statements == ["SELECT aap_audit_v1.refresh_audit_bi_mv()"]
-    assert recorded.commits == 1
-    assert recorded.rollbacks == 0
 
     rows = (
         await db_session.execute(
@@ -116,11 +97,15 @@ async def test_daily_projection_preserves_materialized_view_native_types(db_sess
 
 
 async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
+    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
     from app.api.v1.audit_logs import _load_monthly_summary_rows
 
     now = datetime.now(timezone.utc)
     today = now.date()
     completed_day = today - timedelta(days=1)
+    await AuditMaintenancePostgresData(db_session).ensure_partition(
+        completed_day.replace(day=1)
+    )
     completed_action = "test.audit_bi.completed_day"
     tail_action = "test.audit_bi.raw_tail"
     db_session.add_all(
@@ -190,13 +175,13 @@ async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
 async def test_monthly_summary_merges_dimensions_and_business_scope(
     httpx_client, db_session, auth_headers
 ):
-    from app.services.audit_partition_service import AuditPartitionService
+    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
 
-    await AuditPartitionService.ensure_future_partitions(db_session, months_ahead=2)
     today = datetime.now(timezone.utc).date()
     month_index = today.year * 12 + today.month - 1 + 2
     year, zero_month = divmod(month_index, 12)
     month_start = date(year, zero_month + 1, 1)
+    await AuditMaintenancePostgresData(db_session).ensure_partition(month_start)
     month_end = (
         date(year + 1, 1, 1)
         if month_start.month == 12

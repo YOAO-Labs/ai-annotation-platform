@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import event, select, text
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from aap_audit.append_contract import AppendEvent, AppendRequest
+from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
 from aap_audit.postgres import AuditAppendPostgresData
 from aap_audit.query_contract import (
     AuditQueryAfter,
@@ -126,8 +127,10 @@ async def test_owner_query_time_bounds_match_legacy_asyncpg_binding(test_engine)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     target_type = "audit_query_time_parity"
     target_id = str(uuid4())
-    lower = datetime.fromisoformat("2026-10-20T12:00:00+00:00")
-    upper = datetime.fromisoformat("2026-10-20T13:00:00+00:00")
+    lower = datetime.now(timezone.utc).replace(
+        day=20, hour=12, minute=0, second=0, microsecond=0
+    )
+    upper = lower.replace(hour=13)
     rows = [
         ("audit.query.time.before", lower.replace(hour=11)),
         ("audit.query.time.lower", lower),
@@ -242,6 +245,9 @@ async def test_owner_query_time_bounds_match_legacy_asyncpg_binding(test_engine)
             for action, created_at in rows
         ]
         async with session_factory() as db:
+            await AuditMaintenancePostgresData(db).ensure_partition(
+                lower.date().replace(day=1)
+            )
             db.add_all(entries)
             await db.flush()
             expected_ids = [str(entry.id) for entry in (entries[2], entries[1])]
