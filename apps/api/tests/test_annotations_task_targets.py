@@ -1,6 +1,6 @@
 """Standalone Task owners pin A/B addresses without changing frozen evidence."""
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from types import SimpleNamespace
 import uuid
@@ -196,8 +196,7 @@ async def test_saved_reference_is_separately_immutable_and_part_of_idempotency(
 
 @pytest.mark.parametrize("fallback", ["url", "image"])
 def test_rooted_standalone_bypass_refuses_before_physical_client(monkeypatch, fallback):
-    from app.services import storage
-    from app.workers import tasks
+    from app.services import prediction_context, storage
 
     task = SimpleNamespace(
         id=uuid.uuid4(), original_id=uuid.uuid4(), dataset_item_id=None
@@ -213,10 +212,13 @@ def test_rooted_standalone_bypass_refuses_before_physical_client(monkeypatch, fa
 
     monkeypatch.setattr(storage, "StorageService", forbidden)
     monkeypatch.setattr(storage.storage_service, "generate_download_url", forbidden)
+    operation = (
+        storage.resolve_task_url
+        if fallback == "url"
+        else prediction_context.load_task_image
+    )
     with pytest.raises(ContentError, match="location_unavailable"):
-        (storage.resolve_task_url if fallback == "url" else tasks._load_task_image)(
-            task
-        )
+        operation(task)
 
 
 def test_legacy_a_task_fallback_keeps_existing_signed_key(monkeypatch):
@@ -241,7 +243,7 @@ def test_legacy_a_task_fallback_keeps_existing_signed_key(monkeypatch):
 async def test_reachable_non_image_secondary_fallback_cannot_read_rooted_task(
     monkeypatch,
 ):
-    from app.services import secondary_inference, storage
+    from app.services import prediction_inputs, secondary_inference, storage
 
     task = SimpleNamespace(
         id=uuid.uuid4(),
@@ -253,11 +255,12 @@ async def test_reachable_non_image_secondary_fallback_cannot_read_rooted_task(
     task.file_path = annotations_storage.managed_prefix(
         "owned"
     ) + task_originals.key_for(task.id, task.original_id)
-    monkeypatch.setattr(
-        secondary_inference,
-        "prepare_secondary_request",
-        lambda *args, **kwargs: ({}, {}),
-    )
+
+    @asynccontextmanager
+    async def input_owner(*args, **kwargs):
+        yield None
+
+    monkeypatch.setattr(prediction_inputs, "prediction_inputs", input_owner)
 
     def forbidden(*args, **kwargs):
         pytest.fail(
@@ -266,7 +269,7 @@ async def test_reachable_non_image_secondary_fallback_cannot_read_rooted_task(
 
     monkeypatch.setattr(storage, "StorageService", forbidden)
     with pytest.raises(ContentError, match="location_unavailable"):
-        await secondary_inference._run_secondary_inference(
+        await secondary_inference.run_secondary_inference(
             None,
             annotation=None,
             task=task,
@@ -280,6 +283,7 @@ async def test_reachable_non_image_secondary_fallback_cannot_read_rooted_task(
             task_type=None,
             prompt=None,
             class_filter=None,
+            input_session_factory=object(),
+            prepared_request=({}, {}),
             pad=0.08,
-            user_id=uuid.uuid4(),
         )

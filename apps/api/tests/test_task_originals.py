@@ -30,7 +30,13 @@ from tests.managed_original_client_support import Client, stage_client
 
 
 def migration(connection, number):
-    path = next((Path(__file__).parents[1] / "alembic/versions").glob(number + "_*.py"))
+    filename = {
+        "0219": "0219_managed_original_creations.py",
+        "0230": "0230_managed_original_task_scope.py",
+        "0231": "0231_task_originals.py",
+        "0253": "0253_annotations_storage_targets.py",
+    }[number]
+    path = Path(__file__).parents[1] / "alembic/versions" / filename
     spec = importlib.util.spec_from_file_location(
         "original_migration_" + uuid.uuid4().hex, path
     )
