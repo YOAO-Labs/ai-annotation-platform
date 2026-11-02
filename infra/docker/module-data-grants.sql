@@ -1817,6 +1817,8 @@ ALTER FUNCTION aap_identity_v1.read_actor_context(uuid, text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1._initialize_account_presence()
     OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1._initialize_account_preferences()
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_accounts_share(uuid[], boolean)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_accounts_update(uuid[], boolean)

@@ -54,20 +54,16 @@ async def test_changed_preferences_coexist_with_authority_but_fence_security(
                     {"ids": [actor_id]},
                 )
                 assert account["accounts"][0]["id"] == str(actor_id)
-                async with maker() as security_writer:
-                    await security_writer.execute(
-                        text("SET LOCAL lock_timeout='100ms'")
-                    )
-                    with pytest.raises(DBAPIError) as blocked:
-                        await security_writer.execute(
-                            text(
-                                "UPDATE public.users SET is_active=false WHERE id=:id"
-                            ),
-                            {"id": actor_id},
-                        )
-                    assert blocked.value.orig.sqlstate == "55P03"
-                    await security_writer.rollback()
                 await reader.rollback()
+            async with maker() as security_writer:
+                await security_writer.execute(text("SET LOCAL lock_timeout='100ms'"))
+                with pytest.raises(DBAPIError) as blocked:
+                    await security_writer.execute(
+                        text("UPDATE public.users SET is_active=false WHERE id=:id"),
+                        {"id": actor_id},
+                    )
+                assert blocked.value.orig.sqlstate == "55P03"
+                await security_writer.rollback()
             await writer.commit()
         async with maker.begin() as reader:
             current = await _prepare(

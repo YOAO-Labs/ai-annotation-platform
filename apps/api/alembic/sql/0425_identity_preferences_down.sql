@@ -2,6 +2,18 @@ LOCK TABLE public.users IN ACCESS EXCLUSIVE MODE;
 -- aap-statement-break
 ALTER TABLE public.users ADD COLUMN preferences jsonb NOT NULL DEFAULT '{}'::jsonb;
 -- aap-statement-break
+DO $owner$
+DECLARE owner_name name;
+BEGIN
+    SELECT pg_catalog.pg_get_userbyid(proowner) INTO STRICT owner_name
+    FROM pg_catalog.pg_proc
+    WHERE oid = 'aap_identity_accounts_v1._lock_current_actor(jsonb,text,text)'::regprocedure;
+    EXECUTE pg_catalog.format(
+        'GRANT SELECT (preferences), UPDATE (preferences), INSERT (preferences) ON public.users TO %I', owner_name
+    );
+END;
+$owner$;
+-- aap-statement-break
 UPDATE public.users AS account SET preferences = prefs.preferences FROM public.identity_account_preferences AS prefs WHERE prefs.user_id = account.id;
 -- aap-statement-break
 CREATE OR REPLACE VIEW aap_identity_fixture_v1.account_profiles
