@@ -7,7 +7,7 @@ import { CopyableError } from "@/components/ui/CopyableError";
  * v0.9.12 · BUG B-16 加 checkbox 多选 + 底部浮窗 + 批量重激活/删除 prediction.
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -140,8 +140,11 @@ export function HistoryTable({ items, isLoading }: Props) {
   };
 
   const clearSelection = () => setSelectedIds(new Set());
+  const confirmTriggerRef = useRef<HTMLElement | null>(null);
 
   const openConfirm = (mode: BulkClearMode) => {
+    confirmTriggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setConfirmMode(mode);
     setReasonInput("");
     setBulkResult(null);
@@ -391,6 +394,7 @@ export function HistoryTable({ items, isLoading }: Props) {
         }}
         title={confirmMode === "reset_to_draft" ? "批量重置为草稿" : "批量清空预测"}
         width={520}
+        returnFocusRef={confirmTriggerRef}
       >
         {bulkResult ? (
           <BulkResultView result={bulkResult} onClose={closeConfirm} />
@@ -457,6 +461,7 @@ function BulkConfirmForm(props: {
   isPending: boolean;
   error: string | null;
 }) {
+  const reasonId = useId();
   const isDestructive = props.mode === "reset_to_draft";
   const tooShort = props.reason.trim().length < 10;
   return (
@@ -488,15 +493,23 @@ function BulkConfirmForm(props: {
           </>
         )}
       </ul>
-      <label className={styles.field}>
-        <span className={styles.fieldLabel}>原因（至少 10 字，写入审计日志）</span>
+      <label className={styles.field} htmlFor={reasonId}>
+        <span id={`${reasonId}-label`} className={styles.fieldLabel}>
+          原因
+        </span>
         <textarea
+          id={reasonId}
+          aria-labelledby={`${reasonId}-label`}
+          aria-describedby={`${reasonId}-hint`}
           value={props.reason}
           onChange={(e) => props.onReasonChange(e.target.value)}
           rows={3}
           placeholder="例：批次配置错误，需要重新跑一次预标"
           className={styles.textarea}
         />
+        <span id={`${reasonId}-hint`} className="text-xs text-muted-foreground leading-relaxed">
+          至少 10 字，将写入审计日志。
+        </span>
       </label>
       {props.error && (
         <div className={styles.errorText}>

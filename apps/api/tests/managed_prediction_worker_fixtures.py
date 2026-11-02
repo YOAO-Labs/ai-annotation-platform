@@ -60,8 +60,8 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
     async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
         await ensure_legacy_bindings(db)
         await db.commit()
-    # Audit writes belong to the disposable input schema. Dropping that schema
-    # avoids mutating immutable public audit history when fixture users close.
+    # Legacy ORM audit fixtures use this private table. Native audited API
+    # scenarios need an owned database; public audit history stays immutable.
     async with world.factory() as db:
         schema = await db.scalar(text("SELECT current_schema()"))
         assert schema.startswith("prediction_inputs_")

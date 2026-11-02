@@ -4,7 +4,7 @@
  * 下拉选已存预设一键套用 + "存为预设"(内联输入名) + 删除当前选中预设.
  * 预设的存取由 useAiParamPresets (localStorage, 按 backend×task 分桶) 负责; 本组件只管 UI.
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import type { AiParamPreset } from "../utils/useAiParamPresets";
 import styles from "./ProjectDetailPanel.module.css";
@@ -21,6 +21,7 @@ interface Props {
 }
 
 export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Props) {
+  const selectId = useId();
   const [selectedId, setSelectedId] = useState<string>("");
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
@@ -37,9 +38,13 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
 
   return (
     <div className={styles.field}>
-      <span className={styles.fieldLabel}>参数预设</span>
+      <label className={styles.fieldLabel} htmlFor={selectId}>
+        参数预设
+      </label>
       <div className={styles.presetRow}>
         <select
+          id={selectId}
+          aria-describedby={`${selectId}-hint`}
           className={styles.presetSelect}
           value={selected?.id ?? ""}
           disabled={disabled || presets.length === 0}
@@ -122,7 +127,9 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
           </>
         )}
       </div>
-      <span className={styles.mutedText}>包含模型变体和参数，按模型服务与任务保存。</span>
+      <span id={`${selectId}-hint`} className={styles.mutedText}>
+        包含模型变体和参数，按模型服务与任务保存。
+      </span>
     </div>
   );
 }

@@ -458,7 +458,7 @@ async def _infer(execution, attempt, prepared, session_factory):
                 extra["execution_snapshot"] = {
                     "id": str(snapshot_id),
                     "digest": snapshot_digest,
-                    "stages": thaw_json(execution_summary(stages)),
+                    "stages": [thaw_json(stage) for stage in execution_summary(stages)],
                 }
             if accepted_input_facts is not None:
                 extra["accepted_input"] = {
@@ -645,11 +645,9 @@ async def _apply_snapshot(execution, attempt, data, session_factory, result, req
                 execution.ensure_owned()
                 _job, payload = await _revalidate_retry_job(db, attempt)
                 writes, owner, task_id = await _attach_input_receipts(
-                    db, attempt, payload, session_factory, requests
+                    db, attempt, payload, session_factory, deepcopy(requests)
                 )
-                await PredictionService(db).apply_prediction_result_bundle(
-                    deepcopy(writes)
-                )
+                await PredictionService(db).apply_prediction_result_bundle(writes)
                 if owner is not None and payload.get("video_prediction_authority"):
                     # The video owner's credentials outlive inference; recheck
                     # them in the transaction that publishes the result.

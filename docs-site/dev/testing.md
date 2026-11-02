@@ -108,6 +108,16 @@ RLE 清理仍拒绝删除带有未归属 publication 的对象，拒绝时整次
 
 托管原件的 `error`、`response`、`Body`、`MemoryS3`、`check_error` 位于 `managed_original_provider_support.py`，`Client`、`stage_client` 位于 `managed_original_client_support.py`。调用者直接导入支持模块，协议替身不依赖可收集的测试模块；历史迁移／创建场景夹具保留原所有权。受控提供方验证精确版本读回、当前版本漂移拒绝、条件写冲突及句柄关闭，不等于真实 S3 验收。
 
+当前托管原件 publication 使用真实 `public` owner 及参与者、项目、素材事实；`current_original_db` 在有建库权限的一次性测试环境中按用例创建、迁移并精确回收数据库。它不复用为历史迁移准备的复制 schema，也不会把普通业务连接切换为 owner。历史迁移夹具继续归其既有消费者，选择迁移时使用确切文件名，避免编号相同但职责不同的迁移被误选。
+
+预测提交与重试场景使用 `ApplyPredictionResultRequest`、持久 execution snapshot、当前重试 ledger 和分帧 dispatcher。任务来源经数据库触发器变更后先刷新再捕获写入范围；受控模型输出仍需通过训练模型类别／来源校验。写入事务中的原件收据不得深拷贝或保存到快照，结果载荷的隔离复制应在附加收据之前完成。worker 夹具通过 Jobs 的精确项目清理能力回收本 world 作业，不恢复旧私表写入或已移除的内部入口。
+
+会提交真实审计事件的预标 API 场景使用独立数据库夹具，审计记录随该库整体退役；不关闭不可变审计触发器，也不删除公共审计以迁就普通 ORM 清理。提交边界测试从公开 `run_preannotation` 进入持久执行流程，不再直调缺少 execution owner 的内部执行函数；完成／部分失败注入放在实际结果 owner 的事务边界，保留 PostgreSQL 锁竞争和候选原子性断言。
+
+提交边界夹具通过真实 owner 固定规范排序的选择值，捕获、准备并封存输入清单；只替换物理字节读写和模型响应，不替换来源权限、成员账本或候选写入证明。SQL 写入失败先独立观察旧候选与两类标注保留，再重放同一准备结果并断言不重新推理。多候选原子性在合法管线输出边界注入，不给单 Task 模型响应伪造重复 Task 记录。
+
+稳定候选 ID／时间及失败 ID 由 Native writer 与提交／重试集成场景覆盖，不用假 Session 回显证明实际持久化。纯编码器测试保留轨迹身份与重映射行为；丢提交确认测试核对实际候选写入次数、提交尝试及回执恢复，不固定内部调用顺序或转发参数。已开始的持久执行应先经正常工作流结束，再由 fixture 精确回收；不能只修改 Job 状态来绕过结果租约或删除守卫。
+
 合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
 
 ---

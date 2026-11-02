@@ -51,10 +51,13 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> bool:
                 # lease owner. Only the fenced workflow may terminalize a bound
                 # Job, including a rejected delivery before its first claim.
                 return False
-            await async_job_svc.mark_failed(db, job.id, error=error_message)
+            if (job.payload or {}).get("cancel_requested"):
+                await async_job_svc.mark_cancelled(db, job.id)
+            else:
+                await async_job_svc.mark_failed(db, job.id, error=error_message)
             await notify_job_terminal(db, job_id=job.id)
             await db.commit()
-            return True
+            return job.status == "failed"
     finally:
         await engine.dispose()
 

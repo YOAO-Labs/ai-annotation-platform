@@ -107,6 +107,27 @@ describe("HistoryTable v0.9.12 多选", () => {
     expect(screen.getByRole("button", { name: "确认" })).toBeDisabled();
   });
 
+  it.each(["cancel", "escape"])("关闭确认框后恢复触发按钮焦点：%s", async (dismissal) => {
+    renderUI([makeItem()]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /选择/ }));
+    const trigger = screen.getByRole("button", { name: /批量重激活/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    if (dismissal === "cancel") {
+      fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    } else {
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    }
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    });
+    expect(mockBulkClear).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: /选择/ })).toBeChecked();
+  });
+
   it("部分失败时弹结果视图保留 modal 展示 failed 详情", async () => {
     mockBulkClear.mockResolvedValueOnce({
       succeeded: ["b1"],

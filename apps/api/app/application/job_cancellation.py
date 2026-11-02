@@ -290,6 +290,15 @@ class SqlJobCancellation(JobCancellationPort):
                     ) from exc
                 return "cancelled"
 
+            if job.kind == "batch_predict":
+                job = await db.scalar(
+                    job_lock_statement(job.id, mode="update", populate_existing=True)
+                )
+                if job is None or job.status not in {"pending", "running"}:
+                    raise HTTPException(
+                        409, detail="prediction is no longer cancellable"
+                    )
+
             if job.kind in _REVOKE_KINDS and job.celery_task_id:
                 try:
                     self._execution_control.request_cancel(job.celery_task_id)
@@ -313,6 +322,8 @@ class SqlJobCancellation(JobCancellationPort):
                 )
 
             if job.kind in {"batch_predict", "point_cloud_cross_frame"}:
+                if job.kind == "batch_predict" or not pending:
+                    await jobs.request_cancel(db, job.id)
                 if pending:
                     result = (
                         prediction.cancelled_batch_result(job.payload or {})
@@ -322,7 +333,6 @@ class SqlJobCancellation(JobCancellationPort):
                     await jobs.mark_cancelled(db, job.id, result=result)
                     await notify_job_terminal(db, job_id=job.id)
                     return "cancelled"
-                await jobs.request_cancel(db, job.id)
                 return "cancel_requested"
 
             await jobs.mark_cancelled(db, job.id)

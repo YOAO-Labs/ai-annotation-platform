@@ -1311,6 +1311,18 @@ async def run_preannotation(
                 )
 
                 if isinstance(exc, PreannotationResultDeferred):
+                    if str(exc) == "lease_lost":
+                        async with session_factory() as db:
+                            current = await jobs.get_job(
+                                db,
+                                batch_results.scope["job_id"],
+                                populate_existing=True,
+                            )
+                            if current is not None and current.status not in {
+                                "pending",
+                                "running",
+                            }:
+                                return
                     raise
                 if (
                     isinstance(exc, SQLAlchemyError)
@@ -2394,6 +2406,8 @@ async def _execute_preannotation(
             await async_job_svc.mark_running(
                 db, locked_job.id, celery_task_id=celery_task_id
             )
+            # Source guards may refresh this Job while checking the overwrite scope.
+            await db.flush()
             if predict_mode == "overwrite" and tasks:
                 from app.services.batch import BatchService
                 from app.services.labeling_write_guard import lock_labeling_write
@@ -2455,7 +2469,13 @@ async def _execute_preannotation(
             )
             await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
         else:
-            aj = precreated_job
+            aj = await db.scalar(
+                job_lock_statement(
+                    precreated_job.id, mode="update", populate_existing=True
+                )
+            )
+            if aj is None or aj.status not in {"pending", "running"}:
+                return
             await async_job_svc.update_payload(db, aj.id, job_payload)
         prepared_frame_dispatch = None
         if execution_unit == "frame" and video_task_plans:
@@ -2920,6 +2940,9 @@ async def _execute_preannotation(
                 )
                 return {
                     "ml_backend_id": str(executed_backend_id),
+                    "execution_snapshot_id": (
+                        str(execution_snapshot_id) if execution_snapshot_id else None
+                    ),
                     "ml_backend_pool_id": (
                         str(executed_pool_id) if executed_pool_id is not None else None
                     ),
@@ -2993,6 +3016,8 @@ async def _execute_preannotation(
                     execution_snapshot_id=execution_snapshot_id,
                 )
                 results, pipeline_extra, stage_stats = _plain_pipeline_output(output)
+                if not results:
+                    raise ValueError("Model returned no result for the selected task")
                 if input_metadata is not None:
                     pipeline_extra = {
                         **(pipeline_extra or {}),
@@ -3036,6 +3061,10 @@ async def _execute_preannotation(
                 return requests, {
                     "task_id": str(task_id),
                     **durable_failure_facts(frozen_member, ordinal, task_id, output),
+                    "pipeline_partial": (
+                        (pipeline_extra or {}).get("pipeline", {}).get("partial")
+                        is True
+                    ),
                     "pipeline_stages": {
                         str(key): value for key, value in (stage_stats or {}).items()
                     },
@@ -3056,6 +3085,11 @@ async def _execute_preannotation(
                         "execution_scope": execution_scope,
                         "execution_unit": execution_unit,
                         "task": visual_task,
+                        **(
+                            {"pipeline": pipeline_extra["pipeline"]}
+                            if pipeline_extra and "pipeline" in pipeline_extra
+                            else {}
+                        ),
                         **(
                             {"request_context": retry_request_context}
                             if retry_request_context is not None

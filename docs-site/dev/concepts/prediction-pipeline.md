@@ -27,13 +27,13 @@ HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction
   caption="作业五态；图中 worker 建档分支适用于旧单阶段请求，预建请求的排队期为持久化 pending"
 />
 
-| 状态        | 何时进入                                                                                 | 关键字段                                                                           |
-| ----------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `pending`   | API 预建作业并先提交再派发；旧单阶段请求由 worker 建档后瞬时进入                         | `created_at`, `payload.prompt`, `payload.ml_backend_id`, `payload.execution_scope` |
-| `running`   | worker 认领预建作业或建档后提交，开始实际执行                                            | `started_at`, `celery_task_id`, `progress_pct`                                     |
-| `completed` | 无可处理 task，或至少一题成功；可同时有 `failed_count > 0`                               | `completed_at`, `result.success_count`, `result.failed_count`                      |
-| `failed`    | 未认领时派发失败、全部子项失败，或 worker 根任务未捕获异常 / 失败 signal                 | `completed_at`, `error_message`                                                    |
-| `cancelled` | pending 可直接取消；运行中先记 `payload.cancel_requested`，worker 在下一处理边界协作收敛 | `completed_at`, `result.cancelled_at_index`                                        |
+| 状态        | 何时进入                                                                                 | 关键字段                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `pending`   | API 预建作业并先提交再派发；旧单阶段请求由 worker 建档后瞬时进入                         | `created_at`, `payload.prompt`, `payload.ml_backend_id`, `payload.execution_scope`   |
+| `running`   | worker 认领预建作业或建档后提交，开始实际执行                                            | `started_at`, `celery_task_id`, `progress_pct`                                       |
+| `completed` | 无可处理 task，或至少一题成功；可同时有 `failed_count > 0`                               | `completed_at`, `result.success_count`, `result.failed_count`                        |
+| `failed`    | 未认领时派发失败、全部子项失败，或 worker 根任务未捕获异常 / 失败 signal                 | `completed_at`, `error_message`                                                      |
+| `cancelled` | pending 可直接取消；运行中先记 `payload.cancel_requested`，worker 在下一处理边界协作收敛 | `completed_at`、已提交成功／失败／跳过计数；持久批量另带 `result.batch_result_scope` |
 
 `cancel_requested` 是 `running` 上的 payload 标记，不是第六个状态。调用 `revoke(terminate=False)` 也不会让已运行 worker 立即跳到 `cancelled`。单题 backend 5xx / timeout 通常会被记为 `FailedPrediction`；只有全部失败才让根 job 进入 `failed`。
 
@@ -49,7 +49,7 @@ HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction
 
 HTTP 入口对普通批量、Data Manager、工作台和受控模型请求统一先提交 `AsyncJob`，再把该 UUID 作为 Celery 执行 ID。返回的 `job_id` 可在 worker 启动前直接查询；派发异常仅将仍为 pending 的行原子地转为 failed。broker 可能已接收消息但丢失确认，已认领或已结束作业的状态因此由执行侧保留。幂等重放沿用原作业，没有幂等键的新请求创建新作业。内部旧 Celery 调用仍可省略预建 ID，由应用建立作业；它不是当前 HTTP 受理合同。其它模态保留各自的建档规则；前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
 
-项目级与批次级受理都会记录当时待处理数量提示，`skip_predicted` 排除已有预测。pending 取消使用该提示统计跳过数；该数量并不冻结任务成员，执行时仍按既有范围规则选择任务。
+项目级与批次级受理都会记录当时待处理数量提示，`skip_predicted` 排除已有预测。普通图片在受理事务中固定输入清单成员，排队后新增任务不进入原作业；计数提示不能代替该清单的选择摘要、成员身份或最终结算。其它模态继续遵循各自的范围与取消协议。
 
 ### 托管图片与混合输入
 
@@ -142,9 +142,9 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 普通 `batch_predict` 在开始推理前冻结完整处理成员和原始 `LabelingWriteScope`。Jobs 持有工作进程、代次、令牌和到期时间，以及覆盖清理、游标、费用与阶段统计；Labeling 持有分块原始结果、规范化后的准备结果和稳定 Prediction ID／创建时间。原始结果字节完整后，Mask 字节生成、引用登记和最终写入均可继续重试，不能因短暂竞争把它改记为失败。
 
-最终写入继续经过当前账号／项目／Task／来源／编辑锁／Job 准入。Prediction、Meta、精确回执、快照和根释放及成员进度共用一次提交；提交确认丢失时读取回执，不再创建候选或失败行。正常写入每轮三次快速重试，仍忙则延后同一 Celery 消息；late ack 和 worker-loss redelivery 从已存原始或准备结果恢复，不重新选择任务、清理覆盖或调用模型。尚未完整存下原始字节的计算不提供一次执行保证。
+最终写入继续经过当前账号／项目／Task／来源／编辑锁／Job 准入。图片旧候选与已采纳 AI 标注在准备结果可写时才替换，和 Prediction、Meta、精确回执、快照和根释放及成员进度共用一次提交；手工标注保留。多阶段部分失败要求失败行绑定原执行快照和确切候选 ID，保存可用候选但计入失败。提交确认丢失时读取回执，不再创建候选或失败行。正常写入每轮三次快速重试，仍忙则延后同一 Celery 消息；late ack 和 worker-loss redelivery 从已存原始或准备结果恢复，不重新选择任务、清理覆盖或调用模型。尚未完整存下原始字节的计算不提供一次执行保证。
 
-原始／准备结果按单个模型响应保存，512 KiB 分块和 2 MiB 请求／响应只限制传输，不限制整题结果总量。待保存的 Mask 引用同时被当前内嵌 collector 和 native 根表保护。协作取消阻止下一成员，当前已开始成员可先完成；真实终态拒绝新写入。失败预测重试复用这份结果账本，并增加独立准入和派发协议；逐帧和场景路径继续持有各自协议。完整契约与受限执行角色见[同库数据接口](/api/guides/module-data#普通批量结果检查点)。
+原始／准备结果按单个模型响应保存，512 KiB 分块和 2 MiB 请求／响应只限制传输，不限制整题结果总量。待保存的 Mask 引用同时被当前内嵌 collector 和 native 根表保护。图片取消与候选提交共用作业行锁：取消先提交则拒绝在途结果，候选事务先持锁则保留该题，随后登记尚未开始成员的跳过状态；真实终态拒绝新写入。失败预测重试复用这份结果账本，并增加独立准入和派发协议；逐帧和场景路径继续持有各自协议。完整契约与受限执行角色见[同库数据接口](/api/guides/module-data#普通批量结果检查点)。
 
 ## WebSocket 通道
 
@@ -158,7 +158,7 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 ## 失败兜底（B-1 教训）
 
-`_BatchPredictTask.on_failure` 尽力推送未捕获异常；只有尚未绑定持久执行摘要的旧调用才按 `celery_task_id` 反查并置失败。普通批量的终态由持有当前原生租约的工作流写入，broker task ID 不能代替执行权证明。存储或回执不确定时保留检查点并延后；当前没有覆盖全部作业类型的 stale-job watchdog，逐帧 callback 等独立路径仍按自身恢复协议处理。
+`_BatchPredictTask.on_failure` 尽力推送未捕获异常；只有尚未绑定持久执行摘要的旧调用才按 `celery_task_id` 反查并置失败，已有取消意图则按取消收尾。普通批量的终态由持有当前原生租约的工作流写入，broker task ID 不能代替执行权证明。存储或回执不确定时保留检查点并延后；当前没有覆盖全部作业类型的 stale-job watchdog，逐帧 callback 等独立路径仍按自身恢复协议处理。
 
 详见 [Docker rebuild vs restart](../troubleshooting/docker-rebuild-vs-restart)。
 

@@ -6,14 +6,20 @@ scope change; worker rollback must not undo either operation.
 """
 
 import asyncio
+import hashlib
 from types import SimpleNamespace
 import uuid
+from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
 import pytest
 from sqlalchemy import func, select, text
-from starlette.requests import Request
 
+from aap_assets_images.contract import ObjectIdentity
+from aap_assets_images_runtime.storage import S3ImageStorage
+from aap_assets_input_manifests import contract as manifests
+from aap_assets_inputs import contract as inputs
+from aap_assets_inputs_runtime.storage import S3InputStorage
 from app.api.v1.async_jobs import cancel_async_job
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
@@ -24,17 +30,19 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
+from app.deps import get_job_cancellation_port, get_job_execution_control
 from app.services import async_job as jobs
+from app.services.accepted_input_manifests import get_input_manifest_capture
 from aap_inference.backend_transport import PredictionResult
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.application.preannotation_results import BatchResultExecution
 from app.services.prediction import PredictionService
 from app.workers import tasks as worker
 from tests.factory import create_batch, create_project, create_task, create_user
 from tests.inference_execution_test_ports import (
     PredictionClientExecutionPort,
     pipeline_output,
-    run_batch_request,
 )
 from tests.managed_prediction_worker_fixtures import (
     freeze_job,
@@ -47,7 +55,67 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-async def commit_world(managed_worker_world, monkeypatch):
+def retained_image_storage(managed_worker_world, monkeypatch):
+    """Substitute physical bytes only; capture, preparation and sealing stay Native."""
+    blobs = {}
+
+    def source_bytes(source):
+        return {
+            key: raw for (_, key), raw in managed_worker_world.source_bytes.items()
+        }[source.file_path]
+
+    async def head_source(_storage, source):
+        raw = source_bytes(source)
+        return ObjectIdentity(etag=hashlib.sha256(raw).hexdigest(), byte_size=len(raw))
+
+    async def download_source(storage, source, destination):
+        raw = source_bytes(source)
+        identity = await head_source(storage, source)
+        assert identity == source.object_identity
+        destination.write_bytes(raw)
+        return SimpleNamespace(
+            identity=identity,
+            byte_size=len(raw),
+            sha256=hashlib.sha256(raw).hexdigest(),
+        )
+
+    async def upload_blob(_storage, path, key, *, sha256, byte_size):
+        raw = path.read_bytes()
+        assert len(raw) == byte_size and hashlib.sha256(raw).hexdigest() == sha256
+        blob = inputs.InputBlob(
+            key=key,
+            version_id=str(uuid.uuid4()),
+            etag=sha256,
+            sha256=sha256,
+            byte_size=byte_size,
+        )
+        blobs[key, blob.version_id] = blob, raw
+        return blob
+
+    async def verify_blob(_storage, blob):
+        recorded, raw = blobs[blob.key, blob.version_id]
+        assert recorded == blob
+        assert hashlib.sha256(raw).hexdigest() == blob.sha256
+
+    async def download_blob(storage, blob, destination):
+        await verify_blob(storage, blob)
+        destination.write_bytes(blobs[blob.key, blob.version_id][1])
+
+    async def sign_blob(storage, blob, *, expires_in=900):
+        await verify_blob(storage, blob)
+        return f"http://retained.test/{blob.key}?versionId={blob.version_id}"
+
+    monkeypatch.setattr(S3ImageStorage, "head_source", head_source)
+    monkeypatch.setattr(S3ImageStorage, "download_source", download_source)
+    monkeypatch.setattr(S3InputStorage, "assert_versioning", AsyncMock())
+    monkeypatch.setattr(S3InputStorage, "upload_blob", upload_blob)
+    monkeypatch.setattr(S3InputStorage, "verify_blob", verify_blob)
+    monkeypatch.setattr(S3InputStorage, "download_blob", download_blob)
+    monkeypatch.setattr(S3InputStorage, "sign_blob", sign_blob)
+
+
+@pytest.fixture
+async def commit_world(managed_worker_world, retained_image_storage, monkeypatch):
     factory = managed_worker_world.factory
     async with factory() as db:
         user = await create_user(
@@ -56,7 +124,9 @@ async def commit_world(managed_worker_world, monkeypatch):
         project = await create_project(db, owner_id=user.id)
         batch = await create_batch(db, project_id=project.id, status="active")
         backend = MLBackendRegistry(
-            name="commit-fixture", url="http://owned.invalid", state="connected"
+            name="commit-fixture",
+            url=f"http://commit-{uuid.uuid4().hex}.invalid",
+            state="connected",
         )
         db.add(backend)
         await db.flush()
@@ -105,7 +175,12 @@ async def commit_world(managed_worker_world, monkeypatch):
             kind="batch_predict",
             user_id=user.id,
             project_id=project.id,
-            payload={"total_tasks": 1, "task_ids": [str(task.id)]},
+            payload={
+                "total_tasks": 1,
+                "task_ids": [str(task.id)],
+                "execution_scope": "bulk",
+                "batch_id": str(batch.id),
+            },
         )
         job.celery_task_id = str(job.id)
         await db.commit()
@@ -131,7 +206,7 @@ async def commit_world(managed_worker_world, monkeypatch):
 
 async def prepare(world, *, task_ids=None, mode="overwrite"):
     async with world.factory() as db:
-        await freeze_job(
+        job = await freeze_job(
             db,
             project=await db.get(Project, world.project),
             actor=await db.get(User, world.user),
@@ -144,25 +219,66 @@ async def prepare(world, *, task_ids=None, mode="overwrite"):
             batch_id=world.batch,
             predict_mode=mode,
         )
+        selection = manifests.ManifestSelection(
+            task_ids=sorted(
+                [uuid.UUID(value) for value in (task_ids or [str(world.task)])],
+                key=str,
+            ),
+            batch_id=world.batch,
+            predict_mode=mode,
+        )
+        job.payload = {
+            **job.payload,
+            "task_ids": [str(value) for value in selection.task_ids],
+            "scope": {"task_ids": [str(value) for value in selection.task_ids]},
+            "accepted_input_manifest_protocol": manifests.MANIFEST_SCHEMA,
+            "accepted_input_manifest_id": str(job.id),
+            "input_selection": selection.model_dump(mode="json"),
+        }
+        world.manifest = await get_input_manifest_capture()(db).capture(
+            manifests.CaptureManifestRequest(
+                job_id=job.id,
+                actor_id=world.user,
+                project_id=world.project,
+                selection=selection,
+            )
+        )
+        job.payload = {
+            **job.payload,
+            "accepted_input_manifest_digest": world.manifest.selection_digest,
+            "total_tasks": world.manifest.selected_count,
+            "input_candidate_count": world.manifest.candidate_count,
+        }
+        await db.commit()
 
 
 async def run(world, **kwargs):
+    from app.application.preannotation_contract import BatchPredictionRequest
+    from app.application.preannotation_execution import run_preannotation
+
     task_ids = kwargs.pop("task_ids", [str(world.task)])
     mode = kwargs.pop("predict_mode", "overwrite")
     if kwargs.pop("freeze", True) and kwargs.get("execution_unit") != "frame":
         await prepare(world, task_ids=task_ids, mode=mode)
+    if kwargs.get("execution_unit") != "frame":
+        kwargs.update(
+            accepted_input_manifest_protocol=manifests.MANIFEST_SCHEMA,
+            accepted_input_manifest_id=str(world.manifest.job_id),
+            accepted_input_manifest_digest=world.manifest.selection_digest,
+        )
     async with worker_engine(world.worker_world):
-        await run_batch_request(
-            project_id=str(world.project),
-            ml_backend_id=str(world.backend),
-            task_ids=task_ids,
-            batch_id=str(world.batch),
-            user_id=str(world.user),
-            async_job_id=str(world.job),
-            celery_task_id=str(world.job),
-            worker_node_id="worker:commit-regression@test",
-            predict_mode=mode,
-            **kwargs,
+        await run_preannotation(
+            BatchPredictionRequest(
+                project_id=str(world.project),
+                ml_backend_id=str(world.backend),
+                task_ids=task_ids,
+                batch_id=str(world.batch),
+                user_id=str(world.user),
+                async_job_id=str(world.job),
+                predict_mode=mode,
+                **kwargs,
+            ),
+            execution_id=str(world.job),
         )
 
 
@@ -182,17 +298,17 @@ async def cancel(world, *, pid=None):
     async with world.factory() as db:
         if pid is not None:
             pid.append(await db.scalar(text("SELECT pg_backend_pid()")))
-        user = await db.get(User, world.user)
-        return await cancel_async_job(
+        response = await cancel_async_job(
             world.job,
-            Request({"type": "http", "method": "POST", "path": "/"}),
             db=db,
-            current_user=user,
+            actor_id=world.user,
+            cancellation=get_job_cancellation_port(db, get_job_execution_control()),
         )
+        return response.model_dump(mode="json")
 
 
 async def test_model_selection_does_not_block_independent_health_settlement(
-    managed_worker_world, monkeypatch
+    managed_worker_world, retained_image_storage, monkeypatch
 ):
     from app.application import preannotation_execution
     from app.services.inference_topology_data import InferenceTopologyData
@@ -205,7 +321,9 @@ async def test_model_selection_does_not_block_independent_health_settlement(
         project = await create_project(db, owner_id=user.id)
         batch = await create_batch(db, project_id=project.id, status="active")
         backend = MLBackendRegistry(
-            name="health-fixture", url="http://owned.invalid", state="connected"
+            name="health-fixture",
+            url=f"http://health-{uuid.uuid4().hex}.invalid",
+            state="connected",
         )
         db.add(backend)
         await db.flush()
@@ -292,6 +410,7 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
 ):
     world = commit_world
     writes = 0
+    inferences = 0
     original = PredictionService._persist_prediction_result
 
     async def write(service, *args, **kwargs):
@@ -304,48 +423,72 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
                 await service.db.execute(text("SELECT 1 / 0"))
         return await original(service, *args, **kwargs)
 
-    class Client:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def predict(self, tasks, context=None):
-            assert tasks[0]["file_path"].startswith("http://ml-objects.test/")
-            # Old candidates and accepted AI annotations must survive the long
-            # inference period, even in overwrite mode.
-            async with world.factory() as db:
-                assert (
-                    await db.scalar(
-                        select(Prediction.id).where(Prediction.id == world.old)
+    async def pipeline(_task, *args, **kwargs):
+        nonlocal inferences
+        inferences += 1
+        # Old candidates and accepted AI annotations must survive the long
+        # inference period, even in overwrite mode.
+        async with world.factory() as db:
+            assert (
+                await db.scalar(select(Prediction.id).where(Prediction.id == world.old))
+                == world.old
+            )
+            assert (
+                await db.scalar(
+                    select(Annotation.is_active).where(
+                        Annotation.task_id == world.task,
+                        Annotation.source == "prediction_based",
                     )
-                    == world.old
                 )
-                assert (
-                    await db.scalar(
-                        select(Annotation.is_active).where(
-                            Annotation.task_id == world.task,
-                            Annotation.source == "prediction_based",
-                        )
-                    )
-                    is True
-                )
-                if failure == "scope":
-                    task = await db.get(Task, world.task)
-                    task.status = "review"
-                    await db.commit()
-            if failure == "cancel":
-                response = await asyncio.wait_for(cancel(world), timeout=5)
-                assert response["status"] == "cancel_requested"
-            if failure == "inference":
-                raise RuntimeError("inference failed")
-            return [] if failure == "empty" else prediction_results(world.task)
+                is True
+            )
+            if failure == "scope":
+                task = await db.get(Task, world.task)
+                task.status = "review"
+                await db.commit()
+        if failure == "cancel":
+            response = await asyncio.wait_for(cancel(world), timeout=5)
+            assert response["status"] == "cancel_requested"
+        if failure == "inference":
+            raise RuntimeError("inference failed")
+        return pipeline_output(
+            [] if failure == "empty" else prediction_results(world.task),
+            instance_id=world.backend,
+        )
 
     monkeypatch.setattr(
-        "app.application.preannotation_execution._model_execution_port",
-        lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
+        "app.application.preannotation_execution._run_task_pipeline", pipeline
     )
     monkeypatch.setattr(PredictionService, "_persist_prediction_result", write)
-    await run(world, predict_mode=mode)
-    assert len(world.worker_world.captured) == 1
+    if failure == "sql_write":
+        from app.application.preannotation_results import PreannotationResultDeferred
+
+        with pytest.raises(PreannotationResultDeferred, match="storage_unavailable"):
+            await run(world, predict_mode=mode)
+        async with world.factory() as db:
+            assert list(
+                await db.scalars(
+                    select(Prediction.id).where(Prediction.task_id == world.task)
+                )
+            ) == [world.old]
+            assert list(
+                await db.scalars(
+                    select(Annotation.is_active).where(Annotation.task_id == world.task)
+                )
+            ) == [True, True]
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(FailedPrediction)
+                    .where(FailedPrediction.task_id == world.task)
+                )
+                == 0
+            )
+            assert (await db.get(AsyncJob, world.job)).status == "running"
+        await run(world, predict_mode=mode, freeze=False)
+    else:
+        await run(world, predict_mode=mode)
+    assert inferences == 1
     async with world.factory() as db:
         job = await db.get(AsyncJob, world.job)
         task = await db.get(Task, world.task)
@@ -373,8 +516,8 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
                 )
             ).all()
         )
-        if failure == "none":
-            assert job.status == "completed"
+        if failure in {"none", "sql_write"}:
+            assert job.status == "completed", [item.message for item in failures]
             assert job.result["total_cost"] == "0.5000"
             assert job.result["success_count"] == 1
             assert (
@@ -429,24 +572,23 @@ async def test_failure_rollback_does_not_expire_the_remaining_selection(
     calls = 0
 
     class Client:
-        def __init__(self, backend, **kwargs):
-            self.backend = backend
-
         async def predict(self, tasks, context=None):
             nonlocal calls
             calls += 1
-            # The real transport reads capabilities from this ORM object on
-            # every request; rollback must not leave it expired here.
-            assert self.backend.state == "connected"
             if calls == 1:
                 raise RuntimeError("first task failed")
-            return prediction_results(tasks[0]["id"])
+            return [
+                PredictionResult(
+                    task_id=tasks[0]["id"],
+                    result=[],
+                    model_version="new",
+                    meta={"total_cost": 0.5},
+                )
+            ]
 
     monkeypatch.setattr(
         "app.application.preannotation_execution._model_execution_port",
-        lambda *_args, **_kwargs: PredictionClientExecutionPort(
-            Client(SimpleNamespace(state="connected"))
-        ),
+        lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
     )
     await run(world, task_ids=[str(world.task), str(second_id)])
     async with world.factory() as db:
@@ -462,12 +604,17 @@ async def test_cancel_rechecks_terminal_state_after_waiting_for_final_lock(
 ):
     world = commit_world
     final_locked, release_final = asyncio.Event(), asyncio.Event()
-    original = jobs.mark_complete
+    original = BatchResultExecution.call
 
-    async def complete(db, job_id, **kwargs):
-        final_locked.set()
-        await release_final.wait()
-        await original(db, job_id, **kwargs)
+    async def complete(execution, operation, **kwargs):
+        result = await original(execution, operation, **kwargs)
+        if (
+            operation == "finish_batch_result_execution"
+            and kwargs.get("status") == "completed"
+        ):
+            final_locked.set()
+            await release_final.wait()
+        return result
 
     async def pipeline(*args, **kwargs):
         return pipeline_output(
@@ -477,7 +624,7 @@ async def test_cancel_rechecks_terminal_state_after_waiting_for_final_lock(
     monkeypatch.setattr(
         "app.application.preannotation_execution._run_task_pipeline", pipeline
     )
-    monkeypatch.setattr(jobs, "mark_complete", complete)
+    monkeypatch.setattr(BatchResultExecution, "call", complete)
     pending = asyncio.create_task(run(world))
     cancellation = None
     try:
@@ -632,17 +779,18 @@ async def test_explicit_partial_pipeline_commits_candidates_and_retry_context(
         "app.application.preannotation_execution._run_task_pipeline", pipeline
     )
     if record_failure:
-        original = PredictionService.create_failed
+        original = BatchResultExecution.call
         attempts = 0
 
-        async def record(service, **kwargs):
+        async def record(execution, operation, **kwargs):
             nonlocal attempts
-            attempts += 1
-            if attempts == 1:
-                raise RuntimeError("partial failure record rejected")
-            return await original(service, **kwargs)
+            if operation == "finish_batch_result_write":
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("partial failure record rejected")
+            return await original(execution, operation, **kwargs)
 
-        monkeypatch.setattr(PredictionService, "create_failed", record)
+        monkeypatch.setattr(BatchResultExecution, "call", record)
     await run(world)
     async with world.factory() as db:
         job = await db.get(AsyncJob, world.job)
@@ -685,6 +833,55 @@ async def test_explicit_partial_pipeline_commits_candidates_and_retry_context(
         )
 
 
+async def test_partial_completion_rejects_foreign_candidate_ids(
+    commit_world, monkeypatch
+):
+    from aap_preannotation_results.contract import BatchResultFailure
+
+    world = commit_world
+    original = PredictionService.create_failed
+
+    async def pipeline(*args, **kwargs):
+        return pipeline_output(
+            prediction_results(world.task),
+            instance_id=world.backend,
+            extra={"pipeline": {"partial": True, "stage_errors": [{"stage": 9}]}},
+        )
+
+    async def tamper(service, *args, **kwargs):
+        failure = await original(service, *args, **kwargs)
+        failure.extra = {**failure.extra, "partial_prediction_ids": [str(world.old)]}
+        await service.db.flush()
+        return failure
+
+    monkeypatch.setattr(
+        "app.application.preannotation_execution._run_task_pipeline", pipeline
+    )
+    monkeypatch.setattr(PredictionService, "create_failed", tamper)
+    with pytest.raises(BatchResultFailure) as rejected:
+        await run(world)
+    assert rejected.value.code == "result_conflict"
+    async with world.factory() as db:
+        assert list(
+            await db.scalars(
+                select(Prediction.id).where(Prediction.task_id == world.task)
+            )
+        ) == [world.old]
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(FailedPrediction)
+                .where(FailedPrediction.task_id == world.task)
+            )
+            == 0
+        )
+        assert list(
+            await db.scalars(
+                select(Annotation.is_active).where(Annotation.task_id == world.task)
+            )
+        ) == [True, True]
+
+
 @pytest.mark.parametrize("mode", ["overwrite", "append"])
 async def test_frame_fanout_preserves_its_existing_reset_contract(
     managed_worker_world, monkeypatch, mode
@@ -708,7 +905,7 @@ async def test_frame_fanout_preserves_its_existing_reset_contract(
         task = await db.get(Task, plan.input.task.task_id)
         backend = MLBackendRegistry(
             name=f"frame-commit-{uuid.uuid4().hex}",
-            url="http://owned.invalid",
+            url=f"http://frame-{uuid.uuid4().hex}.invalid",
             state="connected",
         )
         db.add(backend)
@@ -843,7 +1040,7 @@ async def test_cancel_waiting_for_candidate_commit_retains_that_task_and_stops_n
             job = await db.get(AsyncJob, world.job)
             assert len(inferred) == 1
             assert job.status == "cancelled"
-            assert job.result["success_count"] == job.result["done_count"] == 1
+            assert job.result["success_count"] == 1
             assert job.result["failed_count"] == 0
             assert job.result["skipped_count"] == 1
             assert job.result["total_cost"] == "0.5000"

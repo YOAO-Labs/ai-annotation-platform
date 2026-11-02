@@ -103,8 +103,7 @@ owner-scoped；非 owner（且非 super_admin）→ `403`，记录不存在返�
 
 跨帧 pending 请求直接保存 cancelled 与完整目标计数，HTTP 不强制进度 100；消息可能被撤销而不执行。运行中的请求写入取消意图，在下一帧边界停止，保留此前成功写入；worker 完成取消收尾时推进至 100。连接器导入则由 HTTP 立即保存 cancelled，worker 在文件边界停止并为已取消行回填最终计数，保留阶段进度而不强制 100；取消检查之前仍可能先枚举源文件。
 
-`batch_predict` 使用协作取消：API 对 `pending` job 直接写 `cancelled`；对 `running` job 写
-`payload.cancel_requested=true`，提交后再对 Celery task 尽力执行 `revoke(..., terminate=False)`。worker 不会强杀进程。
+`batch_predict` 使用协作取消：API 在作业行锁下复核状态，保存 `payload.cancel_requested=true`，并对 `pending` job 直接写 `cancelled`；`running` job 由 worker 收尾。Celery 的 `revoke(..., terminate=False)` 只是尽力撤销投递，不强杀进程，也不代替数据库状态。迟到的排队元数据更新先重新锁定、读取作业，不得覆盖取消意图或重新启动终态作业。
 
 `audit_archive` 取消需当前超级管理员权限，并重新核对原请求账号或 API Key。取消与每月归档发布共用作业行锁：取消先提交时保留源分区及未发布候选；月份发布先提交时保留该月已归档结果，随后停止未处理月份。接口返回 `{"status":"cancelled","id":"…"}`，不强杀物理上传，也不删除待确认对象。重复 Celery 投递只返回既有作业状态，不重新开始未收尾候选；失败原因使用固定分类，`result` 保留此前成功月份。
 

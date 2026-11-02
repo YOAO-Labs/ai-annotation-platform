@@ -111,6 +111,48 @@ async def trained_retry_world(managed_worker_world, app_module):
             await db.commit()
 
 
+@pytest.fixture
+async def audited_prediction_world(test_engine, app_module):
+    """Keep immutable audit records until the owned database is removed."""
+    import httpx
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.deps import get_db
+    from app.services.dataset_assets import ensure_legacy_bindings
+    from tests.conftest import _create_user
+    from tests.managed_image_inference_fixtures import managed_database
+
+    missing = object()
+    previous = app_module.dependency_overrides.get(get_db, missing)
+    async with managed_database(test_engine.url) as engine:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as db:
+            await ensure_legacy_bindings(db)
+            admin = await _create_user(
+                db, "super_admin", f"audited-{uuid.uuid4().hex}@test.local", "Owner"
+            )
+            await db.commit()
+
+            async def override():
+                yield db
+
+            app_module.dependency_overrides[get_db] = override
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app_module),
+                    base_url="http://test",
+                ) as client:
+                    yield SimpleNamespace(
+                        db=db, client=client, admin=admin, factory=factory
+                    )
+            finally:
+                if previous is missing:
+                    app_module.dependency_overrides.pop(get_db, None)
+                else:
+                    app_module.dependency_overrides[get_db] = previous
+                await db.rollback()
+
+
 def pipeline_body(backend, task):
     return {
         "ml_backend_id": str(backend.id),
@@ -661,8 +703,7 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
 
 
 async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_run(
-    trained_retry_world,
-    managed_worker_world,
+    audited_prediction_world,
     monkeypatch,
 ):
     from tests.test_preannotate_workbench_scope import _seed
@@ -674,9 +715,9 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     from aap_assets_inputs_runtime.storage import S3InputStorage
     from app.db.models.dataset import DatasetItem
 
-    db_session = trained_retry_world.db
-    httpx_client = trained_retry_world.client
-    owner, _ = trained_retry_world.admin
+    db_session = audited_prediction_world.db
+    httpx_client = audited_prediction_world.client
+    owner, _ = audited_prediction_world.admin
     member, token = await _create_user(
         db_session,
         "employee",
@@ -687,7 +728,7 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     monkeypatch.setattr(
         accepted_inputs,
         "input_gateway",
-        lambda: gateway(session_factory=managed_worker_world.factory),
+        lambda: gateway(session_factory=audited_prediction_world.factory),
     )
 
     project, backend, batch, task = await _seed(db_session, owner.id)
@@ -717,7 +758,7 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     )
     task.assignee_id = member.id
     await db_session.commit()
-    dispatch = Mock(return_value=SimpleNamespace(id="queued"))
+    dispatch = Mock(side_effect=lambda *a, **kw: SimpleNamespace(id=kw["task_id"]))
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
     body = {
         "ml_backend_id": str(backend.id),

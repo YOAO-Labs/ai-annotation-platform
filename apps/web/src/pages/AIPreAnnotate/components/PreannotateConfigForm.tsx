@@ -5,6 +5,7 @@
  * params+variant / 命名预设 / 输出形态。批量页与工作台 AI 面板共用。
  * 批量专属的 predict_mode / 并发 / run 按钮不在此, 由调用方拼。
  */
+import { useId } from "react";
 import { CatalogModelSelect } from "./CatalogModelSelect";
 import { Icon } from "@/components/ui/Icon";
 import { TabRow } from "@/components/ui/TabRow";
@@ -70,6 +71,8 @@ export function PreannotateConfigForm({
   hideModelTaskSelector = false,
   hideClassWhitelist = false,
 }: Props) {
+  const promptId = useId();
+  const paramsHintId = useId();
   // v0.18.12 · 统一「模型任务」选择器: 几何 (yolo) 与文本 (gsam2/sam3) 共用一套 model-first 选择,
   //   只差 prompt vs 类别白名单。doc 走上方「任务类型」, 不在此。
   // v0.20.5 · 单一「模型任务」下拉(对齐所有 backend): 候选 = 该 backend 全部可批量预标模型
@@ -184,8 +187,10 @@ export function PreannotateConfigForm({
 
           {/* prompt 区: 开放词表文本任务 (gsam2) 显示; OCR/版面 与 YOLO 几何 backend 隐藏. */}
           {!cfg.isDocMode && !cfg.isGeometricBackend && (
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>提示词</span>
+            <label className={styles.field} htmlFor={promptId}>
+              <span id={`${promptId}-label`} className={styles.fieldLabel}>
+                提示词
+              </span>
               {cfg.aliases.length > 0 && (
                 <div className={styles.aliasList}>
                   {cfg.aliases.map((a) => {
@@ -218,20 +223,29 @@ export function PreannotateConfigForm({
                 </div>
               )}
               <textarea
+                id={promptId}
+                aria-labelledby={`${promptId}-label`}
+                aria-describedby={`${promptId}-hint`}
                 rows={2}
                 value={cfg.prompt}
                 onChange={(e) => cfg.setPrompt(e.target.value)}
                 placeholder="例：car, person, traffic light"
                 className={styles.promptInput}
               />
-              <span className={styles.mutedText}>同一段文本应用到所有选中批次，以逗号分隔。</span>
+              <span id={`${promptId}-hint`} className={styles.mutedText}>
+                同一段文本应用到所有选中批次，以逗号分隔。
+              </span>
             </label>
           )}
 
           {/* v0.10.38 · 按后端参数面板. */}
-          <div className={styles.field}>
+          <div
+            className={styles.field}
+            role="group"
+            aria-label="推理参数"
+            aria-describedby={paramsHintId}
+          >
             <span className={styles.fieldLabel}>推理参数</span>
-            <span className={styles.mutedText}>按模型服务保存，覆盖项目默认值。</span>
             {!cfg.selectedCatalogId && !cfg.isDocMode && cfg.setupQ.isLoading ? (
               <div className={styles.mutedText}>加载参数…</div>
             ) : !cfg.selectedCatalogId && !cfg.isDocMode && cfg.setupQ.isError ? (
@@ -262,6 +276,9 @@ export function PreannotateConfigForm({
                 )}
               </div>
             )}
+            <span id={paramsHintId} className={styles.mutedText}>
+              按模型服务保存，覆盖项目默认值。
+            </span>
           </div>
 
           {/* v0.14.16 · 命名预设. */}

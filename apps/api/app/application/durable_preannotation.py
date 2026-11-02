@@ -216,7 +216,7 @@ async def _actor_available(db, execution, execution_scope):
 
 
 async def _apply_ready_result(
-    execution, db, writer, member, result, requests, *, manifest_backed
+    execution, db, writer, member, result, requests, *, request, manifest_backed
 ):
     from copy import deepcopy
     from app.services.labeling_write_guard import lock_labeling_write
@@ -228,16 +228,52 @@ async def _apply_ready_result(
     )
     for attempt in range(3):
         try:
+            await lock_labeling_write(
+                db,
+                restore_write_scope(member.write_scope),
+                operations=("preannotation",),
+                accepted_input_job_id=(
+                    execution.scope["job_id"] if manifest_backed else None
+                ),
+            )
+            # Cancellation and publication share the guarded Job lock. A
+            # cancellation waiting behind this transaction applies next member.
+            if await _cancel_requested(db, execution.scope["job_id"]):
+                await db.rollback()
+                return False
+            if manifest_backed or request.accepted_inputs_protocol is not None:
+                await _overwrite(execution, db, request, member=member)
             if requests:
-                await writer.apply_prediction_result_bundle(deepcopy(requests))
+                predictions = await writer.apply_prediction_result_bundle(
+                    deepcopy(requests)
+                )
             else:
-                await lock_labeling_write(
-                    db,
-                    restore_write_scope(member.write_scope),
-                    operations=("preannotation",),
-                    accepted_input_job_id=execution.scope["job_id"]
-                    if manifest_backed
-                    else None,
+                predictions = ()
+            if result.context.get("pipeline_partial") is True:
+                context = result.context
+                await writer.create_failed(
+                    task_id=member.task_id,
+                    project_id=execution.scope["project_id"],
+                    ml_backend_id=uuid.UUID(context["ml_backend_id"]),
+                    ml_backend_pool_id=(
+                        uuid.UUID(context["ml_backend_pool_id"])
+                        if context.get("ml_backend_pool_id") is not None
+                        else None
+                    ),
+                    error_type="pipeline_partial",
+                    message="Pipeline completed with failed stages",
+                    failure_id=member.failure_id,
+                    execution_snapshot_id=(
+                        uuid.UUID(context["execution_snapshot_id"])
+                        if context.get("execution_snapshot_id") is not None
+                        else None
+                    ),
+                    extra={
+                        **context["failure_extra"],
+                        "partial_prediction_ids": [
+                            str(prediction.id) for prediction in predictions
+                        ],
+                    },
                 )
             # The existing Labeling Task guard runs first. This lease lock and
             # completion proof join Prediction/Meta in that same transaction.
@@ -255,9 +291,9 @@ async def _apply_ready_result(
                         after_ordinal=member.ordinal,
                         limit=1,
                     )
-                    return
+                    return True
                 raise PreannotationResultDeferred("storage_unavailable") from None
-            return
+            return True
         except ApplyPredictionResultError as exc:
             await db.rollback()
             if not exc.retryable:
@@ -293,16 +329,17 @@ async def _overwrite(execution, db, request, *, member=None):
             is None
         ):
             continue
-        await lock_labeling_write(
-            db,
-            scope,
-            operations=("preannotation",),
-            accepted_input_job_id=(
-                execution.scope["job_id"]
-                if request.accepted_input_manifest_protocol is not None
-                else None
-            ),
-        )
+        if member is None:
+            await lock_labeling_write(
+                db,
+                scope,
+                operations=("preannotation",),
+                accepted_input_job_id=(
+                    execution.scope["job_id"]
+                    if request.accepted_input_manifest_protocol is not None
+                    else None
+                ),
+            )
         task_ids.append(item.task_id)
     if task_ids:
         await BatchService(db).clean_task_predictions(
@@ -313,11 +350,12 @@ async def _overwrite(execution, db, request, *, member=None):
         db=db,
         ordinal=member.ordinal if member is not None else None,
     )
-    try:
-        await db.commit()
-    except SQLAlchemyError:
-        await db.rollback()
-        raise PreannotationResultDeferred("storage_unavailable") from None
+    if member is None:
+        try:
+            await db.commit()
+        except SQLAlchemyError:
+            await db.rollback()
+            raise PreannotationResultDeferred("storage_unavailable") from None
 
 
 async def run_durable_batch(
@@ -386,8 +424,15 @@ async def run_durable_batch(
             break
         if await _cancel_requested(db, execution.scope["job_id"]):
             saved = await execution.read_result(member.ordinal)
-            if saved.result is None or not saved.result.raw_complete:
-                cancelled = True
+            cancelled = True
+            if saved.result is None:
+                await execution.call(
+                    "skip_batch_result_member",
+                    ordinal=member.ordinal,
+                    reason="cancelled_before_capture",
+                )
+                continue
+            if not saved.result.raw_complete:
                 break
         if not await _actor_available(db, execution, request.execution_scope):
             forced_error = "preannotation_actor_revoked"
@@ -455,8 +500,6 @@ async def run_durable_batch(
                 )
                 await db.commit()
                 async with _retained_input(execution, member) as retained:
-                    if member_overwrite:
-                        await _overwrite(execution, db, request, member=member)
                     requests, context = await infer(
                         task,
                         restore_write_scope(member.write_scope),
@@ -486,7 +529,7 @@ async def run_durable_batch(
             elif result.state != "ready":
                 await execution.seal(member.ordinal, stage="prepared")
             result, requests = await execution.load(member.ordinal, stage="prepared")
-            await _apply_ready_result(
+            applied = await _apply_ready_result(
                 execution,
                 db,
                 writer,
@@ -494,12 +537,28 @@ async def run_durable_batch(
                 result,
                 requests,
                 manifest_backed=manifest_backed,
+                request=request,
             )
+            if not applied:
+                cancelled = True
+                break
         except PreannotationResultDeferred:
             await db.rollback()
             raise
-        except BatchResultFailure:
+        except BatchResultFailure as exc:
             await db.rollback()
+            if exc.code == "job_not_writable" and await _cancel_requested(
+                db, execution.scope["job_id"]
+            ):
+                cancelled = True
+                if result is None:
+                    await execution.call(
+                        "skip_batch_result_member",
+                        ordinal=member.ordinal,
+                        reason="cancelled_before_capture",
+                    )
+                    continue
+                break
             # Deterministic native rejections are not storage outages. Preserve
             # them without turning a retained result into a member failure.
             raise
@@ -529,6 +588,7 @@ async def run_durable_batch(
                 forced_error = "preannotation_actor_revoked"
                 break
             error_code = getattr(exc, "code", None) or type(exc).__name__
+            context = {**context, "total_cost": "0"}
             current_failure = (
                 failure_context(member, exc) if failure_context is not None else {}
             )
@@ -564,6 +624,11 @@ async def run_durable_batch(
                     error_type=error_code,
                     message=str(exc),
                     failure_id=member.failure_id,
+                    execution_snapshot_id=(
+                        uuid.UUID(context["execution_snapshot_id"])
+                        if context.get("execution_snapshot_id") is not None
+                        else None
+                    ),
                     extra={
                         "execution_scope": request.execution_scope,
                         "execution_unit": request.execution_unit,

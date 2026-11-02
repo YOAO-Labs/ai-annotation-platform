@@ -66,7 +66,7 @@ def facts():
         token_meta={"total_cost": "1.2500"},
     )
     member = SimpleNamespace(ordinal=2, task_id=task.id, write_scope=scope_json(scope))
-    result = SimpleNamespace(result_id=uuid4(), prepared_digest="a" * 64)
+    result = SimpleNamespace(result_id=uuid4(), prepared_digest="a" * 64, context={})
     identity = BatchResultPredictionIdentity(uuid4(), datetime.now(timezone.utc))
     return task, scope, replace(request, batch_result_identity=identity), member, result
 
@@ -113,8 +113,19 @@ def test_queued_digest_binds_parameters_but_not_job_or_delivery_identity():
         )
 
 
+@pytest.fixture
+def uncontended_write(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.labeling_write_guard.lock_labeling_write", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "app.application.durable_preannotation._cancel_requested",
+        AsyncMock(return_value=False),
+    )
+
+
 @pytest.mark.asyncio
-async def test_exhausted_task_contention_defers_same_prepared_bundle():
+async def test_exhausted_task_contention_defers_same_prepared_bundle(uncontended_write):
     _task, _scope, request, member, result = facts()
     seen = []
 
@@ -127,11 +138,24 @@ async def test_exhausted_task_contention_defers_same_prepared_bundle():
     writer = SimpleNamespace(
         apply_prediction_result_bundle=blocked, create_failed=AsyncMock()
     )
-    execution = SimpleNamespace(call=AsyncMock(), read_result=AsyncMock())
+    execution = SimpleNamespace(
+        scope={"job_id": _scope.job_id}, call=AsyncMock(), read_result=AsyncMock()
+    )
     db = SimpleNamespace(rollback=AsyncMock(), commit=AsyncMock())
     with pytest.raises(PreannotationResultDeferred, match="task_busy"):
         await _apply_ready_result(
-            execution, db, writer, member, result, (request,), manifest_backed=False
+            execution,
+            db,
+            writer,
+            member,
+            result,
+            (request,),
+            manifest_backed=False,
+            request=BatchPredictionRequest(
+                project_id=str(request.project_id),
+                ml_backend_id=str(request.ml_backend_id),
+                predict_mode="append",
+            ),
         )
     assert len(seen) == 3
     assert all(bundle == (request,) for bundle in seen)
@@ -142,7 +166,9 @@ async def test_exhausted_task_contention_defers_same_prepared_bundle():
 
 
 @pytest.mark.asyncio
-async def test_lost_commit_ack_resolves_applied_receipt_without_second_write():
+async def test_lost_commit_ack_resolves_applied_receipt_without_second_write(
+    uncontended_write,
+):
     _task, _scope, request, member, result = facts()
     events = []
 
@@ -151,14 +177,13 @@ async def test_lost_commit_ack_resolves_applied_receipt_without_second_write():
 
     async def call(operation, **values):
         events.append(operation)
-        if operation in {"lock_batch_result_write", "finish_batch_result_write"}:
-            assert values["db"] is db
 
     async def commit():
         events.append("commit_ack_lost")
         raise SQLAlchemyError("lost acknowledgement")
 
     execution = SimpleNamespace(
+        scope={"job_id": _scope.job_id},
         call=call,
         read_result=AsyncMock(
             return_value=SimpleNamespace(result=SimpleNamespace(state="applied"))
@@ -168,24 +193,34 @@ async def test_lost_commit_ack_resolves_applied_receipt_without_second_write():
         apply_prediction_result_bundle=write, create_failed=AsyncMock()
     )
     db = SimpleNamespace(commit=commit, rollback=AsyncMock())
-    await _apply_ready_result(
-        execution, db, writer, member, result, (request,), manifest_backed=False
+    applied = await _apply_ready_result(
+        execution,
+        db,
+        writer,
+        member,
+        result,
+        (request,),
+        manifest_backed=False,
+        request=BatchPredictionRequest(
+            project_id=str(request.project_id),
+            ml_backend_id=str(request.ml_backend_id),
+            predict_mode="append",
+        ),
     )
-    assert events == [
-        "predictions",
-        "lock_batch_result_write",
-        "finish_batch_result_write",
-        "commit_ack_lost",
-        "read_batch_result_execution",
-    ]
+    assert applied
+    assert events.count("predictions") == 1
+    assert events.count("commit_ack_lost") == 1
     execution.read_result.assert_awaited_once_with(member.ordinal)
     writer.create_failed.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_unknown_commit_outcome_defers_instead_of_recording_failure():
+async def test_unknown_commit_outcome_defers_instead_of_recording_failure(
+    uncontended_write,
+):
     _task, _scope, request, member, result = facts()
     execution = SimpleNamespace(
+        scope={"job_id": _scope.job_id},
         call=AsyncMock(),
         read_result=AsyncMock(
             return_value=SimpleNamespace(result=SimpleNamespace(state="ready"))
@@ -199,7 +234,18 @@ async def test_unknown_commit_outcome_defers_instead_of_recording_failure():
     )
     with pytest.raises(PreannotationResultDeferred, match="storage_unavailable"):
         await _apply_ready_result(
-            execution, db, writer, member, result, (request,), manifest_backed=False
+            execution,
+            db,
+            writer,
+            member,
+            result,
+            (request,),
+            manifest_backed=False,
+            request=BatchPredictionRequest(
+                project_id=str(request.project_id),
+                ml_backend_id=str(request.ml_backend_id),
+                predict_mode="append",
+            ),
         )
     writer.apply_prediction_result_bundle.assert_awaited_once()
     writer.create_failed.assert_not_awaited()

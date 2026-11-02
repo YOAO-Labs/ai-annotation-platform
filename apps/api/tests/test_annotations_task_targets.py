@@ -43,6 +43,8 @@ async def registered_target(db):
         },
         secret_enc=b"owned-credential-one",
     )
+    db.add(connection)
+    await db.flush()
     location = StorageLocation(
         id=uuid.uuid4(),
         name="Owned annotation location",
@@ -52,7 +54,7 @@ async def registered_target(db):
         connection_id=connection.id,
         config=deepcopy(connection.config),
     )
-    db.add_all([connection, location])
+    db.add(location)
     await db.flush()
     await db.execute(
         update(StorageBinding)
