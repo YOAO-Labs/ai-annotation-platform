@@ -1,4 +1,5 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
+import { openSelectedMaskEditor } from "../helpers/mask-selection";
 import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
 import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
@@ -138,11 +139,7 @@ async function paintStroke(
 }
 
 async function beginRasterEdit(page: Page, annotationId: string): Promise<void> {
-  const row = page.getByTestId(`box-list-item-${annotationId}`);
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.click();
-  // 选中后优先从浮动详情卡进入；右侧面板展开时会合法遮住列表行操作。
-  await page.locator('button[aria-label="\u7f16\u8f91 Mask"]:visible').last().click();
+  await openSelectedMaskEditor(page, annotationId);
   await openMaskSettings(page);
   await expect(page.getByTestId("mask-toolbar")).toContainText("\u5c31\u7eea", { timeout: 15_000 });
 }

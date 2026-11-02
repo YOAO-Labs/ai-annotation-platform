@@ -1,12 +1,13 @@
 import { expect, type Page } from "@playwright/test";
 
 export async function openMaskSettings(page: Page) {
-  const capsule = page.getByTestId("mask-tool-capsule");
-  await expect(capsule).toBeAttached();
-  if ((await capsule.getAttribute("data-panel-open")) !== "true") {
-    if ((await capsule.getAttribute("data-expanded")) !== "true")
-      await page.getByTestId("mask-settings-trigger").click();
-    await expect(capsule).toHaveAttribute("data-expanded", "true");
+  const toolbar = page.getByTestId("mask-toolbar");
+  if (!(await toolbar.isVisible())) {
+    const capsule = page.getByTestId("mask-tool-capsule");
+    const trigger = page.getByTestId("mask-settings-trigger");
+    await expect(trigger).toBeVisible();
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
     // Expansion changes the clipped quick-tools width and clamps its scroll position.
     await capsule.evaluate((node) =>
       Promise.allSettled(
@@ -17,13 +18,12 @@ export async function openMaskSettings(page: Page) {
       ),
     );
     await page.getByRole("button", { name: "更多 Mask 工具", exact: true }).click();
-    await expect(capsule).toHaveAttribute("data-panel-open", "true");
   }
-  await expect(page.getByTestId("mask-toolbar")).toBeVisible();
+  await expect(toolbar).toBeVisible();
 }
 
 export async function closeMaskSettings(page: Page) {
-  if ((await page.getByTestId("mask-tool-capsule").getAttribute("data-panel-open")) === "true") {
+  if (await page.getByTestId("mask-toolbar").isVisible()) {
     await page.getByRole("button", { name: "收起 Mask 设置", exact: true }).click();
     await expect(page.getByTestId("mask-toolbar")).toBeHidden();
   }

@@ -1,4 +1,5 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
+import { openSelectedMaskEditor } from "../helpers/mask-selection";
 import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
 
 import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
@@ -84,15 +85,7 @@ async function openTask(page: Page, seed: SeedAPI, data: SeedData, taskId: strin
 async function beginEdit(page: Page, annotationId: string): Promise<void> {
   // Dismiss the selected card through its normal keyboard path before selecting a row.
   await page.keyboard.press("Escape");
-  const row = page.getByTestId(`box-list-item-${annotationId}`);
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.click();
-  const expand = page.getByLabel("展开选中信息卡(可拖动)", { exact: true });
-  if (await expand.isVisible()) await expand.click();
-  await page
-    .locator("section[data-floating-panel]")
-    .getByRole("button", { name: "编辑 Mask", exact: true })
-    .click();
+  await openSelectedMaskEditor(page, annotationId);
   await openMaskSettings(page);
   await expect(page.getByTestId("mask-toolbar")).toContainText("就绪", { timeout: 15_000 });
   // 就绪 ≠ 画布可交互：等媒体与 Konva 画布真正可见后再让用例做指针操作，
@@ -411,8 +404,8 @@ test.describe("v0.23.9 Mask 高级编辑发布矩阵", { tag: "@mask-native" }, 
     await islandRow.click({ modifiers: ["Shift"] });
     await expect(donutRow).toHaveClass(/!border-brand/);
     await expect(islandRow).toHaveClass(/!border-brand/);
-    await islandRow.getByRole("button", { name: "更多操作" }).hover();
-    await page.getByTestId(`user-refine-${island.annotation_id}`).click();
+    await islandRow.getByRole("button", { name: "更多操作", exact: true }).click();
+    await islandRow.getByRole("button", { name: "编辑 Mask", exact: true }).click();
     await openMaskSettings(page);
     const toolbar = page.getByTestId("mask-toolbar");
     await expect(toolbar).toContainText("就绪", { timeout: 15_000 });

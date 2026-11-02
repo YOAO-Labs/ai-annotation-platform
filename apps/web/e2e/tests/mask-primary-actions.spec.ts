@@ -1,4 +1,5 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
+import { openSelectedMaskEditor } from "../helpers/mask-selection";
 import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
 import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
@@ -55,8 +56,7 @@ async function openImage(page: Page, seed: SeedAPI, data: SeedData, taskId: stri
   await expect(page.getByTestId("workbench-stage").locator("canvas").first()).toBeVisible();
 }
 async function beginEdit(page: Page, annotationId: string) {
-  await page.getByTestId(`box-list-item-${annotationId}`).click();
-  await page.locator('button[aria-label="编辑 Mask"]:visible').last().click();
+  await openSelectedMaskEditor(page, annotationId);
   await openMaskSettings(page);
   await expect(page.getByTestId("mask-toolbar")).toContainText("就绪", { timeout: 15_000 });
   await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");

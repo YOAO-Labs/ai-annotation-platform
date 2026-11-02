@@ -1,4 +1,5 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
+import { openSelectedMaskEditor } from "../helpers/mask-selection";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
@@ -387,8 +388,7 @@ async function seedMask(request: APIRequestContext, fixture: Case, rle = holed()
   return source;
 }
 async function begin(page: Page, id: string) {
-  await page.getByTestId(`box-list-item-${id}`).click();
-  await page.locator('button[aria-label="编辑 Mask"]:visible').last().click();
+  await openSelectedMaskEditor(page, id);
   await openMaskSettings(page);
   await expect(controls(page)).toContainText("就绪", { timeout: 15_000 });
   await controls(page).getByTitle("Mask 高级工具").click();
@@ -812,8 +812,7 @@ test("H4b-3 source locking conflicts preserve preview; active children disable t
     }),
   );
   await reloadAndRead(page, request, fixture);
-  await page.getByTestId(`box-list-item-${source.id}`).click();
-  await page.locator('button[aria-label="编辑 Mask"]:visible').last().click();
+  await openSelectedMaskEditor(page, source.id);
   await openMaskSettings(page);
   await expect(controls(page)).toContainText("就绪");
   await controls(page).getByTitle("Mask 高级工具").click();

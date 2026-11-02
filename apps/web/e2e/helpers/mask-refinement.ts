@@ -6,8 +6,8 @@ export async function openPredictionRefinement(page: Page, predictionId: string)
   const row = page.getByTestId(`box-list-item-${shapeId}`);
   await expect(row).toHaveCount(1);
   await expect(row).toBeVisible();
-  await row.getByRole("button", { name: "更多操作" }).hover();
-  await row.getByTestId(`ai-refine-${shapeId}`).click();
+  await row.getByRole("button", { name: "更多操作", exact: true }).click();
+  await row.getByRole("button", { name: "精修", exact: true }).click();
 }
 
 /** Confirm the fixture's expected conversion decision, never derive it from the result. */
