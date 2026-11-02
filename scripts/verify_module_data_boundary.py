@@ -1699,6 +1699,7 @@ TEST_FILES = (
     "tests/test_assets_source_ingest.py",
     "tests/test_dataset_source_ingest_native.py",
     "tests/test_dataset_source_ingest_runtime.py",
+    "tests/test_dataset_source_ingest_authority_runtime.py",
     "tests/test_dataset_source_ingest_delivery.py",
     "tests/test_dataset_import.py",
     "tests/test_dataset_import_native.py",
