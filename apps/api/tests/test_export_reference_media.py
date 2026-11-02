@@ -18,9 +18,11 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import insert, select, update
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
+from app.db.models.dataset import DatasetItem
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -65,10 +67,13 @@ from tests.test_sftp_references import sftp_world as sftp_world
 from tests.test_export_media_storage import Client as MediaClient
 from tests.managed_original_client_support import Client as CreationClient
 from tests.test_managed_original_reader import Provider
+from tests.test_reference_original_cache import referenced_cache as referenced_cache
 from tests.test_image_export_inputs import registered_dataset_image
 from tests.test_training_dataset_references import (
     committed_rle_bindings as committed_rle_bindings,
 )
+
+_EXPORT_TEST_KEY = "ak_" + "export-fixture-" + "a" * 32
 
 
 @pytest.fixture(autouse=True)
@@ -86,12 +91,23 @@ async def make_export(
     _, project, _, content = world
     actor = actor or content[2]
     key = await db.get(ApiKey, key_id) if key_id else None
+    principal = None
+    if key:
+        from app.services.identity_gateway import get_identity_gateway
+
+        principal = await get_identity_gateway().authenticate(_EXPORT_TEST_KEY, db=db)
+        assert principal.actor_id == actor.id and principal.credential_id == key.id
     request = SimpleNamespace(
         state=SimpleNamespace(
-            api_key_id=key_id, api_key_scopes=key.scopes if key else None
+            api_key_id=key_id,
+            api_key_scopes=list(principal.scopes) if principal else None,
+            identity_principal=principal,
         ),
-        headers={"authorization": "Bearer test-export-key"} if key else {},
+        headers={"authorization": f"Bearer {_EXPORT_TEST_KEY}"} if key else {},
     )
+    payload = {
+        "output_authority": await output_authority.capture(db, project, actor, request)
+    }
     proof = await capture_export_authority(
         db,
         project,
@@ -100,9 +116,6 @@ async def make_export(
         batch_id=batch_id,
         task_ids=selected,
     )
-    payload = {
-        "output_authority": await output_authority.capture(db, project, actor, request)
-    }
     if proof:
         payload["export_authority"] = proof
     if selected is not None:
@@ -384,8 +397,8 @@ async def test_original_authority_and_binding_rechecked_after_snapshot(
     key = ApiKey(
         user_id=content[2].id,
         name="export",
-        key_prefix="ak_export",
-        key_hash=hash_password("test-export-key"),
+        key_prefix=_EXPORT_TEST_KEY[:12],
+        key_hash=hash_password(_EXPORT_TEST_KEY),
         scopes=["tasks:read"],
     )
     db_session.add(key)
@@ -461,45 +474,37 @@ async def test_batch_outside_reference_neither_read_nor_rejected(
     "mutation", ["source_disable", "cancel", "cancel_failure", "failure"]
 )
 async def test_worker_refuses_publication_but_retains_pending_after_final_rejection(
-    db_session,
-    reference_world,
+    referenced_cache,
+    test_engine,
     mutation,
     monkeypatch,
     export_objects,
-    borrowed_image_business_sessions,
 ):
-    _, project, _, content = reference_world
-    project_id, source_id = project.id, content[5].id
-    job, _, receipt = await make_image_export(
-        db_session, reference_world, targets=["coco"], opts={}
-    )
-    job_id = job.id
+    world = referenced_cache
+    project_id, source_id = world.project.id, world.source_id
+    async with world.factory() as db:
+        # The source itself, not an optional original cache, supplies the image.
+        from app.db.models.dataset_source import DatasetSource
 
-    class Context:
-        async def __aenter__(self):
-            return db_session
+        source = await db.get(DatasetSource, source_id)
+        source.cache_policy = "none"
+        await db.commit()
+        job, _, receipt = await make_image_export(
+            db,
+            (None, world.project, world.task, world.content),
+            targets=["coco"],
+            opts={},
+        )
+        job_id = job.id
 
-        async def __aexit__(self, *_args):
-            return False
-
+    # The worker and its fresh transfer sessions use real independent
+    # connections to the fixture's disposable owner database.
     monkeypatch.setattr(
         worker,
         "create_async_engine",
-        lambda *a, **kw: SimpleNamespace(dispose=AsyncMock()),
+        lambda *_args, **kwargs: create_async_engine(test_engine.url, **kwargs),
     )
-    monkeypatch.setattr(
-        worker, "async_sessionmaker", lambda *a, **kw: lambda: Context()
-    )
-    monkeypatch.setattr(
-        worker.aioredis,
-        "from_url",
-        lambda *a, **kw: SimpleNamespace(
-            set=AsyncMock(return_value=True), eval=AsyncMock(), aclose=AsyncMock()
-        ),
-    )
-    monkeypatch.setattr(
-        storage_service, "generate_download_url", Mock(return_value="signed")
-    )
+    monkeypatch.setattr(worker, "_publish_export_notification", AsyncMock())
     uploaded, deleted = export_objects.puts, export_objects.deleted
     original_guard = worker._reauthorize_export_final_write
 
@@ -507,7 +512,7 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         # The owned lifecycle checks authority in several fresh sessions before
         # and after physical work. Reject only at the original final boundary,
         # after a real ZIP PUT, so this still exercises retained responsibility.
-        if db is not db_session or not uploaded:
+        if not isinstance(db.bind, AsyncConnection) or not uploaded:
             return await original_guard(db, job_id, ids, **kwargs)
         if mutation == "source_disable":
             from app.db.models.dataset_source import DatasetSource
@@ -531,8 +536,7 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         await original_guard(db, job_id, ids, **kwargs)
 
     monkeypatch.setattr(worker, "_reauthorize_export_final_write", guard)
-    notifications = AsyncMock(return_value=None)
-    monkeypatch.setattr(worker, "_emit_export_notification", notifications)
+    notifications = worker._publish_export_notification
     with (
         pytest.raises((ContentError, OSError))
         if not mutation.startswith("cancel")
@@ -547,33 +551,36 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
             celery_task_id="test-export",
             worker_node_id="worker:content@test",
         )
-    job = await db_session.get(AsyncJob, job_id, populate_existing=True)
-    assert len(uploaded) == 1 and not deleted
-    output = await db_session.scalar(
-        select(ExportOutput).where(ExportOutput.job_id == job_id)
-    )
-    assert output is not None and output.state == "pending"
-    assert output.id == receipt.zip_output_id
-    assert output.media_bundle_id == receipt.id
-    bundle = await db_session.get(ExportMediaBundle, receipt.id, populate_existing=True)
-    assert bundle is not None and bundle.state == "building"
-    assert bundle.published_at is None
-    assert output.expires_at == bundle.expires_at == receipt.expires_at
-    assert (output.storage_ref["bucket"], output.storage_ref["object_key"]) == uploaded[
-        0
-    ]
-    assert zipfile.is_zipfile(io.BytesIO(export_objects.objects[uploaded[0]]))
-    assert job.status == ("cancelled" if mutation.startswith("cancel") else "failed")
-    assert not job.result.get("download_url")
-    assert (
-        await db_session.scalar(
-            select(ExportArtifact).where(ExportArtifact.project_id == project_id)
+    # Observe from a new session rather than the worker's identity map.
+    async with world.factory() as observer:
+        job = await observer.get(AsyncJob, job_id)
+        assert len(uploaded) == 1 and not deleted
+        output = await observer.scalar(
+            select(ExportOutput).where(ExportOutput.job_id == job_id)
         )
-        is None
-    )
-    assert not any(call.kwargs.get("ok") for call in notifications.await_args_list)
-    if mutation == "failure":
-        assert "private source" not in job.error_message
+        assert output is not None and output.state == "pending"
+        assert output.id == receipt.zip_output_id
+        assert output.media_bundle_id == receipt.id
+        bundle = await observer.get(ExportMediaBundle, receipt.id)
+        assert bundle is not None and bundle.state == "building"
+        assert bundle.published_at is None
+        assert output.expires_at == bundle.expires_at == receipt.expires_at
+        assert (output.storage_ref["bucket"], output.storage_ref["object_key"]) == uploaded[0]
+        assert zipfile.is_zipfile(io.BytesIO(export_objects.objects[uploaded[0]]))
+        assert job.status == ("cancelled" if mutation.startswith("cancel") else "failed")
+        assert not job.result.get("download_url")
+        assert (
+            await observer.scalar(
+                select(ExportArtifact).where(ExportArtifact.project_id == project_id)
+            )
+            is None
+        )
+        assert not any(
+            call.args[1] is not None and call.args[1].type == "export.ready"
+            for call in notifications.await_args_list
+        )
+        if mutation == "failure":
+            assert "private source" not in job.error_message
 
 
 def test_fetch_script_checks_embedded_when_managed_links_expired(tmp_path):
@@ -778,8 +785,21 @@ async def test_large_frozen_selection_uses_bounded_sql_parameters(
     from app.services.exporting.reference_media import task_query
     from app.services.exporting.service import ExportService
 
-    _, project, task, _ = reference_world
+    _, project, task, content = reference_world
     identities = [uuid.uuid4() for _ in range(33000)]
+    await db_session.execute(
+        insert(DatasetItem),
+        [
+            {
+                "id": identity,
+                "dataset_id": content[3].id,
+                "file_name": "bulk.png",
+                "file_path": f"bulk/{identity}.png",
+                "file_type": "image",
+            }
+            for identity in identities
+        ],
+    )
     await db_session.execute(
         insert(Task),
         [

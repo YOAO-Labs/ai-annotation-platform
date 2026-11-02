@@ -13,7 +13,7 @@ last_reviewed: 2026-10-24
 
 引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO `file_name`、AAP `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目的预签名 URL 指向完整核验后的独立交付副本，清单保存真实 SHA、大小和共同截止。`fetch_images.py` 核对包内图片、已有文件及实际下载字节；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
 
-引用包不跨 job 复用缓存。上传后的最终短事务重新检查原发起人、项目权限、原 Key、固定内容、显式选择的批次可见性与来源，并与取消串行；通过后才一起提交产物索引、下载链接和完成通知。失败或取消等待真实I/O收尾后关闭快照、清理本任务临时ZIP；独立pending归属和未确认对象保留待核对，不物理删除或返回部分包。到期已发布Output由durable退休账本重试清理，pending不按年龄自动回收。已下载的包及已签发的七天 bearer URL 无法承诺随撤权立即回收。
+引用包不跨 job 复用缓存。上传后的最终短事务重新检查原发起人、项目权限、原 Key、固定内容、显式选择的批次可见性与来源，并与取消串行；通过后才一起提交产物索引、下载链接和完成通知。失败或取消的 Job 不提供下载链接，也不返回部分包；真实 I/O 收尾后关闭快照、清理本任务临时 ZIP，独立 pending 归属和未确认对象保留待核对，不因失败推断可删除。到期已发布 Output 由 durable 退休账本重试清理，pending 不按年龄自动回收。已下载的包及已签发的七天 bearer URL 无法承诺随撤权立即回收。
 
 `POST /async-jobs/{job_id}/cancel` 支持 pending/running 导出；已完成任务返回 409。取消在当前有界读图或上传实际收尾后清理临时资源并保留候选责任，不强杀其他任务。历史队列缺少原授权清单时，含引用的范围仍明确失败；同步 VOC 与预测入口尚未获得引用资格。严格读取合同见[已登记目录引用](verified-content.md#已登记目录引用)。
 
