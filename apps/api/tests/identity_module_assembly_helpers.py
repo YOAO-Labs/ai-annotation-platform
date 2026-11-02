@@ -985,6 +985,7 @@ class IdentityModuleStack:
             "TURNSTILE_ENABLED": "false",
             "SENTRY_DSN": "",
             "DEBUG": "false",
+            "OPENBLAS_NUM_THREADS": "1",
             "MINIO_ENDPOINT": self._docker_endpoint(
                 self._required_environment("MINIO_ENDPOINT")
             ),
@@ -1177,6 +1178,8 @@ class IdentityModuleStack:
     image: ${{AAP_IDENTITY_API_RUNTIME_IMAGE:?}}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--timeout-graceful-shutdown", "3"]
     user: "10003:10003"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - {api_env_file}
     depends_on:
@@ -1633,6 +1636,10 @@ class IdentityModuleStack:
             ):
                 raise RuntimeError("Disabled Identity secret files contain credentials")
         elif service == "identity-api":
+            if env.get("OPENBLAS_NUM_THREADS") != "1":
+                raise RuntimeError(
+                    "API native thread budget differs from the acceptance CPU limit"
+                )
             if (
                 "IDENTITY_SIGNING_SECRET" in env
                 or "IDENTITY_SIGNING_SECRET_FILE" in env
