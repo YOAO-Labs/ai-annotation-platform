@@ -419,7 +419,7 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(objects, before)
 
     def test_actual_owner_cleanup_rejects_restored_null_version_before_delete(self):
-        from app.services import prediction_inputs
+        from app.services import import_storage, prediction_inputs
 
         identifier = uuid.uuid4()
         prefix = prediction_inputs.input_prefix(identifier)
@@ -433,7 +433,7 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
             "media_type": "image/png",
             "write_nonce": str(uuid.uuid4()),
         }
-        endpoint, bucket = prediction_inputs._endpoint(), "saved"
+        endpoint, bucket = import_storage._runtime_endpoint(), "saved"
         storage_ref = {
             "schema": 1,
             "purpose": "import",

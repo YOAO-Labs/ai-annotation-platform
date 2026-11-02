@@ -40,7 +40,7 @@ def missing():
 
 
 def fixture(*, state="verified", absent=False, corrupt=False):
-    from app.services import prediction_inputs as owner
+    from app.services import import_storage, prediction_inputs as owner
 
     identifier, nonce = uuid.uuid4(), str(uuid.uuid4())
     # Transport-only unit bytes; actual fixture qualification borrows canonical
@@ -49,7 +49,7 @@ def fixture(*, state="verified", absent=False, corrupt=False):
     sha = hashlib.sha256(raw).hexdigest()
     relative = "video/" + sha + ".avi"
     prefix = owner.input_prefix(identifier)
-    endpoint, bucket = owner._endpoint(), "restored-import"
+    endpoint, bucket = import_storage._runtime_endpoint(), "restored-import"
     ref = {
         "schema": 1,
         "purpose": "import",

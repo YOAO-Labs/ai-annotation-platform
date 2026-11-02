@@ -54,6 +54,13 @@
   ],
   "other_test_roots": [
     {
+      "paths": ["scripts"],
+      "owner": "repository Python scripts and runtime tooling",
+      "selection_source": "backend-test.yml shard 0",
+      "resources": "API test environment and script-specific dependencies",
+      "skip_policy": "explicit prerequisites; no plugin native qualification"
+    },
+    {
       "paths": ["apps/api/tests"],
       "owner": "platform API and consumers",
       "selection_source": "backend-test.yml",

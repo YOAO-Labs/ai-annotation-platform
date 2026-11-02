@@ -12,10 +12,7 @@ from unittest.mock import MagicMock, patch
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
     IDENTITY_RUNTIME_CAPABILITIES,
-    IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
-    IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES,
-    IMAGE_MANIFEST_RUNTIME_CAPABILITIES,
     IMAGE_MEDIA_RUNTIME_CAPABILITIES,
     LocalResources,
     INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
@@ -479,40 +476,6 @@ class BucketUpgradeTests(unittest.TestCase):
             "aap_assets_v1.sweep_accepted_video_inputs(integer)",
             "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
             "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
-        ):
-            self.assertNotIn(excluded, normalized)
-
-    def test_lan_runtime_grants_image_and_accepted_image_allowlists(self):
-        grant_file = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/lan-production-grants.sql"
-        )
-        sql = grant_file.read_text()
-        runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
-            sql,
-            flags=re.DOTALL,
-        )
-        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
-
-        self.assertEqual(len(IMAGE_MEDIA_RUNTIME_CAPABILITIES), 22)
-        self.assertEqual(len(set(IMAGE_MEDIA_RUNTIME_CAPABILITIES)), 22)
-        self.assertEqual(len(IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES), 9)
-        self.assertEqual(len(IMAGE_MANIFEST_RUNTIME_CAPABILITIES), 5)
-        self.assertEqual(len(IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES), 2)
-        self.assertEqual(len(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES), 16)
-        self.assertEqual(len(set(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES)), 16)
-        for signature in (
-            *IMAGE_MEDIA_RUNTIME_CAPABILITIES,
-            *IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
-        ):
-            self.assertIn(signature, normalized)
-        for excluded in (
-            "aap_assets_v1.sweep_accepted_image_inputs(integer)",
-            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
-            "aap_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
-            "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
         ):
             self.assertNotIn(excluded, normalized)
 

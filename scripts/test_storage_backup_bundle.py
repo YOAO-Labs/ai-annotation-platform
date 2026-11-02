@@ -248,8 +248,11 @@ class BundleTests(unittest.TestCase):
     def test_complete_generation_streams_sha_preserves_metadata_and_shared_roles(self):
         manifest = self.create()
         self.assertEqual(manifest, verify_generation(self.directory))
-        self.assertEqual(len(manifest["bucket_roles"]), 9)
-        self.assertEqual(len(set(manifest["bucket_roles"].values())), 8)
+        self.assertEqual(manifest["bucket_roles"], self.source)
+        self.assertEqual(
+            manifest["bucket_roles"]["MINIO_BUCKET"],
+            manifest["bucket_roles"]["MINIO_DATASETS_BUCKET"],
+        )
         self.assertEqual(manifest["totals"]["objects"], 3)
         self.assertEqual(
             manifest["totals"]["object_bytes"],
@@ -304,7 +307,7 @@ class BundleTests(unittest.TestCase):
         owners = deepcopy(self.s3.owner_tags)
         result = restore_objects(self.directory, s3=self.s3, bucket_roles=self.target)
         self.assertEqual(result["objects"], 3)
-        self.assertEqual(result["buckets"], 8)
+        self.assertEqual(result["buckets"], len(set(self.target.values())))
         self.assertEqual(result["object_bytes"], manifest["totals"]["object_bytes"])
         self.assertEqual(self.s3.owner_tags, owners)
         for key, original in self.s3.objects[self.shared].items():
@@ -796,7 +799,7 @@ class BundleTests(unittest.TestCase):
             limits=Limits(max_objects=0, max_total_bytes=0, max_object_bytes=0)
         )
         self.assertEqual(manifest["totals"]["objects"], 0)
-        self.assertEqual(len(manifest["bucket_roles"]), 9)
+        self.assertEqual(manifest["bucket_roles"], self.source)
         result = restore_objects(self.directory, s3=self.s3, bucket_roles=self.target)
         self.assertEqual(result["objects"], 0)
         self.assertEqual(self.s3.puts, [])

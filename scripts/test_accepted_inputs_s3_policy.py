@@ -37,13 +37,14 @@ def test_control_can_read_exact_input_versions_but_not_list_or_mutate():
     assert _actions(policy, "arn:aws:s3:::accepted-inputs") == {
         "s3:GetBucketVersioning"
     }
-    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*") == {"s3:GetObjectVersion"}
-    assert _statement(policy, "arn:aws:s3:::accepted-inputs/*", "s3:GetObjectVersion")[
-        "Condition"
-    ] == {
-        "StringLike": {"s3:versionid": "*?*"},
-        "StringNotEquals": {"s3:versionid": "null"},
-    }
+    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*") == set()
+    for prefix in ("accepted-inputs", "accepted-video-inputs"):
+        resource = f"arn:aws:s3:::accepted-inputs/{prefix}/*"
+        assert _actions(policy, resource) == {"s3:GetObjectVersion"}
+        assert _statement(policy, resource, "s3:GetObjectVersion")["Condition"] == {
+            "StringLike": {"s3:versionid": "*?*"},
+            "StringNotEquals": {"s3:versionid": "null"},
+        }
     assert not any(
         statement["Effect"] == "Deny" and "s3:GetObject" in statement["Action"]
         for statement in policy["Statement"]
@@ -62,14 +63,18 @@ def test_image_worker_can_read_versions_and_put_attempts_without_deleting():
     assert _actions(policy, "arn:aws:s3:::accepted-inputs") == {
         "s3:GetBucketVersioning"
     }
-    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*") == {
+    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*") == set()
+    assert _actions(policy, "arn:aws:s3:::accepted-inputs/accepted-inputs/*") == {
         "s3:GetObjectVersion",
         "s3:PutObject",
     }
-    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*", effect="Deny") == set()
-    assert _statement(policy, "arn:aws:s3:::accepted-inputs/*", "s3:GetObjectVersion")[
-        "Condition"
-    ] == {
+    assert (
+        _actions(policy, "arn:aws:s3:::accepted-inputs/accepted-video-inputs/*")
+        == set()
+    )
+    assert _statement(
+        policy, "arn:aws:s3:::accepted-inputs/accepted-inputs/*", "s3:GetObjectVersion"
+    )["Condition"] == {
         "StringLike": {"s3:versionid": "*?*"},
         "StringNotEquals": {"s3:versionid": "null"},
     }
@@ -84,17 +89,18 @@ def test_cleanup_can_enumerate_and_delete_input_versions_only():
         "s3:ListBucketVersions",
         "s3:ListBucketMultipartUploads",
     }
-    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*") == {
-        "s3:DeleteObjectVersion",
-        "s3:AbortMultipartUpload",
-        "s3:DeleteObject",
-    }
-    assert _statement(policy, "arn:aws:s3:::accepted-inputs/*", "s3:DeleteObject")[
-        "Condition"
-    ] == {
-        "StringLike": {"s3:versionid": "*?*"},
-        "StringNotEquals": {"s3:versionid": "null"},
-    }
+    assert _actions(policy, "arn:aws:s3:::accepted-inputs/*") == set()
+    for prefix in ("accepted-inputs", "accepted-video-inputs"):
+        resource = f"arn:aws:s3:::accepted-inputs/{prefix}/*"
+        assert _actions(policy, resource) == {
+            "s3:DeleteObjectVersion",
+            "s3:AbortMultipartUpload",
+            "s3:DeleteObject",
+        }
+        assert _statement(policy, resource, "s3:DeleteObject")["Condition"] == {
+            "StringLike": {"s3:versionid": "*?*"},
+            "StringNotEquals": {"s3:versionid": "null"},
+        }
     assert not any(
         "PutBucketVersioning" in statement["Action"]
         or "CreateBucket" in statement["Action"]

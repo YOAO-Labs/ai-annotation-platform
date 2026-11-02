@@ -128,7 +128,10 @@ class RecoveryGuards(unittest.TestCase):
 
     def test_all_purposes_and_alias_partition_are_required(self):
         source, target = roles("source"), roles("target")
-        self.assertEqual(len(bucket_mapping(source, target)), 9)
+        self.assertEqual(
+            bucket_mapping(source, target),
+            {source[role]: target[role] for role in source},
+        )
         for changed in (
             {},
             {**target, "MINIO_BUCKET": target["MINIO_DATASETS_BUCKET"]},
@@ -140,7 +143,10 @@ class RecoveryGuards(unittest.TestCase):
         with self.assertRaises(WorktreeError):
             bucket_mapping(source, target)
         target["MINIO_BUCKET"] = target["MINIO_DATASETS_BUCKET"]
-        self.assertEqual(len(bucket_mapping(source, target)), 8)
+        self.assertEqual(
+            bucket_mapping(source, target),
+            {source[role]: target[role] for role in source},
+        )
 
 
 class RecoveryDatabaseGuards(unittest.IsolatedAsyncioTestCase):
@@ -435,6 +441,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                     bucket=self.source[role],
                 )
                 for role, suffix in BUCKETS.items()
+                if role != "MINIO_INPUTS_BUCKET"
             ],
             DatasetAssetLocation: [
                 SimpleNamespace(
