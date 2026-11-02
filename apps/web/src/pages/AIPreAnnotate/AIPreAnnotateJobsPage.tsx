@@ -271,7 +271,7 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
               syncingSearchDraft.current = false;
               setSearchDraft(e.target.value);
             }}
-            placeholder="搜索 prompt..."
+            placeholder="搜索提示词..."
             className={styles.searchInput}
           />
         </FilterGroup>
@@ -289,14 +289,14 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
                   <tr className={styles.headerRow}>
                     <th className={styles.tableHeaderCell}>项目</th>
                     <th className={styles.tableHeaderCell}>批次 / 任务</th>
-                    <th className={styles.tableHeaderCell}>Prompt / 错误</th>
+                    <th className={styles.tableHeaderCell}>提示词 / 错误</th>
                     <th className={styles.tableHeaderCell}>模型 / 模式</th>
                     <th className={styles.tableHeaderCell}>状态</th>
                     <th className={styles.tableHeaderCell}>进度</th>
                     <th className={styles.tableHeaderCell}>总数</th>
                     <th className={styles.tableHeaderCell}>失败</th>
                     <th className={styles.tableHeaderCell}>成本</th>
-                    <th className={styles.tableHeaderCell}>跑时长</th>
+                    <th className={styles.tableHeaderCell}>运行时长</th>
                     <th className={styles.tableHeaderCell}>开始</th>
                     <th className={styles.tableHeaderCell}>操作</th>
                   </tr>
@@ -406,7 +406,7 @@ function JobRow({
       >
         {batchLabel ?? "—"}
       </td>
-      <td className={styles.tableCell} title={prompt || "(无文本 prompt — image-only batch)"}>
+      <td className={styles.tableCell} title={prompt || "（无文本提示词，仅图片批次）"}>
         {prompt ? promptShort : <span className={styles.subtle}>—</span>}
       </td>
       <td className={`${styles.tableCell} ${styles.mutedCell}`}>{outputMode}</td>

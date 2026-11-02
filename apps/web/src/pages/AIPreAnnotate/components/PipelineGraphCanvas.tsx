@@ -85,7 +85,7 @@ const DOT_CLASS: Record<string, string> = {
 function tooltipDesc(data: StageNodeData, isSource: boolean) {
   return (
     <div className={styles.tipBody}>
-      {data.backendName && <div>后端：{data.backendName}</div>}
+      {data.backendName && <div>模型服务：{data.backendName}</div>}
       {data.modelId && <div>模型：{data.modelId}</div>}
       {data.taskType && <div>任务：{data.taskType}</div>}
       {!isSource && <div>父框：{data.classFilter ?? "全部框"}</div>}

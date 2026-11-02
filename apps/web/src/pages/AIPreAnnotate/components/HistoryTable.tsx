@@ -347,7 +347,7 @@ export function HistoryTable({ items, isLoading }: Props) {
                                           onClick={() =>
                                             navigate(`/ai-pre?failed=1&batch_id=${it.batch_id}`)
                                           }
-                                          title="到下方失败 prediction 列表重试"
+                                          title="到下方失败预测列表重试"
                                         >
                                           <Icon name="refresh" size={11} />
                                         </Button>
@@ -389,11 +389,7 @@ export function HistoryTable({ items, isLoading }: Props) {
         onClose={() => {
           if (!submitting) closeConfirm();
         }}
-        title={
-          confirmMode === "reset_to_draft"
-            ? "批量重置 batch 到 draft"
-            : "批量删除 prediction (重激活)"
-        }
+        title={confirmMode === "reset_to_draft" ? "批量重置为草稿" : "批量清空预测"}
         width={520}
       >
         {bulkResult ? (
@@ -434,7 +430,7 @@ function BulkActionBar(props: {
           size="sm"
           variant="ghost"
           onClick={props.onReactivate}
-          title="清空 prediction, batch 回 active"
+          title="清空预测；已预标批次恢复为进行中"
         >
           <Icon name="refresh" size={11} /> 批量重激活
         </Button>
@@ -442,9 +438,9 @@ function BulkActionBar(props: {
           size="sm"
           variant="danger"
           onClick={props.onReset}
-          title="重置 batch 到 draft + 清空 task / prediction / lock"
+          title="重置批次状态并清理预标结果"
         >
-          <Icon name="trash" size={11} /> 批量重置 draft
+          <Icon name="trash" size={11} /> 批量重置为草稿
         </Button>
       </div>
     </div>
@@ -468,29 +464,32 @@ function BulkConfirmForm(props: {
       <p className={styles.confirmCopy}>
         将对 <strong>{props.count}</strong> 个批次执行
         {isDestructive ? (
-          <strong className={styles.dangerText}> reset_to_draft</strong>
+          <strong className={styles.dangerText}> 重置为草稿</strong>
         ) : (
-          <strong className={styles.aiText}> 清空 prediction</strong>
+          <strong className={styles.aiText}> 清空预测</strong>
         )}
         操作：
       </p>
       <ul className={styles.confirmList}>
         {isDestructive ? (
           <>
-            <li>所有 task 回 pending（保留 annotation 记录）</li>
-            <li>清 task_locks / prediction / failed_prediction / prediction_job</li>
-            <li>batch.status → draft</li>
+            <li>
+              批次恢复为草稿，清除批次审核意见、审核人和审核时间；非待处理任务恢复为待处理并清除审核提交信息。
+            </li>
+            <li>清除任务锁、预测和失败预测；取消排队中或运行中的批次预标任务并删除其记录。</li>
+            <li>移除基于预测的已采纳标注；人工标注保留。</li>
+            <li>保留有效分派及单独指定的分派；不再具有相应项目角色的非单独指定分派会被清除。</li>
           </>
         ) : (
           <>
-            <li>清 prediction / failed_prediction / prediction_job</li>
-            <li>batch.status: pre_annotated → active（其他状态不变）</li>
-            <li>task / annotation / lock 保留</li>
+            <li>清除预测和失败预测；取消排队中或运行中的批次预标任务并删除其记录。</li>
+            <li>已预标批次恢复为进行中，其他批次状态不变。</li>
+            <li>任务状态、分派、标注和任务锁保留；标注与预测的关联会解除。</li>
           </>
         )}
       </ul>
       <label className={styles.field}>
-        <span className={styles.fieldLabel}>原因（≥10 字，写入 audit log）</span>
+        <span className={styles.fieldLabel}>原因（至少 10 字，写入审计日志）</span>
         <textarea
           value={props.reason}
           onChange={(e) => props.onReasonChange(e.target.value)}

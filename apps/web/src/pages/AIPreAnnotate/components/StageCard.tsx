@@ -467,7 +467,7 @@ export function StageCard({
       ) : isBoxSegGeometry ? (
         <span className={styles.mutedText}>
           下游模型：{selectedModel?.display_name || selectedModel?.id}（框→分割：消费上游检测框出
-          mask，无需 prompt；上方 prompt/输出形态对本阶段不生效，仅 SAM 变体有效）
+          掩膜，无需提示词；上方提示词和输出形态对本阶段不生效，仅 SAM 变体有效）
         </span>
       ) : isOcrRecognize ? (
         <span className={styles.mutedText}>
@@ -486,7 +486,7 @@ export function StageCard({
         <div className={styles.stageWarn}>
           <Icon name="warning" size={12} />
           <span>
-            该后端未自报输出属性，作下游分类只会重新检测、属性恒空。请改选会产属性的后端。
+            该模型未声明输出属性，作下游分类只会重新检测、属性恒空。请改选会产属性的模型。
           </span>
         </div>
       )}
@@ -570,7 +570,7 @@ export function StageCard({
           <span className={styles.fieldLabel}>
             写回属性键（留空=接收下游返回的全部键）
             {backendAttrOptions.length === 0 && attrKeyOptions.length > 0 && (
-              <span className={styles.fieldHint}> · 选项来自项目属性 schema</span>
+              <span className={styles.fieldHint}> · 选项来自项目属性定义</span>
             )}
           </span>
           <ChipMultiSelect
@@ -578,15 +578,14 @@ export function StageCard({
             selected={writeKeys}
             onChange={setWriteKeys}
             conflictKeys={conflictKeys}
-            emptyHint="下游 backend 未自报属性 schema，且项目无属性字段；留空=接收全部键"
+            emptyHint="下游模型未声明输出属性，且项目无属性字段；留空=接收全部键"
           />
           {/* v0.19.2 WS1 · write.keys 对账: 选的键不在 model 自报 schema 内 → 可能永不产出 (仅警告)。 */}
           {unknownWriteKeys.length > 0 && (
             <div className={styles.stageWarn}>
               <Icon name="warning" size={12} />
               <span>
-                属性键 {unknownWriteKeys.join("、")} 不在该模型自报的属性 schema
-                中，可能不会被产出。
+                属性键 {unknownWriteKeys.join("、")} 不在该模型声明的输出属性中，可能不会被产出。
               </span>
             </div>
           )}

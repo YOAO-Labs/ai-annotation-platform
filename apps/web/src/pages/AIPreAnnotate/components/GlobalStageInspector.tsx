@@ -281,7 +281,7 @@ export function GlobalStageInspector({
       )}
 
       <label className={styles.field}>
-        <span className={styles.fieldLabel}>后端 · 模型</span>
+        <span className={styles.fieldLabel}>模型服务 · 模型</span>
         <select
           className={styles.selectInput}
           value={modelKey}
@@ -329,7 +329,7 @@ export function GlobalStageInspector({
 
       {kind === "source" ? (
         <div className={styles.field}>
-          <span className={styles.fieldLabel}>类别白名单（留空=全部；勾选 model 原生类别）</span>
+          <span className={styles.fieldLabel}>类别白名单（留空=全部；勾选模型原生类别）</span>
           {selectedOption == null ? (
             <span className={styles.fieldHint}>请先选择模型以加载类别表</span>
           ) : sourceClassOptions.length === 0 ? (

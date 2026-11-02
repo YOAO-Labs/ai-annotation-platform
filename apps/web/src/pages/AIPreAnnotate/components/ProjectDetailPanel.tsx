@@ -95,7 +95,7 @@ function describePipelineError(error: unknown): string {
     Array.isArray((detailRaw as { unenabled_backends?: unknown }).unenabled_backends)
   ) {
     const ids = (detailRaw as { unenabled_backends: string[] }).unenabled_backends;
-    return `未启用 backend: ${ids.join("、")}`;
+    return `未启用模型服务: ${ids.join("、")}`;
   }
   return (error as Error).message;
 }
@@ -767,9 +767,9 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
           size="sm"
           variant="ghost"
           onClick={() => navigate(`/ai-pre/jobs?project_id=${projectId}`)}
-          title="该项目所有 prediction job 历史"
+          title="查看该项目所有预标任务历史"
         >
-          <Icon name="history" size={11} /> 历史 job
+          <Icon name="history" size={11} /> 任务历史
         </Button>
         <Button
           size="sm"
@@ -933,8 +933,8 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
               </Suspense>
               {!hasCompatibleDownstream ? (
                 <span className={styles.stageEmptyHint}>
-                  暂无兼容的下游模型。请在项目设置启用兼容后端，或加载并发布检测模型；同一 YOLO
-                  实例可执行多个检测阶段。
+                  暂无兼容的下游模型。请在项目设置启用兼容的模型服务，或加载并发布检测模型；同一
+                  YOLO 实例可执行多个检测阶段。
                 </span>
               ) : !hasDownstreamCards ? (
                 <span className={styles.stageEmptyHint}>
@@ -1079,7 +1079,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
               </label>
               {summary?.ml_backend_max_concurrency != null && (
                 <span className={styles.mutedInline}>
-                  （后端最多 {summary.ml_backend_max_concurrency} 并发）
+                  （模型服务最多 {summary.ml_backend_max_concurrency} 并发）
                 </span>
               )}
             </div>
@@ -1128,9 +1128,9 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                 </Badge>
                 {/* claude[bot] P1 #5 · 引用的 backend 被删/停 → 工作台 popover「按编排跑」会禁用; 这里同时提示。 */}
                 {savedPipelineMissingBackendCount > 0 && (
-                  <span title="编排引用的 backend 不在本项目注册列表里 (被删或未注册); 工作台 popover「按编排跑」会被禁用, 请重新注册或修改编排">
+                  <span title="编排引用的模型服务不在本项目注册列表中；工作台无法按该编排运行，请重新注册或修改编排">
                     <Badge variant="warning">
-                      引用 {savedPipelineMissingBackendCount} 个后端不可用
+                      引用 {savedPipelineMissingBackendCount} 个模型服务不可用
                     </Badge>
                   </span>
                 )}

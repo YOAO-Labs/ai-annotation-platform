@@ -56,7 +56,7 @@ function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onCli
         <div className={styles.backendRow}>
           <span className={`${styles.backendChip} ${backendStateClass(item.ml_backend_state)}`}>
             <Icon name="bot" size={10} />
-            <span className={styles.backendName}>{item.ml_backend_name ?? "未配置推理服务"}</span>
+            <span className={styles.backendName}>{item.ml_backend_name ?? "未配置模型服务"}</span>
             {item.ml_backend_state && ` · ${backendStateLabel(item.ml_backend_state)}`}
           </span>
           {item.ml_backend_max_concurrency != null && (

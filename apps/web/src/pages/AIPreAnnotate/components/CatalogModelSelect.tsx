@@ -18,7 +18,7 @@ export function CatalogModelSelect({ cfg }: { cfg: PreannotateConfig }) {
         value={cfg.selectedCatalogId ?? ""}
         onChange={(event) => cfg.setCatalogModel(event.target.value)}
       >
-        <option value="">保留当前后端配置</option>
+        <option value="">保留当前模型服务配置</option>
         {current && <option value="project-release">项目当前发布 · {current.name}</option>}
         {cfg.catalogModels?.map((entry) => (
           <option key={entry.id} value={entry.id}>

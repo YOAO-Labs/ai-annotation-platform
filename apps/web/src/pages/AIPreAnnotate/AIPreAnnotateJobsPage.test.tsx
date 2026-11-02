@@ -253,7 +253,7 @@ describe("AIPreAnnotateJobsPage", () => {
     renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
     await screen.findByText("暂无图片预标任务");
 
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "  bus  " },
     });
     expect(screen.getByTestId("location-search")).toHaveTextContent("q=old");
@@ -275,7 +275,7 @@ describe("AIPreAnnotateJobsPage", () => {
     await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "bus" },
     });
     expect(screen.getByTestId("location-search")).not.toHaveTextContent("q=bus");
@@ -304,7 +304,7 @@ describe("AIPreAnnotateJobsPage", () => {
     await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "bus" },
     });
     const reloadSearch = screen.getByTestId("location-search").textContent ?? "";
@@ -327,7 +327,7 @@ describe("AIPreAnnotateJobsPage", () => {
     await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "draft" },
     });
     fireEvent.click(screen.getByRole("button", { name: "外部导航" }));
@@ -358,7 +358,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "外部导航" }));
     await waitFor(() => expect(screen.getByDisplayValue("server")).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "server-next" },
     });
 
@@ -393,7 +393,7 @@ describe("AIPreAnnotateJobsPage", () => {
     await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "new" },
     });
     fireEvent.change(screen.getByRole("combobox", { name: "预标任务状态" }), {
@@ -519,7 +519,7 @@ describe("AIPreAnnotateJobsPage", () => {
       }),
     );
     renderUI("/ai-pre/jobs?tab=image&page=2");
-    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+    fireEvent.change(screen.getByPlaceholderText("搜索提示词..."), {
       target: { value: "bus" },
     });
     mockAsyncJobsList.mockClear();

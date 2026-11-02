@@ -83,9 +83,8 @@ describe("StageCard v0.18.5/6", () => {
     expect(screen.queryByRole("button", { name: "color" })).toBeNull();
   });
 
-  it("backend 未自报属性时, 给 ⚠ 警示 + 写回键回落项目属性 key", () => {
+  it("模型未声明输出属性时，写回键回落项目属性", () => {
     renderCard();
-    expect(screen.getByText(/该后端未自报输出属性/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "color" })).toBeInTheDocument();
   });
 

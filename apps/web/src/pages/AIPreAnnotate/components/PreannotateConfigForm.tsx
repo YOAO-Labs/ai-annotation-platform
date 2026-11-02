@@ -118,7 +118,7 @@ export function PreannotateConfigForm({
           <span>
             {backends && backends.length > 1
               ? "请先在上方选择模型服务，再配置预标参数。"
-              : "该项目尚未接入模型服务，请先在项目设置中接入模型后再配置预标参数。"}
+              : "该项目尚未接入模型服务，请先在项目设置中接入模型服务后再配置预标参数。"}
           </span>
         </div>
       ) : (
@@ -185,9 +185,7 @@ export function PreannotateConfigForm({
           {/* prompt 区: 开放词表文本任务 (gsam2) 显示; OCR/版面 与 YOLO 几何 backend 隐藏. */}
           {!cfg.isDocMode && !cfg.isGeometricBackend && (
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>
-                Prompt（同一段文本应用到所有选中批次；逗号分隔）
-              </span>
+              <span className={styles.fieldLabel}>提示词</span>
               {cfg.aliases.length > 0 && (
                 <div className={styles.aliasList}>
                   {cfg.aliases.map((a) => {
@@ -198,7 +196,7 @@ export function PreannotateConfigForm({
                         type="button"
                         onClick={() => cfg.toggleAlias(a.alias)}
                         className={cx(styles.aliasChip, isActive && styles.aliasChipActive)}
-                        title={`${isActive ? "移除" : "添加"} 类别「${a.name}」的 alias${a.count > 0 ? ` · 历史 ${a.count} 次` : ""}`}
+                        title={`${isActive ? "移除" : "添加"} 类别「${a.name}」的别名${a.count > 0 ? ` · 历史 ${a.count} 次` : ""}`}
                       >
                         <span>
                           {isActive ? "✓ " : ""}
@@ -213,7 +211,7 @@ export function PreannotateConfigForm({
                     type="button"
                     onClick={() => cfg.setPrompt(cfg.aliases.map((x) => x.alias).join(", "))}
                     className={styles.refillButton}
-                    title="一键重填: 按频率拼上所有 alias"
+                    title="按频率重新填入所有别名"
                   >
                     重填
                   </button>
@@ -226,18 +224,18 @@ export function PreannotateConfigForm({
                 placeholder="例：car, person, traffic light"
                 className={styles.promptInput}
               />
+              <span className={styles.mutedText}>同一段文本应用到所有选中批次，以逗号分隔。</span>
             </label>
           )}
 
           {/* v0.10.38 · 按后端参数面板. */}
           <div className={styles.field}>
-            <span className={styles.fieldLabel}>后端推理参数（按 backend 记忆，覆盖项目默认）</span>
+            <span className={styles.fieldLabel}>推理参数</span>
+            <span className={styles.mutedText}>按模型服务保存，覆盖项目默认值。</span>
             {!cfg.selectedCatalogId && !cfg.isDocMode && cfg.setupQ.isLoading ? (
               <div className={styles.mutedText}>加载参数…</div>
             ) : !cfg.selectedCatalogId && !cfg.isDocMode && cfg.setupQ.isError ? (
-              <div className={styles.mutedText}>
-                无法拉取 backend /setup，运行时回落项目级阈值。
-              </div>
+              <div className={styles.mutedText}>无法获取模型服务参数，运行时使用项目级阈值。</div>
             ) : cfg.isDocMode && !cfg.hasAnyParams && (cfg.variantGroups?.length ?? 0) === 0 ? (
               // v0.20.5 · 仅当既无 params 又无变体轴时才算「无可调参数」; OCR 可调项全在
               //   supported_variants(version/size/lang), 此前被 !hasAnyParams 误判隐藏。

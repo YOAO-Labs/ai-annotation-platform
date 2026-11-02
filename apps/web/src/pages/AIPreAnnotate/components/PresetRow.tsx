@@ -37,7 +37,7 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
 
   return (
     <div className={styles.field}>
-      <span className={styles.fieldLabel}>参数预设（variant + 参数，按 backend / 任务记忆）</span>
+      <span className={styles.fieldLabel}>参数预设</span>
       <div className={styles.presetRow}>
         <select
           className={styles.presetSelect}
@@ -102,7 +102,7 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
               className={styles.presetButton}
               disabled={disabled}
               onClick={() => setNaming(true)}
-              title="把当前 variant + 参数存为命名预设"
+              title="将当前模型变体和参数存为预设"
             >
               <Icon name="plus" size={11} /> 存为预设
             </button>
@@ -122,6 +122,7 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
           </>
         )}
       </div>
+      <span className={styles.mutedText}>包含模型变体和参数，按模型服务与任务保存。</span>
     </div>
   );
 }
