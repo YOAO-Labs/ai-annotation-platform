@@ -81,7 +81,7 @@ _ERROR_MESSAGES = {
 
 
 class IngestWorkflow:
-    """Run all source work through the supplied five-capability data port."""
+    """Run source work through the supplied transaction-bound data port."""
 
     def __init__(
         self,
@@ -145,6 +145,7 @@ class IngestWorkflow:
             progress = _initial_progress(context)
             cursor = context.next_index
             expected_errors: list[tuple[str, str]] = []
+            batches = []
             for offset in range(0, len(visible_entries), INGEST_BATCH_SIZE):
                 archive_batch = visible_entries[offset : offset + INGEST_BATCH_SIZE]
                 proposals = []
@@ -252,13 +253,23 @@ class IngestWorkflow:
                         if proposal.file_type == "image":
                             image_facts[planned.entry_id] = facts
 
+                staged = await self._data.stage_batch(command, batch_id, completions)
+                require_ingest_scope(command, staged)
+                if staged.batch_id != batch_id or staged.progress != plan.progress:
+                    raise IngestFailure("invalid_response")
+                batches.append((batch_id, plan, completions, image_facts))
+                progress = plan.progress
+                cursor += len(proposals)
+
+            for batch_id, plan, completions, image_facts in batches:
                 settled = await self._data.complete_batch(
                     command, batch_id, completions
                 )
-                _validate_completion(command, batch_id, plan, completions, settled)
+                _validate_completion(
+                    command, batch_id, completions, settled, progress
+                )
                 await self._admit_batch_images(plan, completions, image_facts)
                 progress = settled.progress
-                cursor += len(proposals)
 
             if (
                 cursor != descriptor.planned_entries
@@ -443,7 +454,7 @@ class IngestWorkflow:
                 if proposal.file_type == "image":
                     image_facts[planned.entry_id] = facts
         settled = await self._data.complete_batch(command, batch_id, completions)
-        _validate_completion(command, batch_id, plan, completions, settled)
+        _validate_completion(command, batch_id, completions, settled, plan.progress)
         await self._admit_batch_images(plan, completions, image_facts)
         return settled.progress
 
@@ -715,13 +726,12 @@ def _validate_plan(command, batch_id, proposals, plan, cursor, previous) -> None
         raise IngestFailure("invalid_response")
 
 
-def _validate_completion(command, batch_id, plan, completions, result) -> None:
+def _validate_completion(command, batch_id, completions, result, expected) -> None:
     require_ingest_scope(command, result)
     if result.batch_id != batch_id:
         raise IngestFailure("invalid_response")
     ready = sum(item.status == "ready" for item in completions)
     failed = sum(item.status == "error" for item in completions)
-    expected = plan.progress
     progress = result.progress
     added = progress.added - expected.added
     deduped = progress.deduped - expected.deduped
@@ -734,7 +744,6 @@ def _validate_completion(command, batch_id, plan, completions, result) -> None:
         or added + deduped + skipped != ready
         or errors != failed
         or progress.linked_tasks < expected.linked_tasks
-        or progress.settled != progress.staged
     ):
         raise IngestFailure("invalid_response")
 

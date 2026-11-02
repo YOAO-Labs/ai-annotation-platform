@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class DatasetSourceIngestData:
-    """Call only the five owner functions, validating every scoped reply."""
+    """Call transaction-bound owner functions and validate scoped replies."""
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -86,7 +86,14 @@ class DatasetSourceIngestData:
             """,
             {
                 **_scope_params(command),
-                "descriptor": _json(descriptor),
+                "descriptor": json.dumps(
+                    {
+                        **descriptor.model_dump(mode="json"),
+                        "authority": command.authority.model_dump(mode="json"),
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
             },
             IngestContext,
             command,
@@ -126,6 +133,32 @@ class DatasetSourceIngestData:
                 != requested
             ):
                 raise IngestFailure("invalid_response")
+        return result
+
+    async def stage_batch(
+        self,
+        command: IngestCommand,
+        batch_id: UUID,
+        entries: list[IngestEntryCompletion],
+    ) -> IngestBatchResult:
+        result = await self._call(
+            """
+            SELECT aap_assets_v1.stage_dataset_ingest_batch(
+                CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
+                CAST(:dataset_id AS uuid), CAST(:batch_id AS uuid),
+                CAST(:entries AS jsonb)
+            )
+            """,
+            {
+                **_scope_params(command),
+                "batch_id": batch_id,
+                "entries": _json_list(entries),
+            },
+            IngestBatchResult,
+            command,
+        )
+        if result.batch_id != batch_id:
+            raise IngestFailure("invalid_response")
         return result
 
     async def complete_batch(

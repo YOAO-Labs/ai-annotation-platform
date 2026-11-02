@@ -3,85 +3,167 @@
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.managed_original_creation import ManagedOriginalCreation
-from app.services import managed_original_creation as creations
 from tests.test_datasets_upload_zip import (
     _FakeDatasetSourceStorage,
     _bearer,
-    _create_dataset,
     _make_zip,
     _patch_storage_clients,
 )
 from tests.test_dataset_assets import local_creation_client as local_creation_client
 
 
+@pytest.mark.parametrize(
+    "change",
+    ["none", "boundary", "inactive", "key_rotate", "key_revoke", "directory_access"],
+)
 async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority(
-    httpx_client, db_session, super_admin, monkeypatch
+    copy_db, app_module, monkeypatch, change
 ):
-    from app.api.v1 import datasets as api
+    from datetime import UTC, datetime
 
-    fake = _FakeDatasetSourceStorage()
-    _patch_storage_clients(monkeypatch, fake)
-    dataset = await _create_dataset(
-        httpx_client,
-        super_admin[1],
-        "zip-transaction-" + uuid.uuid4().hex[:8],
-        "point_cloud",
-    )
-    identifier = uuid.UUID(dataset["id"])
-    original = creations.create_stream
-    sealed = []
+    import httpx
+    from sqlalchemy import func, update
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    async def seal(db, allocation, stream, **kwargs):
-        # No Item from this ZIP may be committed or even published while a
-        # later entry is still performing provider I/O.
-        assert not await db.scalar(
-            select(DatasetItem.id).where(DatasetItem.dataset_id == identifier)
-        )
-        result = await original(db, allocation, stream, **kwargs)
-        sealed.append(result.creation_id)
-        return result
+    from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+    from app.core.security import create_access_token, hash_password
+    from app.db.models.api_key import ApiKey
+    from app.db.models.dataset import Dataset
+    from app.db.models.user import User
+    from app.deps import get_db
+    from app.services.dataset_assets import ensure_legacy_bindings
+    from tests.factory import create_api_key
+    from tests.test_dataset_upload_native import _seed_world
+    from tests.test_datasets_upload_zip import _use_local_source_runtime
+    from tests.test_s3_references import s3_world
 
-    monkeypatch.setattr(creations, "create_stream", seal)
-    recheck = api.recheck_directory_write
-
-    async def authority(request, db, dataset_id):
-        await recheck(request, db, dataset_id)
-        if await db.scalar(
-            select(DatasetItem.id).where(DatasetItem.dataset_id == identifier)
-        ):
-            raise HTTPException(403, "late authority changed")
-
-    monkeypatch.setattr(api, "recheck_directory_write", authority)
-    result = await httpx_client.post(
-        f"/api/v1/datasets/{identifier}/items/upload-zip",
-        headers=_bearer(super_admin[1]),
-        files={
-            "file": (
-                "scene.zip",
-                _make_zip({"lidar/0.pcd": b"first", "lidar/1.pcd": b"second"}),
-                "application/zip",
+    engine = copy_db.bind
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    world = await _seed_world(engine)
+    async with maker.begin() as owner:
+        await ensure_legacy_bindings(owner)
+    if change == "directory_access":
+        async with maker.begin() as owner:
+            actor = await owner.get(User, world.actor_id)
+            actor.role = "project_admin"
+            await owner.flush()
+            _, _, dataset, _, _ = await s3_world.__wrapped__(
+                owner, (actor, ""), monkeypatch
             )
-        },
+            world.dataset_id = dataset.id
+    key_id = None
+    token = create_access_token(
+        str(world.actor_id),
+        "project_admin" if change == "directory_access" else "super_admin",
     )
-    assert result.status_code == 403, result.text
-    assert len(sealed) == 2
-    assert not await db_session.scalar(
-        select(DatasetItem.id).where(DatasetItem.dataset_id == identifier)
+    if change.startswith("key_"):
+        async with maker.begin() as owner:
+            key, token = await create_api_key(
+                owner, world.actor_id, "ZIP authority", ["datasets:write"]
+            )
+            key_id = key.id
+    fake = _FakeDatasetSourceStorage()
+    _use_local_source_runtime(monkeypatch)
+    _patch_storage_clients(monkeypatch, fake)
+    monkeypatch.setattr("app.services.assets_source._managed_client", lambda _: fake)
+    original = IngestWorkflow._finish_original
+    sealed = []
+    accepted = change in {"none", "boundary"}
+    entries = (
+        {f"lidar/{i:03}.pcd": f"content-{i}".encode() for i in range(201)}
+        if change == "boundary"
+        else {"lidar/0.pcd": b"first", "lidar/1.pcd": b"second"}
     )
-    assert not await db_session.scalar(
-        select(Scene.id).where(Scene.dataset_id == identifier)
-    )
-    for creation_id in sealed:
-        row = await creations._read(db_session, creation_id)
-        assert row["status"] == "verified"
-        assert (
-            await db_session.get(ManagedOriginalCreation, creation_id)
-        ).id == creation_id
+
+    async def finish_original(workflow, target, proof):
+        assert not await workflow._data._db.scalar(
+            select(DatasetItem.id).where(DatasetItem.dataset_id == world.dataset_id)
+        )
+        await original(workflow, target, proof)
+        sealed.append(target.creation_id)
+        if not accepted and len(sealed) == 2:
+            async with maker.begin() as observer:
+                if change == "inactive":
+                    await observer.execute(
+                        update(User)
+                        .where(User.id == world.actor_id)
+                        .values(is_active=False)
+                    )
+                elif change == "directory_access":
+                    await observer.execute(
+                        update(Dataset)
+                        .where(Dataset.id == world.dataset_id)
+                        .values(created_by=world.other_actor_id)
+                    )
+                elif change == "key_rotate":
+                    await observer.execute(
+                        update(ApiKey).where(ApiKey.id == key_id).values(
+                            key_hash=hash_password("rotated test key")
+                        )
+                    )
+                else:
+                    await observer.execute(
+                        update(ApiKey).where(ApiKey.id == key_id).values(
+                            revoked_at=datetime.now(UTC)
+                        )
+                    )
+
+    monkeypatch.setattr(IngestWorkflow, "_finish_original", finish_original)
+
+    async def request_db():
+        async with maker() as session:
+            yield session
+
+    previous = app_module.dependency_overrides.get(get_db)
+    app_module.dependency_overrides[get_db] = request_db
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+        ) as client:
+            result = await client.post(
+                f"/api/v1/datasets/{world.dataset_id}/items/upload-zip",
+                headers=_bearer(token),
+                files={
+                    "file": (
+                        "scene.zip",
+                        _make_zip(entries),
+                        "application/zip",
+                    )
+                },
+            )
+    finally:
+        if previous is None:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous
+
+    assert result.status_code == (200 if accepted else 403), result.text
+    if accepted:
+        assert result.json()["added"] == len(entries)
+    assert len(sealed) == len(entries)
+    async with maker() as observer:
+        count = await observer.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == world.dataset_id)
+        )
+        assert count == (len(entries) if accepted else 0)
+        scene_count = await observer.scalar(
+            select(func.count())
+            .select_from(Scene)
+            .where(Scene.dataset_id == world.dataset_id)
+        )
+        assert scene_count == (1 if accepted else 0)
+        for creation_id in sealed:
+            creation = await observer.get(ManagedOriginalCreation, creation_id)
+            assert creation.status == "verified"
+            assert creation.dataset_id == world.dataset_id
+            assert creation.verification is not None
+            assert creation.object_key in fake.objects
 
 
 @pytest.fixture

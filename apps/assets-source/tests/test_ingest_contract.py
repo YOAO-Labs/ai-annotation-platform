@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 import json
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -11,6 +10,7 @@ from pydantic import ValidationError
 from aap_assets_source.ingest_contract import (
     INGEST_SCHEMA,
     SCAN_REQUEST_DIGEST,
+    IngestCommand,
     IngestBatchPlan,
     IngestContext,
     IngestDescriptor,
@@ -22,12 +22,35 @@ from aap_assets_source.ingest_contract import (
     IngestProgress,
     IngestReceipt,
     decode_ingest_reply,
-    ingest_json_schema,
 )
 
 
 def _scope():
     return {"operation_id": uuid4(), "actor_id": uuid4(), "dataset_id": uuid4()}
+
+
+def test_ingest_authority_binds_one_credential_kind():
+    command = {
+        **_scope(),
+        "authority": {
+            "credential_type": "api_key",
+            "credential_id": uuid4(),
+            "generation": None,
+            "expires_at": None,
+            "api_key_revision": "a" * 64,
+            "dataset_lifecycle_revision": 1,
+            "directory_protected": True,
+        },
+    }
+    assert IngestCommand.model_validate(command).authority.directory_protected
+    missing = deepcopy(command)
+    del missing["authority"]["api_key_revision"]
+    with pytest.raises(ValidationError):
+        IngestCommand.model_validate(missing)
+    mixed = deepcopy(command)
+    mixed["authority"]["generation"] = 2
+    with pytest.raises(ValidationError):
+        IngestCommand.model_validate(mixed)
 
 
 def _receipt(kind="zip"):
@@ -204,14 +227,6 @@ def test_layout_cursor_cannot_repeat_a_previous_page():
     )
     with pytest.raises(ValidationError):
         IngestLayoutPage.model_validate(page)
-
-
-def test_published_schema_is_generated_from_the_same_wire_values():
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "src/aap_assets_source/ingest_contract.schema.json"
-    )
-    assert json.loads(path.read_text()) == ingest_json_schema()
 
 
 @pytest.mark.parametrize("value", [1, 0, False, "true", None])

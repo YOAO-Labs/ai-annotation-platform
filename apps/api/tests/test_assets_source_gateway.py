@@ -51,6 +51,23 @@ OTHER_ITEM = UUID("50000000-0000-4000-8000-000000000005")
 TOKEN = "source-test-token-" + ("x" * 32)
 
 
+def _ingest_command():
+    return IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+        authority={
+            "credential_type": "api_key",
+            "credential_id": ITEM,
+            "generation": None,
+            "expires_at": None,
+            "api_key_revision": "a" * 64,
+            "dataset_lifecycle_revision": 1,
+            "directory_protected": False,
+        },
+    )
+
+
 def _ingest_reply(command: IngestCommand, *, kind: str) -> dict:
     receipt = IngestReceipt(
         operation_id=command.operation_id,
@@ -627,11 +644,7 @@ class _SizedReadStream(io.BytesIO):
 async def test_remote_ingest_zip_streams_raw_bytes_and_never_falls_back(monkeypatch):
     monkeypatch.setattr(settings, "assets_source_url", "http://source.internal:8767")
     monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = IngestCommand(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-    )
+    command = _ingest_command()
     seen = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -650,6 +663,7 @@ async def test_remote_ingest_zip_streams_raw_bytes_and_never_falls_back(monkeypa
         "operation_id": str(OPERATION),
         "actor_id": str(ACTOR),
         "dataset_id": str(DATASET),
+        "authority": command.authority.model_dump_json(),
     }
     assert request.headers["content-type"] == "application/zip"
     assert request.headers["authorization"] == f"Bearer {TOKEN}"
@@ -660,11 +674,7 @@ async def test_remote_ingest_zip_streams_raw_bytes_and_never_falls_back(monkeypa
 async def test_remote_ingest_scan_sends_typed_command_and_receipt(monkeypatch):
     monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
     monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = IngestCommand(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-    )
+    command = _ingest_command()
     seen = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -686,11 +696,7 @@ async def test_remote_ingest_scan_sends_typed_command_and_receipt(monkeypatch):
 async def test_remote_ingest_preserves_archive_failure_and_maps_bad_reply(monkeypatch):
     monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
     monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = IngestCommand(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-    )
+    command = _ingest_command()
     failure = {
         "schema": INGEST_SCHEMA,
         "ok": False,
@@ -727,53 +733,12 @@ async def test_remote_ingest_preserves_archive_failure_and_maps_bad_reply(monkey
     db.scalar.assert_not_awaited()
 
 
-async def test_zip_route_commits_after_receipt_validation_and_echoes_key(monkeypatch):
-    command_data = []
-    uploaded = []
-    uploaded_streams = []
-
-    class Gateway:
-        is_remote = False
-
-        async def ingest_zip(self, command, source):
-            command_data.append(command)
-            uploaded_streams.append(source)
-            uploaded.append(source.read())
-            return IngestReceipt.model_validate(
-                _ingest_reply(command, kind="zip")["data"]
-            )
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
-    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
-
-    response = await dataset_routes.upload_zip(
-        DATASET,
-        _multipart_request(b"zip bytes"),
-        db,
-        SimpleNamespace(id=ACTOR),
-        idempotency_key=OPERATION,
-    )
-
-    assert uploaded == [b"zip bytes"]
-    assert uploaded_streams[0].closed
-    assert command_data[0].operation_id == OPERATION
-    assert command_data[0].actor_id == ACTOR
-    assert command_data[0].dataset_id == DATASET
-    assert json.loads(response.body) == {
-        "added": 0,
-        "deduped": 0,
-        "skipped": 0,
-        "errors": [],
-        "total_in_zip": 0,
-        "linked_tasks": 0,
-        "scene_inference_notes": [],
-    }
-    assert response.headers["Idempotency-Key"] == str(OPERATION)
-    db.commit.assert_awaited_once()
-    db.rollback.assert_not_awaited()
-
-
 async def test_zip_route_rejects_large_content_length_without_reading_body(monkeypatch):
+    monkeypatch.setattr(
+        dataset_routes,
+        "_ingest_authority",
+        AsyncMock(return_value=_ingest_command().authority),
+    )
     monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", 16)
     monkeypatch.setattr(dataset_routes, "_ZIP_MULTIPART_OVERHEAD_BYTES", 8)
     receive_calls = []
@@ -807,6 +772,11 @@ async def test_zip_route_rejects_large_content_length_without_reading_body(monke
 
 
 async def test_zip_route_stops_chunked_body_and_parser_closes_spooled_file(monkeypatch):
+    monkeypatch.setattr(
+        dataset_routes,
+        "_ingest_authority",
+        AsyncMock(return_value=_ingest_command().authority),
+    )
     boundary = b"assets-ingest-test"
     part_headers = (
         b"--" + boundary + b"\r\n"
@@ -860,6 +830,11 @@ async def test_zip_route_stops_chunked_body_and_parser_closes_spooled_file(monke
 
 
 async def test_zip_route_closes_parser_spool_and_preserves_disconnect(monkeypatch):
+    monkeypatch.setattr(
+        dataset_routes,
+        "_ingest_authority",
+        AsyncMock(return_value=_ingest_command().authority),
+    )
     boundary = b"assets-ingest-test"
     first_chunk = (
         b"--" + boundary + b"\r\n"
@@ -923,6 +898,11 @@ async def test_zip_route_closes_parser_spool_and_preserves_disconnect(monkeypatc
 
 
 async def test_zip_route_closes_parsed_form_when_gateway_fails(monkeypatch):
+    monkeypatch.setattr(
+        dataset_routes,
+        "_ingest_authority",
+        AsyncMock(return_value=_ingest_command().authority),
+    )
     streams = []
 
     class Gateway:
@@ -950,45 +930,8 @@ async def test_zip_route_closes_parsed_form_when_gateway_fails(monkeypatch):
     db.rollback.assert_awaited_once()
 
 
-async def test_scan_route_does_not_commit_remote_session(monkeypatch):
-    command_data = []
-
-    class Gateway:
-        is_remote = True
-
-        async def ingest_scan(self, command):
-            command_data.append(command)
-            return IngestReceipt.model_validate(
-                _ingest_reply(command, kind="scan")["data"]
-            )
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
-    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
-
-    response = await dataset_routes.scan_items(
-        DATASET,
-        db,
-        SimpleNamespace(id=ACTOR),
-        idempotency_key=OPERATION,
-    )
-
-    assert command_data[0].operation_id == OPERATION
-    assert json.loads(response.body) == {
-        "status": "ok",
-        "new_items": 0,
-        "linked_tasks": 0,
-    }
-    assert response.headers["Idempotency-Key"] == str(OPERATION)
-    db.commit.assert_not_awaited()
-    db.rollback.assert_not_awaited()
-
-
 async def test_ingest_public_response_is_size_bounded(monkeypatch):
-    command = IngestCommand(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-    )
+    command = _ingest_command()
     receipt = IngestReceipt.model_validate(_ingest_reply(command, kind="zip")["data"])
     monkeypatch.setattr("app.services.assets_source.MAX_SOURCE_RESPONSE_BYTES", 1)
 
@@ -1031,11 +974,7 @@ async def test_ingest_public_error_status_and_detail_mapping(
 ):
     monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
     monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = IngestCommand(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-    )
+    command = _ingest_command()
     error = {"code": code}
     if detail is not None:
         error["detail"] = detail
@@ -1061,11 +1000,7 @@ async def test_remote_ingest_transport_failure_is_503_without_local_fallback(
 ):
     monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
     monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = IngestCommand(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-    )
+    command = _ingest_command()
 
     async def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("source is offline")

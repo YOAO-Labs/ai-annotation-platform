@@ -12,6 +12,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -27,6 +28,7 @@ from aap_assets_source.contract import (
 from aap_assets_source.ingest_contract import (
     INGEST_SCHEMA,
     ZIP_MAX_BYTES,
+    IngestAuthority,
     IngestCommand,
     IngestFailure,
     IngestReceipt,
@@ -408,6 +410,7 @@ def create_app(
         operation_id: UUID,
         actor_id: UUID,
         dataset_id: UUID,
+        authority: str,
     ) -> Response:
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != (
             "application/zip"
@@ -444,11 +447,15 @@ def create_app(
             if spool is None:
                 return _ingest_failure_response("invalid_request")
             spool.seek(0)
-            command = IngestCommand(
-                operation_id=operation_id,
-                actor_id=actor_id,
-                dataset_id=dataset_id,
-            )
+            try:
+                command = IngestCommand(
+                    operation_id=operation_id,
+                    actor_id=actor_id,
+                    dataset_id=dataset_id,
+                    authority=IngestAuthority.model_validate_json(authority),
+                )
+            except ValidationError:
+                return _ingest_failure_response("invalid_request")
             payload = await _run_until_disconnect(
                 request,
                 request.app.state.runtime.upload_zip(command, spool),

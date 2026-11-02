@@ -18,6 +18,7 @@
   "x-postgresql-functions": [
     "aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
     "aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
     "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
     "aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
     "aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
@@ -28,12 +29,16 @@
     "schema": "aap-dataset-source-ingest/v1",
     "strict_boolean_ok": true,
     "failure_codes": [
+      "access_revoked",
       "account_busy",
       "account_not_active",
+      "api_key_authority_revoked",
       "archive_invalid",
       "archive_unsafe",
       "catalog_manager_required",
+      "dataset_archived",
       "dataset_busy",
+      "dataset_lifecycle_changed",
       "dataset_missing",
       "invalid_account_role",
       "invalid_request",
@@ -51,6 +56,83 @@
     ]
   },
   "$defs": {
+    "IngestAuthority": {
+      "additionalProperties": false,
+      "description": "Credential and dataset facts admitted before external I/O.",
+      "properties": {
+        "credential_type": {
+          "enum": [
+            "jwt",
+            "api_key"
+          ],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "api_key_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Api Key Revision"
+        },
+        "dataset_lifecycle_revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Dataset Lifecycle Revision",
+          "type": "integer"
+        },
+        "directory_protected": {
+          "title": "Directory Protected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "credential_type",
+        "credential_id",
+        "generation",
+        "expires_at",
+        "api_key_revision",
+        "dataset_lifecycle_revision",
+        "directory_protected"
+      ],
+      "title": "IngestAuthority",
+      "type": "object"
+    },
     "IngestBatchPlan": {
       "additionalProperties": false,
       "properties": {
@@ -86,7 +168,14 @@
           "$ref": "#/$defs/IngestProgress"
         }
       },
-      "required": ["operation_id", "actor_id", "dataset_id", "batch_id", "entries", "progress"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "batch_id",
+        "entries",
+        "progress"
+      ],
       "title": "IngestBatchPlan",
       "type": "object"
     },
@@ -117,13 +206,19 @@
           "$ref": "#/$defs/IngestProgress"
         }
       },
-      "required": ["operation_id", "actor_id", "dataset_id", "batch_id", "progress"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "batch_id",
+        "progress"
+      ],
       "title": "IngestBatchResult",
       "type": "object"
     },
     "IngestCommand": {
       "additionalProperties": false,
-      "description": "Verified gateway scope, without a caller role or storage origin.",
+      "description": "Verified gateway scope and the original credential's non-secret facts.",
       "properties": {
         "operation_id": {
           "format": "uuid",
@@ -139,9 +234,17 @@
           "format": "uuid",
           "title": "Dataset Id",
           "type": "string"
+        },
+        "authority": {
+          "$ref": "#/$defs/IngestAuthority"
         }
       },
-      "required": ["operation_id", "actor_id", "dataset_id"],
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "authority"
+      ],
       "title": "IngestCommand",
       "type": "object"
     },
@@ -167,7 +270,10 @@
           "$ref": "#/$defs/IngestDescriptor"
         },
         "state": {
-          "enum": ["preparing", "completed"],
+          "enum": [
+            "preparing",
+            "completed"
+          ],
           "title": "State",
           "type": "string"
         },
@@ -235,7 +341,11 @@
           "type": "boolean"
         }
       },
-      "required": ["id", "lease_token", "delivered"],
+      "required": [
+        "id",
+        "lease_token",
+        "delivered"
+      ],
       "title": "IngestDeliveryAcknowledged",
       "type": "object"
     },
@@ -253,7 +363,10 @@
           "type": "string"
         },
         "kind": {
-          "enum": ["thumbnail", "video_metadata"],
+          "enum": [
+            "thumbnail",
+            "video_metadata"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -273,7 +386,14 @@
           "type": "string"
         }
       },
-      "required": ["id", "operation_id", "kind", "target_id", "lease_token", "lease_expires_at"],
+      "required": [
+        "id",
+        "operation_id",
+        "kind",
+        "target_id",
+        "lease_token",
+        "lease_expires_at"
+      ],
       "title": "IngestDeliveryLease",
       "type": "object"
     },
@@ -281,7 +401,10 @@
       "additionalProperties": false,
       "properties": {
         "kind": {
-          "enum": ["zip", "scan"],
+          "enum": [
+            "zip",
+            "scan"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -340,7 +463,12 @@
           "type": "array"
         }
       },
-      "required": ["kind", "request_digest", "total_in_zip", "planned_entries"],
+      "required": [
+        "kind",
+        "request_digest",
+        "total_in_zip",
+        "planned_entries"
+      ],
       "title": "IngestDescriptor",
       "type": "object",
       "allOf": [
@@ -351,7 +479,9 @@
                 "const": "scan"
               }
             },
-            "required": ["kind"]
+            "required": [
+              "kind"
+            ]
           },
           "then": {
             "properties": {
@@ -372,7 +502,10 @@
           "type": "string"
         },
         "status": {
-          "enum": ["ready", "error"],
+          "enum": [
+            "ready",
+            "error"
+          ],
           "title": "Status",
           "type": "string"
         },
@@ -556,7 +689,10 @@
           "title": "Conflicts With"
         }
       },
-      "required": ["reason", "message"],
+      "required": [
+        "reason",
+        "message"
+      ],
       "title": "IngestFailureDetail",
       "type": "object"
     },
@@ -575,7 +711,10 @@
           "type": "string"
         }
       },
-      "required": ["name", "error"],
+      "required": [
+        "name",
+        "error"
+      ],
       "title": "IngestFileError",
       "type": "object"
     },
@@ -614,7 +753,10 @@
           "type": "array"
         }
       },
-      "required": ["layout_snapshot_digest", "scene_plan"],
+      "required": [
+        "layout_snapshot_digest",
+        "scene_plan"
+      ],
       "title": "IngestFinish",
       "type": "object"
     },
@@ -645,7 +787,11 @@
           "title": "Frame Index"
         }
       },
-      "required": ["item_id", "scene_id", "frame_index"],
+      "required": [
+        "item_id",
+        "scene_id",
+        "frame_index"
+      ],
       "title": "IngestFrameAssignment",
       "type": "object"
     },
@@ -826,7 +972,12 @@
           "title": "Source Key"
         },
         "file_type": {
-          "enum": ["image", "video", "point_cloud", "other"],
+          "enum": [
+            "image",
+            "video",
+            "point_cloud",
+            "other"
+          ],
           "title": "File Type",
           "type": "string"
         },
@@ -911,7 +1062,13 @@
           "type": "integer"
         },
         "status": {
-          "enum": ["pending", "deduped", "skipped", "error", "added"],
+          "enum": [
+            "pending",
+            "deduped",
+            "skipped",
+            "error",
+            "added"
+          ],
           "title": "Status",
           "type": "string"
         },
@@ -1009,7 +1166,12 @@
           "$ref": "#/$defs/IngestSceneMetadata"
         }
       },
-      "required": ["id", "name", "source_format", "source_metadata"],
+      "required": [
+        "id",
+        "name",
+        "source_format",
+        "source_metadata"
+      ],
       "title": "IngestPlannedScene",
       "type": "object"
     },
@@ -1108,7 +1270,10 @@
           "type": "string"
         },
         "kind": {
-          "enum": ["zip", "scan"],
+          "enum": [
+            "zip",
+            "scan"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -1202,7 +1367,9 @@
                 "const": "scan"
               }
             },
-            "required": ["kind"]
+            "required": [
+              "kind"
+            ]
           },
           "then": {
             "properties": {
@@ -1218,7 +1385,11 @@
       "additionalProperties": false,
       "properties": {
         "mode": {
-          "enum": ["single", "per_subdirectory", "auto"],
+          "enum": [
+            "single",
+            "per_subdirectory",
+            "auto"
+          ],
           "title": "Mode",
           "type": "string"
         },
@@ -1227,7 +1398,10 @@
           "type": "string"
         }
       },
-      "required": ["mode", "group_key"],
+      "required": [
+        "mode",
+        "group_key"
+      ],
       "title": "IngestSceneMetadata",
       "type": "object"
     },
@@ -1235,7 +1409,11 @@
       "additionalProperties": false,
       "properties": {
         "mode": {
-          "enum": ["single", "per_subdirectory", "auto"],
+          "enum": [
+            "single",
+            "per_subdirectory",
+            "auto"
+          ],
           "title": "Mode",
           "type": "string"
         },
@@ -1327,7 +1505,12 @@
           "title": "Source Key"
         },
         "file_type": {
-          "enum": ["image", "video", "point_cloud", "other"],
+          "enum": [
+            "image",
+            "video",
+            "point_cloud",
+            "other"
+          ],
           "title": "File Type",
           "type": "string"
         },
@@ -1418,7 +1601,11 @@
     "IngestSuccess": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "ok", "data"],
+      "required": [
+        "schema",
+        "ok",
+        "data"
+      ],
       "properties": {
         "schema": {
           "const": "aap-dataset-source-ingest/v1"
@@ -1453,7 +1640,11 @@
     "IngestFailure": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "ok", "error"],
+      "required": [
+        "schema",
+        "ok",
+        "error"
+      ],
       "properties": {
         "schema": {
           "const": "aap-dataset-source-ingest/v1"
@@ -1464,16 +1655,22 @@
         "error": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["code"],
+          "required": [
+            "code"
+          ],
           "properties": {
             "code": {
               "enum": [
+                "access_revoked",
                 "account_busy",
                 "account_not_active",
+                "api_key_authority_revoked",
                 "archive_invalid",
                 "archive_unsafe",
                 "catalog_manager_required",
+                "dataset_archived",
                 "dataset_busy",
+                "dataset_lifecycle_changed",
                 "dataset_missing",
                 "invalid_account_role",
                 "invalid_request",
@@ -1500,7 +1697,11 @@
     "DeliverySuccess": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "ok", "data"],
+      "required": [
+        "schema",
+        "ok",
+        "data"
+      ],
       "properties": {
         "schema": {
           "const": "aap-dataset-source-ingest-delivery/v1"
@@ -1526,7 +1727,11 @@
     "DeliveryFailure": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "ok", "error"],
+      "required": [
+        "schema",
+        "ok",
+        "error"
+      ],
       "properties": {
         "schema": {
           "const": "aap-dataset-source-ingest-delivery/v1"
@@ -1537,16 +1742,22 @@
         "error": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["code"],
+          "required": [
+            "code"
+          ],
           "properties": {
             "code": {
               "enum": [
+                "access_revoked",
                 "account_busy",
                 "account_not_active",
+                "api_key_authority_revoked",
                 "archive_invalid",
                 "archive_unsafe",
                 "catalog_manager_required",
+                "dataset_archived",
                 "dataset_busy",
+                "dataset_lifecycle_changed",
                 "dataset_missing",
                 "invalid_account_role",
                 "invalid_request",

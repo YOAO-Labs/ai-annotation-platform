@@ -47,7 +47,20 @@ from aap_assets_images.policy import ImagePolicy
 
 
 def _command() -> IngestCommand:
-    return IngestCommand(operation_id=uuid4(), actor_id=uuid4(), dataset_id=uuid4())
+    return IngestCommand(
+        operation_id=uuid4(),
+        actor_id=uuid4(),
+        dataset_id=uuid4(),
+        authority={
+            "credential_type": "api_key",
+            "credential_id": uuid4(),
+            "generation": None,
+            "expires_at": None,
+            "api_key_revision": "a" * 64,
+            "dataset_lifecycle_revision": 1,
+            "directory_protected": False,
+        },
+    )
 
 
 def _managed_target(request: dict) -> ManagedOriginalMaterial:
@@ -258,6 +271,15 @@ class _Data:
                     "dataset_id": scope.dataset_id,
                 }
             ),
+        )
+
+    async def stage_batch(self, command, batch_id, entries):
+        return IngestBatchResult(
+            operation_id=command.operation_id,
+            actor_id=command.actor_id,
+            dataset_id=command.dataset_id,
+            batch_id=batch_id,
+            progress=self._progress(),
         )
 
     async def complete_batch(

@@ -20,12 +20,13 @@ The gateway calls five source operations: `POST /v1/source/upload-init`,
 `POST /v1/source/upload-zip`, and `POST /v1/source/scan`. Delete handles both
 Dataset and DatasetItem deletion. ZIP accepts a bounded `application/zip`
 stream; scan accepts a typed JSON scope. All five require a dedicated bearer
-token. The gateway supplies an actor UUID from its verified request principal;
-Assets SQL rechecks current active status, account role, manager authority for
-scan and deletion where required, and the current Dataset/Item scope. ZIP
-requires an active authenticated account with `datasets:write`, not a
-manager-only role. Scan retains the existing `super_admin` and
-`project_admin` manager set plus `datasets:write`.
+token. The gateway supplies the authenticated actor and the original
+credential's non-secret authority, including its API-key verifier revision or
+JWT generation and expiry, and the admitted Dataset lifecycle revision.
+Assets SQL fences the current credential and Dataset before publishing. ZIP
+normally requires `datasets:write`; a Dataset with a directory source also
+requires current directory management authority. Scan retains the existing
+`super_admin` and `project_admin` manager set plus `datasets:write`.
 
 Each operation uses one PostgreSQL transaction through native reply validation,
 bounded S3 work, and response serialization. Upload initialization reserves a
@@ -41,7 +42,9 @@ Delete writes its audit receipt and cleanup outbox transactionally; this
 service never deletes source or derived objects. ZIP and scan also commit each
 Item, Dataset count, Labeling append receipt, optional Scene/frame updates,
 operation receipt, and media-delivery intent in one outer transaction. ZIP
-copies use immutable keys under
+seals accepted members before publishing business metadata. Verified creations
+remain owned for controlled retirement if publication is rejected. ZIP copies
+use immutable keys under
 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` and store the
 logical path in `metadata.source_ingest.relpath`; the workflow never overwrites
 or deletes an existing source. Scan reads only the exact accepted
@@ -52,8 +55,8 @@ after the transaction, so a lost response can replay the first receipt without
 duplicating Items, source writes, or image jobs. Image admission is part of the
 registration transaction.
 
-The Source PostgreSQL login executes exactly twenty-six functions in
-`aap_assets_v1`: fourteen source/ingest capabilities, nine connection
+The Source PostgreSQL login executes exactly twenty-seven functions in
+`aap_assets_v1`: fifteen source/ingest capabilities, nine connection
 capabilities, and three image-source/admission capabilities. It has no direct
 relation or sequence privileges, no access to other owner schemas, no
 owner-role membership, and no database/schema creation rights. A broadened

@@ -50,6 +50,7 @@ _EXPECTED_SOURCE_CAPABILITIES = {
     "complete_legacy_dataset_upload",
     "begin_dataset_ingest",
     "prepare_dataset_ingest_batch",
+    "stage_dataset_ingest_batch",
     "complete_dataset_ingest_batch",
     "read_dataset_ingest_layout",
     "finish_dataset_ingest",

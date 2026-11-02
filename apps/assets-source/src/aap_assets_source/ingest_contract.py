@@ -34,6 +34,10 @@ IngestFileType = Literal["image", "video", "point_cloud", "other"]
 IngestFailureCode = Literal[
     "invalid_request",
     "account_not_active",
+    "access_revoked",
+    "api_key_authority_revoked",
+    "dataset_archived",
+    "dataset_lifecycle_changed",
     "account_busy",
     "invalid_account_role",
     "catalog_manager_required",
@@ -103,9 +107,41 @@ class IngestScope(_Value):
     actor_id: UUID
     dataset_id: UUID
 
+class IngestAuthority(_Value):
+    """Credential and dataset facts admitted before external I/O."""
+
+    credential_type: Literal["jwt", "api_key"]
+    credential_id: UUID
+    generation: Annotated[int, Field(strict=True, ge=0, lt=2**63)] | None
+    expires_at: datetime | None
+    api_key_revision: Digest | None
+    dataset_lifecycle_revision: Annotated[int, Field(strict=True, ge=1, le=2147483647)]
+    directory_protected: StrictBool
+
+    @model_validator(mode="after")
+    def check_credential(self) -> IngestAuthority:
+        if self.credential_type == "jwt":
+            if (
+                self.generation is None
+                or self.expires_at is None
+                or self.expires_at.utcoffset() is None
+                or self.api_key_revision is not None
+            ):
+                raise ValueError("Invalid admitted JWT authority")
+        elif (
+            self.generation is not None
+            or self.expires_at is not None
+            or self.api_key_revision is None
+        ):
+            raise ValueError("Invalid admitted API key authority")
+        return self
+
+
 
 class IngestCommand(IngestScope):
-    """Verified gateway scope, without a caller role or storage origin."""
+    """Verified gateway scope and the original credential's non-secret facts."""
+
+    authority: IngestAuthority
 
 
 class IngestDescriptor(_Value):
@@ -497,6 +533,13 @@ class IngestDataPort(Protocol):
         self, command: IngestCommand, batch_id: UUID, entries: list[IngestSourceEntry]
     ) -> IngestBatchPlan: ...
 
+    async def stage_batch(
+        self,
+        command: IngestCommand,
+        batch_id: UUID,
+        entries: list[IngestEntryCompletion],
+    ) -> IngestBatchResult: ...
+
     async def complete_batch(
         self,
         command: IngestCommand,
@@ -667,6 +710,7 @@ def ingest_json_schema() -> dict[str, Any]:
         "x-postgresql-functions": [
             "aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
             "aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
             "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
             "aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
             "aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)",

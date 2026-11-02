@@ -1499,6 +1499,7 @@ class LocalResources:
                     "aap_assets_v1.complete_dataset_import_delivery(uuid, uuid), "
                     "aap_assets_v1.begin_dataset_ingest(uuid, uuid, uuid, jsonb), "
                     "aap_assets_v1.prepare_dataset_ingest_batch(uuid, uuid, uuid, uuid, jsonb), "
+                    "aap_assets_v1.stage_dataset_ingest_batch(uuid, uuid, uuid, uuid, jsonb), "
                     "aap_assets_v1.complete_dataset_ingest_batch(uuid, uuid, uuid, uuid, jsonb), "
                     "aap_assets_v1.read_dataset_ingest_layout(uuid, uuid, uuid, uuid, integer), "
                     "aap_assets_v1.finish_dataset_ingest(uuid, uuid, uuid, jsonb), "

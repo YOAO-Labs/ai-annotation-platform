@@ -420,7 +420,7 @@ GRANT SELECT (id, display_id, data_type, name, file_count),
     ON public.datasets TO :"assets_owner";
 GRANT SELECT (storage_scan_prefix, archived_at, archived_by, lifecycle_revision)
     ON public.datasets TO :"assets_owner";
-GRANT SELECT (location_id) ON public.dataset_sources TO :"assets_owner";
+GRANT SELECT (location_id, dataset_id) ON public.dataset_sources TO :"assets_owner";
 GRANT SELECT (id, project_id, dataset_id, created_at),
     INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";
@@ -1468,6 +1468,9 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner", :"learning_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_current_principal(
+    uuid, text, uuid, bigint, timestamptz, text[]
+) TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.workspace_configuration_org_scope(uuid, uuid),
     aap_identity_v1.workspace_template_query_org_ids(uuid)
@@ -1721,6 +1724,7 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_dataset(
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
     aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    aap_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
     aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
     aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
     aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)
@@ -4091,6 +4095,8 @@ GRANT DELETE ON public.storage_operations TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)
     TO :"assets_owner";
 GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._dataset_ingest_publication_authority(uuid,uuid,jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._connection_probe_reply(jsonb,text) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]) OWNER TO :"assets_owner";

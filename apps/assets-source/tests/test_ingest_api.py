@@ -6,6 +6,7 @@ from io import BytesIO
 import json
 from types import SimpleNamespace
 from uuid import uuid4
+from urllib.parse import urlencode
 import zipfile
 
 from fastapi.testclient import TestClient
@@ -62,8 +63,23 @@ def _headers() -> dict[str, str]:
     return {"Authorization": "Bearer " + "s" * 40}
 
 
+def _authority():
+    return {
+        "credential_type": "api_key",
+        "credential_id": str(uuid4()),
+        "generation": None,
+        "expires_at": None,
+        "api_key_revision": "a" * 64,
+        "dataset_lifecycle_revision": 1,
+        "directory_protected": False,
+    }
+
+
 def _raw_scope(command, *, headers=None):
-    query = "&".join(f"{key}={value}" for key, value in command.items()).encode()
+    query = urlencode({
+        key: json.dumps(value) if isinstance(value, dict) else value
+        for key, value in command.items()
+    }).encode()
     raw_headers = [
         (b"host", b"assets-source.test"),
         (b"content-type", b"application/zip"),
@@ -102,7 +118,8 @@ def test_raw_upload_authenticates_before_body_read_and_streams_to_spool() -> Non
     runtime = _Runtime()
     app = create_app(config=_config(), runtime=runtime)
     command = {
-        name: str(uuid4()) for name in ("operation_id", "actor_id", "dataset_id")
+        **{name: str(uuid4()) for name in ("operation_id", "actor_id", "dataset_id")},
+        "authority": json.dumps(_authority()),
     }
     with TestClient(app) as client:
         denied = client.post(
@@ -227,7 +244,8 @@ async def test_busy_zip_slot_returns_without_consuming_or_spooling_body() -> Non
     app.state.config = config
     app.state.runtime = runtime
     command = {
-        name: str(uuid4()) for name in ("operation_id", "actor_id", "dataset_id")
+        **{name: str(uuid4()) for name in ("operation_id", "actor_id", "dataset_id")},
+        "authority": _authority(),
     }
     scope = _raw_scope(command, headers=_headers())
     consumed = 0
@@ -274,7 +292,8 @@ async def test_zip_disconnect_releases_admission_and_closes_spool() -> None:
     app.state.config = config
     app.state.runtime = runtime
     command = {
-        name: str(uuid4()) for name in ("operation_id", "actor_id", "dataset_id")
+        **{name: str(uuid4()) for name in ("operation_id", "actor_id", "dataset_id")},
+        "authority": _authority(),
     }
     scope = _raw_scope(command, headers=_headers())
     messages = iter(
@@ -311,6 +330,7 @@ async def test_disconnect_after_body_cancels_ingest_and_rolls_back(kind) -> None
         "operation_id": str(operation_id),
         "actor_id": str(actor_id),
         "dataset_id": str(dataset_id),
+        "authority": _authority(),
     }
 
     class _BlockingData:

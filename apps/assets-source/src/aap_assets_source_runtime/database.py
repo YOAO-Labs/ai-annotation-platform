@@ -100,6 +100,7 @@ EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
         "complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)",
         "begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
         "prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+        "stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
         "complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
         "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
         "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
@@ -960,7 +961,7 @@ class NativeDeletionData(_NativeData):
 
 
 class NativeIngestData(_NativeData):
-    """Bindings for the five transaction-bound source ingest capabilities."""
+    """Bindings for transaction-bound source ingest capabilities."""
 
     async def begin(
         self, command: IngestCommand, descriptor: IngestDescriptor
@@ -972,7 +973,10 @@ class NativeIngestData(_NativeData):
                 command.operation_id,
                 command.actor_id,
                 command.dataset_id,
-                descriptor.model_dump(mode="json"),
+                {
+                    **descriptor.model_dump(mode="json"),
+                    "authority": command.authority.model_dump(mode="json"),
+                },
             ),
             IngestContext,
         )
@@ -996,6 +1000,29 @@ class NativeIngestData(_NativeData):
                 [entry.model_dump(mode="json") for entry in entries],
             ),
             IngestBatchPlan,
+        )
+        require_ingest_scope(command, result)
+        if result.batch_id != batch_id:
+            raise IngestFailure("invalid_response")
+        return result
+
+    async def stage_batch(
+        self,
+        command: IngestCommand,
+        batch_id: UUID,
+        entries: list[IngestEntryCompletion],
+    ) -> IngestBatchResult:
+        result = await self._call_ingest(
+            "SELECT aap_assets_v1.stage_dataset_ingest_batch("
+            "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::jsonb)",
+            (
+                command.operation_id,
+                command.actor_id,
+                command.dataset_id,
+                batch_id,
+                [entry.model_dump(mode="json") for entry in entries],
+            ),
+            IngestBatchResult,
         )
         require_ingest_scope(command, result)
         if result.batch_id != batch_id:

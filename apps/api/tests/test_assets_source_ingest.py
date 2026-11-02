@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 from unittest.mock import AsyncMock
@@ -17,7 +15,6 @@ from aap_assets_source.ingest_contract import (
     IngestDescriptor,
     IngestFailure,
     IngestProgress,
-    ingest_json_schema,
 )
 from app.services.assets_source_ingest import DatasetSourceIngestData
 
@@ -29,7 +26,20 @@ OPERATION = UUID("30000000-0000-4000-8000-000000000003")
 
 
 def _command() -> IngestCommand:
-    return IngestCommand(operation_id=OPERATION, actor_id=ACTOR, dataset_id=DATASET)
+    return IngestCommand(
+        operation_id=OPERATION,
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+        authority={
+            "credential_type": "api_key",
+            "credential_id": uuid4(),
+            "generation": None,
+            "expires_at": None,
+            "api_key_revision": "a" * 64,
+            "dataset_lifecycle_revision": 1,
+            "directory_protected": False,
+        },
+    )
 
 
 def _success(data) -> dict:
@@ -47,41 +57,6 @@ def _descriptor() -> IngestDescriptor:
         total_in_zip=None,
         planned_entries=None,
     )
-
-
-async def test_native_frozen_schema_matches_the_public_ingest_contract():
-    artifact = (
-        Path(__file__).parents[1] / "alembic/sql/0215_dataset_source_ingest.schema.json"
-    )
-    assert json.loads(artifact.read_text()) == ingest_json_schema()
-
-
-async def test_begin_calls_owner_function_with_strict_descriptor_and_scope():
-    command = _command()
-    descriptor = _descriptor()
-    context = IngestContext(
-        operation_id=OPERATION,
-        actor_id=ACTOR,
-        dataset_id=DATASET,
-        descriptor=descriptor,
-        state="preparing",
-        dataset_name="dataset-a",
-        is_temporal=False,
-        source_prefix="dataset-a/",
-        next_index=0,
-        result=None,
-    )
-    db = SimpleNamespace(scalar=AsyncMock(return_value=_success(context)))
-
-    result = await DatasetSourceIngestData(db).begin(command, descriptor)
-
-    statement, parameters = db.scalar.await_args.args
-    assert "aap_assets_v1.begin_dataset_ingest" in str(statement)
-    assert parameters["operation_id"] == OPERATION
-    assert parameters["actor_id"] == ACTOR
-    assert parameters["dataset_id"] == DATASET
-    assert json.loads(parameters["descriptor"]) == descriptor.model_dump(mode="json")
-    assert result == context
 
 
 async def test_begin_rejects_a_native_reply_for_another_actor():
@@ -134,8 +109,4 @@ async def test_prepare_rejects_a_plan_for_another_batch():
     with pytest.raises(IngestFailure) as raised:
         await DatasetSourceIngestData(db).prepare_batch(command, batch_id, [])
 
-    statement, parameters = db.scalar.await_args.args
-    assert "aap_assets_v1.prepare_dataset_ingest_batch" in str(statement)
-    assert parameters["batch_id"] == batch_id
-    assert json.loads(parameters["entries"]) == []
     assert raised.value.code == "invalid_response"

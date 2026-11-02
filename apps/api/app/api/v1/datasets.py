@@ -30,6 +30,7 @@ from aap_assets_source.contract import (
 )
 from aap_assets_source.import_contract import ImportLimits
 from aap_assets_source.ingest_contract import (
+    IngestAuthority,
     IngestCommand,
     IngestReceipt,
     ZIP_MAX_BYTES,
@@ -802,6 +803,53 @@ async def _ingest_public_response(
     )
 
 
+async def _ingest_authority(request, db, actor_id):
+    from app.services.identity_contracts import (
+        IdentityCredentialRejected,
+        IdentityGatewayUnavailable,
+    )
+    from app.services.identity_request_authority import capture_request_key_proof
+
+    admitted = request.state.identity_principal
+    directory = request.state.directory_dataset_authority
+    key_id = getattr(request.state, "api_key_id", None)
+    if (
+        admitted.actor_id != actor_id
+        or (
+            admitted.credential_type == "api_key"
+            and str(key_id) != str(admitted.credential_id)
+        )
+        or (admitted.credential_type == "jwt" and key_id is not None)
+    ):
+        raise HTTPException(403, detail={"code": "access_revoked"})
+    # Router admission has performed only reads and may hold a credential fence.
+    # Release it before the shared helper's independently authenticated proof.
+    await db.commit()
+    try:
+        proof = await capture_request_key_proof(db, actor_id=actor_id, request=request)
+        if (admitted.credential_type == "api_key") != (proof is not None):
+            raise IdentityCredentialRejected("credential_invalid")
+        authority = IngestAuthority(
+            credential_type=admitted.credential_type,
+            credential_id=admitted.credential_id,
+            generation=admitted.generation,
+            expires_at=(
+                admitted.expires_at if admitted.credential_type == "jwt" else None
+            ),
+            api_key_revision=proof.revision if proof is not None else None,
+            dataset_lifecycle_revision=directory["dataset_lifecycle_revision"],
+            directory_protected="actor_id" in directory,
+        )
+    except IdentityCredentialRejected:
+        await db.rollback()
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"}) from None
+    except IdentityGatewayUnavailable:
+        await db.rollback()
+        raise HTTPException(503, detail="身份认证服务暂不可用") from None
+    await db.commit()
+    return authority
+
+
 @router.post(
     "/{dataset_id}/items/upload-zip",
     dependencies=[Depends(require_scopes("datasets:write"))],
@@ -847,6 +895,7 @@ async def upload_zip(
         operation_id=operation_id,
         actor_id=current_user.id,
         dataset_id=dataset_id,
+        authority=await _ingest_authority(request, db, current_user.id),
     )
     try:
         gateway = AssetsSourceGateway(db)
@@ -893,6 +942,7 @@ async def scan_items(
         operation_id=operation_id,
         actor_id=current_user.id,
         dataset_id=dataset_id,
+        authority=await _ingest_authority(request, db, current_user.id),
     )
     try:
         gateway = AssetsSourceGateway(db)

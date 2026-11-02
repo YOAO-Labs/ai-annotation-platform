@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+import hashlib
+from io import BytesIO
 import json
 import os
 from uuid import UUID, uuid4
@@ -13,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from PIL import Image
 
 from aap_assets_source.ingest_contract import (
     SCAN_REQUEST_DIGEST,
@@ -32,6 +36,7 @@ from aap_assets_source.ingest_contract import (
 )
 from aap_assets_source.frame_layout import PreparedDatasetItem
 from aap_assets_source.scene_layout import SceneLayoutInput, plan_scenes
+from tests.test_datasets_upload_zip import _FakeDatasetSourceStorage
 from tests.test_dataset_upload_native import _cleanup_world, _seed_world
 
 pytestmark = [
@@ -49,6 +54,8 @@ class _World:
     source_maker: object
     operation_ids: set[UUID] = field(default_factory=set)
     batch_ids: set[UUID] = field(default_factory=set)
+    physical: object = field(default_factory=_FakeDatasetSourceStorage)
+    creation_ids: set[UUID] = field(default_factory=set)
 
     @property
     def maker(self):
@@ -67,6 +74,15 @@ class _World:
             operation_id=uuid4(),
             actor_id=actor or self.actor_id,
             dataset_id=self.dataset_id,
+            authority={
+                "credential_type": "jwt",
+                "credential_id": uuid4(),
+                "generation": 0,
+                "expires_at": datetime(2100, 1, 1, tzinfo=UTC),
+                "api_key_revision": None,
+                "dataset_lifecycle_revision": 1,
+                "directory_protected": False,
+            },
         )
         self.operation_ids.add(value.operation_id)
         return value
@@ -114,6 +130,22 @@ async def ingest_world(test_engine):
                     {"ids": list(world.batch_ids)},
                 )
         await _cleanup_world(world.base)
+        async with world.maker.begin() as db:
+            if world.creation_ids:
+                await db.execute(
+                    text(
+                        "DELETE FROM public.storage_usage_mutations "
+                        "WHERE owner_id=ANY(CAST(:ids AS uuid[]))"
+                    ),
+                    {"ids": list(world.creation_ids)},
+                )
+                await db.execute(
+                    text(
+                        "DELETE FROM public.managed_original_creations "
+                        "WHERE id=ANY(CAST(:ids AS uuid[]))"
+                    ),
+                    {"ids": list(world.creation_ids)},
+                )
         await engine.dispose()
 
 
@@ -126,15 +158,25 @@ def _descriptor(kind="zip", count=1):
     )
 
 
+_ENTRY_BYTES = {}
+
+
 def _entry(path="frames/a.png", digest="a" * 32, kind="image", key=None):
+    raw = bytes.fromhex(digest[-6:])
+    if kind == "image":
+        buffer = BytesIO()
+        Image.new("RGB", (2, 2), tuple(raw)).save(buffer, format="PNG")
+        raw = buffer.getvalue()
+    content_hash = hashlib.md5(raw, usedforsecurity=False).hexdigest()
+    _ENTRY_BYTES[content_hash] = raw
     return IngestSourceEntry(
         source_name=path,
         relpath=path,
         source_key=key,
         file_type=kind,
         content_type="image/png" if kind == "image" else "application/octet-stream",
-        file_size=3,
-        content_hash=digest,
+        file_size=len(raw),
+        content_hash=content_hash,
         width=2 if kind == "image" else None,
         height=2 if kind == "image" else None,
     )
@@ -173,6 +215,8 @@ async def _invoke(
             value = [item.model_dump(mode="json") for item in payload]
         else:
             value = payload.model_dump(mode="json")
+        if function == "begin_dataset_ingest":
+            value["authority"] = command.authority.model_dump(mode="json")
         parameters["payload"] = json.dumps(value)
     reply = await db.scalar(
         text("SELECT aap_assets_v1." + function + "(" + ",".join(arguments) + ")"),
@@ -206,7 +250,60 @@ async def _prepare(db, world, command, entries):
     )
 
 
-async def _complete(db, command, plan):
+async def _stage_physical(db, world, command, plan, completions):
+    from app.services.assets_source_ingest import DatasetSourceIngestData
+    from aap_assets_source_runtime.ingest_storage import IngestStorage
+    from aap_assets_source_runtime.ingest_workflow import (
+        IngestWorkflow,
+        _ingest_original_request,
+    )
+
+    ready = {item.entry_id for item in completions if item.status == "ready"}
+    async with world.maker() as owner:
+        data = DatasetSourceIngestData(owner)
+        storage = IngestStorage(world.physical, "datasets")
+        workflow = IngestWorkflow(data=data, storage=storage, image_admission=None)
+        for entry in plan.entries:
+            if entry.entry_id not in ready:
+                continue
+            target = await data.allocate(
+                _ingest_original_request(command, entry, plan.batch_id)
+            )
+            world.creation_ids.add(target.creation_id)
+            await data.open_operation(target.creation_id)
+            _, proof = await storage.publish(
+                BytesIO(_ENTRY_BYTES[entry.content_hash]),
+                target,
+                content_type=entry.content_type,
+                expected_size=entry.file_size,
+                expected_hash=entry.content_hash,
+                image=entry.file_type == "image",
+                on_prepared=lambda prepared: data.original_prepared(
+                    target.creation_id, prepared.evidence()
+                ),
+                on_writing=lambda: data.original_writing(target.creation_id),
+                on_written=lambda receipt: data.original_written(
+                    target.creation_id,
+                    {
+                        "etag": receipt.etag,
+                        "version_id": receipt.version_id,
+                        "request_id": receipt.request_id,
+                        "response": receipt.response,
+                    },
+                ),
+            )
+            await workflow._finish_original(target, proof)
+    await _invoke(
+        db,
+        command,
+        "stage_dataset_ingest_batch",
+        IngestBatchResult,
+        batch=plan.batch_id,
+        payload=completions,
+    )
+
+
+async def _complete(db, command, plan, *, world=None):
     completions = [
         IngestEntryCompletion(
             entry_id=entry.entry_id,
@@ -221,6 +318,8 @@ async def _complete(db, command, plan):
         for entry in plan.entries
         if entry.status == "pending"
     ]
+    if world is not None and any(entry.source_key is None for entry in plan.entries):
+        await _stage_physical(db, world, command, plan, completions)
     return await _invoke(
         db,
         command,
@@ -310,6 +409,58 @@ async def _counts(world):
         )
 
 
+async def test_zip_owner_rejects_completion_before_all_entries_are_staged(ingest_world):
+    world, command = ingest_world, ingest_world.command()
+    async with world.source_maker() as db:
+        await _begin(db, command, _descriptor(count=201))
+        first = await _prepare(
+            db,
+            world,
+            command,
+            [
+                _entry(path=f"frames/{i:03}.bin", digest=f"{i:032x}", kind="other")
+                for i in range(200)
+            ],
+        )
+        with pytest.raises(IngestFailure, match="operation_conflict"):
+            await _complete(db, command, first)
+        assert await _counts(world) == (0, 0, 0, 0)
+
+        last = await _prepare(
+            db,
+            world,
+            command,
+            [_entry(path="frames/200.bin", digest=f"{200:032x}", kind="other")],
+        )
+        assert last.progress.staged == 201
+        forged = [
+            IngestEntryCompletion(
+                entry_id=entry.entry_id,
+                status="ready",
+                publication_id=entry.publication_id,
+                file_size=entry.file_size,
+                content_hash=entry.content_hash,
+                width=entry.width,
+                height=entry.height,
+                error_code=None,
+            )
+            for entry in first.entries
+        ]
+        with pytest.raises(IngestFailure, match="operation_conflict"):
+            await _invoke(
+                db,
+                command,
+                "stage_dataset_ingest_batch",
+                IngestBatchResult,
+                batch=first.batch_id,
+                payload=forged,
+            )
+        with pytest.raises(IngestFailure, match="operation_conflict"):
+            await _complete(db, command, first)
+        assert await _counts(world) == (0, 0, 0, 0)
+        await db.rollback()
+
+
 async def test_zip_staged_targets_are_immutable_and_receipt_replays(ingest_world):
     world, command = ingest_world, ingest_world.command()
     async with world.source_maker.begin() as db:
@@ -329,7 +480,7 @@ async def test_zip_staged_targets_are_immutable_and_receipt_replays(ingest_world
         assert entry.file_path == (
             f"dataset-sources/{world.dataset_id}/{entry.item_id}/{entry.publication_id}/nested/a.png"
         )
-        result = await _complete(db, command, plan)
+        result = await _complete(db, command, plan, world=world)
         assert result.progress.added == 2 and result.progress.deduped == 1
         receipt = await _finish(db, command)
         assert receipt.added == receipt.linked_tasks == 2
@@ -350,7 +501,7 @@ async def test_entire_outer_transaction_failure_removes_items_tasks_receipts_and
         async with world.source_maker.begin() as db:
             await _begin(db, command)
             plan = await _prepare(db, world, command, [_entry()])
-            await _complete(db, command, plan)
+            await _complete(db, command, plan, world=world)
             await _finish(db, command)
             raise RuntimeError("final commit failure")
     assert await _counts(world) == (0, 0, 0, 0)
@@ -391,7 +542,7 @@ async def test_scene_insert_conflict_cannot_commit_positive_ingest_counters(
             async with world.source_maker.begin() as db:
                 await _begin(db, command)
                 plan = await _prepare(db, world, command, [_entry()])
-                assert (await _complete(db, command, plan)).progress.added == 1
+                assert (await _complete(db, command, plan, world=world)).progress.added == 1
                 await _finish(db, command)
         assert await _counts(world) == (0, 0, 0, 0)
         async with world.maker() as db:
@@ -482,6 +633,7 @@ async def test_exact_source_login_cannot_read_business_tables_or_foreign_capabil
     world = ingest_world
     for statement in (
         "SELECT * FROM public.dataset_items LIMIT 1",
+        "SELECT dataset_id FROM public.dataset_sources LIMIT 1",
         "SELECT aap_identity_v1.lock_active_actor(NULL::uuid)",
         "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer)",
         "SELECT aap_assets_v1.complete_dataset_source_ingest_delivery(NULL::uuid,NULL::uuid)",
@@ -506,7 +658,7 @@ async def test_maintenance_caller_can_deliver_without_raw_assets_table_access(
     async with world.source_maker.begin() as db:
         await _begin(db, command)
         plan = await _prepare(db, world, command, [_entry()])
-        await _complete(db, command, plan)
+        await _complete(db, command, plan, world=world)
         await _finish(db, command)
     url = make_url(os.environ["AAP_MODULE_DATA_APPEND_URL"])
     reference = world.source_maker.kw["bind"].url
@@ -581,6 +733,7 @@ async def test_duplicate_candidate_can_succeed_after_first_copy_failure(ingest_w
                 error_code=None,
             ),
         ]
+        await _stage_physical(db, world, command, plan, completions)
         settled = await _invoke(
             db,
             command,
@@ -638,7 +791,7 @@ async def test_layout_ignores_invalid_logical_markers_in_legacy_metadata(ingest_
     async with world.source_maker() as db:
         await _begin(db, command)
         plan = await _prepare(db, world, command, [_entry()])
-        await _complete(db, command, plan)
+        await _complete(db, command, plan, world=world)
         page = await _invoke(
             db, command, "read_dataset_ingest_layout", IngestLayoutPage, limit=500
         )

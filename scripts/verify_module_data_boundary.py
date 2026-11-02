@@ -1238,8 +1238,10 @@ SQL_ARTIFACTS = (
     "0413_tracker_retirement_function_settings.sql",
     "0414_export_core_locks.sql",
     "0415_export_job_nowait.sql",
+    "0419_dataset_ingest_authority.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0419_dataset_ingest_authority.schema.json",
     "0371_assets_owner_main_integration.schema.json",
     "0371_assets_managed_originals.schema.json",
     "0377_workspace_project_snapshots.schema.json",

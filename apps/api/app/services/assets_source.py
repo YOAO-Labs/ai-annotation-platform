@@ -211,6 +211,10 @@ def _raise_ingest_failure(exc: IngestFailure, *, kind: str) -> NoReturn:
             401,
             {"WWW-Authenticate": "Bearer"},
         ) from None
+    if code in {"access_revoked", "api_key_authority_revoked"}:
+        raise AssetsSourceGatewayError(code, {"code": code}, 403) from None
+    if code in {"dataset_archived", "dataset_lifecycle_changed"}:
+        raise AssetsSourceGatewayError(code, {"code": code}, 409) from None
     if code == "dataset_missing":
         raise AssetsSourceGatewayError(code, "Dataset not found", 404) from None
     if code == "invalid_account_role":
@@ -625,6 +629,7 @@ class AssetsSourceGateway:
                 "operation_id": str(command.operation_id),
                 "actor_id": str(command.actor_id),
                 "dataset_id": str(command.dataset_id),
+                "authority": command.authority.model_dump_json(),
             }
             content = _stream_binary(source)
         else:
