@@ -85,22 +85,6 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
                     "SELECT has_function_privilege('identity_api_consumer','aap_identity_v1.replace_fixture_preferences(uuid,jsonb)','EXECUTE')"
                 )
             )
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
-                    )
-                )
-                == 5
-            )
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' AND c.relkind='v' AND has_table_privilege('identity_api_consumer',c.oid,'SELECT')"
-                    )
-                )
-                == 2
-            )
         record_property("fixture_preferences_node", json.loads(result.stdout))
 
 

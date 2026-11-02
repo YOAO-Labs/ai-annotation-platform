@@ -348,25 +348,46 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in (
             "aap_identity_v1._initialize_account_presence()",
             "aap_identity_sessions_v1.execute_session_command(jsonb)",
-            "aap_identity_accounts_v1._account_record(uuid)",
-            "aap_identity_accounts_v1.prepare_account_command(jsonb)",
-            "aap_identity_accounts_v1.apply_account_command(jsonb)",
             "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
             "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
-            "aap_identity_groups_v1._account_record(uuid)",
-            "aap_identity_deactivation_v1._account_record(uuid)",
             "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
-            "aap_identity_invitations_v1._account_record(uuid)",
             "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
-            "aap_identity_directory_v1._directory_user(uuid)",
             "aap_identity_directory_v1.execute_directory_command(jsonb)",
             "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
             "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
             "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
+            "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+        )
+    },
+    **{
+        signature: "0425_identity_preferences.sql"
+        for signature in (
+            "aap_identity_v1._initialize_account_preferences()",
+            "aap_identity_accounts_v1._account_record(uuid)",
+            "aap_identity_accounts_v1.prepare_account_command(jsonb)",
+            "aap_identity_accounts_v1.apply_account_command(jsonb)",
+            "aap_identity_groups_v1._account_record(uuid)",
+            "aap_identity_deactivation_v1._account_record(uuid)",
+            "aap_identity_invitations_v1._account_record(uuid)",
+            "aap_identity_directory_v1._directory_user(uuid)",
+            "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
+            "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
+        )
+    },
+    **{
+        signature: "0425_identity_provisioning.sql"
+        for signature in (
             "aap_identity_v1.create_provisioning_account(jsonb)",
             "aap_identity_v1.create_seed_persona_account(jsonb)",
-            "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
-            "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+        )
+    },
+    **{
+        signature: "0426_image_admission_share.sql"
+        for signature in (
+            "aap_labeling_v1.read_image_task_source_share(uuid,uuid,boolean)",
+            "aap_assets_v1._image_labeling_task_share(uuid,uuid,boolean)",
+            "aap_assets_v1._image_owner_source_share(uuid,uuid,uuid,boolean)",
+            "aap_assets_v1._image_accept_source(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,text)",
         )
     },
     **{
@@ -1279,6 +1300,9 @@ SQL_ARTIFACTS = (
     "0423_identity_presence_actor.sql",
     "0423_identity_presence.sql",
     "0424_upload_publication_identity.sql",
+    "0425_identity_preferences.sql",
+    "0425_identity_provisioning.sql",
+    "0426_image_admission_share.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0419_dataset_ingest_authority.schema.json",
@@ -1675,6 +1699,8 @@ TEST_FILES = (
     "tests/test_identity_credential_mail_native.py",
     "tests/test_identity_recovery_gateway.py",
     "tests/test_identity_accounts_native.py",
+    "tests/test_identity_presence_separation.py",
+    "tests/test_identity_preferences_separation.py",
     "tests/test_identity_accounts_roles.py",
     "tests/test_identity_sessions_native.py",
     "tests/test_identity_sessions_roles.py",
@@ -1795,6 +1821,7 @@ TEST_FILES = (
     "tests/test_assets_images_execution.py",
     "tests/test_assets_images_retention.py",
     "tests/test_image_cleanup_native.py",
+    "tests/test_image_admission_share.py",
     "tests/test_image_thumbnail_publication.py",
     "tests/test_image_pyramid.py",
     "tests/test_image_backfill_maintenance.py",
@@ -4556,6 +4583,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.task_append_operations') IS NULL "
             "AND to_regclass('public.identity_account_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_account_presence') IS NULL "
+            "AND to_regclass('public.identity_account_preferences') IS NULL "
             "AND to_regclass('public.identity_recovery_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_group_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_operation_receipts') IS NULL "
@@ -9196,6 +9224,17 @@ SELECT pg_catalog.jsonb_build_object(
         OR pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
             'aap_identity_v1._initialize_account_presence()', 'EXECUTE')
+    ),
+    'preferences_private', NOT (
+        pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_preferences',
+            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR pg_catalog.has_any_column_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_preferences',
+            'SELECT,INSERT,UPDATE,REFERENCES')
+        OR pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1._initialize_account_preferences()', 'EXECUTE')
     )
 )::text;
 """,
@@ -9220,6 +9259,10 @@ SELECT pg_catalog.jsonb_build_object(
         if not identity_consumer_acl["presence_private"]:
             raise RuntimeError(
                 "Identity API consumer can access private presence storage"
+            )
+        if not identity_consumer_acl["preferences_private"]:
+            raise RuntimeError(
+                "Identity API consumer can access private preferences storage"
             )
         evidence["identity_api_consumer"] = {
             "role": IDENTITY_API_CONSUMER_ROLE,

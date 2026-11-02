@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
+import { safeDatasetsReturn } from "@/pages/Datasets/datasetsUrlState";
 import { safeDatasetReturn, saveImportTextDraft, takeImportTextDraft } from "./storageNavigation";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -225,6 +226,19 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
   const nameValid = skipCreate || (trimmedName.length >= 2 && trimmedName.length <= 60);
 
   const targetDatasetId = datasetId || created?.id;
+
+  const viewDataset = () => {
+    const id = targetDatasetId;
+    onClose();
+    if (!id) return;
+    const returnTo =
+      location.pathname === "/datasets"
+        ? `${location.pathname}${location.search}`
+        : new URLSearchParams(location.search).get("return");
+    const back = new URL(safeDatasetsReturn(returnTo), window.location.origin);
+    back.searchParams.delete("import");
+    navigate(`/datasets/${id}?${new URLSearchParams({ return: back.pathname + back.search })}`);
+  };
 
   const handleSetName = (v: string) => {
     setNameTouched(true);
@@ -554,11 +568,7 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
             items={items}
             running={running}
             onClose={onClose}
-            onView={() => {
-              const id = targetDatasetId;
-              onClose();
-              if (id) navigate(`/datasets`);
-            }}
+            onView={viewDataset}
           />
         ) : mode === "zip" ? (
           <Step3Zip
@@ -569,11 +579,7 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
             error={zipError}
             onRetry={startZipUpload}
             onClose={onClose}
-            onView={() => {
-              const id = targetDatasetId;
-              onClose();
-              if (id) navigate(`/datasets`);
-            }}
+            onView={viewDataset}
           />
         ) : (
           <Step3Connection
@@ -589,11 +595,7 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
               if (targetDatasetId) onUploaded?.(targetDatasetId, added);
             }}
             onClose={onClose}
-            onView={() => {
-              const id = targetDatasetId;
-              onClose();
-              if (id) navigate(`/datasets`);
-            }}
+            onView={viewDataset}
           />
         ))}
 

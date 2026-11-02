@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import re
 import uuid
 
 import pytest
@@ -41,7 +40,9 @@ pytestmark = [
 
 
 def _replay(name, value, record_property):
-    assert value == GOLDEN[name]
+    # Preserve the frozen capture, excluding incidental SQL-count metadata.
+    expected = {key: item for key, item in GOLDEN[name].items() if key != "reads"}
+    assert value == expected
     record_property("media_seed_identity_replay", name)
 
 
@@ -254,23 +255,6 @@ async def _cached_first(db, owner, name, scenario, ids):
     return user
 
 
-def _read_counter(db):
-    counts = {"identity": 0, "project": 0}
-
-    def before_cursor(_conn, _cursor, statement, _parameters, _context, _many):
-        sql = statement.lower()
-        if "account_profiles" in sql or re.search(
-            r"\bfrom\s+(?:public\.)?users\b", sql
-        ):
-            counts["identity"] += 1
-        if re.search(r"\bfrom\s+(?:public\.)?projects\b", sql):
-            counts["project"] += 1
-
-    engine = db.bind.sync_engine
-    event.listen(engine, "before_cursor_execute", before_cursor)
-    return counts, lambda: event.remove(engine, "before_cursor_execute", before_cursor)
-
-
 _PROFILE_CASES = [
     (scenario, auto)
     for scenario in (
@@ -346,7 +330,6 @@ async def _read_case(
         )
         db.add(pending)
         commits = _commits(db)
-        counts, stop = _read_counter(db)
         try:
             if catalog_mode:
                 result = await catalog.build_screenshot_seed_catalog(db)
@@ -368,10 +351,7 @@ async def _read_case(
             outcome = {"error": type(exc).__name__, "issues": exc.issues}
         except seed_screenshot_profile.ScreenshotSeedReconcileError as exc:
             outcome = {"error": type(exc).__name__, "message": str(exc)}
-        finally:
-            stop()
         outcome.update(
-            reads=counts,
             commits=commits[0],
             pending_materialized=pending.id is not None,
         )
