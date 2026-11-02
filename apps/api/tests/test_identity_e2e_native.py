@@ -63,8 +63,8 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
     async with test_engine.begin() as db:
         await db.execute(
             text(
-                "INSERT INTO users(id,email,name,password_hash,role,is_active,preferences) "
-                "VALUES (:id,:email,'Audit keeper','opaque','employee',true,'{}'::jsonb)"
+                "INSERT INTO users(id,email,name,password_hash,role,is_active) "
+                "VALUES (:id,:email,'Audit keeper','opaque','employee',true)"
             ),
             {"id": keeper_id, "email": keeper_email},
         )
@@ -133,12 +133,10 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
                 )
             ).one() == (keeper_id, keeper_email, "employee", "fixture.keep")
     finally:
-        async with test_engine.begin() as db:
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(
-                text("DELETE FROM audit_logs WHERE id=:id"), {"id": audit_id}
-            )
-            await db.execute(text("DELETE FROM users WHERE id=:id"), {"id": keeper_id})
+        cleaned = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+        )
+        assert cleaned.status_code == 200, cleaned.text
 
 
 async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_actor(
