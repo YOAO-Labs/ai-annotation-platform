@@ -20,6 +20,7 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.identity_e2e_fixtures import IdentityE2EFixtures
+from app.config import settings
 from tests import seed_owned_scenarios as owned_cases
 from tests import seed_router_scenarios as seed_cases
 from tests.identity_e2e_support import (
@@ -48,6 +49,189 @@ pytestmark = [
         reason="requires owned module-data verifier",
     ),
 ]
+
+
+async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
+    test_engine, fixture_and_fenced_http, fenced_http, monkeypatch
+):
+    account_url = os.environ["AAP_MODULE_DATA_IDENTITY_ACCOUNTS_URL"]
+    monkeypatch.setattr(settings, "identity_account_database_url_file", "")
+    monkeypatch.setattr(settings, "identity_account_database_url", account_url)
+    namespace = "receiptcase"
+    keeper_id = uuid.uuid4()
+    keeper_email = f"cleanup-audit-{keeper_id.hex}@example.test"
+    async with test_engine.begin() as db:
+        await db.execute(
+            text(
+                "INSERT INTO users(id,email,name,password_hash,role,is_active,preferences) "
+                "VALUES (:id,:email,'Audit keeper','opaque','employee',true,'{}'::jsonb)"
+            ),
+            {"id": keeper_id, "email": keeper_email},
+        )
+        audit_id = await db.scalar(
+            text(
+                "INSERT INTO audit_logs(actor_id,actor_email,actor_role,action) "
+                "VALUES (:id,:email,'employee','fixture.keep') RETURNING id"
+            ),
+            {"id": keeper_id, "email": keeper_email},
+        )
+    try:
+        created = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/project-roles", json={"namespace": namespace}
+        )
+        assert created.status_code == 200, created.text
+        email = created.json()["owner_email_a"]
+        login = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/login", json={"email": email}
+        )
+        assert login.status_code == 200, login.text
+        changed = await fenced_http.patch(
+            "/api/v1/auth/me/preferences",
+            headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+            json={"ui": {"theme": "dark"}},
+        )
+        assert changed.status_code == 200, changed.text
+        async with test_engine.connect() as db:
+            actor_id = await db.scalar(
+                text("SELECT id FROM users WHERE email=:email"), {"email": email}
+            )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM identity_account_operation_receipts WHERE actor_id=:id"
+                    ),
+                    {"id": actor_id},
+                )
+                == 1
+            )
+        cleaned = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+        )
+        assert cleaned.status_code == 200, cleaned.text
+        async with test_engine.connect() as db:
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM users WHERE id=:id"), {"id": actor_id}
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM identity_account_operation_receipts WHERE actor_id=:id"
+                    ),
+                    {"id": actor_id},
+                )
+                == 0
+            )
+            assert (
+                await db.execute(
+                    text(
+                        "SELECT actor_id,actor_email,actor_role,action FROM audit_logs WHERE id=:id"
+                    ),
+                    {"id": audit_id},
+                )
+            ).one() == (keeper_id, keeper_email, "employee", "fixture.keep")
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
+            await db.execute(
+                text("DELETE FROM audit_logs WHERE id=:id"), {"id": audit_id}
+            )
+            await db.execute(text("DELETE FROM users WHERE id=:id"), {"id": keeper_id})
+
+
+async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_actor(
+    test_engine, fixture_and_fenced_http, fenced_http, e2e_consumer
+):
+    namespace = "refcase"
+    role = e2e_consumer.url.username
+    assert role.startswith("workspace_consumer_") and role.replace("_", "").isalnum()
+    async with test_engine.begin() as db:
+        await db.execute(
+            text(
+                "GRANT EXECUTE ON FUNCTION "
+                "aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb) "
+                f'TO "{role}"'
+            )
+        )
+        assert not await db.scalar(
+            text(
+                "SELECT has_table_privilege(:role,'public.users','SELECT') OR "
+                "has_any_column_privilege(:role,'public.users','SELECT')"
+            ),
+            {"role": role},
+        )
+    dataset_id = None
+    dataset_name = f"External cleanup reference {uuid.uuid4().hex}"
+    try:
+        created = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/project-roles", json={"namespace": namespace}
+        )
+        assert created.status_code == 200, created.text
+        email = created.json()["owner_email_a"]
+        login = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/login", json={"email": email}
+        )
+        assert login.status_code == 200, login.text
+        dataset = await fenced_http.post(
+            "/api/v1/datasets",
+            headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+            json={"name": dataset_name, "data_type": "image"},
+        )
+        assert dataset.status_code == 201, dataset.text
+        dataset_id = uuid.UUID(dataset.json()["id"])
+        async with test_engine.connect() as db:
+            actor_id = await db.scalar(
+                text("SELECT id FROM users WHERE email=:email"), {"email": email}
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT created_by FROM datasets WHERE id=:id"),
+                    {"id": dataset_id},
+                )
+                == actor_id
+            )
+            projects_before = await db.scalar(
+                text("SELECT count(*) FROM projects WHERE name LIKE :name"),
+                {"name": f"E2E Project Roles % {namespace}"},
+            )
+            assert projects_before == 4
+        blocked = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+        )
+        assert blocked.status_code == 409, blocked.text
+        async with test_engine.connect() as db:
+            assert (
+                await db.scalar(
+                    text("SELECT created_by FROM datasets WHERE id=:id"),
+                    {"id": dataset_id},
+                )
+                == actor_id
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM users WHERE email LIKE :email"),
+                    {"email": f"%-{namespace}@e2e.test"},
+                )
+                == 9
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM projects WHERE name LIKE :name"),
+                    {"name": f"E2E Project Roles % {namespace}"},
+                )
+                == projects_before
+            )
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(
+                text("DELETE FROM datasets WHERE name=:name"), {"name": dataset_name}
+            )
+        cleaned = await fixture_and_fenced_http.post(
+            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+        )
+        assert cleaned.status_code == 200, cleaned.text
 
 
 @pytest.mark.parametrize(

@@ -432,6 +432,7 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
     )
     labeling_fixture_delete = operation == _LABELING_FIXTURE_DELETE_SQL
     audit_fixture_delete = operation == _AUDIT_FILTERING_FIXTURE_CLEANUP
+    identity_fixture_delete = operation.startswith("SELECT aap_identity_fixture_v1.")
     owner_fixture_delete = (
         jobs_fixture_delete or labeling_fixture_delete or audit_fixture_delete
     )
@@ -454,6 +455,17 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
             status_code=503, detail="项目测试清理服务暂不可用"
         ) from None
     except Exception as exc:
+        if identity_fixture_delete:
+            original = getattr(exc, "orig", exc)
+            state = getattr(original, "sqlstate", None) or getattr(
+                original, "pgcode", None
+            )
+            if state == "23503":
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "e2e_seed_identity_referenced"},
+                ) from exc
+            raise
         if (
             operation.startswith("SELECT aap_workspace_fixture_v1.")
             or owner_fixture_delete
