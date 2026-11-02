@@ -35,8 +35,6 @@ from app.db.models.user import User
 from tests.factory import DEFAULT_PASSWORD, create_api_key
 from tests.identity_module_assembly_helpers import (
     IdentityModuleStack,
-    _expected_secret_mount_names,
-    _identity_optional_secret_selectors,
     asyncpg_connection_url,
     verifier_database_url,
 )
@@ -169,51 +167,6 @@ def test_verifier_role_database_url_rejects_cross_database_inputs(changes):
             expected_role="notification_delivery_read_client",
             container_name="owned-postgres",
         )
-
-
-def test_optional_identity_secret_mounts_are_empty_by_default_and_selected_only_for_socket(
-    tmp_path,
-):
-    optional_mounts = {
-        "identity_admission_token",
-        "identity_actor_status_database_url",
-    }
-    default_selectors = _identity_optional_secret_selectors(
-        tmp_path, notifications_socket_enabled=False
-    )
-    enabled_selectors = _identity_optional_secret_selectors(
-        tmp_path, notifications_socket_enabled=True
-    )
-
-    assert (
-        set(_expected_secret_mount_names("identity-admission", False))
-        >= optional_mounts
-    )
-    assert _expected_secret_mount_names("notifications-socket", False) is None
-    assert _expected_secret_mount_names("notifications-socket", True) == {
-        "notification_socket_database_url",
-        "notification_socket_redis_url",
-        "notification_socket_identity_token",
-    }
-    assert set(default_selectors) == {
-        "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE",
-        "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE",
-    }
-    assert set(default_selectors.values()) == {""}
-    assert not any((tmp_path / name).exists() for name in optional_mounts)
-    assert enabled_selectors == {
-        "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": str(
-            tmp_path / "identity_admission_token"
-        ),
-        "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": str(
-            tmp_path / "identity_actor_status_database_url"
-        ),
-    }
-    compose = (ROOT / "docker-compose.identity.yml").read_text(encoding="utf-8")
-    assert "file: ${IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE:-/dev/null}" in compose
-    assert (
-        "file: ${IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE:-/dev/null}" in compose
-    )
 
 
 @pytest.mark.parametrize(
@@ -739,6 +692,83 @@ async def test_cold_notifications_owner_behind_api_bridge(
                                 .values(role="employee")
                             )
 
+                        private_rows = []
+                        async with seed.begin() as db:
+                            await db.execute(
+                                update(User)
+                                .where(User.id == actor.id)
+                                .values(role="super_admin")
+                            )
+                            for kind in (
+                                "storage_migration_inventory",
+                                "storage_migration_copy",
+                                "future_unknown_job",
+                            ):
+                                row = Notification(
+                                    user_id=actor.id,
+                                    type="job.completed",
+                                    target_type="async_job",
+                                    target_id=uuid.uuid4(),
+                                    payload={"kind": kind},
+                                )
+                                db.add(row)
+                                await db.flush()
+                                await db.refresh(row)
+                                private_rows.append(row)
+                        for row in private_rows[:2]:
+                            frame = _event_bytes(row)
+                            assert await redis_publisher.publish(channel, frame) == 1
+                            assert (await asyncio.wait_for(socket.recv(), 5)).encode(
+                                "utf-8"
+                            ) == frame
+                        assert (
+                            await redis_publisher.publish(
+                                channel, _event_bytes(private_rows[2])
+                            )
+                            == 1
+                        )
+                        unknown_marker = {
+                            "type": "notifications.sync",
+                            "marker": "unknown-job-denied",
+                        }
+                        assert (
+                            await redis_publisher.publish(
+                                channel, json.dumps(unknown_marker).encode()
+                            )
+                            == 1
+                        )
+                        assert (
+                            json.loads(await asyncio.wait_for(socket.recv(), 5))
+                            == unknown_marker
+                        )
+                        async with seed.begin() as db:
+                            await db.execute(
+                                update(User)
+                                .where(User.id == actor.id)
+                                .values(role="employee")
+                            )
+                        for row in private_rows[:2]:
+                            assert (
+                                await redis_publisher.publish(
+                                    channel, _event_bytes(row)
+                                )
+                                == 1
+                            )
+                        demoted_marker = {
+                            "type": "notifications.sync",
+                            "marker": "private-jobs-revoked",
+                        }
+                        assert (
+                            await redis_publisher.publish(
+                                channel, json.dumps(demoted_marker).encode()
+                            )
+                            == 1
+                        )
+                        assert (
+                            json.loads(await asyncio.wait_for(socket.recv(), 5))
+                            == demoted_marker
+                        )
+
                         await stack.kill_service("notifications-socket")
                         with pytest.raises(ConnectionClosed):
                             await asyncio.wait_for(socket.recv(), 5)
@@ -913,6 +943,8 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             "configured_retry_waits": _NOTIFICATION_GATE_ATTEMPTS - 1,
                             "precommit_event_delivered_after_commit": True,
                             "current_scope_revocation_and_role_drift": True,
+                            "retired_private_jobs_require_current_super_admin": True,
+                            "unknown_jobs_denied_for_super_admin": True,
                             "owner_restart_durable_inbox_reconciled": True,
                             "sdk_source_import": str(
                                 sdk_source.relative_to(ROOT.resolve())

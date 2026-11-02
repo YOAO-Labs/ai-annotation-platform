@@ -37,8 +37,8 @@ async def test_application_role_reads_notifications_only_through_fixed_functions
             await connection.execute(
                 text(
                     "INSERT INTO public.users "
-                    "(id,email,name,password_hash,role,is_active,status) "
-                    "VALUES (:id,:email,:name,:password_hash,'employee',true,'offline')"
+                    "(id,email,name,password_hash,role,is_active) "
+                    "VALUES (:id,:email,:name,:password_hash,'employee',true)"
                 ),
                 {
                     "id": user_id,

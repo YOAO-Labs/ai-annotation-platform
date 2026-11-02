@@ -91,6 +91,7 @@ async def get_async_job(
 @router.post("/async-jobs/{job_id}/cancel", response_model=AsyncJobCancelResponse)
 async def cancel_async_job(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     actor_id: uuid.UUID = Depends(get_current_user_id),
     cancellation: JobCancellationPort = Depends(get_job_cancellation_port),
@@ -101,7 +102,12 @@ async def cancel_async_job(
     worker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。
     """
     try:
-        status = await cancellation.cancel(job_id=job_id, actor_id=actor_id)
+        key_id = getattr(request.state, "api_key_id", None)
+        status = await cancellation.cancel(
+            job_id=job_id,
+            actor_id=actor_id,
+            api_key_id=uuid.UUID(key_id) if key_id is not None else None,
+        )
     except AsyncJobOperationFailure as exc:
         _raise_operation_failure(exc)
     await db.commit()

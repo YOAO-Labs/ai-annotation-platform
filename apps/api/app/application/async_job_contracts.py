@@ -77,7 +77,9 @@ class AsyncJobReadPort(Protocol):
 class JobCancellationPort(Protocol):
     """Cancel one job using the caller-owned transaction and execution control."""
 
-    async def cancel(self, *, job_id: UUID, actor_id: UUID) -> str: ...
+    async def cancel(
+        self, *, job_id: UUID, actor_id: UUID, api_key_id: UUID | None
+    ) -> str: ...
 
 
 class PredictionRetryPort(Protocol):

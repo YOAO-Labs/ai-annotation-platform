@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, cast, func, literal, or_, select, String, union_all
+from sqlalchemy.orm import aliased
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_asset import (
@@ -22,7 +23,6 @@ from app.db.models.dataset_source import (
 )
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services.data_management.task_filters import (
     apply_task_visibility,
@@ -35,6 +35,12 @@ from app.services.project_access import is_privileged_for_project
 from app.services.project_aggregates import (
     managed_project_scope_clause,
     project_scope_clause,
+)
+from app.services.labeling_core_read_relations import task_row
+from app.services.workspace_read_relations import (
+    project_facts,
+    project_member_facts,
+    project_rows,
 )
 
 STATES = ("verified", "missing", "changed", "preview_only", "unavailable", "unverified")
@@ -741,15 +747,17 @@ async def workbench(db, dataset_id, actor):
             .order_by(DatasetSource.created_at, DatasetSource.id)
         )
     )
-    scope = project_scope_clause(actor, Project.id)
+    project_entity = aliased(Project, project_rows(), adapt_on_names=True)
+    member_entity = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
+    scope = project_scope_clause(actor, project_entity.id)
     projects_query = (
-        select(Project, ProjectMember.role)
-        .join(ProjectDataset, ProjectDataset.project_id == Project.id)
+        select(project_entity, member_entity.role)
+        .join(ProjectDataset, ProjectDataset.project_id == project_entity.id)
         .outerjoin(
-            ProjectMember,
+            member_entity,
             and_(
-                ProjectMember.project_id == Project.id,
-                ProjectMember.user_id == actor.id,
+                member_entity.project_id == project_entity.id,
+                member_entity.user_id == actor.id,
             ),
         )
         .where(ProjectDataset.dataset_id == dataset_id)
@@ -757,12 +765,14 @@ async def workbench(db, dataset_id, actor):
     )
     if scope is not None:
         projects_query = projects_query.where(scope)
-    project_rows = (
-        await db.execute(projects_query.order_by(Project.created_at, Project.id))
+    project_entries = (
+        await db.execute(
+            projects_query.order_by(project_entity.created_at, project_entity.id)
+        )
     ).all()
-    projects = [project for project, _ in project_rows]
+    projects = [project for project, _ in project_entries]
     groups = {}
-    for project, role in project_rows:
+    for project, role in project_entries:
         privileged = is_privileged_for_project(actor, project)
         groups.setdefault((privileged, None if privileged else role), []).append(
             project
@@ -775,8 +785,8 @@ async def workbench(db, dataset_id, actor):
     # in one aggregate query, with at most manager + three membership branches.
     visible_queries = [
         apply_task_visibility(
-            select(Task.id).where(
-                Task.project_id.in_([project.id for project in group]),
+            select(task_row.id).where(
+                task_row.project_id.in_([project.id for project in group]),
                 dataset_filter,
             ),
             actor,
@@ -791,14 +801,14 @@ async def workbench(db, dataset_id, actor):
         rows = (
             await db.execute(
                 select(
-                    Task.project_id,
-                    func.count(Task.id),
-                    func.count(Task.id).filter(Task.is_labeled.is_(True)),
-                    func.count(Task.id).filter(Task.status == "completed"),
-                    func.count(Task.id).filter(Task.status == "review"),
+                    task_row.project_id,
+                    func.count(task_row.id),
+                    func.count(task_row.id).filter(task_row.is_labeled.is_(True)),
+                    func.count(task_row.id).filter(task_row.status == "completed"),
+                    func.count(task_row.id).filter(task_row.status == "review"),
                 )
-                .join(visible, visible.c.id == Task.id)
-                .group_by(Task.project_id)
+                .join(visible, visible.c.id == task_row.id)
+                .group_by(task_row.project_id)
             )
         ).all()
         stats = {row[0]: row[1:] for row in rows}
@@ -843,18 +853,19 @@ async def workbench(db, dataset_id, actor):
 async def training_versions(db, dataset_id, actor, *, limit, offset):
     await require_dataset(db, dataset_id)
     version = TrainingDatasetVersion
+    project = project_facts()
     task_match = (
         select(1)
-        .select_from(Task)
-        .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+        .select_from(task_row)
+        .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
         .where(
             DatasetItem.dataset_id == dataset_id,
-            Task.project_id == version.project_id,
+            task_row.project_id == version.project_id,
             version.snapshot.contains(
                 func.jsonb_build_object(
                     "samples",
                     func.jsonb_build_array(
-                        func.jsonb_build_object("task_id", cast(Task.id, String))
+                        func.jsonb_build_object("task_id", cast(task_row.id, String))
                     ),
                 )
             ),
@@ -871,12 +882,12 @@ async def training_versions(db, dataset_id, actor, *, limit, offset):
         select(
             version.id,
             version.project_id,
-            Project.name.label("project_name"),
+            project.c.name.label("project_name"),
             version.name,
             version.status,
             version.created_at,
         )
-        .join(Project, Project.id == version.project_id)
+        .join(project, project.c.id == version.project_id)
         .where(match)
     )
     scope = managed_project_scope_clause(actor, version.project_id)

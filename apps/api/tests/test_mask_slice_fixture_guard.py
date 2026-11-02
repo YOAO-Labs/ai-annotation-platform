@@ -214,10 +214,14 @@ def test_non_worktree_keeps_legacy_ci_rule_and_rejects_unrecognized_worktree_buc
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_rejects_tampered_selected_manifest_before_database_access(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize("foreign_root", [False, True])
+async def test_lifecycle_rejects_foreign_resources_before_database_access(
+    monkeypatch, tmp_path, foreign_root
 ):
     resources = _resources(tmp_path)
+    monkeypatch.setattr(
+        _module, "_REPO_ROOT", tmp_path / "other-checkout" if foreign_root else tmp_path
+    )
     monkeypatch.setattr(_module, "_RESOURCE_ROOT", tmp_path)
     monkeypatch.setattr(_module, "read_state", lambda _path: {"resources": resources})
     monkeypatch.setattr(_module, "load_identity", lambda _root: "identity")
@@ -233,7 +237,8 @@ async def test_lifecycle_rejects_tampered_selected_manifest_before_database_acce
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("E2E_SEED_ENABLED", "true")
     monkeypatch.setenv("AAP_WORKTREE_MODE", "e2e")
-    with pytest.raises(GuardError, match="manifest does not match"):
+    reason = "inside this checkout" if foreign_root else "manifest does not match"
+    with pytest.raises(GuardError, match=reason):
         await _module.run("gc", str(uuid4()), str(uuid4()), "fixture1")
 
 

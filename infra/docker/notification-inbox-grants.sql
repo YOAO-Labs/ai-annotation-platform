@@ -54,6 +54,7 @@ BEGIN
             ('aap_notifications_v1.inbox_total_count_scoped(uuid,text)', 'bigint', false),
             ('aap_notifications_v1.inbox_unread_count_scoped(uuid,text)', 'bigint', false),
             ('aap_notifications_v1._notification_is_migration_inventory(uuid)', 'boolean', false),
+            ('aap_notifications_v1._notification_unknown_job_scope(uuid)', 'boolean', false),
             ('aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)',
                 'aap_notifications_v1.notification_facts', true),
             ('aap_notifications_v1._visible_inbox_rows(uuid,text)',
@@ -104,7 +105,8 @@ END;
 $revoke_columns$;
 REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text),
     aap_notifications_v1._visible_inbox_rows_scoped(uuid,text),
-    aap_notifications_v1._notification_is_migration_inventory(uuid)
+    aap_notifications_v1._notification_is_migration_inventory(uuid),
+    aap_notifications_v1._notification_unknown_job_scope(uuid)
     FROM :"api_role", :"query_client", PUBLIC;
 REVOKE EXECUTE ON FUNCTION
     aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
@@ -154,6 +156,7 @@ BEGIN
         WHERE function.oid=ANY(v_allowed || ARRAY[
             'aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)'::regprocedure::oid,
             'aap_notifications_v1._notification_is_migration_inventory(uuid)'::regprocedure::oid,
+            'aap_notifications_v1._notification_unknown_job_scope(uuid)'::regprocedure::oid,
             'aap_notifications_v1._visible_inbox_rows(uuid,text)'::regprocedure::oid
         ]) AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
     ) THEN
@@ -165,6 +168,8 @@ BEGIN
             'aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)','EXECUTE')
        OR pg_catalog.has_function_privilege(v_api,
             'aap_notifications_v1._notification_is_migration_inventory(uuid)','EXECUTE')
+       OR pg_catalog.has_function_privilege(v_api,
+            'aap_notifications_v1._notification_unknown_job_scope(uuid)','EXECUTE')
        OR pg_catalog.has_table_privilege(v_api,
             'aap_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_any_column_privilege(v_api,

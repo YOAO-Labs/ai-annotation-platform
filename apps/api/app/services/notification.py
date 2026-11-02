@@ -15,9 +15,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import (
     delete,
-    func,
     inspect as sa_inspect,
-    or_,
     select,
     update,
 )
@@ -66,28 +64,8 @@ from app.services.notification_publication import publish_notification_request
 log = logging.getLogger(__name__)
 
 
-_PRIVATE_MIGRATION_JOB_KINDS = frozenset(
-    {"storage_migration_inventory", "storage_migration_copy"}
-)
-
-
 def _notification_project_id(row: Notification) -> uuid.UUID | None:
     return notification_project_id(row)
-
-
-def _without_migration_inventory():
-    """In-memory mirror of the scoped owner SQL that hides private storage work."""
-    job_kind = (
-        select(AsyncJob.kind)
-        .where(AsyncJob.id == Notification.target_id)
-        .correlate(Notification)
-        .scalar_subquery()
-    )
-    effective_kind = func.coalesce(job_kind, Notification.payload["kind"].astext, "")
-    return or_(
-        Notification.target_type != "async_job",
-        effective_kind.not_in(_PRIVATE_MIGRATION_JOB_KINDS),
-    )
 
 
 class NotificationService:
@@ -437,7 +415,9 @@ class NotificationService:
         )
         return await inbox.unread_count(user.id, user.role)
 
-    async def _unresolved_cached_job_ids(self, user_id: uuid.UUID) -> set[uuid.UUID]:
+    async def _blocked_cached_job_ids(
+        self, user_id: uuid.UUID, *, include_migration_inventory: bool
+    ) -> set[uuid.UUID]:
         """Keep denied persisted job rows out of ORM bulk synchronization."""
         session = getattr(self.db, "sync_session", self.db)
         ids = set()
@@ -461,7 +441,10 @@ class NotificationService:
         data = NotificationDeliveryReadPostgresData(self.db, Notification)
         rows = await data.read_notification_facts(user_id, ids)
         policy = NotificationDeliveryReadPolicy(data)
-        return {rows[index].id for index in await policy.unresolved_job_indices(rows)}
+        blocked = await policy.blocked_job_indices(
+            rows, include_migration_inventory=include_migration_inventory
+        )
+        return {rows[index].id for index in blocked}
 
     async def mark_read(
         self,
@@ -478,13 +461,14 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).mark_read(user_id, notification_id, read_at)
-        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
+        excluded_job_ids = await self._blocked_cached_job_ids(
+            user_id, include_migration_inventory=include_migration_inventory
+        )
         self._synchronize_read_state_identity(
             user_id,
             read_at,
             notification_id=notification_id,
             excluded_job_ids=excluded_job_ids,
-            include_migration_inventory=include_migration_inventory,
         )
         return result.updated
 
@@ -502,12 +486,13 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).mark_all_read(user_id, read_at)
-        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
+        excluded_job_ids = await self._blocked_cached_job_ids(
+            user_id, include_migration_inventory=include_migration_inventory
+        )
         self._synchronize_read_state_identity(
             user_id,
             read_at,
             excluded_job_ids=excluded_job_ids,
-            include_migration_inventory=include_migration_inventory,
         )
         return result.updated
 
@@ -518,7 +503,6 @@ class NotificationService:
         *,
         notification_id: uuid.UUID | None = None,
         excluded_job_ids: set[uuid.UUID],
-        include_migration_inventory: bool = True,
     ) -> None:
         """Mirror SQLAlchemy's evaluate synchronization after the owner UPDATE.
 
@@ -533,8 +517,6 @@ class NotificationService:
         criteria.extend(
             [Notification.user_id == user_id, Notification.read_at.is_(None)]
         )
-        if not include_migration_inventory:
-            criteria.append(_without_migration_inventory())
         if excluded_job_ids:
             criteria.append(Notification.id.not_in(excluded_job_ids))
         statement = update(Notification).where(*criteria).values(read_at=read_at)
@@ -574,12 +556,13 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).delete_for_user(user_id, notification_id)
-        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
+        excluded_job_ids = await self._blocked_cached_job_ids(
+            user_id, include_migration_inventory=include_migration_inventory
+        )
         self._synchronize_delete_identity(
             user_id,
             notification_id=notification_id,
             excluded_job_ids=excluded_job_ids,
-            include_migration_inventory=include_migration_inventory,
         )
         return result.deleted
 
@@ -596,12 +579,13 @@ class NotificationService:
                 include_migration_inventory=include_migration_inventory,
             )
         ).clear_read(user_id)
-        excluded_job_ids = await self._unresolved_cached_job_ids(user_id)
+        excluded_job_ids = await self._blocked_cached_job_ids(
+            user_id, include_migration_inventory=include_migration_inventory
+        )
         self._synchronize_delete_identity(
             user_id,
             clear_read=True,
             excluded_job_ids=excluded_job_ids,
-            include_migration_inventory=include_migration_inventory,
         )
         return result.deleted
 
@@ -612,7 +596,6 @@ class NotificationService:
         notification_id: uuid.UUID | None = None,
         clear_read: bool = False,
         excluded_job_ids: set[uuid.UUID],
-        include_migration_inventory: bool = True,
     ) -> None:
         """Mirror SQLAlchemy's post-evaluate DELETE identity synchronization."""
         if clear_read:
@@ -627,8 +610,6 @@ class NotificationService:
             ]
         else:
             raise ValueError("delete cache synchronization needs an operation")
-        if not include_migration_inventory:
-            criteria.append(_without_migration_inventory())
         if excluded_job_ids:
             criteria.append(Notification.id.not_in(excluded_job_ids))
 

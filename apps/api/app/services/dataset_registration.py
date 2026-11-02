@@ -5,7 +5,7 @@ import uuid
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import BigInteger, cast, func, inspect, insert, literal, select
+from sqlalchemy import BigInteger, cast, func, insert, literal, select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset_source import (
@@ -89,13 +89,14 @@ async def validate(db, location, source, run):
 
 
 async def request_authority(db, actor, api_key_id, proof, source=None):
-    actor = await scans.require_actor(db, inspect(actor).identity[0], source)
+    actor = await scans.require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return actor
 
 
 async def attempt(db, run, source, actor, *, api_key_id=None, key_proof):
-    await request_authority(db, actor, api_key_id, key_proof, source)
+    actor = await request_authority(db, actor, api_key_id, key_proof, source)
     run.snapshot = {
         **run.snapshot,
         "actor_id": str(actor.id),
@@ -131,7 +132,7 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=No
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, scan, _ = await scans.run_context(db, scan_id)
-    await request_authority(db, actor, api_key_id, key_proof, source)
+    actor = await request_authority(db, actor, api_key_id, key_proof, source)
     await scans.validate_write_context(db, location, source, snapshot=scan.snapshot)
     if not scan.complete or scan.status != "completed":
         raise HTTPException(409, detail={"code": "scan_incomplete"})
@@ -633,7 +634,10 @@ async def confirm(
     source = None
 
     async def authorize_request(current_db):
-        await request_authority(current_db, actor, api_key_id, key_proof, source)
+        nonlocal actor
+        actor = await request_authority(
+            current_db, actor, api_key_id, key_proof, source
+        )
         if source is not None:
             await scans.require_dataset_write(current_db, source, snapshot=run.snapshot)
         if before_commit is not None:
@@ -778,7 +782,7 @@ async def confirm(
 async def resume(db, run_id, actor, *, api_key_id=None, path_digest=None):
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, run, old_job = await context(db, run_id)
-    await request_authority(db, actor, api_key_id, key_proof, source)
+    actor = await request_authority(db, actor, api_key_id, key_proof, source)
     await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
     await other_active(db, run)
     if (

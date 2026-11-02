@@ -33,6 +33,30 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb) FROM PUBLIC;
 -- aap-statement-break
+DO $owner$
+DECLARE
+    revision_owner name;
+    needs_create boolean;
+BEGIN
+    SELECT pg_catalog.pg_get_userbyid(proowner) INTO revision_owner
+    FROM pg_catalog.pg_proc
+    WHERE oid = 'aap_labeling_v1.mask_revision_command(jsonb)'::regprocedure;
+    needs_create := NOT pg_catalog.has_schema_privilege(
+        revision_owner, 'aap_labeling_v1', 'CREATE'
+    );
+    IF needs_create THEN
+        EXECUTE pg_catalog.format('GRANT CREATE ON SCHEMA aap_labeling_v1 TO %I', revision_owner);
+    END IF;
+    EXECUTE pg_catalog.format(
+        'ALTER FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb) OWNER TO %I',
+        revision_owner
+    );
+    IF needs_create THEN
+        EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM %I', revision_owner);
+    END IF;
+END
+$owner$;
+-- aap-statement-break
 CREATE OR REPLACE FUNCTION aap_labeling_v1.mask_revision_command(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql

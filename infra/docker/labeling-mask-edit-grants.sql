@@ -71,6 +71,18 @@ BEGIN
         RAISE EXCEPTION 'Labeling Mask edit data command is missing or changed: %', v_signature;
     END IF;
     END LOOP;
+    IF NOT EXISTS (
+        SELECT FROM pg_catalog.pg_proc AS function
+        WHERE function.oid=pg_catalog.to_regprocedure(
+            'aap_labeling_v1._mask_revision_canonical_json(jsonb)'
+        )
+          AND function.proowner=v_owner AND function.prosecdef
+          AND function.provolatile='i' AND function.prokind='f'
+          AND function.prorettype='text'::pg_catalog.regtype
+          AND function.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+    ) THEN
+        RAISE EXCEPTION 'Labeling Mask revision digest helper is missing or changed';
+    END IF;
 END;
 $guard$;
 
@@ -100,6 +112,8 @@ BEGIN
 END;
 $revoke$;
 
+REVOKE ALL ON FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb)
+    FROM :"mask_edit_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_labeling_v1.mask_edit_command(jsonb),
     aap_labeling_v1.mask_revision_command(jsonb),
     aap_labeling_v1.ai_mask_accept_command(jsonb)

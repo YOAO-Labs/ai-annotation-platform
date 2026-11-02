@@ -94,10 +94,14 @@ async def test_rest_notification_reads_counts_and_mutations_use_current_authorit
         f"/api/v1/notifications/{protected.id}/read", headers=headers
     )
     assert single.status_code == (200 if allowed else 404)
+    if not allowed:
+        assert protected.read_at is None
     single = await httpx_client.delete(
         f"/api/v1/notifications/{read.id}", headers=headers
     )
     assert single.status_code == (200 if allowed else 404)
+    if not allowed:
+        assert read in db_session
     batch = await httpx_client.post(
         "/api/v1/notifications/mark-all-read", headers=headers
     )
@@ -213,16 +217,26 @@ async def test_unresolved_job_is_hidden_from_rest_mutations_and_socket(
     else:
         await db_session.execute(delete(AsyncJob).where(AsyncJob.id == target_id))
     hidden_unread = Notification(
-        user_id=actor.id, type="job.completed", target_type="async_job",
-        target_id=target_id, payload={},
+        user_id=actor.id,
+        type="job.completed",
+        target_type="async_job",
+        target_id=target_id,
+        payload={},
     )
     hidden_read = Notification(
-        user_id=actor.id, type="job.completed", target_type="async_job",
-        target_id=target_id, payload={}, read_at=datetime.now(timezone.utc),
+        user_id=actor.id,
+        type="job.completed",
+        target_type="async_job",
+        target_id=target_id,
+        payload={},
+        read_at=datetime.now(timezone.utc),
     )
     visible = Notification(
-        user_id=actor.id, type="system.announcement", target_type="system",
-        target_id=uuid.uuid4(), payload={},
+        user_id=actor.id,
+        type="system.announcement",
+        target_type="system",
+        target_id=uuid.uuid4(),
+        payload={},
     )
     db_session.add_all([hidden_unread, hidden_read, visible])
     await db_session.flush()
@@ -232,9 +246,9 @@ async def test_unresolved_job_is_hidden_from_rest_mutations_and_socket(
     assert page.status_code == 200
     assert page.json()["total"] == 1
     assert page.json()["unread"] == 1
-    assert (await httpx_client.get(
-        "/api/v1/notifications/unread-count", headers=headers
-    )).json()["unread"] == 1
+    assert (
+        await httpx_client.get("/api/v1/notifications/unread-count", headers=headers)
+    ).json()["unread"] == 1
 
     service = NotificationService(db_session)
     assert not await service.notification_deliverable(hidden_unread.id, actor.id)
@@ -255,21 +269,27 @@ async def test_unresolved_job_is_hidden_from_rest_mutations_and_socket(
     monkeypatch.setattr(ws, "_authenticate_socket_token", authenticate)
     message = json.dumps({"id": str(hidden_unread.id), "type": "job.completed"})
     assert not await ws._notification_message_allowed(token, message)
-    assert (await httpx_client.post(
-        f"/api/v1/notifications/{hidden_unread.id}/read", headers=headers
-    )).status_code == 404
-    assert (await httpx_client.delete(
-        f"/api/v1/notifications/{hidden_read.id}", headers=headers
-    )).status_code == 404
-    assert (await httpx_client.post(
-        "/api/v1/notifications/mark-all-read", headers=headers
-    )).json()["updated"] == 1
-    assert (await httpx_client.post(
-        "/api/v1/notifications/clear-read", headers=headers
-    )).json()["deleted"] == 1
-    remaining = set(await db_session.scalars(
-        select(Notification.id).where(Notification.user_id == actor.id)
-    ))
+    assert (
+        await httpx_client.post(
+            f"/api/v1/notifications/{hidden_unread.id}/read", headers=headers
+        )
+    ).status_code == 404
+    assert (
+        await httpx_client.delete(
+            f"/api/v1/notifications/{hidden_read.id}", headers=headers
+        )
+    ).status_code == 404
+    assert (
+        await httpx_client.post("/api/v1/notifications/mark-all-read", headers=headers)
+    ).json()["updated"] == 1
+    assert (
+        await httpx_client.post("/api/v1/notifications/clear-read", headers=headers)
+    ).json()["deleted"] == 1
+    remaining = set(
+        await db_session.scalars(
+            select(Notification.id).where(Notification.user_id == actor.id)
+        )
+    )
     assert remaining == hidden_ids
     with db_session.no_autoflush:
         assert await service.mark_all_read(actor.id) == 0

@@ -459,7 +459,8 @@ REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created
     ON TABLE aap_notifications_v1.notification_facts FROM :"application_role", PUBLIC;
 REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text),
     aap_notifications_v1._visible_inbox_rows_scoped(uuid,text),
-    aap_notifications_v1._notification_is_migration_inventory(uuid)
+    aap_notifications_v1._notification_is_migration_inventory(uuid),
+    aap_notifications_v1._notification_unknown_job_scope(uuid)
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
 REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, target_id,
@@ -944,6 +945,8 @@ GRANT EXECUTE ON FUNCTION
 REVOKE ALL ON FUNCTION aap_labeling_v1.mask_edit_command(jsonb),
     aap_labeling_v1.mask_revision_command(jsonb),
     aap_labeling_v1.ai_mask_accept_command(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb)
+    FROM :"application_role", PUBLIC;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON TABLE public.asset_storage_deletions FROM :"asset_cleanup_role";

@@ -259,13 +259,13 @@ async def reference_task_guard(
                 ) from None
             raise content_http_error(exc) from None
         return
-    from app.api.v1.tasks._shared import _assert_task_visible, _resolve_task_access
+    from app.services import task_access
     from app.services.dataset_content import key_authority
 
     scope = "annotations:write" if "/annotations" in request.url.path else "tasks:write"
     key_id = getattr(request.state, "api_key_id", None)
     key_proof = await key_authority(db, actor, key_id, scope)
-    await _resolve_task_access(db, task, actor, lock_membership=True)
+    await task_access.resolve_task_access(db, task, actor.id, lock_membership=True)
     from app.services.task_lock import TaskLockService
 
     # Dispatch also takes this advisory lock before TaskLock's Task FK lock.
@@ -273,7 +273,7 @@ async def reference_task_guard(
     task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(404, "Task not found")
-    await _assert_task_visible(db, task, actor)
+    await task_access.assert_task_visible(db, task, actor.id)
     if await key_authority(db, actor, key_id, scope) != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     path = request.url.path

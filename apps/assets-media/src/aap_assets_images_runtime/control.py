@@ -277,16 +277,21 @@ class ImageControl:
         )
         if not isinstance(identity, c.ObjectIdentity):
             raise c.ImageFailure("invalid_response")
-        observed = await self._native_call(
-            "observe_image_source",
-            c.ObserveImageSourceRequest(
-                actor_id=selector.actor_id,
-                task_id=selector.task_id,
-                dataset_item_id=selector.dataset_item_id,
-                source_snapshot=source.source_snapshot,
-                object_identity=identity,
-            ),
-        )
+        if source.object_identity == identity:
+            # Recheck authority after storage I/O without taking a writer fence
+            # for an identity the owner has already observed.
+            observed = await self._native_call("read_image_source", selector)
+        else:
+            observed = await self._native_call(
+                "observe_image_source",
+                c.ObserveImageSourceRequest(
+                    actor_id=selector.actor_id,
+                    task_id=selector.task_id,
+                    dataset_item_id=selector.dataset_item_id,
+                    source_snapshot=source.source_snapshot,
+                    object_identity=identity,
+                ),
+            )
         if observed.source_drifted or not self._same_observed_source(
             source, observed, identity
         ):

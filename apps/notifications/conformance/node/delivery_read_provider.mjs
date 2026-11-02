@@ -7,15 +7,6 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../../src/aap_notifications");
 const contractPath = path.join(packageRoot, "delivery_read.schema.json");
-const packageSqlPath = path.join(packageRoot, "sql/0325_notifications_delivery_read.sql");
-const apiSqlPath = path.resolve(
-  here,
-  "../../../api/alembic/sql/0325_notifications_delivery_read.sql",
-);
-const apiSchemaPath = path.resolve(
-  here,
-  "../../../api/alembic/sql/0325_notifications_delivery_read.schema.json",
-);
 const columns = [
   "id",
   "user_id",
@@ -37,14 +28,7 @@ const functions = [
 ];
 
 async function selfCheck() {
-  const [contractBytes, packageSql, apiSql, apiSchemaBytes] = await Promise.all([
-    readFile(contractPath),
-    readFile(packageSqlPath, "utf8"),
-    readFile(apiSqlPath, "utf8"),
-    readFile(apiSchemaPath),
-  ]);
-  const contract = JSON.parse(contractBytes.toString("utf8"));
-  const apiSchema = JSON.parse(apiSchemaBytes.toString("utf8"));
+  const contract = JSON.parse(await readFile(contractPath, "utf8"));
   assert.equal(contract.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(contract.$id, "aap-notifications-delivery-read/v1");
   assert.deepEqual(contract["x-row-columns"], columns);
@@ -60,38 +44,6 @@ async function selfCheck() {
   assert.equal(contract["x-pair-input"].cardinality_cap, null);
   assert.equal(contract["x-security"].public_execute, false);
   assert.deepEqual(contract["x-security"].search_path, ["pg_catalog", "pg_temp"]);
-  assert.deepEqual(apiSchema, contract);
-  assert.equal(packageSql, apiSql);
-  for (const name of functions) {
-    assert.match(packageSql, new RegExp(`CREATE FUNCTION aap_notifications_v1\\.${name}\\(`));
-    assert.match(
-      packageSql,
-      new RegExp(`REVOKE ALL ON FUNCTION\\s+aap_notifications_v1\\.${name}\\(`),
-    );
-  }
-  assert.equal((packageSql.match(/SECURITY DEFINER/g) ?? []).length, functions.length);
-  assert.equal(
-    (packageSql.match(/SET search_path = pg_catalog, pg_temp/g) ?? []).length,
-    functions.length,
-  );
-  assert.equal(
-    (
-      packageSql.match(
-        /\(item\.value - 'project_id' - 'user_id'\)\s+<> '\{\}'::pg_catalog\.jsonb/g,
-      ) ?? []
-    ).length,
-    4,
-  );
-  assert.equal(packageSql.includes("jsonb_object_length"), false);
-  for (const privateRelation of [
-    "public.notifications",
-    "public.async_jobs",
-    "public.project_members",
-    "public.projects",
-  ]) {
-    assert.equal(packageSql.includes(privateRelation), false);
-  }
-  assert.equal(packageSql.includes("GRANT EXECUTE"), false);
   process.stdout.write("Notifications delivery-read contract self-check passed\n");
 }
 

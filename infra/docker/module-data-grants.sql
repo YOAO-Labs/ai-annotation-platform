@@ -2844,6 +2844,8 @@ ALTER FUNCTION aap_labeling_v1.mask_edit_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.mask_revision_command(jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb)
+    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.ai_mask_accept_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.scene_read_query(jsonb)
@@ -4040,6 +4042,7 @@ REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 
 GRANT USAGE, CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
 ALTER FUNCTION aap_notifications_v1._notification_is_migration_inventory(uuid) OWNER TO :"notifications_owner";
+ALTER FUNCTION aap_notifications_v1._notification_unknown_job_scope(uuid) OWNER TO :"notifications_owner";
 ALTER FUNCTION aap_notifications_v1._visible_inbox_rows_scoped(uuid,text) OWNER TO :"notifications_owner";
 ALTER FUNCTION aap_notifications_v1.read_state_command_scoped(jsonb) OWNER TO :"notifications_owner";
 ALTER FUNCTION aap_notifications_v1.delete_command_scoped(jsonb) OWNER TO :"notifications_owner";

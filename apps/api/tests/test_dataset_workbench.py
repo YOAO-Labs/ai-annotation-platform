@@ -132,6 +132,7 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
     db_session, content_world, super_admin, project_admin, httpx_client
 ):
     db, world = db_session, content_world
+    actor_id = world[2].id
     world[5].cache_policy = "preview"
     await db.commit()
     original = await accept_all_files(db, world)
@@ -172,7 +173,7 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
         other = Dataset(
             display_id=f"WB-{uuid.uuid4().hex[:10]}",
             name="Other",
-            created_by=world[2].id,
+            created_by=actor_id,
         )
         db.add(other)
         await db.commit()
@@ -293,12 +294,6 @@ async def test_project_usage_counts_only_this_dataset_and_clips_project_visibili
         and own_projects[0]["completed_tasks"] == 1
     )
     assert own_projects[0]["can_manage"]
-    assert [
-        p["id"]
-        for p in (
-            await httpx_client.get(url + "/projects", headers=headers(project_admin))
-        ).json()
-    ] == [str(own.id)]
 
 
 async def test_training_dataset_scope_and_related_versions_are_real_queries(

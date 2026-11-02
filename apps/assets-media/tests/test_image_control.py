@@ -322,11 +322,19 @@ async def test_source_drift_is_observed_before_any_url_is_signed():
     current = source()
     changed = current.model_copy(update={"source_drifted": True})
 
+    stored = current
+
     class DriftDatabase:
         async def call(self, operation, request):
-            return current if operation == "read_image_source" else changed
+            return stored
 
-    storage = FakeStorage()
+    class DriftStorage(FakeStorage):
+        async def head_source(self, requested_source):
+            nonlocal stored
+            stored = changed
+            return requested_source.object_identity
+
+    storage = DriftStorage()
     request = c.ReadImageSourceRequest(
         actor_id=uuid4(), dataset_item_id=current.item_id
     )
@@ -395,16 +403,14 @@ async def test_source_change_after_signing_is_committed_before_response_is_rejec
     changed = current.model_copy(
         update={"source_drifted": True, "object_identity": changed_identity}
     )
-    observed = 0
+    stored = current
 
     class ChangingDatabase:
         async def call(self, operation, request):
-            nonlocal observed
-            if operation == "read_image_source":
-                return current
-            assert operation == "observe_image_source"
-            observed += 1
-            return current if observed == 1 else changed
+            nonlocal stored
+            if operation == "observe_image_source":
+                stored = changed
+            return stored
 
     class ChangingStorage(FakeStorage):
         async def head_source(self, requested_source):
@@ -419,6 +425,7 @@ async def test_source_change_after_signing_is_committed_before_response_is_rejec
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=current.item_id)
         )
     assert len(storage.signed_source) == 1
+    assert stored == changed
 
 
 @pytest.mark.asyncio
@@ -427,18 +434,20 @@ async def test_registered_dimension_change_during_reference_blocks_the_reply():
     key = f"thumbnails/{owner.id}.webp"
     current = source(owner=owner, thumbnail_path=key, thumbnail_current=True)
     changed = current.model_copy(update={"width": current.width + 1})
-    observed = 0
+    stored = current
 
     class ChangingDatabase:
         async def call(self, operation, request):
-            nonlocal observed
-            if operation == "read_image_source":
-                return current
-            assert operation == "observe_image_source"
-            observed += 1
-            return current if observed == 1 else changed
+            return stored
 
-    storage = FakeStorage(cache_keys=[key])
+    class ChangingStorage(FakeStorage):
+        async def sign_cache(self, requested_key, expires_in=3600):
+            nonlocal stored
+            result = await super().sign_cache(requested_key, expires_in)
+            stored = changed
+            return result
+
+    storage = ChangingStorage(cache_keys=[key])
     with pytest.raises(c.ImageFailure, match="source_changed"):
         await ImageControl(ChangingDatabase(), storage).source_reference(
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
@@ -1153,11 +1162,9 @@ async def test_optional_thumbnail_warmup_denial_keeps_authorized_original(
 ):
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     current = source(owner=owner)
-    calls = []
 
     class ReaderDatabase:
         async def call(self, operation, _request):
-            calls.append(operation)
             if operation in {"read_image_source", "observe_image_source"}:
                 return current
             if operation == "prepare_image_media":
@@ -1171,8 +1178,6 @@ async def test_optional_thumbnail_warmup_denial_keeps_authorized_original(
 
     assert result.original_url.endswith(current.file_path)
     assert result.thumbnail_url is None
-    assert calls[-2:] == ["read_image_source", "observe_image_source"]
-    assert calls.count("prepare_image_media") == 1
     assert storage.signed_source == [(current, 3600)]
     assert storage.signed_cache == []
 
@@ -1185,11 +1190,9 @@ async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original(
         thumbnail_path=f"thumbnails/{owner.id}.webp",
         thumbnail_current=True,
     )
-    calls = []
 
     class ReaderDatabase:
         async def call(self, operation, _request):
-            calls.append(operation)
             if operation in {"read_image_source", "observe_image_source"}:
                 return current
             if operation == "invalidate_image_media":
@@ -1203,8 +1206,6 @@ async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original(
 
     assert result.original_url.endswith(current.file_path)
     assert result.thumbnail_url is None
-    assert calls[-2:] == ["read_image_source", "observe_image_source"]
-    assert calls.count("invalidate_image_media") == 1
     assert storage.signed_source == [(current, 3600)]
     assert storage.signed_cache == []
 

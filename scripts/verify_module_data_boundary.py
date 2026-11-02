@@ -214,7 +214,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
-    "aap_labeling_v1.mask_revision_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.mask_revision_command(jsonb)": "0422_mask_revision_digest.sql",
+    "aap_labeling_v1._mask_revision_canonical_json(jsonb)": "0422_mask_revision_digest.sql",
     "aap_labeling_v1.ai_mask_accept_command(jsonb)": "0406_labeling_mask_decision_lock.sql",
     "aap_labeling_v1.scene_read_query(jsonb)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
@@ -276,7 +277,6 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_audit_v1.maintenance_command(jsonb)": "0366_audit_fixture_cleanup.sql",
     "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
     "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
-    "aap_notifications_v1.delete_command(pg_catalog.jsonb)": "0371_notifications_main_integration.sql",
     **{
         signature: "0324_notifications_inbox_query.sql"
         for signature in (
@@ -285,7 +285,6 @@ FUNCTION_BODY_ARTIFACTS = {
         )
     },
     "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)": "0373_prediction_execution_snapshot_binding.sql",
-    "aap_notifications_v1._visible_inbox_rows(uuid,text)": "0371_notifications_main_integration.sql",
     **{
         signature: "0371_notifications_main_integration.sql"
         for signature in (
@@ -294,8 +293,16 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
             "aap_notifications_v1.inbox_total_count_scoped(uuid,text)",
             "aap_notifications_v1.inbox_unread_count_scoped(uuid,text)",
+        )
+    },
+    **{
+        signature: "0421_notification_job_scope.sql"
+        for signature in (
+            "aap_notifications_v1._notification_unknown_job_scope(uuid)",
+            "aap_notifications_v1._visible_inbox_rows(uuid,text)",
             "aap_notifications_v1.read_state_command(jsonb)",
             "aap_notifications_v1.read_state_command_scoped(jsonb)",
+            "aap_notifications_v1.delete_command(pg_catalog.jsonb)",
             "aap_notifications_v1.delete_command_scoped(jsonb)",
         )
     },
@@ -1240,6 +1247,8 @@ SQL_ARTIFACTS = (
     "0415_export_job_nowait.sql",
     "0419_dataset_ingest_authority.sql",
     "0420_spatial_item_role_join.sql",
+    "0421_notification_job_scope.sql",
+    "0422_mask_revision_digest.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0419_dataset_ingest_authority.schema.json",
@@ -5539,7 +5548,12 @@ def main(argv: list[str] | None = None) -> int:
 
         from app.config import settings
         from worktree_env import load_identity, topology
-        from worktree_resources import LocalResources, docker, migration_graph
+        from worktree_resources import (
+            LocalResources,
+            docker,
+            migration_graph,
+            unused_loopback_port,
+        )
         from worktree_runtime import parse_arguments, run_processes
 
         if settings.environment != "development":
@@ -5593,7 +5607,7 @@ def main(argv: list[str] | None = None) -> int:
             "--label",
             f"{CONTAINER_ID_LABEL}={container_identity}",
             "--publish",
-            "127.0.0.1::5432",
+            f"127.0.0.1:{unused_loopback_port()}:5432",
             "--env",
             "POSTGRES_USER=owner",
             "--env",
@@ -6576,10 +6590,10 @@ def main(argv: list[str] | None = None) -> int:
             database=database,
             sql=(
                 "INSERT INTO public.users "
-                "(id, email, name, password_hash, role, is_active, status) VALUES ("
+                "(id, email, name, password_hash, role, is_active) VALUES ("
                 f"'{notification_preference_user_id}'::uuid, "
                 f"'notification-preference-{notification_preference_user_id}@test.invalid', "
-                "'Preference owner fixture', 'module-data-fixture', 'employee', true, 'offline');"
+                "'Preference owner fixture', 'module-data-fixture', 'employee', true);"
             ),
         )
         api_get_request = json.dumps(

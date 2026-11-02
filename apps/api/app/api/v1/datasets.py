@@ -256,6 +256,7 @@ async def list_datasets(
         location_id=location_id,
         actor=actor,
     )
+    return DatasetListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post(

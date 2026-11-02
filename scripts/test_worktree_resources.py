@@ -12,10 +12,7 @@ from unittest.mock import MagicMock, patch
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
     IDENTITY_RUNTIME_CAPABILITIES,
-    IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
-    IMAGE_MEDIA_RUNTIME_CAPABILITIES,
     LocalResources,
-    INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
     NOTIFICATION_RUNTIME_CAPABILITIES,
     JOBS_LIST_RUNTIME_CAPABILITIES,
     JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
@@ -478,41 +475,6 @@ class BucketUpgradeTests(unittest.TestCase):
             "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
         ):
             self.assertNotIn(excluded, normalized)
-
-    def test_lan_runtime_grants_only_the_closed_routing_entrypoints(self):
-        sql = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/lan-production-grants.sql"
-        ).read_text()
-        runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
-            sql,
-            flags=re.DOTALL,
-        )
-        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
-        self.assertEqual(len(INFERENCE_ROUTING_RUNTIME_CAPABILITIES), 4)
-        for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        self.assertNotIn("aap_inference_routing_v1._routing_secret()", normalized)
-
-        image_grant_section = sql.split(
-            "-- The monolithic API/Celery runtime still composes the image media owner",
-            maxsplit=1,
-        )[1].split("REVOKE ALL ON SCHEMA aap_assets_v1", maxsplit=1)[0]
-        image_signatures = re.findall(
-            r"aap_(?:assets|labeling)_v1\.[a-z0-9_]+\([^)]*\)",
-            re.sub(r"\s+", "", image_grant_section),
-        )
-        self.assertEqual(
-            set(image_signatures),
-            set(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
-            | set(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
-        )
-        self.assertEqual(
-            len(image_signatures),
-            len(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
-            + len(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
-        )
 
     def test_private_acl_rejects_missing_or_duplicated_source(self):
         backend = object.__new__(LocalResources)

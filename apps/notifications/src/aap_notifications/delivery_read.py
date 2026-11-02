@@ -124,16 +124,38 @@ class NotificationDeliveryReadPolicy:
             scopes.append((restricted, project_id, export_required))
         return scopes
 
-    async def unresolved_job_indices(self, rows) -> set[int]:
-        """Identify job scope fences without applying project authorization."""
+    async def blocked_job_indices(
+        self, rows, *, include_migration_inventory: bool
+    ) -> set[int]:
+        """Apply unresolved-job and private-kind fences, not project authorization."""
         scopes = await self.resolve_scopes(rows)
+        private_users = {
+            row.user_id
+            for row in rows
+            if self._migration_inventory_rows.get(id(row), False)
+        }
+        private_supers = (
+            set(await self.data.global_super_admins(private_users))
+            if include_migration_inventory and private_users
+            else set()
+        )
         return {
             index
-            for index, (row, (restricted, project_id, _)) in enumerate(zip(rows, scopes))
+            for index, (row, (restricted, project_id, _)) in enumerate(
+                zip(rows, scopes)
+            )
             if row.target_type in _ACTUAL_TARGET_TYPES
-            and restricted
-            and project_id is None
-            and not self._migration_inventory_rows.get(id(row), False)
+            and (
+                (
+                    self._migration_inventory_rows.get(id(row), False)
+                    and row.user_id not in private_supers
+                )
+                or (
+                    restricted
+                    and project_id is None
+                    and not self._migration_inventory_rows.get(id(row), False)
+                )
+            )
         }
 
     async def authorization_facts(

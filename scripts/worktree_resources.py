@@ -11,6 +11,7 @@ import re
 import stat
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -543,6 +544,13 @@ def docker(*arguments: str) -> str:
     if result.returncode:
         raise WorktreeError(f"Docker {arguments[0]} 失败；请检查本机 Docker 是否可用")
     return result.stdout.strip()
+
+
+def unused_loopback_port() -> int:
+    """Choose an explicit binding; Docker still rejects any intervening collision."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
 
 
 def migration_graph(code_root: Path) -> tuple[list[str], list[str]]:
@@ -1090,7 +1098,7 @@ class LocalResources:
                 "--label",
                 f"{OWNER_LABEL}={self.resources['owner']}",
                 "--publish",
-                "127.0.0.1::6379",
+                f"127.0.0.1:{unused_loopback_port()}:6379",
                 "--volume",
                 f"{data}:/data",
                 "--user",

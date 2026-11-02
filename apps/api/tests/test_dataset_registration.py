@@ -57,7 +57,8 @@ async def drain(db, run, task_id, fence):
 
 
 async def begin_confirmed(db, run, world):
-    run, created = await svc.confirm(db, inspect(run).identity[0], world[2])
+    actor = await scans.require_actor(db, inspect(world[2]).identity[0])
+    run, created = await svc.confirm(db, inspect(run).identity[0], actor)
     assert created
     await db.commit()
     job = await db.get(AsyncJob, run.async_job_id)
@@ -165,7 +166,8 @@ async def test_preflight_receipt_cannot_accept_replacement_on_retry(
     await drain(db, run, task_id, fence)
     assert run.counts["error_count"] == 1
     entry = await db.scalar(select(Entry).where(Entry.run_id == run.id))
-    await svc.resume(db, run.id, content_world[2], path_digest=entry.path_digest)
+    actor = await scans.require_actor(db, inspect(content_world[2]).identity[0])
+    await svc.resume(db, run.id, actor, path_digest=entry.path_digest)
     assert not entry.refresh_unverified
     assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
 

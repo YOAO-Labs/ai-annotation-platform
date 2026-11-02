@@ -142,7 +142,7 @@ async def test_cancel_reads_job_through_jobs_owner_and_keeps_terminal_notice(
         with _sql_capture(db_session) as statements:
             outcome = await SqlJobCancellation(
                 db_session, execution_control=_UnusedExecutionControl()
-            ).cancel(job_id=job_id, actor_id=actor.id)
+            ).cancel(job_id=job_id, actor_id=actor.id, api_key_id=None)
             await db_session.flush()
 
     assert outcome == "cancelled"

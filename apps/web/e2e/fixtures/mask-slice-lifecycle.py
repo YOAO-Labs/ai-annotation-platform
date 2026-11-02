@@ -130,8 +130,10 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
     mode = os.environ.get("AAP_WORKTREE_MODE")
     resources = None
     if mode is not None:
-        if mode not in {"test", "e2e"}:
-            raise GuardError("resource root requires test or e2e mode")
+        if mode not in {"test", "e2e"} or not _RESOURCE_ROOT.is_relative_to(_REPO_ROOT):
+            raise GuardError(
+                "resource root must be inside this checkout in test or e2e mode"
+            )
         manifest = read_state(state_path(_RESOURCE_ROOT, mode, "resources.json"))
         resources = manifest["resources"]
         if resources != topology(_RESOURCE_ROOT, load_identity(_RESOURCE_ROOT), mode):

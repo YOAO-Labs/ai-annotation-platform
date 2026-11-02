@@ -76,7 +76,13 @@ class SqlJobCancellation(JobCancellationPort):
         self._db = db
         self._execution_control = execution_control
 
-    async def cancel(self, *, job_id: uuid.UUID, actor_id: uuid.UUID) -> str:
+    async def cancel(
+        self,
+        *,
+        job_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        api_key_id: uuid.UUID | None,
+    ) -> str:
         try:
             db = self._db
             job = await jobs.get_job(db, job_id)
@@ -142,7 +148,7 @@ class SqlJobCancellation(JobCancellationPort):
                     actor_id
                 )
                 _, proof = await storage_maintenance.authority(
-                    db, actor_status, None, "*", lock=True
+                    db, actor_status, api_key_id, "*", lock=True
                 )
                 domain = (
                     storage_migration_copies
@@ -151,7 +157,7 @@ class SqlJobCancellation(JobCancellationPort):
                 )
                 status = await domain.cancel(db, job.id)
                 _, current_proof = await storage_maintenance.authority(
-                    db, actor_status, None, "*"
+                    db, actor_status, api_key_id, "*"
                 )
                 if current_proof != proof:
                     raise HTTPException(
@@ -168,7 +174,7 @@ class SqlJobCancellation(JobCancellationPort):
                     actor_id
                 )
                 _, proof = await storage_maintenance.authority(
-                    db, actor_status, None, "*", lock=True
+                    db, actor_status, api_key_id, "*", lock=True
                 )
                 status = await managed_original_reclaim.cancel(db, job.id)
                 if status == "cancelled":
@@ -185,7 +191,7 @@ class SqlJobCancellation(JobCancellationPort):
                     actor_id
                 )
                 _, proof = await storage_maintenance.authority(
-                    db, actor_status, None, "*", lock=True
+                    db, actor_status, api_key_id, "*", lock=True
                 )
                 status = await managed_original_verification.cancel(db, job.id)
                 if status == "cancelled":
@@ -199,11 +205,11 @@ class SqlJobCancellation(JobCancellationPort):
                 actor_status = await IdentityAccountLockData(db).read_actor_status(
                     actor_id
                 )
-                proof = await key_authority(db, actor_status, None, "*")
+                proof = await key_authority(db, actor_status, api_key_id, "*")
                 await storage_usage.require_admin(db, actor_id)
                 await storage_usage.cancel(db, job.id)
                 await storage_usage.require_admin(db, actor_id)
-                if await key_authority(db, actor_status, None, "*") != proof:
+                if await key_authority(db, actor_status, api_key_id, "*") != proof:
                     raise HTTPException(
                         403, detail={"code": "api_key_authority_revoked"}
                     )
@@ -216,14 +222,16 @@ class SqlJobCancellation(JobCancellationPort):
                 actor_status = await IdentityAccountLockData(db).read_actor_status(
                     actor_id
                 )
-                proof = await key_authority(db, actor_status, None, "datasets:write")
+                proof = await key_authority(
+                    db, actor_status, api_key_id, "datasets:write"
+                )
                 await (
                     dataset_quality_review
                     if job.kind == "dataset_quality_review"
                     else dataset_quality
                 ).cancel_job(db, job, actor_status)
                 if (
-                    await key_authority(db, actor_status, None, "datasets:write")
+                    await key_authority(db, actor_status, api_key_id, "datasets:write")
                     != proof
                 ):
                     raise HTTPException(
@@ -238,7 +246,7 @@ class SqlJobCancellation(JobCancellationPort):
                     actor_id
                 )
                 key_proof = await key_authority(
-                    db, actor_status, None, "datasets:write"
+                    db, actor_status, api_key_id, "datasets:write"
                 )
                 if job.kind == "dataset_scan":
                     from app.services.dataset_scans import cancel_job
@@ -247,7 +255,7 @@ class SqlJobCancellation(JobCancellationPort):
 
                 await cancel_job(db, job.id, actor_status)
                 if (
-                    await key_authority(db, actor_status, None, "datasets:write")
+                    await key_authority(db, actor_status, api_key_id, "datasets:write")
                     != key_proof
                 ):
                     raise HTTPException(
