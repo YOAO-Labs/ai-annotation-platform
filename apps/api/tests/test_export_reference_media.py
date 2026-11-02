@@ -36,6 +36,7 @@ from app.services import (
     export_media_bundles,
     export_media_storage,
     export_media_transfer,
+    identity_request_authority,
     managed_original_creation,
     managed_original_reader,
 )
@@ -482,7 +483,9 @@ async def test_output_authority_fences_real_key_authentication(
         ),
         headers={"authorization": f"Bearer {token}"},
     )
-    monkeypatch.setattr(output_authority, "get_identity_gateway", lambda: gateway)
+    monkeypatch.setattr(
+        identity_request_authority, "get_identity_gateway", lambda: gateway
+    )
 
     async def change_key(**values):
         async with world.factory() as owner:
