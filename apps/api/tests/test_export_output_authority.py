@@ -87,7 +87,9 @@ async def test_key_changes_after_queueing_cannot_publish_output(world, change):
             values = {
                 "rotate": {"key_hash": hash_password("ak_" + uuid.uuid4().hex)},
                 "scopes": {"scopes": ["*"]},
-                "expiry": {"expires_at": datetime.now(timezone.utc) + timedelta(days=2)},
+                "expiry": {
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=2)
+                },
                 "revoke": {"revoked_at": datetime.now(timezone.utc)},
                 "owner": {"user_id": world.owner.stranger.id},
             }[change]
@@ -101,7 +103,9 @@ async def test_key_changes_after_queueing_cannot_publish_output(world, change):
             await authority.validate(observer, job, lock=True)
 
 
-@pytest.mark.parametrize("change", ["rotate", "scopes", "expired", "missing_id"])
+@pytest.mark.parametrize(
+    "change", ["rotate", "scopes", "expired", "expiry_extended", "missing_id"]
+)
 async def test_capture_rejects_credential_changes_since_authentication(world, change):
     async with world.owner.factory() as owner:
         if change == "missing_id":
@@ -112,6 +116,9 @@ async def test_capture_rejects_credential_changes_since_authentication(world, ch
                 "scopes": {"scopes": ["*"]},
                 "expired": {
                     "expires_at": datetime.now(timezone.utc) - timedelta(seconds=1)
+                },
+                "expiry_extended": {
+                    "expires_at": datetime.now(timezone.utc) + timedelta(days=2)
                 },
             }[change]
             await owner.execute(
@@ -242,9 +249,9 @@ async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
             replacement = token[:12] + uuid.uuid4().hex
             async with world.owner.factory() as owner:
                 await owner.execute(
-                    update(ApiKey).where(ApiKey.id == world.key_id).values(
-                        key_hash=hash_password(replacement)
-                    )
+                    update(ApiKey)
+                    .where(ApiKey.id == world.key_id)
+                    .values(key_hash=hash_password(replacement))
                 )
                 await owner.commit()
             headers["Authorization"] = "Bearer " + replacement

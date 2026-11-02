@@ -265,9 +265,7 @@ class IngestWorkflow:
                 settled = await self._data.complete_batch(
                     command, batch_id, completions
                 )
-                _validate_completion(
-                    command, batch_id, completions, settled, progress
-                )
+                _validate_completion(command, batch_id, completions, settled, progress)
                 await self._admit_batch_images(plan, completions, image_facts)
                 progress = settled.progress
 
@@ -377,7 +375,10 @@ class IngestWorkflow:
         cursor: int,
         progress: IngestProgress,
     ) -> tuple[
-        UUID, IngestBatchPlan, list[IngestEntryCompletion], dict[UUID, IngestStorageFacts]
+        UUID,
+        IngestBatchPlan,
+        list[IngestEntryCompletion],
+        dict[UUID, IngestStorageFacts],
     ]:
         batch_id = uuid4()
         plan = await self._data.prepare_batch(command, batch_id, proposals)

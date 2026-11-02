@@ -12,7 +12,7 @@ from app.db.models.dataset_source import (
     DatasetScanRun,
     DatasetRegistrationRun,
 )
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.storage_location import visible_clause
 
 MANAGERS = {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN}
@@ -91,7 +91,7 @@ async def validate_dataset_write(
 
 
 async def require_manager(db, actor_id):
-    actor = await db.get(User, actor_id, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active or actor.role not in MANAGERS:
         raise HTTPException(403, detail={"code": "access_revoked"})
     return actor

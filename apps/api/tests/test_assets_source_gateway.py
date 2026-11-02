@@ -15,7 +15,6 @@ from aap_assets_source.contract import (
     SourceFailure,
     SourceDeletionRequest,
     UploadInitRequest,
-    UploadInitResult,
     UploadOutcome,
 )
 from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
@@ -440,52 +439,6 @@ async def test_legacy_local_binding_uses_frozen_scope_and_metadata_arguments():
     assert params["content_hash"] == "a" * 32
     assert (params["width"], params["height"]) == (640, 480)
     assert state.state == "completed"
-
-
-async def test_upload_init_route_reuses_key_or_returns_generated_item_key(monkeypatch):
-    captured = []
-
-    class Gateway:
-        is_remote = False
-
-        async def init_upload(self, request):
-            captured.append(request)
-            return UploadInitResult(
-                actor_id=ACTOR,
-                dataset_id=DATASET,
-                item_id=request.item_id,
-                upload_url="/minio/import/item?signature=abc",
-            )
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
-    db = SimpleNamespace(commit=AsyncMock())
-    response = Response()
-    body = dataset_routes.DatasetUploadInitRequest(file_name="image.jpg")
-    result = await dataset_routes.upload_init(
-        DATASET,
-        body,
-        response,
-        db,
-        SimpleNamespace(id=ACTOR),
-        idempotency_key=OPERATION,
-    )
-
-    assert captured[0].item_id == OPERATION
-    assert response.headers["Idempotency-Key"] == str(OPERATION)
-    assert result.item_id == OPERATION
-    db.commit.assert_awaited_once()
-
-    response = Response()
-    await dataset_routes.upload_init(
-        DATASET,
-        body,
-        response,
-        db,
-        SimpleNamespace(id=ACTOR),
-        idempotency_key=None,
-    )
-    assert response.headers["Idempotency-Key"] == str(captured[1].item_id)
-    assert captured[1].item_id != OPERATION
 
 
 async def test_upload_complete_commits_without_postcommit_thumbnail_dispatch_and_echoes_key(

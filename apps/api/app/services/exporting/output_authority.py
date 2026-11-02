@@ -58,9 +58,7 @@ async def capture(db, project, actor, request):
         actor_id, project_id = _uuid(actor.id), _uuid(project.id)
         raw_key_id = getattr(request.state, "api_key_id", None)
         key_id = _uuid(raw_key_id) if raw_key_id is not None else None
-        facts = await capture_request_key_proof(
-            db, actor_id=actor_id, request=request
-        )
+        facts = await capture_request_key_proof(db, actor_id=actor_id, request=request)
         proof = _serialize_key(facts) if facts is not None else None
         return {
             "schema": 1,

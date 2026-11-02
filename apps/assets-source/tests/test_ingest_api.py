@@ -77,10 +77,12 @@ def _authority():
 
 
 def _raw_scope(command, *, headers=None):
-    query = urlencode({
-        key: json.dumps(value) if isinstance(value, dict) else value
-        for key, value in command.items()
-    }).encode()
+    query = urlencode(
+        {
+            key: json.dumps(value) if isinstance(value, dict) else value
+            for key, value in command.items()
+        }
+    ).encode()
     raw_headers = [
         (b"host", b"assets-source.test"),
         (b"content-type", b"application/zip"),

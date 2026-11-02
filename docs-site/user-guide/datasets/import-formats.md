@@ -133,6 +133,8 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
 
 > 警告：如果数据集已声明为时序（`is_temporal`），但 ZIP 完成后没有可接受的 Scene，整个 ZIP 操作会回滚并返回 `422`，提示检查目录结构。授权或其他整次事务检查拒绝时，本次 Item、Scene 和计数也不会提交；已封存的物理对象不会随数据库回滚而删除，而由平台保留归属证据并受控处理。原始来源不会被删除。
 
+ZIP 的所有可入库字节先完成封存，超过 200 个条目也不提前发布首批。最终写入会重新检查原请求凭据、当前目录管理权限和数据集生命周期；导入期间撤权、API Key 轮换或数据集归档，不会留下本次部分样本或 Scene。
+
 ### B. 命令行脚本入库
 
 不走向导、直接灌进当前栈(MinIO + DB)。范例见 [`apps/api/scripts/seed_pointcloud.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/seed_pointcloud.py)(SUSTechPOINTS 示例)与下文 nuScenes 脚本。

@@ -42,9 +42,11 @@ Delete writes its audit receipt and cleanup outbox transactionally; this
 service never deletes source or derived objects. ZIP and scan also commit each
 Item, Dataset count, Labeling append receipt, optional Scene/frame updates,
 operation receipt, and media-delivery intent in one outer transaction. ZIP
-seals accepted members before publishing business metadata. Verified creations
-remain owned for controlled retirement if publication is rejected. ZIP copies
-use immutable keys under
+seals accepted members across every batch before publishing any business metadata.
+Native staging validates the entire batch before changing its settlement markers.
+Verified creations remain owned for controlled retirement if publication is rejected.
+Scan also finishes physical reads before acquiring the final publication fences.
+ZIP copies use immutable keys under
 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` and store the
 logical path in `metadata.source_ingest.relpath`; the workflow never overwrites
 or deletes an existing source. Scan reads only the exact accepted
@@ -55,9 +57,10 @@ after the transaction, so a lost response can replay the first receipt without
 duplicating Items, source writes, or image jobs. Image admission is part of the
 registration transaction.
 
-The Source PostgreSQL login executes exactly twenty-seven functions in
-`aap_assets_v1`: fifteen source/ingest capabilities, nine connection
-capabilities, and three image-source/admission capabilities. It has no direct
+The Source PostgreSQL login executes exactly thirty-seven functions in
+`aap_assets_v1`: fifteen source/ingest capabilities, eleven connection
+capabilities, three image-source/admission capabilities, and eight managed-original
+capabilities. It has no direct
 relation or sequence privileges, no access to other owner schemas, no
 owner-role membership, and no database/schema creation rights. A broadened
 login prevents startup. The two media-delivery claim/ack
@@ -71,7 +74,7 @@ through six native Assets functions. A separate trusted `asset_operator_client`
 login is published for consumers of those six functions. The complete scripts
 keep their existing composition connection: the six-function login cannot run
 their Identity, Workspace or Labeling steps. This is not part of the Source
-runtime or its 26-function login:
+runtime or its 37-function login:
 the importer scripts call the native SQL contract on their caller-owned
 transaction and do not use the Source HTTP API or fall back through
 `ASSETS_SOURCE_URL`. The operator login has no direct table privileges and no

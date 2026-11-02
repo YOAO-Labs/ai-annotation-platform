@@ -6,7 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import storage_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.identity_contracts import AcceptedApiKeyFacts, IdentityCredentialRejected
+from app.services.identity_contracts import (
+    AcceptedApiKeyFacts,
+    IdentityCredentialRejected,
+)
 from app.services.identity_gateway import get_identity_gateway
 
 
@@ -41,7 +44,10 @@ async def capture_request_key_proof(
         before = await IdentityAccountLockData(before_db).read_accepted_api_key_facts(
             actor_id, key_id
         )
-    if before is None:
+    if (
+        before is None
+        or before.expires_at != request.state.identity_principal.expires_at
+    ):
         raise IdentityCredentialRejected("credential_revoked")
     principal = await get_identity_gateway().authenticate(token, db=db)
     if (

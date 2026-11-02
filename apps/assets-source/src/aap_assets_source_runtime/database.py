@@ -363,6 +363,9 @@ class _NativeData:
         """Allocate independently and durably before any physical I/O."""
         payload = dict(request)
         payload.setdefault("kind", "role_media")
+        for name in ("staging", "source_contract"):
+            if payload.get(name) is None:
+                payload.pop(name, None)
         raw = await self._original_reply(
             "SELECT aap_assets_v1.begin_operator_auxiliary($1::jsonb)",
             (payload,),

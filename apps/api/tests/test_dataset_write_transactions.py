@@ -8,19 +8,25 @@ from sqlalchemy import select
 from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from tests.test_datasets_upload_zip import (
-    _FakeDatasetSourceStorage,
     _bearer,
     _make_zip,
     _patch_storage_clients,
 )
 from tests.test_dataset_assets import local_creation_client as local_creation_client
+from tests.fakes.managed_creation_storage import CreationStorage
 
 
 @pytest.mark.parametrize(
     "change",
     [
-        "none", "boundary", "inactive", "key_rotate", "key_revoke",
-        "key_scope", "key_expiry", "directory_access",
+        "none",
+        "boundary",
+        "inactive",
+        "key_rotate",
+        "key_revoke",
+        "key_scope",
+        "key_expiry",
+        "directory_access",
     ],
 )
 async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority(
@@ -71,7 +77,7 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
             key_id = key.id
             if change == "key_expiry":
                 key.expires_at = datetime.now(UTC) + timedelta(minutes=10)
-    fake = _FakeDatasetSourceStorage()
+    fake = CreationStorage()
     _use_local_source_runtime(monkeypatch)
     _patch_storage_clients(monkeypatch, fake)
     monkeypatch.setattr("app.services.assets_source._managed_client", lambda _: fake)
@@ -106,27 +112,27 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
                     )
                 elif change == "key_rotate":
                     await observer.execute(
-                        update(ApiKey).where(ApiKey.id == key_id).values(
-                            key_hash=hash_password("rotated test key")
-                        )
+                        update(ApiKey)
+                        .where(ApiKey.id == key_id)
+                        .values(key_hash=hash_password("rotated test key"))
                     )
                 elif change == "key_scope":
                     await observer.execute(
-                        update(ApiKey).where(ApiKey.id == key_id).values(
-                            scopes=["datasets:write", "datasets:read"]
-                        )
+                        update(ApiKey)
+                        .where(ApiKey.id == key_id)
+                        .values(scopes=["datasets:write", "datasets:read"])
                     )
                 elif change == "key_expiry":
                     await observer.execute(
-                        update(ApiKey).where(ApiKey.id == key_id).values(
-                            expires_at=datetime.now(UTC) + timedelta(minutes=20)
-                        )
+                        update(ApiKey)
+                        .where(ApiKey.id == key_id)
+                        .values(expires_at=datetime.now(UTC) + timedelta(minutes=20))
                     )
                 else:
                     await observer.execute(
-                        update(ApiKey).where(ApiKey.id == key_id).values(
-                            revoked_at=datetime.now(UTC)
-                        )
+                        update(ApiKey)
+                        .where(ApiKey.id == key_id)
+                        .values(revoked_at=datetime.now(UTC))
                     )
 
     monkeypatch.setattr(IngestWorkflow, "_finish_original", finish_original)
@@ -208,7 +214,7 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
         await ensure_legacy_bindings(owner)
         dataset = await owner.get(Dataset, world.dataset_id)
         prefix = dataset.name + "/"
-    fake = _FakeDatasetSourceStorage()
+    fake = CreationStorage()
     fake.objects.update(
         {f"{prefix}lidar/{i:03}.pcd": f"content-{i}".encode() for i in range(201)}
     )
@@ -228,7 +234,9 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
             async with maker.begin() as observer:
                 await observer.execute(text("SET LOCAL lock_timeout='2s'"))
                 await observer.execute(
-                    update(User).where(User.id == world.actor_id).values(is_active=False)
+                    update(User)
+                    .where(User.id == world.actor_id)
+                    .values(is_active=False)
                 )
 
     monkeypatch.setattr(IngestWorkflow, "_finish_original", finish_original)
@@ -246,7 +254,9 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
             result = await asyncio.wait_for(
                 client.post(
                     f"/api/v1/datasets/{world.dataset_id}/items/scan",
-                    headers=_bearer(create_access_token(str(world.actor_id), "super_admin")),
+                    headers=_bearer(
+                        create_access_token(str(world.actor_id), "super_admin")
+                    ),
                 ),
                 timeout=60,
             )
@@ -259,11 +269,14 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
     assert result.status_code == 403, result.text
     assert len(sealed) == 201
     async with maker() as observer:
-        assert await observer.scalar(
-            select(func.count()).select_from(DatasetItem).where(
-                DatasetItem.dataset_id == world.dataset_id
+        assert (
+            await observer.scalar(
+                select(func.count())
+                .select_from(DatasetItem)
+                .where(DatasetItem.dataset_id == world.dataset_id)
             )
-        ) == 0
+            == 0
+        )
         for creation_id in sealed:
             creation = await observer.get(ManagedOriginalCreation, creation_id)
             assert creation.status == "verified"

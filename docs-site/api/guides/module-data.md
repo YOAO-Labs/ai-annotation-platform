@@ -446,27 +446,30 @@ Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供�
 
 调用方在同一个外层事务中持有锁，期间只读取既有来源的 HEAD/有限图像头，不复制或删除旧字节。文件缺失或内容重复不清除旧行、对象或人工证据。成功时元数据、任务、计数、Labeling 回执和 Assets 回执共同提交；最终提交失败则共同回滚。Labeling 的可复用追加 ID 不能单独证明 Assets 已完成上传。
 
-`dataset_legacy_upload_operations` 没有 live Dataset/Item/账号外键，也不自动过期。重放仍检查当前活跃身份、父子存在关系和当前来源路径/类型；不同规范请求复用操作 ID 返回 `operation_conflict`，来源替换返回 `source_changed`，不会按历史回执改回当前来源。状态为 pending/completed/duplicate，完整字段及错误见 `0213_assets_source_runtime.schema.json`。在 0215 阶段，独立来源进程的专用 LOGIN 精确执行 14 项能力，即五项现代上传、两项删除、两项旧上传和五项 ZIP/扫描能力，不读取业务关系。
+`dataset_legacy_upload_operations` 没有 live Dataset/Item/账号外键，也不自动过期。重放仍检查当前活跃身份、父子存在关系和当前来源路径/类型；不同规范请求复用操作 ID 返回 `operation_conflict`，来源替换返回 `source_changed`，不会按历史回执改回当前来源。状态为 pending/completed/duplicate，完整字段及错误见 `0213_assets_source_runtime.schema.json`。独立来源进程只执行冻结清单中的原生能力，不直接读取业务关系。
 
 ## 同步 ZIP 与对象桶扫描
 
-0215 将同步 ZIP 和旧前缀扫描交给既有 Assets Source HTTP 工作流，公开 REST 仍由 API 认证、校验 scope 和角色，并保留原同步响应。五项数据能力及固定签名为：
+同步 ZIP 和旧前缀扫描由既有 Assets Source HTTP 工作流执行，公开 REST 仍由 API 认证、校验 scope 和角色，并保留原同步响应。六项入库数据能力及固定签名为：
 
 | 能力                            | 签名                                |
 | ------------------------------- | ----------------------------------- |
 | `begin_dataset_ingest`          | `(uuid, uuid, uuid, jsonb)`         |
 | `prepare_dataset_ingest_batch`  | `(uuid, uuid, uuid, uuid, jsonb)`   |
+| `stage_dataset_ingest_batch`    | `(uuid, uuid, uuid, uuid, jsonb)`   |
 | `complete_dataset_ingest_batch` | `(uuid, uuid, uuid, uuid, jsonb)`   |
 | `read_dataset_ingest_layout`    | `(uuid, uuid, uuid, uuid, integer)` |
 | `finish_dataset_ingest`         | `(uuid, uuid, uuid, jsonb)`         |
 
-前 3 个 UUID 依次绑定操作、当前 actor 与 Dataset；prepare/complete 还绑定稳定的 batch UUID。ZIP 请求摘要绑定原始归档 SHA-256，扫描绑定协议固定的扫描命令指纹。原生操作重新检查当前活跃身份；ZIP 只要求公开 API 已认证账号和 `datasets:write`，扫描另要求既有 `super_admin` / `project_admin` 管理权限。所有 preparing 阶段调用使用同一个调用方事务 ID；若 preparing 状态意外提交，后续调用会失败关闭。
+前 3 个 UUID 依次绑定操作、当前 actor 与 Dataset；prepare/stage/complete 还绑定稳定的 batch UUID。ZIP 请求摘要绑定原始归档 SHA-256，扫描绑定协议固定的扫描命令指纹。准入保存原请求的 JWT 代次／期限或 API Key 校验修订、原 scope／期限，以及 Dataset 生命周期修订和目录管理要求；不把排队或物理工作期间取得的新凭据事实替换为原授权。最终发布在 Assets owner 事务中通过 Identity 当前主体能力复核原凭据，并锁定 Dataset 复核归档、生命周期和目录管理权限。扫描另要求既有 `super_admin` / `project_admin` 管理权限。所有 preparing 阶段调用使用同一个调用方事务 ID；若 preparing 状态意外提交，后续调用会失败关闭。
 
-`dataset_source_ingest_operations`、`dataset_source_ingest_entries` 与 `dataset_source_ingest_deliveries` 均归 Assets 所有，不保存 live Dataset/Item 外键。分块最多 200 项，Item、Dataset 计数、Labeling append 回执、ZIP Scene/frame 变更、最终收据和媒体派发意图都在一个外层事务内提交。完成收据保留用于原 actor、Dataset、操作类型和请求摘要的精确重放；对象存储写入不能随 SQL 回滚，ZIP 新对象因此使用不可变 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，任何失败路径均不删除旧来源或新复制字节。只有 ZIP 做 Scene/frame 推断与时序断言，扫描只枚举 Dataset 名称的精确 legacy 前缀。
+`dataset_source_ingest_operations`、`dataset_source_ingest_entries` 与 `dataset_source_ingest_deliveries` 均归 Assets 所有，不保存 live Dataset/Item 外键。分块最多 200 项，但不是逐批发布：ZIP 先完成所有批次的物理工作，再通过 `stage_dataset_ingest_batch` 整批核对已封存原件的归属、对象键、大小、摘要和条目事实；错误或重复提交不能留下部分封存标记。所有计划条目已完成准备且待发布条目都有完整结算记录后，才允许首批写入业务元数据。扫描也先完成全部物理工作，再获取发布权限锁，锁不跨后续对象读取。
+
+Item、Dataset 计数、Labeling append 回执、ZIP Scene/frame 变更、最终收据和媒体派发意图都在一个外层事务内提交；最终授权或生命周期检查失败时一起回滚。完成收据保留用于原 actor、Dataset、操作类型和请求摘要的精确重放。对象存储写入不能随 SQL 回滚，ZIP 新对象因此使用不可变 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`；失败后保留已封存字节的独立归属证据，不删除旧来源或推断新字节可立即回收。只有 ZIP 做 Scene/frame 推断与时序断言，扫描只枚举 Dataset 名称的精确 legacy 前缀。
 
 ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 detached Item，并带有权威 snapshot digest/count；`finish_dataset_ingest` 会在写 Scene 与 frame assignment 前重验快照、计划归属和完整结算状态。扫描不调用这两项布局/Scene 能力。媒体 delivery claim 在派发前保存租约，ack 需校验同一活动 lease token 与当前 delivery target；此 outbox 提供可重试的 at-least-once 派发，不承诺 exactly-once。
 
-完整 native JSON 合同见 `apps/api/alembic/sql/0215_dataset_source_ingest.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/aap_assets_source/ingest_contract.schema.json`。迁移按 `0215_dataset_source_ingest.sql` 后 `0215_dataset_source_ingest_delivery.sql` 的顺序安装。这五项入库能力属于 Source LOGIN 当前的 26 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
+当前 native JSON 合同见 `apps/api/alembic/sql/0419_dataset_ingest_authority.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/aap_assets_source/ingest_contract.schema.json`，部署时应用完整 Alembic 迁移链。这六项入库能力属于 Source LOGIN 当前的 37 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
 
 ## 存储连接器管理
 

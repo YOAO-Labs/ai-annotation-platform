@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 import threading
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -437,7 +437,9 @@ async def test_original_authority_and_binding_rechecked_after_snapshot(
             await db.flush()
             return snapshot
 
-        monkeypatch.setattr(dataset_references.snapshots, "capture", capture_then_change)
+        monkeypatch.setattr(
+            dataset_references.snapshots, "capture", capture_then_change
+        )
         with pytest.raises((ContentError, HTTPException, ExportCancelled)):
             await media.snapshot(task)
         assert snapshots and snapshots[0]._closed
@@ -535,9 +537,10 @@ async def test_output_authority_fences_real_key_authentication(
             proof = await output_authority.capture(
                 caller, world.project, world.manager, request
             )
-            assert proof["key_proof"]["hash"] == hashlib.sha256(
-                original_hash.encode()
-            ).hexdigest()
+            assert (
+                proof["key_proof"]["hash"]
+                == hashlib.sha256(original_hash.encode()).hexdigest()
+            )
             await output_authority.validate(
                 caller,
                 SimpleNamespace(
@@ -633,7 +636,13 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         "create_async_engine",
         lambda *_args, **kwargs: create_async_engine(test_engine.url, **kwargs),
     )
-    monkeypatch.setattr(worker, "_publish_export_notification", AsyncMock())
+    notification_types = []
+
+    async def record_notification(_db, notification):
+        if notification is not None:
+            notification_types.append(notification.type)
+
+    monkeypatch.setattr(worker, "_publish_export_notification", record_notification)
     uploaded, deleted = export_objects.puts, export_objects.deleted
     original_guard = worker._reauthorize_export_final_write
 
@@ -665,7 +674,6 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         await original_guard(db, job_id, ids, **kwargs)
 
     monkeypatch.setattr(worker, "_reauthorize_export_final_write", guard)
-    notifications = worker._publish_export_notification
     with (
         pytest.raises((ContentError, OSError))
         if not mutation.startswith("cancel")
@@ -694,9 +702,14 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         assert bundle is not None and bundle.state == "building"
         assert bundle.published_at is None
         assert output.expires_at == bundle.expires_at == receipt.expires_at
-        assert (output.storage_ref["bucket"], output.storage_ref["object_key"]) == uploaded[0]
+        assert (
+            output.storage_ref["bucket"],
+            output.storage_ref["object_key"],
+        ) == uploaded[0]
         assert zipfile.is_zipfile(io.BytesIO(export_objects.objects[uploaded[0]]))
-        assert job.status == ("cancelled" if mutation.startswith("cancel") else "failed")
+        assert job.status == (
+            "cancelled" if mutation.startswith("cancel") else "failed"
+        )
         assert not job.result.get("download_url")
         assert (
             await observer.scalar(
@@ -704,10 +717,7 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
             )
             is None
         )
-        assert not any(
-            call.args[1] is not None and call.args[1].type == "export.ready"
-            for call in notifications.await_args_list
-        )
+        assert "export.ready" not in notification_types
         if mutation == "failure":
             assert "private source" not in job.error_message
 

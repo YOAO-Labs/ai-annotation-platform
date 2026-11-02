@@ -324,10 +324,8 @@ BEGIN
         IF v_input ->> 'status' = 'ready' AND (
             (v_input ->> 'file_size')::bigint IS DISTINCT FROM (v_entry.source ->> 'file_size')::bigint
             OR v_input ->> 'content_hash' IS DISTINCT FROM v_entry.source ->> 'content_hash'
-            OR (v_entry.source ->> 'width') IS NOT NULL
-               AND v_input ->> 'width' IS DISTINCT FROM v_entry.source ->> 'width'
-            OR (v_entry.source ->> 'height') IS NOT NULL
-               AND v_input ->> 'height' IS DISTINCT FROM v_entry.source ->> 'height'
+            OR v_input ->> 'width' IS DISTINCT FROM v_entry.source ->> 'width'
+            OR v_input ->> 'height' IS DISTINCT FROM v_entry.source ->> 'height'
             OR v_entry.source ->> 'file_type' <> 'image'
                AND (v_input -> 'width' <> 'null'::jsonb
                     OR v_input -> 'height' <> 'null'::jsonb)
@@ -490,9 +488,9 @@ BEGIN
                         (v_entry.source ->> 'file_size')::bigint
                    OR v_input ->> 'content_hash' IS DISTINCT FROM
                         v_entry.source ->> 'content_hash'
-                   OR (v_entry.source ->> 'width') IS NOT NULL
+                   OR (v_operation.kind = 'zip' OR (v_entry.source ->> 'width') IS NOT NULL)
                       AND v_input ->> 'width' IS DISTINCT FROM v_entry.source ->> 'width'
-                   OR (v_entry.source ->> 'height') IS NOT NULL
+                   OR (v_operation.kind = 'zip' OR (v_entry.source ->> 'height') IS NOT NULL)
                       AND v_input ->> 'height' IS DISTINCT FROM v_entry.source ->> 'height'
                    OR v_entry.source ->> 'file_type' <> 'image'
                       AND (v_input -> 'width' <> 'null'::jsonb

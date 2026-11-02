@@ -36,7 +36,9 @@ from aap_assets_source.ingest_contract import (
 )
 from aap_assets_source.frame_layout import PreparedDatasetItem
 from aap_assets_source.scene_layout import SceneLayoutInput, plan_scenes
-from tests.test_datasets_upload_zip import _FakeDatasetSourceStorage
+from app.config import settings
+from app.services.dataset_assets import ensure_legacy_bindings
+from tests.fakes.managed_creation_storage import CreationStorage
 from tests.test_dataset_upload_native import _cleanup_world, _seed_world
 
 pytestmark = [
@@ -54,8 +56,8 @@ class _World:
     source_maker: object
     operation_ids: set[UUID] = field(default_factory=set)
     batch_ids: set[UUID] = field(default_factory=set)
-    physical: object = field(default_factory=_FakeDatasetSourceStorage)
-    creation_ids: set[UUID] = field(default_factory=set)
+    physical: object = field(default_factory=CreationStorage)
+    image_facts: dict[UUID, object] = field(default_factory=dict)
 
     @property
     def maker(self):
@@ -105,6 +107,8 @@ async def ingest_world(test_engine):
         async_sessionmaker(engine, expire_on_commit=False),
     )
     try:
+        async with world.maker.begin() as owner:
+            await ensure_legacy_bindings(owner)
         yield world
     finally:
         async with world.maker.begin() as db:
@@ -130,22 +134,7 @@ async def ingest_world(test_engine):
                     {"ids": list(world.batch_ids)},
                 )
         await _cleanup_world(world.base)
-        async with world.maker.begin() as db:
-            if world.creation_ids:
-                await db.execute(
-                    text(
-                        "DELETE FROM public.storage_usage_mutations "
-                        "WHERE owner_id=ANY(CAST(:ids AS uuid[]))"
-                    ),
-                    {"ids": list(world.creation_ids)},
-                )
-                await db.execute(
-                    text(
-                        "DELETE FROM public.managed_original_creations "
-                        "WHERE id=ANY(CAST(:ids AS uuid[]))"
-                    ),
-                    {"ids": list(world.creation_ids)},
-                )
+        # Immutable original history lives until the verifier retires its database.
         await engine.dispose()
 
 
@@ -174,7 +163,13 @@ def _entry(path="frames/a.png", digest="a" * 32, kind="image", key=None):
         relpath=path,
         source_key=key,
         file_type=kind,
-        content_type="image/png" if kind == "image" else "application/octet-stream",
+        content_type=(
+            "image/png"
+            if kind == "image"
+            else "video/mp4"
+            if kind == "video"
+            else "application/octet-stream"
+        ),
         file_size=len(raw),
         content_hash=content_hash,
         width=2 if kind == "image" else None,
@@ -261,7 +256,7 @@ async def _stage_physical(db, world, command, plan, completions, *, stage=True):
     ready = {item.entry_id for item in completions if item.status == "ready"}
     async with world.maker() as owner:
         data = DatasetSourceIngestData(owner)
-        storage = IngestStorage(world.physical, "datasets")
+        storage = IngestStorage(world.physical, settings.minio_datasets_bucket)
         workflow = IngestWorkflow(data=data, storage=storage, image_admission=None)
         for entry in plan.entries:
             if entry.entry_id not in ready:
@@ -269,9 +264,8 @@ async def _stage_physical(db, world, command, plan, completions, *, stage=True):
             target = await data.allocate(
                 _ingest_original_request(command, entry, plan.batch_id)
             )
-            world.creation_ids.add(target.creation_id)
             await data.open_operation(target.creation_id)
-            _, proof = await storage.publish(
+            facts, proof = await storage.publish(
                 BytesIO(_ENTRY_BYTES[entry.content_hash]),
                 target,
                 content_type=entry.content_type,
@@ -293,6 +287,8 @@ async def _stage_physical(db, world, command, plan, completions, *, stage=True):
                 ),
             )
             await workflow._finish_original(target, proof)
+            if entry.file_type == "image":
+                world.image_facts[entry.entry_id] = facts
     if stage:
         await _invoke(
             db,
@@ -321,7 +317,7 @@ async def _complete(db, command, plan, *, world=None):
     ]
     if world is not None and any(entry.source_key is None for entry in plan.entries):
         await _stage_physical(db, world, command, plan, completions)
-    return await _invoke(
+    result = await _invoke(
         db,
         command,
         "complete_dataset_ingest_batch",
@@ -329,6 +325,32 @@ async def _complete(db, command, plan, *, world=None):
         batch=plan.batch_id,
         payload=completions,
     )
+    if world is not None:
+        await _admit_images(db, world, plan, completions)
+    return result
+
+
+async def _admit_images(db, world, plan, completions):
+    from aap_assets_source_runtime.image_admission import ImageAdmission
+    from app.services.assets_images import image_gateway, image_policy
+
+    admission = ImageAdmission(
+        image_gateway(db, caller_transaction=True), image_policy()
+    )
+    ready = {entry.entry_id for entry in completions if entry.status == "ready"}
+    for entry in plan.entries:
+        if entry.file_type != "image" or entry.entry_id not in ready:
+            continue
+        facts = world.image_facts[entry.entry_id]
+        await admission.admit_dataset_item(
+            item_id=entry.item_id,
+            publication_id=entry.publication_id,
+            file_path=entry.file_path,
+            file_size=facts.file_size,
+            content_hash=facts.content_hash,
+            object_identity=facts.object_identity,
+            missing_is_skipped=True,
+        )
 
 
 async def _finish(db, command, *, infer=True):
@@ -462,7 +484,7 @@ async def test_zip_owner_rejects_completion_before_all_entries_are_staged(ingest
         await db.rollback()
 
 
-@pytest.mark.parametrize("kind", ["image", "other"])
+@pytest.mark.parametrize("kind", ["image", "dimensionless_image", "other"])
 async def test_zip_rejects_forged_later_dimensions_before_any_batch_publishes(
     ingest_world, kind
 ):
@@ -470,9 +492,16 @@ async def test_zip_rejects_forged_later_dimensions_before_any_batch_publishes(
     async with world.source_maker() as db:
         await _begin(db, command, _descriptor(count=2))
         first = await _prepare(db, world, command, [_entry(path="first.png")])
-        last = await _prepare(
-            db, world, command, [_entry(path="last", digest="b" * 32, kind=kind)]
+        proposal = _entry(
+            path="last",
+            digest="b" * 32,
+            kind="other" if kind == "dimensionless_image" else kind,
         )
+        if kind == "dimensionless_image":
+            proposal = proposal.model_copy(
+                update={"file_type": "image", "content_type": "image/png"}
+            )
+        last = await _prepare(db, world, command, [proposal])
 
         def completion(entry):
             return IngestEntryCompletion(
@@ -627,7 +656,9 @@ async def test_scene_insert_conflict_cannot_commit_positive_ingest_counters(
             async with world.source_maker.begin() as db:
                 await _begin(db, command)
                 plan = await _prepare(db, world, command, [_entry()])
-                assert (await _complete(db, command, plan, world=world)).progress.added == 1
+                assert (
+                    await _complete(db, command, plan, world=world)
+                ).progress.added == 1
                 await _finish(db, command)
         assert await _counts(world) == (0, 0, 0, 0)
         async with world.maker() as db:
@@ -730,19 +761,18 @@ async def test_exact_source_login_cannot_read_business_tables_or_foreign_capabil
             await db.rollback()
 
 
-async def test_maintenance_caller_can_deliver_without_raw_assets_table_access(
+async def test_nonimage_delivery_requires_current_lease_without_private_table_access(
     ingest_world,
 ):
     from app.services.dataset_source_ingest_delivery import (
         claim_dataset_source_ingest_delivery,
+        complete_dataset_source_ingest_delivery,
     )
-    from app.workers.dataset_import_delivery import _deliver_source_ingest_one
-    from unittest.mock import Mock
 
     world, command = ingest_world, ingest_world.command()
     async with world.source_maker.begin() as db:
         await _begin(db, command)
-        plan = await _prepare(db, world, command, [_entry()])
+        plan = await _prepare(db, world, command, [_entry("clip.mp4", kind="video")])
         await _complete(db, command, plan, world=world)
         await _finish(db, command)
     url = make_url(os.environ["AAP_MODULE_DATA_APPEND_URL"])
@@ -764,12 +794,35 @@ async def test_maintenance_caller_can_deliver_without_raw_assets_table_access(
                 db, lease_token=uuid4(), lease_seconds=120
             )
             await db.commit()
-            assert lease is not None and lease.operation_id == command.operation_id
-            dispatcher = Mock()
-            assert (
-                await _deliver_source_ingest_one(db, lease, dispatcher) == "delivered"
+            assert lease is not None
+            assert (lease.operation_id, lease.target_id, lease.kind) == (
+                command.operation_id,
+                plan.entries[0].item_id,
+                "video_metadata",
             )
-            dispatcher.dispatch_thumbnail.assert_called_once_with(lease.target_id)
+            with pytest.raises(IngestFailure):
+                await complete_dataset_source_ingest_delivery(
+                    db, delivery_id=lease.id, lease_token=uuid4()
+                )
+            await db.rollback()
+            assert (
+                await claim_dataset_source_ingest_delivery(
+                    db, lease_token=uuid4(), lease_seconds=120
+                )
+                is None
+            )
+            acknowledged = await complete_dataset_source_ingest_delivery(
+                db, delivery_id=lease.id, lease_token=lease.lease_token
+            )
+            assert acknowledged.delivered
+            await db.commit()
+        async with maker() as observer:
+            assert (
+                await claim_dataset_source_ingest_delivery(
+                    observer, lease_token=uuid4(), lease_seconds=120
+                )
+                is None
+            )
     finally:
         await engine.dispose()
 
@@ -827,6 +880,7 @@ async def test_duplicate_candidate_can_succeed_after_first_copy_failure(ingest_w
             batch=plan.batch_id,
             payload=completions,
         )
+        await _admit_images(db, world, plan, completions)
         assert settled.progress.added == settled.progress.error_count == 1
         receipt = await _finish(db, command)
         assert receipt.added == 1 and receipt.deduped == 0 and receipt.error_count == 1
@@ -887,3 +941,52 @@ async def test_layout_ignores_invalid_logical_markers_in_legacy_metadata(ingest_
             "right/lidar/0003.pcd",
         ]
         await db.rollback()
+
+
+async def test_directory_manager_uses_current_public_identity_facts(
+    ingest_world, test_engine
+):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.services.dataset_source_access import assert_dataset_manage
+
+    world = ingest_world
+    url = make_url(os.environ["DATABASE_URL"])
+    assert (url.host, url.port, url.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    engine = create_async_engine(url, hide_parameters=True)
+    runtime = async_sessionmaker(engine, expire_on_commit=False)
+    actor = SimpleNamespace(id=world.actor_id)
+    try:
+        async with runtime() as db:
+            privileges = (
+                await db.execute(
+                    text(
+                        "SELECT current_user, rolsuper, "
+                        "has_table_privilege(current_user, 'public.users', 'SELECT') "
+                        "AS private_identity_read "
+                        "FROM pg_roles WHERE rolname=current_user"
+                    )
+                )
+            ).one()
+            assert privileges.current_user == url.username
+            assert not privileges.rolsuper and not privileges.private_identity_read
+            current = await assert_dataset_manage(db, world.dataset_id, actor)
+            assert current.id == world.actor_id and current.role == "super_admin"
+        async with world.maker.begin() as owner:
+            await owner.execute(
+                text("UPDATE users SET role='employee' WHERE id=:id"),
+                {"id": world.actor_id},
+            )
+        async with runtime() as db:
+            with pytest.raises(HTTPException) as rejected:
+                await assert_dataset_manage(db, world.dataset_id, actor)
+            assert rejected.value.status_code == 403
+            assert rejected.value.detail == {"code": "access_revoked"}
+    finally:
+        await engine.dispose()

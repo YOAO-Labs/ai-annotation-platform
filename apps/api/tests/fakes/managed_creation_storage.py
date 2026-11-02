@@ -80,6 +80,47 @@ class CreationStorage:
             raise client_error("PreconditionFailed", 412, "GetObject")
         return {**meta, "Body": io.BytesIO(self.objects[self._key(Bucket, Key)])}
 
+    def list_objects_v2(self, *, Bucket, Prefix, ContinuationToken=None, MaxKeys=1000):
+        keys = (
+            [key for bucket, key in self.objects if bucket == Bucket]
+            if self.keyed_by_bucket
+            else list(self.objects)
+        )
+        keys = sorted(
+            key
+            for key in keys
+            if key.startswith(Prefix)
+            and (ContinuationToken is None or key > ContinuationToken)
+        )
+        page = keys[:MaxKeys]
+        return self.response(
+            Contents=[
+                {
+                    "Key": key,
+                    "Size": len(self.objects[self._key(Bucket, key)]),
+                    "ETag": self.etag(self.objects[self._key(Bucket, key)]),
+                }
+                for key in page
+            ],
+            IsTruncated=len(keys) > MaxKeys,
+            **({"NextContinuationToken": page[-1]} if len(keys) > MaxKeys else {}),
+        )
+
+    def get_paginator(self, operation_name):
+        assert operation_name == "list_objects_v2"
+        client = self
+
+        class Paginator:
+            def paginate(self, **parameters):
+                while True:
+                    page = client.list_objects_v2(**parameters)
+                    yield page
+                    if not page["IsTruncated"]:
+                        return
+                    parameters["ContinuationToken"] = page["NextContinuationToken"]
+
+        return Paginator()
+
     def create_multipart_upload(self, *, Bucket, Key, **kwargs):
         uid = str(uuid.uuid4())
         self.uploads[uid] = {

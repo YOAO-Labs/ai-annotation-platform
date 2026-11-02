@@ -1239,6 +1239,7 @@ SQL_ARTIFACTS = (
     "0414_export_core_locks.sql",
     "0415_export_job_nowait.sql",
     "0419_dataset_ingest_authority.sql",
+    "0420_spatial_item_role_join.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0419_dataset_ingest_authority.schema.json",
