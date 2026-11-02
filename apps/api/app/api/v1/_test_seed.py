@@ -1004,10 +1004,16 @@ async def _cleanup_e2e_fixtures(
     try:
         await _require_e2e_seed_database(db)
         scope = await resolve(db)
-        # The guard can write never-started clearance under job locks. Discard
-        # its preflight proof before preparation commits and releases the locks;
-        # final owner deletes repeat the guard in their own transaction.
+        # Drain only this fixture's account/project holders before the NOWAIT
+        # owner guard. Roll back both the fence and the guard's never-started
+        # clearance: preparation commits, and final owner deletes recheck it.
         async with db.begin_nested() as preflight:
+            try:
+                await attachments.fence(db, scope)
+            except DBAPIError as exc:
+                attachments.translate(exc)
+            if await resolve(db) != scope:
+                attachments.reject()
             await guard_fixture_project_cleanup(db, list(scope.project_ids))
             await preflight.rollback()
         await guides.preflight(db, scope)

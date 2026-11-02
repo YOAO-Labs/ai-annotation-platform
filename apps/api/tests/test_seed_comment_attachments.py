@@ -500,14 +500,23 @@ async def hold_account_share_lock(ctx, user_id, ready, release):
             await transaction.commit()
 
 
-async def test_live_fixture_request_is_awaited_by_the_scope_fence(context):
-    """The seed fixture tears down before Playwright closes the test page.
+async def hold_project_share_lock(ctx, project_id, ready, release):
+    async with ctx.engine.connect() as connection:
+        transaction = await connection.begin()
+        await connection.execute(
+            text("SELECT id FROM projects WHERE id = :id FOR SHARE"),
+            {"id": project_id},
+        )
+        ready.set_result(await connection.scalar(text("SELECT pg_backend_pid()")))
+        try:
+            await asyncio.wait_for(release.wait(), 20)
+        finally:
+            await transaction.commit()
 
-    The page's authenticated requests hold ``FOR SHARE`` on the fixture account
-    row for their whole request (``require_active_task_actor``), so the
-    exclusive account fence must serialize with that *known* request instead of
-    reporting unknown ownership as busy.
-    """
+
+@pytest.mark.parametrize("lock_owner", ["account", "project"])
+async def test_live_fixture_request_is_awaited_by_the_scope_fence(context, lock_owner):
+    """The preflight must drain either fixture authority lock before NOWAIT."""
     ctx = context
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
@@ -520,6 +529,8 @@ async def test_live_fixture_request_is_awaited_by_the_scope_fence(context):
     ready, release = asyncio.get_running_loop().create_future(), asyncio.Event()
     holder = asyncio.create_task(
         hold_account_share_lock(ctx, scope.user_ids[0], ready, release)
+        if lock_owner == "account"
+        else hold_project_share_lock(ctx, scope.project_ids[0], ready, release)
     )
     try:
         holder_pid = await asyncio.wait_for(ready, 20)
@@ -569,7 +580,7 @@ async def test_stuck_scope_fence_still_fails_closed_after_bounded_wait(
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "e2e_seed_attachment_cleanup_busy"
     retained = await present(ctx, row)
-    assert retained.state == "retired" and storage.same(retained, receipt)
+    assert retained.state == "ready" and storage.same(retained, receipt)
     assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
     assert (await clean(ctx, world)).status_code == 200
 

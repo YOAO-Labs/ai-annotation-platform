@@ -50,13 +50,10 @@ class CleanupPlan:
         )
 
 
-# Account and project rows are scope fences, not destruction owners: a live
-# authenticated request of the fixture's own user holds ``FOR SHARE`` on its
-# account row for the entire request (``require_active_task_actor`` and
-# ``lock_actor_project_authority`` take account -> project share locks), and
-# the Playwright seed fixture tears down before the page closes. Failing these
-# rows closed with ``NOWAIT`` therefore reports a *known* in-flight fixture
-# request as unknown ownership.
+# Account and project rows are scope fences, not destruction owners: live
+# authenticated fixture requests can hold share locks on these rows for their
+# entire request. Closing their page does not wait for server-side completion.
+# Fence them before the NOWAIT owner preflight as well as the final deletion.
 #
 # ``SET LOCAL lock_timeout`` is the established bounded-authority convention
 # (storage_access, guides, task_originals all use ``1s`` for user-facing
@@ -236,7 +233,7 @@ async def delete_objects(db, plan, resolve_scope):
         translate(exc)
 
 
-async def fence(db, plan):
+async def fence(db, scope):
     """Hold the exclusive account -> project scope fence.
 
     Waits (bounded) for in-flight fixture requests, whose account ``FOR SHARE``
@@ -253,8 +250,8 @@ async def fence(db, plan):
         {"timeout": FENCE_LOCK_TIMEOUT},
     )
     for model, identifiers in (
-        (User, plan.scope.user_ids),
-        (Project, plan.scope.project_ids),
+        (User, scope.user_ids),
+        (Project, scope.project_ids),
     ):
         await db.execute(
             select(model.id)
@@ -272,7 +269,7 @@ async def finalize(db, plan, resolve_scope, *, before_gate=None):
     """Fence the complete scope before the caller's final database-only deletes."""
     try:
         with db.no_autoflush:
-            await fence(db, plan)
+            await fence(db, plan.scope)
             if await resolve_scope(db) != plan.scope:
                 reject()
             rows = await owners(db, plan.scope, lock=True)
