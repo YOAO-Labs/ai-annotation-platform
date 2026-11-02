@@ -26,6 +26,8 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services import async_job as jobs
 from aap_inference.backend_transport import PredictionResult
+from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.prediction import PredictionService
 from app.workers import tasks as worker
 from tests.factory import create_batch, create_project, create_task, create_user
@@ -60,8 +62,25 @@ async def commit_world(managed_worker_world, monkeypatch):
         task = await create_task(db, project_id=project.id)
         task.batch_id = batch.id
         task.file_path = "http://owned.invalid/image.png"
-        old = await PredictionService(db).create_from_ml_result(
-            task.id, project.id, backend.id, [], model_version="old"
+        await db.flush()
+        old = await PredictionService(db).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project.id,
+                ml_backend_id=backend.id,
+                result=[],
+                model_version="old",
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=user.id,
+                    actor_known=True,
+                    operation="prediction_import",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=None,
+                    job_id_known=True,
+                ),
+            )
         )
         for source in ("manual", "prediction_based"):
             db.add(
@@ -271,7 +290,7 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
 ):
     world = commit_world
     writes = 0
-    original = PredictionService.create_from_ml_result
+    original = PredictionService._persist_prediction_result
 
     async def write(service, *args, **kwargs):
         nonlocal writes
@@ -322,7 +341,7 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
         "app.application.preannotation_execution._model_execution_port",
         lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
     )
-    monkeypatch.setattr(PredictionService, "create_from_ml_result", write)
+    monkeypatch.setattr(PredictionService, "_persist_prediction_result", write)
     await run(world, predict_mode=mode)
     assert len(world.worker_world.captured) == 1
     async with world.factory() as db:
@@ -706,19 +725,19 @@ async def test_cancel_waiting_for_candidate_commit_retains_that_task_and_stops_n
         second_id = second.id
         await db.commit()
     result_locked, release_result = asyncio.Event(), asyncio.Event()
-    original = PredictionService.create_from_ml_result
+    original = PredictionService._persist_prediction_result
     inferred = []
 
-    async def write(service, **kwargs):
+    async def write(service, *args, **kwargs):
         result_locked.set()
         await release_result.wait()
-        return await original(service, **kwargs)
+        return await original(service, *args, **kwargs)
 
     async def pipeline(task, *args, **kwargs):
         inferred.append(task.id)
         return prediction_results(task.id), None, None
 
-    monkeypatch.setattr(PredictionService, "create_from_ml_result", write)
+    monkeypatch.setattr(PredictionService, "_persist_prediction_result", write)
     monkeypatch.setattr(
         "app.application.preannotation_execution._run_task_pipeline", pipeline
     )

@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.ml_backend_pool import MLBackendServicePool
@@ -174,9 +173,17 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
                     | PredictionMeta.failed_prediction_id.in_(failures)
                 )
             )
-            for model in (Annotation, Prediction, FailedPrediction, AsyncJob):
+            for model in (Annotation, Prediction, FailedPrediction):
                 await db.execute(
                     delete(model).where(model.project_id.in_(world.projects))
+                )
+            if world.projects:
+                await db.execute(
+                    text(
+                        "SELECT aap_jobs_v1.delete_fixture_project_jobs("
+                        "CAST(:project_ids AS uuid[]))"
+                    ),
+                    {"project_ids": list(world.projects)},
                 )
             await db.execute(
                 delete(PredictionExecutionSnapshot).where(

@@ -463,17 +463,28 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     proof = retry_job.payload["prediction_authority"]
     assert proof["schema"] == 2
     assert proof["tasks"][0]["original"] == original_binding["original"]
-    assert (await db_session.get(FailedPrediction, fid)).extra["retry_job_id"] == str(
-        retry_id
+    from aap_preannotation_results.retry_contract import ReadPredictionRetryRequest
+    from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
+
+    assert response.json() == {"status": "queued", "failed_id": str(fid)}
+    admitted = await SqlAlchemyPredictionRetryData(db_session).call(
+        "read_prediction_retry",
+        ReadPredictionRetryRequest(
+            job_id=retry_id, failed_prediction_id=fid, actor_id=owner.id
+        ),
     )
+    assert admitted.attempt.job_id == retry_id
+    assert admitted.attempt.failed_prediction_id == fid
+    assert admitted.attempt.source_extra["original_input"] == original_binding
+    assert admitted.attempt.source_extra["execution_snapshot"] == {
+        "id": str(snapshot.id),
+        "digest": digest,
+    }
     # Close the observer transaction before independent worker guard sessions.
     await db_session.commit()
     calls = []
 
     class Client:
-        def __init__(self, _db, target, **_kwargs):
-            self.last_instance_id, self.pool_id = target.id, None
-
         async def predict(self, inputs, context=None):
             calls.append((copy.deepcopy(inputs), copy.deepcopy(context)))
             assert context["frozen_model_ref"] == ref
@@ -525,7 +536,7 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
                 for item in inputs
             ]
 
-    client = Client(None, None)
+    client = Client()
     monkeypatch.setattr(
         "app.application.durable_prediction_retry._model_execution_port",
         lambda *_args, **_kwargs: PredictionClientExecutionPort(client),
@@ -617,23 +628,37 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
 
 
 async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_run(
-    db_session,
-    httpx_client,
-    super_admin,
-    annotator,
+    trained_retry_world,
+    managed_worker_world,
     monkeypatch,
 ):
     from tests.test_preannotate_workbench_scope import _seed
     from app.workers.tasks import batch_predict
+    from app.services import accepted_inputs
+    from tests.conftest import _create_user
 
-    owner, _ = super_admin
-    member, token = annotator
+    db_session = trained_retry_world.db
+    httpx_client = trained_retry_world.client
+    owner, _ = trained_retry_world.admin
+    member, token = await _create_user(
+        db_session,
+        "employee",
+        f"workbench-member-{uuid.uuid4().hex}@test.local",
+        "Workbench member",
+    )
+    gateway = accepted_inputs.input_gateway
+    monkeypatch.setattr(
+        accepted_inputs,
+        "input_gateway",
+        lambda: gateway(session_factory=managed_worker_world.factory),
+    )
+
     project, backend, batch, task = await _seed(db_session, owner.id)
     await create_membership(
         db_session, project_id=project.id, user_id=member.id, role="annotator"
     )
     task.assignee_id = member.id
-    await db_session.flush()
+    await db_session.commit()
     dispatch = Mock(return_value=SimpleNamespace(id="queued"))
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
     body = {
@@ -729,6 +754,7 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
     from app.services.prediction_execution import create_snapshot, load_snapshot
+    from app.services import async_job as jobs
     from app.workers import async_jobs_cleanup
     from tests.factory import create_project
 
@@ -747,9 +773,8 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
         kind="batch_predict",
         project_id=project.id,
         user_id=owner.id,
-        status="failed",
+        status="pending",
         created_at=old,
-        execution_snapshot_id=snapshot.id,
     )
     failed = FailedPrediction(
         project_id=project.id,
@@ -760,6 +785,11 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
         execution_snapshot_id=snapshot.id,
     )
     db_session.add_all([job, failed])
+    await db_session.flush()
+    await jobs.bind_execution_snapshot(
+        db_session, job, actor_id=owner.id, snapshot_id=snapshot.id
+    )
+    await jobs.mark_failed(db_session, job.id, error="transient")
     await db_session.flush()
     async with db_session.begin_nested():
         with pytest.raises(IntegrityError, match="snapshots are immutable"):
