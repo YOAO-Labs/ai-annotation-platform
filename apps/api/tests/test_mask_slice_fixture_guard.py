@@ -12,8 +12,13 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+
+from app.api.v1._test_seed import _parse_owned_namespace
+from app.db.models.annotation import Annotation
+from tests.factory import create_project, create_task, create_user
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "web" / "e2e" / "fixtures"
 FIXTURE_FILE = FIXTURE_DIR / "mask-slice-lifecycle.py"
@@ -205,4 +210,83 @@ def test_non_worktree_keeps_legacy_ci_rule_and_rejects_unrecognized_worktree_buc
                 database="annotation_test",
                 bucket=bucket,
                 owner_tag=None,
+            )
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_rejects_tampered_selected_manifest_before_database_access(
+    monkeypatch, tmp_path
+):
+    resources = _resources(tmp_path)
+    monkeypatch.setattr(_module, "_RESOURCE_ROOT", tmp_path)
+    monkeypatch.setattr(_module, "read_state", lambda _path: {"resources": resources})
+    monkeypatch.setattr(_module, "load_identity", lambda _root: "identity")
+    monkeypatch.setattr(
+        _module,
+        "topology",
+        lambda *_args: {**resources, "database": "aap_wt_other_e2e"},
+    )
+    monkeypatch.setenv(
+        "PLAYWRIGHT_E2E_DATABASE_URL",
+        "postgresql+asyncpg://owner@localhost/aap_wt_abc_e2e",
+    )
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("E2E_SEED_ENABLED", "true")
+    monkeypatch.setenv("AAP_WORKTREE_MODE", "e2e")
+    with pytest.raises(GuardError, match="manifest does not match"):
+        await _module.run("gc", str(uuid4()), str(uuid4()), "fixture1")
+
+
+@pytest.mark.asyncio
+async def test_annotations_must_belong_to_selected_owned_fixture(db_session):
+    namespace = uuid4().hex[:10]
+    other_namespace = uuid4().hex[:10]
+    scope = _parse_owned_namespace(namespace)
+    other_scope = _parse_owned_namespace(other_namespace)
+    user = await create_user(
+        db_session, "employee", f"{namespace}@test.invalid", "Mask guard"
+    )
+    project = await create_project(
+        db_session, owner_id=user.id, name=scope.project_name
+    )
+    other_project = await create_project(
+        db_session, owner_id=user.id, name=other_scope.project_name
+    )
+    task = await create_task(
+        db_session,
+        project_id=project.id,
+        display_id=f"{scope.task_display_prefix}000001",
+    )
+    other_task = await create_task(
+        db_session,
+        project_id=other_project.id,
+        display_id=f"{other_scope.task_display_prefix}000001",
+    )
+    annotations = [
+        Annotation(
+            task_id=owner.id,
+            project_id=owner.project_id,
+            user_id=user.id,
+            annotation_type="bbox",
+            class_name="object",
+            tool_unit_id="bbox",
+            geometry={"type": "bbox", "x": 0, "y": 0, "width": 1, "height": 1},
+        )
+        for owner in (task, task, other_task)
+    ]
+    db_session.add_all(annotations)
+    await db_session.flush()
+    source, created, foreign = (annotation.id for annotation in annotations)
+    await _module.require_fixture_annotations(
+        db_session, task.id, source, created, scope
+    )
+    for selected_task, first, second, selected_scope in (
+        (task.id, source, foreign, scope),
+        (other_task.id, source, created, scope),
+        (task.id, source, created, other_scope),
+        (task.id, source, source, scope),
+    ):
+        with pytest.raises(GuardError, match="selected fixture"):
+            await _module.require_fixture_annotations(
+                db_session, selected_task, first, second, selected_scope
             )

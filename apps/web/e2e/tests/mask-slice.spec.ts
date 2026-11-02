@@ -10,7 +10,8 @@ import {
   type RequestErrorSignal,
 } from "../helpers/request-errors";
 import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
-import { expect, test as base, type SeedData } from "../fixtures/seed";
+import { expect, test as base, ownedNamespaceFor, type SeedData } from "../fixtures/seed";
+import { runMaskSliceLifecycle } from "../helpers/seed-owner-transport";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 type Point = [number, number];
@@ -50,6 +51,7 @@ interface Case {
   allowedErrors: Set<string>;
   data: SeedData;
   taskId: string;
+  namespace: string;
   headers: Record<string, string>;
   writes: Array<{ method: string; path: string; body: unknown }>;
   evidence: unknown[];
@@ -64,7 +66,8 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 
 const test = base.extend<{ sliceCase: Case }>({
   sliceCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+    const namespace = ownedNamespaceFor(testInfo);
+    const data = await seed.owned(namespace);
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -112,6 +115,7 @@ const test = base.extend<{ sliceCase: Case }>({
     const fixture: Case = {
       data,
       taskId,
+      namespace,
       headers,
       writes: [],
       evidence: [],
@@ -437,19 +441,17 @@ async function commit(page: Page, fixture: Case, keyboard = false) {
   expect(response.slice_restore).toBeTruthy();
   return response;
 }
-function lifecycle(fixture: Case, action: string, operationId: string) {
-  return JSON.parse(
-    execFileSync(
-      fileURLToPath(new URL("../../../api/.venv/bin/python", import.meta.url)),
-      [
-        fileURLToPath(new URL("../fixtures/mask-slice-lifecycle.py", import.meta.url)),
-        action,
-        fixture.taskId,
-        operationId,
-      ],
-      { encoding: "utf8", env: process.env },
-    ),
-  );
+function lifecycle(
+  fixture: Case,
+  action: "gc" | "drop_revision" | "expire_revision",
+  operationId: string,
+) {
+  return runMaskSliceLifecycle({
+    action,
+    task_id: fixture.taskId,
+    operation_id: operationId,
+    namespace: fixture.namespace,
+  });
 }
 async function checkPartition(
   request: APIRequestContext,
@@ -695,7 +697,7 @@ test("H4b-4 undo deactivates the new mask; real GC retains its pixels for browse
   expect(
     ledger(fixture).annotations.find((row) => row.id === receipt.created_annotation_id)?.is_active,
   ).toBe(false);
-  const gc = lifecycle(fixture, "gc", receipt.operation_id);
+  const gc = await lifecycle(fixture, "gc", receipt.operation_id);
   fixture.evidence.push({ explicitGcAgeFixture: gc });
   expect(gc.orphan_deleted).toBe(true);
   await reloadAndRead(page, request, fixture);
@@ -727,7 +729,7 @@ for (const failure of ["expired", "missing_revision", "peer_edit"] as const) {
     const receipt = (await commit(page, fixture)).slice_restore;
     if (failure === "expired") ledger(fixture, "expire", receipt.operation_id);
     else if (failure === "missing_revision")
-      fixture.evidence.push(lifecycle(fixture, "drop_revision", receipt.operation_id));
+      fixture.evidence.push(await lifecycle(fixture, "drop_revision", receipt.operation_id));
     else {
       const peer = await playwright.request.newContext({
         extraHTTPHeaders: {

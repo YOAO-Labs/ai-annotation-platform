@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import redirect_stdout
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,12 @@ import sys
 from urllib.parse import urlsplit
 
 from sqlalchemy.engine import make_url
+
+
+_MASK_LIFECYCLE_ENABLED = (
+    os.environ.get("E2E_SEED_ENABLED") == "true"
+    and os.environ.get("ENVIRONMENT") == "development"
+)
 
 
 class SeedSetupRefused(RuntimeError):
@@ -30,14 +37,27 @@ def prepare(payload):
         != (runtime.host, runtime.port or 5432, runtime.database)
     ):
         raise SeedSetupRefused("Fixture setup requires the same disposable database")
-    path = urlsplit(payload["path"])
-    if (
-        path.scheme
-        or path.netloc
-        or not path.path.startswith("/api/v1/__test/seed/")
-        or ".." in path.path.split("/")
-    ):
-        raise SeedSetupRefused("Only fixture endpoints may use setup credentials")
+    if payload.get("operation") == "mask_slice_lifecycle":
+        if not _MASK_LIFECYCLE_ENABLED:
+            raise SeedSetupRefused(
+                "Mask lifecycle requires explicit E2E development mode"
+            )
+        if os.environ.get("AAP_WORKTREE_MODE") in {"test", "e2e"} and (
+            owner.host not in {"localhost", "127.0.0.1", "::1"} or owner.query
+        ):
+            raise SeedSetupRefused(
+                "Mask lifecycle requires the local worktree database"
+            )
+    else:
+        path = urlsplit(payload["path"])
+        if (
+            payload.get("operation") is not None
+            or path.scheme
+            or path.netloc
+            or not path.path.startswith("/api/v1/__test/seed/")
+            or ".." in path.path.split("/")
+        ):
+            raise SeedSetupRefused("Only fixture endpoints may use setup credentials")
     os.environ["DATABASE_URL"] = owner.render_as_string(hide_password=False)
     os.environ["MIGRATION_DATABASE_URL"] = ""
     os.environ["ENVIRONMENT"] = "development"
@@ -64,17 +84,26 @@ async def main():
                 transport=httpx.ASGITransport(app), base_url="http://fixture.local"
             ) as client:
                 while True:
-                    response = await client.post(
-                        payload["path"],
-                        json=payload.get("data"),
-                        headers=payload.get("headers"),
-                    )
+                    if payload.get("operation") == "mask_slice_lifecycle":
+                        spec = importlib.util.spec_from_file_location(
+                            "mask_slice_lifecycle",
+                            Path(__file__).with_name("mask-slice-lifecycle.py"),
+                        )
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        result = await module.run(**payload["data"])
+                        status, body = 200, json.dumps(result)
+                    else:
+                        response = await client.post(
+                            payload["path"],
+                            json=payload.get("data"),
+                            headers=payload.get("headers"),
+                        )
+                        status, body = response.status_code, response.text
                     # Keep imports warm, not privileged database sessions or their locks.
                     await engine.dispose()
                     print(
-                        json.dumps(
-                            {"status": response.status_code, "body": response.text}
-                        ),
+                        json.dumps({"status": status, "body": body}),
                         file=protocol_output,
                         flush=True,
                     )

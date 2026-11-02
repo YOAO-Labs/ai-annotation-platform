@@ -56,3 +56,35 @@ def test_owner_seed_refuses_cross_boundary_setup_without_leaking_credentials(
     assert result.returncode == 1
     assert "SeedSetupRefused" in result.stderr
     assert secret not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "runtime_database,enabled,environment",
+    [
+        ("foreign_e2e", "true", "development"),
+        ("fixture_e2e", "false", "development"),
+        ("fixture_e2e", "true", "production"),
+    ],
+)
+def test_mask_lifecycle_owner_refuses_foreign_database_or_disabled_e2e(
+    runtime_database, enabled, environment
+):
+    secret = "fixture-secret-not-for-output"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        input=json.dumps({"operation": "mask_slice_lifecycle", "data": {}}),
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "ENVIRONMENT": environment,
+            "E2E_SEED_ENABLED": enabled,
+            "AAP_WORKTREE_MODE": "e2e",
+            "PLAYWRIGHT_E2E_DATABASE_URL": f"postgresql+asyncpg://owner:{secret}@127.0.0.1/fixture_e2e",
+            "DATABASE_URL": f"postgresql+asyncpg://runtime:{secret}@127.0.0.1/{runtime_database}",
+        },
+        timeout=10,
+    )
+    assert result.returncode == 1
+    assert "SeedSetupRefused" in result.stderr
+    assert secret not in result.stdout + result.stderr

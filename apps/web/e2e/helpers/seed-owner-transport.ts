@@ -93,6 +93,18 @@ export async function closeFixtureTransport(): Promise<void> {
   await active?.close();
 }
 
+export async function runMaskSliceLifecycle(data: {
+  action: "gc" | "drop_revision" | "expire_revision";
+  task_id: string;
+  operation_id: string;
+  namespace: string;
+}): Promise<{ orphan_deleted?: boolean }> {
+  transport ??= startOwner();
+  const response = await transport.post({ operation: "mask_slice_lifecycle", data }, 120_000);
+  if (response.status !== 200) throw new Error(`Mask lifecycle fixture failed: ${response.status}`);
+  return JSON.parse(response.body);
+}
+
 export async function postFixture(
   url: string,
   options?: Parameters<APIRequestContext["post"]>[1],

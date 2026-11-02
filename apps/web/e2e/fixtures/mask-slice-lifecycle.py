@@ -1,7 +1,6 @@
 """Explicit GC/version-loss injection in an owned disposable E2E environment."""
 
 import asyncio
-import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -90,22 +89,49 @@ def _bucket_owner_tag(storage: object, bucket: str) -> str | None:
     return next((tag["Value"] for tag in tags if tag["Key"] == OWNER_TAG), None)
 
 
-async def main():
-    action, task_value, operation_value = sys.argv[1:]
-    task_id, operation_id = UUID(task_value), UUID(operation_value)
+async def require_fixture_annotations(db, task_id, source_id, created_id, scope):
+    owned = await db.scalar(
+        text(
+            "SELECT count(*) FROM annotations a "
+            "JOIN tasks t ON t.id = a.task_id AND t.project_id = a.project_id "
+            "JOIN projects p ON p.id = t.project_id "
+            "WHERE t.id = :task AND t.display_id = :display_id "
+            "AND p.name = :project_name AND a.id IN (:source, :created)"
+        ),
+        {
+            "task": task_id,
+            "display_id": f"{scope.task_display_prefix}000001",
+            "project_name": scope.project_name,
+            "source": source_id,
+            "created": created_id,
+        },
+    )
+    if source_id == created_id or owned != 2:
+        raise GuardError("slice annotations do not belong to the selected fixture")
+
+
+async def run(action: str, task_id: str, operation_id: str, namespace: str):
+    if action not in {"gc", "drop_revision", "expire_revision"}:
+        raise GuardError("unknown mask lifecycle action")
+    task_id, operation_id = UUID(task_id), UUID(operation_id)
+    from app.api.v1._test_seed import _parse_owned_namespace
+
+    scope = _parse_owned_namespace(namespace)
     url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
-    assert url.database and url.database.endswith(("_e2e", "_test"))
-    assert os.environ.get("E2E_SEED_ENABLED") == "true"
-    assert os.environ.get("ENVIRONMENT") == "development"
+    if not url.database or not url.database.endswith(("_e2e", "_test")):
+        raise GuardError("mask lifecycle requires a disposable database")
+    if (
+        os.environ.get("E2E_SEED_ENABLED") != "true"
+        or os.environ.get("ENVIRONMENT") != "development"
+    ):
+        raise GuardError("mask lifecycle requires E2E development mode")
     # A disposable DB alone is insufficient: GC must never scan a shared bucket.
     bucket = os.environ.get("MINIO_BUCKET", "")
     mode = os.environ.get("AAP_WORKTREE_MODE")
     resources = None
     if mode is not None:
-        if mode not in {"test", "e2e"} or not _RESOURCE_ROOT.is_relative_to(_REPO_ROOT):
-            raise GuardError(
-                "resource root must be inside this checkout in test or e2e mode"
-            )
+        if mode not in {"test", "e2e"}:
+            raise GuardError("resource root requires test or e2e mode")
         manifest = read_state(state_path(_RESOURCE_ROOT, mode, "resources.json"))
         resources = manifest["resources"]
         if resources != topology(_RESOURCE_ROOT, load_identity(_RESOURCE_ROOT), mode):
@@ -138,9 +164,10 @@ async def main():
             .mappings()
             .one()
         )
-        source_id = UUID(
-            operation["response_json"]["slice_restore"]["source_annotation_id"]
-        )
+        restore = operation["response_json"]["slice_restore"]
+        source_id = UUID(restore["source_annotation_id"])
+        created_id = UUID(restore["created_annotation_id"])
+        await require_fixture_annotations(db, task_id, source_id, created_id, scope)
         source_version = operation["report"]["before"][str(source_id)][
             "annotation_version"
         ]
@@ -159,8 +186,7 @@ async def main():
             )
             assert changed.rowcount == 1
             await db.commit()
-            print(json.dumps({"action": action, "changed": 1}))
-            return
+            return {"action": action, "changed": 1}
         assert action == "gc" and operation["report"]["current_side"] == "before"
         rows = (
             (
@@ -227,18 +253,10 @@ async def main():
     )
     assert retired["errors"] == result["errors"] == 0
     assert result["deleted"] >= 1
-    print(
-        json.dumps(
-            {
-                "action": action,
-                "result": result,
-                "retirement": retired,
-                "protected": protected,
-                "orphan_deleted": True,
-            }
-        )
-    )
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    return {
+        "action": action,
+        "result": result,
+        "retirement": retired,
+        "protected": protected,
+        "orphan_deleted": True,
+    }
