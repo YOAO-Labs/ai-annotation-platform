@@ -20,8 +20,13 @@ from app.services.source_readers.s3 import S3Access
 from tests.test_task_originals import (
     allocated,
     original_client as original_client,
-    original_db as original_db,
+    current_original_db as current_original_db,
 )
+
+
+@pytest.fixture
+def original_db(current_original_db):
+    return current_original_db
 
 
 async def registered_target(db):
@@ -63,7 +68,9 @@ async def registered_target(db):
 async def complete(db, task, allocation, client, data=b"original"):
     client.store(allocation["staging_bucket"], allocation["staging_key"], data)
     created = await creation.complete_direct(db, allocation)
-    owner = await task_originals.publish(db, task, allocation, created)
+    owner = await task_originals.publish(
+        db, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     await db.commit()
     return owner
 

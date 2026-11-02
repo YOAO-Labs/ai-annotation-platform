@@ -1,4 +1,4 @@
-"""Real independent publication transactions in per-test disposable schemas."""
+"""Real independent publication transactions and historical migration fixtures."""
 
 import asyncio
 from copy import deepcopy
@@ -26,7 +26,53 @@ from app.services import task_originals as service
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
+from tests.factory import create_project
+from tests.managed_image_inference_fixtures import managed_database
 from tests.managed_original_client_support import Client, stage_client
+
+
+@pytest.fixture
+async def current_original_db(test_engine):
+    """Use public Native owners in a freshly migrated, fixture-owned database."""
+    from app.db.models.dataset import Dataset, DatasetItem
+    from app.db.models.user import User
+
+    async with managed_database(test_engine.url) as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            actor = User(
+                id=uuid.uuid4(),
+                email=uuid.uuid4().hex + "@example.test",
+                name="Original fixture owner",
+                password_hash="unused",
+                role="project_admin",
+                is_active=True,
+            )
+            db.add(actor)
+            await db.flush()
+            project = await create_project(db, owner_id=actor.id)
+            dataset = Dataset(
+                id=uuid.uuid4(),
+                display_id="orig-" + uuid.uuid4().hex[:12],
+                name="Original fixture dataset",
+                created_by=actor.id,
+            )
+            db.add(dataset)
+            await db.flush()
+            item = DatasetItem(
+                id=uuid.uuid4(),
+                dataset_id=dataset.id,
+                file_name="fixture.bin",
+                file_path="fixture/" + uuid.uuid4().hex,
+                file_type="other",
+            )
+            db.add(item)
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            db.info["original_fixture"] = (actor.id, project.id, item.id)
+            try:
+                yield db
+            finally:
+                await db.rollback()
 
 
 def migration(connection, number):
@@ -122,24 +168,27 @@ def original_client(monkeypatch):
 
 
 async def allocated(db, *, commit=True, legacy=False):
+    fixture = db.info.get("original_fixture")
+    actor_id, project_id = fixture[:2] if fixture else (uuid.uuid4(), uuid.uuid4())
     task = Task(
         id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
+        project_id=project_id,
         display_id="TO-" + uuid.uuid4().hex[:20],
         file_name="original.bin",
         file_path="not-allocated",
         status="uploading",
         dataset_item_id=None,
     )
-    db.add(task)
-    await db.flush()
+    if fixture is None:
+        db.add(task)
+        await db.flush()
     allocation = await creation.allocate_task(
         db,
         project_id=task.project_id,
         task_id=task.id,
         logical_path=task.file_name,
         max_bytes=100,
-        requested_by=uuid.uuid4(),
+        requested_by=actor_id,
         authority={},
     )
     if legacy:
@@ -158,8 +207,28 @@ async def allocated(db, *, commit=True, legacy=False):
             await connection.execute(
                 creation.Creation.__table__.insert().values(**allocation)
             )
-    task.file_path = allocation["object_key"]
-    await db.flush()
+    if fixture is not None:
+        inserted = await db.scalar(
+            text(
+                "SELECT aap_labeling_v1.create_uploading_task("
+                ":task_id, :project_id, :display_id, :file_name, "
+                ":file_path, :file_type, :actor_id)"
+            ),
+            {
+                "task_id": task.id,
+                "project_id": task.project_id,
+                "display_id": task.display_id,
+                "file_name": task.file_name,
+                "file_path": allocation["object_key"],
+                "file_type": "other",
+                "actor_id": actor_id,
+            },
+        )
+        assert inserted is True
+        task = await db.get(Task, task.id)
+    else:
+        task.file_path = allocation["object_key"]
+        await db.flush()
     if commit:
         await db.commit()
     return task, allocation
@@ -180,16 +249,18 @@ async def owners(db):
 
 
 async def test_owner_commits_before_pointer_without_committing_caller(
-    original_db, original_client
+    current_original_db, original_client
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
     identifier = task.id
     await db.scalar(
         select(Task).where(Task.id == identifier).with_for_update(nowait=True)
     )
     calls = list(original_client.calls)
-    owner = await service.publish(db, task, allocation, created)
+    owner = await service.publish(
+        db, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     assert owner.id == created.creation_id == task.original_id
     assert owner.creation_id == owner.id and owner.task_id == identifier
     assert owner.created_at == (await creation._read(db, owner.id))["completed_at"]
@@ -207,12 +278,14 @@ async def test_owner_commits_before_pointer_without_committing_caller(
 
 
 async def test_uncommitted_task_can_publish_and_rollback_retains_owner(
-    original_db, original_client
+    current_original_db, original_client
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client, commit=False)
     identifier = task.id
-    await service.publish(db, task, allocation, created)
+    await service.publish(
+        db, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     await db.rollback()
     assert await db.get(Task, identifier) is None
     assert (await owners(db))[0]["task_id"] == identifier
@@ -220,14 +293,18 @@ async def test_uncommitted_task_can_publish_and_rollback_retains_owner(
 
 
 async def test_idempotent_publication_then_task_delete_preserves_evidence(
-    original_db, original_client
+    current_original_db, original_client
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
-    first = await service.publish(db, task, allocation, created)
+    first = await service.publish(
+        db, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     await db.commit()
     calls = list(original_client.calls)
-    second = await service.publish(db, task, allocation, created)
+    second = await service.publish(
+        db, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     assert service.same(first, second) and len(await owners(db)) == 1
     assert original_client.calls == calls
     await db.delete(task)
@@ -249,52 +326,66 @@ async def test_idempotent_publication_then_task_delete_preserves_evidence(
     ],
 )
 async def test_caller_receipt_cannot_replace_verified_facts(
-    original_db, original_client, changes
+    current_original_db, original_client, changes
 ):
-    task, allocation, created = await verified(original_db, original_client)
+    task, allocation, created = await verified(current_original_db, original_client)
     calls = list(original_client.calls)
     with pytest.raises(ContentError, match="task_original_creation_conflict"):
         await service.publish(
-            original_db, task, allocation, replace(created, **changes)
+            current_original_db,
+            task,
+            allocation,
+            replace(created, **changes),
+            actor_id=allocation["requested_by"],
         )
-    assert not await owners(original_db) and original_client.calls == calls
+    assert not await owners(current_original_db) and original_client.calls == calls
     assert task.original_id is None
 
 
-async def test_unfinished_creation_is_not_publishable(original_db):
-    task, allocation = await allocated(original_db)
+async def test_unfinished_creation_is_not_publishable(current_original_db):
+    task, allocation = await allocated(current_original_db)
     fake = creation.CreatedOriginal(
         allocation["id"], "f" * 64, 0, "f" * 32, '"fake"', None, b""
     )
     with pytest.raises(ContentError, match="task_original_creation_conflict"):
-        await service.publish(original_db, task, allocation, fake)
-    assert not await owners(original_db) and task.original_id is None
+        await service.publish(
+            current_original_db,
+            task,
+            allocation,
+            fake,
+            actor_id=allocation["requested_by"],
+        )
+    assert not await owners(current_original_db) and task.original_id is None
 
 
 @pytest.mark.parametrize("kind", ["dataset_item", "primary_lidar"])
 async def test_null_item_alone_does_not_prove_standalone_scope(
-    original_db, original_client, kind
+    current_original_db, original_client, kind
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
     if kind == "dataset_item":
-        task.dataset_item_id = uuid.uuid4()
+        task.dataset_item_id = db.info["original_fixture"][2]
     else:
         db.add(
             TaskDatasetItemLink(
-                task_id=task.id, dataset_item_id=uuid.uuid4(), role="primary_lidar"
+                task_id=task.id,
+                dataset_item_id=db.info["original_fixture"][2],
+                role="primary_lidar",
             )
         )
     await db.flush()
     with pytest.raises(ContentError, match="task_original_creation_conflict"):
-        await service.publish(db, task, allocation, created)
+        await service.publish(
+            db, task, allocation, created, actor_id=allocation["requested_by"]
+        )
     assert not await owners(db)
 
 
 async def test_maintenance_change_rejects_before_owner_publication(
-    original_db, original_client
+    current_original_db, original_client
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
     await db.execute(
         update(StorageMaintenanceGate)
@@ -303,14 +394,16 @@ async def test_maintenance_change_rejects_before_owner_publication(
     )
     await db.commit()
     with pytest.raises(ContentError, match="storage_maintenance_changed"):
-        await service.publish(db, task, allocation, created)
+        await service.publish(
+            db, task, allocation, created, actor_id=allocation["requested_by"]
+        )
     assert not await owners(db) and task.original_id is None
 
 
 async def test_unknown_commit_ack_keeps_owner_and_does_not_attach(
-    original_db, original_client, monkeypatch
+    current_original_db, original_client, monkeypatch
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
     persist = service._persist
 
@@ -320,16 +413,18 @@ async def test_unknown_commit_ack_keeps_owner_and_does_not_attach(
 
     monkeypatch.setattr(service, "_persist", unknown)
     with pytest.raises(ContentError, match="task_original_publish_unknown") as error:
-        await service.publish(db, task, allocation, created)
+        await service.publish(
+            db, task, allocation, created, actor_id=allocation["requested_by"]
+        )
     assert error.value.status == 503
     assert len(await owners(db)) == 1 and task.original_id is None
     assert (allocation["bucket"], allocation["object_key"]) in original_client.objects
 
 
 async def test_repeated_cancel_drains_independent_commit_and_keeps_owner(
-    original_db, original_client, monkeypatch
+    current_original_db, original_client, monkeypatch
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
     persist = service._persist
     entered, release = asyncio.Event(), asyncio.Event()
@@ -340,7 +435,11 @@ async def test_repeated_cancel_drains_independent_commit_and_keeps_owner(
         return await persist(*args)
 
     monkeypatch.setattr(service, "_persist", blocked)
-    operation = asyncio.create_task(service.publish(db, task, allocation, created))
+    operation = asyncio.create_task(
+        service.publish(
+            db, task, allocation, created, actor_id=allocation["requested_by"]
+        )
+    )
     try:
         await asyncio.wait_for(entered.wait(), 3)
         operation.cancel()
@@ -356,9 +455,9 @@ async def test_repeated_cancel_drains_independent_commit_and_keeps_owner(
 
 
 async def test_duplicate_independent_publishers_share_one_receipt(
-    original_db, original_client
+    current_original_db, original_client
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
     source = await creation._read(db, created.creation_id)
     values = {
