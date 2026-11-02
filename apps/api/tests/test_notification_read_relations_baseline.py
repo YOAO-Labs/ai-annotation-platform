@@ -18,8 +18,9 @@ from aap_notifications.terminal_append_postgres import (
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("include_migration_inventory", [True, False])
 async def test_legacy_notification_list_keeps_order_counts_and_dirty_identity(
-    db_session, annotator
+    db_session, annotator, include_migration_inventory
 ):
     user, _ = annotator
     service = NotificationService(db_session)
@@ -46,7 +47,12 @@ async def test_legacy_notification_list_keeps_order_counts_and_dirty_identity(
     cached.payload = {"dirty": True}
 
     with db_session.no_autoflush:
-        page, total, unread = await service.list_for_user(user.id, limit=2, offset=1)
+        page, total, unread = await service.list_for_user(
+            user.id,
+            limit=2,
+            offset=1,
+            include_migration_inventory=include_migration_inventory,
+        )
         assert [row.id for row in page] == [rows[1].id, rows[0].id]
         assert page[0] is cached
         assert page[0].read_at is None
@@ -54,11 +60,20 @@ async def test_legacy_notification_list_keeps_order_counts_and_dirty_identity(
         assert (total, unread) == (3, 2)
 
         unread_page, unread_total, unread_count = await service.list_for_user(
-            user.id, unread_only=True, limit=2, offset=0
+            user.id,
+            unread_only=True,
+            limit=2,
+            offset=0,
+            include_migration_inventory=include_migration_inventory,
         )
         assert [row.id for row in unread_page] == [rows[2].id, rows[0].id]
         assert (unread_total, unread_count) == (3, 2)
-        assert await service.unread_count(user.id) == 2
+        assert (
+            await service.unread_count(
+                user.id, include_migration_inventory=include_migration_inventory
+            )
+            == 2
+        )
         stored = await db_session.scalar(
             select(Notification.read_at).where(Notification.id == rows[1].id)
         )
@@ -66,8 +81,9 @@ async def test_legacy_notification_list_keeps_order_counts_and_dirty_identity(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("include_migration_inventory", [True, False])
 async def test_inbox_autoflush_and_counts_remain_inside_callers_rollback(
-    db_session, annotator
+    db_session, annotator, include_migration_inventory
 ):
     user, _ = annotator
     actor_id = user.id
@@ -81,7 +97,12 @@ async def test_inbox_autoflush_and_counts_remain_inside_callers_rollback(
         payload={},
     )
     db_session.add(first)
-    assert await service.unread_count(actor_id) == 1
+    assert (
+        await service.unread_count(
+            actor_id, include_migration_inventory=include_migration_inventory
+        )
+        == 1
+    )
     assert first not in db_session.new
 
     first.read_at = datetime.now(timezone.utc)
@@ -96,7 +117,11 @@ async def test_inbox_autoflush_and_counts_remain_inside_callers_rollback(
     db_session.add(second)
     row_ids = [first.id, second.id]
     with db_session.no_autoflush:
-        page, total, unread = await service.list_for_user(actor_id, unread_only=True)
+        page, total, unread = await service.list_for_user(
+            actor_id,
+            unread_only=True,
+            include_migration_inventory=include_migration_inventory,
+        )
         assert page == [first]
         assert page[0] is first
         assert page[0].read_at is not None
@@ -104,7 +129,11 @@ async def test_inbox_autoflush_and_counts_remain_inside_callers_rollback(
         assert second in db_session.new
         assert first in db_session.dirty
 
-    page, total, unread = await service.list_for_user(actor_id, unread_only=True)
+    page, total, unread = await service.list_for_user(
+        actor_id,
+        unread_only=True,
+        include_migration_inventory=include_migration_inventory,
+    )
     assert page == [second]
     assert page[0] is second
     assert (total, unread) == (2, 1)

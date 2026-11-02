@@ -65,14 +65,14 @@ class NotificationInboxQueryPostgresData:
             text(
                 f"SELECT aap_notifications_v1.inbox_total_count{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
-                "CAST(:platform_role AS pg_catalog.text))"
+                "CAST(:platform_role AS pg_catalog.text)) AS inbox_total_count"
             )
         )
         value = await self.session.scalar(
             statement,
             {"actor_id": actor_id, "platform_role": platform_role},
         )
-        return int(value or 0)
+        return int(value)
 
     async def unread_count(self, actor_id, platform_role: str) -> int:
         statement = select(
@@ -81,11 +81,11 @@ class NotificationInboxQueryPostgresData:
             text(
                 f"SELECT aap_notifications_v1.inbox_unread_count{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
-                "CAST(:platform_role AS pg_catalog.text))"
+                "CAST(:platform_role AS pg_catalog.text)) AS inbox_unread_count"
             )
         )
         value = await self.session.scalar(
             statement,
             {"actor_id": actor_id, "platform_role": platform_role},
         )
-        return int(value or 0)
+        return int(value)

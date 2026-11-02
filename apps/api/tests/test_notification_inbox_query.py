@@ -160,9 +160,10 @@ async def test_rest_inbox_preserves_identity_snapshot_and_query_order(monkeypatc
             return actor
 
     class _Inbox:
-        def __init__(self, session, model):
+        def __init__(self, session, model, *, include_migration_inventory):
             assert session is db
             assert model is Notification
+            assert include_migration_inventory is True
 
         async def page(self, requested_actor_id, role, **kwargs):
             events.append(("page", requested_actor_id, role, kwargs))
@@ -218,8 +219,8 @@ async def test_rest_unread_count_keeps_status_then_single_owner_call(monkeypatch
             return actor
 
     class _Inbox:
-        def __init__(self, session, model):
-            pass
+        def __init__(self, session, model, *, include_migration_inventory):
+            assert include_migration_inventory is True
 
         async def unread_count(self, requested_actor_id, role):
             events.append(("unread", requested_actor_id, role))
