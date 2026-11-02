@@ -30,6 +30,30 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_notifications_v1._notification_unknown_job_scope(uuid) FROM PUBLIC;
 -- aap-statement-break
+DO $owner$
+DECLARE
+    notification_owner name;
+    needs_create boolean;
+BEGIN
+    SELECT pg_catalog.pg_get_userbyid(proowner) INTO notification_owner
+    FROM pg_catalog.pg_proc
+    WHERE oid = 'aap_notifications_v1._visible_inbox_rows(uuid,text)'::regprocedure;
+    needs_create := NOT pg_catalog.has_schema_privilege(
+        notification_owner, 'aap_notifications_v1', 'CREATE'
+    );
+    IF needs_create THEN
+        EXECUTE pg_catalog.format('GRANT CREATE ON SCHEMA aap_notifications_v1 TO %I', notification_owner);
+    END IF;
+    EXECUTE pg_catalog.format(
+        'ALTER FUNCTION aap_notifications_v1._notification_unknown_job_scope(uuid) OWNER TO %I',
+        notification_owner
+    );
+    IF needs_create THEN
+        EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM %I', notification_owner);
+    END IF;
+END
+$owner$;
+-- aap-statement-break
 CREATE OR REPLACE FUNCTION aap_notifications_v1._visible_inbox_rows(
     p_actor_id uuid,
     p_platform_role text

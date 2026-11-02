@@ -5,8 +5,8 @@ from pathlib import Path
 from alembic import op
 import sqlalchemy as sa
 
-revision = "bo0400"
-down_revision = "bo0399"
+revision = "bo0421"
+down_revision = "bo0420"
 branch_labels = depends_on = None
 
 
@@ -24,8 +24,8 @@ def _apply(name: str) -> None:
 
 
 def upgrade() -> None:
-    _apply("0400_notification_job_scope.sql")
+    _apply("0421_notification_job_scope.sql")
 
 
 def downgrade() -> None:
-    _apply("0400_notification_job_scope_down.sql")
+    _apply("0421_notification_job_scope_down.sql")
