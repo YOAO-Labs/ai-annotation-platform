@@ -319,6 +319,14 @@ class IngestWorkflow:
         cursor = context.next_index
         proposals: list[IngestSourceEntry] = []
         listed: list[tuple[str, str | None, int | None]] = []
+        batches: list[
+            tuple[
+                UUID,
+                IngestBatchPlan,
+                list[IngestEntryCompletion],
+                dict[UUID, IngestStorageFacts],
+            ]
+        ] = []
 
         async for item in self._storage.iter_objects(prefix):
             if not item.key.startswith(prefix) or item.key.endswith("/"):
@@ -331,17 +339,27 @@ class IngestWorkflow:
             )
             listed.append((item.key, item.etag, item.size))
             if len(proposals) == INGEST_BATCH_SIZE:
-                progress = await self._scan_batch(
+                batch = await self._scan_batch(
                     command, prefix, proposals, listed, cursor, progress
                 )
+                batches.append(batch)
+                progress = batch[1].progress
                 cursor += len(proposals)
                 proposals, listed = [], []
 
         if proposals:
-            progress = await self._scan_batch(
+            batch = await self._scan_batch(
                 command, prefix, proposals, listed, cursor, progress
             )
+            batches.append(batch)
+            progress = batch[1].progress
             cursor += len(proposals)
+
+        for batch_id, plan, completions, image_facts in batches:
+            settled = await self._data.complete_batch(command, batch_id, completions)
+            _validate_completion(command, batch_id, completions, settled, progress)
+            await self._admit_batch_images(plan, completions, image_facts)
+            progress = settled.progress
         if progress.staged != cursor or progress.settled != cursor:
             raise IngestFailure("invalid_response")
 
@@ -358,7 +376,9 @@ class IngestWorkflow:
         listed: list[tuple[str, str | None, int | None]],
         cursor: int,
         progress: IngestProgress,
-    ) -> IngestProgress:
+    ) -> tuple[
+        UUID, IngestBatchPlan, list[IngestEntryCompletion], dict[UUID, IngestStorageFacts]
+    ]:
         batch_id = uuid4()
         plan = await self._data.prepare_batch(command, batch_id, proposals)
         _validate_plan(command, batch_id, proposals, plan, cursor, progress)
@@ -453,10 +473,7 @@ class IngestWorkflow:
                 completions.append(_ready_completion(planned, facts))
                 if proposal.file_type == "image":
                     image_facts[planned.entry_id] = facts
-        settled = await self._data.complete_batch(command, batch_id, completions)
-        _validate_completion(command, batch_id, completions, settled, plan.progress)
-        await self._admit_batch_images(plan, completions, image_facts)
-        return settled.progress
+        return batch_id, plan, completions, image_facts
 
     async def _finish_original(self, target, proof) -> None:
         verification = {

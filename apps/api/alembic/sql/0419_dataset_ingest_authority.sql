@@ -13,15 +13,19 @@ DECLARE
     v_generation bigint;
     v_expires_at timestamptz;
     v_revision text;
+    v_scopes text[];
+    v_key_expires_at timestamptz;
     v_fence jsonb;
     v_role text;
     v_dataset public.datasets%ROWTYPE;
 BEGIN
     IF pg_catalog.jsonb_typeof(p_authority) IS DISTINCT FROM 'object'
        OR NOT (p_authority ?& ARRAY['credential_type', 'credential_id', 'generation',
-            'expires_at', 'api_key_revision', 'dataset_lifecycle_revision', 'directory_protected'])
+            'expires_at', 'api_key_revision', 'api_key_scopes',
+            'dataset_lifecycle_revision', 'directory_protected'])
        OR (p_authority - ARRAY['credential_type', 'credential_id', 'generation',
-            'expires_at', 'api_key_revision', 'dataset_lifecycle_revision', 'directory_protected']) <> '{}'::jsonb
+            'expires_at', 'api_key_revision', 'api_key_scopes',
+            'dataset_lifecycle_revision', 'directory_protected']) <> '{}'::jsonb
        OR pg_catalog.jsonb_typeof(p_authority -> 'directory_protected') IS DISTINCT FROM 'boolean' THEN
         RETURN 'invalid_request';
     END IF;
@@ -37,14 +41,18 @@ BEGIN
     IF v_kind NOT IN ('jwt', 'api_key') OR v_credential_id IS NULL
        OR NOT aap_assets_v1._dataset_source_ingest_integer_valid(
             p_authority -> 'dataset_lifecycle_revision', 1, 2147483647)
+       OR (v_expires_at IS NOT NULL AND NOT pg_catalog.isfinite(v_expires_at))
        OR (v_kind = 'jwt' AND (v_generation IS NULL OR v_generation < 0
-            OR v_expires_at IS NULL OR p_authority ->> 'api_key_revision' IS NOT NULL))
-       OR (v_kind = 'api_key' AND (v_generation IS NOT NULL OR v_expires_at IS NOT NULL
+            OR v_expires_at IS NULL OR p_authority ->> 'api_key_revision' IS NOT NULL
+            OR p_authority -> 'api_key_scopes' IS DISTINCT FROM 'null'::jsonb))
+       OR (v_kind = 'api_key' AND (v_generation IS NOT NULL
+            OR pg_catalog.jsonb_typeof(p_authority -> 'api_key_scopes') IS DISTINCT FROM 'array'
             OR COALESCE(p_authority ->> 'api_key_revision', '') !~ '^[0-9a-f]{64}$')) THEN
         RETURN 'invalid_request';
     END IF;
     v_fence := aap_identity_v1.lock_current_principal(
-        p_actor_id, v_kind, v_credential_id, v_generation, v_expires_at,
+        p_actor_id, v_kind, v_credential_id, v_generation,
+        CASE WHEN v_kind = 'jwt' THEN v_expires_at ELSE NULL END,
         CASE WHEN v_kind = 'api_key' THEN ARRAY['datasets:write']::text[] ELSE NULL END
     );
     IF v_fence ->> 'schema' IS DISTINCT FROM 'aap-identity/v1'
@@ -62,9 +70,13 @@ BEGIN
         RETURN 'catalog_manager_required';
     END IF;
     IF v_kind = 'api_key' THEN
-        SELECT facts.revision INTO v_revision
+        SELECT facts.revision, facts.scopes, facts.expires_at
+        INTO v_revision, v_scopes, v_key_expires_at
         FROM aap_identity_v1.read_accepted_api_key_facts(p_actor_id, v_credential_id) AS facts;
-        IF NOT FOUND OR v_revision IS DISTINCT FROM p_authority ->> 'api_key_revision' THEN
+        IF NOT FOUND OR v_revision IS DISTINCT FROM p_authority ->> 'api_key_revision'
+           OR pg_catalog.to_jsonb(v_scopes) IS DISTINCT FROM p_authority -> 'api_key_scopes'
+           OR v_key_expires_at IS DISTINCT FROM v_expires_at
+           OR (v_expires_at IS NOT NULL AND v_expires_at <= pg_catalog.clock_timestamp()) THEN
             RETURN 'api_key_authority_revoked';
         END IF;
     END IF;
@@ -312,6 +324,13 @@ BEGIN
         IF v_input ->> 'status' = 'ready' AND (
             (v_input ->> 'file_size')::bigint IS DISTINCT FROM (v_entry.source ->> 'file_size')::bigint
             OR v_input ->> 'content_hash' IS DISTINCT FROM v_entry.source ->> 'content_hash'
+            OR (v_entry.source ->> 'width') IS NOT NULL
+               AND v_input ->> 'width' IS DISTINCT FROM v_entry.source ->> 'width'
+            OR (v_entry.source ->> 'height') IS NOT NULL
+               AND v_input ->> 'height' IS DISTINCT FROM v_entry.source ->> 'height'
+            OR v_entry.source ->> 'file_type' <> 'image'
+               AND (v_input -> 'width' <> 'null'::jsonb
+                    OR v_input -> 'height' <> 'null'::jsonb)
             OR NOT EXISTS (
                 SELECT 1 FROM public.managed_original_creations AS creation
                 WHERE creation.dataset_id = p_dataset_id
@@ -334,9 +353,12 @@ BEGIN
         ) THEN
             RETURN aap_assets_v1._dataset_source_ingest_reply(NULL, 'operation_conflict');
         END IF;
-        UPDATE public.dataset_source_ingest_entries SET completion = v_input
-        WHERE operation_id = p_operation_id AND entry_id = v_entry.entry_id;
     END LOOP;
+    UPDATE public.dataset_source_ingest_entries AS entry
+    SET completion = submitted.value
+    FROM pg_catalog.jsonb_array_elements(p_completions) AS submitted(value)
+    WHERE entry.operation_id = p_operation_id AND entry.batch_id = p_batch_id
+      AND entry.entry_id = (submitted.value ->> 'entry_id')::uuid;
     RETURN aap_assets_v1._dataset_source_ingest_reply(
         pg_catalog.jsonb_build_object(
             'operation_id', p_operation_id, 'actor_id', p_actor_id,

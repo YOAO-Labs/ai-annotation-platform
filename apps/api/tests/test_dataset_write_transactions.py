@@ -18,12 +18,15 @@ from tests.test_dataset_assets import local_creation_client as local_creation_cl
 
 @pytest.mark.parametrize(
     "change",
-    ["none", "boundary", "inactive", "key_rotate", "key_revoke", "directory_access"],
+    [
+        "none", "boundary", "inactive", "key_rotate", "key_revoke",
+        "key_scope", "key_expiry", "directory_access",
+    ],
 )
 async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority(
     copy_db, app_module, monkeypatch, change
 ):
-    from datetime import UTC, datetime
+    from datetime import UTC, datetime, timedelta
 
     import httpx
     from sqlalchemy import func, update
@@ -66,6 +69,8 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
                 owner, world.actor_id, "ZIP authority", ["datasets:write"]
             )
             key_id = key.id
+            if change == "key_expiry":
+                key.expires_at = datetime.now(UTC) + timedelta(minutes=10)
     fake = _FakeDatasetSourceStorage()
     _use_local_source_runtime(monkeypatch)
     _patch_storage_clients(monkeypatch, fake)
@@ -103,6 +108,18 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
                     await observer.execute(
                         update(ApiKey).where(ApiKey.id == key_id).values(
                             key_hash=hash_password("rotated test key")
+                        )
+                    )
+                elif change == "key_scope":
+                    await observer.execute(
+                        update(ApiKey).where(ApiKey.id == key_id).values(
+                            scopes=["datasets:write", "datasets:read"]
+                        )
+                    )
+                elif change == "key_expiry":
+                    await observer.execute(
+                        update(ApiKey).where(ApiKey.id == key_id).values(
+                            expires_at=datetime.now(UTC) + timedelta(minutes=20)
                         )
                     )
                 else:
@@ -164,6 +181,93 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
             assert creation.dataset_id == world.dataset_id
             assert creation.verification is not None
             assert creation.object_key in fake.objects
+
+
+async def test_scan_defers_publication_and_authority_locks_until_after_last_batch(
+    copy_db, app_module, monkeypatch
+):
+    import asyncio
+
+    import httpx
+    from sqlalchemy import func, text, update
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+    from app.core.security import create_access_token
+    from app.db.models.dataset import Dataset
+    from app.db.models.user import User
+    from app.deps import get_db
+    from app.services.dataset_assets import ensure_legacy_bindings
+    from tests.test_dataset_upload_native import _seed_world
+    from tests.test_datasets_upload_zip import _use_local_source_runtime
+
+    engine = copy_db.bind
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    world = await _seed_world(engine)
+    async with maker.begin() as owner:
+        await ensure_legacy_bindings(owner)
+        dataset = await owner.get(Dataset, world.dataset_id)
+        prefix = dataset.name + "/"
+    fake = _FakeDatasetSourceStorage()
+    fake.objects.update(
+        {f"{prefix}lidar/{i:03}.pcd": f"content-{i}".encode() for i in range(201)}
+    )
+    _use_local_source_runtime(monkeypatch)
+    _patch_storage_clients(monkeypatch, fake)
+    monkeypatch.setattr("app.services.assets_source._managed_client", lambda _: fake)
+    original = IngestWorkflow._finish_original
+    sealed = []
+
+    async def finish_original(workflow, target, proof):
+        assert not await workflow._data._db.scalar(
+            select(DatasetItem.id).where(DatasetItem.dataset_id == world.dataset_id)
+        )
+        await original(workflow, target, proof)
+        sealed.append(target.creation_id)
+        if len(sealed) == 201:
+            async with maker.begin() as observer:
+                await observer.execute(text("SET LOCAL lock_timeout='2s'"))
+                await observer.execute(
+                    update(User).where(User.id == world.actor_id).values(is_active=False)
+                )
+
+    monkeypatch.setattr(IngestWorkflow, "_finish_original", finish_original)
+
+    async def request_db():
+        async with maker() as session:
+            yield session
+
+    previous = app_module.dependency_overrides.get(get_db)
+    app_module.dependency_overrides[get_db] = request_db
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+        ) as client:
+            result = await asyncio.wait_for(
+                client.post(
+                    f"/api/v1/datasets/{world.dataset_id}/items/scan",
+                    headers=_bearer(create_access_token(str(world.actor_id), "super_admin")),
+                ),
+                timeout=60,
+            )
+    finally:
+        if previous is None:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous
+
+    assert result.status_code == 403, result.text
+    assert len(sealed) == 201
+    async with maker() as observer:
+        assert await observer.scalar(
+            select(func.count()).select_from(DatasetItem).where(
+                DatasetItem.dataset_id == world.dataset_id
+            )
+        ) == 0
+        for creation_id in sealed:
+            creation = await observer.get(ManagedOriginalCreation, creation_id)
+            assert creation.status == "verified"
+            assert creation.dataset_id == world.dataset_id
 
 
 @pytest.fixture

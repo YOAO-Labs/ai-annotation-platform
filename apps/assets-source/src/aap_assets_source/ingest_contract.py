@@ -107,6 +107,7 @@ class IngestScope(_Value):
     actor_id: UUID
     dataset_id: UUID
 
+
 class IngestAuthority(_Value):
     """Credential and dataset facts admitted before external I/O."""
 
@@ -117,6 +118,7 @@ class IngestAuthority(_Value):
     api_key_revision: Digest | None
     dataset_lifecycle_revision: Annotated[int, Field(strict=True, ge=1, le=2147483647)]
     directory_protected: StrictBool
+    api_key_scopes: list[StrictStr] | None = None
 
     @model_validator(mode="after")
     def check_credential(self) -> IngestAuthority:
@@ -126,16 +128,17 @@ class IngestAuthority(_Value):
                 or self.expires_at is None
                 or self.expires_at.utcoffset() is None
                 or self.api_key_revision is not None
+                or self.api_key_scopes is not None
             ):
                 raise ValueError("Invalid admitted JWT authority")
         elif (
             self.generation is not None
-            or self.expires_at is not None
+            or self.api_key_scopes is None
+            or (self.expires_at is not None and self.expires_at.utcoffset() is None)
             or self.api_key_revision is None
         ):
             raise ValueError("Invalid admitted API key authority")
         return self
-
 
 
 class IngestCommand(IngestScope):

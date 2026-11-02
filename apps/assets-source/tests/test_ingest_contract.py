@@ -38,6 +38,7 @@ def test_ingest_authority_binds_one_credential_kind():
             "generation": None,
             "expires_at": None,
             "api_key_revision": "a" * 64,
+            "api_key_scopes": ["datasets:write"],
             "dataset_lifecycle_revision": 1,
             "directory_protected": True,
         },

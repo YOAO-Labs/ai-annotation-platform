@@ -833,10 +833,9 @@ async def _ingest_authority(request, db, actor_id):
             credential_type=admitted.credential_type,
             credential_id=admitted.credential_id,
             generation=admitted.generation,
-            expires_at=(
-                admitted.expires_at if admitted.credential_type == "jwt" else None
-            ),
+            expires_at=admitted.expires_at if proof is None else proof.expires_at,
             api_key_revision=proof.revision if proof is not None else None,
+            api_key_scopes=list(proof.scopes) if proof is not None else None,
             dataset_lifecycle_revision=directory["dataset_lifecycle_revision"],
             directory_protected="actor_id" in directory,
         )

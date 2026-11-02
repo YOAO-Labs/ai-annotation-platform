@@ -250,7 +250,7 @@ async def _prepare(db, world, command, entries):
     )
 
 
-async def _stage_physical(db, world, command, plan, completions):
+async def _stage_physical(db, world, command, plan, completions, *, stage=True):
     from app.services.assets_source_ingest import DatasetSourceIngestData
     from aap_assets_source_runtime.ingest_storage import IngestStorage
     from aap_assets_source_runtime.ingest_workflow import (
@@ -293,14 +293,15 @@ async def _stage_physical(db, world, command, plan, completions):
                 ),
             )
             await workflow._finish_original(target, proof)
-    await _invoke(
-        db,
-        command,
-        "stage_dataset_ingest_batch",
-        IngestBatchResult,
-        batch=plan.batch_id,
-        payload=completions,
-    )
+    if stage:
+        await _invoke(
+            db,
+            command,
+            "stage_dataset_ingest_batch",
+            IngestBatchResult,
+            batch=plan.batch_id,
+            payload=completions,
+        )
 
 
 async def _complete(db, command, plan, *, world=None):
@@ -457,6 +458,90 @@ async def test_zip_owner_rejects_completion_before_all_entries_are_staged(ingest
             )
         with pytest.raises(IngestFailure, match="operation_conflict"):
             await _complete(db, command, first)
+        assert await _counts(world) == (0, 0, 0, 0)
+        await db.rollback()
+
+
+@pytest.mark.parametrize("kind", ["image", "other"])
+async def test_zip_rejects_forged_later_dimensions_before_any_batch_publishes(
+    ingest_world, kind
+):
+    world, command = ingest_world, ingest_world.command()
+    async with world.source_maker() as db:
+        await _begin(db, command, _descriptor(count=2))
+        first = await _prepare(db, world, command, [_entry(path="first.png")])
+        last = await _prepare(
+            db, world, command, [_entry(path="last", digest="b" * 32, kind=kind)]
+        )
+
+        def completion(entry):
+            return IngestEntryCompletion(
+                entry_id=entry.entry_id,
+                status="ready",
+                publication_id=entry.publication_id,
+                file_size=entry.file_size,
+                content_hash=entry.content_hash,
+                width=entry.width,
+                height=entry.height,
+                error_code=None,
+            )
+
+        first_completion = [completion(first.entries[0])]
+        last_completion = [completion(last.entries[0])]
+        await _stage_physical(db, world, command, first, first_completion)
+        await _stage_physical(db, world, command, last, last_completion, stage=False)
+        forged = last_completion[0].model_copy(update={"width": 9, "height": 9})
+        with pytest.raises(IngestFailure, match="operation_conflict"):
+            await _invoke(
+                db,
+                command,
+                "stage_dataset_ingest_batch",
+                IngestBatchResult,
+                batch=last.batch_id,
+                payload=[forged],
+            )
+        with pytest.raises(IngestFailure, match="operation_conflict"):
+            await _complete(db, command, first)
+        assert await _counts(world) == (0, 0, 0, 0)
+        await db.rollback()
+
+
+async def test_failed_zip_stage_cannot_seal_partial_completions(ingest_world):
+    world, command = ingest_world, ingest_world.command()
+    async with world.source_maker() as db:
+        await _begin(db, command, _descriptor(count=2))
+        plan = await _prepare(
+            db,
+            world,
+            command,
+            [_entry(path="first.png"), _entry(path="last.png", digest="b" * 32)],
+        )
+        completions = [
+            IngestEntryCompletion(
+                entry_id=entry.entry_id,
+                status="ready",
+                publication_id=entry.publication_id,
+                file_size=entry.file_size,
+                content_hash=entry.content_hash,
+                width=entry.width,
+                height=entry.height,
+                error_code=None,
+            )
+            for entry in plan.entries
+        ]
+        await _stage_physical(db, world, command, plan, completions, stage=False)
+        for completion in completions:
+            with pytest.raises(IngestFailure, match="invalid_request"):
+                await _invoke(
+                    db,
+                    command,
+                    "stage_dataset_ingest_batch",
+                    IngestBatchResult,
+                    batch=plan.batch_id,
+                    payload=[completion, completion],
+                )
+        with pytest.raises(IngestFailure, match="operation_conflict"):
+            await _complete(db, command, plan)
         assert await _counts(world) == (0, 0, 0, 0)
         await db.rollback()
 

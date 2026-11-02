@@ -36,6 +36,7 @@ def _command() -> IngestCommand:
             "generation": None,
             "expires_at": None,
             "api_key_revision": "a" * 64,
+            "api_key_scopes": ["datasets:write"],
             "dataset_lifecycle_revision": 1,
             "directory_protected": False,
         },

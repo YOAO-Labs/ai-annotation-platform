@@ -119,6 +119,21 @@
         "directory_protected": {
           "title": "Directory Protected",
           "type": "boolean"
+        },
+        "api_key_scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key Scopes"
         }
       },
       "required": [
