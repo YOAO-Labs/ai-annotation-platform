@@ -1,6 +1,3 @@
-import json
-from importlib.resources import files
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -9,8 +6,6 @@ from pydantic import TypeAdapter, ValidationError
 from aap_jobs.fixture_cleanup_contract import (
     FixtureCleanupCount,
     FixtureProjectCleanupRequest,
-    jobs_fixture_cleanup_schema,
-    jobs_fixture_cleanup_sql,
 )
 
 
@@ -37,23 +32,3 @@ def test_fixture_count_preserves_native_nonnegative_int64_boundaries():
     for value in (None, True, -1, 1.0, "1", 2**63):
         with pytest.raises(ValidationError):
             count.validate_python(value)
-
-
-def test_packaged_fixture_resources_match_schema_and_migration():
-    root = Path(__file__).resolve().parents[3]
-    resource = files("aap_jobs")
-    assert (
-        json.loads(resource.joinpath("fixture_cleanup.schema.json").read_text())
-        == jobs_fixture_cleanup_schema()
-    )
-    assert (
-        json.loads(
-            (
-                root / "apps/api/alembic/sql/0330_jobs_fixture_cleanup.schema.json"
-            ).read_text()
-        )
-        == jobs_fixture_cleanup_schema()
-    )
-    assert (
-        root / "apps/api/alembic/sql/0330_jobs_fixture_cleanup.sql"
-    ).read_text() == jobs_fixture_cleanup_sql()

@@ -36,6 +36,7 @@ def _project_row(project_id, owner_id):
         "rendering_config": "{}",
         "annotation_guide": None,
         "guide_assets": "[]",
+        "guide_assets_revision": 1,
         "model_version": None,
         "task_lock_ttl_seconds": 300,
         "total_tasks": 4,
@@ -66,6 +67,7 @@ def test_base_materializer_returns_all_orm_columns_without_query_enrichments():
     assert row["owner_id"] == owner_id
     assert row["default_variants"] == {"pool": {"axis": "value"}}
     assert row["tool_bindings"] == {"bbox": {"enabled": True}}
+    assert row["guide_assets_revision"] == 1
     assert row["iou_dedup_threshold"] == 0.7
     assert row["due_date"] == date(2026, 1, 2)
     assert row["created_at"] == datetime(2026, 1, 1, tzinfo=timezone.utc)

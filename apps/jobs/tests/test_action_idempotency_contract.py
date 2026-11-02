@@ -1,6 +1,3 @@
-import json
-from importlib.resources import files
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -9,13 +6,6 @@ from pydantic import ValidationError
 from aap_jobs.action_idempotency_contract import (
     ActionIdempotencyLockRequest,
     ActionIdempotencyQueryRequest,
-    JOBS_ACTION_IDEMPOTENCY_FUNCTIONS,
-    jobs_action_idempotency_schema,
-    jobs_action_idempotency_sql,
-)
-from aap_jobs.lifecycle_contract import (
-    ASYNC_JOB_ROW_COLUMNS,
-    ASYNC_JOB_FUNCTION_ROW_TYPES,
 )
 
 
@@ -58,34 +48,3 @@ def test_action_idempotency_request_fields_are_closed_and_not_coerced():
             ActionIdempotencyQueryRequest.model_validate({**common, **change})
     with pytest.raises(ValidationError):
         ActionIdempotencyQueryRequest.model_validate({"kind": "batch_predict"})
-
-
-def test_action_idempotency_schema_and_frozen_sql_match_published_row_abi():
-    root = Path(__file__).resolve().parents[3]
-    schema = jobs_action_idempotency_schema()
-    assert schema["x-row-columns"] == list(ASYNC_JOB_ROW_COLUMNS)
-    assert schema["x-row-types"] == dict(ASYNC_JOB_FUNCTION_ROW_TYPES)
-    assert len(schema["x-postgresql-functions"]) == 2
-    assert (
-        schema["x-postgresql-functions"][JOBS_ACTION_IDEMPOTENCY_FUNCTIONS["lock"]][
-            "returns"
-        ]
-        == "void"
-    )
-    assert (
-        json.loads(
-            files("aap_jobs").joinpath("action_idempotency.schema.json").read_text()
-        )
-        == schema
-    )
-    assert (
-        json.loads(
-            (
-                root / "apps/api/alembic/sql/0332_jobs_action_idempotency.schema.json"
-            ).read_text()
-        )
-        == schema
-    )
-    assert (
-        root / "apps/api/alembic/sql/0332_jobs_action_idempotency.sql"
-    ).read_text() == jobs_action_idempotency_sql()

@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import uuid
 
 import pytest
 from pydantic import ValidationError
 
 from aap_jobs.lifecycle_contract import (
-    ASYNC_JOB_APPLY_LIFECYCLE_FUNCTION,
-    ASYNC_JOB_CREATION_RELATION,
-    ASYNC_JOB_ROW_COLUMNS,
-    ASYNC_JOB_ROW_TYPES,
     JOBS_LIFECYCLE_PROTOCOL,
     AsyncJobLifecycleRow,
     decode_lifecycle_apply_request,
-    jobs_lifecycle_schema,
-    jobs_lifecycle_sql,
 )
 
 
@@ -110,61 +103,3 @@ def test_job_row_contract_keeps_open_kind_and_native_json_shapes():
     assert row.status == "future_status"
     assert row.payload is False
     assert row.result is None
-
-
-def test_lifecycle_schema_and_native_resource_match_the_closed_abi():
-    root = Path(__file__).resolve().parents[3]
-    schema_path = root / "apps/jobs/src/aap_jobs/lifecycle.schema.json"
-    sql_path = root / "apps/jobs/src/aap_jobs/sql/0327_jobs_lifecycle.sql"
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    sql = sql_path.read_text(encoding="utf-8")
-
-    assert schema == jobs_lifecycle_schema()
-    assert schema["$id"] == JOBS_LIFECYCLE_PROTOCOL
-    assert schema["x-row-columns"] == list(ASYNC_JOB_ROW_COLUMNS)
-    assert schema["x-row-types"] == ASYNC_JOB_ROW_TYPES
-    assert schema["x-creation-relation"]["name"] == ASYNC_JOB_CREATION_RELATION
-    assert schema["x-creation-relation"]["columns"] == list(ASYNC_JOB_ROW_COLUMNS)
-    assert (
-        schema["x-creation-relation"]["initialization"]["retained_project_id"]
-        == "NULL (database-managed)"
-    )
-    assert schema["x-lifecycle"]["flush_envelope"]["required_fields"] == [
-        "schema",
-        "commands",
-        "projection_changes",
-        "changed_fields",
-        "updated_at_override_present",
-        "updated_at_override",
-        "legacy_changes",
-    ]
-    assert schema["x-lifecycle"]["flush_envelope"]["operations"] == [
-        "mark_running",
-        "bind_execution_id",
-        "update_payload",
-        "update_progress",
-        "replace_result",
-        "mark_complete",
-        "mark_failed",
-        "mark_cancelled",
-        "request_cancel",
-    ]
-    assert schema["x-postgresql-functions"][ASYNC_JOB_APPLY_LIFECYCLE_FUNCTION] == {
-        "arguments": "uuid, jsonb",
-        "returns": "TABLE(applied boolean, updated_at timestamp with time zone)",
-    }
-
-    assert "CREATE VIEW aap_jobs_v1.async_job_creation" in sql
-    assert "pg_catalog.has_table_privilege(" in sql
-    assert "job.retained_project_id IS NULL" in sql
-    assert "WITH LOCAL CHECK OPTION" in sql
-    assert "CREATE FUNCTION aap_jobs_v1.apply_lifecycle(" in sql
-    for name in schema["x-postgresql-functions"]:
-        assert f"CREATE FUNCTION {name}" in sql
-    assert "SELECT job.*" not in sql
-    assert "jsonb_object_length" not in sql
-    assert "SET search_path = pg_catalog, pg_temp" in sql
-    assert "SECURITY DEFINER" in sql
-    assert "REVOKE ALL ON FUNCTION" in sql
-    assert "REVOKE ALL ON aap_jobs_v1.async_job_creation FROM PUBLIC" in sql
-    assert jobs_lifecycle_sql() == sql

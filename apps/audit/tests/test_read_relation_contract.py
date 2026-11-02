@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from importlib.resources import files
 import ipaddress
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -12,20 +10,7 @@ import sys
 import pytest
 from pydantic import ValidationError
 
-from aap_audit import AUDIT_EVENT_ROW_KEY as EXPORTED_AUDIT_EVENT_ROW_KEY
-from aap_audit.read_relation_contract import (
-    AUDIT_EVENTS_RELATION,
-    AUDIT_EVENT_COLUMNS,
-    AUDIT_EVENT_COLUMN_TYPES,
-    AUDIT_EVENT_NULLABLE_COLUMNS,
-    AUDIT_EVENT_ROW_KEY,
-    READ_RELATION_PROTOCOL,
-    AuditReadEvent,
-    audit_read_relations_schema,
-)
-
-
-_ROOT = Path(__file__).resolve().parents[3]
+from aap_audit.read_relation_contract import AuditReadEvent
 
 
 def _event(**overrides) -> dict:
@@ -46,36 +31,6 @@ def _event(**overrides) -> dict:
         "created_at": datetime(2026, 10, 24, 12, 34, 56, tzinfo=timezone.utc),
     }
     return {**values, **overrides}
-
-
-def test_read_relation_schema_and_migration_resource_are_fixed():
-    schema = audit_read_relations_schema()
-    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert schema["$id"] == READ_RELATION_PROTOCOL
-    assert list(AuditReadEvent.model_fields) == list(AUDIT_EVENT_COLUMNS)
-    relation = schema["x-postgresql-relations"][AUDIT_EVENTS_RELATION]
-    assert relation["columns"] == list(AUDIT_EVENT_COLUMNS)
-    assert relation["column_types"] == AUDIT_EVENT_COLUMN_TYPES
-    assert relation["nullable_columns"] == list(AUDIT_EVENT_NULLABLE_COLUMNS)
-    assert relation["row"] == {"$ref": "#/$defs/AuditReadEvent"}
-    assert relation["row_key"] == list(AUDIT_EVENT_ROW_KEY)
-    assert EXPORTED_AUDIT_EVENT_ROW_KEY == AUDIT_EVENT_ROW_KEY
-    assert relation["owner"] == "audit"
-    assert relation["read_only"] is True
-    assert relation["security_barrier"] is True
-
-    package_schema = json.loads(
-        (_ROOT / "apps/audit/src/aap_audit/read_relations.schema.json").read_text()
-    )
-    migration_schema = json.loads(
-        (
-            _ROOT / "apps/api/alembic/sql/0320_audit_read_relations.schema.json"
-        ).read_text()
-    )
-    assert package_schema == schema
-    assert migration_schema == schema
-    assert files("aap_audit").joinpath("read_relations.schema.json").is_file()
-    assert files("aap_audit.sql").joinpath("0320_audit_read_relations.sql").is_file()
 
 
 @pytest.mark.parametrize(

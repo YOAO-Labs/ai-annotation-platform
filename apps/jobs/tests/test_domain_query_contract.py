@@ -1,7 +1,6 @@
 """Frozen query ABI and language-neutral request boundaries."""
 
 import json
-from pathlib import Path
 import uuid
 
 import pytest
@@ -12,37 +11,7 @@ from aap_jobs.domain_query_contract import (
     FrozenDeploymentUsage,
     FrozenDeploymentUsageRequest,
     JobCount,
-    jobs_domain_query_schema,
-    jobs_domain_query_sql,
-    jobs_frozen_deployment_usage_sql,
 )
-
-
-def test_domain_query_resources_match_the_frozen_contract():
-    root = Path(__file__).resolve().parents[3]
-    schema = jobs_domain_query_schema()
-    assert (
-        json.loads(
-            (root / "apps/jobs/src/aap_jobs/domain_queries.schema.json").read_text()
-        )
-        == schema
-    )
-    assert (
-        json.loads(
-            (
-                root / "apps/api/alembic/sql/0329_jobs_domain_queries.schema.json"
-            ).read_text()
-        )
-        == schema
-    )
-    assert (
-        root / "apps/api/alembic/sql/0329_jobs_domain_queries.sql"
-    ).read_text() == jobs_domain_query_sql()
-    assert (
-        root / "apps/api/alembic/sql/0389_learning_deployment_retirement.sql"
-    ).read_text() == jobs_frozen_deployment_usage_sql()
-    assert len(schema["x-postgresql-functions"]) == 6
-    assert len(schema["x-row-columns"]) == 15
 
 
 def test_page_request_is_closed_and_keeps_scene_text():

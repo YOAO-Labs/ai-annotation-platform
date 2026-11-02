@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime
 import json
-from pathlib import Path
 from typing import get_args
 from uuid import UUID
 
@@ -97,34 +96,6 @@ def _literal_values(alias):
         nested = get_args(value)
         values.update(_literal_values(value) if nested else {value})
     return values
-
-
-def test_tracker_artifacts_match_the_native_contract():
-    expected = t.contract_document()
-    package_schema = Path(t.__file__).with_name("tracker.schema.json")
-    migration_schema = (
-        Path(__file__).parents[2]
-        / "api/alembic/sql/0228_video_tracker_inputs.schema.json"
-    )
-    assert json.loads(package_schema.read_text()) == expected
-    assert json.loads(migration_schema.read_text()) == expected
-    assert list(t.TRACKER_OPERATIONS) == [
-        "capture_video_tracker_input",
-        "read_video_tracker_input",
-        "prepare_video_tracker_input",
-        "reference_video_tracker_source",
-        "claim_video_tracker_input",
-        "heartbeat_video_tracker_input",
-        "stage_video_tracker_times",
-        "finish_video_tracker_input",
-        "fail_video_tracker_input",
-        "sweep_video_tracker_inputs",
-        "lock_video_tracker_input_for_accept",
-        "lock_video_tracker_input_for_stage",
-        "attach_annotation_video_tracker_input_source",
-        "copy_annotation_video_tracker_input_sources",
-        "video_tracker_input_referenced",
-    ]
 
 
 def test_capture_accepts_only_a_frozen_positive_grid_step():

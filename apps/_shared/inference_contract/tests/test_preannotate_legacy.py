@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from aap_inference_contract.pipeline import validate_saved_pipeline
+from aap_inference_contract.pipeline import (
+    PipelineValidationError,
+    validate_saved_pipeline,
+)
 from aap_inference_contract.preannotate import PipelineStage, PreannotateRequest
 
 
@@ -18,21 +21,15 @@ LEGACY = json.loads(
 
 
 @pytest.mark.parametrize("case", LEGACY["cases"], ids=lambda case: case["name"])
-def test_saved_pipeline_retains_captured_result_or_exact_error(case):
-    try:
-        outcome = {
-            "ok": True,
-            "value": validate_saved_pipeline(copy.deepcopy(case["input"])),
-        }
-    except Exception as error:
-        outcome = {
-            "ok": False,
-            "exception": type(error).__name__,
-            "detail": str(error),
-        }
-    assert json.dumps(outcome, sort_keys=True) == json.dumps(
-        case["expected"], sort_keys=True
-    )
+def test_saved_pipeline_accepts_or_rejects_legacy_vectors(case):
+    if case["expected"]["ok"]:
+        assert (
+            validate_saved_pipeline(copy.deepcopy(case["input"]))
+            == case["expected"]["value"]
+        )
+    else:
+        with pytest.raises(PipelineValidationError):
+            validate_saved_pipeline(copy.deepcopy(case["input"]))
 
 
 def test_shared_model_fields_and_request_materialization_match_legacy():

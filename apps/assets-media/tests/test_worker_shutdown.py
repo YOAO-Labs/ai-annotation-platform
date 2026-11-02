@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -50,7 +49,7 @@ class Runtime:
         record("closed")
 
 class Poller:
-    def __init__(self, _media, _video):
+    def __init__(self, _media, _video, _tracker):
         self.claims = 0
 
     async def execute_once(self, **_selectors):
@@ -88,20 +87,6 @@ record("signal-restored")
 """
 
 
-def _child_environment() -> dict[str, str]:
-    repo = Path(__file__).resolve().parents[3]
-    source_paths = (
-        repo / "apps/assets-media/src",
-        repo / "apps/media-probe/src",
-    )
-    inherited = os.environ.get("PYTHONPATH", "")
-    path_values = [str(path) for path in source_paths]
-    if inherited:
-        path_values.append(inherited)
-    pythonpath = os.pathsep.join(path_values)
-    return {**os.environ, "PYTHONPATH": pythonpath}
-
-
 def _wait_for_event(
     process: subprocess.Popen[str], events_path: Path, expected: str, timeout: float = 5
 ) -> list[str]:
@@ -135,8 +120,6 @@ def test_cli_sigterm_closes_idle_or_drains_current_unit(tmp_path: Path, mode: st
             str(events_path),
             str(release_path),
         ],
-        cwd=Path(__file__).resolve().parents[3],
-        env=_child_environment(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -194,7 +177,7 @@ async def test_embedded_worker_loop_does_not_change_process_signal_handlers(
             events.append("closed")
 
     class Poller:
-        def __init__(self, _media, _video):
+        def __init__(self, _media, _video, _tracker):
             pass
 
         async def execute_once(self, **_selectors):
