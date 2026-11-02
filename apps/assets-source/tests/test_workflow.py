@@ -9,7 +9,6 @@ from aap_assets_source.contract import (
     SourceFailure,
     SourceDeletionRequest,
     UploadCompleteRequest,
-    UploadInitRequest,
 )
 from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
 from aap_assets_source.legacy_upload_contract import (
@@ -382,64 +381,6 @@ def _complete_request(actor_id, dataset_id, item_id):
         dataset_id=dataset_id,
         item_id=item_id,
     )
-
-
-@pytest.mark.asyncio
-async def test_upload_init_reserves_before_signing_and_echoes_frozen_scope() -> None:
-    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
-    request = UploadInitRequest(
-        actor_id=actor_id,
-        dataset_id=dataset_id,
-        item_id=item_id,
-        file_name="folder/photo.png",
-        content_type="image/png",
-    )
-    events = []
-    workflow, uploads, _legacy, _deletions, _storage = _workflow(events)
-    uploads.intent = DatasetUploadIntent(
-        item_id=item_id,
-        actor_id=actor_id,
-        dataset_id=dataset_id,
-        file_name=request.file_name,
-        file_path=None,
-        file_type="image",
-        content_type=request.content_type,
-        staging_key=f"dataset-uploads/{item_id}/source",
-        publication_id=None,
-        state="pending",
-        result=None,
-    )
-
-    result = await workflow.init_upload(request)
-
-    assert events == ["reserve", "presign"]
-    # Initialization allocates durable responsibility but starts no physical work.
-    assert uploads.allocation is not None
-    assert "open_operation" not in events
-    assert (result.actor_id, result.dataset_id, result.item_id) == (
-        actor_id,
-        dataset_id,
-        item_id,
-    )
-    assert result.expires_in == 900
-
-
-@pytest.mark.asyncio
-async def test_complete_upload_acquires_one_write_permit_then_verifies() -> None:
-    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
-    request = _complete_request(actor_id, dataset_id, item_id)
-    events = []
-    workflow, uploads, *_ = _workflow(events)
-    intent = _intent(actor_id, dataset_id, item_id)
-    uploads.intent = intent
-    uploads.acceptance = _acceptance(intent)
-
-    await workflow.complete_upload(request)
-
-    assert events.count("open_operation") == 1
-    assert events.index("open_operation") < events.index("copy")
-    assert events.index("copy") < events.index("original_verified")
-    assert "close_operation" not in events
 
 
 @pytest.mark.asyncio

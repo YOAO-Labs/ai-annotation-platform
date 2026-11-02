@@ -363,6 +363,9 @@ class _LocalStoragePort:
         max_bytes: int,
         image: bool,
         content_type: str,
+        on_prepared=None,
+        on_writing=None,
+        on_written=None,
     ):
         from aap_assets_source_runtime.ingest_storage_errors import (
             ManagedStorageError,
@@ -379,6 +382,23 @@ class _LocalStoragePort:
                 content_type=content_type,
                 max_bytes=max_bytes,
                 image=image,
+                on_prepared=on_prepared,
+                on_writing=on_writing,
+                on_written=on_written,
+            )
+        except ManagedStorageError as exc:
+            raise SourceFailure(exc.code) from None
+
+    async def verify_managed_original(
+        self, target, *, sha256: str, size_bytes: int, image: bool = False
+    ):
+        from aap_assets_source_runtime.ingest_storage_errors import (
+            ManagedStorageError,
+        )
+
+        try:
+            return await self._managed.verify(
+                target, sha256=sha256, size_bytes=size_bytes, image=image
             )
         except ManagedStorageError as exc:
             raise SourceFailure(exc.code) from None

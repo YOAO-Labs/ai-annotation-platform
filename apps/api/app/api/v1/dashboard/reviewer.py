@@ -8,9 +8,6 @@ from app.deps import (
 )
 from app.db.models.user import User
 from app.db.models.dataset import DatasetItem
-from app.db.models.task_batch import TaskBatch
-from app.db.models.project import Project
-from app.db.models.task import Task
 from app.services.scheduler import batch_visibility_clause
 from aap_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import (
@@ -101,25 +98,32 @@ async def _reviewing_batches(
     # v0.7.0：批次级聚合 — 列出处于 reviewing 状态的批次（reviewer 跨批次审核）。
     # v0.7.1 B-18：扩展为「reviewing 批次 ∪ 任意 review_tasks > 0 的批次」，让单任务级提交质检
     # 也能在 ReviewPage 的批次树里看到，避免 reviewer 找不到入口。
-    actionable_review = select(Task.id).where(
-        Task.batch_id == TaskBatch.id,
-        Task.status == TaskStatus.REVIEW,
+    actionable_review = select(task_row.id).where(
+        task_row.batch_id == batch_row.id,
+        task_row.status == TaskStatus.REVIEW,
         claim_scope if claim_scope is not None else True,
     )
     batch_rows = (
         await db.execute(
-            select(TaskBatch, Project.name)
-            .join(Project, TaskBatch.project_id == Project.id)
+            select(batch_row, workspace_projects.c.project_name)
+            .join(
+                workspace_projects,
+                batch_row.project_id == workspace_projects.c.project_id,
+            )
             .where(
                 or_(
-                    TaskBatch.status == "reviewing",
-                    TaskBatch.review_tasks > 0,
+                    batch_row.status == "reviewing",
+                    batch_row.review_tasks > 0,
                 ),
-                TaskBatch.status.in_(["active", "annotating", "reviewing"]),
+                batch_row.status.in_(["active", "annotating", "reviewing"]),
                 project_scope if project_scope is not None else True,
                 actionable_review.exists(),
             )
-            .order_by(Project.name, TaskBatch.updated_at.desc(), TaskBatch.id)
+            .order_by(
+                workspace_projects.c.project_name,
+                batch_row.updated_at.desc(),
+                batch_row.id,
+            )
             .offset(offset)
             .limit(limit)
         )
@@ -142,22 +146,24 @@ async def _reviewing_batches(
         from app.services.directory_policy import legacy_media_column
 
         eff_thumb = legacy_media_column(
-            func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path).label(
+            func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path).label(
                 "thumbnail_path"
             )
         )
         eff_blur = legacy_media_column(
-            func.coalesce(DatasetItem.blurhash, Task.blurhash).label("blurhash")
+            func.coalesce(DatasetItem.blurhash, task_row.blurhash).label("blurhash")
         )
         cover_rows = await db.execute(
-            select(Task.batch_id, eff_thumb, eff_blur, Task.id, Task.file_type)
-            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+            select(
+                task_row.batch_id, eff_thumb, eff_blur, task_row.id, task_row.file_type
+            )
+            .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
             .where(
-                Task.batch_id.in_(cover_batch_ids),
+                task_row.batch_id.in_(cover_batch_ids),
                 eff_thumb.is_not(None),
             )
-            .order_by(Task.batch_id, Task.created_at.asc())
-            .distinct(Task.batch_id)
+            .order_by(task_row.batch_id, task_row.created_at.asc())
+            .distinct(task_row.batch_id)
         )
         cover_map = {
             row[0]: (row[1], row[2], row[3], row[4]) for row in cover_rows.all()

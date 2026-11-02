@@ -997,9 +997,13 @@ async def test_standalone_publisher_delivers_real_deactivation_completed_event(
                     (
                         await db.execute(
                             text(
-                                "SELECT is_active,status,disabled_kind,disabled_by,"
-                                "disabled_reason,deactivation_requested_at,"
-                                "deactivation_scheduled_at FROM public.users WHERE id=:actor"
+                                "SELECT account.is_active,presence.status,"
+                                "account.disabled_kind,account.disabled_by,"
+                                "account.disabled_reason,account.deactivation_requested_at,"
+                                "account.deactivation_scheduled_at "
+                                "FROM public.users AS account "
+                                "JOIN public.identity_account_presence AS presence "
+                                "ON presence.user_id=account.id WHERE account.id=:actor"
                             ),
                             {"actor": actor},
                         )

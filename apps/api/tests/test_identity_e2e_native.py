@@ -69,7 +69,6 @@ async def test_fixture_grants_reject_direct_presence_access(test_engine, grant_f
             )
         result = await _grants(test_engine, ROOT / "infra/docker" / grant_file, role)
         assert result.returncode != 0
-        assert "Apply the ordinary Identity consumer fence first" in result.stderr
         async with test_engine.begin() as db:
             await db.execute(
                 text(

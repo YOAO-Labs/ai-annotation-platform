@@ -189,17 +189,10 @@ def _upload_original_request(
     staging_etag: str | None = None,
     staging_version_id: str | None = None,
 ) -> dict[str, Any]:
-    # The upload intent is created in the caller's own uncommitted unit of work,
-    # so the caller supplies the publication identity deterministically and the
-    # owner allocates independent responsibility from it without re-reading it.
-    from uuid import NAMESPACE_URL, uuid5
-
-    publication_id = intent.publication_id or uuid5(
-        NAMESPACE_URL, f"aap-dataset-upload/{intent.item_id}/{staging_key}"
-    )
-    file_path = intent.file_path or (
-        f"dataset-sources/{dataset_id}/{item_id}/{publication_id}/{intent.file_name}"
-    )
+    # The caller's intent already holds the frozen publication identity. Allocate
+    # durable responsibility without re-reading that uncommitted intent.
+    publication_id = intent.publication_id
+    file_path = intent.file_path
     staging: dict[str, Any] = {"key": staging_key}
     if staging_etag is not None:
         staging["etag"] = staging_etag
@@ -251,6 +244,11 @@ class UploadWorkflow:
     async def init_upload(self, request: UploadInitRequest) -> UploadInitResult:
         try:
             intent = await self._upload_data.reserve(request)
+            intent = await self._upload_data.lock(
+                actor_id=request.actor_id,
+                dataset_id=request.dataset_id,
+                item_id=request.item_id,
+            )
         except DatasetUploadFailure as exc:
             raise SourceFailure(exc.code) from exc
         self._check_upload_scope(
@@ -263,6 +261,8 @@ class UploadWorkflow:
             request.file_name,
             request.content_type,
         ):
+            raise SourceFailure("invalid_response")
+        if intent.file_path is None or intent.publication_id is None:
             raise SourceFailure("invalid_response")
         try:
             await self._upload_data.allocate(
@@ -400,6 +400,7 @@ class UploadWorkflow:
                         target,
                         sha256=target.sha256,
                         size_bytes=target.size_bytes,
+                        image=intent.file_type == "image",
                     )
                 except SourceFailure as exc:
                     await self._abandon_read_operation(target, operation, exc)

@@ -224,7 +224,14 @@ async def test_reviewer_dashboard_filters_invisible_and_other_claimed_work(
         name="Archived",
         status="archived",
     )
-    db_session.add_all([batch, archived])
+    claimed_batch = TaskBatch(
+        id=uuid.uuid4(),
+        project_id=visible.id,
+        display_id="B-CLAIMED-QUEUE",
+        name="Claimed by another reviewer",
+        status="reviewing",
+    )
+    db_session.add_all([batch, archived, claimed_batch])
     await db_session.flush()
     pending = await _seed_task(db_session, project_id=visible.id, status="review")
     pending.batch_id = batch.id
@@ -236,7 +243,7 @@ async def test_reviewer_dashboard_filters_invisible_and_other_claimed_work(
         reviewer_id=other.id,
         reviewer_claimed_at=now,
     )
-    claimed.batch_id = batch.id
+    claimed.batch_id = claimed_batch.id
     await _seed_task(db_session, project_id=hidden.id, status="review")
     await _seed_task(db_session, project_id=visible.id, status="review")
     archived_task = await _seed_task(db_session, project_id=visible.id, status="review")
@@ -262,3 +269,16 @@ async def test_reviewer_dashboard_filters_invisible_and_other_claimed_work(
         task for task in data["pending_tasks"] if task["task_id"] == str(pending.id)
     )["is_rework"]
     assert data["approval_rate"] == data["approval_rate_24h"] == 50
+    assert [row["batch_id"] for row in data["reviewing_batches"]] == [str(batch.id)]
+    first_page = await httpx_client.get(
+        "/api/v1/dashboard/reviewer/batches?limit=1&offset=0",
+        headers=headers(token),
+    )
+    assert first_page.status_code == 200, first_page.text
+    assert [row["batch_id"] for row in first_page.json()] == [str(batch.id)]
+    next_page = await httpx_client.get(
+        "/api/v1/dashboard/reviewer/batches?limit=1&offset=1",
+        headers=headers(token),
+    )
+    assert next_page.status_code == 200, next_page.text
+    assert next_page.json() == []

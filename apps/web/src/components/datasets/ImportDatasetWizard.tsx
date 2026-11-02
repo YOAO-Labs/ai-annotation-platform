@@ -639,7 +639,7 @@ function Stepper({ current, steps }: { current: Step; steps: Step[] }) {
                 done && styles.stepDotDone,
               )}
             >
-              {done ? <Icon name="check" size={12} /> : n}
+              {done ? <Icon name="check" size={12} /> : i + 1}
             </div>
             <span
               className={cx(

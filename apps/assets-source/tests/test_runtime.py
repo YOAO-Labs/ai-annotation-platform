@@ -45,6 +45,20 @@ class _UploadData:
             raise self.failure
         return self.intent
 
+    async def lock(self, *, actor_id, dataset_id, item_id):
+        if self.intent.publication_id is None:
+            publication_id = uuid4()
+            self.intent = self.intent.model_copy(
+                update={
+                    "publication_id": publication_id,
+                    "file_path": (
+                        f"dataset-sources/{dataset_id}/{item_id}/"
+                        f"{publication_id}/{self.intent.file_name}"
+                    ),
+                }
+            )
+        return self.intent
+
     async def allocate(self, request):
         from uuid import uuid4
 

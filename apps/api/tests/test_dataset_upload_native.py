@@ -859,3 +859,28 @@ async def test_configured_append_workflow_login_can_complete_native_upload(
             )
             is not None
         )
+
+
+async def test_pending_upload_keeps_publication_across_completion_attempts(
+    upload_world: _World,
+):
+    world = upload_world
+    item_id = _new_item(world)
+    async with world.maker() as db:
+        reserved = await _reserve(db, world, item_id)
+        assert reserved["ok"] is True
+        initial = await _lock(db, world, item_id)
+        assert initial["ok"] is True
+        await db.commit()
+
+    async with world.maker() as db:
+        repeated = await _lock(db, world, item_id)
+        assert repeated["ok"] is True
+        assert repeated["data"]["publication_id"] == initial["data"]["publication_id"]
+        assert repeated["data"]["file_path"] == initial["data"]["file_path"]
+        await db.rollback()
+
+    async with world.maker() as db:
+        retained = await _dataset_upload_row(db, item_id)
+        assert str(retained["publication_id"]) == initial["data"]["publication_id"]
+        assert retained["file_path"] == initial["data"]["file_path"]

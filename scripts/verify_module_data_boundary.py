@@ -132,6 +132,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)": "0424_upload_publication_identity.sql",
     "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
     "aap_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
     "aap_jobs_v1.prepare_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
@@ -341,7 +342,33 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)",
         )
     },
-    "aap_identity_accounts_v1.apply_account_command(jsonb)": "0378_identity_avatar_authority.sql",
+    "aap_identity_accounts_v1._lock_current_actor(jsonb,text,text)": "0423_identity_presence_actor.sql",
+    **{
+        signature: "0423_identity_presence.sql"
+        for signature in (
+            "aap_identity_v1._initialize_account_presence()",
+            "aap_identity_sessions_v1.execute_session_command(jsonb)",
+            "aap_identity_accounts_v1._account_record(uuid)",
+            "aap_identity_accounts_v1.prepare_account_command(jsonb)",
+            "aap_identity_accounts_v1.apply_account_command(jsonb)",
+            "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
+            "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+            "aap_identity_groups_v1._account_record(uuid)",
+            "aap_identity_deactivation_v1._account_record(uuid)",
+            "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
+            "aap_identity_invitations_v1._account_record(uuid)",
+            "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
+            "aap_identity_directory_v1._directory_user(uuid)",
+            "aap_identity_directory_v1.execute_directory_command(jsonb)",
+            "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
+            "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
+            "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
+            "aap_identity_v1.create_provisioning_account(jsonb)",
+            "aap_identity_v1.create_seed_persona_account(jsonb)",
+            "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
+            "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+        )
+    },
     **{
         signature: "0377_workspace_project_snapshots.sql"
         for signature in (
@@ -1249,6 +1276,9 @@ SQL_ARTIFACTS = (
     "0420_spatial_item_role_join.sql",
     "0421_notification_job_scope.sql",
     "0422_mask_revision_digest.sql",
+    "0423_identity_presence_actor.sql",
+    "0423_identity_presence.sql",
+    "0424_upload_publication_identity.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0419_dataset_ingest_authority.schema.json",
