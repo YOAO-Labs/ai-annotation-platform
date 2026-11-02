@@ -25,7 +25,9 @@ def _apply(name: str) -> None:
 
 def upgrade() -> None:
     _apply("0425_identity_preferences.sql")
+    _apply("0425_identity_provisioning.sql")
 
 
 def downgrade() -> None:
     _apply("0425_identity_preferences_down.sql")
+    _apply("0425_identity_provisioning_down.sql")

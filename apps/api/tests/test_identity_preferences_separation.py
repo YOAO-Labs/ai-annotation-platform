@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -75,3 +76,48 @@ async def test_changed_preferences_coexist_with_authority_but_fence_security(
             assert current["data"]["account"]["preferences"] == updated
     finally:
         await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["bootstrap_admin", "import_admin", "seed_persona"])
+async def test_account_creation_initializes_separate_preferences(test_engine, mode):
+    account_id = uuid.uuid4()
+    common = {
+        "account_id": str(account_id),
+        "email": "admin" if mode == "import_admin" else f"{account_id}@example.test",
+        "name": "超级管理员" if mode == "import_admin" else "Test account",
+        "password_hash": "opaque",
+    }
+    if mode == "seed_persona":
+        payload = {
+            **common,
+            "schema": "aap-identity-seed-persona/v1",
+            "role": "employee",
+            "group_name": None,
+        }
+        function = "create_seed_persona_account"
+    else:
+        payload = {
+            **common,
+            "schema": "aap-identity-provisioning/v1",
+            "mode": mode,
+            "now": "2026-01-01T00:00:00Z" if mode == "bootstrap_admin" else None,
+            "request_id": "preference-proof" if mode == "bootstrap_admin" else None,
+        }
+        function = "create_provisioning_account"
+    async with test_engine.connect() as connection:
+        result = await connection.scalar(
+            text(f"SELECT aap_identity_v1.{function}(CAST(:request AS jsonb))"),
+            {"request": json.dumps(payload)},
+        )
+        assert result["account_id"] == str(account_id)
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT preferences FROM public.identity_account_preferences "
+                    "WHERE user_id=:id"
+                ),
+                {"id": account_id},
+            )
+            == {}
+        )
