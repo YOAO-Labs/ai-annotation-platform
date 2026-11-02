@@ -123,7 +123,7 @@ function EmptyState() {
         <Icon name="bot" size={28} />
         <div className={styles.emptyTitle}>暂无可预标的项目</div>
         <div className={styles.emptyHint}>
-          在「项目设置 → AI 配置」中启用推理服务后，即可在这里选择项目并运行预标。
+          在「项目设置 → 模型服务」中启用模型服务；运行预标前请检查主模型服务和批次。
         </div>
       </div>
     </Card>

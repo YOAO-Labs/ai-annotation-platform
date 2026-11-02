@@ -570,12 +570,12 @@ export function DashboardPage() {
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-3 max-[900px]:grid-cols-1">
         <Card>
           <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-            <h3 className="text-sm font-semibold">AI 预标注队列</h3>
+            <h3 className="text-sm font-semibold">AI 预标注</h3>
           </div>
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             <Icon name="sparkles" size={28} className="mb-2 opacity-25" />
-            <div>暂无运行中的预标注任务</div>
-            <div className="mt-1 text-xs">在标注工作台中点击"AI 一键预标"启动</div>
+            <div>在主导航的「AI 预标注」中运行批量预标</div>
+            <div className="mt-1 text-xs">在「完整历史」中查看预标任务进度和结果</div>
           </div>
         </Card>
 

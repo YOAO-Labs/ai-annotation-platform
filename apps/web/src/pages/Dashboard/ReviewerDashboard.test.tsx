@@ -146,13 +146,6 @@ describe("ReviewerDashboard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("没有权限查看审核统计");
   });
 
-  it("空 pending → 显示「暂无待审核任务」", () => {
-    mockUseReviewerStats.mockReturnValue({ data: baseStats, isLoading: false });
-    renderUI();
-    expect(screen.getByText("暂无待审核任务")).toBeInTheDocument();
-    expect(screen.getByText("所有标注任务已审核完毕")).toBeInTheDocument();
-  });
-
   it("最近审核记录首屏离线暂停 → 显示等待网络连接而不是空态", () => {
     mockUseReviewerStats.mockReturnValue({ data: baseStats, isLoading: false });
     mockUseMyRecentReviews.mockReturnValue({

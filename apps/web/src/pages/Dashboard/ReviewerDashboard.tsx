@@ -296,7 +296,6 @@ export function ReviewerDashboard() {
           <div className="px-4 py-12 text-center text-muted-foreground">
             <Icon name="check" size={36} className="mb-2.5 opacity-25" />
             <div className="mb-1 text-sm">暂无待审核任务</div>
-            <div className="text-xs">所有标注任务已审核完毕</div>
           </div>
         ) : (
           <div>
