@@ -55,6 +55,26 @@ def test_worktree_owned_bucket_passes() -> None:
     )
 
 
+def test_selected_resource_root_keeps_bucket_owner_checks(tmp_path: Path) -> None:
+    resources = _resources(tmp_path)
+    assert_owned_disposable_bucket(
+        mode="e2e",
+        resources=resources,
+        database="aap_wt_abc_e2e",
+        bucket="aap-wt-abc-e2e-annotations",
+        owner_tag="aap-worktree:abc:e2e:def",
+        resource_root=tmp_path,
+    )
+    with pytest.raises(GuardError, match="another checkout"):
+        assert_owned_disposable_bucket(
+            mode="e2e",
+            resources=resources,
+            database="aap_wt_abc_e2e",
+            bucket="aap-wt-abc-e2e-annotations",
+            owner_tag="aap-worktree:abc:e2e:def",
+        )
+
+
 @pytest.mark.parametrize("mode", ["dev", "prod", ""])
 def test_worktree_rejects_unrecognized_modes(mode: str) -> None:
     with pytest.raises(GuardError, match="refuses mode|requires the active"):

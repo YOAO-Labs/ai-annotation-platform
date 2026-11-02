@@ -471,6 +471,46 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 )
             )
         ).geometries[0].geometry == old_mask
+        captured_ref = MaskRevisionReference(
+            annotation_id=mask_id,
+            annotation_version=2,
+            geometry_digest=annotation_slice_digest(current_mask),
+        )
+        assert (
+            await revisions.command(
+                ResolveMaskRevisions(
+                    schema=MASK_REVISION_PROTOCOL,
+                    operation="resolve",
+                    task_id=task_id,
+                    references=[captured_ref],
+                    lock=True,
+                )
+            )
+        ).geometries[0].geometry == current_mask
+        wrong_ref = captured_ref.model_copy(update={"geometry_digest": "0" * 64})
+        async with connection.transaction():
+            with pytest.raises(asyncpg.RaiseError):
+                async with connection.transaction():
+                    await revisions.command(
+                        ResolveMaskRevisions(
+                            schema=MASK_REVISION_PROTOCOL,
+                            operation="resolve",
+                            task_id=task_id,
+                            references=[wrong_ref],
+                            lock=False,
+                        )
+                    )
+        assert (
+            await revisions.command(
+                ProtectMaskRevisions(
+                    schema=MASK_REVISION_PROTOCOL,
+                    operation="protect",
+                    task_id=task_id,
+                    references=[wrong_ref],
+                    expires_at=now + timedelta(days=30),
+                )
+            )
+        ).affected == 0
         refined = await accepts.command(
             RefineAiMaskAnnotation(
                 schema=AI_MASK_ACCEPT_PROTOCOL,
@@ -594,25 +634,28 @@ async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
                 db, project_id=world["project_id"], status="in_progress"
             )
             task_id = task.id
-            db.add(AiMaskAcceptDecision(
-                task_id=task_id,
-                idempotency_key="decision-lock",
-                request_digest="a" * 64,
-                candidate_id="mask:test",
-                content_digest="b" * 64,
-                prediction_id=uuid.uuid4(),
-                prediction_created_at=now,
-                annotation_id=uuid.uuid4(),
-                result_version=1,
-                actor_id=world["member_id"],
-                response_json={"result_version": 1},
-                expires_at=now - timedelta(seconds=1),
-            ))
+            db.add(
+                AiMaskAcceptDecision(
+                    task_id=task_id,
+                    idempotency_key="decision-lock",
+                    request_digest="a" * 64,
+                    candidate_id="mask:test",
+                    content_digest="b" * 64,
+                    prediction_id=uuid.uuid4(),
+                    prediction_created_at=now,
+                    annotation_id=uuid.uuid4(),
+                    result_version=1,
+                    actor_id=world["member_id"],
+                    response_json={"result_version": 1},
+                    expires_at=now - timedelta(seconds=1),
+                )
+            )
         connection = await asyncpg.connect(
             _dsn(test_engine, "AAP_MODULE_DATA_LABELING_MASK_EDIT_URL", _ROLE),
             timeout=5,
             command_timeout=10,
         )
+
         async def execute(payload):
             return await connection.fetchval(
                 "SELECT aap_labeling_v1.ai_mask_accept_command($1::jsonb)", payload
@@ -627,10 +670,16 @@ async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
         async with connection.transaction():
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 async with connection.transaction():
-                    await connection.fetch("SELECT id FROM public.ai_mask_accept_decisions")
-            found = await client.command(FindAiMaskDecision(operation="find_decision", **identity))
+                    await connection.fetch(
+                        "SELECT id FROM public.ai_mask_accept_decisions"
+                    )
+            found = await client.command(
+                FindAiMaskDecision(operation="find_decision", **identity)
+            )
             assert found.decision.found and found.decision.expires_at < now
-            locked = await client.command(LockAiMaskDecision(operation="lock_decision", **identity))
+            locked = await client.command(
+                LockAiMaskDecision(operation="lock_decision", **identity)
+            )
             assert locked.decision == found.decision
             async with maker() as db:
                 with pytest.raises(DBAPIError) as error:
@@ -650,7 +699,9 @@ async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
             )
             async with connection.transaction():
                 with pytest.raises(asyncpg.LockNotAvailableError):
-                    await client.command(LockAiMaskDecision(operation="lock_decision", **identity))
+                    await client.command(
+                        LockAiMaskDecision(operation="lock_decision", **identity)
+                    )
     finally:
         if connection is not None:
             await connection.close()

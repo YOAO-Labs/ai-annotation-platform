@@ -18,8 +18,12 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
+from worktree_env import load_identity, read_state, state_path, topology  # noqa: E402
 from worktree_runtime import WorktreeError, require_owner  # noqa: E402
 
+_RESOURCE_ROOT = Path(
+    os.environ.get("AAP_E2E_RESOURCE_ROOT", str(_REPO_ROOT))
+).resolve()
 OWNER_TAG = "aap-worktree-owner"
 
 
@@ -34,6 +38,7 @@ def assert_owned_disposable_bucket(
     database: str,
     bucket: str,
     owner_tag: str | None,
+    resource_root: Path = _REPO_ROOT,
 ) -> None:
     """Fail closed unless ``bucket`` is an exclusively owned disposable test bucket.
 
@@ -51,7 +56,7 @@ def assert_owned_disposable_bucket(
             raise GuardError("worktree mode requires the active resources manifest")
         if resources.get("mode") != mode:
             raise GuardError("resources manifest was created for another mode")
-        if resources.get("root") != str(_REPO_ROOT):
+        if resources.get("root") != str(resource_root):
             raise GuardError("resources manifest belongs to another checkout")
         owner = resources.get("owner")
         if not owner:
@@ -97,8 +102,14 @@ async def main():
     mode = os.environ.get("AAP_WORKTREE_MODE")
     resources = None
     if mode is not None:
-        manifest = _REPO_ROOT / ".worktree" / mode / "resources.json"
-        resources = json.loads(manifest.read_text())["resources"]
+        if mode not in {"test", "e2e"} or not _RESOURCE_ROOT.is_relative_to(_REPO_ROOT):
+            raise GuardError(
+                "resource root must be inside this checkout in test or e2e mode"
+            )
+        manifest = read_state(state_path(_RESOURCE_ROOT, mode, "resources.json"))
+        resources = manifest["resources"]
+        if resources != topology(_RESOURCE_ROOT, load_identity(_RESOURCE_ROOT), mode):
+            raise GuardError("resource manifest does not match its worktree identity")
     from app.workers._db import task_session
     from app.services.storage import storage_service
     from app.services import raster_mask_objects, raster_object_storage
@@ -112,6 +123,7 @@ async def main():
         database=url.database,
         bucket=bucket,
         owner_tag=_bucket_owner_tag(storage_service, bucket),
+        resource_root=_RESOURCE_ROOT,
     )
     async with task_session() as db:
         operation = (

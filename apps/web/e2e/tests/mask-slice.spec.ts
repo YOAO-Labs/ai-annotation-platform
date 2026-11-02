@@ -599,7 +599,7 @@ test("H4b-2 native center cuts, reversed endpoints, equal-area identity and zero
       expect(checked.cutPath[0][0]).toBe(center);
       expect(checked.cutPath[1][0]).toBe(center);
     } else expect(checked.rles.map(area)).toEqual([1536, 1536]);
-    await restore(page, fixture, "undo");
+    await json<SliceResult>(await restore(page, fixture, "undo"));
     await reloadAndRead(page, request, fixture);
     expect(await content(request, fixture, source.id)).toEqual(original);
   }
@@ -691,7 +691,7 @@ test("H4b-4 undo deactivates the new mask; real GC retains its pixels for browse
   await preview(page);
   const receipt = (await commit(page, fixture)).slice_restore;
   const before = await checkPartition(request, fixture, original, receipt);
-  await restore(page, fixture, "undo");
+  await json<SliceResult>(await restore(page, fixture, "undo"));
   expect(
     ledger(fixture).annotations.find((row) => row.id === receipt.created_annotation_id)?.is_active,
   ).toBe(false);
@@ -757,6 +757,13 @@ for (const failure of ["expired", "missing_revision", "peer_edit"] as const) {
     const rejected = await restore(page, fixture, "undo");
     const rejection = await rejected.json();
     expect(rejected.status()).toBe(failure === "expired" ? 410 : 409);
+    expect(rejection.detail.reason).toBe(
+      failure === "expired"
+        ? "restore_expired"
+        : failure === "missing_revision"
+          ? "snapshot_unavailable"
+          : "version_mismatch",
+    );
     await expect(page.getByText("切割恢复失败，历史记录已保留", { exact: true })).toBeVisible();
     const afterHistory = await history(page, fixture.taskId);
     expect(afterHistory.undo).toHaveLength(prior.undo.length);
