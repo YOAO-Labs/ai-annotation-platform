@@ -39,7 +39,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'E2E fixture operator requires non-admin, non-inheriting LOGIN';
     END IF;
-    IF EXISTS (SELECT 1 FROM unnest(ARRAY['public.users','public.user_invitations','public.password_reset_tokens','public.organization_members']) private(name) WHERE has_table_privilege(v_consumer,private.name,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR has_any_column_privilege(v_consumer,private.name,'SELECT,INSERT,UPDATE,REFERENCES')) THEN
+    IF EXISTS (SELECT 1 FROM unnest(ARRAY['public.users','public.identity_account_presence','public.user_invitations','public.password_reset_tokens','public.organization_members']) private(name) WHERE has_table_privilege(v_consumer,private.name,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR has_any_column_privilege(v_consumer,private.name,'SELECT,INSERT,UPDATE,REFERENCES')) THEN
         RAISE EXCEPTION 'Apply the ordinary Identity consumer fence first';
     END IF;
     IF NOT EXISTS (

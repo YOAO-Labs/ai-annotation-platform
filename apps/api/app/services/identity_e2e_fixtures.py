@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import Sequence
 import uuid
 
-from sqlalchemy import column, select, table, text
-from sqlalchemy.orm import aliased, load_only
+from sqlalchemy import Column, DateTime, MetaData, String, Table, select, text
+from sqlalchemy.orm import registry
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,57 +16,71 @@ from aap_identity.e2e_fixture_contract import (
     ACCOUNT_PROFILE_FIELDS,
     FixtureInvitation,
 )
+from app.db.models.user import User
+
+# The Identity view includes presence; separate metadata keeps it out of migrations.
+
+_fixture_registry = registry(metadata=MetaData())
+_fixture_profile = Table(
+    "account_profiles",
+    _fixture_registry.metadata,
+    *(
+        Column(
+            field,
+            (
+                String(20)
+                if field == "status"
+                else DateTime(timezone=True)
+                if field == "last_seen_at"
+                else User.__table__.c[field].type
+            ),
+            primary_key=field == "id",
+        )
+        for field in ACCOUNT_PROFILE_FIELDS
+    ),
+    schema="aap_identity_fixture_v1",
+)
+
+
+@_fixture_registry.mapped
+class _FixtureAccount:
+    __table__ = _fixture_profile
 
 
 class IdentityE2EFixtures:
     """Resolve and create E2E identities through Identity's fixed relations."""
 
     def __init__(self, db: AsyncSession):
-        from app.db.models.user import User
-
         self.db = db
-        profile_view = table(
-            "account_profiles",
-            *(
-                column(field, User.__table__.c[field].type)
-                for field in ACCOUNT_PROFILE_FIELDS
-            ),
-            schema="aap_identity_fixture_v1",
-        )
-        self.profile = aliased(User, profile_view, adapt_on_names=True)
 
     def _profile_select(self):
-        return select(self.profile).options(
-            load_only(
-                *(getattr(self.profile, field) for field in ACCOUNT_PROFILE_FIELDS)
-            )
-        )
+        return select(_FixtureAccount)
 
     async def find(self, email: str):
         result = await self.db.execute(
-            self._profile_select().where(self.profile.email == email)
+            self._profile_select().where(_FixtureAccount.email == email)
         )
         return result.scalar_one_or_none()
 
     async def find_many(self, emails: Sequence[str]):
         result = await self.db.execute(
-            self._profile_select().where(self.profile.email.in_(emails))
+            self._profile_select().where(_FixtureAccount.email.in_(emails))
         )
         return list(result.scalars().all())
 
     async def _find_id(self, account_id: uuid.UUID):
         result = await self.db.execute(
-            self._profile_select().where(self.profile.id == account_id)
+            self._profile_select().where(_FixtureAccount.id == account_id)
         )
         return result.scalar_one()
 
     async def peek_admin(self):
         result = await self.db.execute(
             self._profile_select()
-            .where(self.profile.role == "super_admin")
+            .where(_FixtureAccount.role == "super_admin")
             .order_by(
-                self.profile.email.like("%@e2e.test").asc(),
-                self.profile.created_at.desc(),
+                _FixtureAccount.email.like("%@e2e.test").asc(),
+                _FixtureAccount.created_at.desc(),
             )
             .limit(1)
         )

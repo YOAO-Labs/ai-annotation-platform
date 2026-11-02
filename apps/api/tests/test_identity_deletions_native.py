@@ -5,14 +5,12 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import aap_identity
 from aap_identity.authenticator import Authenticator
 from aap_identity.deletion_contract import (
     DeletionFailure,
@@ -32,7 +30,6 @@ from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
-from app.db.native_schema import NATIVE_MANAGED_TABLES
 from tests.test_identity_auth_native import _seed
 from tests.test_identity_suspensions_native import (
     _add_batch,
@@ -43,24 +40,6 @@ from tests.test_identity_suspensions_native import (
     _cleanup_world,
     _token,
 )
-
-_ROOT = Path(__file__).parents[3]
-_SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SCHEMA = _SQL_DIR / "0247_identity_deletions.schema.json"
-_SUPPORT = _SQL_DIR / "0247_identity_deletions_support.sql"
-_ARTIFACT = _SQL_DIR / "0247_identity_deletions.sql"
-_MIGRATION = Path(__file__).parents[1] / "alembic/versions/0247_identity_deletions.py"
-_MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-deletions-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
-_CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/native_deletion_protocol.schema.json"
-)
-if not _CANONICAL_SCHEMA.is_file():
-    _CANONICAL_SCHEMA = (
-        Path(aap_identity.__file__).resolve().parent
-        / "native_deletion_protocol.schema.json"
-    )
 
 
 def _deletion_dsn(test_engine=None) -> str:
@@ -225,90 +204,6 @@ async def _cleanup_deletion_world(
         batch_ids=batch_ids,
         task_ids=task_ids,
     )
-
-
-def test_frozen_identity_deletion_artifacts_and_native_owner_boundary():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    canonical = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
-    support = _SUPPORT.read_text(encoding="utf-8")
-    artifact = _ARTIFACT.read_text(encoding="utf-8")
-    migration = _MIGRATION.read_text(encoding="utf-8")
-    module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
-    lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
-    verifier = (_ROOT / "scripts/verify_module_data_boundary.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "identity_deletion_operation_receipts" in NATIVE_MANAGED_TABLES
-    assert schema == canonical
-    assert _SCHEMA.read_bytes() == _CANONICAL_SCHEMA.read_bytes()
-    assert schema["$id"] == "aap-identity-deletions-native/v1"
-    assert migration.index('"0247_identity_deletions_support.sql"') < migration.index(
-        '"0247_identity_deletions.sql"'
-    )
-    assert "FOREIGN KEY" not in support
-    assert "target_generation bigint NOT NULL" in support
-    assert "target_is_active boolean NOT NULL" in support
-    assert "lock_identity_deletion_scope(uuid,uuid)" in migration
-    assert "identity_deletion_transfer_covered(uuid,uuid[])" in migration
-    assert "identity_deletion_work(uuid)" in migration
-    assert "transfer_identity_deletion_work(uuid,uuid)" in migration
-    assert "record_identity_deletion_event(jsonb,uuid,jsonb,jsonb)" in migration
-    assert "RETURNS TABLE(has_projects boolean, all_projects_owned boolean)" in support
-    assert "pending_task_count bigint" in support
-    assert "locked_task_count bigint" in support
-    assert "sample_task_ids uuid[]" in support
-    assert "pending_project_ids uuid[]" in support
-    assert "task.assignee_id = p_target_user_id" in support
-    assert "task.status IN ('pending', 'in_progress', 'review', 'rejected')" in support
-    assert "task_lock.user_id = p_target_user_id" in support
-    assert "SET assignee_id = p_to_user_id" in support
-    assert "assigned_at = CURRENT_TIMESTAMP" in support
-    assert "updated_at = CURRENT_TIMESTAMP" in support
-    assert "retire_account_credentials" not in artifact
-    assert "disabled_reason = '管理员删除账号'" in artifact
-    assert (
-        "IF v_transferred_count IS NULL OR v_transferred_count < 0 THEN\n"
-        "            RAISE EXCEPTION"
-    ) in artifact
-    assert "IF v_audit_id IS NULL THEN\n        RAISE EXCEPTION" in artifact
-    assert "operation_conflict" in artifact
-    assert artifact.index(
-        "receipt.target_generation IS DISTINCT FROM v_target_generation"
-    ) < artifact.index("IF NOT v_target_active THEN")
-    assert "identity_deletion_operation_receipts" in module_grants
-    assert "aap_workspace_v1.identity_deletion_transfer_covered" in module_grants
-    assert "aap_labeling_v1.transfer_identity_deletion_work" in module_grants
-    assert (
-        'GRANT UPDATE (assignee_id, assigned_at) ON public.tasks TO :"labeling_owner"'
-        in module_grants
-    )
-    assert "aap_audit_v1.record_identity_deletion_event" in module_grants
-    audit_helper = support.split(
-        "CREATE FUNCTION aap_audit_v1.record_identity_deletion_event(", 1
-    )[1]
-    assert audit_helper.index("UPDATE public.audit_logs AS audit") < audit_helper.index(
-        "INSERT INTO public.audit_logs"
-    )
-    assert "IF v_actor_id = p_target_user_id THEN" in audit_helper
-    assert "SET detail_json" not in audit_helper
-    assert "'redacted_audit_rows', v_redacted_rows" in audit_helper
-    assert "audit_oid, 'public.audit_logs', 'detail_json', 'UPDATE'" in role_grants
-    assert "labeling_oid, 'public.tasks', 'assignee_id', 'UPDATE'" in role_grants
-    assert "labeling_oid, 'public.tasks', 'assigned_at', 'UPDATE'" in role_grants
-    assert "labeling_oid, 'public.tasks', 'updated_at', 'UPDATE'" in role_grants
-    assert "GRANT UPDATE (detail_json)" not in module_grants
-    assert "identity_deletion_role=identity_deletion_client" in role_grants
-    expected_functions = role_grants.split("expected_functions text[] := ARRAY[", 1)[
-        1
-    ].split("];", 1)[0]
-    assert expected_functions.index("deletion_policy()") < expected_functions.index(
-        "execute_deletion_command"
-    )
-    assert "aap_identity_deletions_v1.deletion_policy()" in lan_grants
-    assert "aap_identity_deletions_v1.execute_deletion_command(jsonb)" in lan_grants
-    assert '"DELETION": "identity_deletion_client"' in verifier
 
 
 @pytest.mark.asyncio

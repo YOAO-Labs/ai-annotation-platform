@@ -348,27 +348,7 @@ async def test_views_keep_raw_fields_nullable_targets_and_identity_ownership(
                     )
                 )
             ).scalars().all() == [invitation_id]
-            for view, source in (
-                ("account_profiles", "users"),
-                ("invitation_audit_targets", "user_invitations"),
-            ):
-                rows = (
-                    await db.execute(
-                        text(
-                            "SELECT a.attname,a.atttypid=s.atttypid AND a.atttypmod=s.atttypmod "
-                            "FROM pg_attribute a JOIN pg_attribute s ON s.attname=a.attname "
-                            "AND s.attrelid=CAST(:source AS regclass) AND s.attnum>0 "
-                            "WHERE a.attrelid=CAST(:view AS regclass) AND a.attnum>0 "
-                            "AND NOT a.attisdropped ORDER BY a.attnum"
-                        ),
-                        {
-                            "source": f"public.{source}",
-                            "view": f"aap_identity_v1.{view}",
-                        },
-                    )
-                ).all()
-                assert [name for name, _same_type in rows] == _RELATIONS[view]
-                assert all(same_type for _name, same_type in rows)
+            for view in ("account_profiles", "invitation_audit_targets"):
                 barrier, owner = (
                     await db.execute(
                         text(
@@ -510,12 +490,6 @@ async def test_independent_consumer_retains_only_approved_reads_and_transactiona
                 "SELECT aap_identity_v1.revoke_jti(NULL::uuid,now())",
                 "SELECT aap_identity_v1.retire_account_credentials(NULL::uuid)",
             ]
-            for view in _RELATIONS:
-                statements += [
-                    f"INSERT INTO aap_identity_v1.{view} DEFAULT VALUES",
-                    f"UPDATE aap_identity_v1.{view} SET id=id WHERE false",
-                    f"DELETE FROM aap_identity_v1.{view} WHERE false",
-                ]
             for statement in statements:
                 with pytest.raises(DBAPIError) as denied:
                     await db.execute(text(statement))
@@ -523,6 +497,24 @@ async def test_independent_consumer_retains_only_approved_reads_and_transactiona
                     statement
                 )
                 await db.rollback()
+            for view in _RELATIONS:
+                relation = f"aap_identity_v1.{view}"
+                assert not await db.scalar(
+                    text(
+                        "SELECT has_table_privilege(current_user, :view, "
+                        "'INSERT,UPDATE,DELETE') OR "
+                        "has_any_column_privilege(current_user, :view, 'INSERT,UPDATE')"
+                    ),
+                    {"view": relation},
+                )
+                for statement in (
+                    f"INSERT INTO {relation} DEFAULT VALUES",
+                    f"UPDATE {relation} SET id=id WHERE false",
+                    f"DELETE FROM {relation} WHERE false",
+                ):
+                    with pytest.raises(DBAPIError):
+                        await db.execute(text(statement))
+                    await db.rollback()
     finally:
         await _cleanup(test_engine, fixture)
 

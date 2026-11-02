@@ -124,6 +124,14 @@ async def test_e2e_peek_keeps_precedence_and_inactive_accounts(
     test_engine, e2e_consumer, record_property
 ):
     async with accounts(test_engine):
+        async with test_engine.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE users SET created_at=(SELECT max(created_at) + "
+                    "interval '1 second' FROM users) WHERE id=:id"
+                ),
+                {"id": IDS["dev"]},
+            )
         async with async_sessionmaker(e2e_consumer, expire_on_commit=False)() as db:
             result = await routes.seed_peek(db)
             assert result.admin_email == "keeper@example.test"
@@ -134,20 +142,31 @@ async def test_e2e_peek_keeps_precedence_and_inactive_accounts(
 async def test_owner_cleanup_identity_dependencies_and_scope(
     test_engine, fixture_and_fenced_http, shared, record_property
 ):
+    baseline = await snapshot(test_engine)
     async with accounts(test_engine):
         path = "/api/v1/__test/seed/" + ("cleanup" if shared else "owned-cleanup")
         payload = {} if shared else {"json": {"namespace": "probea"}}
         response = await fixture_and_fenced_http.post(path, **payload)
         assert response.status_code == 200, response.text
         first = await snapshot(test_engine)
-        assert len(first["users"]) == (1 if shared else 2)
-        assert first["reset_tokens"] == first["invitations"] == []
+        for collection, rows in baseline.items():
+            assert all(row in first[collection] for row in rows)
+        scoped = {
+            collection: [
+                row
+                for row in rows
+                if row["id"] not in {item["id"] for item in baseline[collection]}
+            ]
+            for collection, rows in first.items()
+        }
+        assert len(scoped["users"]) == (1 if shared else 2)
+        assert scoped["reset_tokens"] == scoped["invitations"] == []
         response = await fixture_and_fenced_http.post(path, **payload)
         assert response.status_code == 200, response.text
         assert await snapshot(test_engine) == first
         replay(
             "cleanup-" + ("shared" if shared else "owned"),
-            first,
+            scoped,
             record_property,
             qualification="identity_owner_cleanup_replay",
         )

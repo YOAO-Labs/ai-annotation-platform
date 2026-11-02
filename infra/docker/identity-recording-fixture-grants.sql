@@ -42,6 +42,10 @@ BEGIN
     IF has_table_privilege(v_consumer, 'public.users',
         'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
        OR has_any_column_privilege(v_consumer, 'public.users',
+        'SELECT,INSERT,UPDATE,REFERENCES')
+       OR has_table_privilege(v_consumer, 'public.identity_account_presence',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR has_any_column_privilege(v_consumer, 'public.identity_account_presence',
         'SELECT,INSERT,UPDATE,REFERENCES') THEN
         RAISE EXCEPTION 'Apply the ordinary Identity consumer fence first';
     END IF;

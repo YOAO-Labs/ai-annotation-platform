@@ -82,6 +82,10 @@ BEGIN
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
+               'aap_identity_v1._initialize_account_presence()'
+           )::oid) IS DISTINCT FROM identity_oid
+       OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
+           WHERE function.oid = pg_catalog.to_regprocedure(
                'aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)'
            )::oid) IS DISTINCT FROM audit_oid THEN
         RAISE EXCEPTION 'An Identity provisioning function has the wrong owner';
@@ -101,11 +105,13 @@ BEGIN
         FROM (VALUES
             ('id'), ('email'), ('name'), ('password_hash'),
             ('credential_generation'), ('role'), ('group_name'), ('group_id'),
-            ('status'), ('is_active'), ('email_verified_at'), ('preferences')
+            ('is_active'), ('email_verified_at'), ('preferences')
         ) AS required(column_name)
         WHERE NOT pg_catalog.has_column_privilege(
             identity_oid, 'public.users', required.column_name, 'INSERT'
         )
+    ) OR NOT pg_catalog.has_column_privilege(
+        identity_oid, 'public.identity_account_presence', 'user_id', 'INSERT'
     ) THEN
         RAISE EXCEPTION 'Identity owner lacks the provisioning capabilities';
     END IF;

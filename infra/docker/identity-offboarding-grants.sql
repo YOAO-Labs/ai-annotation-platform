@@ -239,7 +239,7 @@ BEGIN
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.users', 'is_active', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(
-        identity_oid, 'public.users', 'status', 'UPDATE'
+        identity_oid, 'public.identity_account_presence', 'status', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.users', 'disabled_kind', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(

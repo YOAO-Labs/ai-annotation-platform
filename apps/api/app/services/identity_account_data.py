@@ -73,7 +73,7 @@ class IdentityAccountCommandData:
             raise IdentityUnavailable() from None
 
     def _sync_profile(self, account):
-        values = account.model_dump(mode="python")
+        values = account.model_dump(mode="python", exclude={"status", "last_seen_at"})
         for instance in list(self.db.identity_map.values()):
             if isinstance(instance, User) and instance.id == account.id:
                 for name, value in values.items():

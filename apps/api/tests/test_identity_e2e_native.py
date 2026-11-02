@@ -39,6 +39,7 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_training_dataset_references import (
     committed_rle_bindings as committed_rle_bindings,
 )
+from tests.test_workspace_consumer_profile_native import _grants, _world
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -47,6 +48,36 @@ pytestmark = [
         reason="requires owned module-data verifier",
     ),
 ]
+
+
+@pytest.mark.parametrize(
+    "grant_file",
+    [
+        "identity-e2e-fixture-grants.sql",
+        "identity-recording-fixture-grants.sql",
+        "identity-scale-seed-grants.sql",
+        "identity-seed-operator-grants.sql",
+    ],
+)
+async def test_fixture_grants_reject_direct_presence_access(test_engine, grant_file):
+    async with _world(test_engine, apply=False) as (_owner, _consumer, role, _url):
+        async with test_engine.begin() as db:
+            await db.execute(
+                text(
+                    f'GRANT UPDATE (status) ON public.identity_account_presence TO "{role}"'
+                )
+            )
+        result = await _grants(test_engine, ROOT / "infra/docker" / grant_file, role)
+        assert result.returncode != 0
+        assert "Apply the ordinary Identity consumer fence first" in result.stderr
+        async with test_engine.begin() as db:
+            await db.execute(
+                text(
+                    f'REVOKE UPDATE (status) ON public.identity_account_presence FROM "{role}"'
+                )
+            )
+        result = await _grants(test_engine, ROOT / "infra/docker" / grant_file, role)
+        assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(
@@ -294,6 +325,7 @@ async def test_node_fixture_contract_and_borrowed_rollback(
             assert actual == expected
             for relation in (
                 "users",
+                "identity_account_presence",
                 "user_invitations",
                 "password_reset_tokens",
                 "organization_members",

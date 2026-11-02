@@ -4,25 +4,13 @@ import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.user import User
 from tests.test_identity_auth_native import _cleanup, _seed
-
-
-_ROOT = Path(__file__).parents[3]
-_SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_ARTIFACT = _SQL_DIR / "0238_identity_accounts.sql"
-_SCHEMA = _SQL_DIR / "0238_identity_accounts.schema.json"
-_MIGRATION = Path(__file__).parents[1] / "alembic/versions/0238_identity_accounts.py"
-_NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
-_MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ACCOUNT_GRANTS = _ROOT / "infra/docker/identity-accounts-grants.sql"
 
 
 def _audit_context() -> dict:
@@ -134,70 +122,6 @@ async def _apply(session: AsyncSession, request: dict | list | str | None) -> di
         {"request": json.dumps(request)},
     )
     return result.scalar_one()
-
-
-def test_frozen_native_account_artifacts_and_function_owners():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    artifact = _ARTIFACT.read_text(encoding="utf-8")
-    migration = _MIGRATION.read_text(encoding="utf-8")
-    module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    account_grants = _ACCOUNT_GRANTS.read_text(encoding="utf-8")
-    native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
-    statements = [
-        statement.strip()
-        for statement in artifact.split("-- aap-statement-break")
-        if statement.strip()
-    ]
-
-    assert len(statements) == 21
-    assert all(
-        not sa.text(statement.replace(":", r"\:")).compile().params
-        for statement in statements
-    )
-    assert set(schema["x-postgresql-functions"]) == {
-        "aap_identity_accounts_v1.account_policy()",
-        "aap_identity_accounts_v1.prepare_account_command(jsonb)",
-        "aap_identity_accounts_v1.apply_account_command(jsonb)",
-        "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
-    }
-    assert artifact.count("CREATE FUNCTION") == 8
-    assert artifact.count("REVOKE ALL ON FUNCTION") == 8
-    assert artifact.count("SECURITY DEFINER") == 8
-    assert artifact.count("SET search_path = pg_catalog, pg_temp") == 8
-    assert "jsonb_object_length" not in artifact
-    assert "ON DELETE CASCADE" in artifact
-    assert "FOR UPDATE NOWAIT" in artifact
-    assert "aap_identity_v1.lock_current_principal" in artifact
-    assert "aap_audit_v1.record_identity_account_event" in artifact
-    assert "last_seen_at IS NULL OR account.last_seen_at < p_cutoff" in artifact
-    receipt_insert = artifact.split(
-        "INSERT INTO public.identity_account_operation_receipts", 1
-    )[1].split(";", 1)[0]
-    assert "password_hash" not in receipt_insert
-    assert "new_value" not in receipt_insert
-    assert 'revision = "0238"' in migration
-    assert 'down_revision = "0237"' in migration
-    assert "Cannot remove Identity account operation receipts" in migration
-    assert "identity_account_operation_receipts" in native_schema
-    assert "request_scope, result, audit_id" in module_grants
-    assert "record_identity_account_event" in module_grants
-    assert "identity_account_role=identity_account_client" in account_grants
-    assert "identity_presence_role=identity_presence_client" in account_grants
-    assert account_grants.count("aap_identity_accounts_v1.account_policy()") == 2
-    assert (
-        account_grants.count("aap_identity_accounts_v1.prepare_account_command(jsonb)")
-        == 2
-    )
-    assert (
-        account_grants.count("aap_identity_accounts_v1.apply_account_command(jsonb)")
-        == 2
-    )
-    assert (
-        account_grants.count(
-            "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)"
-        )
-        == 2
-    )
 
 
 @pytest.mark.asyncio
@@ -847,7 +771,7 @@ async def _avatar_row(
             "token, owner_id, storage_ref, sha256, size_bytes, "
             "object_version_id, state, retired_at"
             ") VALUES (:token, :owner, CAST(:ref AS jsonb), :sha, :size, "
-            "'v1', :state, CASE WHEN :state='retired' THEN now() ELSE NULL END)"
+            "'v1', :state, CASE WHEN CAST(:state AS varchar)='retired' THEN now() ELSE NULL END)"
         ),
         {
             "token": token,

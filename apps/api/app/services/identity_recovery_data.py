@@ -121,6 +121,8 @@ class IdentityRecoveryCommandData:
             account = reply.data.result.account
             for instance in list(self.db.identity_map.values()):
                 if isinstance(instance, User) and instance.id == account.id:
-                    for name, value in account.model_dump(mode="python").items():
+                    for name, value in account.model_dump(
+                        mode="python", exclude={"status", "last_seen_at"}
+                    ).items():
                         set_committed_value(instance, name, value)
         return raw

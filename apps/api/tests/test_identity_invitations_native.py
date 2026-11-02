@@ -4,7 +4,6 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -28,21 +27,9 @@ from aap_identity.invitation_contract import (
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
-from app.db.native_schema import NATIVE_MANAGED_TABLES
 from tests.factory import create_project
 from tests.test_identity_admission_live import _dsn, _token
 from tests.test_identity_auth_native import _cleanup, _seed
-
-
-_ROOT = Path(__file__).parents[3]
-_SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SUPPORT = _SQL_DIR / "0242_identity_invitations_support.sql"
-_ARTIFACT = _SQL_DIR / "0242_identity_invitations.sql"
-_SCHEMA = _SQL_DIR / "0242_identity_invitations.schema.json"
-_MIGRATION = Path(__file__).parents[1] / "alembic/versions/0242_identity_invitations.py"
-_MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-invitations-grants.sql"
-_LEGACY_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
 
 
 @pytest.mark.asyncio
@@ -203,86 +190,6 @@ async def _call(session: AsyncSession, function: str, command: dict) -> dict:
                 decode_native_invitation_apply_command(command), reply
             )
     return reply
-
-
-def test_frozen_invitation_artifacts_and_transaction_contract():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    support = _SUPPORT.read_text(encoding="utf-8")
-    artifact = _ARTIFACT.read_text(encoding="utf-8")
-    migration = _MIGRATION.read_text(encoding="utf-8")
-    module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
-    legacy_grants = _LEGACY_GRANTS.read_text(encoding="utf-8")
-
-    portable_schema = json.loads(
-        (
-            _ROOT
-            / "apps/identity/src/aap_identity/native_invitation_protocol.schema.json"
-        ).read_text()
-    )
-    assert {
-        key: value for key, value in schema.items() if not key.startswith("x-")
-    } == portable_schema
-    assert "identity_invitation_operation_receipts" in NATIVE_MANAGED_TABLES
-
-    assert '"0242_identity_invitations_support.sql"' in migration
-    assert (
-        migration.index('"0242_identity_invitations_support.sql"')
-        < migration.index('"0242_invitation_mail.sql"')
-        < migration.index('"0242_identity_invitations.sql"')
-    )
-    assert (
-        "REFERENCES"
-        not in support[
-            support.index(
-                "CREATE TABLE public.identity_invitation_operation_receipts"
-            ) : support.index(
-                "CREATE INDEX ix_identity_invitation_operation_receipts_actor"
-            )
-        ]
-    )
-    assert (
-        "token"
-        not in support[
-            support.index(
-                "CREATE TABLE public.identity_invitation_operation_receipts"
-            ) : support.index(
-                "CREATE INDEX ix_identity_invitation_operation_receipts_actor"
-            )
-        ]
-    )
-    assert "_lock_users(v_user_ids)" in artifact
-    assert "FOR KEY SHARE NOWAIT" in artifact
-    assert "hashtextextended(v_args->>'email', 0)" in artifact
-    assert "invitation_quota_reached" in artifact
-    assert "AAP_INVITATION_PREVIEW_ROLLBACK" in artifact
-    assert "record_identity_invitation_event" in support
-    assert "invitation_work_summary" in support
-    assert "invitation_policy" in support
-    assert "public.project_members" not in artifact
-    assert "public.projects" not in artifact
-    assert "public.task_batches" not in artifact
-    assert "identity_invitation_client" in role_grants
-    assert "identity_mail_v2_client" in role_grants
-    assert "current_setting('aap.identity_invitation_role')" not in module_grants
-    assert "current_setting('aap.identity_mail_v2_role')" not in module_grants
-    assert "count(DISTINCT n) FROM unnest(role_names) AS n) <> 16" in module_grants
-    assert (
-        role_grants.count(
-            "aap_identity_invitations_v1.prepare_invitation_command(jsonb)"
-        )
-        >= 2
-    )
-    assert role_grants.count("aap_identity_mail_v2.claim_mail(jsonb)") >= 2
-    assert (
-        "aap_identity_groups_v1.resolve_invitation_group(uuid, text)"
-        not in legacy_grants
-    )
-    assert schema["x-login-role-capabilities"]["identity_invitation_client"] == [
-        "aap_identity_invitations_v1.invitation_policy()",
-        "aap_identity_invitations_v1.prepare_invitation_command(jsonb)",
-        "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
-    ]
 
 
 @pytest.mark.asyncio

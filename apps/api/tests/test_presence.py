@@ -72,6 +72,12 @@ async def test_heartbeat_updates_last_seen_at(httpx_client, annotator):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 204, res.text
+    profile = await httpx_client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["status"] == "online"
+    assert profile.json()["last_seen_at"] is not None
 
 
 async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession):
