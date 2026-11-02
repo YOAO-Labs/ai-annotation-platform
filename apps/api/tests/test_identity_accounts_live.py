@@ -148,7 +148,7 @@ async def test_installed_account_process_node_replay_and_current_fences(
             row = (
                 await db.execute(
                     text(
-                        "SELECT name,preferences,status,last_seen_at,password_hash,password_admin_reset_at,credential_generation FROM users JOIN identity_account_presence ON user_id=users.id WHERE users.id=:id"
+                        "SELECT name,preferences,status,last_seen_at,password_hash,password_admin_reset_at,credential_generation FROM users JOIN identity_account_presence ON identity_account_presence.user_id=users.id JOIN identity_account_preferences ON identity_account_preferences.user_id=users.id WHERE users.id=:id"
                     ),
                     {"id": actor},
                 )
@@ -227,7 +227,7 @@ async def test_installed_account_process_node_replay_and_current_fences(
             async with maker.begin() as db:
                 await db.execute(
                     text(
-                        "UPDATE users SET preferences=jsonb_set(preferences,'{ui,theme}','\"system\"') WHERE id=:id"
+                        "UPDATE identity_account_preferences SET preferences=jsonb_set(preferences,'{ui,theme}','\"system\"') WHERE user_id=:id"
                     ),
                     {"id": actor},
                 )
@@ -239,7 +239,7 @@ async def test_installed_account_process_node_replay_and_current_fences(
                 assert (
                     await db.scalar(
                         text(
-                            "SELECT preferences#>>'{ui,theme}' FROM users WHERE id=:id"
+                            "SELECT preferences#>>'{ui,theme}' FROM identity_account_preferences WHERE user_id=:id"
                         ),
                         {"id": actor},
                     )

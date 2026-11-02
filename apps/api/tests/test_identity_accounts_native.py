@@ -398,8 +398,8 @@ async def test_preferences_keep_raw_base_and_avatar_noop_has_no_cleanup_target(
         async with maker.begin() as session:
             await session.execute(
                 text(
-                    "UPDATE public.users SET preferences=CAST(:preferences AS jsonb) "
-                    "WHERE id=:id"
+                    "UPDATE public.identity_account_preferences SET preferences=CAST(:preferences AS jsonb) "
+                    "WHERE user_id=:id"
                 ),
                 {
                     "preferences": json.dumps(raw_preferences),
@@ -427,7 +427,9 @@ async def test_preferences_keep_raw_base_and_avatar_noop_has_no_cleanup_target(
                 "changed": None,
             }
             stored = await session.scalar(
-                text("SELECT preferences FROM public.users WHERE id=:id"),
+                text(
+                    "SELECT preferences FROM public.identity_account_preferences WHERE user_id=:id"
+                ),
                 {"id": fixture["actor_id"]},
             )
             assert stored == merged_preferences
@@ -445,8 +447,8 @@ async def test_preferences_keep_raw_base_and_avatar_noop_has_no_cleanup_target(
             locked_snapshot = prepared["data"]["account"]["preferences"]
             await session.execute(
                 text(
-                    "UPDATE public.users SET preferences=CAST(:preferences AS jsonb) "
-                    "WHERE id=:id"
+                    "UPDATE public.identity_account_preferences SET preferences=CAST(:preferences AS jsonb) "
+                    "WHERE user_id=:id"
                 ),
                 {
                     "preferences": json.dumps({"changed_by": "same transaction"}),

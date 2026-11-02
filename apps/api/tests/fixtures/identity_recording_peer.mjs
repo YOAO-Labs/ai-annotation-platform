@@ -11,7 +11,7 @@ try {
   await client.connect();
   for (const sql of [
     "SELECT id FROM public.users",
-    "UPDATE public.users SET preferences='{}'::jsonb WHERE false",
+    "UPDATE public.identity_account_preferences SET preferences='{}'::jsonb WHERE false",
   ])
     await assert.rejects(client.query(sql), { code: "42501" });
   await client.query("BEGIN");

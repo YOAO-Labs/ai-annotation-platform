@@ -126,23 +126,20 @@ def _create(*, account_id, mode, email, name, password_hash, now, request_id) ->
     }
 
 
-def _profile(user: User, password: str) -> dict:
+async def _profile(db, user: User, password: str) -> dict:
     fields = (
         "email",
         "name",
         "role",
-        "status",
         "is_active",
         "group_name",
         "group_id",
         "credential_generation",
-        "preferences",
         "disabled_kind",
         "disabled_at",
         "disabled_by",
         "disabled_reason",
         "last_login_at",
-        "last_seen_at",
         "password_admin_reset_at",
         "deactivation_requested_at",
         "deactivation_reason",
@@ -151,6 +148,22 @@ def _profile(user: User, password: str) -> dict:
         "avatar_ref",
     )
     result = {field: getattr(user, field) for field in fields}
+    projection = (
+        (
+            await db.execute(
+                text(
+                    "SELECT presence.status, presence.last_seen_at, prefs.preferences "
+                    "FROM public.identity_account_presence AS presence "
+                    "JOIN public.identity_account_preferences AS prefs USING (user_id) "
+                    "WHERE presence.user_id = :user_id"
+                ),
+                {"user_id": user.id},
+            )
+        )
+        .mappings()
+        .one()
+    )
+    result.update(projection)
     for field in ("group_id", "disabled_by"):
         if result[field] is not None:
             result[field] = str(result[field])
@@ -263,7 +276,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
         user = await db.scalar(select(User).where(User.id == account_id))
         assert user is not None
         expected_profile = {**bootstrap_expected["profile"], "email": email}
-        assert _profile(user, password) == expected_profile
+        assert await _profile(db, user, password) == expected_profile
         audit = await db.scalar(
             select(AuditLog).where(
                 AuditLog.actor_id == account_id,
@@ -297,7 +310,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
     async with maker() as db:
         user = await db.scalar(select(User).where(User.id == account_id))
         assert user is not None
-        assert _profile(user, password) == expected_profile
+        assert await _profile(db, user, password) == expected_profile
     assert legacy["bootstrap"]["replayed_created"] is False
     assert legacy["bootstrap"]["profile_unchanged"] is True
     assert (
@@ -441,7 +454,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
         async with maker() as db:
             admin = await db.scalar(select(User).where(User.id == import_id))
             assert admin is not None
-            import_profile = _profile(admin, import_password)
+            import_profile = await _profile(db, admin, import_password)
             import_audit_count = await db.scalar(
                 select(func.count(AuditLog.id)).where(AuditLog.actor_id == import_id)
             )
@@ -472,7 +485,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
                 hash_password, "ExistingPreset123"
             )
             await db.flush()
-            existing_before = _profile(admin, "ExistingPreset123")
+            existing_before = await _profile(db, admin, "ExistingPreset123")
         existing_expected = legacy["existing_import"]
         existing = await _node_peer_async(
             container_id=container_id,
@@ -487,7 +500,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
             existing_actual = {
                 "reused_same_id": existing["results"][0]["account_id"]
                 == str(import_id),
-                "profile_unchanged": _profile(admin, "ExistingPreset123")
+                "profile_unchanged": await _profile(db, admin, "ExistingPreset123")
                 == existing_before,
                 "role": admin.role,
                 "is_active": admin.is_active,

@@ -242,7 +242,10 @@ async def _user_state(test_engine, email: str) -> dict:
                         "disabled_reason,email_verified_at,last_login_at,last_seen_at,"
                         "password_admin_reset_at,deactivation_requested_at,deactivation_reason,"
                         "deactivation_scheduled_at,weekly_target_default,avatar_ref,"
-                        "preferences,password_hash,created_at FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE email=:email"
+                        "preferences,password_hash,created_at FROM public.users "
+                        "JOIN public.identity_account_presence ON identity_account_presence.user_id=users.id "
+                        "JOIN public.identity_account_preferences ON identity_account_preferences.user_id=users.id "
+                        "WHERE email=:email"
                     ),
                     {"email": email},
                 )

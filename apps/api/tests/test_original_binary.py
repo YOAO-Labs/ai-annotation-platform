@@ -254,10 +254,8 @@ async def operations(world):
     return await world.db.scalar(select(func.count()).select_from(StorageOperation))
 
 
-@pytest.mark.parametrize("change", ["preferences", "disabled", "timeout"])
-async def test_original_recheck_waits_for_account_save_and_keeps_current_authority(
-    world, monkeypatch, change
-):
+@pytest.mark.parametrize("change", ["disabled", "timeout"])
+async def test_original_recheck_keeps_current_authority(world, monkeypatch, change):
     task, _, _ = await managed(world)
     context = await service.authorize_original(
         world.db,
@@ -275,7 +273,7 @@ async def test_original_recheck_waits_for_account_save_and_keeps_current_authori
         if change == "disabled":
             account.is_active = False
         else:
-            account.preferences = {"workbench": {"save_in_progress": True}}
+            account.name = "Concurrent account update"
         await holder.flush()
         holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
         pending = asyncio.create_task(service.recheck_original(world.db, context))
@@ -296,28 +294,13 @@ async def test_original_recheck_waits_for_account_save_and_keeps_current_authori
             assert world.provider.calls == []
             if change != "timeout":
                 await holder.commit()
-            if change in {"disabled", "timeout"}:
-                with pytest.raises(HTTPException) as error:
-                    await pending
-                assert error.value.status_code == (403 if change == "disabled" else 409)
-                assert error.value.detail["code"] == (
-                    "content_authority_revoked"
-                    if change == "disabled"
-                    else "content_busy"
-                )
-                assert world.provider.calls == []
-            else:
+            with pytest.raises(HTTPException) as error:
                 await pending
-                image = await read(
-                    world,
-                    context.resource,
-                    content_id=context.source.content_id,
-                    sha256=context.source.sha256,
-                )
-                try:
-                    assert image.file.read() == RAW
-                finally:
-                    image.close()
+            assert error.value.status_code == (403 if change == "disabled" else 409)
+            assert error.value.detail["code"] == (
+                "content_authority_revoked" if change == "disabled" else "content_busy"
+            )
+            assert world.provider.calls == []
         finally:
             await holder.rollback()
             if not pending.done():

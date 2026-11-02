@@ -64,6 +64,7 @@ async def media_world(test_engine):
 
 
 async def _actor(owner, email, *, role="employee", active=True, **fields):
+    preferences = fields.pop("preferences", None)
     async with owner.begin() as db:
         user = User(
             id=uuid.uuid4(),
@@ -76,6 +77,14 @@ async def _actor(owner, email, *, role="employee", active=True, **fields):
         )
         db.add(user)
         await db.flush()
+        if preferences is not None:
+            await db.execute(
+                text(
+                    "UPDATE public.identity_account_preferences "
+                    "SET preferences=CAST(:preferences AS jsonb) WHERE user_id=:id"
+                ),
+                {"id": user.id, "preferences": json.dumps(preferences)},
+            )
         return user.id, user.password_hash
 
 
@@ -83,7 +92,13 @@ async def _full_account(owner, email, *, original_hash=None):
     async with owner() as db:
         raw = await db.scalar(
             text(
-                "SELECT to_jsonb(account) FROM public.users AS account WHERE email=:email"
+                "SELECT to_jsonb(account) || jsonb_build_object("
+                "'status', presence.status, 'last_seen_at', presence.last_seen_at, "
+                "'preferences', prefs.preferences) "
+                "FROM public.users AS account "
+                "JOIN public.identity_account_presence AS presence ON presence.user_id=account.id "
+                "JOIN public.identity_account_preferences AS prefs ON prefs.user_id=account.id "
+                "WHERE account.email=:email"
             ),
             {"email": email},
         )

@@ -1156,7 +1156,9 @@ async def test_missing_thumbnail_is_invalidated_and_repair_operation_is_replay_s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure_code", ["permission_denied", "operation_busy"])
+@pytest.mark.parametrize(
+    "failure_code", ["permission_denied", "operation_busy", "source_busy"]
+)
 async def test_optional_thumbnail_warmup_denial_keeps_authorized_original(
     failure_code,
 ):
@@ -1183,7 +1185,10 @@ async def test_optional_thumbnail_warmup_denial_keeps_authorized_original(
 
 
 @pytest.mark.asyncio
-async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original():
+@pytest.mark.parametrize("failure_code", ["permission_denied", "source_busy"])
+async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original(
+    failure_code,
+):
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     current = source(
         owner=owner,
@@ -1196,7 +1201,7 @@ async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original(
             if operation in {"read_image_source", "observe_image_source"}:
                 return current
             if operation == "invalidate_image_media":
-                raise c.ImageFailure("permission_denied")
+                raise c.ImageFailure(failure_code)
             pytest.fail(f"unexpected operation {operation}")
 
     storage = FakeStorage()
@@ -1211,7 +1216,10 @@ async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original(
 
 
 @pytest.mark.asyncio
-async def test_source_reference_still_rechecks_actor_after_best_effort_denial():
+@pytest.mark.parametrize("failure_code", ["permission_denied", "source_busy"])
+async def test_source_reference_still_rechecks_actor_after_best_effort_denial(
+    failure_code,
+):
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     current = source(owner=owner)
     source_reads = 0
@@ -1227,7 +1235,7 @@ async def test_source_reference_still_rechecks_actor_after_best_effort_denial():
             if operation == "observe_image_source":
                 return current
             if operation == "prepare_image_media":
-                raise c.ImageFailure("permission_denied")
+                raise c.ImageFailure(failure_code)
             pytest.fail(f"unexpected operation {operation}")
 
     storage = FakeStorage()

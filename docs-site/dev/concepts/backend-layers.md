@@ -255,6 +255,8 @@ Operational bootstrap/import 不再由 API `IdentityCommandService` 自行查 Us
 在线状态扫描保留在 `workers/presence.py` 作为入口编排：每轮仍解析有效阈值并计算 UTC cutoff，随后提交、读取影响行数和记录日志；原 `status='online' AND (last_seen_at IS NULL OR last_seen_at < cutoff)` 的单次批量修改由 `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 持有。
 身份在线状态独立存储在 Identity 私有的一对一 presence 行，与账号安全事实分离。心跳仍在同一事务内持有账号和当前凭据围栏，但只更新 presence；登录、刷新、退出、账号停用和扫描使用同一状态行，账号删除时级联清除。账号和目录投影继续返回 `status` 与 `last_seen_at`，原账号行锁仍阻止并发安全变更。
 
+账号偏好保存在 Identity 私有的一对一偏好行；写入在账号与凭据围栏之后锁定该行并按原快照比较，回执和偏好同事务提交。原件读取使用的账号 SHARE/NOWAIT 围栏不再与偏好写入争用，账号停用、角色或凭据变更仍受原围栏约束。
+
 完整邀请生命周期由 `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py` 持有，通过私有 `aap-identity-invitations/v1` 覆盖 13 项邀请／注册／接受 operation。API 的 `api/v1/invitation_commands.py` 与 `services/identity_invitation_commands.py` 只绑定当前 Principal/HTTP errors 到 versioned owner，`identity_invitation_data.py` 是调用方事务的 SQL 适配；旧 `InvitationService`／`application/invitation_acceptance.py`／成员授予工作流不再作为另一套业务 writer。
 
 Owner 在同一 PostgreSQL transaction 里协调 Identity 的 User/Group/Invitation、Workspace project/member、Settings invitation policy、Labeling 的活动批次摘要和 typed Audit。Authority 锁按排序 User → email advisory key → Project → Invitation/ProjectMember，锁后重读 owner/current credentials；SMTP、bcrypt、JWT 签名和密文加密不跨 SQL 锁执行。Batch preview 完全 rollback，apply 用逐项 savepoint 后一次提交；list/query/export 与写入口共享相同 manager scope。新用户、Group 和 Workspace membership 同事务创建；已有账号接受不会改平台角色。

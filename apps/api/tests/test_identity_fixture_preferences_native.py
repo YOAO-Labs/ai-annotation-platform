@@ -104,7 +104,7 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
         record_property("fixture_preferences_node", json.loads(result.stdout))
 
 
-async def test_fixture_preferences_waits_for_the_actual_user_row(
+async def test_fixture_preferences_waits_for_the_preferences_row(
     test_engine, recording_consumer, monkeypatch, tmp_path, record_property
 ):
     async with recording_graph(test_engine) as ids:
@@ -118,7 +118,9 @@ async def test_fixture_preferences_waits_for_the_actual_user_row(
         async with test_engine.connect() as locker:
             transaction = await locker.begin()
             await locker.execute(
-                text("SELECT id FROM public.users WHERE id=:id FOR UPDATE"),
+                text(
+                    "SELECT user_id FROM public.identity_account_preferences WHERE user_id=:id FOR UPDATE"
+                ),
                 {"id": ids["recorder"]},
             )
             try:
@@ -155,7 +157,9 @@ async def test_fixture_preferences_waits_for_the_actual_user_row(
                     await asyncio.wait_for(asyncio.shield(pending), 15)
         async with test_engine.connect() as db:
             assert await db.scalar(
-                text("SELECT preferences FROM public.users WHERE id=:id"),
+                text(
+                    "SELECT preferences FROM public.identity_account_preferences WHERE user_id=:id"
+                ),
                 {"id": ids["recorder"]},
             ) == {"after_lock": "new"}
 

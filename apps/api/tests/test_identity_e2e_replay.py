@@ -88,7 +88,13 @@ async def test_e2e_login_replays_full_profile_and_cache(
                 async with test_engine.begin() as owner:
                     await owner.execute(
                         text(
-                            "UPDATE users SET email='changed@e2e.test',role='employee',preferences='{}'::jsonb WHERE id=:id"
+                            "UPDATE users SET email='changed@e2e.test',role='employee' WHERE id=:id"
+                        ),
+                        {"id": IDS["target"]},
+                    )
+                    await owner.execute(
+                        text(
+                            "UPDATE identity_account_preferences SET preferences='{}'::jsonb WHERE user_id=:id"
                         ),
                         {"id": IDS["target"]},
                     )

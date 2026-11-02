@@ -8,6 +8,7 @@ from typing import Sequence
 import uuid
 
 from sqlalchemy import Column, DateTime, MetaData, String, Table, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import registry
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,8 @@ _fixture_profile = Table(
                 if field == "status"
                 else DateTime(timezone=True)
                 if field == "last_seen_at"
+                else JSONB()
+                if field == "preferences"
                 else User.__table__.c[field].type
             ),
             primary_key=field == "id",

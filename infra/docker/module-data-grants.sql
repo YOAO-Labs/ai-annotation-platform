@@ -157,10 +157,10 @@ GRANT SELECT (
     disabled_kind, disabled_at, disabled_by, disabled_reason, email_verified_at,
     last_login_at, password_admin_reset_at, deactivation_requested_at,
     deactivation_reason,
-    deactivation_scheduled_at, preferences, avatar_ref, password_hash,
+    deactivation_scheduled_at, avatar_ref, password_hash,
     created_at, weekly_target_default
 ), UPDATE (
-    id, credential_generation, last_login_at, role, name, preferences,
+    id, credential_generation, last_login_at, role, name,
     password_hash, password_admin_reset_at, avatar_ref, email_verified_at,
     group_id, group_name, is_active, disabled_kind, disabled_at, disabled_by,
     disabled_reason, deactivation_requested_at, deactivation_reason,
@@ -171,9 +171,10 @@ GRANT SELECT (organization_id, user_id, deleted_at)
     ON public.organization_members TO :"identity_owner";
 GRANT INSERT (
     id, email, name, password_hash, credential_generation, role, group_name,
-    group_id, is_active, email_verified_at, preferences
+    group_id, is_active, email_verified_at
 ) ON public.users TO :"identity_owner";
 GRANT SELECT, INSERT, UPDATE ON public.identity_account_presence TO :"identity_owner";
+GRANT SELECT, INSERT, UPDATE ON public.identity_account_preferences TO :"identity_owner";
 GRANT SELECT (
     id, user_id, name, key_prefix, key_hash, scopes, expires_at, last_used_at,
     revoked_at, created_at
@@ -1574,6 +1575,7 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_task_references(uuid)
     TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_image_task_source(uuid, uuid, boolean),
+    aap_labeling_v1.read_image_task_source_share(uuid, uuid, boolean),
     aap_labeling_v1.observe_image_task_source(uuid, text, jsonb),
     aap_labeling_v1.publish_task_image_thumbnail(uuid, text, bigint, text, text),
     aap_labeling_v1.image_thumbnail_references(text),

@@ -1688,7 +1688,7 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 在全局注册表之上叠加一层**逻辑服务池**（`ml_backend_service_pools` + `ml_backend_pool_members`），把「项目请求一个逻辑能力」与「平台选择一个物理实例」拆成两个步骤。pool id 是逻辑请求身份，registry id 是物理执行身份，二者永不互换。
 
 - **一个 registry 实例同时最多属于一个服务池**。每个现有 registry 经迁移自动得到一个 singleton 服务池（`legacy_instance_id` 指向该 registry，off mode 下解析回原实例，行为与之前完全一致）。
-- **身份边界**：项目启用、项目主绑定和请求 lineage 使用 pool id；`preannotate_pipeline` 、`projects.default_variants` 以及 `users.preferences.ai` 中按 backend 分桶的公共配置仍使用 registry id，与当前 API schema 和前端注册表索引一致。派发时由 registry 的唯一成员关系解析所属 pool，不会在这两种 UUID 之间猜测或混用。
+- **身份边界**：项目启用、项目主绑定和请求 lineage 使用 pool id；`preannotate_pipeline`、`projects.default_variants` 以及账户偏好 `ai` 中按 backend 分桶的公共配置仍使用 registry id，与当前 API schema 和前端注册表索引一致。派发时由 registry 的唯一成员关系解析所属 pool，不会在这两种 UUID 之间猜测或混用。
 - **能力等价合同**：指纹以 `/setup` 派生的真实 `models[]` 目录为主，包含协议/模型/权重版本、task、modality、请求合法性参数、variant 轴与组合、tracker 及 batchable 等稳定合同字段，列表按确定规则排序后计算 SHA-256。URL、展示名、GPU / VRAM / residency、动态类别等实例态字段不参与。singleton 在首次有效探活时建立指纹；后续漂移的成员自动 disabled。
 - **持久路由 owner**：PostgreSQL 保存平滑加权轮询状态、执行 scope、真实 HTTP attempt、管理占用和后端连续性。Redis 仅提供非权威诊断，不作为真实工作已结束的证据，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
 - **双 ID 溯源**：`Prediction` / `FailedPrediction` 同时记录 `ml_backend_id`（实际执行的 selected instance）和 `ml_backend_pool_id`（requested pool）。多阶段聚合的 stage-level lineage 存 `PredictionMeta.extra.pipeline`。

@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+import json
 import uuid
 
 from sqlalchemy import text
@@ -63,10 +64,20 @@ async def recording_graph(engine):
                         password_hash="fixture-not-for-login",
                         role=role,
                         is_active=active,
-                        preferences=INITIAL_PREFERENCES,
                     )
                 )
             await db.flush()
+            await db.execute(
+                text(
+                    "UPDATE public.identity_account_preferences "
+                    "SET preferences=CAST(:preferences AS jsonb) "
+                    "WHERE user_id=ANY(CAST(:ids AS uuid[]))"
+                ),
+                {
+                    "preferences": json.dumps(INITIAL_PREFERENCES),
+                    "ids": [ids[name] for name in ("owner", "recorder", "annotator")],
+                },
+            )
             db.add(
                 MLBackendRegistry(
                     id=ids["backend"],
@@ -284,7 +295,7 @@ async def recording_snapshot(engine, *, with_aliases=False):
             (
                 await db.execute(
                     text(
-                        "SELECT id,email,role,is_active,preferences FROM users ORDER BY id"
+                        "SELECT users.id,email,role,is_active,preferences FROM users JOIN identity_account_preferences AS prefs ON prefs.user_id=users.id ORDER BY users.id"
                     )
                 )
             )

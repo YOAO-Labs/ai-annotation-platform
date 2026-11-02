@@ -166,7 +166,9 @@ async def _seed_directory_world(maker, actor, suffix):
         users["external"].group_id = group.id
         users["external"].group_name = group.name
         await db.execute(
-            text("UPDATE users SET preferences=CAST(:value AS jsonb) WHERE id=:id"),
+            text(
+                "UPDATE identity_account_preferences SET preferences=CAST(:value AS jsonb) WHERE user_id=:id"
+            ),
             {
                 "id": users["external"].id,
                 "value": (
@@ -279,7 +281,6 @@ async def _add_large_directory_catalog(maker, actor_ids, suffix, count=540):
             password_hash="fixture-only",
             role="employee",
             is_active=True,
-            preferences={},
             created_at=now - timedelta(seconds=index),
         )
         for index in range(count)

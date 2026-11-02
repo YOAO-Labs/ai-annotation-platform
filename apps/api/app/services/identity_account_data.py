@@ -73,7 +73,9 @@ class IdentityAccountCommandData:
             raise IdentityUnavailable() from None
 
     def _sync_profile(self, account):
-        values = account.model_dump(mode="python", exclude={"status", "last_seen_at"})
+        values = account.model_dump(
+            mode="python", exclude={"status", "last_seen_at", "preferences"}
+        )
         for instance in list(self.db.identity_map.values()):
             if isinstance(instance, User) and instance.id == account.id:
                 for name, value in values.items():
@@ -98,8 +100,6 @@ class IdentityAccountCommandData:
         reply = decode_native_account_reply(command, raw)
         if reply.data.account is not None:
             self._sync_profile(reply.data.account)
-        elif command.operation == "patch_preferences":
-            self._sync_field(command.actor.actor_id, preferences=command.new_value)
         elif command.operation == "change_password":
             self._sync_field(
                 command.actor.actor_id,

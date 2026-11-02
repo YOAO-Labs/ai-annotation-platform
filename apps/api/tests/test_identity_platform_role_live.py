@@ -196,8 +196,9 @@ async def _user_snapshot(maker, user_id):
             (
                 await db.execute(
                     text(
-                        "SELECT id, email, name, role, is_active, credential_generation, "
-                        "preferences FROM public.users WHERE id=:id"
+                        "SELECT users.id, email, name, role, is_active, credential_generation, "
+                        "preferences FROM public.users JOIN public.identity_account_preferences AS prefs "
+                        "ON prefs.user_id=users.id WHERE users.id=:id"
                     ),
                     {"id": user_id},
                 )
@@ -547,7 +548,7 @@ async def test_installed_platform_role_preview_replay_and_fences(
 
         await db.execute(
             text(
-                "UPDATE public.users SET preferences=CAST(:value AS jsonb) WHERE id=:id"
+                "UPDATE public.identity_account_preferences SET preferences=CAST(:value AS jsonb) WHERE user_id=:id"
             ),
             {
                 "id": cycle_target.id,
@@ -952,11 +953,18 @@ async def test_installed_platform_role_preview_replay_and_fences(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "UPDATE public.users SET email=:email, name='Cycle profile changed', "
-                    "preferences=CAST(:preferences AS jsonb) WHERE id=:id"
+                    "UPDATE public.users SET email=:email, name='Cycle profile changed' WHERE id=:id"
                 ),
                 {
                     "email": f"cycle-renamed-{suffix}@example.test",
+                    "id": cycle_target.id,
+                },
+            )
+            await db.execute(
+                text(
+                    "UPDATE public.identity_account_preferences SET preferences=CAST(:preferences AS jsonb) WHERE user_id=:id"
+                ),
+                {
                     "preferences": '{"opaque":{"big_integer":42,"new":true}}',
                     "id": cycle_target.id,
                 },

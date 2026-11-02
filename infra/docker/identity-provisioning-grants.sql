@@ -105,13 +105,15 @@ BEGIN
         FROM (VALUES
             ('id'), ('email'), ('name'), ('password_hash'),
             ('credential_generation'), ('role'), ('group_name'), ('group_id'),
-            ('is_active'), ('email_verified_at'), ('preferences')
+            ('is_active'), ('email_verified_at')
         ) AS required(column_name)
         WHERE NOT pg_catalog.has_column_privilege(
             identity_oid, 'public.users', required.column_name, 'INSERT'
         )
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.identity_account_presence', 'user_id', 'INSERT'
+    ) OR NOT pg_catalog.has_column_privilege(
+        identity_oid, 'public.identity_account_preferences', 'user_id', 'INSERT'
     ) THEN
         RAISE EXCEPTION 'Identity owner lacks the provisioning capabilities';
     END IF;

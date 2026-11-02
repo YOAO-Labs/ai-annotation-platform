@@ -65,7 +65,8 @@ def fixture_preferences_schema() -> dict[str, Any]:
                     },
                     "volatility": "VOLATILE",
                     "transaction_semantics": (
-                        "Replace public.users.preferences for the exact supplied ID, "
+                        "Replace public.identity_account_preferences.preferences for "
+                        "the exact supplied ID, "
                         "without merge, actor or account-state policy, journaling, "
                         "retry, or an independent transaction. A matching row counts "
                         "as one even when the JSON value is unchanged; a NULL or "

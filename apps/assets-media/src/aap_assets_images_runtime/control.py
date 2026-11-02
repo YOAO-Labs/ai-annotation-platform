@@ -532,6 +532,7 @@ class ImageControl:
                 "permission_denied",
                 "operation_busy",
                 "operation_conflict",
+                "source_busy",
             }:
                 return False
             raise

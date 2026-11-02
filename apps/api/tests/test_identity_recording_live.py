@@ -281,7 +281,7 @@ async def _install_preferences_gate(
     body = f"""CREATE FUNCTION {function}() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $recording_pause$
 BEGIN
-    IF NEW.id = '{recorder_id}'::uuid
+    IF NEW.user_id = '{recorder_id}'::uuid
        AND NEW.preferences ->> 'recording_cancel_gate' = '{application_name}' THEN
         PERFORM pg_catalog.set_config('application_name', '{application_name}', true);
         PERFORM pg_catalog.pg_sleep(10);
@@ -293,7 +293,7 @@ $recording_pause$"""
         await db.execute(text(body))
         await db.execute(
             text(
-                f"CREATE TRIGGER {trigger} AFTER UPDATE OF preferences ON public.users "
+                f"CREATE TRIGGER {trigger} AFTER UPDATE OF preferences ON public.identity_account_preferences "
                 f"FOR EACH ROW EXECUTE FUNCTION {function}()"
             )
         )
@@ -303,7 +303,11 @@ $recording_pause$"""
 async def _drop_preferences_gate(test_engine, gate: tuple[str, str]) -> None:
     function, trigger = gate
     async with test_engine.begin() as db:
-        await db.execute(text(f"DROP TRIGGER IF EXISTS {trigger} ON public.users"))
+        await db.execute(
+            text(
+                f"DROP TRIGGER IF EXISTS {trigger} ON public.identity_account_preferences"
+            )
+        )
         await db.execute(text(f"DROP FUNCTION IF EXISTS {function}()"))
 
 

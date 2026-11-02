@@ -505,7 +505,7 @@ async def test_installed_suspension_replay_reservation_credentials_and_host_samp
         assert json.loads(large_preferences)["opaque"]["wide"] == 9007199254740993
         await db.execute(
             text(
-                "UPDATE public.users SET preferences=CAST(:value AS jsonb) WHERE id=:id"
+                "UPDATE public.identity_account_preferences SET preferences=CAST(:value AS jsonb) WHERE user_id=:id"
             ),
             {"value": large_preferences, "id": large_target.id},
         )

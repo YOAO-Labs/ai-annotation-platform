@@ -8,9 +8,8 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     func,
-    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -85,10 +84,6 @@ class User(Base):
     # 头像引用。NULL = 首字母回退；`preset:<slug>` = 内置像素头像；`upload:<32位hex>` = 用户上传。
     # 语法与解析集中在 services/avatar.py；upload: 只能由上传端点写入,客户端不可自选。
     avatar_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    # v0.9.41 · 用户偏好 JSONB：标注工作台渲染配置（smoothImage / cssImageFilter / 顶点大小等）；schema 在 schemas/user_preferences.py。
-    preferences: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -111,12 +111,23 @@ async def accounts(engine):
                 password_admin_reset_at=STAMP,
                 deactivation_requested_at=STAMP,
                 deactivation_scheduled_at=STAMP + timedelta(days=7),
-                preferences={"unknown": {"unicode": "雪", "nested": [None, False, {}]}},
                 avatar_ref="preset:fox",
                 created_at=STAMP,
             )
         )
         await db.flush()
+        await db.execute(
+            text(
+                "UPDATE public.identity_account_preferences "
+                "SET preferences=CAST(:preferences AS jsonb) WHERE user_id=:id"
+            ),
+            {
+                "id": IDS["target"],
+                "preferences": json.dumps(
+                    {"unknown": {"unicode": "雪", "nested": [None, False, {}]}}
+                ),
+            },
+        )
         await db.execute(
             text(
                 "UPDATE identity_account_presence SET last_seen_at=:seen WHERE user_id=:id"
@@ -170,7 +181,7 @@ async def snapshot(engine):
                     await db.execute(
                         text(
                             "SELECT users.id,email,name,role,is_active,presence.status,preferences "
-                            "FROM users JOIN identity_account_presence AS presence ON presence.user_id=users.id ORDER BY email"
+                            "FROM users JOIN identity_account_presence AS presence ON presence.user_id=users.id JOIN identity_account_preferences AS prefs ON prefs.user_id=users.id ORDER BY email"
                         )
                     )
                 ).mappings()

@@ -799,6 +799,37 @@ async def test_patch_ui_theme_default_and_invalid(httpx_client, annotator):
 # ── 6. 0103 迁移 SQL ────────────────────────────────────────────────
 
 
+async def _store_raw_preferences(db_session, user, value):
+    await db_session.execute(
+        sa.text(
+            "SELECT aap_identity_v1.replace_fixture_preferences(:id, CAST(:value AS jsonb))"
+        ),
+        {"id": user.id, "value": json.dumps(value)},
+    )
+
+
+async def _legacy_preferences_table(db_session, value):
+    await db_session.execute(
+        sa.text(
+            "CREATE TEMP TABLE users (id uuid PRIMARY KEY, preferences jsonb NOT NULL) ON COMMIT DROP"
+        )
+    )
+    await db_session.execute(
+        sa.text("INSERT INTO users VALUES (gen_random_uuid(), CAST(:value AS jsonb))"),
+        {"value": json.dumps(value)},
+    )
+
+
+async def _legacy_preferences(db_session):
+    return await db_session.scalar(sa.text("SELECT preferences FROM users"))
+
+
+async def _current_preferences(httpx_client, token):
+    response = await httpx_client.get(PREFS_URL, headers=_bearer(token))
+    assert response.status_code == 200
+    return response.json()
+
+
 def _load_migration_0103():
     path = (
         Path(__file__).resolve().parents[1]
@@ -825,19 +856,17 @@ LEGACY_FLAT_PREFS = {
 }
 
 
-async def test_migration_0103_up_down_and_idempotency(db_session, annotator):
+async def test_migration_0103_up_down_and_idempotency(db_session):
     mod = _load_migration_0103()
-    user, _ = annotator
-    user.preferences = copy.deepcopy(LEGACY_FLAT_PREFS)
-    await db_session.flush()
+    await _legacy_preferences_table(db_session, LEGACY_FLAT_PREFS)
 
     # up：平铺键搬入子树，layout / ai 不动
     res = await db_session.execute(
         sa.text(mod.UP_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
     assert res.rowcount == 1
-    await db_session.refresh(user)
-    wb = user.preferences["workbench"]
+    preferences = await _legacy_preferences(db_session)
+    wb = preferences["workbench"]
     assert wb["image"] == {
         "smoothImage": False,
         "cssImageFilter": "contrast(1.2)",
@@ -854,9 +883,8 @@ async def test_migration_0103_up_down_and_idempotency(db_session, annotator):
         "longTaskSampleRate",
     ):
         assert flat_key not in wb
-    assert user.preferences["ai"] == LEGACY_FLAT_PREFS["ai"]
-    # 迁移产物可过新 schema 校验（forbid 不破）
-    UserPreferences.model_validate(user.preferences)
+    assert preferences["ai"] == LEGACY_FLAT_PREFS["ai"]
+    UserPreferences.model_validate(preferences)
 
     # 幂等：再跑一遍不命中任何行
     res = await db_session.execute(
@@ -869,8 +897,7 @@ async def test_migration_0103_up_down_and_idempotency(db_session, annotator):
         sa.text(mod.DOWN_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
     assert res.rowcount == 1
-    await db_session.refresh(user)
-    assert user.preferences == LEGACY_FLAT_PREFS
+    assert await _legacy_preferences(db_session) == LEGACY_FLAT_PREFS
     # down 幂等
     res = await db_session.execute(
         sa.text(mod.DOWN_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
@@ -878,41 +905,40 @@ async def test_migration_0103_up_down_and_idempotency(db_session, annotator):
     assert res.rowcount == 0
 
 
-async def test_migration_0103_up_subtree_value_wins_over_flat(db_session, annotator):
-    """窗口期同一行既有平铺键又有子树键（提升器已写过）→ 子树值为准。"""
+async def test_migration_0103_up_subtree_value_wins_over_flat(db_session):
     mod = _load_migration_0103()
-    user, _ = annotator
-    user.preferences = {
-        "workbench": {
-            "controlPointsSize": 4,
-            "image": {"controlPointsSize": 12, "snapToGrid": True},
-        }
-    }
-    await db_session.flush()
+    await _legacy_preferences_table(
+        db_session,
+        {
+            "workbench": {
+                "controlPointsSize": 4,
+                "image": {"controlPointsSize": 12, "snapToGrid": True},
+            }
+        },
+    )
 
     res = await db_session.execute(
         sa.text(mod.UP_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
     assert res.rowcount == 1
-    await db_session.refresh(user)
-    image = user.preferences["workbench"]["image"]
+    image = (await _legacy_preferences(db_session))["workbench"]["image"]
     assert image["controlPointsSize"] == 12
     assert image["snapToGrid"] is True
 
 
-async def test_migration_0103_skips_rows_without_flat_keys(db_session, annotator):
-    """已是新形态 / 只有 layout 的行不被 up 触碰。"""
+async def test_migration_0103_skips_rows_without_flat_keys(db_session):
     mod = _load_migration_0103()
-    user, _ = annotator
-    user.preferences = {"workbench": {"layout": {"leftOpen": True}}}
-    await db_session.flush()
+    await _legacy_preferences_table(
+        db_session, {"workbench": {"layout": {"leftOpen": True}}}
+    )
 
     res = await db_session.execute(
         sa.text(mod.UP_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
     assert res.rowcount == 0
-    await db_session.refresh(user)
-    assert user.preferences == {"workbench": {"layout": {"leftOpen": True}}}
+    assert await _legacy_preferences(db_session) == {
+        "workbench": {"layout": {"leftOpen": True}}
+    }
 
 
 # ── 7. v0.16-pre · 运行期剥离已移除的 layout 像素键（leftWidth/rightWidth）─────
@@ -925,10 +951,15 @@ async def test_get_preferences_strips_removed_layout_px_keys(
 ):
     """存量行残留 layout.leftWidth/rightWidth 时 GET 不再 422，旧键剥离、合法键保留、pct 走默认。"""
     user, token = annotator
-    user.preferences = {
-        "workbench": {"layout": {"leftWidth": 320, "rightWidth": 360, "leftOpen": True}}
-    }
-    await db_session.flush()
+    await _store_raw_preferences(
+        db_session,
+        user,
+        {
+            "workbench": {
+                "layout": {"leftWidth": 320, "rightWidth": 360, "leftOpen": True}
+            }
+        },
+    )
 
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
@@ -946,8 +977,11 @@ async def test_patch_non_workbench_subtree_heals_residual_layout_keys(
 ):
     """存量 workbench 残留旧键时，PATCH 非 workbench 子树（ui）不 422，且 merged 存回时旧键被剥离（自愈）。"""
     user, token = annotator
-    user.preferences = {"workbench": {"layout": {"leftWidth": 320, "leftOpen": False}}}
-    await db_session.flush()
+    await _store_raw_preferences(
+        db_session,
+        user,
+        {"workbench": {"layout": {"leftWidth": 320, "leftOpen": False}}},
+    )
 
     resp = await httpx_client.patch(
         PREFS_URL, json={"ui": {"theme": "dark"}}, headers=_bearer(token)
@@ -1408,13 +1442,13 @@ async def test_workspace_schema_downgrade_rejects_entire_patch(
         headers=_bearer(token),
     )
     assert response.status_code == 200
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     patch = _workspace_patch(_workspace_envelope(older))
     patch["ui"] = {"theme": "dark"}
     response = await httpx_client.patch(PREFS_URL, json=patch, headers=_bearer(token))
     assert response.status_code == 409
     assert response.json()["detail"] == "layout_schema_downgrade"
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 def _named_preset(name, context="annotate:image", version=5):
@@ -1438,17 +1472,20 @@ def _named_presets_only_patch(presets, revision="0"):
 
 
 async def _store_raw_named_presets(user, db_session, presets, engine="dockview@9"):
-    user.preferences = {
-        "workbench": {
-            "layout": {
-                "workspace": {
-                    "engine": engine,
-                    "namedPresets": copy.deepcopy(presets),
+    await _store_raw_preferences(
+        db_session,
+        user,
+        {
+            "workbench": {
+                "layout": {
+                    "workspace": {
+                        "engine": engine,
+                        "namedPresets": copy.deepcopy(presets),
+                    }
                 }
             }
-        }
-    }
-    await db_session.flush()
+        },
+    )
 
 
 async def _saved_presets(httpx_client, token):
@@ -1512,14 +1549,14 @@ async def test_named_presets_cap_at_five_per_user(httpx_client, annotator):
     )
     assert response.status_code == 200, response.text
     revision = response.json()["namedPresetsRevision"]
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
 
     six = {**five, "p5": _named_preset("布局 5")}
     response = await httpx_client.patch(
         PREFS_URL, json=_named_presets_patch(six, revision), headers=_bearer(token)
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
     # 先删一条即可腾出名额。
     freed = {key: value for key, value in five.items() if key != "p0"}
@@ -1551,7 +1588,7 @@ async def test_named_presets_revision_rejects_second_client_stale_map(
     )
     assert response.status_code == 200, response.text
     current_revision = response.json()["namedPresetsRevision"]
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
 
     client_b = {"p1": {**original["p1"], "name": "设备 B 旧图重命名"}}
     response = await httpx_client.patch(
@@ -1565,7 +1602,7 @@ async def test_named_presets_revision_rejects_second_client_stale_map(
         "message": "命名布局预设已在其他会话更新，请刷新后重试",
         "currentRevision": current_revision,
     }
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
     assert await _saved_presets(httpx_client, token) == client_a
 
 
@@ -1631,17 +1668,17 @@ async def test_named_presets_legacy_write_establishes_revision_once(
 @pytest.mark.parametrize("revision", [None, 1, "1", "g" * 32, "a" * 31, "A" * 32])
 async def test_named_presets_reject_invalid_revision(httpx_client, annotator, revision):
     user, token = annotator
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     patch = _named_presets_only_patch({"p1": _named_preset("新布局")}, revision)
 
     response = await httpx_client.patch(PREFS_URL, json=patch, headers=_bearer(token))
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 async def test_named_presets_revision_is_read_only_without_map(httpx_client, annotator):
     user, token = annotator
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     response = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -1652,7 +1689,7 @@ async def test_named_presets_revision_is_read_only_without_map(httpx_client, ann
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "named_presets_revision_read_only"
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 async def test_preset_only_patch_seeds_engine_when_workspace_is_missing(
@@ -1797,7 +1834,7 @@ async def test_named_presets_can_reduce_stored_over_limit_opaque_map(
     revision = response.json()["namedPresetsRevision"]
     assert response.json()["workbench"]["layout"]["workspace"]["namedPresets"] == stored
 
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     response = await httpx_client.patch(
         PREFS_URL,
         json=_named_presets_only_patch(
@@ -1813,7 +1850,7 @@ async def test_named_presets_can_reduce_stored_over_limit_opaque_map(
         headers=_bearer(token),
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
     reduced = {key: value for key, value in stored.items() if key != "future0"}
     response = await httpx_client.patch(
@@ -1838,7 +1875,7 @@ async def test_named_presets_reject_duplicate_name_against_opaque_entry(
         "snapshot": {"future": True},
     }
     await _store_raw_named_presets(user, db_session, {"future": future})
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
 
     response = await httpx_client.patch(
         PREFS_URL,
@@ -1848,7 +1885,7 @@ async def test_named_presets_reject_duplicate_name_against_opaque_entry(
         headers=_bearer(token),
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 async def test_named_presets_can_shrink_stored_opaque_duplicate_group(
@@ -1893,7 +1930,7 @@ async def test_named_presets_reject_new_opaque_entry_and_engine_downgrade(
         "snapshot": {"future": None},
     }
     await _store_raw_named_presets(user, db_session, {"future": future})
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
 
     response = await httpx_client.patch(
         PREFS_URL,
@@ -1909,7 +1946,7 @@ async def test_named_presets_reject_new_opaque_entry_and_engine_downgrade(
         headers=_bearer(token),
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
     response = await httpx_client.patch(
         PREFS_URL,
@@ -1919,7 +1956,7 @@ async def test_named_presets_reject_new_opaque_entry_and_engine_downgrade(
         headers=_bearer(token),
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
     response = await httpx_client.patch(
         PREFS_URL,
@@ -1932,7 +1969,7 @@ async def test_named_presets_reject_new_opaque_entry_and_engine_downgrade(
         headers=_bearer(token),
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
     response = await httpx_client.patch(
         PREFS_URL,
@@ -1950,7 +1987,7 @@ async def test_named_presets_reject_new_opaque_entry_and_engine_downgrade(
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "layout_engine_downgrade"
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 @pytest.mark.parametrize(
@@ -1965,12 +2002,12 @@ async def test_named_presets_reject_new_opaque_entry_and_engine_downgrade(
 )
 async def test_named_presets_reject_invalid_entries(httpx_client, annotator, presets):
     user, token = annotator
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     response = await httpx_client.patch(
         PREFS_URL, json=_named_presets_patch(presets), headers=_bearer(token)
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 def test_named_preset_reuses_live_snapshot_grammar():
@@ -1989,21 +2026,21 @@ async def test_workspace_invalid_patch_returns_422_without_writing(
     httpx_client, annotator
 ):
     user, token = annotator
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     envelope = _workspace_envelope()
     envelope["snapshot"]["layout"]["popoutGroups"] = []
     response = await httpx_client.patch(
         PREFS_URL, json=_workspace_patch(envelope), headers=_bearer(token)
     )
     assert response.status_code == 422
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 async def test_workspace_overflow_number_returns_422_without_writing(
     httpx_client, annotator
 ):
     user, token = annotator
-    previous = copy.deepcopy(user.preferences)
+    previous = await _current_preferences(httpx_client, token)
     # A valid JSON exponent overflows Python's float. Send raw HTTP JSON so the
     # client's own finite-number encoder cannot reject it before reaching the API.
     body = json.dumps(_workspace_patch(_workspace_envelope())).replace(
@@ -2016,7 +2053,7 @@ async def test_workspace_overflow_number_returns_422_without_writing(
     )
     assert response.status_code == 422
     assert "finite JSON values" in response.json()["detail"][0]["msg"]
-    assert user.preferences == previous
+    assert await _current_preferences(httpx_client, token) == previous
 
 
 @pytest.mark.parametrize(
@@ -2041,10 +2078,11 @@ async def test_workspace_get_and_unrelated_patch_preserve_unknown_or_corrupt_val
     httpx_client, annotator, db_session, workspace
 ):
     user, token = annotator
-    user.preferences = {
-        "workbench": {"layout": {"workspace": copy.deepcopy(workspace)}}
-    }
-    await db_session.flush()
+    await _store_raw_preferences(
+        db_session,
+        user,
+        {"workbench": {"layout": {"workspace": copy.deepcopy(workspace)}}},
+    )
     response = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert response.status_code == 200
     assert response.json()["workbench"]["layout"]["workspace"] == workspace
@@ -2053,7 +2091,9 @@ async def test_workspace_get_and_unrelated_patch_preserve_unknown_or_corrupt_val
     )
     assert response.status_code == 200
     assert response.json()["workbench"]["layout"]["workspace"] == workspace
-    assert user.preferences["workbench"]["layout"]["workspace"] == workspace
+    assert (await _current_preferences(httpx_client, token))["workbench"]["layout"][
+        "workspace"
+    ] == workspace
 
 
 def test_workspace_rejects_invalid_grammar_and_resource_limits():
@@ -2170,7 +2210,7 @@ async def test_workspace_concurrent_context_writes_refresh_locked_identity(test_
         await setup.commit()
     try:
         async with maker() as first, maker() as second:
-            user_a = await first.get(User, user_id)
+            _user_a = await first.get(User, user_id)
             _user_b = await second.get(User, user_id)
             write_a = await preauthenticated_preferences_writer(first, user_id)
             write_b = await preauthenticated_preferences_writer(second, user_id)
@@ -2178,10 +2218,16 @@ async def test_workspace_concurrent_context_writes_refresh_locked_identity(test_
                 write_a(_workspace_patch(_workspace_envelope(), "annotate:image")),
                 write_b(_workspace_patch(_workspace_envelope(), "review:video")),
             )
-            await first.refresh(user_a)
-            assert set(
-                user_a.preferences["workbench"]["layout"]["workspace"]["contexts"]
-            ) == {"annotate:image", "review:video"}
+            stored = await first.scalar(
+                sa.text(
+                    "SELECT preferences FROM public.identity_account_preferences WHERE user_id=:id"
+                ),
+                {"id": user_id},
+            )
+            assert set(stored["workbench"]["layout"]["workspace"]["contexts"]) == {
+                "annotate:image",
+                "review:video",
+            }
             # The second identity remains stale while the first upgrades a context.
             await write_a(_workspace_patch(_workspace_envelope(3)))
             with pytest.raises(HTTPException) as caught:
@@ -2244,10 +2290,15 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
             await second.rollback()
 
         async with maker() as verification:
-            stored = await verification.get(User, user_id)
-            workspace = stored.preferences["workbench"]["layout"]["workspace"]
+            stored = await verification.scalar(
+                sa.text(
+                    "SELECT preferences FROM public.identity_account_preferences WHERE user_id=:id"
+                ),
+                {"id": user_id},
+            )
+            workspace = stored["workbench"]["layout"]["workspace"]
             assert workspace["namedPresets"] in (first_map, second_map)
-            assert stored.preferences["namedPresetsRevision"] != "0"
+            assert stored["namedPresetsRevision"] != "0"
     finally:
         async with maker() as cleanup:
             await cleanup.execute(sa.delete(User).where(User.id == user_id))
@@ -2535,8 +2586,9 @@ async def test_preferences_get_tolerates_corrupt_shortcut_subtree(
         "schemaVersion": 99,
         "image": {"legacy.command": [{"key": "k", "modifiers": []}]},
     }
-    user.preferences = {"workbench": {"shortcuts": corrupt}}
-    await db_session.flush()
+    await _store_raw_preferences(
+        db_session, user, {"workbench": {"shortcuts": corrupt}}
+    )
 
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
@@ -2550,8 +2602,7 @@ async def test_preferences_get_tolerates_corrupt_shortcut_subtree(
             "legacy.command": [{"key": "k", "modifiers": []}],
         },
     }
-    user.preferences = {"workbench": {"shortcuts": mixed}}
-    await db_session.flush()
+    await _store_raw_preferences(db_session, user, {"workbench": {"shortcuts": mixed}})
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
     # 整棵子树校验失败（存在未知命令）→ 原样透出；客户端宽容解析按条目排除。
@@ -2563,18 +2614,21 @@ async def test_shortcut_patch_preserves_untouched_invalid_entries(
 ):
     """同桶内改一条合法条目：未触碰的非法存量条目保留原值；显式重置该条目为 null 会清除。"""
     user, token = annotator
-    user.preferences = {
-        "workbench": {
-            "shortcuts": {
-                "schemaVersion": 1,
-                "image": {
-                    "legacy.command": [{"key": "k", "modifiers": []}],
-                    "image.tool.box": [{"key": "b", "modifiers": []}],
-                },
+    await _store_raw_preferences(
+        db_session,
+        user,
+        {
+            "workbench": {
+                "shortcuts": {
+                    "schemaVersion": 1,
+                    "image": {
+                        "legacy.command": [{"key": "k", "modifiers": []}],
+                        "image.tool.box": [{"key": "b", "modifiers": []}],
+                    },
+                }
             }
-        }
-    }
-    await db_session.flush()
+        },
+    )
 
     # 同桶内改一条合法命令：未触碰的非法存量条目原样保留。
     resp = await httpx_client.patch(
