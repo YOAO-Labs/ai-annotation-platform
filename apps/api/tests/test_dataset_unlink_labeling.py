@@ -531,7 +531,6 @@ async def test_unlink_scope_fails_fast_when_batch_or_target_task_is_locked(
         name="Dataset unlink lock fixture",
         password_hash="test-only",
         role="super_admin",
-        status="offline",
         is_active=True,
     )
     dataset = _new_dataset(owner.id, "Lock contention dataset")

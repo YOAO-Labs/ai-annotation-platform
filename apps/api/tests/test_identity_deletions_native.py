@@ -726,9 +726,15 @@ async def test_inactive_delete_noop_ignores_receiver_then_stale_retry_conflicts(
         async with maker.begin() as session:
             await session.execute(
                 text(
-                    "UPDATE public.users SET is_active=true, status='online', "
+                    "UPDATE public.users SET is_active=true, "
                     "disabled_kind=NULL, disabled_at=NULL, disabled_by=NULL, "
                     "disabled_reason=NULL WHERE id=:id"
+                ),
+                {"id": target_id},
+            )
+            await session.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
                 ),
                 {"id": target_id},
             )

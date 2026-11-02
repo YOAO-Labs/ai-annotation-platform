@@ -101,7 +101,6 @@ async def accounts(engine):
                 password_hash="opaque",
                 role="viewer",
                 group_name="分组",
-                status="offline",
                 is_active=False,
                 disabled_kind="manual",
                 disabled_at=STAMP,
@@ -109,7 +108,6 @@ async def accounts(engine):
                 disabled_reason="保留",
                 email_verified_at=STAMP,
                 last_login_at=STAMP,
-                last_seen_at=STAMP,
                 password_admin_reset_at=STAMP,
                 deactivation_requested_at=STAMP,
                 deactivation_scheduled_at=STAMP + timedelta(days=7),
@@ -119,6 +117,12 @@ async def accounts(engine):
             )
         )
         await db.flush()
+        await db.execute(
+            text(
+                "UPDATE identity_account_presence SET last_seen_at=:seen WHERE user_id=:id"
+            ),
+            {"seen": STAMP, "id": IDS["target"]},
+        )
         db.add_all(
             [
                 PasswordResetToken(
@@ -165,7 +169,8 @@ async def snapshot(engine):
                 for row in (
                     await db.execute(
                         text(
-                            "SELECT id,email,name,role,is_active,status,preferences FROM users ORDER BY email"
+                            "SELECT users.id,email,name,role,is_active,presence.status,preferences "
+                            "FROM users JOIN identity_account_presence AS presence ON presence.user_id=users.id ORDER BY email"
                         )
                     )
                 ).mappings()

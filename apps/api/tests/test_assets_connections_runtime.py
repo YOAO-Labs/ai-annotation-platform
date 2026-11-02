@@ -220,7 +220,6 @@ async def _stack(test_engine, app_module, monkeypatch, connections_image):
                 password_hash="unused-test",
                 role="project_admin",
                 is_active=True,
-                status="offline",
             )
         )
         await db.execute(

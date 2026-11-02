@@ -267,7 +267,6 @@ async def _seed_committed(test_engine, *, item_count: int = 1) -> dict:
                 name=f"task create {suffix}",
                 password_hash="test-only",
                 role="super_admin",
-                status="offline",
                 is_active=True,
             )
         )

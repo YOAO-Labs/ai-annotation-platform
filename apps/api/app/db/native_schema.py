@@ -34,6 +34,7 @@ NATIVE_MANAGED_TABLES = frozenset(
         "identity_key_operation_receipts",
         "identity_session_operation_receipts",
         "identity_account_operation_receipts",
+        "identity_account_presence",
         "identity_recovery_operation_receipts",
         "identity_credential_mail_outbox",
         "identity_group_operation_receipts",

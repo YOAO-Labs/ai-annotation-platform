@@ -279,7 +279,7 @@ async def test_open_registration_atomically_creates_verification_mail_and_receip
             assert (
                 await session.scalar(
                     text(
-                        "SELECT count(*) FROM public.users WHERE id=:id AND status='offline'"
+                        "SELECT count(*) FROM public.identity_account_presence WHERE user_id=:id AND status='offline'"
                     ),
                     {"id": operation_id},
                 )

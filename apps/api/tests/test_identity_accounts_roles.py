@@ -107,6 +107,7 @@ async def test_identity_account_login_has_only_three_functions_and_no_direct_acc
 
         for sql in (
             "SELECT * FROM public.users LIMIT 1",
+            "SELECT * FROM public.identity_account_presence LIMIT 1",
             "SELECT * FROM public.identity_account_operation_receipts LIMIT 1",
             "SELECT * FROM public.audit_logs LIMIT 1",
             "SELECT aap_audit_v1.record_identity_account_event('update_name',NULL,'{}','{}')",
@@ -170,6 +171,7 @@ async def test_identity_presence_login_has_only_its_operator_function():
         for sql in (
             "SELECT aap_identity_accounts_v1.account_policy()",
             "SELECT * FROM public.users LIMIT 1",
+            "SELECT * FROM public.identity_account_presence LIMIT 1",
             "SELECT * FROM public.identity_account_operation_receipts LIMIT 1",
             "SELECT * FROM public.audit_logs LIMIT 1",
             "CREATE TEMP TABLE identity_presence_forbidden(id integer)",

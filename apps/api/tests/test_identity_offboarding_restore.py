@@ -117,8 +117,14 @@ async def test_restored_offboarding_receipt_replays_and_populated_downgrade_refu
                     password_hash="old-offboarding-restore-hash",
                     role="employee",
                     is_active=True,
-                    status="online",
                 )
+            )
+            await session.flush()
+            await session.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
+                ),
+                {"id": target_id},
             )
 
         source_identity_dsn = _offboarding_dsn(test_engine)

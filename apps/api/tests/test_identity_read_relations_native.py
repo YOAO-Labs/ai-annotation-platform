@@ -304,8 +304,12 @@ async def test_views_keep_raw_fields_nullable_targets_and_identity_ownership(
     try:
         async with maker.begin() as db:
             await db.execute(
+                text("UPDATE users SET avatar_ref='avatars/raw-ref' WHERE id=:id"),
+                {"id": fixture["actor_id"]},
+            )
+            await db.execute(
                 text(
-                    "UPDATE users SET status='online',avatar_ref='avatars/raw-ref' WHERE id=:id"
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )

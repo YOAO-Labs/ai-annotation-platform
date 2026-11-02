@@ -545,7 +545,6 @@ async def test_owned_cleanup_does_not_match_legacy_shared_bug_prefix(
         name="Owned Bug Reporter",
         password_hash="x",
         role="employee",
-        status="offline",
         is_active=True,
     )
     db_session.add(reporter)

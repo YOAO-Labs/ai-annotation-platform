@@ -295,7 +295,7 @@ async def test_session_replay_restart_and_current_authority_with_scoped_redis(
                     row = (
                         await db.execute(
                             text(
-                                "SELECT credential_generation,status FROM public.users WHERE id=:id"
+                                "SELECT credential_generation,status FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                             ),
                             {"id": actor},
                         )

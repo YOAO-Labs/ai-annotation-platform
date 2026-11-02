@@ -243,7 +243,6 @@ async def test_resend_verification_always_202(
         name="Pending verification",
         password_hash="test-only",
         role="viewer",
-        status="offline",
         is_active=True,
         email_verified_at=None,
     )

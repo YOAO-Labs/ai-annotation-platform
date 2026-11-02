@@ -253,6 +253,7 @@ Operational bootstrap/import 不再由 API `IdentityCommandService` 自行查 Us
 `project_access.resolve_project_access()` 的非锁定 account status 读取复用现有 `IdentityAccountLockData.read_actor_status`／`read_actor_facts`；它仍按账号、刷新 Project、membership 的原顺序计算 ProjectAccess，不新增锁或 role guard。Project ORM refresh 及 401/Bearer/403/404 映射保持，active-only guard 不新增 role 检查。`task_lock.py`、`batch.py` 和 `async_job_access.py` 将 authority-only User reads 换为已有 status/lock facts；原 lock mode、等待/NOWAIT、异常、空值和 policy mapping 保留。该 consumer migration 不增加 SQL、wire 或 network capability，也不扩展 member/task lifecycle。本切片已通过限定本地资格，详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)；之前 account-lock 和 actor-context slices 继续独立计数。
 
 在线状态扫描保留在 `workers/presence.py` 作为入口编排：每轮仍解析有效阈值并计算 UTC cutoff，随后提交、读取影响行数和记录日志；原 `status='online' AND (last_seen_at IS NULL OR last_seen_at < cutoff)` 的单次批量修改由 `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 持有。
+身份在线状态独立存储在 Identity 私有的一对一 presence 行，与账号安全事实分离。心跳仍在同一事务内持有账号和当前凭据围栏，但只更新 presence；登录、刷新、退出、账号停用和扫描使用同一状态行，账号删除时级联清除。账号和目录投影继续返回 `status` 与 `last_seen_at`，原账号行锁仍阻止并发安全变更。
 
 完整邀请生命周期由 `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py` 持有，通过私有 `aap-identity-invitations/v1` 覆盖 13 项邀请／注册／接受 operation。API 的 `api/v1/invitation_commands.py` 与 `services/identity_invitation_commands.py` 只绑定当前 Principal/HTTP errors 到 versioned owner，`identity_invitation_data.py` 是调用方事务的 SQL 适配；旧 `InvitationService`／`application/invitation_acceptance.py`／成员授予工作流不再作为另一套业务 writer。
 

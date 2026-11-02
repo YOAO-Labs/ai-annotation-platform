@@ -176,11 +176,15 @@ async def _seed_directory_world(maker, actor, suffix):
                 ),
             },
         )
-        users["external"].status = "legacy-paused"
+        await db.execute(
+            text(
+                "UPDATE identity_account_presence SET status='legacy-paused' WHERE user_id=ANY(:ids)"
+            ),
+            {"ids": [users["external"].id, users["legacy_member"].id]},
+        )
         users["inactive_outside"].is_active = False
         users["inactive_own"].is_active = False
         users["task_lock_user"].is_active = False
-        users["legacy_member"].status = "legacy-paused"
 
         await create_membership(
             db,
@@ -275,7 +279,6 @@ async def _add_large_directory_catalog(maker, actor_ids, suffix, count=540):
             password_hash="fixture-only",
             role="employee",
             is_active=True,
-            status="offline",
             preferences={},
             created_at=now - timedelta(seconds=index),
         )

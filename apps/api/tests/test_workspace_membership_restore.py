@@ -109,7 +109,6 @@ async def test_membership_receipt_replays_after_restore_and_blocks_populated_dow
                         password_hash="fixture-only-workspace-membership",
                         role="super_admin",
                         is_active=True,
-                        status="online",
                     ),
                     User(
                         id=target_id,
@@ -118,11 +117,16 @@ async def test_membership_receipt_replays_after_restore_and_blocks_populated_dow
                         password_hash="fixture-only-workspace-target",
                         role="employee",
                         is_active=True,
-                        status="online",
                     ),
                 ]
             )
             await session.flush()
+            await session.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=ANY(:ids)"
+                ),
+                {"ids": [actor_id, target_id]},
+            )
             session.add(project)
 
         dsn = _membership_dsn(test_engine)

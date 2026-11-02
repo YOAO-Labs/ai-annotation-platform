@@ -365,7 +365,13 @@ async def test_python_fixture_write_waits_and_borrows_transaction(
     async with accounts(test_engine):
         async with test_engine.begin() as db:
             await db.execute(
-                text("UPDATE users SET is_active=true,status='online' WHERE id=:id"),
+                text("UPDATE users SET is_active=true WHERE id=:id"),
+                {"id": IDS["target"]},
+            )
+            await db.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
+                ),
                 {"id": IDS["target"]},
             )
         before = await snapshot(test_engine)
@@ -432,7 +438,9 @@ async def test_python_fixture_write_waits_and_borrows_transaction(
         async with test_engine.connect() as db:
             row = (
                 await db.execute(
-                    text("SELECT is_active,status,disabled_by FROM users WHERE id=:id"),
+                    text(
+                        "SELECT is_active,status,disabled_by FROM users JOIN identity_account_presence ON user_id=users.id WHERE users.id=:id"
+                    ),
                     {"id": IDS["target"]},
                 )
             ).one()

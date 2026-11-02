@@ -102,7 +102,6 @@ async def _seed_briefs_world(maker, fixture):
                 password_hash="brief-fixture-only",
                 role=item["role"],
                 is_active=item["is_active"],
-                status="offline",
                 disabled_kind="suspended" if item["key"] == "inactive" else None,
                 avatar_ref=item["avatar_ref"],
             )
@@ -115,7 +114,6 @@ async def _seed_briefs_world(maker, fixture):
             password_hash="brief-fixture-only",
             role="legacy-global-role",
             is_active=True,
-            status="offline",
             avatar_ref=None,
         )
         pending = User(
@@ -125,7 +123,6 @@ async def _seed_briefs_world(maker, fixture):
             password_hash="brief-fixture-only",
             role="employee",
             is_active=True,
-            status="offline",
             deactivation_requested_at=datetime.now(UTC),
             deactivation_scheduled_at=datetime.now(UTC) + timedelta(days=7),
             deactivation_reason="preserved reservation",

@@ -456,7 +456,7 @@ async def test_same_owner_child_prepare_http_and_destroy_use_owned_runtime_login
 
         state_query = text(
             "SELECT id,name,role,is_active,status,credential_generation FROM users "
-            "WHERE id=ANY(:ids) ORDER BY id"
+            "JOIN identity_account_presence ON user_id=users.id WHERE users.id=ANY(:ids) ORDER BY users.id"
         )
         async with owner_engine.connect() as db:
             before_restore = (

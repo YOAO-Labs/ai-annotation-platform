@@ -799,7 +799,16 @@ async def test_public_resolve_register_creates_group_membership_and_rolls_back_t
             user = await db.get(User, new_user_id)
             assert user is not None
             assert user.email == email and user.role == "employee"
-            assert user.is_active and user.status == "online"
+            assert user.is_active
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT status FROM identity_account_presence WHERE user_id=:id"
+                    ),
+                    {"id": user.id},
+                )
+                == "online"
+            )
             assert user.email_verified_at is not None
             assert user.group_id is not None and user.group_name == group_name
             group = await db.get(Group, user.group_id)

@@ -263,7 +263,7 @@ async def _lifecycle_state(maker, user_id):
                         "SELECT id,email,name,role,is_active,status,disabled_kind,disabled_at,"
                         "disabled_by,disabled_reason,deactivation_requested_at,"
                         "deactivation_scheduled_at,deactivation_reason,credential_generation "
-                        "FROM public.users WHERE id=:id"
+                        "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                     ),
                     {"id": user_id},
                 )
@@ -1015,7 +1015,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
             "Inactive legacy",
         )
         inactive_nonemployee.is_active = False
-        inactive_nonemployee.status = "offline"
         inactive_nonemployee.disabled_kind = "deleted"
         inactive_nonemployee.disabled_at = now
         inactive_nonemployee.disabled_by = super_admin_id
@@ -1027,7 +1026,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
             "Inactive cross scope",
         )
         inactive_cross_target.is_active = False
-        inactive_cross_target.status = "offline"
         inactive_cross_target.disabled_kind = "suspended"
         inactive_cross_target.disabled_at = now
         inactive_cross_target.disabled_by = super_admin_id
@@ -1039,7 +1037,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
             "Deleted employee",
         )
         nonreactivatable.is_active = False
-        nonreactivatable.status = "offline"
         nonreactivatable.disabled_kind = "deleted"
         nonreactivatable.disabled_at = now
         nonreactivatable.disabled_by = super_admin_id
@@ -1051,7 +1048,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
             "Viewer target",
         )
         role_forbidden_target.is_active = False
-        role_forbidden_target.status = "offline"
         role_forbidden_target.disabled_kind = "suspended"
         role_forbidden_target.disabled_at = now
         role_forbidden_target.disabled_by = super_admin_id

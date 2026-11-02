@@ -91,7 +91,6 @@ async def _seed_legacy_world(test_engine, fixture: dict):
                     password_hash="test-only-identity-briefs-hash",
                     role=item["role"],
                     is_active=is_active,
-                    status="online" if is_active else "offline",
                     disabled_kind=None if is_active else "suspended",
                     disabled_reason=None
                     if is_active
@@ -101,6 +100,12 @@ async def _seed_legacy_world(test_engine, fixture: dict):
                 )
             )
         await session.flush()
+        await session.execute(
+            text(
+                "UPDATE identity_account_presence SET status='online' WHERE user_id=ANY(:ids)"
+            ),
+            {"ids": [ids[item["key"]] for item in inputs if item["is_active"]]},
+        )
         project = await create_project(
             session, owner_id=ids["owner"], name="Identity briefs native test"
         )

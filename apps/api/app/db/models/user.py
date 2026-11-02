@@ -43,12 +43,9 @@ class User(Base):
         nullable=True,
         index=True,
     )
-    status: Mapped[str] = mapped_column(String(20), default="offline")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Account lifecycle metadata is deliberately separate from ``status``.
-    # ``status`` is the transient online/offline heartbeat state; these fields
-    # describe why an account stopped authenticating and whether that state is
-    # eligible for explicit reactivation.
+    # Lifecycle metadata describes why an account stopped authenticating.
+    # Transient presence is owned separately from the account authority row.
     disabled_kind: Mapped[str | None] = mapped_column(
         String(32), nullable=True, index=True
     )
@@ -69,11 +66,6 @@ class User(Base):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
-    )
-    # v0.8.3 · 心跳机制：登录 / POST /me/heartbeat / 关键操作时刷新；
-    # Celery beat 据此把 status='online' 但超 OFFLINE_THRESHOLD_MINUTES 未活跃的用户置 offline
-    last_seen_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
     )
     # v0.8.1 · 管理员重置密码后落时间戳，登录后强制跳改密；用户自助改密后清空。
     password_admin_reset_at: Mapped[datetime | None] = mapped_column(

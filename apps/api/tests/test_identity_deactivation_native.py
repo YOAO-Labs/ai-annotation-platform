@@ -295,7 +295,15 @@ async def test_due_page_completes_legacy_request_redacts_audit_and_replays(test_
             user = await session.get(User, fixture["actor_id"])
             assert user is not None
             assert user.is_active is False
-            assert user.status == "offline"
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT status FROM identity_account_presence WHERE user_id=:id"
+                    ),
+                    {"id": fixture["actor_id"]},
+                )
+                == "offline"
+            )
             assert user.disabled_kind == "deleted"
             assert user.disabled_by == fixture["actor_id"]
             assert user.disabled_reason == "legacy reason retained only on User"

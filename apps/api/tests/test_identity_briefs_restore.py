@@ -61,7 +61,6 @@ async def test_restored_database_retains_briefs_policy_and_reads(test_engine, tm
                 password_hash="test-only-briefs-restore-hash",
                 role="reviewer",
                 is_active=False,
-                status="offline",
                 disabled_kind="suspended",
                 avatar_ref="upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             )

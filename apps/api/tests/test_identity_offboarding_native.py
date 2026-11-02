@@ -719,10 +719,7 @@ async def test_native_apply_rejects_inactive_null_disabled_kind_without_effects(
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker.begin() as session:
         await session.execute(
-            text(
-                "UPDATE public.users SET disabled_kind=NULL, status='offline' "
-                "WHERE id=:target"
-            ),
+            text("UPDATE public.users SET disabled_kind=NULL WHERE id=:target"),
             {"target": target_id},
         )
 

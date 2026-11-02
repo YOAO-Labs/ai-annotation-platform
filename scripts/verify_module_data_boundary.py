@@ -4525,6 +4525,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_notifications_v1') IS NULL "
             "AND to_regclass('public.task_append_operations') IS NULL "
             "AND to_regclass('public.identity_account_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_account_presence') IS NULL "
             "AND to_regclass('public.identity_recovery_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_group_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_operation_receipts') IS NULL "
@@ -9154,7 +9155,18 @@ SELECT pg_catalog.jsonb_build_object(
             'aap_identity_v1.is_jti_revoked(uuid)', 'EXECUTE'),
         'get_credential_generation', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.get_credential_generation(uuid)', 'EXECUTE'))
+            'aap_identity_v1.get_credential_generation(uuid)', 'EXECUTE')),
+    'presence_private', NOT (
+        pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_presence',
+            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR pg_catalog.has_any_column_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_presence',
+            'SELECT,INSERT,UPDATE,REFERENCES')
+        OR pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1._initialize_account_presence()', 'EXECUTE')
+    )
 )::text;
 """,
             ).strip()
@@ -9174,6 +9186,10 @@ SELECT pg_catalog.jsonb_build_object(
         }:
             raise RuntimeError(
                 "Identity API consumer is missing an approved read capability"
+            )
+        if not identity_consumer_acl["presence_private"]:
+            raise RuntimeError(
+                "Identity API consumer can access private presence storage"
             )
         evidence["identity_api_consumer"] = {
             "role": IDENTITY_API_CONSUMER_ROLE,

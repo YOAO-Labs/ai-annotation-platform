@@ -92,8 +92,8 @@ async def probe_presence_task(celery_app):
             for user_id, age in ((stale, timedelta(hours=2)), (neighbor, timedelta())):
                 await db.execute(
                     text(
-                        "INSERT INTO users(id,email,name,password_hash,role,is_active,status,last_seen_at) "
-                        "VALUES(:id,:email,'Presence fixture','test-only','employee',true,'online',now()-CAST(:age AS interval))"
+                        "INSERT INTO users(id,email,name,password_hash,role,is_active) "
+                        "VALUES(:id,:email,'Presence fixture','test-only','employee',true)"
                     ),
                     {
                         "id": user_id,
@@ -101,10 +101,20 @@ async def probe_presence_task(celery_app):
                         "age": age,
                     },
                 )
+                await db.execute(
+                    text(
+                        "UPDATE identity_account_presence SET status='online',"
+                        "last_seen_at=now()-CAST(:age AS interval) WHERE user_id=:id"
+                    ),
+                    {"id": user_id, "age": age},
+                )
         async with owner.connect() as gate:
             transaction = await gate.begin()
             await gate.execute(
-                text("SELECT id FROM users WHERE id=:id FOR UPDATE"), {"id": stale}
+                text(
+                    "SELECT user_id FROM identity_account_presence WHERE user_id=:id FOR UPDATE"
+                ),
+                {"id": stale},
             )
             task = celery_app.send_task("app.workers.presence.mark_inactive_offline")
             try:
@@ -148,7 +158,9 @@ async def probe_presence_task(celery_app):
             states = dict(
                 (
                     await db.execute(
-                        text("SELECT id,status FROM users WHERE id=ANY(:ids)"),
+                        text(
+                            "SELECT user_id,status FROM identity_account_presence WHERE user_id=ANY(:ids)"
+                        ),
                         {"ids": [stale, neighbor]},
                     )
                 ).all()

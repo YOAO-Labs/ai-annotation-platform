@@ -18,9 +18,12 @@ try {
   ]) {
     await assert.rejects(client.query(`SELECT * FROM public.${name}`), { code: "42501" });
   }
-  await assert.rejects(client.query("UPDATE public.users SET status='offline' WHERE false"), {
-    code: "42501",
-  });
+  await assert.rejects(
+    client.query("UPDATE public.identity_account_presence SET status='offline' WHERE false"),
+    {
+      code: "42501",
+    },
+  );
   await client.query("BEGIN");
   const create = () =>
     client.query(

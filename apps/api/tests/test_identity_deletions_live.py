@@ -250,7 +250,7 @@ async def _user_state(maker, user_id):
                         "SELECT id, role, status, is_active, disabled_kind, disabled_at, "
                         "disabled_by, disabled_reason, credential_generation, "
                         "deactivation_requested_at, deactivation_scheduled_at, "
-                        "deactivation_reason FROM public.users WHERE id=:id"
+                        "deactivation_reason FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                     ),
                     {"id": user_id},
                 )
@@ -406,7 +406,6 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
                 "Historical inactive target",
             )
             inactive.is_active = False
-            inactive.status = "offline"
             inactive.disabled_kind = "suspended"
             inactive.disabled_at = datetime.now(UTC) - timedelta(days=4)
             inactive.disabled_by = actor_id
@@ -525,7 +524,12 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
                 ]
             )
             target.credential_generation = 7
-            target.status = "online"
+            await db.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
+                ),
+                {"id": target.id},
+            )
             target.last_login_at = datetime.now(UTC) - timedelta(hours=3)
             api_key, api_key_text = await create_api_key(
                 db, target.id, "Deletion must retain API key state", ["*"]

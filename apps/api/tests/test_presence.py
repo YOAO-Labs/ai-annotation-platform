@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.user import User
@@ -15,8 +16,29 @@ from app.workers.presence import mark_inactive_offline_with_session
 pytestmark = pytest.mark.asyncio
 
 
+async def _presence(db, user_id):
+    return (
+        await db.execute(
+            text(
+                "SELECT status, last_seen_at FROM identity_account_presence WHERE user_id=:id"
+            ),
+            {"id": user_id},
+        )
+    ).one()
+
+
+async def _set_presence(db, user_id, status, last_seen_at):
+    await db.execute(
+        text(
+            "UPDATE identity_account_presence SET status=:status, last_seen_at=:seen "
+            "WHERE user_id=:id"
+        ),
+        {"id": user_id, "status": status, "seen": last_seen_at},
+    )
+
+
 async def test_login_writes_last_seen_at(httpx_client, db_session: AsyncSession):
-    """登录成功 → user.last_seen_at 被写入（与 last_login_at 同步）。"""
+    """登录成功后，presence.last_seen_at 与账号 last_login_at 均有值。"""
     from app.core.security import hash_password
 
     user = User(
@@ -36,9 +58,10 @@ async def test_login_writes_last_seen_at(httpx_client, db_session: AsyncSession)
     assert res.status_code == 200, res.text
 
     await db_session.refresh(user)
-    assert user.last_seen_at is not None
+    status, last_seen_at = await _presence(db_session, user.id)
+    assert last_seen_at is not None
     assert user.last_login_at is not None
-    assert user.status == "online"
+    assert status == "online"
 
 
 async def test_heartbeat_updates_last_seen_at(httpx_client, annotator):
@@ -62,8 +85,6 @@ async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession)
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="online",
-        last_seen_at=now - timedelta(minutes=10),
     )
     fresh = User(
         email="presence-fresh@test.local",
@@ -71,8 +92,6 @@ async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession)
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="online",
-        last_seen_at=now - timedelta(seconds=30),
     )
     null_seen = User(
         email="presence-null@test.local",
@@ -80,8 +99,6 @@ async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession)
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="online",
-        last_seen_at=None,
     )
     already_offline = User(
         email="presence-off@test.local",
@@ -89,24 +106,26 @@ async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession)
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="offline",
-        last_seen_at=now - timedelta(hours=1),
     )
     for u in (stale, fresh, null_seen, already_offline):
         db_session.add(u)
     await db_session.flush()
+    for user, status, seen in (
+        (stale, "online", now - timedelta(minutes=10)),
+        (fresh, "online", now - timedelta(seconds=30)),
+        (null_seen, "online", None),
+        (already_offline, "offline", now - timedelta(hours=1)),
+    ):
+        await _set_presence(db_session, user.id, status, seen)
 
     result = await mark_inactive_offline_with_session(db_session)
     # stale + null_seen 应被翻；fresh / already_offline 不动
     assert result["affected"] >= 2
 
-    for u in (stale, fresh, null_seen, already_offline):
-        await db_session.refresh(u)
-
-    assert stale.status == "offline"
-    assert null_seen.status == "offline"
-    assert fresh.status == "online"  # 30s 前活跃，远低于 5min 阈值
-    assert already_offline.status == "offline"  # 本就是 offline
+    assert (await _presence(db_session, stale.id)).status == "offline"
+    assert (await _presence(db_session, null_seen.id)).status == "offline"
+    assert (await _presence(db_session, fresh.id)).status == "online"
+    assert (await _presence(db_session, already_offline.id)).status == "offline"
 
 
 async def test_presence_scan_reads_runtime_threshold(db_session: AsyncSession):
@@ -125,16 +144,14 @@ async def test_presence_scan_reads_runtime_threshold(db_session: AsyncSession):
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="online",
-        last_seen_at=now - timedelta(minutes=3),
     )
     db_session.add(user)
     await db_session.flush()
+    await _set_presence(db_session, user.id, "online", now - timedelta(minutes=3))
 
     result = await mark_inactive_offline_with_session(db_session)
     assert result["threshold_minutes"] == 2
-    await db_session.refresh(user)
-    assert user.status == "offline"
+    assert (await _presence(db_session, user.id)).status == "offline"
 
 
 async def test_identity_command_bulk_offline_is_set_based_and_transactional(
@@ -142,8 +159,6 @@ async def test_identity_command_bulk_offline_is_set_based_and_transactional(
 ):
     """NULL and strict cutoff selection roll back with the caller's transaction."""
     from uuid import uuid4
-
-    from sqlalchemy import select
 
     from app.core.security import hash_password
     from app.services.identity_account_data import IdentityPresenceCommandData
@@ -159,7 +174,7 @@ async def test_identity_command_bulk_offline_is_set_based_and_transactional(
         "offline": ("offline", cutoff - timedelta(days=1)),
     }
     user_ids = {}
-    for label, (status, last_seen_at) in states.items():
+    for label in states:
         user_id = uuid4()
         user_ids[label] = user_id
         db_session.add(
@@ -170,18 +185,21 @@ async def test_identity_command_bulk_offline_is_set_based_and_transactional(
                 password_hash=password_hash,
                 role="employee",
                 is_active=True,
-                status=status,
-                last_seen_at=last_seen_at,
             )
         )
     await db_session.flush()
+    for label, (status, last_seen_at) in states.items():
+        await _set_presence(db_session, user_ids[label], status, last_seen_at)
     fixture_ids = tuple(user_ids.values())
 
     async def read_statuses():
         return dict(
             (
                 await db_session.execute(
-                    select(User.id, User.status).where(User.id.in_(fixture_ids))
+                    text(
+                        "SELECT user_id, status FROM identity_account_presence WHERE user_id = ANY(:ids)"
+                    ),
+                    {"ids": list(fixture_ids)},
                 )
             ).all()
         )
@@ -219,8 +237,6 @@ async def test_users_stats_endpoint_weekly_active(
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="offline",
-        last_seen_at=now - timedelta(days=2),
     )
     old = User(
         email="stats-old@test.local",
@@ -228,12 +244,12 @@ async def test_users_stats_endpoint_weekly_active(
         password_hash=hash_password("Test1234"),
         role="employee",
         is_active=True,
-        status="offline",
-        last_seen_at=now - timedelta(days=20),
     )
     for u in (recent, old):
         db_session.add(u)
     await db_session.flush()
+    await _set_presence(db_session, recent.id, "offline", now - timedelta(days=2))
+    await _set_presence(db_session, old.id, "offline", now - timedelta(days=20))
 
     _, token = super_admin
     res = await httpx_client.get(

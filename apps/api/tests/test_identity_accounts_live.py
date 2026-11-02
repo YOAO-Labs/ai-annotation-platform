@@ -148,7 +148,7 @@ async def test_installed_account_process_node_replay_and_current_fences(
             row = (
                 await db.execute(
                     text(
-                        "SELECT name,preferences,status,last_seen_at,password_hash,password_admin_reset_at,credential_generation FROM users WHERE id=:id"
+                        "SELECT name,preferences,status,last_seen_at,password_hash,password_admin_reset_at,credential_generation FROM users JOIN identity_account_presence ON user_id=users.id WHERE users.id=:id"
                     ),
                     {"id": actor},
                 )
@@ -465,7 +465,10 @@ async def test_dedicated_account_and_presence_dsns_keep_api_table_free(
         async with maker.begin() as db:
             assert (
                 await db.scalar(
-                    text("SELECT status FROM users WHERE id=:id"), {"id": actor}
+                    text(
+                        "SELECT status FROM identity_account_presence WHERE user_id=:id"
+                    ),
+                    {"id": actor},
                 )
                 == "offline"
             )

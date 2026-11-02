@@ -109,7 +109,6 @@ async def _seed_world(test_engine) -> _World:
                     name=f"Dataset upload {suffix}",
                     password_hash="test-only",
                     role="super_admin",
-                    status="offline",
                     is_active=True,
                 ),
                 User(
@@ -118,7 +117,6 @@ async def _seed_world(test_engine) -> _World:
                     name=f"Dataset upload other {suffix}",
                     password_hash="test-only",
                     role="employee",
-                    status="offline",
                     is_active=True,
                 ),
             ]

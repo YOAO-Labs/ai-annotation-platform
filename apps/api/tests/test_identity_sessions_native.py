@@ -245,7 +245,7 @@ async def test_login_receipt_rollback_and_replay_never_rewinds_user_or_audit(
             state = await session.execute(
                 text(
                     "SELECT last_login_at, last_seen_at, status "
-                    "FROM public.users WHERE id=:id"
+                    "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )
@@ -299,8 +299,13 @@ async def test_login_receipt_rollback_and_replay_never_rewinds_user_or_audit(
             await session.execute(
                 text(
                     "UPDATE public.users SET name='Current account', role='viewer', "
-                    "credential_generation=9, status='offline', last_login_at=:sentinel, "
-                    "last_seen_at=:sentinel WHERE id=:id"
+                    "credential_generation=9, last_login_at=:sentinel WHERE id=:id"
+                ),
+                {"sentinel": sentinel, "id": fixture["actor_id"]},
+            )
+            await session.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='offline',last_seen_at=:sentinel WHERE user_id=:id"
                 ),
                 {"sentinel": sentinel, "id": fixture["actor_id"]},
             )
@@ -330,7 +335,7 @@ async def test_login_receipt_rollback_and_replay_never_rewinds_user_or_audit(
             state = await session.execute(
                 text(
                     "SELECT credential_generation, status, last_login_at, last_seen_at "
-                    "FROM public.users WHERE id=:id"
+                    "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )
@@ -414,7 +419,13 @@ async def test_api_key_with_finite_actor_expiry_replays_only_after_current_hash_
             await session.execute(
                 text(
                     "UPDATE public.users SET name='Updated owner', role='viewer', "
-                    "credential_generation=11, status='online' WHERE id=:id"
+                    "credential_generation=11 WHERE id=:id"
+                ),
+                {"id": fixture["actor_id"]},
+            )
+            await session.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )
@@ -440,7 +451,7 @@ async def test_api_key_with_finite_actor_expiry_replays_only_after_current_hash_
             )
             state = await session.execute(
                 text(
-                    "SELECT credential_generation, status FROM public.users WHERE id=:id"
+                    "SELECT credential_generation, status FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )
@@ -493,7 +504,7 @@ async def test_logout_all_generation_exhaustion_leaves_no_audit_or_receipt(test_
             state = await session.execute(
                 text(
                     "SELECT credential_generation, status "
-                    "FROM public.users WHERE id=:id"
+                    "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )
@@ -579,7 +590,9 @@ async def test_account_and_credential_lock_contention_fail_fast(test_engine):
 
         async with maker.begin() as session:
             state = await session.execute(
-                text("SELECT status, last_seen_at FROM public.users WHERE id=:id"),
+                text(
+                    "SELECT status, last_seen_at FROM public.identity_account_presence WHERE user_id=:id"
+                ),
                 {"id": fixture["actor_id"]},
             )
             assert tuple(state.one()) == ("offline", None)
@@ -804,7 +817,7 @@ async def test_login_checks_password_before_inactive_and_verification_gates(
             state = await session.execute(
                 text(
                     "SELECT status, last_login_at, last_seen_at "
-                    "FROM public.users WHERE id=:id"
+                    "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
                 ),
                 {"id": fixture["actor_id"]},
             )

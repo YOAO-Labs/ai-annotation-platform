@@ -274,7 +274,7 @@ async def _account_states(test_engine, account_ids: dict[str, str]) -> list[dict
                         "disabled_reason,email_verified_at,last_login_at,last_seen_at,"
                         "password_admin_reset_at,deactivation_requested_at,deactivation_reason,"
                         "deactivation_scheduled_at,weekly_target_default,avatar_ref,"
-                        "preferences,password_hash FROM public.users "
+                        "preferences,password_hash FROM public.users JOIN public.identity_account_presence ON user_id=users.id "
                         "WHERE email=ANY(CAST(:emails AS text[])) ORDER BY email"
                     ),
                     {"emails": list(_PERSONAS)},

@@ -441,6 +441,11 @@ GRANT EXECUTE ON FUNCTION
     TO :"application_role";
 \endif
 
+REVOKE ALL ON TABLE public.identity_account_presence FROM :"application_role", PUBLIC;
+REVOKE ALL (user_id, status, last_seen_at)
+    ON TABLE public.identity_account_presence FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_identity_v1._initialize_account_presence()
+    FROM :"application_role", PUBLIC;
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"application_role";
 REVOKE ALL ON TABLE public.notifications, public.notification_preferences,

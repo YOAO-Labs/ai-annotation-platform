@@ -159,6 +159,12 @@ does not implement those behaviors.
 user credential plus the separate control bearer. The account DSN uses the
 three-function LOGIN; `POST /v1/identity/presence/mark-inactive` uses the separate
 single-function presence DSN. Both are optional capabilities in the same process.
+Presence is stored separately from account authority: heartbeats hold the same
+current-account and credential fences but update only the one-to-one presence
+row. Session transitions and offline scans update that row in their original
+transactions; account deletion cascades it. Public account projections retain
+their `status` and `last_seen_at` fields.
+
 See [ADR-0118](../../docs/adr/0118-independent-identity-account-commands.md) for
 locking, mutation receipts, current-credential replay and avatar commit/cleanup
 boundaries. Password verification/hash and preference merge belong to this

@@ -236,7 +236,6 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
             name="Cleanup Keeper",
             password_hash="x",
             role="super_admin",
-            status="offline",
             is_active=True,
         )
     )
@@ -474,7 +473,6 @@ async def seed_reset_preserves_dev_data(httpx_client, db_session):
         name="Dev Keeper",
         password_hash="x",
         role="super_admin",
-        status="offline",
         is_active=True,
     )
     db_session.add(dev_user)

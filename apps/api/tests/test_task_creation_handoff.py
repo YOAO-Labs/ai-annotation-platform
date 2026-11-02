@@ -120,7 +120,6 @@ async def _seed(test_engine, item_count: int) -> dict[str, object]:
                 name="Task creation handoff",
                 password_hash="unused-test-hash",
                 role="project_admin",
-                status="offline",
                 is_active=True,
             )
         )

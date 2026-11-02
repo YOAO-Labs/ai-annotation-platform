@@ -131,7 +131,6 @@ async def _seed_committed(
         name=f"task append {suffix}",
         password_hash="test-only",
         role="super_admin",
-        status="offline",
         is_active=True,
     )
     async with maker() as db:

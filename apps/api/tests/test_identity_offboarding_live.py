@@ -243,7 +243,7 @@ async def _account_state(maker, user_id):
                 "SELECT id, role, status, is_active, disabled_kind, disabled_at, "
                 "disabled_by, disabled_reason, credential_generation, "
                 "deactivation_requested_at, deactivation_scheduled_at, "
-                "deactivation_reason FROM public.users WHERE id=:id"
+                "deactivation_reason FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
             ),
             {"id": user_id},
         )
@@ -437,7 +437,12 @@ async def test_installed_owner_offboarding_handoff_response_loss_replay_and_reti
                 )
             )
             target.credential_generation = 5
-            target.status = "online"
+            await db.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
+                ),
+                {"id": target.id},
+            )
             api_key, api_key_value = await create_api_key(
                 db, target.id, "Offboarding retirement key", ["*"]
             )
@@ -849,7 +854,12 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
                 lock_only_tasks.append(lock_only_task)
             await db.flush()
             target.credential_generation = 8
-            target.status = "online"
+            await db.execute(
+                text(
+                    "UPDATE identity_account_presence SET status='online' WHERE user_id=:id"
+                ),
+                {"id": target.id},
+            )
             target_token = create_access_token(
                 str(target.id), "employee", secret=secret, expire_minutes=15, gen=8
             )

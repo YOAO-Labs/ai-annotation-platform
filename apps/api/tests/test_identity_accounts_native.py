@@ -676,7 +676,9 @@ async def test_heartbeat_writes_presence_without_a_receipt_or_business_audit(
                 "changed": None,
             }
             state = await session.execute(
-                text("SELECT status, last_seen_at FROM public.users WHERE id=:id"),
+                text(
+                    "SELECT status, last_seen_at FROM public.identity_account_presence WHERE user_id=:id"
+                ),
                 {"id": fixture["actor_id"]},
             )
             status_value, last_seen = state.one()
@@ -718,8 +720,8 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
         async with maker.begin() as session:
             await session.execute(
                 text(
-                    "UPDATE public.users SET status='online', last_seen_at=:stale "
-                    "WHERE id=:id"
+                    "UPDATE public.identity_account_presence SET status='online', last_seen_at=:stale "
+                    "WHERE user_id=:id"
                 ),
                 {"stale": now - timedelta(minutes=10), "id": fixture["actor_id"]},
             )
@@ -732,8 +734,6 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                         password_hash="test-only",
                         role="employee",
                         is_active=False,
-                        status="online",
-                        last_seen_at=now - timedelta(minutes=10),
                     ),
                     User(
                         id=null_seen_id,
@@ -742,8 +742,6 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                         password_hash="test-only",
                         role="employee",
                         is_active=True,
-                        status="online",
-                        last_seen_at=None,
                     ),
                     User(
                         id=boundary_id,
@@ -752,8 +750,6 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                         password_hash="test-only",
                         role="employee",
                         is_active=True,
-                        status="online",
-                        last_seen_at=cutoff,
                     ),
                     User(
                         id=offline_id,
@@ -762,12 +758,23 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                         password_hash="test-only",
                         role="employee",
                         is_active=True,
-                        status="offline",
-                        last_seen_at=now - timedelta(minutes=10),
                     ),
                 ]
             )
             await session.flush()
+            for user_id, status, seen in (
+                (inactive_id, "online", now - timedelta(minutes=10)),
+                (null_seen_id, "online", None),
+                (boundary_id, "online", cutoff),
+                (offline_id, "offline", now - timedelta(minutes=10)),
+            ):
+                await session.execute(
+                    text(
+                        "UPDATE public.identity_account_presence "
+                        "SET status=:status, last_seen_at=:seen WHERE user_id=:id"
+                    ),
+                    {"id": user_id, "status": status, "seen": seen},
+                )
             affected = await session.scalar(
                 text(
                     "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline(:cutoff)"
@@ -777,8 +784,8 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
             assert affected == 3
             states = await session.execute(
                 text(
-                    "SELECT id, status FROM public.users "
-                    "WHERE id=ANY(CAST(:ids AS uuid[]))"
+                    "SELECT user_id AS id, status FROM public.identity_account_presence "
+                    "WHERE user_id=ANY(CAST(:ids AS uuid[]))"
                 ),
                 {"ids": [fixture["actor_id"], *ids]},
             )

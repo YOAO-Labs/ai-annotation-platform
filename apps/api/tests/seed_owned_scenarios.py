@@ -68,7 +68,6 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
             name="Owned Keeper",
             password_hash="x",
             role="employee",
-            status="offline",
             is_active=True,
         )
     )
@@ -565,7 +564,6 @@ async def owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
         name="Owned Takeover Keeper",
         password_hash="x",
         role="employee",
-        status="offline",
         is_active=True,
     )
     own_takeover = User(
@@ -574,7 +572,6 @@ async def owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
         name="E2E Takeover",
         password_hash="x",
         role="employee",
-        status="offline",
         is_active=True,
     )
     neighbour_takeover = User(
@@ -583,7 +580,6 @@ async def owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
         name="E2E Neighbour Takeover",
         password_hash="x",
         role="employee",
-        status="offline",
         is_active=True,
     )
     db_session.add_all([keeper, own_takeover, neighbour_takeover])

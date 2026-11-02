@@ -398,7 +398,6 @@ async def test_project_labeling_delete_fails_fast_when_a_task_is_locked(test_eng
                 name="Project deletion fixture",
                 password_hash="test-only",
                 role="super_admin",
-                status="offline",
                 is_active=True,
             )
         )
