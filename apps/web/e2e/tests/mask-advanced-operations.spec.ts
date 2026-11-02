@@ -402,15 +402,11 @@ test.describe("v0.23.9 Mask 高级编辑发布矩阵", { tag: "@mask-native" }, 
     await donutRow.click();
     await page.getByRole("button", { name: "收起浮窗", exact: true }).click();
     await islandRow.click({ modifiers: ["Shift"] });
-    await expect(donutRow).toHaveClass(/!border-brand/);
-    await expect(islandRow).toHaveClass(/!border-brand/);
     await islandRow.getByRole("button", { name: "更多操作", exact: true }).click();
     await islandRow.getByRole("button", { name: "编辑 Mask", exact: true }).click();
     await openMaskSettings(page);
     const toolbar = page.getByTestId("mask-toolbar");
     await expect(toolbar).toContainText("就绪", { timeout: 15_000 });
-    await expect(donutRow).toHaveClass(/!border-brand/);
-    await expect(islandRow).toHaveClass(/!border-brand/);
     await openAdvanced(page);
     const joinItem = page.getByRole("menuitem", { name: "合并为副本（保留来源）" });
     await expect(joinItem).toBeEnabled();

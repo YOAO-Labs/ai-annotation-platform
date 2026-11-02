@@ -2,7 +2,9 @@ import { expect, type Page } from "@playwright/test";
 
 export async function openMaskSettings(page: Page) {
   const toolbar = page.getByTestId("mask-toolbar");
-  if (!(await toolbar.isVisible())) {
+  const openToolbar = toolbar.locator(':scope:not([aria-hidden="true"])');
+  if ((await openToolbar.count()) === 0) {
+    await expect(toolbar).toBeHidden();
     const capsule = page.getByTestId("mask-tool-capsule");
     const trigger = page.getByTestId("mask-settings-trigger");
     await expect(trigger).toBeVisible();
@@ -19,14 +21,15 @@ export async function openMaskSettings(page: Page) {
     );
     await page.getByRole("button", { name: "更多 Mask 工具", exact: true }).click();
   }
-  await expect(toolbar).toBeVisible();
+  await expect(openToolbar).toBeVisible();
 }
 
 export async function closeMaskSettings(page: Page) {
-  if (await page.getByTestId("mask-toolbar").isVisible()) {
+  const toolbar = page.getByTestId("mask-toolbar");
+  if ((await toolbar.locator(':scope:not([aria-hidden="true"])').count()) > 0) {
     await page.getByRole("button", { name: "收起 Mask 设置", exact: true }).click();
-    await expect(page.getByTestId("mask-toolbar")).toBeHidden();
   }
+  await expect(toolbar).toBeHidden();
   // Restored trigger focus owns Enter; return keyboard input to the workbench.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 }
