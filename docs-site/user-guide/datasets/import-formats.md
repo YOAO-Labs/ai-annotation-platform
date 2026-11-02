@@ -123,7 +123,7 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
 
 - `added`：新入库的 DatasetItem 数；`deduped`：按 `content_hash` 命中已有内容而跳过的数量；`skipped`：因规则跳过的数量，例如隐藏文件或不安全路径。该字段只返回整数，不返回文件名列表。
 - `total_in_zip` 统计安全解析出的非目录文件条目，包含隐藏条目，但不包含被安全规则拒绝的路径。因此，`skipped` 可能还会计入没有包含在 `total_in_zip` 中的不安全路径。
-- `errors` 逐条返回 `{ "name": <ZIP 内路径>, "error": <原因> }`。例如单文件超过 100 MiB、解压失败或对象存储写入失败。文件级错误不会阻断其余合法文件入库。
+- `errors` 逐条返回 `{ "name": <ZIP 内路径>, "error": <原因> }`。例如单文件超过 100 MiB、解压失败或对象存储写入失败。成功响应中有文件级错误时，其他合法文件仍可入库；逐项检查 `added` 和 `errors`，不能把总条目数当作入库数量。
 - `linked_tasks`:为新 item 创建并关联到 scene 模式项目的 task 数。
 - `scene_inference_notes`:scene 推断说明,逐条多以 `[scene_name]` 前缀标注属于哪个 scene。一切正常的单 scene 上传通常只会有 calib 项「`N calib items left frame_index=NULL`」这类提示(标定是 scene 级、不参与帧序),甚至为空。顶层同时含保留角色目录与 scene 目录时,这里会出现冲突提示,例如:
 
@@ -131,7 +131,7 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
   ZIP 顶层同时包含保留角色目录 (lidar) 与 scene 目录 (scene-0061); 多 scene 顶层目录不要使用 lidar/camera/calib/image/video 等角色名。
   ```
 
-> 警告：如果数据集已声明为时序（`is_temporal`），但 ZIP 完成后没有可接受的 Scene，整个 ZIP 操作会回滚并返回 `422`，提示检查目录结构。原始来源不会被删除；数据库回滚也不会撤销已经写入的新 publication 字节。
+> 警告：如果数据集已声明为时序（`is_temporal`），但 ZIP 完成后没有可接受的 Scene，整个 ZIP 操作会回滚并返回 `422`，提示检查目录结构。授权或其他整次事务检查拒绝时，本次 Item、Scene 和计数也不会提交；已封存的物理对象不会随数据库回滚而删除，而由平台保留归属证据并受控处理。原始来源不会被删除。
 
 ### B. 命令行脚本入库
 

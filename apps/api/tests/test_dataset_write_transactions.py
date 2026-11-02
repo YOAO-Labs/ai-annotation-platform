@@ -86,37 +86,16 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
 
 @pytest.fixture
 async def copy_db(test_engine):
-    """A disposable namespace permits real commits without deleting owner history."""
-    from sqlalchemy import text
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    """Keep committed Native facts and independent sessions in one owned database."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from tests.managed_image_inference_fixtures import managed_database
 
-    schema = "copy_transaction_" + uuid.uuid4().hex
-    async with test_engine.begin() as connection:
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        source = await connection.scalar(text("SELECT current_schema()"))
-        tables = list(
-            await connection.scalars(
-                text("SELECT tablename FROM pg_tables WHERE schemaname=:source"),
-                {"source": source},
-            )
-        )
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" (LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    try:
+    async with managed_database(test_engine.url) as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            yield db
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            try:
+                yield db
+            finally:
+                await db.rollback()
 
 
 async def test_same_s3_location_copy_takes_target_before_final_source_locks(
@@ -131,6 +110,7 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     from app.db.models.dataset_asset import (
         StorageBinding,
         StorageLocation,
+        DatasetAsset,
         DatasetAssetLocation,
     )
     from app.db.models.storage_connection import StorageConnection
@@ -224,9 +204,22 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     )
     assert result["created"] and "complete" in observed
     owner = await db.scalar(
-        select(DatasetAssetLocation).where(
-            DatasetAssetLocation.location_id == location.id
+        select(DatasetAssetLocation)
+        .join(DatasetAsset, DatasetAsset.id == DatasetAssetLocation.asset_id)
+        .where(
+            DatasetAsset.dataset_item_id == result["item_id"],
+            DatasetAssetLocation.location_id == location.id,
         )
     )
     assert owner.storage_ref["binding_generation"] == 2
     assert owner.object_key.startswith("root/_aap_managed/datasets/")
+    assert owner.bucket == owner.storage_ref["bucket"] == "external"
+    assert owner.object_key == owner.storage_ref["object_key"]
+    creation = await db.get(ManagedOriginalCreation, owner.creation_id)
+    assert creation.status == "verified"
+    assert (creation.location_id, creation.bucket, creation.object_key) == (
+        owner.location_id,
+        owner.bucket,
+        owner.object_key,
+    )
+    assert physical.objects[owner.bucket, owner.object_key]["data"] == memory.data
