@@ -9789,6 +9789,8 @@ SELECT pg_catalog.jsonb_build_object(
                     {"storage_identity": type(error).__name__}
                 )
                 exit_code = 1
+        # prepare arms touched before publishing or mutating any owned resource.
+        # If guarded destruction fails, retain the identity root and PostgreSQL.
         local_resources_destroyed = backend is None or not backend.touched
         if backend is not None and backend.touched:
             try:

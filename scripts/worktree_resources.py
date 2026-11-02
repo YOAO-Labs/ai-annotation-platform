@@ -1846,6 +1846,12 @@ class LocalResources:
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
         asyncio.run(self.owned_runtime_role("check_create"))
+        # The input/training upgrades can create buckets before the remaining
+        # setup. Publish recovery identity and arm cleanup before either runs.
+        self.touched = True
+        path = state_path(self.root, self.resources["mode"], "resources.json")
+        if not path.exists():
+            atomic_json(path, self.manifest)
         self.upgrade_training_bucket()
         self.upgrade_inputs_bucket()
         inventory = self.inspect()
@@ -1854,7 +1860,6 @@ class LocalResources:
             state_path(self.root, self.resources["mode"], "resources.json"),
             self.manifest,
         )
-        self.touched = True
         asyncio.run(self.owned_runtime_role("create"))
         asyncio.run(self.database("create"))
         for name, observed in inventory["buckets"].items():

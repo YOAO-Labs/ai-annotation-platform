@@ -163,6 +163,64 @@ class BucketUpgradeTests(unittest.TestCase):
         self.mock_s3.create_bucket.assert_called_once_with(Bucket=self.input_name)
         self.assertEqual(read_state(self.path), self.target)
 
+    def test_partial_fresh_prepare_cleans_owned_bucket_or_retains_unowned_recovery(
+        self,
+    ):
+        for tag_failure in (False, True):
+            with self.subTest(tag_failure=tag_failure):
+                self.path.unlink(missing_ok=True)
+                journal = self.path.parent / "inputs-bucket-upgrade.json"
+                journal.unlink(missing_ok=True)
+                self.buckets.clear()
+                with patch(
+                    "worktree_resources.boto3.client", return_value=self.mock_s3
+                ):
+                    backend = LocalResources(
+                        self.target["resources"], self.settings, code_root=self.root
+                    )
+                self._bind_backend(backend)
+
+                async def revisions():
+                    return ["owned-head"]
+
+                backend.revisions = revisions
+                self.mock_s3.put_bucket_tagging.side_effect = (
+                    RuntimeError("tag interrupted")
+                    if tag_failure
+                    else lambda **kwargs: self.buckets.update(
+                        {kwargs["Bucket"]: {"owner": self.target["resources"]["owner"]}}
+                    )
+                )
+                self.mock_s3.get_bucket_versioning.side_effect = RuntimeError(
+                    "versioning read interrupted"
+                )
+                self.mock_s3.get_paginator.return_value.paginate.return_value = iter(
+                    [{}]
+                )
+                self.mock_s3.delete_bucket.side_effect = lambda **kwargs: (
+                    self.buckets.pop(kwargs["Bucket"], None)
+                )
+                with patch(
+                    "worktree_resources.migration_graph",
+                    return_value=(["owned-head"], ["owned-head"]),
+                ):
+                    with self.assertRaises((RuntimeError, WorktreeError)):
+                        backend.prepare(skip_migrations=True)
+                self.assertEqual(read_state(self.path), self.target)
+                self.assertTrue(journal.exists())
+                if tag_failure:
+                    with self.assertRaises(WorktreeError):
+                        if backend.touched:
+                            backend.destroy(backend.resources["confirmation"])
+                    self.assertEqual(self.buckets[self.input_name], {"owner": None})
+                    self.assertTrue(self.path.exists())
+                    self.assertTrue(journal.exists())
+                else:
+                    if backend.touched:
+                        backend.destroy(backend.resources["confirmation"])
+                    self.assertNotIn(self.input_name, self.buckets)
+                    self.assertFalse(self.path.exists())
+
     def _use_legacy_9(self):
         atomic_json(self.path, self.legacy_9)
         self.buckets[self.training_name] = {"owner": self.target["resources"]["owner"]}
