@@ -9,7 +9,15 @@ import uuid
 
 from fastapi import HTTPException
 
-from app.core.security import verify_password
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services import storage_access
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import (
+    IdentityCredentialRejected,
+    IdentityGatewayUnavailable,
+)
+from app.services.identity_gateway import get_identity_gateway
 
 _FIELDS = {"schema", "actor_id", "project_id", "api_key_id", "key_proof"}
 
@@ -31,8 +39,6 @@ def _uuid(value):
 
 
 async def _key(db, key_id, actor_id, *, lock):
-    from app.services.identity_account_lock_data import IdentityAccountLockData
-
     facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
         actor_id, key_id
     )
@@ -52,22 +58,42 @@ async def capture(db, project, actor, request):
         actor_id, project_id = _uuid(actor.id), _uuid(project.id)
         raw_key_id = getattr(request.state, "api_key_id", None)
         key_id = _uuid(raw_key_id) if raw_key_id is not None else None
-        proof = await _key(db, key_id, actor_id, lock=True) if key_id else None
-        if proof is not None:
+        proof = None
+        if key_id is not None:
             scheme, _, plaintext = request.headers.get("authorization", "").partition(
                 " "
             )
             original_scopes = getattr(request.state, "api_key_scopes", None)
+            if scheme.lower() != "bearer" or not isinstance(original_scopes, list):
+                raise ExportOutputAuthorityError()
+
+            # This capability locks the key. Release its independent transaction
+            # before Identity authenticates: confirmation takes a key UPDATE lock.
+            async with AsyncSession(
+                bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
+            ) as before_db:
+                before = await _key(before_db, key_id, actor_id, lock=True)
             try:
-                valid = (
-                    scheme.lower() == "bearer"
-                    and verify_password(plaintext, proof["hash"])
-                    and isinstance(original_scopes, list)
-                    and sorted(original_scopes) == proof["scopes"]
-                )
-            except (ValueError, TypeError):
-                valid = False
-            if not valid:
+                principal = await get_identity_gateway().authenticate(plaintext, db=db)
+            except IdentityCredentialRejected:
+                raise ExportOutputAuthorityError() from None
+            except IdentityGatewayUnavailable:
+                raise HTTPException(503, "身份认证服务暂不可用") from None
+            if (
+                principal.credential_type != "api_key"
+                or principal.actor_id != actor_id
+                or principal.credential_id != key_id
+                or sorted(principal.scopes or []) != sorted(original_scopes)
+            ):
+                raise ExportOutputAuthorityError()
+            accounts = await IdentityAccountLockData(db).lock_accounts(
+                [actor_id], mode="share"
+            )
+            current_actor = accounts.get(actor_id)
+            if current_actor is None or not current_actor.is_active:
+                raise ExportOutputAuthorityError()
+            proof = await _key(db, key_id, actor_id, lock=True)
+            if proof != before or proof["scopes"] != sorted(original_scopes):
                 raise ExportOutputAuthorityError()
         elif getattr(request.state, "api_key_scopes", None) is not None:
             raise ExportOutputAuthorityError()

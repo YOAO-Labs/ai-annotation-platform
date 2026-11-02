@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import insert, select, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.db.models.annotation import Annotation
@@ -97,6 +98,9 @@ async def make_export(
 
         principal = await get_identity_gateway().authenticate(_EXPORT_TEST_KEY, db=db)
         assert principal.actor_id == actor.id and principal.credential_id == key.id
+        # Match request admission: embedded Identity confirmation writes
+        # last_used_at and must release its UPDATE lock before the proof read.
+        await db.commit()
     request = SimpleNamespace(
         state=SimpleNamespace(
             api_key_id=key_id,
@@ -388,45 +392,167 @@ async def test_whole_project_reviewer_export_keeps_broader_capability(
     "mutation", ["key_rotate", "key_scope", "source_disable", "task_version", "cancel"]
 )
 async def test_original_authority_and_binding_rechecked_after_snapshot(
-    db_session,
-    reference_world,
+    referenced_cache,
     mutation,
     monkeypatch,
 ):
-    _, _, task, content = reference_world
+    from app.db.models.dataset_source import DatasetSource
+
+    world = referenced_cache
+    async with world.factory() as db:
+        task = await db.get(Task, world.task.id)
+        source = await db.get(DatasetSource, world.source_id)
+        source.cache_policy = "none"
+        content = list(world.content)
+        content[5] = source
+        key = ApiKey(
+            user_id=content[2].id,
+            name="export",
+            key_prefix=_EXPORT_TEST_KEY[:12],
+            key_hash=hash_password(_EXPORT_TEST_KEY),
+            scopes=["tasks:read"],
+        )
+        db.add(key)
+        await db.commit()
+        job, media = await make_export(
+            db, (None, world.project, task, content), key_id=key.id
+        )
+        original_capture = dataset_references.snapshots.capture
+        snapshots = []
+
+        async def capture_then_change(*args, **kwargs):
+            snapshot = await original_capture(*args, **kwargs)
+            snapshots.append(snapshot)
+            if mutation == "key_rotate":
+                key.key_hash = hash_password("ak_replacement-credential")
+            elif mutation == "key_scope":
+                key.scopes = []
+            elif mutation == "source_disable":
+                source.enabled = False
+            elif mutation == "task_version":
+                task.version += 1
+            else:
+                job.status = "cancelled"
+            await db.flush()
+            return snapshot
+
+        monkeypatch.setattr(dataset_references.snapshots, "capture", capture_then_change)
+        with pytest.raises((ContentError, HTTPException, ExportCancelled)):
+            await media.snapshot(task)
+        assert snapshots and snapshots[0]._closed
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["none", "before_capture", "before_auth", "during_auth", "after_auth", "scope"],
+)
+async def test_output_authority_fences_real_key_authentication(
+    referenced_cache, test_engine, monkeypatch, change
+):
+    from aap_identity.postgres import PostgresData
+    from app.services.identity_gateway import IdentityGateway
+
+    world = referenced_cache
+    token = "ak_" + uuid.uuid4().hex
+    original_hash = hash_password(token)
     key = ApiKey(
-        user_id=content[2].id,
-        name="export",
-        key_prefix=_EXPORT_TEST_KEY[:12],
-        key_hash=hash_password(_EXPORT_TEST_KEY),
+        user_id=world.manager.id,
+        name="export-race",
+        key_prefix=token[:12],
+        key_hash=original_hash,
         scopes=["tasks:read"],
     )
-    db_session.add(key)
-    await db_session.flush()
-    job, media = await make_export(db_session, reference_world, key_id=key.id)
-    original_capture = dataset_references.snapshots.capture
-    snapshots = []
+    async with world.factory() as setup:
+        setup.add(key)
+        await setup.commit()
+        key_id = key.id
 
-    async def capture_then_change(*args, **kwargs):
-        snapshot = await original_capture(*args, **kwargs)
-        snapshots.append(snapshot)
-        if mutation == "key_rotate":
-            key.key_hash = "replacement"
-        elif mutation == "key_scope":
-            key.scopes = []
-        elif mutation == "source_disable":
-            content[5].enabled = False
-        elif mutation == "task_version":
-            task.version += 1
+    # Use the real function-only Identity owner with its independent committed
+    # transactions; no credential or permission result is substituted.
+    gateway = IdentityGateway(
+        auth_database_url=test_engine.url.render_as_string(hide_password=False),
+        timeout_seconds=10,
+    )
+    admitted = await gateway.authenticate(token)
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            api_key_id=key_id,
+            api_key_scopes=list(admitted.scopes),
+            identity_principal=admitted,
+        ),
+        headers={"authorization": f"Bearer {token}"},
+    )
+    monkeypatch.setattr(output_authority, "get_identity_gateway", lambda: gateway)
+
+    async def change_key(**values):
+        async with world.factory() as owner:
+            await owner.execute(
+                update(ApiKey).where(ApiKey.id == key_id).values(**values)
+            )
+            await owner.commit()
+
+    replacement = hash_password("ak_" + uuid.uuid4().hex)
+    if change == "before_capture":
+        await change_key(key_hash=replacement)
+    if change == "during_auth":
+        confirm = PostgresData.confirm_api_key_principal
+
+        async def rotate_before_confirmation(data, candidate_id, expected_hash):
+            await change_key(key_hash=replacement)
+            return await confirm(data, candidate_id, expected_hash)
+
+        monkeypatch.setattr(
+            PostgresData, "confirm_api_key_principal", rotate_before_confirmation
+        )
+    if change in {"before_auth", "after_auth", "scope"}:
+        authenticate = gateway.authenticate
+
+        async def authenticate_with_change(raw, *, db=None):
+            if change == "before_auth":
+                await change_key(key_hash=replacement)
+            principal = await authenticate(raw, db=db)
+            if change == "after_auth":
+                # Same plaintext still authenticates, but its verifier revision
+                # changed after confirmation and cannot become the proof.
+                await change_key(key_hash=hash_password(token))
+            elif change == "scope":
+                await change_key(scopes=[])
+            return principal
+
+        monkeypatch.setattr(gateway, "authenticate", authenticate_with_change)
+
+    async with world.factory() as caller:
+        if change != "none":
+            with pytest.raises(HTTPException) as rejected:
+                await output_authority.capture(
+                    caller, world.project, world.manager, request
+                )
+            assert rejected.value.status_code == 403
         else:
-            job.status = "cancelled"
-        await db_session.flush()
-        return snapshot
-
-    monkeypatch.setattr(dataset_references.snapshots, "capture", capture_then_change)
-    with pytest.raises((ContentError, HTTPException, ExportCancelled)):
-        await media.snapshot(task)
-    assert snapshots and snapshots[0]._closed
+            proof = await output_authority.capture(
+                caller, world.project, world.manager, request
+            )
+            assert proof["key_proof"]["hash"] == hashlib.sha256(
+                original_hash.encode()
+            ).hexdigest()
+            await output_authority.validate(
+                caller,
+                SimpleNamespace(
+                    user_id=world.manager.id,
+                    project_id=world.project.id,
+                    payload={"output_authority": proof},
+                ),
+            )
+            # The accepted key is still fenced until the request transaction
+            # commits the export proof; another owner cannot rotate it.
+            async with world.factory() as writer:
+                with pytest.raises(DBAPIError) as busy:
+                    await writer.execute(
+                        select(ApiKey.id)
+                        .where(ApiKey.id == key_id)
+                        .with_for_update(nowait=True)
+                    )
+                assert getattr(busy.value.orig, "sqlstate", None) == "55P03"
 
 
 async def test_batch_outside_reference_neither_read_nor_rejected(
