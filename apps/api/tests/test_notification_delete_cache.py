@@ -34,10 +34,10 @@ def test_delete_identity_sync_uses_current_user_predicate_without_loading_rows()
     mismatched.user_id = other_id
 
     NotificationService(session)._synchronize_delete_identity(
-        owner_id, notification_id=matching.id
+        owner_id, notification_id=matching.id, excluded_job_ids=set()
     )
     NotificationService(other_session)._synchronize_delete_identity(
-        owner_id, notification_id=mismatched.id
+        owner_id, notification_id=mismatched.id, excluded_job_ids=set()
     )
 
     assert inspect(matching).deleted
@@ -56,12 +56,14 @@ def test_clear_read_delete_identity_sync_preserves_unread_and_expired_rows():
     expired_session, expired = _attached_row(owner_id, read_at=now)
     expired_session.expire(expired)
 
-    NotificationService(session)._synchronize_delete_identity(owner_id, clear_read=True)
+    NotificationService(session)._synchronize_delete_identity(
+        owner_id, clear_read=True, excluded_job_ids=set()
+    )
     NotificationService(unread_session)._synchronize_delete_identity(
-        owner_id, clear_read=True
+        owner_id, clear_read=True, excluded_job_ids=set()
     )
     NotificationService(expired_session)._synchronize_delete_identity(
-        owner_id, clear_read=True
+        owner_id, clear_read=True, excluded_job_ids=set()
     )
 
     assert inspect(read).deleted
