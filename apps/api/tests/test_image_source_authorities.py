@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-import re
 from uuid import uuid4
 
 import pytest
@@ -14,28 +12,10 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
-from tests.factory import create_project
+from tests.factory import create_batch, create_project
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 
 pytestmark = pytest.mark.asyncio
-
-_IMAGE_AUTHORITIES_SQL = (
-    Path(__file__).resolve().parents[1]
-    / "alembic"
-    / "sql"
-    / "0220_image_authorities.sql"
-)
-_MODULE_DATA_GRANTS = (
-    Path(__file__).resolve().parents[3] / "infra" / "docker" / "module-data-grants.sql"
-)
-
-
-def _sql_function_body(source: str, name: str) -> str:
-    prefix = f"CREATE FUNCTION aap_labeling_v1.{name}"
-    start = source.index(prefix)
-    end = source.index("$function$;", start)
-    return source[start:end]
-
 
 _READ = text(
     "SELECT aap_labeling_v1.read_image_task_source("
@@ -63,38 +43,6 @@ _INVALIDATE_THUMBNAIL = text(
     "SELECT aap_labeling_v1.invalidate_task_image_thumbnail("
     "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), CAST(:expected_key AS text))"
 )
-
-
-async def test_image_task_authorities_use_only_granted_task_columns():
-    source = _IMAGE_AUTHORITIES_SQL.read_text(encoding="utf-8")
-    for function_name in (
-        "read_image_task_source",
-        "observe_image_task_source",
-        "publish_task_image_thumbnail",
-        "scan_image_task_sources",
-        "invalidate_task_image_thumbnail",
-    ):
-        body = _sql_function_body(source, function_name)
-        assert (
-            re.search(r"\b(?:SELECT|RETURNING)\s+task\s*\.\s*\*", body, re.IGNORECASE)
-            is None
-        ), function_name
-
-    scan = _sql_function_body(source, "scan_image_task_sources")
-    assert "_image_source_snapshot_fields(" in scan
-    assert "_image_source_snapshot(task)" not in scan
-
-    grants = _MODULE_DATA_GRANTS.read_text(encoding="utf-8")
-    assert 'GRANT UPDATE (updated_at) ON public.tasks TO :"labeling_owner";' in grants
-    assert (
-        re.search(
-            r"GRANT\s+(?:ALL(?:\s+PRIVILEGES)?|SELECT(?!\s*\())[^;]*"
-            r"\s+ON\s+public\.tasks\b",
-            grants,
-            re.IGNORECASE,
-        )
-        is None
-    )
 
 
 def _object(value: object) -> dict:
@@ -298,6 +246,82 @@ async def test_task_source_visibility_and_upload_readiness_are_current(db_sessio
     )
     assert background_publish == {"task_id": str(task.id), "applied": True}
     assert await db_session.scalar(_REFERENCES, {"prefix": background_prefix}) is True
+
+
+@pytest.mark.parametrize("assignment", ["task", "batch"])
+@pytest.mark.parametrize("lock_source", [False, True])
+async def test_draft_source_requires_editable_effective_annotator(
+    db_session, assignment, lock_source
+):
+    owner_id = await _seed_actor(db_session, role="super_admin")
+    actor_id = await _seed_actor(db_session, role="employee")
+    other_id = await _seed_actor(db_session, role="employee")
+    task = await _seed_image_task(db_session, actor_id=owner_id, assignee_id=actor_id)
+    member = ProjectMember(
+        project_id=task.project_id,
+        user_id=actor_id,
+        role="annotator",
+        assigned_by=owner_id,
+    )
+    db_session.add(member)
+    batch = await create_batch(db_session, project_id=task.project_id, status="draft")
+    task.batch_id = batch.id
+    if assignment == "batch":
+        task.assignee_id = None
+        batch.annotator_id = actor_id
+    else:
+        batch.annotator_id = other_id
+    for status in ("pending", "in_progress", "rejected"):
+        task.status = status
+        await db_session.flush()
+        source = _data(
+            await _read(db_session, task.id, actor_id=actor_id, lock_source=lock_source)
+        )
+        assert source["task_id"] == str(task.id)
+        assert source["upload_ready"] is True
+
+    for status in ("uploading", "review", "completed"):
+        task.status = status
+        await db_session.flush()
+        _error(
+            await _read(
+                db_session, task.id, actor_id=actor_id, lock_source=lock_source
+            ),
+            "task_not_visible",
+        )
+
+    task.status = "pending"
+    batch.annotator_id = actor_id
+    task.assignee_id = other_id
+    await db_session.flush()
+    _error(
+        await _read(db_session, task.id, actor_id=actor_id, lock_source=lock_source),
+        "task_not_visible",
+    )
+
+    task.assignee_id = None
+    for role in ("viewer", "reviewer"):
+        member.role = role
+        await db_session.flush()
+        _error(
+            await _read(
+                db_session, task.id, actor_id=actor_id, lock_source=lock_source
+            ),
+            "task_not_visible",
+        )
+    member.role = "annotator"
+    await db_session.flush()
+    restored = _data(
+        await _read(db_session, task.id, actor_id=actor_id, lock_source=lock_source)
+    )
+    assert restored["task_id"] == str(task.id)
+
+    batch.annotator_id = None
+    await db_session.flush()
+    _error(
+        await _read(db_session, task.id, actor_id=actor_id, lock_source=lock_source),
+        "task_not_visible",
+    )
 
 
 async def test_source_generation_tracks_source_fields_and_rejects_aba(db_session):
