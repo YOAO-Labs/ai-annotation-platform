@@ -33,6 +33,7 @@ from app.workers import tasks as worker
 from tests.factory import create_batch, create_project, create_task, create_user
 from tests.inference_execution_test_ports import (
     PredictionClientExecutionPort,
+    pipeline_output,
     run_batch_request,
 )
 from tests.managed_prediction_worker_fixtures import (
@@ -63,6 +64,7 @@ async def commit_world(managed_worker_world, monkeypatch):
         task.batch_id = batch.id
         task.file_path = "http://owned.invalid/image.png"
         await db.flush()
+        await db.refresh(task)
         old = await PredictionService(db).apply_prediction_result(
             ApplyPredictionResultRequest(
                 task_id=task.id,
@@ -468,7 +470,9 @@ async def test_cancel_rechecks_terminal_state_after_waiting_for_final_lock(
         await original(db, job_id, **kwargs)
 
     async def pipeline(*args, **kwargs):
-        return prediction_results(world.task), None, None
+        return pipeline_output(
+            prediction_results(world.task), instance_id=world.backend
+        )
 
     monkeypatch.setattr(
         "app.application.preannotation_execution._run_task_pipeline", pipeline
@@ -618,10 +622,10 @@ async def test_explicit_partial_pipeline_commits_candidates_and_retry_context(
         await db.commit()
 
     async def pipeline(*args, **kwargs):
-        return (
+        return pipeline_output(
             prediction_results(world.task),
-            {"pipeline": {"partial": True, "stage_errors": [{"stage": 9}]}},
-            None,
+            instance_id=world.backend,
+            extra={"pipeline": {"partial": True, "stage_errors": [{"stage": 9}]}},
         )
 
     monkeypatch.setattr(
@@ -683,35 +687,101 @@ async def test_explicit_partial_pipeline_commits_candidates_and_retry_context(
 
 @pytest.mark.parametrize("mode", ["overwrite", "append"])
 async def test_frame_fanout_preserves_its_existing_reset_contract(
-    commit_world, monkeypatch, mode
+    managed_worker_world, monkeypatch, mode
 ):
-    world = commit_world
-    # Frame fan-out is a video contract, separate from owned image execution.
+    from aap_assets_inputs_runtime.storage import S3InputStorage
+    from app.application.preannotation_contract import BatchPredictionRequest
+    from app.application.preannotation_execution import run_preannotation
+    from app.workers.frame_preannotate import JobsFramePreannotationDispatcher
+    from tests import test_video_input_ledger_execution as video_seed
+    from tests.test_video_input_ledger_lifecycle import _ready_plan
+
+    world = managed_worker_world
+    original_selection = video_seed._selection
+    monkeypatch.setattr(
+        video_seed,
+        "_selection",
+        lambda **kwargs: {**original_selection(**kwargs), "predict_mode": mode},
+    )
     async with world.factory() as db:
-        project = await db.get(Project, world.project)
-        project.type_key, project.type_label = "video-track", "视频目标跟踪"
-        project.data_type = "video"
-        task = await db.get(Task, world.task)
-        task.file_type, task.file_name = "video", "frames.mp4"
-        task.file_path = "videos/frames.mp4"
+        actor_id, project_id, plan = await _ready_plan(db, count=2)
+        task = await db.get(Task, plan.input.task.task_id)
+        backend = MLBackendRegistry(
+            name=f"frame-commit-{uuid.uuid4().hex}",
+            url="http://owned.invalid",
+            state="connected",
+        )
+        db.add(backend)
+        await db.flush()
+        await PredictionService(db).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project_id,
+                ml_backend_id=backend.id,
+                result=[],
+                model_version="old",
+                write_scope=capture_labeling_write_scope(
+                    task,
+                    actor_id=actor_id,
+                    actor_known=True,
+                    operation="prediction_import",
+                    execution_scope=None,
+                    execution_scope_known=True,
+                    job_id=None,
+                    job_id_known=True,
+                ),
+            )
+        )
+        job = await db.get(AsyncJob, plan.input.job_id)
+        job.celery_task_id = str(job.id)
+        payload = job.payload
         await db.commit()
+        task_id, job_id, backend_id = task.id, job.id, backend.id
+
+    async def head_source(_storage, source):
+        assert source.dataset_item_id == plan.input.source.dataset_item_id
+        assert source.source_snapshot == plan.input.source.source_snapshot
+        return plan.input.source.object_identity
+
+    async def verify_blob(_storage, blob):
+        assert blob == plan.input.blob
+
+    monkeypatch.setattr(S3InputStorage, "head_source", head_source)
+    monkeypatch.setattr(S3InputStorage, "verify_blob", verify_blob)
+    monkeypatch.setattr("app.workers.frame_preannotate._init_progress", lambda *a: None)
     calls = []
 
-    async def dispatch(db, **kwargs):
+    async def publish(envelope):
         async with world.factory() as observer:
             count = await observer.scalar(
                 select(func.count())
                 .select_from(Prediction)
-                .where(Prediction.task_id == world.task)
+                .where(Prediction.task_id == task_id)
             )
             assert count == (0 if mode == "overwrite" else 1)
-        calls.append(kwargs)
-        return {"dispatched": True, "total_frames": 2}
+        calls.append(envelope)
 
-    monkeypatch.setattr(
-        "app.workers.frame_preannotate.dispatch_frame_preannotate", dispatch
+    monkeypatch.setattr("app.services.jobs_queue.publish_queue_envelope", publish)
+    request = BatchPredictionRequest(
+        project_id=str(project_id),
+        ml_backend_id=str(backend_id),
+        task_ids=[str(task_id)],
+        user_id=str(actor_id),
+        async_job_id=str(job_id),
+        predict_mode=mode,
+        execution_scope="bulk",
+        execution_unit="frame",
+        accepted_video_inputs_protocol=payload["accepted_video_inputs_protocol"],
+        accepted_video_manifest_id=payload["accepted_video_manifest_id"],
+        accepted_video_selection_digest=payload["accepted_video_selection_digest"],
+        accepted_video_selection=payload["accepted_video_selection"],
     )
-    await run(world, predict_mode=mode, execution_unit="frame")
+    async with worker_engine(world):
+        await run_preannotation(
+            request,
+            execution_id=str(job_id),
+            frame_dispatcher=JobsFramePreannotationDispatcher(),
+        )
     assert len(calls) == 1
 
 
@@ -735,7 +805,7 @@ async def test_cancel_waiting_for_candidate_commit_retains_that_task_and_stops_n
 
     async def pipeline(task, *args, **kwargs):
         inferred.append(task.id)
-        return prediction_results(task.id), None, None
+        return pipeline_output(prediction_results(task.id), instance_id=world.backend)
 
     monkeypatch.setattr(PredictionService, "_persist_prediction_result", write)
     monkeypatch.setattr(

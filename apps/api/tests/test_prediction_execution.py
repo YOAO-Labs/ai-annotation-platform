@@ -367,6 +367,7 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     input_world,
     managed_worker_world,
 ):
+    from dataclasses import replace
     from datetime import timedelta
 
     from app.db.models.prediction_input import PredictionInputLease
@@ -526,20 +527,45 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
                     task_id=item["id"],
                     result=[
                         {
+                            "native_class_index": 0 if len(calls) == 1 else 1,
                             "type": "rectanglelabels",
                             "coordinate_units": "percent",
                             "value": value,
                             "score": 0.9,
                         }
                     ],
+                    model_version=f"trained:{version.id}",
+                    meta={
+                        "trained_model": {
+                            key: ref[key]
+                            for key in ("model_version_id", "sha256", "classes_digest")
+                        },
+                        **(
+                            {
+                                "inference_runtime": copy.deepcopy(
+                                    ref["inference_runtime"]
+                                )
+                            }
+                            if "inference_runtime" in ref
+                            else {}
+                        ),
+                    },
                 )
                 for item in inputs
             ]
 
+    class ControlledExecutionPort(PredictionClientExecutionPort):
+        async def execute(self, operation, *, before_dispatch=None):
+            response = await super().execute(operation, before_dispatch=before_dispatch)
+            return replace(
+                response,
+                results=trained_models.validate_and_map_results(response.results, ref),
+            )
+
     client = Client()
     monkeypatch.setattr(
         "app.application.durable_prediction_retry._model_execution_port",
-        lambda *_args, **_kwargs: PredictionClientExecutionPort(client),
+        lambda *_args, **_kwargs: ControlledExecutionPort(client),
     )
     result = await predictions_retry._do_retry_with_factory(
         managed_worker_world.factory,
@@ -549,7 +575,7 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
         celery_task_id=str(retry_id),
     )
     retry_job = await db_session.get(AsyncJob, retry_id, populate_existing=True)
-    assert retry_job.status == ("failed" if child_fails else "completed")
+    assert retry_job.status == ("failed" if child_fails else "completed"), result
     assert await db_session.get(AsyncJob, original_job_id) is None
     assert (await load_snapshot(db_session, snapshot.id, project.id)) == (
         original_config,
@@ -572,22 +598,29 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
                 )
             )
         ).all()
-        assert len(leases) == 1
-        lease = leases[0]
-        assert lease.state == "cleanup_pending" and not lease.uncertain_write
-        assert len(lease.inventory["objects"]) == 2
-        next_purge = lease.next_cleanup_at + timedelta(seconds=1)
-    with monkeypatch.context() as clock:
-        clock.setattr(prediction_inputs, "now", lambda: next_purge)
-        assert (
-            await prediction_inputs.purge_input(managed_worker_world.factory, lease.id)
-            == "removed"
+        assert len(leases) == (1 if child_fails else 2)
+        assert all(
+            lease.state == "cleanup_pending" and not lease.uncertain_write
+            for lease in leases
         )
-    async with managed_worker_world.factory() as db:
-        tombstone = await db.get(PredictionInputLease, lease.id)
-        assert tombstone.state == "deleted"
-        assert tombstone.inventory == lease.inventory
-        assert not (await db.scalars(select(StorageOperation.id))).all()
+        assert sorted(len(lease.inventory["objects"]) for lease in leases) == (
+            [2] if child_fails else [1, 2]
+        )
+    for lease in leases:
+        with monkeypatch.context() as clock:
+            next_purge = lease.next_cleanup_at + timedelta(seconds=1)
+            clock.setattr(prediction_inputs, "now", lambda: next_purge)
+            assert (
+                await prediction_inputs.purge_input(
+                    managed_worker_world.factory, lease.id
+                )
+                == "removed"
+            )
+        async with managed_worker_world.factory() as db:
+            tombstone = await db.get(PredictionInputLease, lease.id)
+            assert tombstone.state == "deleted"
+            assert tombstone.inventory == lease.inventory
+            assert not (await db.scalars(select(StorageOperation.id))).all()
     assert not input_world.objects
     assert all(body.closed for body in input_world.bodies)
 
@@ -636,6 +669,10 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     from app.workers.tasks import batch_predict
     from app.services import accepted_inputs
     from tests.conftest import _create_user
+    from aap_assets_images.contract import ObjectIdentity
+    from aap_assets_images_runtime.storage import S3ImageStorage
+    from aap_assets_inputs_runtime.storage import S3InputStorage
+    from app.db.models.dataset import DatasetItem
 
     db_session = trained_retry_world.db
     httpx_client = trained_retry_world.client
@@ -654,6 +691,27 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     )
 
     project, backend, batch, task = await _seed(db_session, owner.id)
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    image = io.BytesIO()
+    with Image.new("RGB", (12, 8), "red") as source_image:
+        source_image.save(image, "PNG")
+    raw = image.getvalue()
+    assert item.file_size == len(raw)
+
+    async def head_source(_storage, source):
+        assert source.owner.id == item.id
+        assert source.file_path == item.file_path
+        return ObjectIdentity(
+            etag=hashlib.sha256(raw).hexdigest(),
+            byte_size=len(raw),
+            version_id="workbench-source-v1",
+        )
+
+    async def assert_versioning(_storage):
+        return None
+
+    monkeypatch.setattr(S3ImageStorage, "head_source", head_source)
+    monkeypatch.setattr(S3InputStorage, "assert_versioning", assert_versioning)
     await create_membership(
         db_session, project_id=project.id, user_id=member.id, role="annotator"
     )
