@@ -94,13 +94,7 @@ async def test_owner_summary_reader_detaches_video_metadata_and_uses_owner_pages
     assert raw_metadata["video"]["extra"]["markers"] == ["source"]
     assert await reader.video_frame_count(item_id) == 7
     assert await reader.current_video_metadata(item_id) == raw_metadata["video"]
-    assert await reader.current_video_summary(item_id) == (
-        640,
-        360,
-        raw_metadata["video"],
-    )
     assert [request.item_ids for request in gateway.requests] == [
-        [item_id],
         [item_id],
         [item_id],
         [item_id],

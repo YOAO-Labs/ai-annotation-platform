@@ -327,7 +327,12 @@ class AnnotationConversionService:
 
         reader = AssetsTaskMediaSummaryReader(self.db)
         if task.file_type == "video":
-            video_summary = await reader.current_video_summary(task.dataset_item_id)
+            try:
+                video_summary = await reader.current_video_summary(task.dataset_item_id)
+            except ContentError as exc:
+                raise AnnotationConversionError(
+                    status_code=exc.status, reason=exc.code, message=exc.code
+                ) from exc
             if video_summary is None:
                 raise AnnotationConversionError(
                     status_code=409,

@@ -28,6 +28,7 @@ from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services import video_derivatives as core
+from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
 from app.services.storage import storage_service
@@ -376,6 +377,22 @@ async def test_real_registered_original_native_generation_and_complete_readback(
             8,
             8,
         )
+        summary = await AssetsTaskMediaSummaryReader(db).current_video_summary(
+            context.item_id
+        )
+        assert summary is not None
+        assert (summary[0], summary[1], summary[2]["frame_count"]) == (64, 48, 8)
+        item = await db.get(DatasetItem, context.item_id)
+        assert item.media_materialized_generation != item.media_source_generation
+        async with db.begin_nested() as savepoint:
+            item.file_path += ".changed"
+            await db.flush()
+            with pytest.raises(ContentError, match="content_binding_changed"):
+                await AssetsTaskMediaSummaryReader(db).current_video_summary(
+                    context.item_id
+                )
+            await savepoint.rollback()
+
         prepared = []
         for kind, spec in [
             ("frame", core.frame_spec(generation, 3, 48, "webp")),
