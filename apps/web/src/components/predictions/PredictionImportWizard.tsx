@@ -1,7 +1,7 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 // v0.10.15 · 外部预测导入向导.
 //
-// 三步: ①选格式 + 文件 + 兜底 model_version ② dry-run 预览 ③确认提交.
+// 三步: ①选格式 + 文件 + 默认模型版本 ② dry-run 预览 ③确认提交.
 // 端点: POST /projects/{id}/predictions/import?format=&dry_run=
 // 入库的 prediction 行 source='external_import', ml_backend_id=NULL.
 
@@ -370,28 +370,39 @@ export function PredictionImportWizard({
             {target === "predictions" && (
               <div className={styles.formRow}>
                 <label htmlFor="pi-mv" className={styles.formLabel}>
-                  兜底 model_version (可选)
+                  默认模型版本（可选）
                 </label>
                 <input
                   id="pi-mv"
+                  aria-describedby="pi-mv-hint"
                   className={styles.input}
                   value={modelVersion}
                   onChange={(e) => setModelVersion(e.target.value)}
                   placeholder="例如 ext-yolov8-v1"
                 />
+                <p id="pi-mv-hint" className="text-xs leading-relaxed text-muted-foreground">
+                  原生 JSON 中每条预测自带的模型版本优先；未填写时使用这里的版本。COCO 和 YOLO
+                  使用这里的版本。
+                </p>
               </div>
             )}
 
-            <label className={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={overwriteExisting}
-                onChange={(e) => setOverwriteExisting(e.target.checked)}
-              />
-              {target === "annotations"
-                ? "替换已有「外部导入」标注 (按 task 维度，不动人工标注)"
-                : "替换已有「外部导入」预测 (按 task 维度)"}
-            </label>
+            <div className={styles.formRow}>
+              <label className={styles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={overwriteExisting}
+                  onChange={(e) => setOverwriteExisting(e.target.checked)}
+                  aria-describedby="pi-overwrite-hint"
+                />
+                {target === "annotations" ? "替换已有导入标注" : "替换已有外部导入预测"}
+              </label>
+              <p id="pi-overwrite-hint" className="text-xs leading-relaxed text-muted-foreground">
+                {target === "annotations"
+                  ? "替换涉及任务中已有的导入标注，不影响人工标注。"
+                  : "替换本次导入涉及任务的已有外部导入预测，不影响模型服务预测或正式标注。取消勾选则追加。"}
+              </p>
+            </div>
 
             <div className={styles.actions}>
               <Button variant="ghost" onClick={close} disabled={submitting}>
