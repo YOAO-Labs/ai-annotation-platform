@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -13,32 +13,8 @@ from app.services.content_snapshot import ContentError
 from app.services.exporting import video_delivery, video_jobs
 from app.services.exporting.reference_media import ExportCancelled
 from app.workers import lidar_export as worker
-from tests.test_video_export_inputs import video_db as video_db, setup
-from tests.test_lidar_export_inputs import input_db as input_db
-from tests.test_export_media_bundle_models import _migration
+from tests.export_worker_native_fixtures import setup, worker_db as worker_db
 from tests.test_lidar_export_worker import Harness, state
-
-
-@pytest.fixture
-async def worker_db(video_db):
-    db = video_db
-    for table in ("async_jobs", "export_artifacts"):
-        await db.execute(
-            text(f"CREATE TABLE {table} (LIKE public.{table} INCLUDING ALL)")
-        )
-    await db.execute(text("ALTER TABLE export_artifacts DROP COLUMN output_id"))
-    connection = await db.connection()
-    for revision in (
-        "0224_export_output_storage",
-        "0234_export_media_bundles",
-        "0236_export_media_empty_raw",
-        "0237_export_video_media",
-    ):
-        await connection.run_sync(
-            lambda sync, name=revision: _migration(sync, name).upgrade()
-        )
-    await db.commit()
-    return db
 
 
 class VideoHarness(Harness):
@@ -128,7 +104,7 @@ async def test_video_zip_and_verified_cache_keep_first_deadline(
     worker_db, monkeypatch, selected
 ):
     db = worker_db
-    project, _, _, _, task, _ = await setup(db)
+    project, _, _, _, task, _ = await setup(db, "video")
     harness = VideoHarness(db, monkeypatch)
     selection = [task.id] if selected else None
     first, receipt, args = await request(db, project, task_ids=selection)
@@ -151,7 +127,7 @@ async def test_video_zip_and_verified_cache_keep_first_deadline(
 
 async def test_empty_scope_publishes_its_zero_media_bundle(worker_db, monkeypatch):
     db = worker_db
-    project, _, _, _, task, annotation = await setup(db)
+    project, _, _, _, task, annotation = await setup(db, "video")
     await db.delete(annotation)
     await db.delete(task)
     await db.commit()
@@ -169,7 +145,7 @@ async def test_annotation_change_during_packaging_keeps_unpublished_responsibili
     worker_db, monkeypatch
 ):
     db = worker_db
-    project, _, _, _, _, annotation = await setup(db)
+    project, _, _, _, _, annotation = await setup(db, "video")
     annotation_id = annotation.id
     harness = VideoHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
@@ -199,7 +175,7 @@ async def test_cancel_after_zip_write_retains_pending_owner_and_cancelled_status
     worker_db, monkeypatch
 ):
     db = worker_db
-    project, *_ = await setup(db)
+    project, *_ = await setup(db, "video")
     harness = VideoHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
 
@@ -230,7 +206,7 @@ async def test_unknown_final_commit_keeps_paired_video_responsibility(
     from app.db.models.export_artifact import ExportArtifact
 
     db = worker_db
-    project, *_ = await setup(db)
+    project, *_ = await setup(db, "video")
     harness = VideoHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
     original_commit = db.commit

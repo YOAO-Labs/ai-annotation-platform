@@ -13,8 +13,8 @@ from app.services.content_snapshot import ContentError
 from app.services.exporting import image_delivery, image_jobs
 from app.services.exporting.reference_media import ExportCancelled
 from app.workers import lidar_export as worker
-from tests.test_image_export_inputs import input_db as input_db, setup
-from tests.test_lidar_export_worker import Harness, state, worker_db as worker_db
+from tests.export_worker_native_fixtures import setup, worker_db as worker_db
+from tests.test_lidar_export_worker import Harness, state
 
 
 class ImageHarness(Harness):
@@ -85,7 +85,7 @@ async def test_image_zip_and_verified_cache_keep_first_deadline(
     worker_db, monkeypatch, selected
 ):
     db = worker_db
-    project, _, _, _, _, task, _ = await setup(db)
+    project, _, _, _, task, _ = await setup(db, "image")
     harness = ImageHarness(db, monkeypatch)
     selection = [task.id] if selected else None
     first, receipt, args = await request(db, project, task_ids=selection)
@@ -107,7 +107,7 @@ async def test_image_zip_and_verified_cache_keep_first_deadline(
 
 async def test_empty_scope_publishes_its_zero_media_bundle(worker_db, monkeypatch):
     db = worker_db
-    project, _, _, _, _, task, annotation = await setup(db)
+    project, _, _, _, task, annotation = await setup(db, "image")
     await db.delete(annotation)
     await db.delete(task)
     await db.commit()
@@ -125,7 +125,7 @@ async def test_annotation_change_during_packaging_keeps_unpublished_responsibili
     worker_db, monkeypatch
 ):
     db = worker_db
-    project, _, _, _, _, _, annotation = await setup(db)
+    project, _, _, _, _, annotation = await setup(db, "image")
     annotation_id = annotation.id
     harness = ImageHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
@@ -155,7 +155,7 @@ async def test_cancel_after_zip_write_retains_pending_owner_and_cancelled_status
     worker_db, monkeypatch
 ):
     db = worker_db
-    project, *_ = await setup(db)
+    project, *_ = await setup(db, "image")
     harness = ImageHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
 
@@ -186,7 +186,7 @@ async def test_unknown_final_commit_keeps_paired_image_responsibility(
     from app.db.models.export_artifact import ExportArtifact
 
     db = worker_db
-    project, *_ = await setup(db)
+    project, *_ = await setup(db, "image")
     harness = ImageHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
     original_commit = db.commit
