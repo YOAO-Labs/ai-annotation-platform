@@ -549,6 +549,7 @@ function ApiKeysSection() {
 function MyFeedbackSection() {
   const [reports, setReports] = useState<BugReportResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -556,7 +557,7 @@ function MyFeedbackSection() {
         const data = await bugReportsApi.listMine(20);
         setReports(data.items);
       } catch {
-        // silent
+        setUnavailable(true);
       } finally {
         setLoading(false);
       }
@@ -575,6 +576,16 @@ function MyFeedbackSection() {
     return (
       <Card>
         <div className="p-5 text-sm text-muted-foreground">加载中...</div>
+      </Card>
+    );
+  }
+
+  if (unavailable) {
+    return (
+      <Card>
+        <div role="alert" className="p-5 text-sm text-status-danger">
+          无法加载反馈记录，请稍后再试。
+        </div>
       </Card>
     );
   }

@@ -2,7 +2,7 @@
  * SettingsPage 单测 — 加载态 / 个人资料 / 系统设置 / 标注偏好 / 通知偏好 主路径.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Link, MemoryRouter } from "react-router-dom";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
@@ -110,9 +110,10 @@ vi.mock("@/pages/Workbench/state/useWorkbenchConfig", () => ({
 }));
 
 // --- bug reports API ---
+const mockListMine = vi.hoisted(() => vi.fn().mockResolvedValue({ items: [] }));
 vi.mock("@/api/bug-reports", () => ({
   bugReportsApi: {
-    listMine: vi.fn().mockResolvedValue({ items: [] }),
+    listMine: mockListMine,
   },
 }));
 
@@ -407,6 +408,58 @@ describe("SettingsPage", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /我的反馈/ }));
     await waitFor(() => expect(screen.getByText(/暂无反馈记录/)).toBeInTheDocument());
+  });
+
+  it("我的反馈读取失败时显示不可用状态而不是空记录", async () => {
+    let rejectRead!: (reason: Error) => void;
+    mockListMine.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectRead = reject;
+      }),
+    );
+    renderUI("/settings?section=feedback");
+    expect(screen.getByText("加载中...")).toBeInTheDocument();
+    expect(screen.queryByText(/暂无反馈记录/)).not.toBeInTheDocument();
+
+    rejectRead(new Error("read failed"));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText(/暂无反馈记录/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("我的反馈展示返回记录的标识、严重度和状态", async () => {
+    mockListMine.mockResolvedValueOnce({
+      items: [
+        {
+          id: "one",
+          display_id: "BUG-101",
+          title: "画布无法打开",
+          severity: "high",
+          status: "in_progress",
+          created_at: "2026-09-01T12:00:00Z",
+        },
+        {
+          id: "two",
+          display_id: "BUG-102",
+          title: "快捷键无响应",
+          severity: "low",
+          status: "future_status",
+          created_at: "2026-09-02T12:00:00Z",
+        },
+      ],
+      total: 2,
+    });
+    renderUI("/settings?section=feedback");
+    const firstRow = (await screen.findByText("BUG-101")).closest("tr")!;
+    const secondRow = screen.getByText("BUG-102").closest("tr")!;
+    expect(within(firstRow).getByText("画布无法打开")).toBeInTheDocument();
+    expect(within(firstRow).getByText("high")).toBeInTheDocument();
+    expect(within(firstRow).getByText("处理中")).toBeInTheDocument();
+    expect(within(secondRow).getByText("快捷键无响应")).toBeInTheDocument();
+    expect(within(secondRow).getByText("low")).toBeInTheDocument();
+    expect(within(secondRow).getByText("future_status")).toBeInTheDocument();
+    expect(screen.queryByText(/暂无反馈记录/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("危险区：点击「申请注销账号」展开确认面板", () => {
