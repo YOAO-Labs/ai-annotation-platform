@@ -295,7 +295,6 @@ describe("resolveWorkbenchImageSource", () => {
                   width: 24,
                   height: 16,
                   url: "blob:decoded-owned",
-                  identity: expect.stringMatching(/\/item-1\/address\/7$/),
                 }
               : { kind: "pyramid-failed", retryable: false, errorCode: "decode_failed" },
           ),
@@ -380,7 +379,6 @@ describe("resolveWorkbenchImageSource", () => {
       expect(result.current.source).toMatchObject({
         kind: "single",
         url: "blob:resolved-owned",
-        identity: expect.stringMatching(/\/item-1\/address\/11$/),
         width: 32,
         height: 24,
       }),

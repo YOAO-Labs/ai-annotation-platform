@@ -38,7 +38,7 @@ async def setup(db, media):
     )
     project = Project(
         id=uuid.uuid4(),
-        display_id=f"export-{suffix[:15]}",
+        display_id=f"export-{suffix[:13]}",
         name="Export worker",
         data_type=media,
         type_key="video-track" if media == "video" else "image-detection",
@@ -56,7 +56,7 @@ async def setup(db, media):
     )
     dataset = Dataset(
         id=uuid.uuid4(),
-        display_id=f"dataset-{suffix[:15]}",
+        display_id=f"dataset-{suffix[:12]}",
         name="Export originals",
         data_type=media,
         created_by=owner.id,
