@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import type { Annotation, AnnotationResponse, CocoRleMaskRef } from "@/types";
@@ -354,14 +354,8 @@ describe("ordinary prediction decisions", () => {
   });
 
   it("批量与单项共享在途保护，批量保留跨帧原有范围", async () => {
-    let complete!: (value: unknown[]) => void;
-    predictionMutations.accept.mockImplementation(({ shapeIndex }) =>
-      shapeIndex === 0
-        ? new Promise((resolve) => {
-            complete = resolve;
-          })
-        : Promise.resolve([{ id: `created-${shapeIndex}` }]),
-    );
+    const writes = [deferred<unknown[]>(), deferred<unknown[]>(), deferred<unknown[]>()];
+    predictionMutations.accept.mockImplementation(({ shapeIndex }) => writes[shapeIndex].promise);
     const view = decisionHarness();
     let single: unknown;
     let bulk: unknown;
@@ -369,13 +363,37 @@ describe("ordinary prediction decisions", () => {
       single = view.result.current.handleAcceptPrediction(view.result.current.aiBoxes[0]);
       bulk = view.result.current.handleAcceptAll();
     });
-    expect(predictionMutations.accept).toHaveBeenCalledTimes(3);
+    expect(predictionMutations.accept).toHaveBeenCalledTimes(1);
+    expect(predictionMutations.accept).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ predictionId: "p", shapeIndex: 0 }),
+    );
     await act(async () => {
-      complete([{ id: "created" }]);
+      writes[0].resolve([{ id: "created-0" }]);
       await single;
+    });
+    await waitFor(() => expect(predictionMutations.accept).toHaveBeenCalledTimes(2));
+    expect(predictionMutations.accept).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ predictionId: "p", shapeIndex: 1 }),
+    );
+    await act(async () => {
+      writes[1].resolve([{ id: "created-1" }]);
+    });
+    await waitFor(() => expect(predictionMutations.accept).toHaveBeenCalledTimes(3));
+    expect(predictionMutations.accept).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ predictionId: "p", shapeIndex: 2 }),
+    );
+    await act(async () => {
+      writes[2].resolve([{ id: "created-2" }]);
       await bulk;
     });
-    expect(view.args.history.push).toHaveBeenCalledTimes(3);
+    expect(view.args.history.push.mock.calls.map(([entry]) => entry)).toEqual([
+      { kind: "acceptPrediction", predictionId: "p", createdAnnotationIds: ["created-0"] },
+      { kind: "acceptPrediction", predictionId: "p", createdAnnotationIds: ["created-1"] },
+      { kind: "acceptPrediction", predictionId: "p", createdAnnotationIds: ["created-2"] },
+    ]);
   });
 
   it.each(["task", "frame"])("补选弹层随所属 %s 退出，不能在新上下文重试", async (change) => {

@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tasksApi } from "@/api/tasks";
 import { ApiError } from "@/api/client";
+import * as original from "@/hooks/useOriginalImage";
 import type { TaskResponse } from "@/types";
 import type { ImagePyramidManifestV1, ImagePyramidResponse } from "./imagePyramid";
 import { resolveWorkbenchImageSource, useWorkbenchImageSource } from "./useWorkbenchImageSource";
@@ -241,6 +242,14 @@ describe("resolveWorkbenchImageSource", () => {
   it.each(["small", "failed"] as const)(
     "polls metadata until %s without needing a Task refetch, then stops",
     async (outcome) => {
+      const retryOriginal = vi.fn();
+      const image = vi.spyOn(original, "useOriginalImage").mockReturnValue({
+        url: "blob:decoded-owned",
+        version: 7,
+        error: null,
+        ready: true,
+        retry: retryOriginal,
+      });
       const unknown = task(false, "pending");
       unknown.image_width = null;
       unknown.image_height = null;
@@ -281,22 +290,48 @@ describe("resolveWorkbenchImageSource", () => {
         () =>
           expect(result.current.source).toMatchObject(
             outcome === "small"
-              ? { kind: "single", width: 24, height: 16, url: "/original.png" }
+              ? {
+                  kind: "single",
+                  width: 24,
+                  height: 16,
+                  url: "blob:decoded-owned",
+                  identity: expect.stringMatching(/\/item-1\/address\/7$/),
+                }
               : { kind: "pyramid-failed", retryable: false, errorCode: "decode_failed" },
           ),
         { timeout: 3_000 },
       );
-      expect(result.current.retry).toBeUndefined();
+      if (outcome === "small") {
+        expect(image.mock.lastCall?.[0]).toEqual({ kind: "task", taskId: "task-1" });
+        expect(result.current.retry).toBe(result.current.refresh);
+      } else {
+        expect(result.current.retry).toBeUndefined();
+        expect(image.mock.lastCall?.[0]).toBeNull();
+      }
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 1_100));
       });
       expect(get).toHaveBeenCalledTimes(2);
+      if (outcome === "small") {
+        await act(async () => {
+          await result.current.retry?.();
+        });
+        expect(retryOriginal).toHaveBeenCalledTimes(1);
+        expect(get).toHaveBeenCalledTimes(3);
+      }
       unmount();
       client.clear();
     },
   );
 
   it("refreshes a Task whose original URL was unavailable before metadata completed", async () => {
+    const image = vi.spyOn(original, "useOriginalImage").mockReturnValue({
+      url: "blob:resolved-owned",
+      version: 11,
+      error: null,
+      ready: true,
+      retry: vi.fn(),
+    });
     const unknown = task(false, "pending");
     unknown.file_url = null;
     unknown.image_width = null;
@@ -310,7 +345,7 @@ describe("resolveWorkbenchImageSource", () => {
     };
     const resolved = {
       ...unknown,
-      file_url: "/resolved.png",
+      file_url: "https://old-signed-original.invalid/trap",
       image_width: 32,
       image_height: 24,
       image_pyramid: { ...unknown.image_pyramid, width: 32, height: 24 },
@@ -344,12 +379,14 @@ describe("resolveWorkbenchImageSource", () => {
     await waitFor(() =>
       expect(result.current.source).toMatchObject({
         kind: "single",
-        url: "/resolved.png",
+        url: "blob:resolved-owned",
+        identity: expect.stringMatching(/\/item-1\/address\/11$/),
         width: 32,
         height: 24,
       }),
     );
     expect(getTask).toHaveBeenCalledTimes(1);
+    expect(image.mock.lastCall?.[0]).toEqual({ kind: "task", taskId: "task-1" });
     unmount();
     client.clear();
   });
