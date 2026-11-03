@@ -523,3 +523,17 @@ UI 验证使用实际构建和隔离环境；文档／计划阶段不虚构浏�
 证据位于 `.worktree/test-language-b-6c5b12d68d/`：`n1-browser-api-proof.json`、`n7-browser-outcomes.json`、`n7-rendered-docs-proof.json`、`rendered-guide-links.json` 与截图。应用窗口保留一次审核读取 `409 source_busy`、预期的 C 项目拒绝，以及既有 Konva／嵌套按钮提示，不能宣称所有请求与 console 均无异常。没有未捕获 JavaScript 异常；最终审核持久状态和 tracker 预览证据单独归 G2。
 
 本阶段只关闭上述 N1／N7 切片。C 的导出选项与真实制品衔接仍等待独立批准；公开 SDK／CLI、机器协议、持久身份、发行版本和 N3–N6 均未改动。
+
+### 13.5 阶段 C 扩展：导出之外增加三路产品语言
+
+用户批准阶段 C，并要求增加独立工作树并行推进产品语言。除导出语言和导出消费者测试外，新增以下三路 N1／N7 切片，与导出通道使用同一已提交基线独立实施：
+
+- **模型服务注册与目录：** `EmptyCatalogBanner`、`ProtocolCapabilityCard`、`GlobalBackendFormModal` 及直接相关能力卡中的“注册 backend”“drain／GPU claim”等普通操作语言，改为职责明确的模型服务、停止接收新任务／等待退出及 GPU 资源声明说明。先核对实际合同，不把注册成功等同于已连接、已启用到项目或可运行所有模型。保留 `/setup`、GPU 身份、机器错误码和可复制原始诊断；对应用户指南为 `superadmin/model-market.md`、`superadmin/ml-backend-registry.md`。
+- **批次管理：** `BatchesSection`、`BatchesKanbanView` 和 `ProjectDistributeBatchesModal` 中的 `owner / draft / pending / task / is_active` 等操作层词汇，转换为真实角色、状态和数据影响说明。准确区分退回、重置、锁定、分派及已有标注保留，不修改状态机、权限、原因校验或任务分派规则；同步 `projects/batch.md`。
+- **训练结果比较：** `TrainingComparisonPage`、`TrainingComparisonMetricTable`、`TrainingComparisonResults` 将 Best／Last 的结果来源讲清，区分最佳权重最终评估、当前执行最近上报轮次、报告可用与模型发布；把执行耗时解释为实际包含的阶段，不当作纯 GPU 计算时间。保留精确指标名、单位、兼容分组、排名、零值／缺失值、历史执行选择和 URL machine values；同步 `online-learning/comparison.md`。
+
+五路文件所有权与组合门见[测试治理计划第 13.7 节](1793261328_test-governance-module-plugin-contracts.md#137-阶段-c-扩展五路独立实施与主进程组合验收)。修改任务均使用独立工作树、OMP `openai-codex/gpt-6.1-terra:xhigh`，主进程负责审核合并、共享文档和实际验收；不为增加并发而重复修改同一文件或创造一套文案抽象。
+
+导出仍需普通权限下的实际 worker、下载和内容核对；新增三路分别验证注册表单／目录导航、批次取消与确认后的持久状态，以及真实 API 上的比较选择／结果／缺失说明。每个受影响页面检查明暗主题和宽窄布局。没有执行的模型连接、训练、推理、视频往返或 GPU 行为明确不计为通过。
+
+当前只扩大 N1／N7 的上述实施范围，不启动公共 SDK／CLI 改名、格式 selector 迁移、浏览器持久键、数据库 namespace 或部署资源改名；既有后置问题不因本次排期被标为解决。
