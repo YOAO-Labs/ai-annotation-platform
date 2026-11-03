@@ -49,16 +49,16 @@ const IMAGE_OPTIONS: ImageOption[] = [
     label: "YOLO",
     description: "按标注几何选变体，可多选。",
     members: [
-      { value: "yolo-det", label: "检测", description: "矩形框 cls cx cy w h，YOLOv8 检测。" },
-      { value: "yolo-obb", label: "旋转框", description: "rotated_bbox 四角坐标（OBB）。" },
-      { value: "yolo-seg", label: "分割", description: "polygon / mask 归一化多边形。" },
+      { value: "yolo-det", label: "检测", description: "导出矩形框，用于 YOLOv8 检测。" },
+      { value: "yolo-obb", label: "旋转框", description: "导出旋转框的四个角点，用于 OBB。" },
+      { value: "yolo-seg", label: "分割", description: "将多边形和 Mask 导出为归一化多边形。" },
     ],
   },
   {
     kind: "single",
     value: "aap_json",
     label: "原生 JSON",
-    description: "YOAO 原生交换格式，包含 predictions 和 annotations。",
+    description: "分别保存预测候选和正式标注，并保留项目配置。",
   },
   {
     kind: "single",
@@ -76,7 +76,7 @@ const IMAGE_OPTIONS: ImageOption[] = [
     kind: "single",
     value: "indexed-png",
     label: "Indexed PNG",
-    description: "每张图一份 palette instance map；重叠需显式策略。",
+    description: "每张图用一张索引 PNG 区分实例；重叠时需选择处理方式。",
   },
 ];
 
@@ -89,37 +89,37 @@ const VIDEO_OPTIONS: TargetOption[] = [
   {
     value: "yolo-frames-det",
     label: "YOLO 逐帧",
-    description: "按采样网格抽帧，导出检测训练用 labels。",
+    description: "按采样间隔抽帧，导出检测训练标注。",
   },
   {
     value: "yolo-frames-seg",
     label: "YOLO 逐帧分割",
-    description: "按采样网格抽帧，导出分割训练用 labels（保留多边形顶点；bbox / polyline 跳过）。",
+    description: "按采样间隔抽帧，保留多边形顶点；跳过矩形框和折线。",
   },
   {
     value: "coco-frames-seg",
     label: "COCO 逐帧分割",
-    description: "按采样网格抽帧，导出 COCO 分割数据集（保留多边形顶点；bbox / polyline 跳过）。",
+    description: "按采样间隔抽帧，导出分割数据；跳过矩形框和折线。",
   },
   {
     value: "davis",
     label: "DAVIS Mask",
-    description: "按采样网格导出 Full-Resolution palette PNG；对象 ID 在序列内稳定。",
+    description: "按采样间隔导出原尺寸索引 PNG；同一视频内对象编号稳定。",
   },
   {
     value: "youtube-vos",
     label: "YouTube-VOS",
-    description: "稀疏关键帧 palette PNG + meta.json；导入时显式选择 gap 策略。",
+    description: "只导出 Mask 关键帧；导入时需选择未标注帧的处理方式。",
   },
   {
     value: "mots",
     label: "MOTS",
-    description: "逐帧 compressed COCO RLE，显式保存 class / track / frame 映射。",
+    description: "逐帧导出分割数据，并记录类别、轨迹与帧号的对应关系。",
   },
   {
     value: "aap_json",
     label: "原生 JSON",
-    description: "YOAO 原生交换格式，保留 video_track geometry 与项目配置。",
+    description: "保留视频轨迹的受支持标注形状和项目配置。",
   },
   { value: "mot", label: "MOT", description: "MOT 16/17/20 跟踪评测格式，按采样网格重排帧号。" },
   { value: "kitti", label: "KITTI", description: "KITTI Tracking 2D labels，适配 KITTI 工具链。" },

@@ -16,7 +16,7 @@ last_reviewed: 2026-10-24
 
 图片项目可选 **COCO / YOLO 检测 / YOLO 旋转框 / YOLO 分割 / Label Studio Brush / 逐实例 Binary PNG / Indexed PNG / 原生 JSON**；视频轨迹项目可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / 原生 JSON / MOT / KITTI**；点云项目可选 **原生 JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。nuScenes 只允许来源真实且包含完整 Scene 的数据入队。
 
-> **YOLO 拆三个变体（几何映射不同）**：`YOLO 检测`(det) 导矩形框、`YOLO 旋转框`(obb) 导 rotated_bbox 四角、`YOLO 分割`(seg) 导 polygon / mask 多边形。每个变体只取匹配的几何，其余跳过。
+> **YOLO 有三个变体**：`YOLO 检测`(det) 导出矩形框、`YOLO 旋转框`(obb) 导出旋转框的四个角点、`YOLO 分割`(seg) 导出多边形与 Mask 的多边形轮廓。每个变体只取匹配的标注形状，其余跳过；Mask 转轮廓可能丢失孔洞或细节，预检会报告损失。
 
 ## 原地引用图片
 
@@ -38,16 +38,16 @@ last_reviewed: 2026-10-24
 | 图像         | YOLO 分割          | `yolo-seg`                    | 训练 YOLOv8 分割（polygon / mask）                                  |
 | 图像         | Label Studio Brush | `label-studio-brush`          | 与 Label Studio BrushLabels 交换实例 Mask                           |
 | 图像         | 逐实例 Binary PNG  | `binary-png`                  | 以独立 0/255 PNG 无损保留重叠实例                                   |
-| 图像         | Indexed PNG        | `indexed-png`                 | 交换单张 palette instance map；重叠时需显式 winner 策略             |
-| 图像         | 原生 JSON          | `aap_json`                    | 跨实例迁移 / 导入外部模型预测供人工审阅 / 备份                      |
+| 图像         | Indexed PNG        | `indexed-png`                 | 每图用一张索引 PNG 区分实例；重叠时需选择处理方式                   |
+| 图像         | 原生 JSON          | `aap_json`                    | 分别保存预测候选与正式标注，保留项目配置                            |
 | **视频轨迹** | Video JSON         | `video_json`                  | 轨迹备份 / 质检 / 继续编辑                                          |
 | 视频轨迹     | YOLO 逐帧检测      | `yolo-frames-det`             | 视频逐帧检测训练（polygon / polyline 降级为顶点外接框）             |
 | 视频轨迹     | YOLO 逐帧分割      | `yolo-frames-seg`             | 视频逐帧分割训练（保留多边形顶点；bbox / polyline 跳过）            |
 | 视频轨迹     | COCO 逐帧分割      | `coco-frames-seg`             | 视频逐帧分割训练（标准 COCO；保留多边形顶点；bbox / polyline 跳过） |
-| 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（序列级 palette PNG）                       |
+| 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（每个采样帧一张索引 PNG）                   |
 | 视频轨迹     | YouTube-VOS        | `youtube-vos`                 | 稀疏关键帧对象分割数据交换                                          |
 | 视频轨迹     | MOTS               | `mots`                        | compressed RLE 多对象跟踪与分割数据交换                             |
-| 视频轨迹     | 原生 JSON          | `aap_json`                    | 视频跨实例迁移                                                      |
+| 视频轨迹     | 原生 JSON          | `aap_json`                    | 保存受支持的视频轨迹形状和项目配置                                  |
 | 视频轨迹     | MOT 16/17/20       | `mot`                         | 多目标跟踪评测（trackeval）                                         |
 | 视频轨迹     | KITTI Tracking     | `kitti`                       | KITTI 跟踪工具链                                                    |
 | **点云**     | 原生 JSON          | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                               |
@@ -276,15 +276,15 @@ names:
 
 > 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。原生格式的文件标识为 `aap`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
 
-> 原生 JSON 是 YOAO 原生交换格式。当前 schema 在 task 层包含 `media_type` 与视频元数据，可无损透传图片 `raster_mask` 和视频 `video_track_mask`；顶层 `scene_tracks` 保留 3D 时序对象身份、轨迹级属性和多个存在区间。`mask_objects` 携带内容寻址 RLE 对象，使引用在导出后仍可移植并校验哈希。与 COCO / YOLO 并列，但**包含**它们丢失的项目、来源、属性与渲染配置。
+> 原生 JSON 保存项目配置及受支持的标注内容。图片任务分别保存预测候选和正式标注：导入预测时只读取 `predictions[]`，导入标注时只读取 `annotations[]`，不会自动把候选转为正式标注。视频导出保留受支持的轨迹形状及视频元数据，但不保证跨实例迁移或视频导入往返。技术字段中，`mask_objects` 携带可校验哈希的 RLE 对象；`scene_tracks` 保存 3D 时序对象身份、轨迹级属性和存在区间。
 
 <!-- history: 1.1 tool bindings; 1.2 media blocks; 1.3 portable raster mask objects; 1.5 scene tracks and temporal roles. -->
 
 适合场景：
 
-- **跨实例迁移**：A 平台 → B 平台，标注不丢失。
-- **客户自家模型预测导入**：导出空项目结构 → 客户用自家模型填 `predictions[]` → 在 Dashboard 项目卡片 `⋮` 菜单选择「导入预测」，或上传到 `/projects/{id}/predictions/import` 端点。
-- **dataset snapshot 锚点**：版本化备份 / 训练复现。
+- **保存图片标注和预测候选**：分别使用标注导入和预测导入入口；导入前检查任务、类别和格式预检结果。
+- **导入外部模型预测供人工审阅**：在导出的项目结构中填写 `predictions[]`，再通过 Dashboard 的「导入预测」或 `/projects/{id}/predictions/import` 导入。
+- **保留项目配置和导出范围内的内容**：用于检查或归档，不保证所有媒体引用和导入场景都可跨实例使用。
 
 原生 JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image label 文件）。
 
@@ -367,7 +367,7 @@ names:
 关键规则：
 
 - `schema_version` 必填，breaking change 升 major，导入端 `major > 1` 返 422; minor 升级(如 1.0 → 1.1) 只加可空字段, 老 reader 走 `extra="ignore"` 继续兼容。
-- `annotations[]` 与 `predictions[]` **分开两个数组**（不混 type 字段）。
+- 正式标注 `annotations[]` 与预测候选 `predictions[]` **分开两个数组**（不混 type 字段）；对应的标注导入和预测导入各自读取自己的数组。
 - 3D Scene 的 `scene_tracks[]` 保存稳定 `track_id`、Scene、轨迹级类别/属性、`presence_mode` 和存在区间；各 task 的 `annotations[]` 用同一 `track_id` 关联，并以 `temporal_role` 区分 `keyframe`、`derived` 与 `sample`。
 - 导出严格写满 null；导入 lenient 忽略未知字段、缺失按默认。
 - `task_match` 走 `display_id` 优先（全局唯一），`file_path` fallback；跨项目 `display_id` 不允许偷换项目。
@@ -479,7 +479,7 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 **KITTI Tracking 2D**：每视频落 `labels/{sequence}.txt`，**17 列**空格分隔，列顺序为 `frame track_id type truncated occluded alpha x1 y1 x2 y2 h w l x y z rotation_y`。2D 版本里 `truncated=0`、`occluded∈{0,1}`、`alpha` 与全部 3D 字段（`h w l x y z rotation_y`）占位 `-1`，只有 `x1 y1 x2 y2` 是真实 2D 框（像素）。帧号取采样网格序号 0-based。
 
-**原生 JSON**：YOAO 原生交换格式，所有视频轨迹 geometry 原样保留；Mask 内容通过 `mask_objects` 随包迁移。详见上节。
+**原生 JSON**：保存受支持的视频轨迹标注形状和项目配置；Mask 内容记录在 `mask_objects`。选择视频范围时，轨迹按范围裁剪。导出保留这些内容不代表支持视频跨实例迁移或原生 JSON 往返导入，详见上节。
 
 ### 视频 ZIP 包目录树（多目标 MOT + YOLO 逐帧示例）
 
@@ -534,8 +534,8 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 | 训练 YOLOv8 旋转框 (OBB)                              | YOLO 旋转框          |
 | 训练 YOLOv8 分割                                      | YOLO 分割            |
 | 训练 Detectron2 / MMDetection（检测 / 分割 / 关键点） | COCO                 |
-| **跨实例迁移 / 导入外部模型预测供人工审阅**           | **原生 JSON**        |
-| 数据迁移 / 备份                                       | 原生 JSON            |
+| 保存图片预测候选和正式标注 / 导入外部预测供人工审阅   | **原生 JSON**        |
+| 保留项目配置和导出范围内的内容                        | 原生 JSON            |
 | 视频轨迹备份 / 质检                                   | Video JSON（关键帧） |
 | 视频逐帧训练（目标检测）                              | YOLO 逐帧            |
 | 视频逐帧质检 / 自定义脚本处理                         | Video JSON（所有帧） |
@@ -544,4 +544,4 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 | 多对象跟踪与分割数据交换                              | MOTS                 |
 | 视频多目标跟踪评测（trackeval）                       | MOT 16/17/20         |
 | 视频跟踪（KITTI 工具链）                              | KITTI Tracking       |
-| 视频跨实例迁移                                        | 原生 JSON            |
+| 保存视频轨迹形状和项目配置                            | 原生 JSON            |
