@@ -863,6 +863,8 @@ A 的实现任务为 `task_5ba0b6caf97e`，语言清点为 `task_00843cd58804`�
 
 ### 13.4 A 的集成结果与尚未通过的组合门
 
+本节记录 A 的首次验收及当时的阻塞。用户随后批准的独立修复和最新组合门结果见第 13.5 节，不覆盖下列失败历史。
+
 夹具实现提交 `2082cf1b3` 已审核并以 `66d7dcc0b` 合入当前分支。主进程补齐了两类真实收尾问题：造数进程异常后先关闭原 owner 通道，再用独立 owner 通道执行具名清理；WebCodecs 原片改为项目专属路径，准确回收本项目，不覆盖或删除邻居原片。外部 Identity 引用仍明确拒绝清理，移除引用后才允许继续；没有吞掉外键冲突。
 
 真实消费者还暴露了两个产品问题：视频预测导入仍读取旧媒体汇总，以及同一任务的批量采纳并发争用写锁。前者改用现有当前原件派生摘要，后者改为同批依次提交，并在任务或账号退出后停止尚未提交的操作。视频用例增加实际画帧就绪前置条件，保留原业务 expected、用例时限、零重试和原生播放降级路径；服务端 NOWAIT、权限和版本围栏未调整。
@@ -887,6 +889,34 @@ A 的实现任务为 `task_5ba0b6caf97e`，语言清点为 `task_00843cd58804`�
 
 因此本轮 owner 迁移与已修复问题分别记录证据，但主进程集成任务保持 blocked，B／C 的排期批准 gate 不自动放行。后续需先审核图片恢复的实际锁边界并重新取得完整组合门；这不是把当前失败隐藏成下一轮已完成。
 
-只读复核进一步确认了一个具体可产生冲突的合同：原件读授权对同一批次取 `FOR SHARE NOWAIT`，而 `record_annotation_actor` 当前经 Labeling owner 工作流对批次取 `FOR UPDATE NOWAIT`，其锁错误统一映射为 `task_busy`。这不是已识别的原失败持锁连接，也不是共享图片对象造成 Task 身份混用。候选修复是仅对 contributor 记录采用批次 SHARE，继续保留准确 Task UPDATE、NOWAIT、身份／状态／来源复核和其他操作的原锁模式；必须新增前向 owner 迁移并以真实并发、批次重分配、撤权及原四项浏览器场景验证，不能修改冻结历史 SQL。该范围超出本轮无迁移的 fixture 切片，尚未实施，需单独确认是否开启修复阶段。
+只读复核进一步确认了一个具体可产生冲突的合同：原件读授权对同一批次取 `FOR SHARE NOWAIT`，而 `record_annotation_actor` 经当时的 Labeling owner 工作流对批次取 `FOR UPDATE NOWAIT`，其锁错误统一映射为 `task_busy`。这不是已识别的原失败持锁连接，也不是共享图片对象造成 Task 身份混用。候选修复是仅对 contributor 记录采用批次 SHARE，继续保留准确 Task UPDATE、NOWAIT、身份／状态／来源复核和其他操作的原锁模式；必须新增前向 owner 迁移并以真实并发、批次重分配、撤权及原四项浏览器场景验证，不能修改冻结历史 SQL。该范围超出原先无迁移的 fixture 切片，用户随后已批准独立修复；实际实现还需保护写事务间的排他性，见下一节。
 
 文档站构建通过，既有语法高亮与大 chunk 警告保留。浏览器全部关闭后，四个一次性 lane／mode 已退役；私有 PostgreSQL 确认无业务数据库和 worktree 角色，私有 MinIO 确认零桶，再移除这两个容器及私有网络、卷。两个 worker 工作树在确认干净及补丁已集成后移除，相应分支也已删除；共享 MinIO 仍是原容器且保持运行。临时原生依赖、虚拟环境、探针和私有凭据已移除，失败／成功报告及截图保留在 `0700` 的证据目录。收尾记录为 `owned-mode-cleanup.json`、`empty-private-infrastructure.json`、`private-infrastructure-retirement.json`、`worker-retirement-proof.json`、`worker-branch-retirement.json` 和 `scratch-retirement.json`。这些清理结果不替代尚未通过的组合门。
+
+### 13.5 独立 Labeling 锁修复与原组合门补验
+
+用户批准增加独立修复阶段后，复用两个隔离工作树，分别处理 owner 迁移与消费者回归；worker 使用 OMP `openai-codex/gpt-6.1-terra:xhigh`。主进程审核并合入 `06540cdc7`、`630d81b1b`、`436397ced`，没有修改历史 `0335` SQL、提高接口时限、添加重试或放宽权限。
+
+前向迁移 `bo0427` 仅让 contributor 记录使用批次 SHARE，保留准确 Task UPDATE NOWAIT。主进程的真实双写探针发现：仅换成 SHARE 会在后续批次自动流转时形成锁升级死锁（`40P01`）。最终实现增加同批次 contributor 的非阻塞事务级 advisory 写入互斥：读者仍可共存，第二个写者在变更前得到 `55P03`／`409 task_busy`，提交或回滚后释放互斥，不同批次互不阻塞。批次调整、统计和其他需要排他锁的操作不因此获得并行承诺。
+
+权限选集同时纠正了一个旧夹具：保留直接任务分派时，批次转为草稿并不撤销标注员的返工权限，不能继续断言拒绝。替换为没有任务分派覆盖的真实批次重新分派后，实际暴露出原件复核使用缓存批次负责人的缺陷。`original_content_access.visible_task` 的锁定批次读取现显式刷新 identity map；保留拒绝交付和关闭临时文件的断言，没有改成接受 `200`。
+
+| 验收范围                          | 实际结果                                                                                                         | 证据                                                                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 真实邻居原件读与 contributor 写   | `bo0426` 在 `task_batches` UPDATE 上产生 `55P03`；最终 `bo0427` 在读事务仍持锁时允许记录，回滚／提交结果符合预期 | `holder-before.json`、`holder-final-downgrade.json`、`holder-final-upgrade.json`                                          |
+| 真实双 `AnnotationService.create` | 竞争写者立即拒绝且无标注／贡献者／状态残留；首写提交后新事务可写入                                               | `writer-upgrade-probe.json`、`writer-exclusion-final.json`                                                                |
+| 迁移往返                          | 降级还原历史函数体，升级恢复最终函数体；OID、owner、ACL、SECURITY DEFINER 和函数配置保持不变                     | `migration-roundtrip-final.json`；最终函数体 SHA256 为 `027a35cab040cb4a3397a16eace630937b0e3ec7d854aaa90277c7a8f57bbf90` |
+| Native 合同与权限                 | 原 42 项选集 41 通过、1 旧夹具失败；真实重新分派场景先失败，修复后 4 项来源／权限检查及邻居读写回归共 5 项通过   | `native-final.xml`、`native-authority-final.xml`、`native-authority-fixed.xml`；存在重叠项，不相加为一次全绿运行          |
+| 原四项 Chrome 场景                | 4 通过、0 跳过、0 重试；图片／视频隐藏、刷新恢复、持久几何及当前帧画布断言通过，六张画布截图已检查               | `filtering-browser-fixed-env.json`、`filtering-browser-output-fixed-env/`                                                 |
+| 文档                              | 文档站构建通过，既有语法高亮与 chunk 警告保留                                                                    | `pnpm docs:build`                                                                                                         |
+
+证据根目录为 `.worktree/labeling-batch-lock-9900dda3b4/`。浏览器前两项使用原有 employee 标注员，图片／视频隐藏两项使用原有 super_admin 夹具，没有切换身份来消除冲突；受限数据库角色与普通当前身份的锁／权限证明来自 Native 和真实事务探针。最初一次浏览器启动因临时控制器未传递私有 MinIO 凭据而失败，未执行任何用例；修正临时环境后才取得上述完整四项结果。
+
+**范围与保留边界：**
+
+- 上述证据关闭 #153 对应的隐藏／恢复写入冲突及 A 的原四项行为组合门；不追认历史浏览器失败时的具体持锁 PID，也不将其归因于 #151。
+- 另一次扩大至 58 项的 Native 运行达到 1800 秒执行期限，没有最终 JUnit；进度标记不计作通过项，未取得挂起栈，不声称扩展原件选集通过。
+- 四项浏览器断言通过不等于整页无服务端异常。切换到 `tracker_only` 时日志出现 `TrackerJobStateConflict: tracker candidate is missing its accepted source map`；当前 filtering tracker 夹具只拼装了 `staged_result.results`。trace 未捕获对应失败 HTTP 响应，不能据此断言 tracker 预览健康或已修复。该 fixture 合同边界保留到后续 G2 验收，不在本次锁修复中添加 fallback 或修改 tracker 合同。
+- #152 的完整三分辨率基准、#151 的长驻环境延迟、额外手动图片批量采纳未取得有效请求的观察仍保留。Plugin-SDK terminal-drain 继续后置；B 的三路并行与 C 的依赖不变，排期批准 gate 不自动放行。
+
+浏览器退出后，两种 owned mode 的数据库、Redis 和桶已准确退役；私有 PostgreSQL 仅剩经核验为空的初始化 `owner` 数据库，无业务库、worktree 角色或其他客户端会话，私有 MinIO 零桶。随后移除这两个私有容器、卷与网络，确认共享 MinIO 原容器仍在运行。两个 worker 工作树在干净和补丁等价证明后由 Orca 移除，两个精确分支引用已不存在。临时探针、原生依赖、运行目录及私有凭据已删除，报告、trace 和截图保留；记录见 `owned-mode-cleanup.json`、`empty-private-infrastructure.json`、`private-infrastructure-retirement.json`、`worker-retirement.json`、`worker-branch-retirement.json`、`scratch-retirement.json`。未执行全局 prune，未推送或更新日常开发栈。

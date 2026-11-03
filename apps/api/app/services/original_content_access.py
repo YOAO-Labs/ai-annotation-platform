@@ -168,6 +168,7 @@ async def visible_task(db, task_id, actor, *, lock=False):
                             project_id=project_id,
                             lock_mode="share",
                             nowait=True,
+                            populate_existing=True,
                         )
                     )[0]
                     if batch_id is not None

@@ -21,6 +21,7 @@ from app.services import managed_original_reader as reader
 from app.services import managed_original_creation as creations
 from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
 from app.services.storage import storage_service
+from tests.factory import create_membership
 from tests.test_verified_task_content import (
     headers,
     picture,
@@ -314,9 +315,16 @@ async def test_task_original_corruption_never_changes_saved_receipt(
         )
 
 
-@pytest.mark.parametrize("change", ["key", "membership", "batch", "gate"])
+@pytest.mark.parametrize("change", ["key", "membership", "batch_assignment", "gate"])
 async def test_post_read_binding_or_authority_change_closes_stage(
-    httpx_client, db_session, annotator, stored_world, monkeypatch, change
+    httpx_client,
+    db_session,
+    project_admin,
+    annotator,
+    reviewer,
+    stored_world,
+    monkeypatch,
+    change,
 ):
     task, asset, member, _, _ = stored_world
     batch = TaskBatch(
@@ -329,6 +337,16 @@ async def test_post_read_binding_or_authority_change_closes_stage(
     db_session.add(batch)
     await db_session.flush()
     task.batch_id = batch.id
+    if change == "batch_assignment":
+        # Exercise Batch authority without a retained Task assignee override.
+        task.assignee_id = None
+        await create_membership(
+            db_session,
+            project_id=task.project_id,
+            user_id=reviewer[0].id,
+            role="annotator",
+            assigned_by=project_admin[0].id,
+        )
     await db_session.flush()
     original_capture, stages = reader.capture, []
 
@@ -352,11 +370,11 @@ async def test_post_read_binding_or_authority_change_closes_stage(
                 )
                 .execution_options(synchronize_session=False)
             )
-        elif change == "batch":
+        elif change == "batch_assignment":
             await db_session.execute(
                 update(TaskBatch)
                 .where(TaskBatch.id == batch.id)
-                .values(status="draft")
+                .values(annotator_id=reviewer[0].id)
                 .execution_options(synchronize_session=False)
             )
         else:
@@ -372,7 +390,7 @@ async def test_post_read_binding_or_authority_change_closes_stage(
     monkeypatch.setattr(reader, "capture", capture)
     response = await content(httpx_client, annotator, task, asset.checksum_value)
     assert response.status_code in (
-        {403, 404} if change in {"membership", "batch"} else {409}
+        {403, 404} if change in {"membership", "batch_assignment"} else {409}
     ), response.text
     assert len(stages) == 1 and stages[0].file.closed
 
