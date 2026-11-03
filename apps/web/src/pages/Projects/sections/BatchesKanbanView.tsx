@@ -74,7 +74,7 @@ export function BatchesKanbanView({ batches, isOwner, onTransition }: Props) {
     if (!allowed?.has(targetStatus)) {
       pushToast({
         msg: "不合法的状态迁移",
-        sub: `${draggingBatch.status} → ${targetStatus} 不在合法路径中`,
+        sub: `不能从「${COLUMNS.find((col) => col.id === draggingBatch.status)?.label ?? draggingBatch.status}」转到「${COLUMNS.find((col) => col.id === targetStatus)?.label ?? targetStatus}」`,
         kind: "warning",
       });
       setDraggingId(null);
@@ -184,7 +184,7 @@ function KanbanCard({
       </div>
       <ProgressBar value={batch.progress_pct ?? 0} />
       <div className="text-2xs text-muted-foreground">
-        {batch.completed_tasks}/{batch.total_tasks} task
+        {batch.completed_tasks}/{batch.total_tasks} 个任务
       </div>
     </div>
   );

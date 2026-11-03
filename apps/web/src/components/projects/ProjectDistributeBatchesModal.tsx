@@ -19,10 +19,7 @@ interface Props {
   onClose: () => void;
 }
 
-/**
- * v0.7.2 · 项目级 batch 圆周分派：把项目内未分派 / 全部 batch 在所选 annotator/reviewer 间均分。
- * 一 batch 落到 1 个 annotator + 1 个 reviewer。
- */
+/** 将批次按所选职责分配给标注员或审核员。 */
 export function ProjectDistributeBatchesModal({ projectId, batchIds, onClose }: Props) {
   const pushToast = useToastStore((s) => s.push);
   const { data: members = [], isLoading } = useProjectMembers(projectId);
@@ -99,7 +96,7 @@ export function ProjectDistributeBatchesModal({ projectId, batchIds, onClose }: 
         onSuccess: (data) => {
           if (!current()) return;
           pushToast({
-            msg: `已圆周分派 ${data.distributed_batches} 个批次`,
+            msg: `已分派 ${data.distributed_batches} 个批次`,
             kind: "success",
           });
           onClose();
@@ -123,8 +120,8 @@ export function ProjectDistributeBatchesModal({ projectId, batchIds, onClose }: 
       width={560}
     >
       <div className={styles.description}>
-        {batchIds ? "把选中的 " + batchIds.length + " 个批次" : "把项目下的批次"}
-        圆周均分给所选标注员 / 审核员。每个批次落到 <strong>1 个标注员 + 1 个审核员</strong>。
+        {batchIds ? "将选中的 " + batchIds.length + " 个批次" : "将项目下的批次"}
+        依次分配给所选标注员或审核员。每个批次的每项职责最多分配一人；未选择人员的职责不变。
       </div>
 
       <div className={styles.scopeTabs}>
@@ -136,9 +133,9 @@ export function ProjectDistributeBatchesModal({ projectId, batchIds, onClose }: 
             setPreview(null);
           }}
           className={clsx(styles.scopeChip, scope === "unassigned" && styles.scopeChipActive)}
-          title="只分派那些 annotator/reviewer 为空的批次（不覆盖已分派）"
+          title="只填补未分派的职责，不覆盖已有负责人"
         >
-          仅未分派的批次
+          仅未分派的职责
         </button>
         <button
           type="button"

@@ -384,7 +384,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
       {
         onSuccess: () => {
           pushToast({
-            msg: `已把 ${unclassifiedCount} 个未归类任务注入 1 个批次`,
+            msg: `已将 ${unclassifiedCount} 个未归类任务分到 1 个新批次`,
             kind: "success",
           });
         },
@@ -413,7 +413,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
       {
         onSuccess: (res) => {
           pushToast({
-            msg: res.length === 1 ? "已把未归类任务注入 1 个新批次" : `已创建 ${res.length} 个批次`,
+            msg: res.length === 1 ? "已将未归类任务分到 1 个新批次" : `已创建 ${res.length} 个批次`,
             kind: "success",
           });
           setShowCreate(false);
@@ -440,7 +440,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     const feedback = await inputDialog({
       title: `驳回批次 ${batch.display_id}`,
       description:
-        "驳回后批次状态变为「已退回」，被分派的标注员会收到通知。已提交质检 / 已通过的任务回退到待标注，**已有标注内容会保留**，标注员可在 reviewer 留言指引下继续修改。",
+        "驳回后批次状态变为「已退回」，已提交质检或已通过的任务回到待标注。已有标注内容和驳回反馈会保留；如已分派标注员，系统会通知该标注员按反馈修改。",
       label: "驳回原因 / 留言",
       placeholder: "请说明需要标注员重做的具体问题…",
       required: true,
@@ -453,7 +453,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     rejectBatch.mutate(
       { batchId: batch.id, feedback },
       {
-        onSuccess: () => pushToast({ msg: "批次已驳回，已通知被分派的标注员", kind: "success" }),
+        onSuccess: () => pushToast({ msg: "批次已驳回", kind: "success" }),
         onError: (e) => pushToast({ msg: "驳回失败", sub: (e as Error).message, kind: "warning" }),
       },
     );
@@ -488,7 +488,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     if (resetBatch.isPending) return;
     const reason = await inputDialog({
       title: `重置到草稿 · ${batch.display_id}`,
-      description: `这是 owner 兜底操作。批次将从 ${batch.status} 强制回到 draft：批次内 ${batch.total_tasks} 个 task 全部回 pending；已有标注记录保留（不删 annotation，不改 is_active）；会释放所有标注员锁，原审核反馈 / 审核人会被清空。`,
+      description: `批次将从「${STATUS_LABELS[batch.status] ?? batch.status}」重置为「草稿」，批次内 ${batch.total_tasks} 个任务回到待标注。人工标注和批次负责人保留；不再具有项目对应职责的非单独指定任务负责人会被清除。AI 预标结果会清除，已采纳的 AI 标注会停用。任务锁会释放，原审核反馈和审核记录会清空。`,
       label: "重置原因 · 会写入审计日志",
       placeholder: "说明为什么要把批次回退到草稿（迁移错误数据 / 整体重做 / …）",
       required: true,
@@ -513,7 +513,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     const reason = await inputDialog({
       title: `锁定批次 ${batch.display_id}`,
       description:
-        "锁定后，自动状态推进将被冻结，不再向该批次派发新任务。锁定原因将记录在审计日志中，并通知被分派的标注员 / 审核员。",
+        "锁定后，自动状态推进将暂停，调度器不再从该批次派发新任务；已有任务和任务锁不会被强制撤销。锁定原因将记录在审计日志中，并通知相关负责人。",
       label: "锁定原因",
       placeholder: "请说明锁定原因，例如：发现数据质量问题，暂停标注，待确认后解锁…",
       required: true,
@@ -654,7 +654,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                     onClick={handleCreateAll}
                     disabled={splitBatches.isPending}
                     className="ml-auto"
-                    title="把全部未归类任务一次性注入 1 个批次，立即进入工作流"
+                    title="把全部未归类任务分到一个新批次"
                   >
                     <Icon name="flame" size={12} /> 一键全量建包
                   </Button>
@@ -684,10 +684,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
               已选 <strong>{selectedCount}</strong> 个批次
             </span>
             <div className="ml-auto flex gap-1.5">
-              <Button
-                onClick={() => setConfirmBulk("activate")}
-                title="对选中的 draft 批次批量激活"
-              >
+              <Button onClick={() => setConfirmBulk("activate")} title="对选中的草稿批次批量激活">
                 <Icon name="play" size={12} /> 激活
               </Button>
               <Button
@@ -704,7 +701,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
               >
                 <Icon name="x" size={12} /> 驳回
               </Button>
-              <Button onClick={() => setReassignOpen(true)} title="批量改派 annotator / reviewer">
+              <Button onClick={() => setReassignOpen(true)} title="批量改派标注员 / 审核员">
                 <Icon name="users" size={12} /> 改派
               </Button>
               <Button onClick={() => setConfirmBulk("archive")} title="批量归档">
@@ -912,7 +909,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title={
                               b.status === "reviewing"
                                 ? "批次审核中但仍有未送审任务，整批补交质检"
-                                : "整批提交质检（owner / 被分派标注员）"
+                                : "整批提交质检（项目负责人 / 被分派标注员）"
                             }
                           />
                         )}
@@ -922,7 +919,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                               icon="check"
                               label="通过"
                               onClick={() => handleTransition(b, "approved")}
-                              title="批次通过审核（reviewer / owner）"
+                              title="批次通过审核（审核员 / 项目负责人）"
                               className={SUCCESS_BTN}
                             />
                             <BatchActionButton
@@ -930,7 +927,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                               label="驳回"
                               variant="danger"
                               onClick={() => void handleRejectBatch(b)}
-                              title="批次驳回（reviewer / owner）"
+                              title="批次驳回（审核员 / 项目负责人）"
                             />
                           </>
                         )}
@@ -973,7 +970,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             icon="refresh"
                             label="重置"
                             onClick={() => void handleResetBatch(b)}
-                            title="重置到草稿（owner 兜底）"
+                            title="重置到草稿"
                           />
                         )}
                         {!["archived", "approved"].includes(b.status) && (
@@ -1063,7 +1060,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
             />
           </label>
           {nBatches === 1 && (
-            <p className="m-0 text-xs text-muted-foreground">把全部未归类任务注入一个新批次。</p>
+            <p className="m-0 text-xs text-muted-foreground">把全部未归类任务分到一个新批次。</p>
           )}
           <label className="flex flex-col gap-1 text-sm">
             {nBatches === 1 ? "批次名称" : "名称前缀"}
@@ -1106,7 +1103,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           <div className="flex justify-end gap-2">
             <Button onClick={() => setShowCreate(false)}>取消</Button>
             <Button variant="primary" onClick={handleCreate} disabled={!namePrefix.trim()}>
-              {nBatches === 1 ? "注入 1 个批次" : `切分为 ${nBatches} 个批次`}
+              {nBatches === 1 ? "创建 1 个批次" : `切分为 ${nBatches} 个批次`}
             </Button>
           </div>
         </div>
@@ -1143,7 +1140,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
             。强制删除会把这些任务<strong>重置为待标注</strong>并<strong>清除 AI 预标</strong>
             （人工标注保留）。
           </p>
-          <p className="text-xs text-muted-foreground">若只想暂停而不丢进度，建议改用「归档」。</p>
+          <p className="text-xs text-muted-foreground">若只想暂停而不丢进度，可以锁定批次。</p>
           <div className="mt-4 flex justify-end gap-2">
             <Button onClick={() => setForceDelete(null)}>取消</Button>
             <Button
@@ -1187,8 +1184,8 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         <div className="text-sm">
           {confirmBulk === "archive" && (
             <p>
-              将把已选 <strong>{selectedCount}</strong> 个批次归档。归档后批次进入终态，可由 owner
-              通过「撤销归档」恢复。
+              将把已选 <strong>{selectedCount}</strong>{" "}
+              个批次归档。归档后项目负责人可通过「撤销归档」恢复。
             </p>
           )}
           {confirmBulk === "delete" && (
@@ -1199,8 +1196,8 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           )}
           {confirmBulk === "activate" && (
             <p>
-              将激活已选 <strong>{selectedCount}</strong> 个 draft
-              批次。前置条件不满足（未指派标注员或任务为空）的批次会失败但不影响其他。
+              将激活已选 <strong>{selectedCount}</strong>{" "}
+              个草稿批次。前置条件不满足（未指派标注员或任务为空）的批次会失败但不影响其他。
             </p>
           )}
           {confirmBulk === "approve" && (
