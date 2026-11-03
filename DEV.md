@@ -1159,9 +1159,10 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 ### 门控 E2E 路由的 Identity 边界
 
 `__test/seed` 仍只在非 production 且显式开启 `E2E_SEED_ENABLED` 时挂载；每个请求
-再核对实际数据库名，按原规则转小写后检查 `_test`／`_e2e` 后缀。普通 API 账号不
-获得测试写入能力。迁移到当前 head 后，可信测试运维 LOGIN 先应用普通围栏，再追加
-固定的七函数与完整资料关系：
+再核对实际数据库名，按原规则转小写后检查 `_test`／`_e2e` 后缀。完整夹具准备和清理
+使用 `apps/web/e2e/fixtures/seed-request.py` 的独立 owner 通道；普通 API 不获得 owner
+连接或测试写入能力。以下配置用于独立 Native 固定能力验收，不是给业务 HTTP 开通
+完整 seed 的方法：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -1188,7 +1189,7 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 
 当前源码原生矩阵的准备／清理通过独立 owner 夹具进程执行，普通业务 HTTP 仍使用
 受限连接；Identity 清理 replay 也显式标为 owner 验收。Node 固定能力、私表拒绝和
-借用事务保持独立资格，不将 owner 成功或下列历史冷工件结果折算成完整 seed 的受限权限证明。
+借用事务保持独立资格，不将 owner 成功折算成完整 seed 的受限权限证明。
 当前选集及结果见[测试治理计划](docs/plans/1793261328_test-governance-module-plugin-contracts.md)的 G2 后续记录。
 
 27 项不同定向检查及 64 项既有路由／隔离回归通过。源码检查 393 项通过、150 项既有
@@ -1197,7 +1198,7 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 内同一文件。GPU 清理前置修复只跳过不存在围栏的空 DELETE；围栏存在时仍执行原权限
 与 GC 证明守卫。
 
-按 Workspace 组合私网验收表设置四项冷镜像及身份变量后，可验证安装后的原始 HTTP：
+按 Workspace 组合私网验收表设置匹配当前源码的冷镜像及身份变量后，可验证安装后的业务 HTTP：
 
 ```bash
 AAP_IDENTITY_E2E_FIXTURE_LIVE=1 \
@@ -1206,14 +1207,16 @@ AAP_IDENTITY_E2E_FIXTURE_LIVE=1 \
   --test-file tests/test_identity_e2e_live.py
 ```
 
-此显式测试使用验收器创建的独占桶 IAM 身份，只追加固定 E2E 对象前缀与 mask 内容
-前缀；其他 API bootstrap 验收的默认元数据策略保持（对象读写仍拒绝）。八次独立
-API 容器运行已通过，含真实 HTTP、完整启动生命周期、撤权失败、取消 137、实际
-后端释放、回滚、恢复，以及邻居／token／对象版本清理。安装核对为 owner 288、
-API 1,322、Inference 88、Assets-source 154 个文件。
-收据见 `.worktree/identity-e2e-qualification.json`，整体状态按
-[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录，日常主环境
-不因本地验收切换。
+此显式测试通过既有 owner 通道准备两个 project-role namespace，再由冷 API 进程使用
+受限 runtime 和专用 `identity_auth_client` 连接处理员工请求；两条连接都指向验收器
+创建的同一测试库。普通 API 不持有 owner DSN，不追加 Identity／Workspace fixture
+权限，测试路由关闭且不出现在 OpenAPI。
+验收检查 A／B／D 项目角色、C 不可见、真实标注持久化、私表及 fixture 能力拒绝，
+以及重复清理一个 namespace 后另一个 namespace 和普通邻居仍存活。
+原先在 API 进程中调用 seed、撤销其 fixture 权限和强制中断造数的混合流程已移除；
+其历史收据不能视为当前 owner 通道的物理取消资格。
+当前结果见[测试治理计划](docs/plans/1793261328_test-governance-module-plugin-contracts.md)，
+不因本地验收切换日常主环境或宣称整模块部署完成。
 
 ### 截图夹具的 Identity 边界
 
@@ -3422,8 +3425,8 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 
 当前 `test_workspace_e2e_native.py` 将 seed 请求送入 owner 进程，仅业务请求使用
 受限连接。整行默认值快照及其 capture 模式已移除；项目角色、namespace 隔离、幂等、
-邻居保留、事务与拒绝行为继续由原功能场景验收。完整 seed 的旧受限冷工件流程属于
-独立资格边界，本轮源码／owner 验收不继承或宣称该流程已重新通过。
+邻居保留、事务与拒绝行为继续由原功能场景验收。冷工件也使用独立 owner 准备／清理，
+普通 API 仅消费这些数据；不恢复旧的受限 API 造数路径。
 
 真实筛选 CLI 覆盖已有数据拒绝、首次创建及保留修改后的重启，使用普通 E2E LOGIN，
 显式拒绝 Workspace 私表。冷工件验收复用 `test_identity_e2e_live.py`，同时检查

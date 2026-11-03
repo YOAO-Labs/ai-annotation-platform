@@ -81,7 +81,7 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 ## 门控 E2E 夹具
 
 `aap-identity-e2e-fixtures/v1` 是可信测试运维的固定 PostgreSQL 契约，独立于普通
-API 的五函数／两视图配置。`aap_identity_fixture_v1.account_profiles` 只提供原
+API 的 consumer 配置。`aap_identity_fixture_v1.account_profiles` 只提供原
 `UserOut` 的 21 个资料字段；不返回密码哈希、凭据代际、注销原因或周目标默认值。
 关系使用 security barrier，并仅在实际数据库名转小写后以 `_test`／`_e2e` 结尾时
 返回行。登录仍可返回停用账号，精确邮箱、缓存资料及 peek 优先级保持。

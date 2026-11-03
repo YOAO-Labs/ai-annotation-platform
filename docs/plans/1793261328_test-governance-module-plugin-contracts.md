@@ -920,3 +920,38 @@ A 的实现任务为 `task_5ba0b6caf97e`，语言清点为 `task_00843cd58804`�
 - #152 的完整三分辨率基准、#151 的长驻环境延迟、额外手动图片批量采纳未取得有效请求的观察仍保留。Plugin-SDK terminal-drain 继续后置；B 的三路并行与 C 的依赖不变，排期批准 gate 不自动放行。
 
 浏览器退出后，两种 owned mode 的数据库、Redis 和桶已准确退役；私有 PostgreSQL 仅剩经核验为空的初始化 `owner` 数据库，无业务库、worktree 角色或其他客户端会话，私有 MinIO 零桶。随后移除这两个私有容器、卷与网络，确认共享 MinIO 原容器仍在运行。两个 worker 工作树在干净和补丁等价证明后由 Orca 移除，两个精确分支引用已不存在。临时探针、原生依赖、运行目录及私有凭据已删除，报告、trace 和截图保留；记录见 `owned-mode-cleanup.json`、`empty-private-infrastructure.json`、`private-infrastructure-retirement.json`、`worker-retirement.json`、`worker-branch-retirement.json`、`scratch-retirement.json`。未执行全局 prune，未推送或更新日常开发栈。
+
+### 13.6 阶段 B：具名角色夹具、导入决策与结果说明
+
+用户批准推进 B 后，以 `f16f863bd` 为基线，在同一 Orca Run 下启动三个隔离工作树；worker 继续使用 OMP `openai-codex/gpt-6.1-terra:xhigh`。主进程审核并依次合入：
+
+| 通道                                      | worker 提交 | 集成提交    |
+| ----------------------------------------- | ----------- | ----------- |
+| G2 project-role namespace 与 tracker 夹具 | `3eff3ed50` | `dd1d79fdf` |
+| N1 外部预测导入决策                       | `fb855da6b` | `58cc4d1c9` |
+| N7 AI 工作流结果说明                      | `1763a067c` | `f632f4591` |
+
+`seed_project_roles` 现在要求准确 namespace，删除共享 fallback，并迁移 Python、Playwright 与冷启动消费者。具名清理保留另一角色夹具和普通邻居。filtering 的 source-less tracker 使用实际预览合同，不再把仅有 `staged_result.results` 的拼装数据当作可预览候选；没有增加 accepted-source fallback 或改变正式 tracker 采纳合同。
+
+主进程处理了验收中暴露的夹具边界：提交型 owner 夹具遗漏的 `seedroute` namespace 纳入同一准确清理集合；旧冷启动用例让受限普通 API 执行整套造数，已替换为 owner 子进程准备、普通安装镜像消费。冷启动环境只保留 Identity／Workspace consumer grants，普通 API 通过现有 `identity_auth_client` 读取认证能力，不获得 fixture／seed 权限或 owner DSN。导入探针在原有 CPU、内存和 PID 限额下固定单 OpenBLAS 线程；探针挂载权限和临时网络切换时的连接池生命周期按实际故障修正，没有提高资源上限、添加业务重试或吞掉权限错误。
+
+| 验收范围                                                                           | 实际结果                                                                                                                                  | 证据与口径                                                                                                     |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 角色 seed、具名清理、Identity／Workspace fenced HTTP、filtering 与导入 Native 选集 | 21 个去重后的当前用例通过，其中 1 项为实际冷启动镜像消费者                                                                                | `native-case-ledger.final.json`；来自分次聚焦运行，不冒充一次整套全绿。旧混合 API 造数节点已退役，不重复计入   |
+| 冷启动普通 API                                                                     | 两个 namespace、角色访问和真实标注写入通过；清理 A 两次后 A 被拒绝，B 和普通邻居存活；私表及 owner 写能力拒绝                             | `identity-cold-owner-auth.json`／`.xml`；未执行旧的 HTTP seed 进程物理取消资格                                 |
+| 浏览器角色与 tracker                                                               | employee 在 A 实际进入标注、在 B 审核通过且读回 completed；C 访问 404；source-less tracker 两次真实 preview 200，切到邻题后清除、切回恢复 | `g2-browser-proof.json` 与已检查截图；未采纳 tracker，也未运行模型                                             |
+| 导入向导                                                                           | 9 项前端行为测试通过；项目菜单与 AI 详情入口均实际预览、确认、读回                                                                        | `n1-browser-api-proof.json`；逐条版本优先、默认版本补缺、替换／追加及正式标注／模型预测保留均有持久结果        |
+| Jobs 与工作流说明                                                                  | 实际持久化夹具展示 completed 混合结果、失败、空结果和跳过；恢复链接、批次前置链接及旧锚点可用                                             | `n7-browser-outcomes.json`、`n7-rendered-docs-proof.json`、`rendered-guide-links.json`；不是推理或重试执行证据 |
+| 文档与静态检查                                                                     | 文档站构建、固定版本 Ruff 检查／格式及 CSS token 检查通过                                                                                 | 现有语法高亮、chunk 和两处 Training `z-10` 提示保留                                                            |
+
+证据根目录为 `.worktree/test-language-b-6c5b12d68d/`。两个导入入口共八张日／夜、桌面／390px 窄屏截图已检查，无页面横向溢出；文档也检查实际主题切换和宽窄布局。文档预览进程最初持有重建前的静态资源索引，产生脚本 404，重启后取得完整激活页面和最终 173 个无失败响应的请求窗口；旧的未激活或过渡动画截图不计作最终证据。
+
+**仍保留的边界：**
+
+- 浏览器没有未捕获 JavaScript 异常，但未修改页面仍出现 Konva 图层提示和 `MyBatchesCard` 嵌套按钮警告；B 审核访问中曾出现一次 `409 source_busy`，随后实际审核成功。没有据此宣称整页零异常，也没有添加重试或扩大为无证据的锁修复。
+- AI 导入入口使用实际项目详情深链；该项目未绑定模型服务，不声称它出现在已启用模型的项目网格。YOLO 非空匹配文件在逐行校验前可能清除旧外部预测的既有边界仍按真实行为说明，不算本次修复。
+- #151 长驻环境延迟、#152 完整三分辨率视频基准和独立 Plugin-SDK terminal-drain 后置项不变。全局 teardown、截图／reconciliation 和 scale seed 的串行边界未自动解除；不宣称整仓并行、远端 CI、模型／GPU 或 SDK 发行资格。
+
+浏览器关闭后，阶段 B 自有 e2e 数据库、Redis、十个桶和冷启动镜像均已退役；三个 worker 工作树在干净及补丁等价证明后移除，精确分支引用已删除。用户随后询问旧 `bo0400` test 环境的清理范围；核实该 mode 已停止、数据库零连接且全部 owner 匹配后，按既有闲置环境清理授权准确删除其数据库、Redis 和十个桶。共享 MinIO 明确仍被运行中的生产 API 通过 `minio:9000` 和 `prod-*` 桶使用，原容器与生产 API 保持运行，日常开发栈未停止。记录见 `runtime-cleanup.json`、`old-test-retirement.json`、`worker-cleanup.json` 和 `worker-branch-cleanup.json`；私有 HAR、身份数据、探针和临时原生依赖已移除，脱敏报告与截图保留。
+
+B 的上述组合门完成；C 的导出说明与真实导出／下载衔接仍由 `gate_b339edc6cc01` 单独批准，本次不启动 C、不推送、不发布，也不执行全局 prune。

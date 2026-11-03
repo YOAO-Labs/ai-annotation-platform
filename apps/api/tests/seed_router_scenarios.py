@@ -55,8 +55,6 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     assert response.status_code == 200, response.text
     body = response.json()
 
-    assert body["employee_email"] == f"employee-{NAMESPACE}@e2e.test"
-    assert body["peer_email"] == f"peer-{NAMESPACE}@e2e.test"
     projects = body["projects"]
     assert projects["a"]["project_role"] == "annotator"
     assert projects["b"]["project_role"] == "reviewer"

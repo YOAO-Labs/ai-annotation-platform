@@ -108,6 +108,7 @@ class WorkspaceImportCli:
         s3_access_key: str,
         s3_secret_key: str,
         runtime_database_url: URL | None = None,
+        identity_auth_database_url: URL | None = None,
     ) -> None:
         self.test_engine = test_engine
         self.source_root = Path(source_root).resolve(strict=True)
@@ -157,6 +158,29 @@ class WorkspaceImportCli:
         self.redis_owner_url = _verify_redis()
         self.database_name = database_name
         self.database_url = self._runtime_database_url(runtime_database_url)
+        self.identity_auth_database_url = ""
+        if identity_auth_database_url is not None:
+            auth = identity_auth_database_url
+            if (
+                auth.get_backend_name() != "postgresql"
+                or auth.username != "identity_auth_client"
+                or not auth.password
+                or auth.query
+                or (auth.host, auth.port, auth.database)
+                != (
+                    test_engine.url.host,
+                    test_engine.url.port,
+                    test_engine.url.database,
+                )
+            ):
+                raise RuntimeError(
+                    "Identity authentication must target the owned test DB"
+                )
+            self.identity_auth_database_url = auth.set(
+                drivername="postgresql",
+                host=self.database_url.host,
+                port=self.database_url.port,
+            ).render_as_string(hide_password=False)
         self.postgres_container = self._required("AAP_MODULE_DATA_PG_CONTAINER_ID")
         self.redis_container = self._required("AAP_MODULE_DATA_REDIS_CONTAINER_NAME")
         self.image = self._required("AAP_WORKSPACE_MODULE_API_IMAGE")
@@ -543,6 +567,8 @@ class WorkspaceImportCli:
             or env.get("MINIO_USE_SSL") != ("true" if self.minio_use_ssl else "false")
             or env.get("IDENTITY_URL")
             or env.get("IDENTITY_TOKEN")
+            or env.get("IDENTITY_AUTH_DATABASE_URL", "")
+            != self.identity_auth_database_url
         ):
             raise RuntimeError("nuScenes CLI did not use its scoped operational inputs")
         bucket_names = {
@@ -565,17 +591,24 @@ class WorkspaceImportCli:
             )
             and value
         }
-        if database_selectors != {"DATABASE_URL"}:
+        expected_selectors = {"DATABASE_URL"}
+        if self.identity_auth_database_url:
+            expected_selectors.add("IDENTITY_AUTH_DATABASE_URL")
+        if database_selectors != expected_selectors:
             raise RuntimeError(
                 "nuScenes CLI must use only its scoped runtime database URL"
             )
         for prefix in _EMPTY_SELECTOR_PREFIXES:
             for suffix in _EMPTY_SELECTOR_SUFFIXES:
+                if prefix + suffix == "IDENTITY_AUTH_DATABASE_URL":
+                    continue
                 if env.get(prefix + suffix):
                     raise RuntimeError(
                         "nuScenes CLI selected a foreign service or database"
                     )
         for name, value in env.items():
+            if name == "IDENTITY_AUTH_DATABASE_URL":
+                continue
             if (
                 name.startswith(
                     (
@@ -655,6 +688,8 @@ class WorkspaceImportCli:
             "PYTHONPATH": "/app",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
+            # Match the one-CPU/64-PID container, not the host's BLAS thread count.
+            "OPENBLAS_NUM_THREADS": "1",
             "HOME": "/tmp",
             "REDIS_URL": self.redis_url,
             "CELERY_BROKER_URL": self.redis_url,
@@ -681,6 +716,7 @@ class WorkspaceImportCli:
         for prefix in _EMPTY_SELECTOR_PREFIXES:
             for suffix in _EMPTY_SELECTOR_SUFFIXES:
                 values[prefix + suffix] = ""
+        values["IDENTITY_AUTH_DATABASE_URL"] = self.identity_auth_database_url
         for name in ("WORKSPACE_INFERENCE_PROBE",):
             for suffix in ("_URL", "_TOKEN", "_TOKEN_FILE"):
                 values[name + suffix] = ""

@@ -8913,11 +8913,42 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_identity_e2e_live.py" in selected_test_paths
             and os.environ.get("AAP_IDENTITY_E2E_FIXTURE_LIVE") == "1"
         )
-        if (
+        if identity_e2e_live:
+
+            def workspace_import_cli_fence():
+                nonlocal phase
+                phase = "install-owner-fixture-api-consumers"
+                for profile in (
+                    "identity-consumer-grants.sql",
+                    "workspace-consumer-grants.sql",
+                ):
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql=(ROOT / "infra/docker" / profile).read_text(),
+                        variables={
+                            "expected_database": database,
+                            "migration_role": "owner",
+                            "identity_owner": "identity_code",
+                            "workspace_owner": "workspace_code",
+                            "consumer_role": "legacy_runtime",
+                        },
+                    )
+                evidence["identity_e2e_owner_channel"] = {
+                    "runtime_role": "legacy_runtime",
+                    "fixture_transport": "apps/web/e2e/fixtures/seed-request.py",
+                    "fixture_role": "owner",
+                    "runtime_fixture_grants": False,
+                }
+
+        elif (
             media_seed_identity_live
             or identity_seed_selection_live
             or identity_recording_live
-            or identity_e2e_live
         ):
 
             def workspace_import_cli_fence():
@@ -8927,9 +8958,7 @@ def main(argv: list[str] | None = None) -> int:
                     ROOT
                     / "infra/docker"
                     / (
-                        "identity-e2e-fixture-grants.sql"
-                        if identity_e2e_live
-                        else "identity-recording-fixture-grants.sql"
+                        "identity-recording-fixture-grants.sql"
                         if identity_recording_live
                         else "identity-scale-seed-grants.sql"
                         if identity_seed_selection_live
@@ -8952,37 +8981,6 @@ def main(argv: list[str] | None = None) -> int:
                             "consumer_role": "legacy_runtime",
                         },
                     )
-                if identity_e2e_live:
-                    for grant_name in (
-                        "workspace-consumer-grants.sql",
-                        "workspace-seed-operator-grants.sql",
-                        "workspace-e2e-fixture-grants.sql",
-                    ):
-                        _psql(
-                            container_id,
-                            container_name,
-                            container_identity,
-                            username="owner",
-                            password=owner_password,
-                            database=database,
-                            sql=(ROOT / "infra/docker" / grant_name).read_text(),
-                            variables={
-                                "expected_database": database,
-                                "migration_role": "owner",
-                                "workspace_owner": "workspace_code",
-                                "consumer_role": "legacy_runtime",
-                            },
-                        )
-                    evidence["workspace_e2e_fixture_operator"] = {
-                        "role": "legacy_runtime",
-                        "workspace_private_tables_denied": True,
-                        "ordinary_api_fixture_capabilities_denied": True,
-                        "profiles": [
-                            "workspace-consumer-grants.sql",
-                            "workspace-seed-operator-grants.sql",
-                            "workspace-e2e-fixture-grants.sql",
-                        ],
-                    }
                 if identity_seed_selection_live or identity_recording_live:
                     profiles = ["workspace-consumer-grants.sql"]
                     if identity_seed_selection_live:
@@ -9015,9 +9013,7 @@ def main(argv: list[str] | None = None) -> int:
                         "profiles": profiles,
                     }
                 evidence[
-                    "identity_e2e_fixture_operator"
-                    if identity_e2e_live
-                    else "identity_recording_fixture_operator"
+                    "identity_recording_fixture_operator"
                     if identity_recording_live
                     else "identity_seed_selection_operator"
                     if identity_seed_selection_live

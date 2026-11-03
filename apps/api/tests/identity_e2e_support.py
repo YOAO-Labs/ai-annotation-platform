@@ -381,7 +381,7 @@ async def _committed_owner(engine, fixture_http):
                         db.sync_session, "persistent_to_transient", rolled_back
                     )
     finally:
-        for namespace in (owned_cases.A, owned_cases.B):
+        for namespace in (seed_cases.NAMESPACE, owned_cases.A, owned_cases.B):
             response = await fixture_http.post(
                 "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
             )

@@ -886,10 +886,12 @@ Native 检查覆盖完整准备／真实 HTTP／停止／重建／销毁、带�
 
 ## Identity 门控 E2E 夹具
 
-原门控路由的 Identity 访问经独立的完整资料关系与七项固定 Native 能力执行。资料
-投影精确保留 `UserOut` 的 21 字段和 Session 缓存；创建、停用、四种邀请、密码重置
-token／邀请／组织成员依赖清理及共享／命名空间删除均由 Identity 持有。没有一般 SQL
-或任意表名入口，普通 API 仍只有既有五函数与两视图。环境与实际数据库守卫保持。
+完整门控夹具通过独立 owner 进程准备和清理，普通业务 API 不持有 owner 连接或
+fixture 能力。Identity 仍提供独立的完整资料关系和七项固定 Native 能力；资料投影
+保留 `UserOut` 字段，账号及依赖清理由 Identity 持有。固定契约不提供任意 SQL 或表名，
+环境与实际数据库守卫保持。
+
+以下为固定 Native 契约的历史专项验收，不替代当前 owner 通道与受限业务 HTTP 的组合验收：
 
 修改前 64 项原测试及六份完整行为基线已捕获。27 项不同定向检查通过，含 16 条实际
 受限 API 场景、Node 七能力调用、完整 DTO／真实缓存漂移复验、共同回滚、真实行锁、
@@ -902,22 +904,15 @@ token／邀请／组织成员依赖清理及共享／命名空间删除均由 Id
 filtering 视频文件，不改文档媒体内容或审阅来源。测试准备的哈希约束、跨连接提交、
 非 Identity 运维授权和 keeper 收尾缺陷均与产品缺口分开修复，原失败收据继续保留。
 
-冷工件已完成安装核对：owner 288、API 1,322（含原视频文件）、Inference 88 和
-Assets-source 154 个文件分别与源码匹配。一个冷案例的八次独立 API 容器运行通过，
-实际启用 Uvicorn、原始 HTTP 与应用启动生命周期；覆盖路由关闭、能力撤销、完整
-账号／邀请／tracker／raster／advance 路径，以及 token、邻居和精确对象版本清理。
-物理取消关联 Native SQL、LOGIN、容器 IP 和 PostgreSQL PID，退出 137 后确认连接
-消失、事务未提交，再执行恢复成功。迁移／冻结 SQL 回滚和全部自有资源清理通过。
+当前冷验收 `test_identity_e2e_live.py` 复用既有 owner 夹具通道；安装后的 API 使用
+受限 runtime 和指向同一验收库的专用 Identity authentication 连接，不获得 fixture
+权限。它检查普通员工的项目角色、无成员项目拒绝、标注持久结果，以及 Identity／
+Workspace 私表和 fixture 能力的实际 SQL 拒绝。准备与清理均不经过普通 API。
 
-首轮冷运行在已完成实际 HTTP 操作后，因 probe 对 Response 的结果取值错误而失败；
-原收据保留，单表达式复现修复后整例通过。四个源码工作树在精确 Git bundle、patch
-及忽略缓存归档验证后移除，分支保留。汇总收据为验收工作树中的
-`.worktree/identity-e2e-qualification.json`。
-
-只读入口审计未再发现运行时私表操作，但默认兼容运行角色仍获 public 全表 CRUD。
-独立模块消费者的五函数／两视图资格不能代替该默认绑定；下一项在隔离开发装配中
-收口 Identity 私表权限并验证现有绑定。日常主环境未切换，未获得其他领域、完整
-浏览器工作流、ML／GPU 执行、远程 CI 或生产容量资格。
+原在 API 进程内完成 seed、撤权和强制中断的混合测试已移除。其历史工件收据不再代表
+当前冷消费者的资格，也不能证明 owner 进程的物理取消。最新组合结果以仓库内的测试
+治理计划为准，通用分流规则见[测试边界](/dev/testing)。
+日常主环境未因此切换，真实模型／GPU、远程 CI 和生产容量不在本项资格内。
 
 ## Identity 截图夹具
 
@@ -1089,10 +1084,12 @@ Workspace 完整源码套件 488 项及 68 项去重 Native／消费者检查通
 
 ## Workspace 门控 E2E 夹具
 
-项目、成员、模板与筛选 CLI 的 Workspace 直接表访问已迁移。项目与模板创建使用
-测试库限定的五项固定能力，成员和脏字段复用现有 writer；原 flush、调用方提交、
-历史属性和角色测试矩阵保留。普通 API 凭据没有 fixture 能力，可信测试账号显式追加
-操作配置。共享 reset 前仍须逐个清理 owned namespace，未扩张共享删除选择器。
+完整 project-role、filtering 等夹具由独立 owner 通道准备和清理，普通业务 API 不获得
+fixture 能力。项目角色夹具必须提供 namespace，不再使用共享 fallback；全局 reset
+已移除。Workspace 的固定 Native 夹具契约与 consumer 围栏仍独立保留，不能把 owner
+成功等同于普通角色具备完整造数权限。
+
+以下为该 Native 操作组的历史专项资格：
 
 修改前的四组真实接口完整字段已保存。迁移后的 95 个去重数据库／消费者案例通过，
 含四组原始字段对照、原 HTTP 行为、autoflush 开关与回滚、原生视频退役拒绝、二次
@@ -1103,14 +1100,10 @@ LOGIN 的实际筛选 CLI 三阶段。权限检查首次按无权访问的 schem
 
 清理先锁定项目并检查真实视频退役，再进行子记录清理；最终删除再次检查，拒绝即
 返回 409，外层事务回滚，不再继续对象删除。残留检查包含原 name／display ID 谓词
-以及模板。匹配的非 editable Workspace 工件核对 295 个安装文件，API 核对 1330 个文件及
-两项运行夹具，三份资源 schema 与实际安装生成结果一致。一个真实冷 HTTP 综合案例
-通过十次独立命令：缺失 Workspace 创建能力时账号与项目共同回滚，恢复后重跑；
-进程中断与恢复、原四类夹具、邻接 namespace 保留和幂等清理均通过。受控中断的退出码
-137 属于预期结果，其他九次命令成功。0309／冻结 SQL 往返与资源清理通过。
-
-此操作组的限定本地资格已闭合，记录为 `.worktree/workspace-e2e-qualification.json`。
-这份操作组收据不单独证明整模块；当前模块集中资格见[整模块审计](#workspace-module-audit)，日常主环境未切换。
+以及模板。旧的 API 进程内造数／撤权／取消组合流程不再作为当前完整夹具的入口；
+冷消费者复用上文 [Identity 门控 E2E 夹具](#identity-门控-e2e-夹具)的 owner 准备与业务
+HTTP 分离流程。历史 `.worktree/workspace-e2e-qualification.json` 不单独证明当前整模块；
+集中资格仍见[整模块审计](#workspace-module-audit)，日常主环境未因此切换。
 
 ## Workspace 规模种子与截图支持读取
 
