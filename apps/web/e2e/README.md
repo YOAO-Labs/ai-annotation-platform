@@ -62,7 +62,7 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 直接失败，防止测试误写开发服务。如需使用其它隔离测试库，用
 `PLAYWRIGHT_E2E_DATABASE_URL` 覆盖；目标库名仍必须以 `_e2e` 或 `_test` 结尾。
 
-本地并行运行多组测试时，每组须使用独立测试数据库、服务端口和 `MINIO_DATASETS_BUCKET`。WebCodecs 夹具清理会删除桶内整个测试前缀；共享同一个桶的测试应串行执行，避免另一组 reset 删除正在读取的视频对象。CI 分片使用各自 runner 上的独立 MinIO 服务。
+本地并行运行多组测试时，每组须使用独立测试数据库、服务端口和 `MINIO_DATASETS_BUCKET`。全局 teardown 仍会清理共享 E2E 数据与存储前缀，不能将单个私有 fixture 的隔离视为整套测试可共享数据库或桶。CI 分片使用各自 runner 上的独立 MinIO 服务。
 
 ## 数据准备
 
@@ -93,15 +93,14 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 
 规范的 `comment-attachments/{annotation_uuid}/{upload_uuid}` 对象只能凭独立上传记录删除；旧前缀清理不会接管同键副本或无记录的规范键。此类残留会明确使清理失败。fixture 用户若仍被命名空间外的评论引用，也不能通过清理该用户来连带删除外部评论。
 
-`seed.reset()` 只保留给确属全局操作的套件：它破坏性重建共享命名空间并会收敛所有
-E2E 数据（含 owned 命名空间），是已记录的串行例外；不要再在普通用例中调用。需要
-跨命名空间存活/清理证据时，可用 `fixtures/storage-object-probe.py` 经真实存储客户端
-读取对象字节。
+`/seed/filtering` 必须显式指定命名空间；不存在重建共享工作台的 reset 入口。
+需要跨命名空间存活/清理证据时，可用 `fixtures/storage-object-probe.py` 经真实存储
+客户端读取对象字节。
 
-正常结束时 `globalTeardown` 会调用 `/api/v1/__test/seed/cleanup` 清除固定 E2E
-数据。这只是卫生性兜底：强制中断或进程被终止时 teardown 可能来不及执行，
-所以数据库隔离才是不污染开发库的根本保障。下次运行会通过 reset/cleanup
-重新收敛专用库的状态。
+正常结束时 `globalTeardown` 会调用全局 `/api/v1/__test/seed/cleanup`，可能清除
+其他 owned 命名空间及其存储对象，因此仍须按独立数据库和桶串行运行全局清理。
+强制中断或进程被终止时 teardown 可能来不及执行；数据库隔离才是不污染开发库的
+根本保障。`/seed/project-roles` 的无命名空间路径也仍属共享串行边界。
 
 ## 当前题 AI 的真实异步作业 E2E
 

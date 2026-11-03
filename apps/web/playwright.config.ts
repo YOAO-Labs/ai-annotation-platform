@@ -77,8 +77,8 @@ export default defineConfig({
   // in tests/ run through playwright.extended.config.ts with their own CI reports.
   testMatch: ["**/tests/**/*.spec.ts"],
   grepInvert: new RegExp(excludedTags.join("|")),
-  // seed/reset and teardown delete the shared E2E fixture namespace. Keep one
-  // worker per database; CI shards use independent runners and services.
+  // Global fixture teardown deletes shared E2E data. Keep one worker per
+  // database; CI shards use independent runners and services.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: isCI ? 1 : 0,

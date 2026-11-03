@@ -129,7 +129,7 @@ async def _snapshot(engine):
     [
         seed_cases.project_roles_seed_builds_multi_project_employee_matrix,
         seed_cases.project_roles_seed_is_idempotent,
-        seed_cases.seed_reset_is_idempotent_with_singleton_pool,
+        seed_cases.seed_owned_is_idempotent_with_singleton_pool,
         seed_cases.seed_cleanup_is_idempotent_and_preserves_non_e2e_data,
         seed_cases.seed_raster_mask_project_opt_in_and_content_fixtures,
         owned_cases.owned_cleanup_is_exact_idempotent_and_neighbour_safe,

@@ -97,10 +97,24 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
         )
         session = AsyncMock()
         session.__aenter__.return_value = self.db
-        self.seed = AsyncMock(return_value=self.manifest)
+        self.seed = AsyncMock(
+            return_value=self.manifest.model_dump(mode="json", by_alias=True)
+        )
         self.render = AsyncMock()
         for patcher in (
-            patch.dict(os.environ, {"AAP_WORKTREE_MODE": "e2e"}),
+            patch.dict(
+                os.environ,
+                {
+                    "AAP_WORKTREE_MODE": "e2e",
+                    "PLAYWRIGHT_E2E_DATABASE_URL": "postgresql+asyncpg://owner@localhost/fixture_e2e",
+                },
+            ),
+            patch(
+                "app.config.settings",
+                new=Mock(
+                    database_url="postgresql+asyncpg://runtime@localhost/fixture_e2e"
+                ),
+            ),
             patch(
                 "sqlalchemy.ext.asyncio.create_async_engine", return_value=AsyncMock()
             ),
@@ -109,7 +123,7 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
                 return_value=Mock(return_value=session),
             ),
             patch("app.api.v1._test_seed._require_e2e_seed_database", new=AsyncMock()),
-            patch("app.api.v1._test_seed.seed_filtering", new=self.seed),
+            patch("worktree_filtering._seed_filtering", new=self.seed),
             patch(
                 "app.services.labeling_e2e_fixture_writes.LabelingE2EFixtureWrites."
                 "prepare_filtering_rendering",
@@ -164,7 +178,7 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
     async def test_first_seed_prepares_fixed_candidates_and_records_ownership(self):
         self.db.scalar.side_effect = [0, 0, 0]
         result = await prepare_filtering(self.resources, self.path)
-        self.seed.assert_awaited_once_with(db=self.db)
+        self.seed.assert_awaited_once_with()
         self.render.assert_awaited_once_with(
             project_id=UUID(self.manifest.video.project_id),
             low_prediction_id=UUID(self.manifest.video.candidate_ids["low"]),

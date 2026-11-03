@@ -53,11 +53,13 @@ pnpm --filter web video:bench -- \
 ```
 
 `--seed` 是隔离 E2E 栈的推荐入口。先启动 PostgreSQL、Redis、MinIO，以及使用
-`annotation_e2e`、`E2E_SEED_ENABLED=true` 的 API（8010）和代理该 API 的 Web（3001）。runner 会在
-隔离数据库中创建 1080p/30、1080p/60、4K/30 三个 61 秒 H.264 task，把登录态放进内存
-`storageState`，结束或失败时调用 cleanup；不会写 auth-state 文件，也不会修改开发数据。三个 task URL
-只要有一个显式存在，`--seed` 就会拒绝运行，避免自动素材与外部素材混测。该隔离栈是单写者夹具，
-不要并行运行多个 `--seed` benchmark 或其他会调用全局 reset / cleanup 的 E2E。
+`annotation_e2e` 的 API（8010）和代理该 API 的 Web（3001）。设置
+`PLAYWRIGHT_E2E_DATABASE_URL` 和 `DATABASE_URL` 指向同一隔离库，owner 通道以
+前者准备和清理私有命名空间；普通 API 不需要夹具写权限。runner 创建
+1080p/30、1080p/60、4K/30 三个 61 秒 H.264 task，把登录态放进内存
+`storageState`，结束或失败时只清理该命名空间；不会写 auth-state 文件。三个
+task URL 只要有一个显式存在，`--seed` 就会拒绝运行，避免自动素材与外部素材混测。
+全局 E2E cleanup 仍能清理其他命名空间，不能与 benchmark 共享同一数据库和桶并行运行。
 
 已有固定素材时仍可手工传入 URL：
 

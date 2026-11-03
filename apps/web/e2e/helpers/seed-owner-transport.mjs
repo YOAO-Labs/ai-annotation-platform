@@ -1,33 +1,19 @@
-/// <reference lib="esnext.promise" />
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import type { APIRequestContext, APIResponse } from "@playwright/test";
-
-export type SeedResponse = Pick<APIResponse, "ok" | "status" | "text" | "json">;
-type FixtureResult = { status: number; body: string };
-type Pending = {
-  resolve: (result: FixtureResult) => void;
-  reject: (error: Error) => void;
-  timer: NodeJS.Timeout | undefined;
-};
-interface FixtureOwnerTransport {
-  post(payload: unknown, timeout: number): Promise<FixtureResult>;
-  close(): Promise<void>;
-}
 
 const apiRoot = fileURLToPath(new URL("../../../api/", import.meta.url));
 const python = fileURLToPath(new URL("../../../api/.venv/bin/python", import.meta.url));
 const script = fileURLToPath(new URL("../fixtures/seed-request.py", import.meta.url));
-let transport: FixtureOwnerTransport | undefined;
+let transport;
 
-function startOwner(): FixtureOwnerTransport {
+function startOwner() {
   const child = spawn(python, [script], { cwd: apiRoot });
-  const pending: Pending[] = [];
-  const closed = Promise.withResolvers<void>();
-  let failure: Error | undefined;
-  let failureKind: string | undefined;
-  const fail = (error: Error) => {
+  const pending = [];
+  const closed = Promise.withResolvers();
+  let failure;
+  let failureKind;
+  const fail = (error) => {
     if (failure) return;
     failure = error;
     for (const request of pending) {
@@ -55,10 +41,10 @@ function startOwner(): FixtureOwnerTransport {
       fail(error);
     }
   });
-  child.on("error", (error: NodeJS.ErrnoException) => {
+  child.on("error", (error) => {
     fail(new Error(`Fixture setup failed: ${error.code}`));
   });
-  child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+  child.stdin.on("error", (error) => {
     fail(new Error(`Fixture setup failed: ${error.code}`));
   });
   child.once("close", (code) => {
@@ -68,9 +54,9 @@ function startOwner(): FixtureOwnerTransport {
     closed.resolve();
   });
   return {
-    post(payload: unknown, timeout: number): Promise<FixtureResult> {
+    post(payload, timeout) {
       if (failure) return Promise.reject(failure);
-      const { promise, resolve, reject } = Promise.withResolvers<FixtureResult>();
+      const { promise, resolve, reject } = Promise.withResolvers();
       const timer =
         timeout > 0
           ? setTimeout(() => fail(new Error("Fixture owner request timed out")), timeout)
@@ -87,28 +73,20 @@ function startOwner(): FixtureOwnerTransport {
   };
 }
 
-export async function closeFixtureTransport(): Promise<void> {
+export async function closeFixtureTransport() {
   const active = transport;
   transport = undefined;
   await active?.close();
 }
 
-export async function runMaskSliceLifecycle(data: {
-  action: "gc" | "drop_revision" | "expire_revision";
-  task_id: string;
-  operation_id: string;
-  namespace: string;
-}): Promise<{ orphan_deleted?: boolean }> {
+export async function runMaskSliceLifecycle(data) {
   transport ??= startOwner();
   const response = await transport.post({ operation: "mask_slice_lifecycle", data }, 120_000);
   if (response.status !== 200) throw new Error(`Mask lifecycle fixture failed: ${response.status}`);
   return JSON.parse(response.body);
 }
 
-export async function postFixture(
-  url: string,
-  options?: Parameters<APIRequestContext["post"]>[1],
-): Promise<SeedResponse> {
+export async function postFixture(url, options) {
   const target = new URL(url);
   if (!target.pathname.startsWith("/api/v1/__test/seed/")) {
     throw new Error("Setup credentials may only prepare fixture endpoints");

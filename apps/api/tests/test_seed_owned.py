@@ -8,8 +8,7 @@ P7 fixture isolation contract (`POST /api/v1/__test/seed/owned` and
 * creation is non-destructive: another namespace's fixture and ordinary data
   are never matched by build or cleanup;
 * cleanup is exact and idempotent, and fails loudly on residuals instead of
-  silently leaving partial state;
-* the shared `seed/reset` namespace keeps its documented converging semantics.
+  silently leaving partial state.
 
 These tests run against the disposable test database and the real storage
 service, mirroring the existing `test_seed_router.py` harness.
@@ -17,7 +16,7 @@ service, mirroring the existing `test_seed_router.py` harness.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import uuid
 
 import httpx
@@ -427,12 +426,10 @@ async def test_owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSessio
 async def test_owned_cleanup_never_touches_the_shared_fixture(
     httpx_client, db_session: AsyncSession
 ):
-    from app.db.models.dataset import Dataset
-    from app.db.models.ml_backend_registry import MLBackendRegistry
     from app.db.models.project import Project
     from app.db.models.user import User
 
-    shared = await httpx_client.post("/api/v1/__test/seed/reset")
+    shared = await httpx_client.post("/api/v1/__test/seed/project-roles")
     assert shared.status_code == 200, shared.text
     await _build_owned(httpx_client, A)
 
@@ -440,7 +437,9 @@ async def test_owned_cleanup_never_touches_the_shared_fixture(
 
     assert (
         await db_session.scalar(
-            select(func.count()).select_from(User).where(User.email == "admin@e2e.test")
+            select(func.count())
+            .select_from(User)
+            .where(User.email == shared.json()["employee_email"])
         )
         == 1
     )
@@ -448,23 +447,9 @@ async def test_owned_cleanup_never_touches_the_shared_fixture(
         await db_session.scalar(
             select(func.count())
             .select_from(Project)
-            .where(Project.name == "E2E Demo Project")
-        )
-        == 1
-    )
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(Dataset)
-            .where(Dataset.display_id == "DS-E2E-IMAGE")
-        )
-        == 1
-    )
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(MLBackendRegistry)
-            .where(MLBackendRegistry.url == "http://mock-sam.e2e:9999")
+            .where(
+                Project.id == uuid.UUID(shared.json()["projects"]["a"]["project_id"])
+            )
         )
         == 1
     )
@@ -478,12 +463,43 @@ async def test_owned_cleanup_exposes_residuals_on_partial_failure(
     )
 
 
-async def test_legacy_shared_filtering_cleanup_reports_exact_failures(
-    httpx_client, caplog
+async def test_filtering_requires_namespace_without_touching_existing_fixture(
+    httpx_client, db_session: AsyncSession
 ):
-    await scenarios.legacy_shared_filtering_cleanup_reports_exact_failures(
-        httpx_client, caplog
-    )
+    from app.db.models.project import Project
+    from app.services.storage import storage_service
+
+    fixture = await _build_owned(httpx_client, A)
+    key = f"e2e/owned/{A}/image/task-1.png"
+    with closing(
+        storage_service.client.get_object(
+            Bucket=storage_service.datasets_bucket, Key=key
+        )["Body"]
+    ) as body:
+        before = body.read()
+
+    for payload in (None, {}, {"namespace": "invalid-namespace"}):
+        response = await httpx_client.post(
+            "/api/v1/__test/seed/filtering", json=payload
+        )
+        assert response.status_code == 422, response.text
+
+    response = await httpx_client.post("/api/v1/__test/seed/reset")
+    assert response.status_code == 404, response.text
+
+    assert await db_session.get(Project, uuid.UUID(fixture["project_id"])) is not None
+    with closing(
+        storage_service.client.get_object(
+            Bucket=storage_service.datasets_bucket, Key=key
+        )["Body"]
+    ) as body:
+        after = body.read()
+    assert after == before
+    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+
+
+async def test_owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
+    await scenarios.owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog)
 
 
 async def test_owned_routes_stay_hidden_from_openapi(httpx_client, app_module):

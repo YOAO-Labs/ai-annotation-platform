@@ -74,9 +74,9 @@ pnpm dev:worktree -- up --with-worker
 pnpm dev:worktree -- up --mode e2e --scenario filtering
 ```
 
-它准备该工作树的独立 `e2e` 环境、生成筛选数据并启动 API/Web，终端会显示实际端口、账号、各场景链接和预期结果。初始化使用该模式的普通运行账号；首次要求库内没有账号（含停用账号）、项目或数据集。有数据但没有验收记录时拒绝覆盖，需你先决定是否重建该模式；已有有效验收记录时复用数据并保留操作。它不会把测试 seed 路由开放给 `dev` 库。
+它准备该工作树的独立 `e2e` 环境、生成筛选数据并启动 API/Web，终端会显示实际端口、账号、各场景链接和预期结果。初始化使用单独的夹具 owner 进程；普通 API 仍使用受限运行账号。首次要求库内没有账号（含停用账号）、项目或数据集。有数据但没有验收记录时拒绝覆盖，需你先决定是否重建该模式；已有有效验收记录时复用数据并保留操作。它不会把测试 seed 路由开放给 `dev` 库。
 
-账号为 `admin@e2e.test`（管理员）、`anno@e2e.test`（标注员）、`rev@e2e.test`（审核员），初始密码均为 `Test1234`；使用这里的账号，而非普通 demo seed 的 `admin / 123456`。
+新建账号为 `admin-manualfilter@e2e.test`（管理员）、`anno-manualfilter@e2e.test`（标注员）、`rev-manualfilter@e2e.test`（审核员），初始密码均为 `Test1234`；已有验收记录以启动器显示的账号为准。
 
 | 场景               | 初始预期                                                                          |
 | ------------------ | --------------------------------------------------------------------------------- |
@@ -93,7 +93,7 @@ pnpm dev:worktree -- up --mode e2e --scenario filtering
 
 `Ctrl+C` 或 `stop --mode e2e` 保留数据；再次执行同一启动命令，会读取 `.worktree/e2e/data/filtering.json` 并复用原项目、视图和手动修改。表中预期指初始数据，手动修改后结果可能随之变化。项目或记录损坏时提示显式重建，不自动修复或清空。
 
-保留手动验收记录时，同一模式的 `exec` 会被拒绝，因为自动化测试中的 reset/cleanup 会删除这些数据。结束体验后先停止，使用 `doctor --mode e2e` 返回的 `resources.confirmation` 执行 `reset`（重建）或 `destroy`（删除）。重建后可重新启动手动场景，或运行自动化 E2E。
+保留手动验收记录时，同一模式的 `exec` 会被拒绝，因为自动化测试中的全局 cleanup 会删除这些数据。结束体验后先停止，使用 `doctor --mode e2e` 返回的 `resources.confirmation` 执行 `reset`（重建）或 `destroy`（删除）。重建后可重新启动手动场景，或运行自动化 E2E。
 
 ```bash
 pnpm dev:worktree -- stop --mode e2e

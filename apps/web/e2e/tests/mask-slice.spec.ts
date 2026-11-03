@@ -11,7 +11,7 @@ import {
 } from "../helpers/request-errors";
 import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
 import { expect, test as base, ownedNamespaceFor, type SeedData } from "../fixtures/seed";
-import { runMaskSliceLifecycle } from "../helpers/seed-owner-transport";
+import { runMaskSliceLifecycle } from "../helpers/seed-owner-transport.mjs";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 type Point = [number, number];

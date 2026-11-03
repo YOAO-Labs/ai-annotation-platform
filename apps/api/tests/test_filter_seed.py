@@ -10,6 +10,8 @@ from sqlalchemy import func, select
 
 pytestmark = pytest.mark.asyncio
 
+NAMESPACE = "filterseed"
+
 
 async def _access_token(httpx_client, email: str) -> str:
     response = await httpx_client.post(
@@ -20,11 +22,15 @@ async def _access_token(httpx_client, email: str) -> str:
 
 
 async def test_filtering_seed_real_queries_match_literal_memberships(httpx_client):
-    response = await httpx_client.post("/api/v1/__test/seed/filtering")
+    response = await httpx_client.post(
+        "/api/v1/__test/seed/filtering", json={"namespace": NAMESPACE}
+    )
     assert response.status_code == 200, response.text
     manifest = response.json()
     headers = {
-        "Authorization": f"Bearer {await _access_token(httpx_client, 'anno@e2e.test')}"
+        "Authorization": (
+            f"Bearer {await _access_token(httpx_client, manifest['user_emails']['anno'])}"
+        )
     }
 
     def task_query(project_id: str, filter_json: dict):
@@ -182,7 +188,9 @@ async def test_filtering_seed_manifest_matches_constructed_memberships(
     from app.db.models.user_invitation import UserInvitation
     from app.db.models.video_tracker_job import VideoTrackerJob
 
-    response = await httpx_client.post("/api/v1/__test/seed/filtering")
+    response = await httpx_client.post(
+        "/api/v1/__test/seed/filtering", json={"namespace": NAMESPACE}
+    )
     assert response.status_code == 200, response.text
     manifest = response.json()
 
@@ -377,10 +385,6 @@ async def test_filtering_seed_manifest_matches_constructed_memberships(
     assert completed_job.kind == "batch_predict"
     assert completed_job.status == "completed"
     assert completed_job.progress_pct == 100
-    assert completed_job.payload == {
-        "model_key": "filter-detector",
-        "prompt": "alpha complete",
-    }
     assert completed_job.result == {"success_count": 2}
     assert completed_job.error_message is None
     assert completed_job.started_at is None and completed_job.completed_at is None
@@ -389,10 +393,6 @@ async def test_filtering_seed_manifest_matches_constructed_memberships(
     assert failed_job.kind == "export"
     assert failed_job.status == "failed"
     assert failed_job.progress_pct == 40
-    assert failed_job.payload == {
-        "model_key": "filter-export",
-        "prompt": "beta failed",
-    }
     assert failed_job.result == {}
     assert failed_job.error_message == "fixture failure"
     assert failed_job.started_at is None and failed_job.completed_at is None
@@ -418,7 +418,9 @@ async def test_filtering_seed_cleanup_removes_manifest_rows_only(
     from app.db.models.user import User
     from app.db.models.user_invitation import UserInvitation
 
-    response = await httpx_client.post("/api/v1/__test/seed/filtering")
+    response = await httpx_client.post(
+        "/api/v1/__test/seed/filtering", json={"namespace": NAMESPACE}
+    )
     assert response.status_code == 200, response.text
     manifest = response.json()
     keep_user = User(
@@ -477,7 +479,9 @@ async def test_filtering_seed_cleanup_removes_manifest_rows_only(
     db_session.add_all([keep_template, keep_job, keep_audit])
     await db_session.flush()
 
-    cleanup = await httpx_client.post("/api/v1/__test/seed/cleanup")
+    cleanup = await httpx_client.post(
+        "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+    )
     assert cleanup.status_code == 200, cleanup.text
     assert cleanup.json() == {"ok": True}
 

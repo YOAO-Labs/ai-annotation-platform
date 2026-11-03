@@ -379,27 +379,27 @@ E2E 用例通过 `apps/web/e2e/fixtures/seed.ts` 的 owner 进程通道调用夹
 import { test, expect } from "../fixtures/seed";
 
 test("正确凭证 → 跳转 dashboard", async ({ page, seed }) => {
-  const data = await seed.reset(); // 清理并重建固定 fixture
+  const data = await seed.owned(); // 创建此测试私有的 fixture
   await seed.loginViaUI(page, data.admin_email, "Test1234");
   await expect(page).toHaveURL(/\/dashboard/);
 });
 
 test("注入 token 跳过 UI 登录", async ({ page, seed }) => {
-  const data = await seed.reset();
+  const data = await seed.owned();
   await seed.injectToken(page, data.annotator_email); // 直接向 localStorage 注入凭据
   await page.goto("/annotate");
 });
 ```
 
 - **三重安全门禁**：该路由默认关闭，仅当非 `production` 进程显式设置 `E2E_SEED_ENABLED=true` 且当前会话 `current_database()` 以 `_e2e` 或 `_test` 结尾时才允许执行。
-- **工厂函数约定**：`seed.reset()` 返回预置的 `admin` / `annotator` / `reviewer` 邮箱（统一密码 `Test1234`）、项目 ID 与 5 个任务 ID。自定义数据使用 `apps/api/tests/factory.py` 中的 `create_user`、`create_project`、`create_task`、`create_batch` 与 `create_membership`（平台身份与项目成员职责显式分离）。
+- **工厂函数约定**：`seed.owned()` 返回私有命名空间内的 `admin` / `annotator` / `reviewer` 邮箱（统一密码 `Test1234`）、项目 ID 与 5 个任务 ID；teardown 精确清理该命名空间。自定义数据使用 `apps/api/tests/factory.py` 中的 `create_user`、`create_project`、`create_task`、`create_batch` 与 `create_membership`（平台身份与项目成员职责显式分离）。
 - **图片与原生候选**：图片工作台种子使用真实 64×48 PNG，文件名、对象键、媒体类型及原件摘要对应同一份字节。原生图片候选沿已登记原件完整读回后签发回执，绑定真实内容身份、尺寸及事实摘要，不补造来源证据来绕过接纳检查。
 - **训练基线归属**：训练验收种子通过与正式接口相同的分配流程，为新建检测/分割版本登记存储归属；重跑和失败重试保持原回执与保存桶。已有但未登记归属的历史版本不会自动认领，仍需按训练数据集的显式副本核验流程处理。
 - **Labeling owner 命令**：E2E seed 写入 Labeling 的 Batch、Task、Annotation、视频追踪作业和 TaskDatasetItemLink 时通过固定 Labeling owner 命令；视频反馈锚点更新也走同一测试协议。命令只在数据库名以 `_e2e` 或 `_test` 结尾时可由运行角色调用，并在调用方原事务中执行；seed 路由仍负责原有提交或回滚时机。
-- **专项筛选夹具**：筛选验收使用 `seed.filtering()`（或 `e2e/fixtures/filtering.ts`），它先重置基础 fixture，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据；需要进入视频工作台的用例传入 `{ videoReady: true }`，在种子阶段通过真实派生 worker 入口完成并核验元数据与分块，不依赖 CI 外部 Celery worker；普通筛选用例不额外生成视频。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。若需在本地手动体验并保留筛选数据，可运行 `pnpm dev:worktree -- up --mode e2e --scenario filtering`（参见 [多工作树并行开发环境](./how-to/worktree-environments#手动验收筛选功能)）。
-- **共享 reset 与 Workspace 夹具**：共享 reset 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned 项目、筛选模板的精确清理。对象收尾前先调用现有项目退役守卫，已知未退役视频执行或忙锁返回 409。预检 savepoint 回滚，不提前提交从未启动作业的清理许可；最终删除仍重新检查。物理收尾完成后才删除夹具记录，最终数据库拒绝会回滚项目及子记录并保留重试锚点，但不撤销已完成的对象删除；解决阻塞后可重试，不伪造退役历史。协议与授权见 [Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
+- **专项筛选夹具**：筛选验收使用 `seed.filtering()`（或 `e2e/fixtures/filtering.ts`），它先清理自己的命名空间，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据；需要进入视频工作台的用例传入 `{ videoReady: true }`，在种子阶段通过真实派生 worker 入口完成并核验元数据与分块，不依赖 CI 外部 Celery worker；普通筛选用例不额外生成视频。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。若需在本地手动体验并保留筛选数据，可运行 `pnpm dev:worktree -- up --mode e2e --scenario filtering`（参见 [多工作树并行开发环境](./how-to/worktree-environments#手动验收筛选功能)）。
+- **Workspace 夹具**：全局 cleanup 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned 项目、筛选模板的精确清理。对象收尾前先调用现有项目退役守卫，已知未退役视频执行或忙锁返回 409。预检 savepoint 回滚，不提前提交从未启动作业的清理许可；最终删除仍重新检查。物理收尾完成后才删除夹具记录，最终数据库拒绝会回滚项目及子记录并保留重试锚点，但不撤销已完成的对象删除；解决阻塞后可重试，不伪造退役历史。协议与授权见 [Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
 - **账号外部引用**：夹具账号仍被非夹具数据引用时，Identity 清理返回 409 并回滚最终数据库删除；先通过数据所属模块删除已确认归属的测试数据，再清理账号。清理不会扩大命名空间或删除无关数据，其他 Identity 清理错误也不会被吞掉。
-- **并发与清理兜底**：同一测试库同一时刻只能运行一个 seed/reset 流程；多进程并行测试需同时隔离数据库与 MinIO 存储桶。Playwright 结束时的 `globalTeardown` 会调用 `/seed/cleanup`，但强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 数据库隔离，不能把 cleanup 当成可在开发库运行 E2E 的理由。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
+- **并发与清理兜底**：全局 `/seed/cleanup` 和无命名空间的 project-roles 仍可清理其他夹具；多进程并行测试须隔离数据库与 MinIO 存储桶，不能凭单个 owned 夹具推断整套测试并行安全。Playwright 结束时的 `globalTeardown` 会调用 `/seed/cleanup`，但强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 数据库隔离，不能把 cleanup 当成可在开发库运行 E2E 的理由。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
 - **页面先退场**：测试结束并记录失败证据后，seed 先关闭经 `injectToken` 绑定的准确页面，再清理它构建的命名空间，避免仍在播放的页面持续创建预取；API-only 用例不会为此启动浏览器，测试中显式调用 `cleanupOwned` 不关闭页面。关闭与清理失败都保留为测试失败。
 - **视频晚准入收尾**：清理先退休加锁时发现的全部派生物归属、提交并释放样本锁，再排空首份快照之后准入的已登记读取。读取可完成最终核验并归还许可；等待预算不增加，超时保留归属与责任，不删除活动或未知操作。
 - **清理范围栅栏**：账号、项目的最终范围锁可有界等候本夹具尚在收尾的请求，并恢复原本的锁超时；上传 owner、存储许可及未知操作仍保持即时拒绝，等待超时仍返回冲突并保留原责任。

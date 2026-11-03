@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from tests.seed_owned_scenarios import _build_owned
 
-async def seed_reset_returns_fixture_payload(httpx_client):
-    res = await httpx_client.post("/api/v1/__test/seed/reset")
-    assert res.status_code == 200, res.text
-    body = res.json()
-    assert body["admin_email"] == "admin@e2e.test"
-    assert body["annotator_email"] == "anno@e2e.test"
-    assert body["reviewer_email"] == "rev@e2e.test"
+NAMESPACE = "seedroute"
+
+
+async def seed_owned_returns_fixture_payload(httpx_client):
+    body = await _build_owned(httpx_client, NAMESPACE)
+    assert body["admin_email"] == f"admin-{NAMESPACE}@e2e.test"
+    assert body["annotator_email"] == f"anno-{NAMESPACE}@e2e.test"
+    assert body["reviewer_email"] == f"rev-{NAMESPACE}@e2e.test"
     assert isinstance(body["task_ids"], list)
     assert len(body["task_ids"]) == 5
 
@@ -168,19 +170,15 @@ async def project_roles_seed_is_idempotent(httpx_client, db_session):
     )
 
 
-async def seed_reset_is_idempotent_with_singleton_pool(httpx_client, db_session):
+async def seed_owned_is_idempotent_with_singleton_pool(httpx_client, db_session):
     from sqlalchemy import select
 
     from app.db.models.dataset import DatasetItem
     from app.db.models.ml_backend_registry import ProjectMLBackendPool
     from app.db.models.task import Task
 
-    first = await httpx_client.post("/api/v1/__test/seed/reset")
-    second = await httpx_client.post("/api/v1/__test/seed/reset")
-
-    assert first.status_code == 200, first.text
-    assert second.status_code == 200, second.text
-    body = second.json()
+    await _build_owned(httpx_client, NAMESPACE)
+    body = await _build_owned(httpx_client, NAMESPACE)
     assert body["ml_backend_id"]
 
     assoc = await db_session.scalar(
@@ -262,15 +260,14 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
     )
     await db_session.commit()
 
-    reset = await httpx_client.post("/api/v1/__test/seed/reset")
-    assert reset.status_code == 200, reset.text
+    reset = await _build_owned(httpx_client, NAMESPACE)
 
     login = await httpx_client.post(
-        "/api/v1/__test/seed/login", json={"email": reset.json()["admin_email"]}
+        "/api/v1/__test/seed/login", json={"email": reset["admin_email"]}
     )
     assert login.status_code == 200, login.text
     second_backend = await httpx_client.post(
-        f"/api/v1/projects/{reset.json()['project_id']}/ml-backends",
+        f"/api/v1/projects/{reset['project_id']}/ml-backends",
         headers={"Authorization": f"Bearer {login.json()['access_token']}"},
         json={
             "name": "E1 toolbar fixture",
@@ -340,21 +337,20 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
         )
 
 
-async def seed_login_after_reset_returns_jwt(httpx_client):
-    await httpx_client.post("/api/v1/__test/seed/reset")
+async def seed_login_after_owned_returns_jwt(httpx_client):
+    fixture = await _build_owned(httpx_client, NAMESPACE)
     res = await httpx_client.post(
         "/api/v1/__test/seed/login",
-        json={"email": "admin@e2e.test"},
+        json={"email": fixture["admin_email"]},
     )
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["token_type"] == "bearer"
     assert body["access_token"]
-    assert body["user"]["email"] == "admin@e2e.test"
+    assert body["user"]["email"] == fixture["admin_email"]
 
 
 async def seed_login_unknown_email_404(httpx_client):
-    await httpx_client.post("/api/v1/__test/seed/reset")
     res = await httpx_client.post(
         "/api/v1/__test/seed/login",
         json={"email": "no-such@nowhere"},
@@ -363,8 +359,7 @@ async def seed_login_unknown_email_404(httpx_client):
 
 
 async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
-    reset = await httpx_client.post("/api/v1/__test/seed/reset")
-    data = reset.json()
+    data = await _build_owned(httpx_client, NAMESPACE)
 
     configured = await httpx_client.post(
         "/api/v1/__test/seed/configure-raster-mask",
@@ -428,8 +423,7 @@ async def seed_raster_mask_media_canvas_preserves_item_dimensions(
     from app.db.models.dataset import DatasetItem
     from app.db.models.task import Task
 
-    reset = await httpx_client.post("/api/v1/__test/seed/reset")
-    data = reset.json()
+    data = await _build_owned(httpx_client, NAMESPACE)
     task = await db_session.get(Task, UUID(data["task_ids"][0]))
     assert task is not None and task.dataset_item_id is not None
     item = await db_session.get(DatasetItem, task.dataset_item_id)
@@ -454,12 +448,8 @@ async def seed_raster_mask_media_canvas_preserves_item_dimensions(
     assert (item.width, item.height) == (1280, 720)
 
 
-async def seed_reset_preserves_dev_data(httpx_client, db_session):
-    """v0.8.7+ · D 方案核心断言：reset 不动非 fixture 的开发数据。
-
-    造一个 dev 用户 + dev 项目，跑 reset，断言它们仍然存在；同时 fixture
-    （admin@e2e.test 等）被重建。
-    """
+async def seed_owned_preserves_dev_data(httpx_client, db_session):
+    """Building a fixture preserves ordinary development users and projects."""
     import uuid
 
     from app.db.models.project import Project
@@ -488,9 +478,7 @@ async def seed_reset_preserves_dev_data(httpx_client, db_session):
     db_session.add(dev_proj)
     await db_session.commit()
 
-    # 跑 reset
-    res = await httpx_client.post("/api/v1/__test/seed/reset")
-    assert res.status_code == 200, res.text
+    fixture = await _build_owned(httpx_client, NAMESPACE)
 
     # dev 数据应保留
     kept_user = (
@@ -508,6 +496,8 @@ async def seed_reset_preserves_dev_data(httpx_client, db_session):
 
     # fixture 应存在
     e2e_admin = (
-        await db_session.execute(select(User).where(User.email == "admin@e2e.test"))
+        await db_session.execute(
+            select(User).where(User.email == fixture["admin_email"])
+        )
     ).scalar_one_or_none()
     assert e2e_admin is not None, "E2E fixture admin 应被重建"

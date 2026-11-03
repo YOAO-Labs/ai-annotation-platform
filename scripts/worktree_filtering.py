@@ -19,9 +19,54 @@ from worktree_env import (
     topology,
 )
 
+MANUAL_NAMESPACE = "manualfilter"
+
+
+async def _seed_filtering():
+    script = (
+        Path(__file__).resolve().parents[1] / "apps/web/e2e/fixtures/seed-request.py"
+    )
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(script),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    payload = {
+        "path": "/api/v1/__test/seed/filtering",
+        "data": {"namespace": MANUAL_NAMESPACE},
+    }
+    stdout, _stderr = await process.communicate((json.dumps(payload) + "\n").encode())
+    if process.returncode != 0:
+        raise WorktreeError(f"筛选夹具 owner 进程失败：exit {process.returncode}")
+    response = json.loads(stdout)
+    if response["status"] != 200:
+        raise WorktreeError(
+            f"筛选夹具准备失败：HTTP {response['status']} {response['body']}"
+        )
+    return json.loads(response["body"])
+
 
 def acceptance_guide(manifest: dict) -> dict:
     image, video = manifest["image"], manifest["video"]
+
+    prefix, _, domain = manifest["user_emails"]["admin"].partition("@")
+    namespace = prefix.removeprefix("admin-") if prefix.startswith("admin-") else None
+    if namespace and domain == "e2e.test":
+        from app.api.v1._test_seed_filters import _FilterIds
+
+        display = _FilterIds(namespace).display
+    else:
+
+        def display(base, *args):
+            return base.format(*args)
+
+    same = display("T-E2E-FILTER-I-SAME")
+    cross = display("T-E2E-FILTER-I-CROSS")
+    hidden = display("T-E2E-FILTER-I-HIDDEN")
+    missing = display("T-E2E-FILTER-I-MISSING")
+    videos = [display("T-E2E-FILTER-V-{0}", index) for index in range(1, 5)]
 
     def manager(project: str, **params: str) -> str:
         return f"/projects/{project}/data-manager?{urlencode(params)}"
@@ -58,14 +103,14 @@ def acceptance_guide(manifest: dict) -> dict:
                     image["project_id"],
                     filter=json.dumps({"v": 1, "value": same_object}),
                 ),
-                "expected": "标注员初始仅命中 T-E2E-FILTER-I-SAME；CROSS 的红车和蓝色行人不能拼成蓝车。管理员还会看到 HIDDEN。",
+                "expected": f"标注员初始仅命中 {same}；{cross} 的红车和蓝色行人不能拼成蓝车。管理员还会看到 {hidden}。",
             },
             {
                 "title": "必填属性与嵌套条件",
                 "path": manager(
                     image["project_id"], view="builtin:missing-required-attributes"
                 ),
-                "expected": "初始仅命中 T-E2E-FILTER-I-MISSING；可编辑 AND/OR、保存视图并刷新验证。",
+                "expected": f"初始仅命中 {missing}；可编辑 AND/OR、保存视图并刷新验证。",
             },
             {
                 "title": "对象分页",
@@ -80,12 +125,12 @@ def acceptance_guide(manifest: dict) -> dict:
             {
                 "title": "视频 AI 待审 OR 条件",
                 "path": manager(video["project_id"], view="builtin:ai-review"),
-                "expected": "初始命中 V-1、V-2、V-3，共 3 题；只有已采纳/驳回候选的 V-4 不命中。",
+                "expected": f"初始命中 {videos[0]}、{videos[1]}、{videos[2]}，共 3 题；只有已采纳/驳回候选的 {videos[3]} 不命中。",
             },
             {
                 "title": "视频当前帧与批量范围",
                 "path": f"/projects/{video['project_id']}/annotate?task={video['task_ids']['both']}&frame=0",
-                "expected": "标注员打开 V-3，将置信度阈值调到 0；F0 与 F10 各有一个检测候选，批量采纳范围为已加载的两帧。",
+                "expected": f"标注员打开 {videos[2]}，将置信度阈值调到 0；F0 与 F10 各有一个检测候选，批量采纳范围为已加载的两帧。",
             },
             {
                 "title": "管理列表",
@@ -98,9 +143,10 @@ def acceptance_guide(manifest: dict) -> dict:
 
 async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
     from sqlalchemy import func, select, text
+    from sqlalchemy.engine import make_url
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from app.api.v1._test_seed import _require_e2e_seed_database, seed_filtering
+    from app.api.v1._test_seed import _require_e2e_seed_database
     from app.api.v1._test_seed_filters import FilteringSeedManifest
     from app.config import settings
     from app.db.models.dataset import Dataset
@@ -110,7 +156,17 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
 
     if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
         raise WorktreeError("手动验收必须通过 up --mode e2e --scenario filtering 启动")
-    engine = create_async_engine(settings.database_url, hide_parameters=True)
+    owner_url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
+    runtime_url = make_url(settings.database_url)
+    if (
+        owner_url.get_backend_name() != "postgresql"
+        or owner_url.database != resources["database"]
+        or not owner_url.database.endswith(("_e2e", "_test"))
+        or (owner_url.host, owner_url.port or 5432, owner_url.database)
+        != (runtime_url.host, runtime_url.port or 5432, runtime_url.database)
+    ):
+        raise WorktreeError("夹具 owner 与运行时数据库不一致，拒绝写入")
+    engine = create_async_engine(owner_url, hide_parameters=True)
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await _require_e2e_seed_database(db)
@@ -163,7 +219,7 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                         raise WorktreeError(
                             "e2e 库已有数据但没有手动验收记录；请先确认并 reset --mode e2e"
                         )
-                manifest = await seed_filtering(db=db)
+                manifest = FilteringSeedManifest.model_validate(await _seed_filtering())
                 # Supply renderable geometry without changing the fixture's literal
                 # memberships/counts. The automatic tests keep their metric-only data.
                 await LabelingE2EFixtureWrites(db).prepare_filtering_rendering(

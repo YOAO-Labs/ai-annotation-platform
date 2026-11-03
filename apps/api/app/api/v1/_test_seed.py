@@ -1,8 +1,7 @@
 """仅供隔离 E2E / 测试数据库使用的 Seed router。
 
-E2E（Playwright）通过 `POST /api/v1/__test/seed/reset` 在每个 spec 前重置数据库
-到固定 fixture（admin / annotator / reviewer 三个用户 + 1 项目 + 5 任务），通过
-`POST /api/v1/__test/seed/login` 跳过 UI 登录直接拿 JWT。
+E2E（Playwright）通过 `POST /api/v1/__test/seed/owned` 创建私有命名空间的
+工作台 fixture，通过 `POST /api/v1/__test/seed/login` 跳过 UI 登录直接拿 JWT。
 
 安全：
   - 仅在非 production 且显式设置 `E2E_SEED_ENABLED=true` 时挂载
@@ -73,10 +72,9 @@ _AUDIT_FILTERING_FIXTURE_CLEANUP = "audit_filtering_fixture_cleanup"
 # ---------------------------------------------------------------------------
 # Owned (per-test) fixture scopes
 #
-# `seed/reset` rebuilds one fixed shared namespace and stays the documented
-# serial exception. Owned fixtures give every test its own deterministic
-# identifiers derived from a short namespace token, so creation and cleanup
-# never touch neighbouring namespaces or ordinary data. Identifiers stay
+# Owned fixtures give every test its own deterministic identifiers derived
+# from a short namespace token, so creation and cleanup never touch
+# neighbouring namespaces or ordinary data. Identifiers stay
 # within the column limits: namespace is 4-12 `[a-z0-9]` chars, which bounds
 # `DS-E2E-{ns}` at 19/20, `B-E2E-{ns}` at 18/30 and `T-E2E-{ns}{index:06d}`
 # at 24/30 characters.
@@ -1088,7 +1086,7 @@ async def _cleanup_fixture_records(
 ) -> None:
     """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。
 
-    ``owned=None`` 清理共享固定命名空间（reset/project-roles/filtering 的收敛语义）；
+    ``owned=None`` 清理共享固定命名空间（全局 cleanup/project-roles 的收敛语义）；
     传入 ``owned`` 时所有谓词收窄为该命名空间的精确标识，绝不触及相邻命名空间
     或普通数据。两种 scope 共用同一删除顺序与同一张表清单，避免出现第二套引擎。
     """
@@ -1115,7 +1113,7 @@ async def _cleanup_fixture_records(
 
         # The filtering fixture owns these rows outside the ordinary task cascade.
         # Delete them before tasks/projects so their restrictive foreign keys cannot
-        # block reset, while leaving every non-E2E row untouched. The legacy
+        # block cleanup, while leaving every non-E2E row untouched. The legacy
         # `BUG-E2E-FILTER-` prefix is a shared-fixture identifier and may only be
         # matched by the shared (`owned is None`) cleanup; an owned namespace must
         # never delete another namespace's or the shared filtering rows.
@@ -1177,7 +1175,7 @@ async def _cleanup_fixture_records(
         dataset_selector = "display_id = ANY(:owned_dataset_display_ids)"
         dataset_params = {"owned_dataset_display_ids": owned.all_dataset_display_ids}
 
-    # reset 中创建的图像 dataset 不由 project_datasets 反向级联删除；
+    # 工作台 fixture 创建的图像 dataset 不由 project_datasets 反向级联删除；
     # 必须在删 E2E 用户前显式清理，避免 datasets.created_by 拦住用户删除。
     await _try_delete(f"DELETE FROM datasets WHERE {dataset_selector}", dataset_params)
 
@@ -1256,8 +1254,7 @@ async def _cleanup_fixture_records(
     # v0.23.3 ADR-0050 · mock registry 已有 singleton pool，且 pool 的
     # legacy_instance_id / member 都以 RESTRICT 引用 registry。先删除 mock pool
     # （member 随 pool CASCADE），再删 registry；包含顶栏多后端测试的第二个固定夹具。
-    # 否则第二次 reset 会留下旧 registry，
-    # 重建时撞 url unique 约束。共享 pool / registry 均不受影响。
+    # 否则共享夹具再次构建时会留下旧 registry，撞 url unique 约束。
     if owned is None:
         registry_selector = (
             "url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')"
@@ -1359,7 +1356,7 @@ async def seed_cleanup(
     return SeedCleanup()
 
 
-class SeedReset(BaseModel):
+class SeedOwned(BaseModel):
     admin_email: str
     annotator_email: str
     reviewer_email: str
@@ -1424,29 +1421,10 @@ class _ImageWorkbenchFixture:
     registry_url: str
 
 
-_BASE_IMAGE_WORKBENCH = _ImageWorkbenchFixture(
-    admin_email="admin@e2e.test",
-    annotator_email="anno@e2e.test",
-    reviewer_email="rev@e2e.test",
-    project_name="E2E Demo Project",
-    batch_display_id="B-E2E-1",
-    dataset_display_id="DS-E2E-IMAGE",
-    dataset_name="E2E Image Dataset",
-    task_display_prefix="T-E2E-",
-    image_key_prefix="e2e/image/",
-    registry_name="E2E SAM Mock",
-    registry_url="http://mock-sam.e2e:9999",
-)
-
-
 async def _build_image_workbench_fixture(
     db: AsyncSession, ids: _ImageWorkbenchFixture
-) -> SeedReset:
-    """Build the standard image workbench fixture for the given identifiers.
-
-    Shared by the destructive shared `seed/reset` and the per-test owned
-    route; both differ only in the identifiers below.
-    """
+) -> SeedOwned:
+    """Build the standard image workbench fixture for one owned namespace."""
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from app.db.models.task import Task
 
@@ -1578,7 +1556,7 @@ async def _build_image_workbench_fixture(
     project.ml_backend_pool_id = mock_pool.id
     await db.commit()
 
-    return SeedReset(
+    return SeedOwned(
         admin_email=admin.email,
         annotator_email=annotator.email,
         reviewer_email=reviewer.email,
@@ -1588,37 +1566,19 @@ async def _build_image_workbench_fixture(
     )
 
 
-@router.post(
-    "/seed/reset",
-    response_model=SeedReset,
-    status_code=200,
-    include_in_schema=False,
-)
-async def seed_reset(request: Request, db: AsyncSession = Depends(get_db)) -> SeedReset:
-    """先清理旧 fixture，再重建固定 E2E 数据（幂等）。
-
-    共享固定命名空间的破坏性重建，仅供串行使用。请先逐个清理 owned
-    命名空间，再调用此端点；每个测试私有的数据请改用 `/seed/owned`。
-    """
-    await _cleanup_e2e_fixtures(
-        db, registry=getattr(request.app.state, "original_playback_registry", None)
-    )
-    return await _build_image_workbench_fixture(db, _BASE_IMAGE_WORKBENCH)
-
-
 class SeedOwnedRequest(BaseModel):
     namespace: str
 
 
 @router.post(
     "/seed/owned",
-    response_model=SeedReset,
+    response_model=SeedOwned,
     status_code=200,
     include_in_schema=False,
 )
 async def seed_owned(
     payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
-) -> SeedReset:
+) -> SeedOwned:
     """Build this namespace's own image-workbench fixture without touching others.
 
     Deterministic, retry-safe and non-destructive: identifiers derive from the
@@ -1837,8 +1797,8 @@ async def seed_project_roles(
     pre-clean, and `owned-cleanup` converges it. Without a namespace the
     legacy shared fixture is rebuilt with the cleanup-safe ``P-E2E-*`` /
     ``DS-E2E-*`` / ``B-E2E-*`` / ``T-E2E-*`` display-id prefixes and
-    ``@e2e.test`` account suffix, so `/seed/reset` and `/seed/cleanup`
-    converge it with the base one (documented serial exception). Review work
+    ``@e2e.test`` account suffix, so `/seed/cleanup` converges it
+    (documented serial exception). Review work
     is intentionally left for the spec to submit through the real API so
     contributor evidence is complete.
     """
@@ -2166,28 +2126,19 @@ class SeedFilteringRequest(SeedOwnedRequest):
 )
 async def seed_filtering(
     request: Request,
-    payload: SeedFilteringRequest | None = None,
+    payload: SeedFilteringRequest,
     db: AsyncSession = Depends(get_db),
 ) -> FilteringSeedManifest:
-    """Build the deterministic filtering acceptance fixture.
-
-    With a ``namespace`` the fixture is built entirely inside that owned
-    namespace (no shared reset, exact owned-cleanup coverage). Without one the
-    legacy shared path resets the shared fixture first — the documented serial
-    exception for callers that have not migrated yet.
-    """
-    namespace = payload.namespace if payload is not None else None
-    video_ready = payload.video_ready if payload is not None else False
-    if namespace is None:
-        await seed_reset(request, db)
-        return await build_filtering_seed(db, video_ready=video_ready)
-    scope = _parse_owned_namespace(namespace)
+    """Build the filtering acceptance fixture inside one owned namespace."""
+    scope = _parse_owned_namespace(payload.namespace)
     await _cleanup_e2e_fixtures(
         db,
         owned=scope,
         registry=getattr(request.app.state, "original_playback_registry", None),
     )
-    return await build_filtering_seed(db, namespace, video_ready=video_ready)
+    return await build_filtering_seed(
+        db, payload.namespace, video_ready=payload.video_ready
+    )
 
 
 class SeedLidar(BaseModel):
@@ -2642,8 +2593,8 @@ async def seed_login(
 class SeedPeekResponse(BaseModel):
     """v0.8.7 F4 · 截图自动化只读窥探：返回首个 super_admin 用户 + 首个项目 + 首个任务。
 
-    与 `seed/reset` 不同，本端点**不修改任何数据**，仅查询 LIMIT 1 → 让
-    `pnpm screenshots` 在开发者本地真实数据上跑，不破坏现有数据集 / 项目。
+    本端点**不修改任何数据**，仅查询 LIMIT 1 → 让 `pnpm screenshots` 在
+    开发者本地真实数据上跑，不破坏现有数据集 / 项目。
     任意字段可为 None（对应记录不存在时），调用方需自行处理缺失场景。
     """
 
@@ -2973,7 +2924,7 @@ async def seed_video_task(
     payload: SeedVideoTaskRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoTaskResponse:
-    """Add one deterministic video task to the reset fixture for workbench E2E."""
+    """Add one deterministic video task to an owned workbench fixture."""
     from pathlib import Path
     from uuid import UUID
 

@@ -3,15 +3,11 @@
 /**
  * E2E 共享 fixtures：调用后端 _test_seed router 造数与跳登录。
  *
- * 两条造数路径：
- *   - `seed.reset()`：破坏性重建**共享**固定命名空间（收敛所有 E2E 数据）。
- *     仅限确属全局操作的套件，属已记录的串行例外。
- *   - `own("命名空间")`（推荐）：每个测试私有命名空间的标准工作台 fixture，
- *     不触碰其他命名空间；测试结束后自动精确清理，重试可独立重建。
+ * `seed.owned()` 创建每个测试私有命名空间的标准工作台 fixture，不触碰其他
+ * 命名空间；测试结束后自动精确清理，重试可独立重建。
  *
  * 后端要求（`_test_seed.py`）：
  *   - development + E2E_SEED_ENABLED=true，且数据库名以 _e2e / _test 结尾
- *   - POST /api/v1/__test/seed/reset → 清理 + 重建共享 fixture
  *   - POST /api/v1/__test/seed/owned {namespace} → 仅建本命名空间 fixture
  *   - POST /api/v1/__test/seed/owned-cleanup {namespace} → 仅删本命名空间
  *   - POST /api/v1/__test/seed/login {email} → 返回 access_token
@@ -37,7 +33,7 @@ import {
   closeFixtureTransport,
   postFixture,
   type SeedResponse,
-} from "../helpers/seed-owner-transport";
+} from "../helpers/seed-owner-transport.mjs";
 
 export interface SeedData {
   admin_email: string;
@@ -512,18 +508,6 @@ export class SeedAPI {
       throw new Error(`project-pipelines/create failed: ${res.status()} ${await res.text()}`);
     }
     return (await res.json()) as SeedProjectPipeline;
-  }
-
-  async reset(): Promise<SeedData> {
-    // Cleanup may remove WebCodecs objects in MinIO before rebuilding the fixture;
-    // do not abandon that idempotent reset while the server is still completing it.
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/reset`, {
-      timeout: 60_000,
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/reset failed: ${res.status()} ${await res.text()}`);
-    }
-    return (await res.json()) as SeedData;
   }
 
   /**

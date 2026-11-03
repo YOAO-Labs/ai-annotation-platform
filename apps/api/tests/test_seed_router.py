@@ -122,14 +122,16 @@ async def test_seed_router_uses_configured_test_database(
     assert response.status_code == 200, response.text
 
 
-async def test_seed_reset_returns_fixture_payload(httpx_client):
-    await scenarios.seed_reset_returns_fixture_payload(httpx_client)
+async def test_seed_owned_returns_fixture_payload(httpx_client):
+    await scenarios.seed_owned_returns_fixture_payload(httpx_client)
 
 
 async def test_filtering_seed_route_is_guarded_and_hidden_from_openapi(
     httpx_client, app_module
 ):
-    response = await httpx_client.post("/api/v1/__test/seed/filtering")
+    response = await httpx_client.post(
+        "/api/v1/__test/seed/filtering", json={"namespace": "filterroute"}
+    )
     assert response.status_code == 200, response.text
     route = next(
         route
@@ -166,8 +168,8 @@ async def test_project_roles_seed_is_idempotent(httpx_client, db_session):
     await scenarios.project_roles_seed_is_idempotent(httpx_client, db_session)
 
 
-async def test_seed_reset_is_idempotent_with_singleton_pool(httpx_client, db_session):
-    await scenarios.seed_reset_is_idempotent_with_singleton_pool(
+async def test_seed_owned_is_idempotent_with_singleton_pool(httpx_client, db_session):
+    await scenarios.seed_owned_is_idempotent_with_singleton_pool(
         httpx_client, db_session
     )
 
@@ -180,8 +182,8 @@ async def test_seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
     )
 
 
-async def test_seed_login_after_reset_returns_jwt(httpx_client):
-    await scenarios.seed_login_after_reset_returns_jwt(httpx_client)
+async def test_seed_login_after_owned_returns_jwt(httpx_client):
+    await scenarios.seed_login_after_owned_returns_jwt(httpx_client)
 
 
 async def test_seed_login_unknown_email_404(httpx_client):
@@ -214,8 +216,8 @@ async def test_smart_scribble_masks_use_vehicle_silhouettes():
         assert bounding_area * 0.45 < len(foreground) < bounding_area * 0.85
 
 
-async def test_seed_reset_preserves_dev_data(httpx_client, db_session):
-    await scenarios.seed_reset_preserves_dev_data(httpx_client, db_session)
+async def test_seed_owned_preserves_dev_data(httpx_client, db_session):
+    await scenarios.seed_owned_preserves_dev_data(httpx_client, db_session)
 
 
 async def test_seed_video_webcodecs_rejects_unknown_fixture():

@@ -1,5 +1,5 @@
 import type { FullConfig } from "@playwright/test";
-import { closeFixtureTransport, postFixture } from "./helpers/seed-owner-transport";
+import { closeFixtureTransport, postFixture } from "./helpers/seed-owner-transport.mjs";
 
 export default async function globalTeardown(_config: FullConfig): Promise<void> {
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";

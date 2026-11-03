@@ -304,22 +304,18 @@ async def owned_cleanup_exposes_residuals_on_partial_failure(
     assert (await _cleanup_owned(httpx_client, A)).status_code == 200
 
 
-async def legacy_shared_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
-    """Bounded reproducer for the shared filtering teardown (legacy exception).
-
-    Guards the cleanup contract end to end: the shared `/seed/cleanup` must
-    return success with zero residuals after a legacy `/seed/filtering` build,
-    and any delete failure must surface in the response detail instead of
-    being swallowed silently.
-    """
+async def owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
+    """Filtering teardown must surface failures and remove its owned accounts."""
     import logging
 
-    build = await httpx_client.post("/api/v1/__test/seed/filtering")
+    build = await httpx_client.post(
+        "/api/v1/__test/seed/filtering", json={"namespace": A}
+    )
     assert build.status_code == 200, build.text
     manifest = build.json()
 
     with caplog.at_level(logging.WARNING, logger="anno-api.seed_cleanup"):
-        cleanup = await httpx_client.post("/api/v1/__test/seed/cleanup")
+        cleanup = await _cleanup_owned(httpx_client, A)
     assert cleanup.status_code == 200, cleanup.text
 
     assert (
@@ -331,7 +327,7 @@ async def legacy_shared_filtering_cleanup_reports_exact_failures(httpx_client, c
     skips = [
         r.getMessage() for r in caplog.records if "seed_cleanup skip" in r.getMessage()
     ]
-    assert skips == [], f"legacy cleanup swallowed delete failures: {skips}"
+    assert skips == [], f"owned cleanup swallowed delete failures: {skips}"
 
 
 async def owned_filtering_fixture_is_namespaced_and_converges(

@@ -251,8 +251,9 @@ pnpm dev:worktree -- up --mode e2e --scenario filtering
 ```
 
 首次使用要求该模式没有业务数据；入口复用筛选测试夹具，输出账号、项目链接和预期结果。
-再次运行会保留你的修改。账号为 `admin@e2e.test`、`anno@e2e.test`、`rev@e2e.test`，
-初始密码均为 `Test1234`。验收记录位于 `.worktree/e2e/data/filtering.json`；存在该记录时，
+再次运行会保留你的修改。新建账号为 `admin-manualfilter@e2e.test`、
+`anno-manualfilter@e2e.test`、`rev-manualfilter@e2e.test`，初始密码均为 `Test1234`；
+已有验收记录以启动器显示的账号为准。验收记录位于 `.worktree/e2e/data/filtering.json`；存在该记录时，
 启动器拒绝同环境的 `exec`，防止自动化测试重置数据。恢复初始数据或切换自动化测试前，
 先停止并显式 `reset --mode e2e --confirm <确认值>`。详细场景与清理见
 [工作树手动验收](docs-site/dev/how-to/worktree-environments.md#手动验收筛选功能)。
@@ -2068,7 +2069,7 @@ CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask�
 `E2E extended` 每晚和手动运行两个扩展套件。默认配置排除 `@visual` / `@stress`，
 但六种布局上下文的 14 次短流程及全部恢复断言仍属于每个 PR 的功能回归。
 每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；同一数据库
-只用一个 Playwright worker，因为 seed/reset 和 teardown 会清理共享数据。
+只用一个 Playwright worker，因为全局 seed cleanup 和 teardown 会清理共享数据。
 默认、视觉和压力套件使用构建产物，Mask 任务由 Playwright 启动隔离 API 和 Vite dev。
 功能用例最多重试一次；扩展用例中视觉基线不重试、压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、

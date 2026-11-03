@@ -75,74 +75,47 @@ _FILTER_OWNED_PARAMETRIC: dict[str, str] = {
 
 @dataclass(frozen=True)
 class _FilterIds:
-    """Namespace-aware display-id / email / storage resolver.
+    """Resolve display ids, emails and storage inside one owned namespace."""
 
-    ``namespace=None`` reproduces the legacy shared-namespace fixture exactly;
-    a namespace maps every identifier onto that namespace's exact owned values
-    so ``owned-cleanup`` can converge the fixture without touching neighbours.
-    """
-
-    namespace: str | None
+    namespace: str
 
     def display(self, base: str, *args: int) -> str:
-        if self.namespace is None:
-            return base.format(*args) if args else base
         template = _FILTER_OWNED_PARAMETRIC.get(base) or _FILTER_OWNED_IDS[base]
         return template.format(*args, ns=self.namespace)
 
     @property
     def storage_prefix(self) -> str:
-        if self.namespace is None:
-            return "e2e/filtering/"
         return f"e2e/owned/{self.namespace}/filtering/"
 
     def user_email(self, local: str) -> str:
-        if self.namespace is None:
-            return f"{local}@e2e.test"
         return f"{local}-{self.namespace}@e2e.test"
 
     def invitation_email(self, local: str) -> str:
-        if self.namespace is None:
-            return f"{local}@example.test"
         return f"{local}-{self.namespace}@example.test"
 
     @property
     def invitation_search_key(self) -> str:
-        if self.namespace is None:
-            return "filter-pending"
         return f"filter-pending-{self.namespace}"
 
     def audit_scope(self, scope: str) -> str:
-        if self.namespace is None:
-            return scope
         return f"{scope}-{self.namespace}"
 
     def job_prompt(self, base: str) -> str:
-        if self.namespace is None:
-            return base
         return f"{base} {self.namespace}"
 
     def display_name(self, base: str) -> str:
         # Token-prefixed, so a namespace-unique search key (`[ns] Prefix`)
         # stays a substring of every derived display name.
-        if self.namespace is None:
-            return base
         return f"[{self.namespace}] {base}"
-
-    @property
-    def namespace_token(self) -> str:
-        return self.namespace or ""
 
 
 def _filter_audit_detail(ids: _FilterIds, scope: str) -> dict[str, Any]:
-    """Audit detail for filtering fixture rows; namespaced rows stay namespaced."""
-    detail: dict[str, Any] = {
+    """Audit detail for one namespace's filtering fixture rows."""
+    return {
         "fixture": "filtering",
         "scope": ids.audit_scope(scope),
+        "namespace": ids.namespace,
     }
-    if ids.namespace is not None:
-        detail["namespace"] = ids.namespace
-    return detail
 
 
 class FilteringImageManifest(BaseModel):
@@ -316,12 +289,7 @@ def _video_binding() -> dict[str, Any]:
 
 
 async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
-    """Resolve the fixture's admin/annotator/reviewer accounts.
-
-    Legacy shared mode keeps its fail-closed contract (accounts must already
-    exist from ``seed/reset``); owned mode reuses the namespace's accounts and
-    creates them when absent so ``seed/filtering`` can run standalone.
-    """
+    """Resolve or create the namespace's admin/annotator/reviewer accounts."""
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     emails = [ids.user_email("admin"), ids.user_email("anno"), ids.user_email("rev")]
@@ -331,10 +299,6 @@ async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
         for row in rows
     }
     if set(users) != {"admin", "anno", "rev"}:
-        if ids.namespace is None:
-            raise RuntimeError(
-                "filtering fixture requires seed/reset users; POST /seed/reset first"
-            )
         roles = {"admin": "super_admin", "anno": "employee", "rev": "employee"}
         identity = IdentityE2EFixtures(db)
         for key in {"admin", "anno", "rev"} - set(users):
@@ -1779,9 +1743,9 @@ async def _seed_operations(
             "revoked": invitations[3].email,
         },
         search_keys={
-            "users": ids.namespace and f"[{ids.namespace}]" or "Filter",
+            "users": f"[{ids.namespace}]",
             "projects": ids.display_name("Filter Ops"),
-            "templates": ids.namespace and f"[{ids.namespace}]" or "Filter",
+            "templates": f"[{ids.namespace}]",
             "invitations": ids.invitation_search_key,
             "jobs": ids.job_prompt("alpha complete"),
         },
@@ -1798,11 +1762,11 @@ async def _seed_operations(
 
 async def build_filtering_seed(
     db: AsyncSession,
-    namespace: str | None = None,
+    namespace: str,
     *,
     video_ready: bool = False,
 ) -> FilteringSeedManifest:
-    """Build all filtering scenarios for the shared fixture or one owned namespace."""
+    """Build all filtering scenarios for one owned namespace."""
     from app.services.storage import storage_service
 
     ids = _FilterIds(namespace)

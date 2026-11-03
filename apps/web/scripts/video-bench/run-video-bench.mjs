@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runPreciseFrameMeasurements } from "./precise-frame-runner.mjs";
+import { closeFixtureTransport, postFixture } from "../../e2e/helpers/seed-owner-transport.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "../../../..");
@@ -65,19 +67,15 @@ function parseArgs(argv) {
 }
 
 async function seedRequest(baseUrl, path, body) {
-  const response = await fetch(new URL(path, baseUrl), {
-    method: "POST",
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!response.ok) {
-    throw new Error(`${path} failed: ${response.status} ${await response.text()}`);
+  const response = await postFixture(new URL(path, baseUrl).href, { data: body, timeout: 0 });
+  if (!response.ok()) {
+    throw new Error(`${path} failed: ${response.status()} ${await response.text()}`);
   }
   return response.json();
 }
 
-async function seedPreciseFrameTasks(precise, args) {
-  const data = await seedRequest(args.baseUrl, "/api/v1/__test/seed/reset");
+async function seedPreciseFrameTasks(precise, args, namespace) {
+  const data = await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned", { namespace });
   const taskUrls = {};
   for (const resolution of precise.resolutions) {
     const fixture = await seedRequest(args.baseUrl, "/api/v1/__test/seed/video-webcodecs", {
@@ -257,22 +255,36 @@ async function runPreciseFrame(config, args, runId) {
   if (args.seed && providedUrls.length > 0) {
     throw new Error("--seed cannot be combined with VIDEO_BENCH_TASK_*_URL values");
   }
-  let measurementArgs = args;
-  if (args.seed) {
-    try {
-      measurementArgs = { ...args, ...(await seedPreciseFrameTasks(precise, args)) };
-    } catch (error) {
-      await seedRequest(args.baseUrl, "/api/v1/__test/seed/cleanup").catch(() => {});
-      throw error;
-    }
-  }
+  const namespace = args.seed ? randomBytes(6).toString("hex") : null;
+  const errors = [];
   let measurement;
   try {
+    const measurementArgs = args.seed
+      ? { ...args, ...(await seedPreciseFrameTasks(precise, args, namespace)) }
+      : args;
     measurement = await runPreciseFrameMeasurements(precise, measurementArgs);
+  } catch (error) {
+    errors.push(error);
   } finally {
-    if (args.seed) {
-      await seedRequest(args.baseUrl, "/api/v1/__test/seed/cleanup");
+    if (namespace) {
+      try {
+        await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned-cleanup", { namespace });
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        await closeFixtureTransport();
+      } catch (error) {
+        errors.push(error);
+      }
     }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new AggregateError(
+      errors,
+      errors.map((error) => (error instanceof Error ? error.message : String(error))).join("; "),
+    );
   }
   const manifest = buildPreciseFrameManifest(config, args, runId, measurement);
   console.log(
