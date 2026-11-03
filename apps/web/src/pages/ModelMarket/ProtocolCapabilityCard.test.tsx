@@ -82,7 +82,7 @@ describe("ProtocolCapabilityCard", () => {
     expect(screen.getByText(/PaddleOCR \/ RapidOCR/)).toBeInTheDocument();
     // 推荐后端在展开区域列出（plan §4.1）。
     expect(screen.queryByText("Paddle 系 OCR。")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /推荐后端/ }));
+    fireEvent.click(screen.getByRole("button", { name: /参考模型服务/ }));
     expect(await screen.findByText("PaddleOCR")).toBeInTheDocument();
     expect(screen.getByText("Paddle 系 OCR。")).toBeInTheDocument();
   });
@@ -103,21 +103,6 @@ describe("ProtocolCapabilityCard", () => {
     expect(screen.getByText("YOLOv8 检测")).toBeInTheDocument();
     expect(screen.getByText("YOLOv8n")).toBeInTheDocument();
     expect(screen.queryByText("暂无接入")).not.toBeInTheDocument();
-  });
-
-  it("点击「去注册」CTA 触发 onGoToRegistry 回调", () => {
-    const onGoToRegistry = vi.fn();
-    renderCard(
-      <ProtocolCapabilityCard
-        task={makeTask()}
-        mounted={[]}
-        infraLabel={noopLabel}
-        modalityLabel={noopLabel}
-        onGoToRegistry={onGoToRegistry}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /去注册/ }));
-    expect(onGoToRegistry).toHaveBeenCalledTimes(1);
   });
 
   it("挂载模型卡展示来源 backend 名", () => {

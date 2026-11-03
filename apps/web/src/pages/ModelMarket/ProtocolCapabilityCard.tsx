@@ -90,7 +90,7 @@ export function ProtocolCapabilityCard({
             </span>
             {onGoToRegistry && (
               <Button size="sm" onClick={onGoToRegistry} className="ml-auto">
-                <Icon name="plus" size={11} /> 去注册 backend
+                <Icon name="plus" size={11} /> 查看注册管理
               </Button>
             )}
           </div>
@@ -103,7 +103,7 @@ export function ProtocolCapabilityCard({
                 aria-expanded={suggestOpen}
               >
                 <Icon name={suggestOpen ? "chevDown" : "chevRight"} size={11} />
-                推荐后端（{suggested.length}）
+                参考模型服务（{suggested.length}）
               </button>
               {suggestOpen && (
                 <div className="flex flex-col gap-1.5">

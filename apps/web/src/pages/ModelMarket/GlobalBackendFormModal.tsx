@@ -45,7 +45,7 @@ const LABEL_CLASS = "mb-1.5 block text-xs font-medium text-muted-foreground";
 const INPUT_CLASS =
   "box-border w-full appearance-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none [font-family:inherit]";
 const MONO_INPUT_CLASS = "font-mono text-xs";
-const HELP_CLASS = "mt-1 text-2xs text-muted-foreground";
+const HELP_CLASS = "mt-1 text-xs leading-normal text-muted-foreground";
 const MANAGED_LABELS: Record<string, string> = {
   gsam2: "Grounded SAM 2",
   sam3: "SAM 3",
@@ -272,7 +272,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
         }
         if (priority !== backend.eviction_priority) payload.eviction_priority = priority;
         await update.mutateAsync({ id: backend.id, payload });
-        pushToast({ msg: "已更新全局 backend", kind: "success" });
+        pushToast({ msg: "已更新全局模型服务", kind: "success" });
       } else {
         const payload: MLBackendRegistryCreatePayload = {
           name: trimmedName,
@@ -285,7 +285,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
         if (extraParams !== undefined) payload.extra_params = extraParams;
         if (token) payload.auth_token = token;
         await create.mutateAsync(payload);
-        pushToast({ msg: "已注册全局 backend", kind: "success" });
+        pushToast({ msg: "已注册全局模型服务", kind: "success" });
       }
       onClose();
     } catch (e) {
@@ -302,7 +302,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
       if (apiErr.status === 409) {
         setError(
           detail?.error_code === "gpu_backend_active"
-            ? detail.message || "backend 仍有活动负载，请先 drain 并卸载后再修改 GPU claim"
+            ? detail.message ||
+                "模型服务仍有活动工作，请先停止接收新工作，等待活动工作实际结束并卸载模型后再修改 GPU 资源配置"
             : detail?.message || apiErr.message || "该 URL 已被注册（不可重复）",
         );
         return;
@@ -359,7 +360,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             className={clsx(INPUT_CLASS, MONO_INPUT_CLASS)}
           />
           <div className={HELP_CLASS}>
-            后端容器内可达地址。Docker 同主机宿主网常用{" "}
+            平台 API 容器可访问的服务地址。Docker 同主机常用{" "}
             <span className="font-mono">172.17.0.1</span>。
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -386,7 +387,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 <Icon name={probeResult.ok ? "check" : "warning"} size={11} />
                 {probeResult.ok ? (
                   <>
-                    已连接 ({probeResult.latency_ms}ms
+                    健康端点可访问 ({probeResult.latency_ms}ms
                     {probeResult.model_version ? `, ${probeResult.model_version}` : ""})
                   </>
                 ) : (
@@ -401,8 +402,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
         </div>
         <div className={HELP_CLASS}>
           <Icon name="sparkles" size={12} className="mr-1 inline text-chart-4" />
-          交互能力 / 支持模态（图像 prompt、视频 tracker）将在健康检查时从 backend 自报的{" "}
-          <span className="font-mono">/setup</span> 自动探测，无需手填。
+          健康检查时，平台从服务的 <span className="font-mono">/setup</span>{" "}
+          读取交互式标注、图像输入提示和视频追踪等能力，无需在此手填。
         </div>
         <fieldset className="flex flex-col gap-3 rounded-md border border-border p-3">
           <legend className="px-1 text-xs font-semibold text-foreground">GPU 资源声明</legend>
@@ -419,6 +420,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 setGpuDiagnostics([]);
                 if (!next) setVramBudgetMb("");
               }}
+              aria-describedby="global-backend-gpu-help"
               className={clsx(INPUT_CLASS, MONO_INPUT_CLASS, "cursor-pointer")}
             >
               <option value="">无 GPU 声明</option>
@@ -431,9 +433,10 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 </option>
               ))}
             </select>
-            <div className={HELP_CLASS}>
-              无 GPU 声明不等于已确认使用 CPU。 单个 backend 只能绑定一张稳定物理资源；不会从容器内
-              cuda:0 或 URL 自动推断。
+            <div id="global-backend-gpu-help" className={HELP_CLASS}>
+              无 GPU 声明不等于已确认使用 CPU。每个模型服务只能绑定一张已配置的物理 GPU；
+              不会从容器内 cuda:0 或 URL 自动推断。更改资源配置前，须停止接收新工作，
+              等待活动工作实际结束并卸载模型。
             </div>
             {resourcesQ.isLoading && <div className={HELP_CLASS}>正在读取 GPU 资源配置…</div>}
             {resourcesQ.isError && (
@@ -462,7 +465,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 disabled={!gpuResourceId}
                 className={INPUT_CLASS}
               />
-              <div className={HELP_CLASS}>覆盖允许并存的全部 pool、临时 buffer 与安全余量。</div>
+              <div className={HELP_CLASS}>
+                预算应覆盖所有可同时运行的模型池、临时缓冲和安全余量。
+              </div>
             </div>
             <div>
               <label htmlFor="global-backend-eviction-priority" className={LABEL_CLASS}>
@@ -600,7 +605,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             className={clsx(INPUT_CLASS, "w-[120px]")}
           />
           <div className={HELP_CLASS}>
-            当前仅约束单进程 / 事件循环的同时请求；跨进程全局上限尚未生效。
+            始终限制单进程 / 事件循环的同时请求；路由强制模式下也限制跨进程的实例并发。
             {isEdit ? "留空保持原值。" : "留空走默认（4）。"}
           </div>
         </div>
@@ -622,7 +627,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
               className={clsx(INPUT_CLASS, MONO_INPUT_CLASS, "mt-1.5 resize-y")}
             />
           )}
-          {isEdit && <div className={HELP_CLASS}>编辑时留空不会清除后端已有的 extra_params。</div>}
+          {isEdit && <div className={HELP_CLASS}>编辑时留空不会清除服务已有的 extra_params。</div>}
         </div>
         {error && (
           <div className="flex items-start gap-1.5 rounded-md border border-status-danger bg-status-danger-soft px-2.5 py-2 text-xs text-status-danger">

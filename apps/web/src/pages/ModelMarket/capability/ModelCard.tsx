@@ -102,7 +102,7 @@ export function ModelCard({
             </span>
           )}
           {item.stale && (
-            <span title="来源 backend 当前未连接，目录可能为缓存旧值">
+            <span title="来源模型服务最近未连接，目录可能使用缓存；缓存不能证明当前连接状态">
               <Badge variant="warning">缓存</Badge>
             </span>
           )}

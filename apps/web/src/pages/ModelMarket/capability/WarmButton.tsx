@@ -35,8 +35,8 @@ export function WarmButton({
       qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "overview"] });
       qc.invalidateQueries({ queryKey: ["ml-backend-capabilities"] });
       pushToast({
-        msg: res.cache_hit ? "模型已在显存中" : "模型已预热到显存",
-        sub: res.evicted ? `淘汰 ${res.evicted}` : undefined,
+        msg: res.cache_hit ? "模型已加载" : "模型预热完成",
+        sub: res.evicted ? `已释放 ${res.evicted}` : undefined,
         kind: "success",
       });
     } catch (err) {
@@ -50,7 +50,7 @@ export function WarmButton({
       size={size}
       onClick={onWarm}
       disabled={!canWarm || busy}
-      title={canWarm ? "预热该模型默认变体" : "该 backend 未声明 warmup_endpoint 或未注册到项目"}
+      title={canWarm ? "预热该模型默认变体" : "服务未声明 warmup_endpoint，或未在项目中启用"}
       className={
         compact ? (size === "xs" ? "size-6 min-w-6 px-0" : "size-8 min-w-8 px-0") : undefined
       }
