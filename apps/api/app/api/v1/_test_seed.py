@@ -532,7 +532,7 @@ async def _resolve_fixture_scope(db, owned):
     return FixtureScope(projects, users, annotations, tasks, datasets)
 
 
-def _cleanup_fixture_storage(owned, annotation_ids):
+def _cleanup_fixture_storage(owned, annotation_ids, project_ids):
     """All legacy network I/O precedes the final fixture transaction locks."""
     from app.services.storage import storage_service
 
@@ -546,6 +546,13 @@ def _cleanup_fixture_storage(owned, annotation_ids):
                 bucket=storage_service.datasets_bucket,
                 prefix=prefix,
                 label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
+            )
+        for project_id in project_ids:
+            _delete_seed_object_prefix(
+                storage_service,
+                bucket=storage_service.datasets_bucket,
+                prefix=f"e2e/video/webcodecs/{project_id}/",
+                label=f"owned-{owned.namespace}-webcodecs",
             )
     _delete_comment_attachment_seed_objects(storage_service, annotation_ids)
 
@@ -1052,7 +1059,9 @@ async def _cleanup_e2e_fixtures(
         await _delete_fixture_video_objects(db, video_plan, resolve)
         await db.commit()
         legacy_cleanup = asyncio.create_task(
-            asyncio.to_thread(_cleanup_fixture_storage, owned, plan.annotation_ids)
+            asyncio.to_thread(
+                _cleanup_fixture_storage, owned, plan.annotation_ids, scope.project_ids
+            )
         )
         try:
             await asyncio.shield(legacy_cleanup)
@@ -3125,8 +3134,8 @@ async def seed_video_webcodecs(
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     mp4_bytes = meta["mp4_bytes"]
-    # 幂等 key:同一 fixture 反复 seed 覆盖同一对象,cleanup 按前缀一次清空。
-    source_key = f"e2e/video/webcodecs/{fixture}/source.mp4"
+    # Repeated seeds may replace this project's fixture, never a neighbour's bytes.
+    source_key = f"e2e/video/webcodecs/{project_id}/{fixture}/source.mp4"
     await asyncio.to_thread(
         storage_service.client.put_object,
         Bucket=storage_service.datasets_bucket,

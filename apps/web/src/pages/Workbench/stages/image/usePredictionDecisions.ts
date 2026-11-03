@@ -272,7 +272,12 @@ export function usePredictionDecisions(args: Args) {
   const acceptAll = useCallback(
     async (boxes: AiBox[]) => {
       if (!isCurrentOwner()) return null;
-      const results = await Promise.all(boxes.map((box) => decide(box, "accept", undefined, true)));
+      const results: PredictionDecisionResult[] = [];
+      // These writes share one task's lock and annotation version.
+      for (const box of boxes) {
+        if (!isCurrentOwner()) return null;
+        results.push(await decide(box, "accept", undefined, true));
+      }
       return isCurrentOwner() ? results : null;
     },
     [decide, isCurrentOwner],

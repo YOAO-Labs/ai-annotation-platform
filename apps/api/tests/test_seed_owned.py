@@ -145,6 +145,56 @@ async def test_video_seeds_register_actual_original_bytes(
         assert (await _cleanup_owned(httpx_client, A)).status_code == 200
 
 
+async def test_webcodecs_sources_are_owned_by_project_and_cleanup_keeps_neighbor(
+    committed_client, db_session: AsyncSession
+):
+    from botocore.exceptions import ClientError
+
+    from app.services import original_sources
+    from app.services.storage import storage_service
+
+    sources = []
+    try:
+        for namespace in (A, B):
+            fixture = await _build_owned(committed_client, namespace)
+            video = await committed_client.post(
+                "/api/v1/__test/seed/video-webcodecs",
+                json={
+                    "project_id": fixture["project_id"],
+                    "fixture": "h264-baseline-gop12",
+                },
+            )
+            assert video.status_code == 200, video.text
+            sources.append(
+                await original_sources.resolve_task(
+                    db_session, uuid.UUID(video.json()["task_id"])
+                )
+            )
+        own, neighbor = sources
+        assert own.object_key != neighbor.object_key
+        before = storage_service.client.get_object(
+            Bucket=neighbor.bucket, Key=neighbor.object_key
+        )
+        with closing(before["Body"]) as body:
+            neighbor_bytes = body.read()
+
+        assert (await _cleanup_owned(committed_client, A)).status_code == 200
+        with pytest.raises(ClientError) as removed:
+            storage_service.client.head_object(Bucket=own.bucket, Key=own.object_key)
+        assert removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+        after = storage_service.client.get_object(
+            Bucket=neighbor.bucket, Key=neighbor.object_key
+        )
+        with closing(after["Body"]) as body:
+            assert body.read() == neighbor_bytes
+        assert after.get("VersionId") == before.get("VersionId")
+        await _assert_verified_video_bytes(db_session, video.json()["task_id"])
+    finally:
+        for namespace in (A, B):
+            cleanup = await _cleanup_owned(committed_client, namespace)
+            assert cleanup.status_code == 200, cleanup.text
+
+
 @pytest.fixture
 async def fixture_playback_registry(app_module, monkeypatch):
     from app.services.original_playback_registry import PlaybackRegistry
@@ -455,11 +505,59 @@ async def test_owned_cleanup_never_touches_the_shared_fixture(
     )
 
 
-async def test_owned_cleanup_exposes_residuals_on_partial_failure(
-    httpx_client, db_session: AsyncSession, monkeypatch
+async def test_owned_cleanup_preserves_external_identity_reference_until_released(
+    httpx_client, db_session: AsyncSession
 ):
-    await scenarios.owned_cleanup_exposes_residuals_on_partial_failure(
-        httpx_client, db_session, monkeypatch
+    from app.db.models.project import Project
+    from app.db.models.user import User
+
+    fixture = await _build_owned(httpx_client, A)
+    annotator_id = await db_session.scalar(
+        select(User.id).where(User.email == fixture["annotator_email"])
+    )
+    assert annotator_id is not None
+    neighbor_id = uuid.uuid4()
+    neighbor = Project(
+        id=neighbor_id,
+        display_id="P-EXTERNAL-OWNER",
+        name="External owner reference",
+        type_label="image-det",
+        type_key="image-det",
+        owner_id=annotator_id,
+    )
+    db_session.add(neighbor)
+    await db_session.commit()
+
+    refused = await _cleanup_owned(httpx_client, A)
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "e2e_seed_identity_referenced"
+    assert (
+        await db_session.scalar(
+            select(Project.owner_id).where(Project.id == neighbor_id)
+        )
+        == annotator_id
+    )
+    assert (
+        await db_session.scalar(select(User.email).where(User.id == annotator_id))
+        == fixture["annotator_email"]
+    )
+
+    await db_session.delete(neighbor)
+    await db_session.commit()
+    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(User).where(User.id == annotator_id)
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Project)
+            .where(Project.id == uuid.UUID(fixture["project_id"]))
+        )
+        == 0
     )
 
 

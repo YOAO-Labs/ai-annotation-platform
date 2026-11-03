@@ -1,4 +1,4 @@
-"""v0.8.3 · _test_seed router 烟测：reset + login 端点契约。"""
+"""_test_seed router 烟测：owned 夹具与 login 端点契约。"""
 
 from __future__ import annotations
 

@@ -267,6 +267,12 @@ async function runPreciseFrame(config, args, runId) {
     errors.push(error);
   } finally {
     if (namespace) {
+      // Setup can terminate its owner process; cleanup needs an independent owner.
+      try {
+        await closeFixtureTransport();
+      } catch (error) {
+        if (!errors.includes(error)) errors.push(error);
+      }
       try {
         await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned-cleanup", { namespace });
       } catch (error) {

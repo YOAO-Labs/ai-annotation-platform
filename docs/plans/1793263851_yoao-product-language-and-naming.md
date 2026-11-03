@@ -475,3 +475,35 @@ UI 验证使用实际构建和隔离环境；文档／计划阶段不虚构浏�
 证据位于 `.worktree/test-language-gates/`：`language-navigation-h10.json`、`language-navigation-cleanup.json`、`upload-browser-native-proof.json`、`upload-create-browser-native-proof.json` 及实际检查过的角色、AI 空态、指导卡和导航截图。N1 浏览器窗口运行于 `bo0424`；随后 `bo0425`／`bo0426` 的权限、迁移及集成 Mask 验收单独记录，不借用这些截图宣称已覆盖后续所有后端路径。
 
 未运行真实模型／GPU，未重录正式媒体，未改动公开包名、CLI、API／文件协议或发行版本。独立 Plugin-SDK、官方插件仓库及 N3–N6 的边界保持不变。组合退出门现已完成：标准生产构建的 38 项 Mask 场景、单独受控内存上限场景及文档站构建通过；这些结果不替代上面的角色与语言窗口证据。工作树、临时环境和不明归属资源的处理详见[测试治理阶段收尾](1793261328_test-governance-module-plugin-contracts.md)第 12.14 节。
+
+## 13. 与测试治理并行的后续阶段
+
+本轮基线为 `bc7e2b7ef`，Orca Run 为 `run_6b91abf3470a`。本轮语言通道完成只读清点，与 G2 owner 夹具收敛独立进行；集成验收时同步修正视频预测导入的有效帧数来源、同批依次采纳及切换上下文停止后续提交的说明，但未提前实施下列 UI 文案阶段。下列任务仍是后续有批准门的执行范围，不记作本轮产品交付。通道划分和依赖见[测试治理计划第 13 节](1793261328_test-governance-module-plugin-contracts.md)。
+
+### 13.1 阶段 B：预测导入与工作流说明独立推进
+
+**N1 外部预测导入（`task_87a3ab1a8952`）：**
+
+- 所有者：`PredictionImportWizard.tsx` 和 `datasets/prediction-import-export.md`。当前“兜底 model_version”“按 task 维度”把内部字段带入操作决策；改成简短中文标签及关联说明，明确逐条版本优先、缺失时使用补充值，以及替换只针对相关任务的外部导入预测。
+- 保持 `model_version`、`overwrite_existing`、`dry_run`、`external_import`、`aap_json`／`coco`／`yolo`、旧文件身份和请求默认值不变。区分预测记录与正式标注；不能把“正式标注保留”扩大成“已采纳的预测记录永远不删除”。
+- 退出门：项目菜单与 AI 项目详情两个入口；日／夜、桌面／窄屏、说明关联及溢出；真实原生预测预览、确认和读回，替换／追加、模型服务预测及正式标注保留。无需真实模型／GPU，不重录正式媒体。
+
+**N7 AI 工作流结果说明（`task_50ad99feab11`）：**
+
+- 所有者：`workflows/ai-preannotate-pipeline.md` 和 `workflows/new-project-end-to-end.md`。按实际后台作业与既有失败恢复指南说明完成、失败、空结果、跳过和部分候选，避免暗示每题必有预测或完成即已成为正式标注。
+- 先核对后端终态规则与 Jobs UI，再描述具体状态关系；不只靠状态词做推断。保持路由、查询参数、状态值、恢复与取消语义、旧锚点和正式媒体。
+- 退出门：实际渲染、恢复链接／锚点和文档构建；对照真实只读失败／部分结果页面或准确 owner 夹具状态。没有现场证据时明确不声称浏览器路径通过，不为文档验证启动真实模型。
+
+这两路文件所有权独立，可与 G2 project-role namespace 迁移三路并行。复用已经验收的 owner 准备方式，不让语言工作另建一套夹具入口。没有新的具体证据时，不为凑通道另开 N2 内部重命名。
+
+### 13.2 阶段 C：导出说明与端到端衔接
+
+`task_4d0e7918cd15` 处理 `ExportModal.tsx` 和用户导出说明中的“predictions 和 annotations”“video_track geometry”等操作层术语。技术参考仍保留需要精确解释的字段，不修改机器 selector、冻结 targets、Job、ZIP 目录、schema 或历史来源。
+
+使用阶段 B 已集成的导入与结果说明作为验收基线：真实图片／视频项目选择、普通权限导出、后台 worker、下载和制品内容核对；选定图片的原生预测导入验证候选／正式标注区别。视频只按实际导出证据描述轨迹保留，不能借图片往返冒充视频往返。当前阶段只完成排期，不执行该路径。
+
+### 13.3 后置项与完成口径
+
+用户将独立 Plugin-SDK terminal-drain 优化后置；跨仓发行名与 N3–N6 不因此提前执行。长驻环境延迟由 [issue #151](https://github.com/YOAO-Labs/ai-annotation-platform/issues/151) 跟踪，不混入语言改造。每个后续阶段单独记录实际源码、验收环境、结果和限制；完成本轮规划不等于这些语言阶段已经实现。
+
+当前 A 的组合门仍受 [issue #153](https://github.com/YOAO-Labs/ai-annotation-platform/issues/153) 的图片恢复写入冲突阻塞；不能借已通过的视频批量采纳与筛选场景放行 B／C。是否增加独立 Labeling owner 锁合同修复阶段，需要单独确认范围；这不是文案阶段顺手调整数据库锁。完整验收结果、视频基准清理边界及额外手动观察的未通过状态见测试治理计划第 13.4 节。

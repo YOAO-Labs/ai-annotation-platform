@@ -57,9 +57,17 @@ pnpm --filter web video:bench -- \
 `PLAYWRIGHT_E2E_DATABASE_URL` 和 `DATABASE_URL` 指向同一隔离库，owner 通道以
 前者准备和清理私有命名空间；普通 API 不需要夹具写权限。runner 创建
 1080p/30、1080p/60、4K/30 三个 61 秒 H.264 task，把登录态放进内存
-`storageState`，结束或失败时只清理该命名空间；不会写 auth-state 文件。三个
-task URL 只要有一个显式存在，`--seed` 就会拒绝运行，避免自动素材与外部素材混测。
+`storageState`。结束或失败时由独立 owner 进程发起该命名空间的清理，即使造数
+进程已异常退出也不会复用失效连接；WebCodecs 原片按项目隔离，收尾不删除其他项目
+的原片。runner 不写 auth-state 文件。三个 task URL 只要有一个显式存在，
+`--seed` 就会拒绝运行，避免自动素材与外部素材混测。
 全局 E2E cleanup 仍能清理其他命名空间，不能与 benchmark 共享同一数据库和桶并行运行。
+
+清理失败不会被忽略，也不会通过自动重试或增加时限强行放行。三分辨率完整夹具
+曾在准确 namespace 清理时返回 `e2e_seed_video_cleanup_busy`，并保留处于
+`retiring` 的派生输出；其有界清理退出门由 [issue #152](https://github.com/YOAO-Labs/ai-annotation-platform/issues/152)
+跟踪。遇到此错误应保留原错误与归属证据，确认没有活跃消费者后再按隔离环境的
+运维流程处理；不得把删库重建记作 namespace 清理通过，也不得据此宣称完整基准合格。
 
 已有固定素材时仍可手工传入 URL：
 

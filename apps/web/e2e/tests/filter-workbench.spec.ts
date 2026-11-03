@@ -1,4 +1,4 @@
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test as base, type FilteringSeedManifest, type SeedAPI } from "../fixtures/seed";
 import { resetFiltering } from "../fixtures/filtering";
 import { annotationPaintedPixels } from "../fixtures/annotation-canvas-pixels";
@@ -10,6 +10,28 @@ const test = base.extend<{ filtering: FilteringSeedManifest }>({
   },
 });
 test.setTimeout(120_000);
+
+async function readyVideoStage(page: Page) {
+  const stage = page.getByTestId("video-konva-stage");
+  await expect(stage).toBeVisible({ timeout: 30_000 });
+  await expect(stage).toHaveAttribute("data-video-view-ready", "true");
+  await expect
+    .poll(() =>
+      stage.evaluate((node) => {
+        const state = node.getAttribute("data-video-precise-state");
+        if (state === "ready") {
+          return (
+            node.getAttribute("data-video-painted-frame-index") ===
+            node.getAttribute("data-video-frame-index")
+          );
+        }
+        if (state !== "disabled" && state !== "fallback") return false;
+        const video = node.querySelector("video");
+        return !!video && video.readyState >= 2 && !video.seeking;
+      }),
+    )
+    .toBe(true);
+}
 
 async function importCandidates(
   request: APIRequestContext,
@@ -87,7 +109,7 @@ test("current-frame display keeps the explicit all-loaded-frame acceptance scope
   await page.goto(
     "/projects/" + filtering.video.project_id + "/annotate?task=" + taskId + "&frame=0",
   );
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 30_000 });
+  await readyVideoStage(page);
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(1);
   await page.getByTestId("workbench-ai-single").click();
   await page.getByTestId("ai-prediction-advanced-toggle").click();
@@ -142,7 +164,7 @@ test("source and frame display filters reset on task switch without annotation w
   await page.goto(
     "/projects/" + filtering.video.project_id + "/annotate?task=" + firstId + "&frame=0",
   );
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 30_000 });
+  await readyVideoStage(page);
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(1);
   const writes: string[] = [];
   page.on("request", (request) => {
@@ -268,8 +290,7 @@ test("persisted video hide survives reload and restores the current-frame canvas
     await seed.injectToken(page, filtering.user_emails.admin);
     await page.goto(`/projects/${filtering.video.project_id}/annotate?task=${taskId}&frame=0`);
     const stage = page.getByTestId("video-konva-stage");
-    await expect(stage).toBeVisible({ timeout: 30_000 });
-    await expect(stage).toHaveAttribute("data-video-view-ready", "true");
+    await readyVideoStage(page);
     const row = page.getByTestId(`box-list-item-${annotation.id}`);
     await expect(row).toBeVisible();
     await page.mouse.move(5, 5);
@@ -286,7 +307,7 @@ test("persisted video hide survives reload and restores the current-frame canvas
     expect((await hide).ok()).toBe(true);
     await expect.poll(() => annotationPaintedPixels(stage)).toBeLessThan(before);
     await page.reload();
-    await expect(stage).toHaveAttribute("data-video-view-ready", "true");
+    await readyVideoStage(page);
     await expect.poll(() => annotationPaintedPixels(stage)).toBeLessThan(before);
     await row.getByRole("button", { name: "更多操作", exact: true }).hover();
     await expect(row.getByRole("button", { name: "显示", exact: true })).toHaveAttribute(

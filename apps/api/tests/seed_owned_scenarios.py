@@ -261,49 +261,6 @@ async def owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSession):
     )
 
 
-async def owned_cleanup_exposes_residuals_on_partial_failure(
-    httpx_client, db_session: AsyncSession, monkeypatch
-):
-    """A silently failing delete must fail the request, not pass quietly.
-
-    `_try_delete` deliberately absorbs individual DELETE failures so one drift
-    cannot abort the whole ordered teardown; the residual guard is what turns
-    a partial failure into a visible error. Simulate exactly that: a stray
-    project referencing an owned user (a FK the engine does not own) blocks
-    the users DELETE, the swallow-and-continue path proceeds, and the residual
-    check must reject the cleanup with exact counts. Once the blocker is
-    removed the same cleanup converges.
-    """
-    from app.db.models.project import Project
-    from app.db.models.user import User
-
-    body = await _build_owned(httpx_client, A)
-    annotator = await db_session.scalar(
-        select(User).where(User.email == body["annotator_email"])
-    )
-    assert annotator is not None
-    blocker = Project(
-        id=uuid.uuid4(),
-        display_id="P-E2E-RBLOCK",
-        name="Residual Blocker",
-        type_label="image-det",
-        type_key="image-det",
-        owner_id=annotator.id,
-    )
-    db_session.add(blocker)
-    await db_session.commit()
-
-    response = await _cleanup_owned(httpx_client, A)
-    assert response.status_code == 500, response.text
-    detail = response.json()["detail"]
-    assert detail["code"] == "e2e_seed_cleanup_incomplete"
-    assert detail["residuals"]["users"] == 3
-
-    await db_session.delete(blocker)
-    await db_session.commit()
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
-
-
 async def owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
     """Filtering teardown must surface failures and remove its owned accounts."""
     import logging

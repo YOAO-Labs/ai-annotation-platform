@@ -647,11 +647,12 @@ async def _source_video_frame_count(db: AsyncSession, task: Any) -> int:
         raise ValueError("video prediction requires a video task and dataset item")
     from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 
-    video = await AssetsTaskMediaSummaryReader(db).current_video_metadata(
+    summary = await AssetsTaskMediaSummaryReader(db).current_video_summary(
         task.dataset_item_id
     )
-    if video is None:
+    if summary is None:
         raise ValueError("video prediction requires a video task and dataset item")
+    _, _, video = summary
     raw = video.get("frame_count") if isinstance(video, dict) else None
     if isinstance(raw, bool):
         raw = None

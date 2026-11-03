@@ -73,6 +73,7 @@ YOAO 原生交换格式。预测导入向导消费 `predictions[]`；独立的�
 - **`schema_version` 必填**，且主版本不能超过平台支持的 major（当前 `1`），否则整文件 422 拒绝。
 - **`task_match` 必须给 `display_id` 或 `file_path` 至少一个**，两者全省略则该 task 块的预测全部跳过。`display_id` 全局唯一最稳；`file_path` 在项目内匹配，带子目录时会自动吸收 dataset 名前缀（库内 `task.file_path` 形如 `{dataset}/animals/cat/001.jpg`，外部相对路径 `animals/cat/001.jpg` 也能命中）。
 - 图片预测支持 `bbox` / `polygon` / `multi_polygon` / `polyline` / `rotated_bbox` / `keypoint`；视频预测支持 `video_bbox` / `video_track_bbox` / `video_track_polygon` / `video_track_polyline` / `video_track_mask`。视频 task block 需声明 `media_type: "video"`，任务必须有可校验的源视频帧数；越界帧、重复关键帧或非法 outside 范围会显示在预览错误中。
+- 视频帧数以**当前原视频已完成的解析结果**为准，不使用旧汇总值。原视频变化或解析尚未就绪时，先完成原件核验与视频处理，再导入预测。
 - 视频 Mask 正文放在 `mask_objects`，向导会在预览时校验引用、尺寸和内容；`dry_run` 不会写 Prediction 或对象存储。正式导入后，Mask 仍是待审候选，不会直接成为标注。
 - 一条 `predictions[i]` 可以用 `shapes[]` 把多个 shape 合并写入同一条预测；`shapes` 与单 `geometry` 同时存在时 `shapes` 优先。同一 entry 的 shapes 必须同属 bbox、region（polygon / mask）或 polyline 中的一个工具单位，不能混合。
 

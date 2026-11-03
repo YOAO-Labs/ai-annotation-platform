@@ -110,6 +110,61 @@ describe("usePredictionDecisions owner identity", () => {
     expect(setupView.s.setSelectedId).not.toHaveBeenCalled();
   });
 
+  it("does not overlap batch writes to the same task", async () => {
+    const setupView = setup();
+    const second = { ...candidate(), id: "pred-q-0", predictionId: "q" };
+    setupView.args.aiBoxes.push(second);
+    let complete!: (value: unknown[]) => void;
+    setupView.args.accept
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+      )
+      .mockResolvedValueOnce([{ id: "annotation-q" }]);
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = setupView.view.result.current.acceptAll([setupView.box, second]);
+    });
+    expect(setupView.args.accept).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      complete([{ id: "annotation-p" }]);
+      expect(await pending).toEqual([{ status: "success" }, { status: "success" }]);
+    });
+    expect(
+      setupView.args.history.push.mock.calls.map(([entry]) => entry.createdAnnotationIds),
+    ).toEqual([["annotation-p"], ["annotation-q"]]);
+  });
+
+  it.each(["task", "account"])("does not drain a retired %s's batch", async (changedOwner) => {
+    const setupView = setup();
+    const second = { ...candidate(), id: "pred-q-0", predictionId: "q" };
+    setupView.args.aiBoxes.push(second);
+    let complete!: (value: unknown[]) => void;
+    setupView.args.accept.mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = setupView.view.result.current.acceptAll([setupView.box, second]);
+    });
+    if (changedOwner === "task") {
+      setupView.args.taskId = "task-2";
+      setupView.view.rerender();
+    } else {
+      authState.userId = "user-2";
+    }
+    await act(async () => {
+      complete([{ id: "annotation-p" }]);
+      expect(await pending).toBeNull();
+    });
+    expect(setupView.args.accept).toHaveBeenCalledTimes(1);
+    expect(setupView.args.history.push).not.toHaveBeenCalled();
+  });
+
   it("does not start accept, reject, or batch writes after auth replacement", async () => {
     const setupView = setup();
     authState.userId = "user-2";

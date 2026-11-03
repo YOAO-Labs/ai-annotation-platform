@@ -46,7 +46,7 @@ from app.services.predictions_import import (
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from app.utils.raster_mask_rle import encode_coco_rle
 from tests.factory import create_membership
-from tests.media_owner_fixtures import media_owner as media_owner
+from tests.video_derivative_fixtures import owned_metadata
 from tests.raster_mask_support import consumer_mask_storage as consumer_mask_storage
 from tests.raster_mask_support import harness as harness
 
@@ -109,7 +109,6 @@ async def _seed_video_project_task(
     owner_id: uuid.UUID,
     *,
     frame_count: int | None = 12,
-    media_owner=None,
 ) -> tuple[Project, Task]:
     short = uuid.uuid4().hex[:6]
     project = Project(
@@ -151,8 +150,8 @@ async def _seed_video_project_task(
     )
     db.add(item)
     await db.flush()
-    if media_owner is not None:
-        await media_owner.seed_video_item(item, owner_id)
+    if frame_count is not None:
+        await owned_metadata(db, item, video=video_meta)
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,
@@ -568,13 +567,14 @@ async def test_import_aap_json_keypoint(
 async def test_import_aap_json_video_predictions_dry_run_and_accept(
     super_admin,
     db_session: AsyncSession,
-    media_owner,
     monkeypatch: pytest.MonkeyPatch,
 ):
     user, _ = super_admin
-    project, task = await _seed_video_project_task(
-        db_session, user.id, media_owner=media_owner
-    )
+    project, task = await _seed_video_project_task(db_session, user.id)
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    assert item is not None
+    item.metadata_ = {"video": {"frame_count": 1}}
+    await db_session.flush()
     rle = encode_coco_rle([0, 1, 1, 0, 0, 1, 0, 0], 4, 2)
     reference = build_rle_reference(rle)
     geometries = {
@@ -757,12 +757,9 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
 async def test_import_aap_json_video_prediction_contract_errors(
     super_admin,
     db_session: AsyncSession,
-    media_owner,
 ):
     user, _ = super_admin
-    project, task = await _seed_video_project_task(
-        db_session, user.id, media_owner=media_owner
-    )
+    project, task = await _seed_video_project_task(db_session, user.id)
     payload = _aap_envelope(
         [
             {
@@ -850,12 +847,12 @@ async def test_import_aap_json_video_prediction_requires_video_context(
         db_session, user.id, frame_count=None
     )
 
-    async def current_video_metadata_without_frame_count(_reader, _dataset_item_id):
-        return {"width": 4, "height": 2}
+    async def current_video_summary_without_frame_count(_reader, _dataset_item_id):
+        return 4, 2, {"width": 4, "height": 2}
 
     monkeypatch.setattr(
-        "app.services.assets_media_summary.AssetsTaskMediaSummaryReader.current_video_metadata",
-        current_video_metadata_without_frame_count,
+        "app.services.assets_media_summary.AssetsTaskMediaSummaryReader.current_video_summary",
+        current_video_summary_without_frame_count,
     )
     prediction = {
         "geometry": {
@@ -888,9 +885,6 @@ async def test_import_aap_json_video_prediction_requires_video_context(
     assert missing_media_type.imported == 0
     assert "media_type=video" in missing_media_type.errors[0].reason
 
-    item = await db_session.get(DatasetItem, task.dataset_item_id)
-    assert item is not None
-    item.metadata_ = {"video": {"width": 4, "height": 2}}
     missing_frame_count = await import_native_json(
         db_session,
         project.id,
@@ -937,13 +931,10 @@ async def test_prediction_video_mask_content_is_task_scoped_and_frame_resolved(
     httpx_client: httpx.AsyncClient,
     super_admin,
     db_session: AsyncSession,
-    media_owner,
     monkeypatch: pytest.MonkeyPatch,
 ):
     user, token = super_admin
-    project, task = await _seed_video_project_task(
-        db_session, user.id, media_owner=media_owner
-    )
+    project, task = await _seed_video_project_task(db_session, user.id)
     rle = encode_coco_rle([0, 1, 1, 0, 0, 1, 0, 0], 4, 2)
     reference = build_rle_reference(rle)
     load = AsyncMock(return_value=rle)

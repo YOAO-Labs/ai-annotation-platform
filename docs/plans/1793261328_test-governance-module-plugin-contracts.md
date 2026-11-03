@@ -828,3 +828,65 @@ Native 验收包含真实安装、冻结函数体、owner／ACL、事务及迁�
 共享 MinIO 保持运行；以下三个桶因归属证据不足而保留，不能仅按名称删除：`aap-wt-d44ff55fcbb18c58-test-accepted-inputs`、`aap-wt-23d18b50cacd8a44-dev-accepted-inputs`、`aap-wt-37bb4c8bebcd0a83-test-datasets`。可取得的归属恢复记录已归档到 `retained-ownership-journals/`。用户 `.gitignore`、既有 stash、`feat-plugin-opt` 和日常环境不在本轮清理范围。
 
 证据根目录为 `.worktree/test-language-gates/`：`owner-case-ledger.final.json`、`script-runtime-case-ledger.final.json`、`native-case-ledger.final.json`、`notifications-cold-final-v4.json`、受保护的原始报告及 `mask-worker/sanitized/`。全局 `seed.reset` 仍是显式串行夹具例外；未宣称整个仓库、远端 CI、独立发行 wheel、真实模型／GPU 或其他浏览器渠道完成。产品语言与导入导航的实际窗口见命名计划 12.7。
+
+## 13. 下一轮阶段并行安排
+
+本轮基线为 `bc7e2b7ef`，Orca Run 为 `run_6b91abf3470a`。沿用独立工作树、`omp`／`openai-codex/gpt-6.1-terra:xhigh` 和主进程审核集成；阶段范围按下面的用户决策调整。
+
+### 13.1 已确认的优先级
+
+- 独立 Plugin-SDK 的 terminal-drain 历史用例后置优化，本轮不修改或执行该仓库；继续保留未验证状态，不阻塞当前平台夹具和产品语言阶段。
+- 前一轮保留的三个共享桶按用户本次准确授权删除，不扩大为共享 MinIO 或其他环境清理。
+- 长驻／共享环境延迟先建 issue 跟踪，本轮不提交推测性修复，不通过加时限或重试掩盖现象。
+- 当前实施优先收敛全局 `seed.reset()` 和隐式共享 fixture 路径；产品语言独立清点后续 N1／N2／N7 范围。公开 SDK、持久协议及 N3–N6 不因此自动获得实施资格。
+
+### 13.2 已执行的边界处置
+
+- 延迟诊断已登记为 [issue #151](https://github.com/YOAO-Labs/ai-annotation-platform/issues/151)，保留原失败、对照环境和旧现场已退役的限制；不将该 issue 的登记记作修复。
+- 三个准确授权的桶已删除。执行时均无对象版本、删除标记或未完成分片上传，删除后逐桶确认 404；其他桶集合未变化，共享 MinIO 未重启。证据为 `.worktree/seed-language-next/authorized-bucket-deletion.json`。第 12.14 节的“保留”是此前收尾事实，本节记录用户随后授权的处置。
+
+### 13.3 并行阶段与合入门
+
+| 阶段              | 测试治理通道                                                                                                     | 产品语言通道                                                                 | 汇合条件                                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| A：本轮实施与清点 | 删除全局 reset producer、隐式 filtering fallback，迁移 Python、Playwright、视频基准和手动 filtering 的真实调用者 | 只读核对剩余 N1／N7 场景，形成具体文件、消费者和保留标识清单                 | 主进程审核提交，并完成真实 owner／数据库／存储、手动入口和浏览器消费验收；不能只依赖 worker 检查 |
+| B：下一轮三路并行 | `seed_project_roles` 强制 namespace，移除共享 fallback，迁移实际消费者并验证 A／B 和普通邻居存活                 | 外部预测导入决策说明；AI 工作流结果说明，两路文件所有权独立                  | A 的集成门通过后分别批准；各自独立工作树提交，再由主进程审核、合入和执行对应真实验收             |
+| C：导出与组合收口 | 对本轮已迁移消费者复核权限、持久结果和剩余串行边界，不自动开放整套同库并行                                       | 导出选项描述与真实下载／原生预测导入衔接，保留机器值、冻结作业和历史制品身份 | 使用 B 已集成的导入／结果语言作为端到端验收基线；实际导出 worker、下载及内容证据齐备后关闭       |
+
+A 的实现任务为 `task_5ba0b6caf97e`，语言清点为 `task_00843cd58804`，主进程集成门为 `task_848f4903592b`。后续任务为 `task_0e22c00047a1`（G2 project roles）、`task_87a3ab1a8952`（N1 预测导入）、`task_50ad99feab11`（N7 工作流说明）和 `task_4d0e7918cd15`（N1 导出）。后续任务均有明确的排期批准 gate，本次只规划，不把 ready／blocked 状态冒充实施结果。
+
+本轮源码清点确认：`SeedAPI.reset()` 没有普通 Playwright 用例调用，但后端 reset、Python 场景、视频基准脚本及 filtering 的隐式共享路径仍有消费者。必须同时迁移 producer 和消费者，不能仅删除前端方法。视频基准继续支持原 Node 运行要求，通过现有 owner 进程造数和按准确 namespace 清理；手动 filtering 只向专用 setup 进程交付 owner 连接，普通 API／worker 仍用受限连接，保留空库、数据库归属和既有 manifest 复用／拒绝规则。
+
+**仍不属于 A 的全局边界：** `global-teardown.ts` 的 `/seed/cleanup`、`seed_project_roles` 的可选共享分支、截图 seed／reconciliation 和 scale seed。它们有独立真实消费者，不能随 reset 删除一起暗中改变。B 只解决其中的 project roles；其余边界必须再按各自生产者、准确归属和失败收尾证据收敛。
+
+每个执行阶段继续遵守：owner 通道准备和清理，普通身份执行产品请求；不增加重试、扩大时限、削弱业务 expected 或跳过失败。数据库／对象存储资源先隔离；浏览器运行期间不得创建／删除 Docker 容器或网络。测试数据和权限验收不被文案调整替代，文案验收也不被后端通过替代。
+
+### 13.4 A 的集成结果与尚未通过的组合门
+
+夹具实现提交 `2082cf1b3` 已审核并以 `66d7dcc0b` 合入当前分支。主进程补齐了两类真实收尾问题：造数进程异常后先关闭原 owner 通道，再用独立 owner 通道执行具名清理；WebCodecs 原片改为项目专属路径，准确回收本项目，不覆盖或删除邻居原片。外部 Identity 引用仍明确拒绝清理，移除引用后才允许继续；没有吞掉外键冲突。
+
+真实消费者还暴露了两个产品问题：视频预测导入仍读取旧媒体汇总，以及同一任务的批量采纳并发争用写锁。前者改用现有当前原件派生摘要，后者改为同批依次提交，并在任务或账号退出后停止尚未提交的操作。视频用例增加实际画帧就绪前置条件，保留原业务 expected、用例时限、零重试和原生播放降级路径；服务端 NOWAIT、权限和版本围栏未调整。
+
+| 验收范围                              | 实际结果                                                           | 证据与限制                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| worktree 脚本选集                     | 18 个主用例、10 个 subtest 通过                                    | `worktree-scripts.xml`                                                                                                                                |
+| owner／普通身份／具名清理 Native 选集 | 125 项通过；修正测试自身夹具后，剩余引用拒绝回归聚焦通过 1 项      | `fixture-native-v3.junit.xml`、`reference-refusal-focused-v2.xml`；不是一次 126 项全绿运行                                                            |
+| 视频预测导入                          | 4 项通过                                                           | `video-import-focused.xml`，覆盖当前原件摘要与旧汇总不一致                                                                                            |
+| 批量采纳 owner 生命周期               | 6 项通过                                                           | 同任务不重叠写入，以及切题、换账号后不继续排空旧批次                                                                                                  |
+| filtering 浏览器原四项                | 2 通过、1 失败、1 未执行；此前未执行的视频隐藏场景另外通过         | `filtering-browser-v5.json`、`filtering-video-hide.json`；不记为整组四项通过                                                                          |
+| 手动 filtering 入口                   | 创建、停止、保留数据重启及六类拒绝守卫通过；真实登录和筛选结果可见 | `manual-guards.json`、`manual-browser-summary.json`；API 子进程仍是受限角色，普通 HTTP filtering 返回 500 权限拒绝，而非 403，已删除的 reset 返回 404 |
+| 视频基准失败收尾与原片隔离            | 造数失败、单原片清理均无项目／对象残留，邻居保留                   | `setup-failure-fixed.json`、`video-source-fixed.json`；完整三分辨率基准不在通过项中                                                                   |
+
+证据根目录为 `.worktree/seed-language-next/`。浅色／深色桌面与窄屏截图已检查，窄屏继续显示现有只读桌面端提示，没有强行绕过遮罩；无横向溢出。额外手动图片批量采纳观察没有发出 accept 请求，也没有持久写入，不作为通过证据，保留于 `manual-batch-observation.json`；实际批量写入证据来自上述通过的视频浏览器场景。
+
+**组合门仍未关闭：**
+
+- 图片隐藏、刷新后恢复显示返回 `409 task_busy`，记录为 [issue #153](https://github.com/YOAO-Labs/ai-annotation-platform/issues/153)。只观察到与邻居原件请求时间重叠，尚未证明持锁 SQL；不将其归因于 #151，不通过等待所有网络空闲、重试或削弱锁来改绿。
+- 三分辨率视频基准的准确 namespace 清理返回 `e2e_seed_video_cleanup_busy`，仍有 126 项 retiring 输出，记录为 [issue #152](https://github.com/YOAO-Labs/ai-annotation-platform/issues/152)。失败后读取到零活跃存储操作不证明失败当时无竞争。临时驱动的 finally 清理异常发生在保存子进程输出之前，原始基准的首个失败阶段未取得，不能声称性能测量／GPU 资格通过。
+- Plugin-SDK terminal-drain 继续后置；第 13.3 节列出的全局串行边界没有被隐式移除。
+
+因此本轮 owner 迁移与已修复问题分别记录证据，但主进程集成任务保持 blocked，B／C 的排期批准 gate 不自动放行。后续需先审核图片恢复的实际锁边界并重新取得完整组合门；这不是把当前失败隐藏成下一轮已完成。
+
+只读复核进一步确认了一个具体可产生冲突的合同：原件读授权对同一批次取 `FOR SHARE NOWAIT`，而 `record_annotation_actor` 当前经 Labeling owner 工作流对批次取 `FOR UPDATE NOWAIT`，其锁错误统一映射为 `task_busy`。这不是已识别的原失败持锁连接，也不是共享图片对象造成 Task 身份混用。候选修复是仅对 contributor 记录采用批次 SHARE，继续保留准确 Task UPDATE、NOWAIT、身份／状态／来源复核和其他操作的原锁模式；必须新增前向 owner 迁移并以真实并发、批次重分配、撤权及原四项浏览器场景验证，不能修改冻结历史 SQL。该范围超出本轮无迁移的 fixture 切片，尚未实施，需单独确认是否开启修复阶段。
+
+文档站构建通过，既有语法高亮与大 chunk 警告保留。浏览器全部关闭后，四个一次性 lane／mode 已退役；私有 PostgreSQL 确认无业务数据库和 worktree 角色，私有 MinIO 确认零桶，再移除这两个容器及私有网络、卷。两个 worker 工作树在确认干净及补丁已集成后移除，相应分支也已删除；共享 MinIO 仍是原容器且保持运行。临时原生依赖、虚拟环境、探针和私有凭据已移除，失败／成功报告及截图保留在 `0700` 的证据目录。收尾记录为 `owned-mode-cleanup.json`、`empty-private-infrastructure.json`、`private-infrastructure-retirement.json`、`worker-retirement-proof.json`、`worker-branch-retirement.json` 和 `scratch-retirement.json`。这些清理结果不替代尚未通过的组合门。
