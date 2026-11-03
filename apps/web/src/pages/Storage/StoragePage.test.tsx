@@ -92,13 +92,16 @@ afterEach(() => {
 function renderUI() {
   const client = createTestQueryClient();
   queryClients.push(client);
-  return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <StoragePage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <StoragePage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+    client,
+  };
 }
 
 describe("StoragePage", () => {
@@ -138,9 +141,64 @@ describe("StoragePage", () => {
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
   });
 
-  it("视频资产失败为空 → 显示「暂无视频资产失败」", () => {
+  it("a successful empty query reports only the visible scope", () => {
     renderUI();
-    expect(screen.getByText("暂无视频资产失败")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "视频资产失败查询状态" })).toHaveTextContent(
+      /可见范围.*无失败/,
+    );
+  });
+
+  it("a rejected initial query is unavailable rather than an empty or healthy result", () => {
+    mockUseVideoAssetFailures.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    });
+    renderUI();
+    expect(screen.getByRole("status", { name: "视频资产失败查询状态" })).toHaveTextContent(
+      /不可用/,
+    );
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "视频资产失败分页" })).not.toBeInTheDocument();
+  });
+
+  it("a rejected refresh marks retained results stale without losing rows, paging or diagnostics", async () => {
+    const error = "ffmpeg: failed\n帧 #43 · /media/input.mp4";
+    const data = { items: [{ ...SAMPLE_VIDEO_FAILURE, error }], total: 21, limit: 20, offset: 0 };
+    mockUseVideoAssetFailures.mockReturnValue({ data, isLoading: false, isError: false });
+    const { rerender, client } = renderUI();
+    expect(screen.getByRole("status", { name: "视频资产失败查询状态" })).toHaveTextContent(/21/);
+
+    mockUseVideoAssetFailures.mockReturnValue({ data, isLoading: false, isError: true });
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <StoragePage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("status", { name: "视频资产失败查询状态" })).toHaveTextContent(
+      /不可用/,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/上次查询结果.*过期/);
+    expect(screen.getByText("Video Project")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "视频资产失败分页" })).toHaveTextContent(/21/);
+    fireEvent.click(screen.getByRole("button", { name: "复制 video.mp4 的完整错误信息" }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(error));
+  });
+
+  it("a rejected refresh does not turn a retained empty result into a healthy status", () => {
+    mockUseVideoAssetFailures.mockReturnValue({
+      data: { items: [], total: 0, limit: 20, offset: 0 },
+      isLoading: false,
+      isError: true,
+    });
+    renderUI();
+    expect(screen.getByRole("status", { name: "视频资产失败查询状态" })).toHaveTextContent(
+      /不可用/,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/上次查询结果.*过期/);
   });
 
   it("点击截断错误复制完整多行内容，等待复制完成后提示成功", async () => {
@@ -156,7 +214,6 @@ describe("StoragePage", () => {
     );
     renderUI();
     const copy = screen.getByRole("button", { name: "复制 video.mp4 的完整错误信息" });
-    expect(copy).toHaveAttribute("title", `${error}\n\n点击复制完整错误信息`);
     fireEvent.click(copy);
     expect(copyToClipboard).toHaveBeenCalledWith(error);
     expect(mockPushToast).not.toHaveBeenCalled();
@@ -236,14 +293,16 @@ describe("StoragePage", () => {
     });
   });
 
-  it("视频资产加载中 → 显示加载态文字", () => {
+  it("an initial load does not report an empty or healthy result", () => {
     mockUseVideoAssetFailures.mockReturnValue({
       data: undefined,
       isLoading: true,
       isError: false,
     });
     renderUI();
-    expect(screen.getByText("加载中...")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "视频资产失败查询状态" })).toHaveTextContent(
+      /加载中/,
+    );
   });
 
   it("视频资产失败列表分页 → 使用 limit/offset 拉取下一页", async () => {

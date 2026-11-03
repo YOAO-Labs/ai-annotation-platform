@@ -17,11 +17,11 @@ import { StorageLocationsConsole } from "@/components/connections/StorageLocatio
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 
 const VIDEO_ASSET_LABELS: Record<VideoAssetKind, string> = {
-  probe: "Probe",
-  poster: "Poster",
-  frame_timetable: "Frame timetable",
-  chunk: "Chunk",
-  frame: "Frame cache",
+  probe: "视频信息",
+  poster: "视频预览",
+  frame_timetable: "帧时间表",
+  chunk: "视频分块",
+  frame: "帧缓存",
 };
 const CARD_TITLE_CLASS = "m-0 text-sm font-semibold";
 
@@ -48,10 +48,10 @@ function VideoAssetFailuresPanel() {
   const total = data?.total ?? 0;
 
   useEffect(() => {
-    if (isLoading) return;
-    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    if (isLoading || isError || !data) return;
+    const lastPage = Math.max(0, Math.ceil(data.total / pageSize) - 1);
     if (page > lastPage) setPage(lastPage);
-  }, [isLoading, page, pageSize, total]);
+  }, [data, isError, isLoading, page, pageSize]);
 
   const onRetry = (asset: VideoAssetFailureItem) => {
     const current = capture();
@@ -88,26 +88,40 @@ function VideoAssetFailuresPanel() {
               视频资产失败
             </h3>
             <p className="mt-[3px] text-xs text-muted-foreground">
-              probe、poster、时间表和帧缓存失败会在这里集中处理。
+              集中查看视频信息、预览、帧时间表、分块和帧缓存的失败记录。
             </p>
           </div>
           <span className="self-center">
-            <Badge variant={total ? "danger" : "success"} dot>
-              {total ? `${total} 个失败` : "正常"}
+            <Badge
+              role="status"
+              aria-label="视频资产失败查询状态"
+              variant={isError ? "warning" : isLoading ? "default" : total ? "danger" : "success"}
+              dot
+            >
+              {isError
+                ? "查询不可用"
+                : isLoading
+                  ? "加载中"
+                  : total
+                    ? `${total} 个失败`
+                    : "当前可见范围无失败记录"}
             </Badge>
           </span>
         </div>
+        {isError && (
+          <div role="alert" className="px-4 py-3 text-sm text-status-danger">
+            无法加载视频资产状态{data ? "；以下为上次查询结果，可能已过期" : ""}
+          </div>
+        )}
         {isLoading ? (
           <div className="px-4 py-8.5 text-center text-sm text-muted-foreground">加载中...</div>
-        ) : isError ? (
-          <div className="px-4 py-8.5 text-center text-sm text-status-danger">
-            无法加载视频资产状态
-          </div>
-        ) : items.length === 0 ? (
-          <div className="px-4 py-8.5 text-center text-sm text-muted-foreground">
-            <Icon name="check" size={26} className="mb-2 opacity-[0.28]" />
-            <div>暂无视频资产失败</div>
-          </div>
+        ) : isError && !data ? null : items.length === 0 ? (
+          !isError && (
+            <div className="px-4 py-8.5 text-center text-sm text-muted-foreground">
+              <Icon name="check" size={26} className="mb-2 opacity-[0.28]" />
+              <div>当前可见范围暂无视频资产失败记录</div>
+            </div>
+          )
         ) : (
           <div>
             <div className="overflow-x-auto">
@@ -169,18 +183,20 @@ function VideoAssetFailuresPanel() {
             </div>
           </div>
         )}
-        <ListPagination
-          label="视频资产失败"
-          page={page}
-          pageSize={pageSize}
-          total={total}
-          loading={isLoading}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(0);
-          }}
-        />
+        {data && (
+          <ListPagination
+            label="视频资产失败"
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            loading={isLoading}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(0);
+            }}
+          />
+        )}
       </Card>
       {jobId && (
         <AsyncJobDetailModal
