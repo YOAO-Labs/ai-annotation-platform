@@ -24,6 +24,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services.annotation_evidence import (
     freeze_review_contributor_evidence,
@@ -32,7 +33,14 @@ from app.services.annotation_evidence import (
 )
 from app.services.annotation_slice import AnnotationSliceService
 from app.services.batch import BatchService
-from tests.factory import create_membership, create_project, create_task, create_user
+from app.services.original_content_access import visible_task
+from tests.factory import (
+    create_batch,
+    create_membership,
+    create_project,
+    create_task,
+    create_user,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -556,6 +564,77 @@ async def test_concurrent_recorders_serialize_without_lost_update(test_engine):
             await cleanup.execute(delete(Project).where(Project.id == project_id))
             await cleanup.execute(
                 delete(User).where(User.id.in_([user_a_id, user_b_id]))
+            )
+            await cleanup.commit()
+
+
+async def test_neighbor_original_authority_coexists_with_contributor_write(test_engine):
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as seed:
+        suffix = uuid.uuid4().hex[:8]
+        owner = await create_user(
+            seed, "super_admin", f"neighbor-owner-{suffix}@test.local", "Owner"
+        )
+        writer = await create_user(
+            seed, "super_admin", f"neighbor-writer-{suffix}@test.local", "Writer"
+        )
+        project = await create_project(seed, owner_id=owner.id)
+        batch = await create_batch(seed, project_id=project.id, status="active")
+        target = await create_task(seed, project_id=project.id, status="in_progress")
+        neighbor = await create_task(seed, project_id=project.id, status="in_progress")
+        target.batch_id = neighbor.batch_id = batch.id
+        target.annotation_contributor_ids = [str(owner.id)]
+        await seed.commit()
+        owner_id, writer_id = owner.id, writer.id
+        project_id, batch_id = project.id, batch.id
+        target_id, neighbor_id = target.id, neighbor.id
+
+    reader, writer_session = maker(), maker()
+    try:
+        actor = await reader.get(User, owner_id)
+        visible = await visible_task(reader, neighbor_id, actor, lock=True)
+        assert visible.id == neighbor_id
+        assert reader.in_transaction()
+
+        task = await writer_session.get(Task, target_id)
+        assert await asyncio.wait_for(
+            record_annotation_actor(writer_session, task, writer_id), timeout=2
+        )
+        assert writer_session.in_transaction()
+        assert task.annotation_contributor_ids == sorted(
+            [str(owner_id), str(writer_id)]
+        )
+
+        async with maker() as observer:
+            original = await observer.get(Task, target_id)
+            assert original.annotation_contributor_ids == [str(owner_id)]
+        await writer_session.rollback()
+        async with maker() as observer:
+            original = await observer.get(Task, target_id)
+            assert original.annotation_contributor_ids == [str(owner_id)]
+
+        task = await writer_session.get(Task, target_id)
+        assert await asyncio.wait_for(
+            record_annotation_actor(writer_session, task, writer_id), timeout=2
+        )
+        await writer_session.commit()
+        assert reader.in_transaction()
+        async with maker() as observer:
+            saved = await observer.get(Task, target_id)
+            assert saved.annotation_contributor_ids == sorted(
+                [str(owner_id), str(writer_id)]
+            )
+    finally:
+        await reader.close()
+        await writer_session.close()
+        async with maker() as cleanup:
+            await cleanup.execute(
+                delete(Task).where(Task.id.in_([target_id, neighbor_id]))
+            )
+            await cleanup.execute(delete(TaskBatch).where(TaskBatch.id == batch_id))
+            await cleanup.execute(delete(Project).where(Project.id == project_id))
+            await cleanup.execute(
+                delete(User).where(User.id.in_([owner_id, writer_id]))
             )
             await cleanup.commit()
 
