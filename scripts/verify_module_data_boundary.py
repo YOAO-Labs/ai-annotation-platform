@@ -237,7 +237,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "public.capture_mask_annotation_revision()": "0338_labeling_annotation_revision_support.sql",
     "public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)": "0338_labeling_annotation_revision_support.sql",
     "aap_labeling_v1.task_edit_lock_command(jsonb)": "0334_labeling_task_locks.sql",
-    "aap_labeling_v1.task_workflow_command(jsonb)": "0335_labeling_task_workflow.sql",
+    "aap_labeling_v1.task_workflow_command(jsonb)": "0427_labeling_actor_batch_share.sql",
     "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_video_retry_job(uuid,uuid,text)": "0407_jobs_video_retry.sql",
@@ -1303,6 +1303,7 @@ SQL_ARTIFACTS = (
     "0425_identity_preferences.sql",
     "0425_identity_provisioning.sql",
     "0426_image_admission_share.sql",
+    "0427_labeling_actor_batch_share.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0419_dataset_ingest_authority.schema.json",
