@@ -473,14 +473,16 @@ async def test_owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSessio
     await scenarios.owned_rebuild_is_retry_safe(httpx_client, db_session)
 
 
-async def test_owned_cleanup_never_touches_the_shared_fixture(
+async def test_owned_cleanup_never_touches_another_role_fixture(
     httpx_client, db_session: AsyncSession
 ):
     from app.db.models.project import Project
     from app.db.models.user import User
 
-    shared = await httpx_client.post("/api/v1/__test/seed/project-roles")
-    assert shared.status_code == 200, shared.text
+    neighbor = await httpx_client.post(
+        "/api/v1/__test/seed/project-roles", json={"namespace": B}
+    )
+    assert neighbor.status_code == 200, neighbor.text
     await _build_owned(httpx_client, A)
 
     assert (await _cleanup_owned(httpx_client, A)).status_code == 200
@@ -489,7 +491,7 @@ async def test_owned_cleanup_never_touches_the_shared_fixture(
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(User.email == shared.json()["employee_email"])
+            .where(User.email == neighbor.json()["employee_email"])
         )
         == 1
     )
@@ -498,11 +500,136 @@ async def test_owned_cleanup_never_touches_the_shared_fixture(
             select(func.count())
             .select_from(Project)
             .where(
-                Project.id == uuid.UUID(shared.json()["projects"]["a"]["project_id"])
+                Project.id == uuid.UUID(neighbor.json()["projects"]["a"]["project_id"])
             )
         )
         == 1
     )
+
+
+async def test_project_roles_namespaces_survive_invalid_setup_and_neighbor_cleanup(
+    httpx_client, db_session: AsyncSession
+):
+    from app.db.models.project import Project
+    from app.db.models.user import User
+    from app.services.storage import storage_service
+
+    keeper = User(
+        id=uuid.uuid4(),
+        email=f"role-neighbor-{uuid.uuid4().hex}@example.com",
+        name="Role neighbor",
+        password_hash="x",
+        role="employee",
+        is_active=True,
+    )
+    db_session.add(keeper)
+    await db_session.commit()
+    keeper_id = keeper.id
+    path = "/api/v1/__test/seed/project-roles"
+    key_a = f"e2e/owned/{A}/project-roles/a/task-1.svg"
+    key_b = f"e2e/owned/{B}/project-roles/a/task-1.svg"
+    storage = storage_service.client
+    bucket = storage_service.datasets_bucket
+    try:
+        a = await httpx_client.post(path, json={"namespace": A})
+        b = await httpx_client.post(path, json={"namespace": B})
+        assert a.status_code == b.status_code == 200
+        a_project = uuid.UUID(a.json()["projects"]["a"]["project_id"])
+        b_project = uuid.UUID(b.json()["projects"]["a"]["project_id"])
+        with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
+            before = body.read()
+
+        for payload in (None, {}, {"namespace": "invalid-namespace"}):
+            rejected = await httpx_client.post(path, json=payload)
+            assert rejected.status_code == 422, rejected.text
+        assert (
+            await db_session.scalar(
+                select(func.count()).select_from(Project).where(Project.id == a_project)
+            )
+            == 1
+        )
+        assert (
+            await db_session.scalar(
+                select(func.count()).select_from(Project).where(Project.id == b_project)
+            )
+            == 1
+        )
+
+        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert (
+            await db_session.scalar(
+                select(func.count()).select_from(Project).where(Project.id == a_project)
+            )
+            == 0
+        )
+        assert (
+            await db_session.scalar(
+                select(func.count()).select_from(Project).where(Project.id == b_project)
+            )
+            == 1
+        )
+        assert await db_session.get(User, keeper_id) is not None
+        with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
+            assert body.read() == before
+        assert not storage.list_objects_v2(Bucket=bucket, Prefix=key_a).get("Contents")
+        login = await httpx_client.post(
+            "/api/v1/__test/seed/login", json={"email": b.json()["employee_email"]}
+        )
+        assert login.status_code == 200, login.text
+    finally:
+        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert (await _cleanup_owned(httpx_client, B)).status_code == 200
+        keeper = await db_session.get(User, keeper_id)
+        if keeper is not None:
+            await db_session.delete(keeper)
+            await db_session.commit()
+
+
+async def test_project_roles_failed_setup_cleans_only_its_own_objects(
+    httpx_client, db_session: AsyncSession, monkeypatch
+):
+    from app.api.v1 import _test_seed
+    from app.db.models.project import Project
+    from app.services.storage import storage_service
+
+    path = "/api/v1/__test/seed/project-roles"
+    neighbor = await httpx_client.post(path, json={"namespace": B})
+    assert neighbor.status_code == 200, neighbor.text
+    neighbor_project = uuid.UUID(neighbor.json()["projects"]["a"]["project_id"])
+    key_a = f"e2e/owned/{A}/project-roles/a/task-1.svg"
+    key_b = f"e2e/owned/{B}/project-roles/a/task-1.svg"
+    storage = storage_service.client
+    bucket = storage_service.datasets_bucket
+    with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
+        before = body.read()
+    original = _test_seed._build_project_roles_image_project
+
+    async def fail_after_first_project(*args, **kwargs):
+        await original(*args, **kwargs)
+        raise RuntimeError("controlled role fixture setup failure")
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                _test_seed,
+                "_build_project_roles_image_project",
+                fail_after_first_project,
+            )
+            with pytest.raises(
+                RuntimeError, match="controlled role fixture setup failure"
+            ):
+                await httpx_client.post(path, json={"namespace": A})
+        await db_session.rollback()
+        assert storage.list_objects_v2(Bucket=bucket, Prefix=key_a).get("Contents")
+        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert not storage.list_objects_v2(Bucket=bucket, Prefix=key_a).get("Contents")
+        assert await db_session.get(Project, neighbor_project) is not None
+        with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
+            assert body.read() == before
+    finally:
+        await db_session.rollback()
+        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert (await _cleanup_owned(httpx_client, B)).status_code == 200
 
 
 async def test_owned_cleanup_preserves_external_identity_reference_until_released(

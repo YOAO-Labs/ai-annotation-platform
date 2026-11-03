@@ -145,7 +145,10 @@ async def test_filtering_seed_route_is_guarded_and_hidden_from_openapi(
 async def test_project_roles_seed_route_is_guarded_and_hidden_from_openapi(
     httpx_client, app_module
 ):
-    response = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    response = await httpx_client.post(
+        "/api/v1/__test/seed/project-roles",
+        json={"namespace": scenarios.NAMESPACE},
+    )
     assert response.status_code == 200, response.text
     route = next(
         route

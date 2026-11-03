@@ -1095,7 +1095,7 @@ async def _cleanup_fixture_records(
 ) -> None:
     """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。
 
-    ``owned=None`` 清理共享固定命名空间（全局 cleanup/project-roles 的收敛语义）；
+    ``owned=None`` 清理共享固定命名空间（全局 cleanup 的收敛语义）；
     传入 ``owned`` 时所有谓词收窄为该命名空间的精确标识，绝不触及相邻命名空间
     或普通数据。两种 scope 共用同一删除顺序与同一张表清单，避免出现第二套引擎。
     """
@@ -1796,79 +1796,46 @@ class ProjectRolesSeed(BaseModel):
 )
 async def seed_project_roles(
     request: Request,
-    payload: SeedOwnedRequest | None = None,
+    payload: SeedOwnedRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectRolesSeed:
     """Build the deterministic multi-project employee-role acceptance fixture.
 
-    With ``namespace`` the fixture is built for exactly that owned namespace:
-    namespaced accounts/projects/datasets/objects, no shared-namespace
-    pre-clean, and `owned-cleanup` converges it. Without a namespace the
-    legacy shared fixture is rebuilt with the cleanup-safe ``P-E2E-*`` /
-    ``DS-E2E-*`` / ``B-E2E-*`` / ``T-E2E-*`` display-id prefixes and
-    ``@e2e.test`` account suffix, so `/seed/cleanup` converges it
-    (documented serial exception). Review work
-    is intentionally left for the spec to submit through the real API so
-    contributor evidence is complete.
+    The required namespace scopes accounts, projects, datasets and objects;
+    owned cleanup converges only that namespace. Review work is intentionally
+    left for the spec to submit through the real API so contributor evidence
+    is complete.
     """
     from app.db.models.task_batch import TaskBatch
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
-    namespace = payload.namespace if payload is not None else None
-    scope = _parse_owned_namespace(namespace) if namespace is not None else None
-    if scope is None:
-        await _cleanup_e2e_fixtures(
-            db, registry=getattr(request.app.state, "original_playback_registry", None)
-        )
+    scope = _parse_owned_namespace(payload.namespace)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
 
-        def user_email(local: str) -> str:
-            return f"{local}@e2e.test"
+    def user_email(local: str) -> str:
+        return f"{local}-{scope.namespace}@e2e.test"
 
-        def project_display(key: str) -> str:
-            return f"P-E2E-PR-{key.upper()}"
+    def project_display(key: str) -> str:
+        return scope.pr_project_display_ids[key.lower()]
 
-        def project_name(key: str) -> str:
-            return f"E2E Project Roles {key.upper()}"
+    def project_name(key: str) -> str:
+        return f"E2E Project Roles {key.upper()} {scope.namespace}"
 
-        def dataset_display(key: str) -> str:
-            return f"DS-E2E-PR-{key.upper()}"
+    def dataset_display(key: str) -> str:
+        return scope.pr_dataset_display_ids[key.lower()]
 
-        def batch_display(key: str) -> str:
-            return f"B-E2E-PR-{key.upper()}"
+    def batch_display(key: str) -> str:
+        return f"B-E2E-PR-{key.upper()}-{scope.namespace}"
 
-        def task_display_prefix(key: str) -> str:
-            return f"T-E2E-PR-{key.upper()}-"
+    def task_display_prefix(key: str) -> str:
+        return scope.pr_task_display_prefix[key.lower()]
 
-        def image_key_prefix(key: str) -> str:
-            return f"e2e/project-roles/{key.lower()}/"
-
-    else:
-        await _cleanup_e2e_fixtures(
-            db,
-            owned=scope,
-            registry=getattr(request.app.state, "original_playback_registry", None),
-        )
-
-        def user_email(local: str) -> str:
-            return f"{local}-{scope.namespace}@e2e.test"
-
-        def project_display(key: str) -> str:
-            return scope.pr_project_display_ids[key.lower()]
-
-        def project_name(key: str) -> str:
-            return f"E2E Project Roles {key.upper()} {scope.namespace}"
-
-        def dataset_display(key: str) -> str:
-            return scope.pr_dataset_display_ids[key.lower()]
-
-        def batch_display(key: str) -> str:
-            return f"B-E2E-PR-{key.upper()}-{scope.namespace}"
-
-        def task_display_prefix(key: str) -> str:
-            return scope.pr_task_display_prefix[key.lower()]
-
-        def image_key_prefix(key: str) -> str:
-            return f"{scope.pr_storage_prefix}{key.lower()}/"
+    def image_key_prefix(key: str) -> str:
+        return f"{scope.pr_storage_prefix}{key.lower()}/"
 
     identity = IdentityE2EFixtures(db)
     owner_a = await identity.create_user(

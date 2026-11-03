@@ -83,6 +83,15 @@ async def test_filtering_seed_real_queries_match_literal_memberships(httpx_clien
     )
 
     video = manifest["video"]
+    preview = await httpx_client.get(
+        f"/api/v1/video-tracker-jobs/{video['tracker_job_ids']['tracker_only']}/preview",
+        headers=headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["results"][0]["frame_index"] == 0
+    assert preview.json()["results"][0]["instance_id"] == "A"
+    assert preview.json()["results"][0]["source_annotation_id"] is None
+
     ai_or = await task_query(
         video["project_id"],
         {

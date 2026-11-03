@@ -1043,6 +1043,9 @@ async def _seed_video_review(
             to_frame=1,
             prompt={"fixture": "filtering"},
             staged_result={
+                # Source-less discovery: there are no source annotation IDs.
+                # This fixture supports preview, not tracker result acceptance.
+                "source_instance_map": {},
                 "results": [
                     {
                         "frame_index": 0,
@@ -1057,7 +1060,7 @@ async def _seed_video_review(
                         "outside": False,
                         "instance_id": "A",
                     }
-                ]
+                ],
             },
             event_channel="filtering",
         )

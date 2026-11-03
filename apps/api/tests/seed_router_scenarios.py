@@ -49,12 +49,14 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     from app.db.models.task_batch import TaskBatch
     from app.db.models.user import User
 
-    response = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    response = await httpx_client.post(
+        "/api/v1/__test/seed/project-roles", json={"namespace": NAMESPACE}
+    )
     assert response.status_code == 200, response.text
     body = response.json()
 
-    assert body["employee_email"] == "employee@e2e.test"
-    assert body["peer_email"] == "peer@e2e.test"
+    assert body["employee_email"] == f"employee-{NAMESPACE}@e2e.test"
+    assert body["peer_email"] == f"peer-{NAMESPACE}@e2e.test"
     projects = body["projects"]
     assert projects["a"]["project_role"] == "annotator"
     assert projects["b"]["project_role"] == "reviewer"
@@ -67,10 +69,12 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     assert body["users"]["owner_b"]["platform_role"] == "project_admin"
     assert body["users"]["viewer"]["platform_role"] == "viewer"
 
-    # Exactly the fixture accounts, no base reset users left behind.
+    # Only this namespace's fixture accounts are counted.
     assert (
         await db_session.scalar(
-            select(func.count()).select_from(User).where(User.email.like("%@e2e.test"))
+            select(func.count())
+            .select_from(User)
+            .where(User.email.like(f"%-{NAMESPACE}@e2e.test"))
         )
         == 9
     )
@@ -158,13 +162,19 @@ async def project_roles_seed_is_idempotent(httpx_client, db_session):
 
     from app.db.models.user import User
 
-    first = await httpx_client.post("/api/v1/__test/seed/project-roles")
-    second = await httpx_client.post("/api/v1/__test/seed/project-roles")
+    first = await httpx_client.post(
+        "/api/v1/__test/seed/project-roles", json={"namespace": NAMESPACE}
+    )
+    second = await httpx_client.post(
+        "/api/v1/__test/seed/project-roles", json={"namespace": NAMESPACE}
+    )
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert (
         await db_session.scalar(
-            select(func.count()).select_from(User).where(User.email.like("%@e2e.test"))
+            select(func.count())
+            .select_from(User)
+            .where(User.email.like(f"%-{NAMESPACE}@e2e.test"))
         )
         == 9
     )

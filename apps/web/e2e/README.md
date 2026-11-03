@@ -88,19 +88,21 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 测试失败。`/seed/lidar`、`/seed/project-roles`、`/seed/filtering` 的命名空间参数
 同样只触碰各自命名空间；filtering manifest 暴露 `display_names`、`invitation_emails`、
 `search_keys`、`audit_scopes`，spec 必须用 manifest 值做全局列表搜索/文案/导出断言。
+filtering 的无源 tracker 候选仅用于列表和预览验证；该夹具未准备已接受输入证据，
+不能用于证明 tracker 结果接受或端到端执行。
 
 评论附件清理按本命名空间的精确项目 UUID 查找独立上传记录，沿记录保存的桶和准确键执行。已完成或已退休的上传可由测试清理明确销毁；未完成上传、未收尾读取、未知存储归属或删除失败会阻止清理，保留记录和原夹具以供重试。不要修改保存期限、清除访问账本或按当前桶手工扫键来让 teardown 通过。确认只是自己的可丢弃工作树环境后，可按 `pnpm dev:worktree doctor --mode e2e` 输出的准确确认值销毁整个 mode。
 
 规范的 `comment-attachments/{annotation_uuid}/{upload_uuid}` 对象只能凭独立上传记录删除；旧前缀清理不会接管同键副本或无记录的规范键。此类残留会明确使清理失败。fixture 用户若仍被命名空间外的评论引用，也不能通过清理该用户来连带删除外部评论。
 
-`/seed/filtering` 必须显式指定命名空间；不存在重建共享工作台的 reset 入口。
+`/seed/filtering` 与 `/seed/project-roles` 必须显式指定命名空间；不存在重建共享工作台的 reset 入口。
 需要跨命名空间存活/清理证据时，可用 `fixtures/storage-object-probe.py` 经真实存储
 客户端读取对象字节。
 
 正常结束时 `globalTeardown` 会调用全局 `/api/v1/__test/seed/cleanup`，可能清除
 其他 owned 命名空间及其存储对象，因此仍须按独立数据库和桶串行运行全局清理。
 强制中断或进程被终止时 teardown 可能来不及执行；数据库隔离才是不污染开发库的
-根本保障。`/seed/project-roles` 的无命名空间路径也仍属共享串行边界。
+根本保障。
 
 ## 当前题 AI 的真实异步作业 E2E
 

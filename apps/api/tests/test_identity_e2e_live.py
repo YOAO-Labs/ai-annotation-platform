@@ -1103,6 +1103,16 @@ try:
                 response.status_code == 500,
                 f"missing create capability returned {response.status_code}: {response.text}",
             )
+            roles = request(
+                client,
+                "POST",
+                "/api/v1/__test/seed/project-roles",
+                json={"namespace": namespace},
+            )
+            require(
+                roles.status_code == 500,
+                f"missing role fixture capability returned {roles.status_code}: {roles.text}",
+            )
             result = {"status_code": response.status_code, "body": response.text}
         elif mode == "cancel":
             namespace = sys.argv[2]
