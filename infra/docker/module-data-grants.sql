@@ -2934,6 +2934,7 @@ ALTER VIEW aap_labeling_v1.scene_track_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.scene_track_interval_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.video_segment_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.video_tracker_job_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.video_track_quality_run_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_event_facts OWNER TO :"labeling_owner";
@@ -4089,6 +4090,10 @@ ALTER FUNCTION aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_shar
 ALTER FUNCTION aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)
     OWNER TO :"labeling_owner";

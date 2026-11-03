@@ -94,12 +94,12 @@ const VIDEO_OPTIONS: TargetOption[] = [
   {
     value: "yolo-frames-seg",
     label: "YOLO 逐帧分割",
-    description: "按采样间隔抽帧，保留多边形顶点；跳过矩形框和折线。",
+    description: "按采样间隔抽帧，仅支持多边形；其他形状需调整导出格式。",
   },
   {
     value: "coco-frames-seg",
     label: "COCO 逐帧分割",
-    description: "按采样间隔抽帧，导出分割数据；跳过矩形框和折线。",
+    description: "按采样间隔抽帧，支持多边形和 Mask；其他形状需调整导出格式。",
   },
   {
     value: "davis",

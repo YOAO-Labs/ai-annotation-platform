@@ -65,6 +65,8 @@ BEGIN
         'aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)',
         'aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)',
         'aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)',
+        'aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)',
+        'aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)',
         'aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])',
         'aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])'
     ] LOOP
@@ -92,6 +94,8 @@ BEGIN
               WHEN 'aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)' THEN 'aap_labeling_v1.scene_track_interval_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)' THEN 'aap_labeling_v1.prediction_meta_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)' THEN 'uuid'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)' THEN 'uuid'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])' THEN 'aap_labeling_v1.annotation_rows'::pg_catalog.regtype
           END
@@ -145,6 +149,8 @@ REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean
     aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
     aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
     aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
+    aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer),
+    aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer),
     aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
     aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
     FROM :"core_read_role", PUBLIC;
@@ -163,6 +169,8 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,bool
     aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
     aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
     aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
+    aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer),
+    aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer),
     aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
     aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
     TO :"core_read_role";
@@ -178,6 +186,7 @@ GRANT SELECT ON aap_labeling_v1.task_rows,
     aap_labeling_v1.scene_track_interval_rows,
     aap_labeling_v1.video_segment_rows,
     aap_labeling_v1.video_tracker_job_rows,
+    aap_labeling_v1.video_track_quality_run_rows,
     aap_labeling_v1.annotation_draft_rows
     TO :"core_read_role";
 
@@ -200,6 +209,8 @@ DECLARE
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])')
     ];
@@ -216,6 +227,7 @@ DECLARE
         pg_catalog.to_regclass('aap_labeling_v1.scene_track_interval_rows'),
         pg_catalog.to_regclass('aap_labeling_v1.video_segment_rows'),
         pg_catalog.to_regclass('aap_labeling_v1.video_tracker_job_rows'),
+        pg_catalog.to_regclass('aap_labeling_v1.video_track_quality_run_rows'),
         pg_catalog.to_regclass('aap_labeling_v1.annotation_draft_rows')
     ];
     v_projection oid;

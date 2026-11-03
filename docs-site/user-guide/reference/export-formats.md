@@ -30,31 +30,31 @@ last_reviewed: 2026-10-24
 
 导出弹窗里能勾哪些目标，**取决于项目的媒体类型**（图像 / 视频 / 点云）。跨模态目标会被后端拒绝（400），所以弹窗只展示当前项目可用的目标。下表是三套 `EXPORT_TARGETS` 的实际可选项与「选哪个」决策：
 
-| 项目类型     | 可选导出目标       | 内部 target 名                | 选它的时机                                                          |
-| ------------ | ------------------ | ----------------------------- | ------------------------------------------------------------------- |
-| **图像**     | COCO               | `coco`                        | 训练 Detectron2 / MMDetection（检测 / 分割 / 关键点）               |
-| 图像         | YOLO 检测          | `yolo-det`（`yolo` 为旧别名） | 训练 YOLOv8 检测（矩形框）                                          |
-| 图像         | YOLO 旋转框        | `yolo-obb`                    | 训练 YOLOv8 OBB（rotated_bbox）                                     |
-| 图像         | YOLO 分割          | `yolo-seg`                    | 训练 YOLOv8 分割（polygon / mask）                                  |
-| 图像         | Label Studio Brush | `label-studio-brush`          | 与 Label Studio BrushLabels 交换实例 Mask                           |
-| 图像         | 逐实例 Binary PNG  | `binary-png`                  | 以独立 0/255 PNG 无损保留重叠实例                                   |
-| 图像         | Indexed PNG        | `indexed-png`                 | 每图用一张索引 PNG 区分实例；重叠时需选择处理方式                   |
-| 图像         | 原生 JSON          | `aap_json`                    | 分别保存预测候选与正式标注，保留项目配置                            |
-| **视频轨迹** | Video JSON         | `video_json`                  | 轨迹备份 / 质检 / 继续编辑                                          |
-| 视频轨迹     | YOLO 逐帧检测      | `yolo-frames-det`             | 视频逐帧检测训练（polygon / polyline 降级为顶点外接框）             |
-| 视频轨迹     | YOLO 逐帧分割      | `yolo-frames-seg`             | 视频逐帧分割训练（保留多边形顶点；bbox / polyline 跳过）            |
-| 视频轨迹     | COCO 逐帧分割      | `coco-frames-seg`             | 视频逐帧分割训练（标准 COCO；保留多边形顶点；bbox / polyline 跳过） |
-| 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（每个采样帧一张索引 PNG）                   |
-| 视频轨迹     | YouTube-VOS        | `youtube-vos`                 | 稀疏关键帧对象分割数据交换                                          |
-| 视频轨迹     | MOTS               | `mots`                        | compressed RLE 多对象跟踪与分割数据交换                             |
-| 视频轨迹     | 原生 JSON          | `aap_json`                    | 保存受支持的视频轨迹形状和项目配置                                  |
-| 视频轨迹     | MOT 16/17/20       | `mot`                         | 多目标跟踪评测（trackeval）                                         |
-| 视频轨迹     | KITTI Tracking     | `kitti`                       | KITTI 跟踪工具链                                                    |
-| **点云**     | 原生 JSON          | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                               |
-| 点云         | Multi-camera COCO  | `coco-multicamera`            | 把全部相机的持久化人工 2D 框合并为 COCO 训练集                      |
-| 点云         | KITTI 3D           | `kitti`                       | KITTI 3D 检测训练前处理（KITTI camera 坐标）                        |
-| 点云         | nuScenes           | `nuscenes`                    | 官方 devkit 可加载的完整 Scene 关键帧表集                           |
-| 点云         | Point Mask         | `pointmask`                   | 逐点语义分割训练前处理                                              |
+| 项目类型     | 可选导出目标       | 内部 target 名                | 选它的时机                                                                |
+| ------------ | ------------------ | ----------------------------- | ------------------------------------------------------------------------- |
+| **图像**     | COCO               | `coco`                        | 训练 Detectron2 / MMDetection（检测 / 分割 / 关键点）                     |
+| 图像         | YOLO 检测          | `yolo-det`（`yolo` 为旧别名） | 训练 YOLOv8 检测（矩形框）                                                |
+| 图像         | YOLO 旋转框        | `yolo-obb`                    | 训练 YOLOv8 OBB（rotated_bbox）                                           |
+| 图像         | YOLO 分割          | `yolo-seg`                    | 训练 YOLOv8 分割（polygon / mask）                                        |
+| 图像         | Label Studio Brush | `label-studio-brush`          | 与 Label Studio BrushLabels 交换实例 Mask                                 |
+| 图像         | 逐实例 Binary PNG  | `binary-png`                  | 以独立 0/255 PNG 无损保留重叠实例                                         |
+| 图像         | Indexed PNG        | `indexed-png`                 | 每图用一张索引 PNG 区分实例；重叠时需选择处理方式                         |
+| 图像         | 原生 JSON          | `aap_json`                    | 分别保存预测候选与正式标注，保留项目配置                                  |
+| **视频轨迹** | Video JSON         | `video_json`                  | 轨迹备份 / 质检 / 继续编辑                                                |
+| 视频轨迹     | YOLO 逐帧检测      | `yolo-frames-det`             | 视频逐帧检测训练（polygon / polyline 降级为顶点外接框）                   |
+| 视频轨迹     | YOLO 逐帧分割      | `yolo-frames-seg`             | 视频逐帧分割训练；支持单帧与轨迹多边形，不支持 Mask、bbox 或 polyline     |
+| 视频轨迹     | COCO 逐帧分割      | `coco-frames-seg`             | 标准 COCO 分割；支持单帧／轨迹多边形与 Mask 轨迹，不支持 bbox 或 polyline |
+| 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（每个采样帧一张索引 PNG）                         |
+| 视频轨迹     | YouTube-VOS        | `youtube-vos`                 | 稀疏关键帧对象分割数据交换                                                |
+| 视频轨迹     | MOTS               | `mots`                        | compressed RLE 多对象跟踪与分割数据交换                                   |
+| 视频轨迹     | 原生 JSON          | `aap_json`                    | 保存受支持的视频轨迹形状和项目配置                                        |
+| 视频轨迹     | MOT 16/17/20       | `mot`                         | 多目标跟踪评测（trackeval）                                               |
+| 视频轨迹     | KITTI Tracking     | `kitti`                       | KITTI 跟踪工具链                                                          |
+| **点云**     | 原生 JSON          | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                                     |
+| 点云         | Multi-camera COCO  | `coco-multicamera`            | 把全部相机的持久化人工 2D 框合并为 COCO 训练集                            |
+| 点云         | KITTI 3D           | `kitti`                       | KITTI 3D 检测训练前处理（KITTI camera 坐标）                              |
+| 点云         | nuScenes           | `nuscenes`                    | 官方 devkit 可加载的完整 Scene 关键帧表集                                 |
+| 点云         | Point Mask         | `pointmask`                   | 逐点语义分割训练前处理                                                    |
 
 > **VOC** 仍存在于后端（`voc` 目标，仅可单选、走同步下载），但**前端导出弹窗已隐藏**，普通用户在 UI 里看不到，故不在上表。
 
@@ -83,6 +83,8 @@ COCO 导入接受 polygon、uncompressed RLE 和 compressed RLE。Label Studio �
 - **无损**：同一次操作直接入队。
 - **有损**：报告列出稳定损失码和说明；勾选「我已了解以上格式损失」后再次提交。
 - **不支持**：报告指出无法表达的标注类型，必须调整格式或项目内容，不能继续导出。
+
+逐帧检测与 MOT 可将受支持的多边形、折线和 Mask 轨迹转换为外接框；逐帧分割按上表限定形状。范围内含目标格式不支持的形状时，预检会阻止整次导出，不会仅靠确认损失跳过这些标注。已支持的转换仍需确认帧号重排、轨迹身份等格式损失。
 
 视频项目还可把「导出范围」切换为「单个视频范围」，选择一个视频任务后按连续 Segment 起止或源帧闭区间导出；默认仍是整个项目。范围两端都包含，Segment 模式会自动聚合起止段之间的所有连续段。切换任务、范围方式或边界会使上一份预检失效。
 

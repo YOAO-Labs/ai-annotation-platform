@@ -1934,13 +1934,6 @@ def _video_seq_name(task: Task, item: SpatialItem | None) -> str:
     return _label_rel(task, item)
 
 
-def _video_meta(item: SpatialItem | None) -> dict:
-    if not item:
-        return {}
-    v = item.metadata.get("video")
-    return v if isinstance(v, dict) else {}
-
-
 async def _video_call(call, *args, check_cancel=None, **kwargs):
     """Checkpoint CPU writers on the owner loop, draining their real thread.
 
@@ -2137,28 +2130,24 @@ async def _build_video_export_zip(
                     if video_media is not None
                     else _video_seq_name(t, item)
                 )
-                vmeta = (
-                    video_media.video_metadata(t.id)
-                    if video_media is not None
-                    else _video_meta(item)
-                )
-                seq = _video_seq_name(t, item)
-                if item is not None and t.dataset_item_id is not None:
-                    async with media_gateway(svc.db) as gateway:
-                        source_reference = await gateway.internal_source_reference(
-                            InternalSourceRequest(dataset_item_id=item.id),
-                            expires_in=PRESIGN_EXPIRES_SECONDS,
-                        )
-                    media_source = source_reference.source
+                media_source = None
+                source_reference = None
+                if video_media is not None:
+                    vmeta = video_media.video_metadata(t.id)
                 else:
-                    source_reference = None
-                    media_source = None
-                source_is_current = media_source is not None and (
-                    not media_source.source_drifted
-                    and media_source.materialized_generation
-                    == media_source.source_generation
-                )
-                vmeta = media_source.video_metadata if source_is_current else {}
+                    if item is not None and t.dataset_item_id is not None:
+                        async with media_gateway(svc.db) as gateway:
+                            source_reference = await gateway.internal_source_reference(
+                                InternalSourceRequest(dataset_item_id=item.id),
+                                expires_in=PRESIGN_EXPIRES_SECONDS,
+                            )
+                        media_source = source_reference.source
+                    source_is_current = media_source is not None and (
+                        not media_source.source_drifted
+                        and media_source.materialized_generation
+                        == media_source.source_generation
+                    )
+                    vmeta = media_source.video_metadata if source_is_current else {}
                 source_fps = vmeta.get("fps")
                 img_w = int(
                     vmeta["width"]
@@ -2495,18 +2484,24 @@ async def _build_video_export_zip(
 
                 # manifest 视频条目（含网格帧号供 fetch_frames.py 抽帧）。
                 dataset_name = _dataset_name_for_task(t, item)
-                video_source = video_source_contract(
-                    project,
-                    t,
-                    item,
-                    vmeta,
-                    video_scope,
-                    source_file_path=(
-                        media_source.file_path if media_source is not None else None
-                    ),
-                    source_content_hash=(
-                        media_source.content_hash if media_source is not None else None
-                    ),
+                video_source = (
+                    svc.video_source(project, t, item, vmeta, video_scope)
+                    if video_media is not None
+                    else video_source_contract(
+                        project,
+                        t,
+                        item,
+                        vmeta,
+                        video_scope,
+                        source_file_path=(
+                            media_source.file_path if media_source is not None else None
+                        ),
+                        source_content_hash=(
+                            media_source.content_hash
+                            if media_source is not None
+                            else None
+                        ),
+                    )
                 )
                 if video_media is not None:
                     video_rel = video_media.paths[t.id]

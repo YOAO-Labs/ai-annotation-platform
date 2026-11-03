@@ -400,6 +400,31 @@ class ExportService:
                 InternalSourceRequest(dataset_item_id=dataset_item_id),
             )
 
+    async def _video_export_facts(self, project, task, item, scope=None):
+        media_source = (
+            await self._video_source(task.dataset_item_id)
+            if task.dataset_item_id is not None
+            else None
+        )
+        source_is_current = media_source is not None and (
+            not media_source.source_drifted
+            and media_source.materialized_generation == media_source.source_generation
+        )
+        metadata = media_source.video_metadata if source_is_current else {}
+        return metadata, video_source_contract(
+            project,
+            task,
+            item,
+            metadata,
+            scope,
+            source_file_path=(
+                media_source.file_path if media_source is not None else None
+            ),
+            source_content_hash=(
+                media_source.content_hash if media_source is not None else None
+            ),
+        )
+
     async def _load_data(
         self,
         project_id: uuid.UUID,
@@ -691,17 +716,9 @@ class ExportService:
                 if task.dataset_item_id
                 else None
             )
-            media_source = (
-                await self._video_source(task.dataset_item_id)
-                if task.dataset_item_id is not None and task.file_type == "video"
-                else None
+            video, source = await self._video_export_facts(
+                project, task, item, video_scope
             )
-            source_is_current = media_source is not None and (
-                not media_source.source_drifted
-                and media_source.materialized_generation
-                == media_source.source_generation
-            )
-            video = media_source.video_metadata if source_is_current else {}
             video_metadata_by_task[task.id] = video
             exported_tasks.append(
                 {
@@ -713,21 +730,7 @@ class ExportService:
                     "sequence_order": task.sequence_order,
                     "batch_id": str(task.batch_id) if task.batch_id else None,
                     "video_metadata": video,
-                    "source": video_source_contract(
-                        project,
-                        task,
-                        item,
-                        video,
-                        video_scope,
-                        source_file_path=(
-                            media_source.file_path if media_source is not None else None
-                        ),
-                        source_content_hash=(
-                            media_source.content_hash
-                            if media_source is not None
-                            else None
-                        ),
-                    ),
+                    "source": source,
                     "order": index,
                 }
             )
@@ -1391,33 +1394,11 @@ class ExportService:
                 item = (
                     dataset_items.get(t.dataset_item_id) if t.dataset_item_id else None
                 )
-                media_source = (
-                    await self._video_source(t.dataset_item_id)
-                    if t.dataset_item_id is not None
-                    else None
+                vmeta, source = await self._video_export_facts(
+                    project, t, item, video_scope
                 )
-                source_is_current = media_source is not None and (
-                    not media_source.source_drifted
-                    and media_source.materialized_generation
-                    == media_source.source_generation
-                )
-                vmeta = media_source.video_metadata if source_is_current else {}
                 video_block = {
-                    **video_source_contract(
-                        project,
-                        t,
-                        item,
-                        vmeta,
-                        video_scope,
-                        source_file_path=(
-                            media_source.file_path if media_source is not None else None
-                        ),
-                        source_content_hash=(
-                            media_source.content_hash
-                            if media_source is not None
-                            else None
-                        ),
-                    ),
+                    **source,
                     "fps": vmeta.get("fps"),
                     "frame_count": vmeta.get("frame_count"),
                     "duration_ms": vmeta.get("duration_ms"),

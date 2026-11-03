@@ -20,6 +20,7 @@ from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.dataset import VideoSegment
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.video_tracker_job import VideoTrackerJob
+from app.db.models.video_track_quality import VideoTrackQualityRun
 
 
 def _row_relation(relation: str, model):
@@ -72,6 +73,9 @@ scene_track_interval_row = _row_relation(
 )
 video_segment_row = _row_relation("video_segment_rows", VideoSegment)
 video_tracker_job_row = _row_relation("video_tracker_job_rows", VideoTrackerJob)
+video_track_quality_run_row = _row_relation(
+    "video_track_quality_run_rows", VideoTrackQualityRun
+)
 
 
 async def execute_core_read(db: AsyncSession, statement):
@@ -416,6 +420,7 @@ __all__ = [
     "task_lock_row",
     "video_segment_row",
     "video_tracker_job_row",
+    "video_track_quality_run_row",
     "lock_video_segment_for_core_read",
     "lock_video_segment_for_core_read_share",
     "lock_prediction_for_core_read_share",

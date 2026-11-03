@@ -140,6 +140,7 @@ async def archive(context, monkeypatch, tmp_path, *, check_cancel=None):
     path = tmp_path / (uuid.uuid4().hex + ".zip")
     monkeypatch.setattr(packaging, "_new_zip_tempfile", lambda: str(path))
     monkeypatch.setattr(packaging.storage_service, "generate_download_url", forbidden)
+    monkeypatch.setattr(packaging, "media_gateway", forbidden)
     return await packaging.build_export_zip(
         object(),
         context.project_id,

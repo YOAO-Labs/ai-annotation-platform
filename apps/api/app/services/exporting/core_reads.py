@@ -11,6 +11,8 @@ from app.services.labeling_core_read_relations import (
     scene_track_row as SceneTrack,
     task_dataset_item_link_row as TaskDatasetItemLink,
     task_row as Task,
+    video_segment_row as VideoSegment,
+    video_track_quality_run_row as VideoTrackQualityRun,
 )
 from app.services.workspace_read_relations import project_rows
 
@@ -32,6 +34,8 @@ def row_lock_query(model, predicate, limit, *, write):
         Annotation,
         SceneTrack,
         TaskDatasetItemLink,
+        VideoSegment,
+        VideoTrackQualityRun,
     ):
         return None
     identities = func.array(
@@ -68,6 +72,14 @@ def row_lock_query(model, predicate, limit, *, write):
             func.aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(
                 identities, limit
             )
+        )
+    elif model is VideoSegment:
+        locked = func.aap_labeling_v1.lock_video_segment_ids_for_export_share(
+            identities, limit
+        )
+    elif model is VideoTrackQualityRun:
+        locked = func.aap_labeling_v1.lock_video_quality_run_ids_for_export_share(
+            identities, limit
         )
     else:
         locked = func.aap_labeling_v1.lock_scene_track_rows_for_core_read(

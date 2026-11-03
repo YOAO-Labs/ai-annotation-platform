@@ -239,8 +239,8 @@ existing import, conversion, camera editing and Mask format-import ledger.
 `task_maintenance_command` owns source-less Task cleanup and derived counters.
 All borrow the original caller transaction and preserve its commit boundary.
 
-Public core-row views retain native column types. Fixed row-lock functions
-return the explicit published column order and preserve their selected lock mode.
+Public core-row views retain native column types. Row-returning lock functions
+use the explicit published column order and preserve their selected lock mode.
 `core_read_contract.CORE_READ_LOCK_FUNCTIONS` is the current lock inventory;
 the core-read LOGIN receives only the published views and lock functions.
 
@@ -250,6 +250,15 @@ These capabilities retain global identity ordering, the caller's exact SQL
 limit, UPDATE/SHARE NOWAIT and caller-owned transaction lifetime. Composite
 Prediction identities remain distinct. The packaged export-lock SQL accompanies
 the forward migration; no private-table grants or separate transaction are needed.
+
+Video exports read the published `video_track_quality_run_rows` projection and
+freeze segment/quality identities through
+`lock_video_segment_ids_for_export_share(uuid[], integer)` and
+`lock_video_quality_run_ids_for_export_share(uuid[], integer)`. These return only
+ordered IDs under SHARE NOWAIT; the bounded payload reads remain separate so
+oversized quality JSON is rejected before materialization. The same transaction
+holds the locks through snapshot collection. Runtime callers do not receive
+SELECT or UPDATE privileges on the private segment or quality tables.
 
 `mask_qc_command`, `mask_repair_command` and `raster_mask_retention_query` own the
 Mask quality/repair state and reference reads. `spatial_quality_command` owns the

@@ -17,6 +17,10 @@ from app.schemas.mask_format import (
     MaskFormatPlanItem,
 )
 from app.services.annotations_import import import_native_json_annotations
+from app.services.exporting.video import (
+    VIDEO_BBOX_COMPATIBLE_SINGLE_FRAME_GEOMETRY_TYPES,
+    VIDEO_TRACK_GEOMETRY_TYPES,
+)
 from app.services.labeling_core_read_relations import annotation_row, task_row
 from app.services.mask_formats.contracts import (
     MaskFormatDescriptor,
@@ -44,13 +48,18 @@ _ALLOWED_GEOMETRY: dict[str, frozenset[str] | None] = {
     "binary-png": frozenset({"raster_mask"}),
     "indexed-png": frozenset({"raster_mask"}),
     "video_json": None,
-    "yolo-frames-det": frozenset({"video_track", "bbox"}),
-    "yolo-frames-seg": frozenset({"video_track", "video_track_mask", "polygon"}),
-    "coco-frames-seg": frozenset({"video_track", "video_track_mask", "polygon"}),
+    "yolo-frames-det": (
+        VIDEO_TRACK_GEOMETRY_TYPES | VIDEO_BBOX_COMPATIBLE_SINGLE_FRAME_GEOMETRY_TYPES
+    ),
+    "yolo-frames-seg": frozenset({"video_track_polygon", "video_polygon"}),
+    "coco-frames-seg": frozenset(
+        {"video_track_polygon", "video_track_mask", "video_polygon"}
+    ),
     "davis": frozenset({"video_track_mask"}),
     "youtube-vos": frozenset({"video_track_mask"}),
     "mots": frozenset({"video_track_mask"}),
-    "mot": frozenset({"video_track", "bbox"}),
+    "mot": VIDEO_TRACK_GEOMETRY_TYPES
+    | VIDEO_BBOX_COMPATIBLE_SINGLE_FRAME_GEOMETRY_TYPES,
     "coco-multicamera": None,
     "kitti": None,
     "nuscenes": None,

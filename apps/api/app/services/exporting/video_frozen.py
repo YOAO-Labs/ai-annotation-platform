@@ -379,6 +379,10 @@ class FrozenVideoExportService(image_frozen.FrozenExportService):
     def video_metadata(self, task, item):
         return self.frozen.video_metadata(task.id)
 
+    async def _video_export_facts(self, project, task, item, scope=None):
+        metadata = self.video_metadata(task, item)
+        return metadata, self.video_source(project, task, item, metadata, scope)
+
     def video_source(self, project, task, item, metadata, scope=None):
         self._video_scope(scope)
         source = self.frozen.sources_by_task.get(task.id)

@@ -29,6 +29,7 @@ from app.services.exporting.service import ExportService
 from tests.factory import create_project
 from tests.test_track_operations import _add_box, _seed_scene
 from tests.factory import build_tool_bindings
+from tests.media_owner_fixtures import media_owner as media_owner
 
 pytestmark = pytest.mark.asyncio
 
@@ -436,10 +437,10 @@ async def test_export_aap_json_round_trip_after_external_import(
 async def test_export_aap_json_video_project_task_block(
     super_admin,
     db_session: AsyncSession,
+    media_owner,
     monkeypatch,
 ):
-    """v0.10.31 · 视频项目导出: task block 带 media_type=video + video 子块
-    (sampling + fps/frame_count 等帧元数据)."""
+    """Native video export reads owned metadata and retains supported track shapes."""
     user, _ = super_admin
     short = uuid.uuid4().hex[:6]
 
@@ -468,6 +469,7 @@ async def test_export_aap_json_video_project_task_block(
     )
     db_session.add(item)
     await db_session.flush()
+    await media_owner.seed_video_item(item, user.id)
 
     project = Project(
         id=uuid.uuid4(),

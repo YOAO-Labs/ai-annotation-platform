@@ -9,18 +9,22 @@ from sqlalchemy import Text, and_, bindparam, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, DatasetItem, Scene, VideoSegment
-from app.db.models.prediction import Prediction
-from app.db.models.project import Project
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.video_track_quality import VideoTrackQualityRun
+from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.services import original_sources, storage_access
 from app.services.content_snapshot import ContentError
-from app.services.exporting import image_inputs, lidar_inputs
+from app.services.exporting import core_reads, image_inputs, lidar_inputs
+from app.services.exporting.core_reads import Project
+from app.services.labeling_core_read_relations import (
+    annotation_row as Annotation,
+    batch_row as TaskBatch,
+    prediction_row as Prediction,
+    scene_track_interval_row as SceneTrackInterval,
+    scene_track_row as SceneTrack,
+    task_dataset_item_link_row as TaskDatasetItemLink,
+    task_row as Task,
+    video_segment_row as VideoSegment,
+    video_track_quality_run_row as VideoTrackQualityRun,
+)
 from app.services.exporting.video_media_paths import TARGETS, logical_sources
 from app.services.exporting.video_frozen import FrozenVideo, scope_from_dict
 from app.services.raster_mask_storage import collect_mask_references
@@ -144,6 +148,7 @@ async def _rows(
     lock=False,
     write=False,
     order=None,
+    lock_query=None,
 ):
     try:
         result = await lidar_inputs._rows(
@@ -155,6 +160,7 @@ async def _rows(
             lock=lock,
             write=write,
             order=order,
+            lock_query=lock_query,
         )
     except ContentError as exc:
         _translate(exc)
@@ -250,11 +256,12 @@ async def _quality_rows(db, predicate, *, budget, lock=False):
     if lock:
         identities = list(
             await db.scalars(
-                select(VideoTrackQualityRun.id)
-                .where(predicate)
-                .order_by(VideoTrackQualityRun.id)
-                .limit(MAX_QUALITY_RUNS + 1)
-                .with_for_update(read=True, nowait=True)
+                core_reads.row_lock_query(
+                    VideoTrackQualityRun,
+                    predicate,
+                    MAX_QUALITY_RUNS + 1,
+                    write=False,
+                )
             )
         )
         if len(identities) > MAX_QUALITY_RUNS:
@@ -544,6 +551,11 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
             budget=budget,
             max_rows=MAX_PREDICTIONS,
             lock=lock,
+            lock_query=core_reads.lock_ids(
+                func.aap_labeling_v1.lock_prediction_rows_for_core_read_share(
+                    project_id, identities, MAX_PREDICTIONS + 1
+                )
+            ),
             order=[Prediction.created_at, Prediction.id],
         )
         track_ids = {
@@ -583,6 +595,11 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
                 budget=budget,
                 max_rows=MAX_ANNOTATIONS,
                 lock=lock,
+                lock_query=core_reads.lock_ids(
+                    func.aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(
+                        list(track_ids), MAX_ANNOTATIONS + 1
+                    )
+                ),
                 order=[
                     SceneTrackInterval.scene_track_id,
                     SceneTrackInterval.start_frame,

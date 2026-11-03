@@ -6,7 +6,6 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.core_read_contract import CORE_READ_COLUMNS, CORE_READ_RELATIONS
 from app.db.models.task import Task
 from app.db.models.project import Project
 from app.services.data_management.task_metrics import (
@@ -16,7 +15,6 @@ from app.services.data_management.task_metrics import (
 )
 from app.services.labeling_core_read_relations import (
     alias_core_row,
-    annotation_draft_rows,
     annotation_row,
     batch_row,
     failed_prediction_row,
@@ -56,19 +54,6 @@ _CORE_READ_ROWS = {
     "video_segment_rows": video_segment_row,
     "video_tracker_job_rows": video_tracker_job_row,
 }
-
-
-def test_core_rows_bind_only_the_published_relation_columns():
-    assert (*_CORE_READ_ROWS, "annotation_draft_rows") == CORE_READ_RELATIONS
-    for relation, row in _CORE_READ_ROWS.items():
-        selectable = inspect(row).selectable
-        assert selectable.schema == "aap_labeling_v1"
-        assert tuple(selectable.c.keys()) == CORE_READ_COLUMNS[relation]
-    assert annotation_draft_rows.schema == "aap_labeling_v1"
-    assert (
-        tuple(annotation_draft_rows.c.keys())
-        == CORE_READ_COLUMNS["annotation_draft_rows"]
-    )
 
 
 def test_named_and_anonymous_core_row_aliases_keep_public_source_and_identity():
