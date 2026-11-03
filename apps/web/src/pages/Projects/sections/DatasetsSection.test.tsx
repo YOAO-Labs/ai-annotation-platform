@@ -182,8 +182,55 @@ describe("DatasetsSection", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
     expect(mockPreviewUnlink).toHaveBeenCalledWith("d1", "p1");
-    // dangerous 路径下 modal 渲染输入框 + 数据集名 placeholder
-    await waitFor(() => expect(screen.getByPlaceholderText("City Streets")).toBeInTheDocument());
+    const input = await screen.findByRole("textbox", { name: "数据集名称" });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/50\s*个任务/);
+    expect(dialog).toHaveTextContent(/30\s*个标注/);
+    expect(dialog).toHaveTextContent(/2\s*个失去全部任务的空批次/);
+    expect(input).toHaveAccessibleDescription(/City Streets/);
+    const confirm = screen.getByRole("button", { name: "确认取消关联" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(input, { target: { value: "City" } });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(input, { target: { value: "City Streets" } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(mockUnlinkMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not unlink while impact preview is pending", () => {
+    mockUseProjectDatasets.mockReturnValue({
+      data: [{ id: "d1", name: "City Streets", display_id: "DS-1", data_type: "image" }],
+      isLoading: false,
+    });
+    mockPreviewUnlink.mockReturnValueOnce(new Promise(() => {}));
+
+    renderUI();
+    fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
+    const confirm = screen.getByRole("button", { name: "确认取消关联" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(mockUnlinkMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(mockUnlinkMutate).not.toHaveBeenCalled();
+  });
+
+  it("does not unlink when impact preview rejects", async () => {
+    mockUseProjectDatasets.mockReturnValue({
+      data: [{ id: "d1", name: "City Streets", display_id: "DS-1", data_type: "image" }],
+      isLoading: false,
+    });
+    mockPreviewUnlink.mockRejectedValueOnce(new Error("preview unavailable"));
+
+    renderUI();
+    fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
+    await screen.findByRole("alert");
+    const confirm = screen.getByRole("button", { name: "确认取消关联" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(mockUnlinkMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(mockUnlinkMutate).not.toHaveBeenCalled();
   });
 
   it("same confirmation retry reuses the frozen dataset/project/key variables", async () => {
@@ -200,7 +247,7 @@ describe("DatasetsSection", () => {
 
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
-    await screen.findByText("项目中没有由该数据集创建的任务，可放心取消。");
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认取消关联" })).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: "确认取消关联" }));
     const firstVariables = mockUnlinkMutate.mock.calls[0][0];
@@ -237,11 +284,11 @@ describe("DatasetsSection", () => {
 
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
-    await screen.findByText("项目中没有由该数据集创建的任务，可放心取消。");
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认取消关联" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
-    await screen.findByText("项目中没有由该数据集创建的任务，可放心取消。");
+    await waitFor(() => expect(screen.getByRole("button", { name: "确认取消关联" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "确认取消关联" }));
 
     expect(mockUnlinkMutate).toHaveBeenCalledTimes(1);

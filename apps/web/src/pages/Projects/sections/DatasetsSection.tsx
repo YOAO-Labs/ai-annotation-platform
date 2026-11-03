@@ -1,7 +1,7 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -268,14 +268,17 @@ function UnlinkConfirmModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [preview, setPreview] = useState<{
-    tasks: number;
-    annotations: number;
-    batches: number;
-  } | null>(null);
+  const [preview, setPreview] = useState<
+    | { status: "pending" }
+    | { status: "error" }
+    | { status: "success"; tasks: number; annotations: number; batches: number }
+  >({ status: "pending" });
+  const confirmId = useId();
+  const hintId = useId();
   const [confirmText, setConfirmText] = useState("");
-  const dangerous = (preview?.tasks ?? 0) > 0;
-  const canSubmit = dangerous ? confirmText.trim() === datasetName : true;
+  const dangerous = preview.status === "success" && preview.tasks > 0;
+  const canSubmit =
+    preview.status === "success" && (!dangerous || confirmText.trim() === datasetName);
   const unlink = useUnlinkProject();
   const [unlinkRequest] = useState(() => ({
     datasetId,
@@ -291,13 +294,14 @@ function UnlinkConfirmModal({
       .then((r) => {
         if (!cancelled)
           setPreview({
+            status: "success",
             tasks: r.will_delete_tasks,
             annotations: r.will_delete_annotations,
             batches: r.will_delete_batches,
           });
       })
       .catch(() => {
-        if (!cancelled) setPreview({ tasks: 0, annotations: 0, batches: 0 });
+        if (!cancelled) setPreview({ status: "error" });
       });
     return () => {
       cancelled = true;
@@ -330,47 +334,42 @@ function UnlinkConfirmModal({
           确认取消数据集 <strong>{datasetName}</strong> 与本项目的关联？
         </p>
         <div className="mb-2 text-muted-foreground">
-          {preview === null ? (
-            "正在统计影响范围…"
-          ) : preview.tasks === 0 ? (
-            "项目中没有由该数据集创建的任务，可放心取消。"
+          {preview.status === "pending" ? (
+            <span role="status">正在统计影响范围…</span>
+          ) : preview.status === "error" ? (
+            <span role="alert" className="text-status-danger">
+              无法统计影响范围，暂不能取消关联。请关闭后重试。
+            </span>
           ) : (
             <>
-              <strong className="text-status-danger">将一并删除</strong>项目中由该数据集创建的{" "}
-              <strong>{preview.tasks}</strong> 个任务
-              {preview.annotations > 0 && (
-                <>
-                  （含 <strong className="text-status-danger">{preview.annotations}</strong>{" "}
-                  个已有标注）
-                </>
-              )}
-              {preview.batches > 0 && (
-                <>
-                  ，并清理 <strong className="text-status-danger">{preview.batches}</strong>{" "}
-                  个失去全部任务的空批次
-                </>
-              )}
-              。<br />
-              此操作不可恢复。
+              将删除本项目中由该数据集创建的 <strong>{preview.tasks}</strong> 个任务、
+              <strong>{preview.annotations}</strong> 个标注，并清理{" "}
+              <strong>{preview.batches}</strong> 个失去全部任务的空批次。此操作不可恢复。
+              数据集、数据集条目和原始上传文件不会被删除。
             </>
           )}
         </div>
         {dangerous && (
           <div className="my-2.5">
-            <label className="mb-1 block text-xs text-muted-foreground">
-              请输入数据集名称 <strong>{datasetName}</strong> 以确认：
+            <label htmlFor={confirmId} className="mb-1 block text-sm">
+              数据集名称
             </label>
             <input
+              id={confirmId}
               type="text"
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
               placeholder={datasetName}
+              aria-describedby={hintId}
               autoFocus
               className={cn(
                 "box-border w-full appearance-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground [font-family:inherit]",
-                canSubmit && "border-emerald-500",
+                canSubmit && "border-status-success",
               )}
             />
+            <p id={hintId} className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              请输入数据集名称 <strong>{datasetName}</strong> 以确认。
+            </p>
           </div>
         )}
         <div className="mt-4 flex justify-end gap-2">
