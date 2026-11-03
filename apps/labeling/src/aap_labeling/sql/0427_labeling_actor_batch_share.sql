@@ -165,6 +165,14 @@ BEGIN
 
     IF v_batch_id IS NOT NULL THEN
         IF v_operation = 'record_annotation_actor' THEN
+            -- Keep same-batch writers exclusive: later counter/state writes
+            -- must not deadlock while upgrading two contributor SHARE locks.
+            IF NOT pg_try_advisory_xact_lock(hashtextextended(
+                'aap:batch-contributor-write:' || v_batch_id::text, 0
+            )) THEN
+                RAISE EXCEPTION 'Concurrent batch contributor writer'
+                    USING ERRCODE = '55P03';
+            END IF;
             SELECT batch.annotator_id INTO v_batch_annotator_id
             FROM public.task_batches AS batch
             WHERE batch.id = v_batch_id AND batch.project_id = v_project_id

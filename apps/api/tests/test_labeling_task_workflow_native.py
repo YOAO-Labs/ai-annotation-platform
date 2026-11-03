@@ -113,6 +113,7 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
     batch_ids = []
     owner = None
     client = None
+    peer = None
     try:
         async with maker.begin() as db:
             batch = await create_batch(db, project_id=world["project_id"])
@@ -124,21 +125,23 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
             neighbor = await create_task(
                 db, project_id=world["project_id"], status="in_progress"
             )
-            task_ids.extend((target.id, neighbor.id))
+            independent = await create_task(
+                db, project_id=world["project_id"], status="in_progress"
+            )
+            task_ids.extend((target.id, neighbor.id, independent.id))
+            independent.batch_id = other_batch.id
             target.batch_id = neighbor.batch_id = batch.id
 
         owner = await asyncpg.connect(
             _owner_dsn(test_engine), timeout=5, command_timeout=10
         )
-        client = await asyncpg.connect(
-            _dsn(
-                test_engine,
-                "AAP_MODULE_DATA_LABELING_TASK_CONTROL_URL",
-                "labeling_task_control_client",
-            ),
-            timeout=5,
-            command_timeout=10,
+        dsn = _dsn(
+            test_engine,
+            "AAP_MODULE_DATA_LABELING_TASK_CONTROL_URL",
+            "labeling_task_control_client",
         )
+        client = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
+        peer = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert (
             await client.fetchval("SELECT current_user")
             == "labeling_task_control_client"
@@ -154,6 +157,14 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
             )
 
         data = LabelingTaskWorkflowData(call)
+
+        async def peer_call(request_json):
+            return await peer.fetchval(
+                "SELECT aap_labeling_v1.task_workflow_command($1::jsonb)",
+                request_json,
+            )
+
+        peer_data = LabelingTaskWorkflowData(peer_call)
         scope = dict(
             schema=TASK_WORKFLOW_PROTOCOL,
             task_id=target.id,
@@ -185,6 +196,21 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
                 assert reply.task.annotation_contributor_ids == [
                     str(world["member_id"])
                 ]
+                # Two SHARE holders must not proceed to competing Batch upgrades.
+                with pytest.raises(asyncpg.LockNotAvailableError) as caught:
+                    await peer_data.command(
+                        request.model_copy(update={"task_id": neighbor.id})
+                    )
+                assert caught.value.sqlstate == "55P03"
+                independent_reply = await peer_data.command(
+                    request.model_copy(
+                        update={"task_id": independent.id, "batch_id": other_batch.id}
+                    )
+                )
+                assert independent_reply.changed is True
+                assert independent_reply.task.annotation_contributor_ids == [
+                    str(world["member_id"])
+                ]
             finally:
                 await tx.rollback()
             assert (
@@ -194,6 +220,11 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
                 )
                 == "[]"
             )
+            # Rollback releases the same-batch writer exclusion, not the reader.
+            neighbor_reply = await peer_data.command(
+                request.model_copy(update={"task_id": neighbor.id})
+            )
+            assert neighbor_reply.changed is True
             async with client.transaction():
                 reply = await data.command(request)
                 assert reply.changed is True
@@ -204,6 +235,8 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
                 )
                 == f'["{world["member_id"]}"]'
             )
+            # Commit also releases the exclusion; an identical write is idempotent.
+            assert (await peer_data.command(request)).changed is False
             with pytest.raises(asyncpg.LockNotAvailableError) as caught:
                 await data.command(other)
             assert caught.value.sqlstate == "55P03"
@@ -258,6 +291,8 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
             == f'["{world["member_id"]}"]'
         )
     finally:
+        if peer is not None:
+            await peer.close()
         if client is not None:
             await client.close()
         if owner is not None:

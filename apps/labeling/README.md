@@ -57,11 +57,20 @@ reopening, review and contributor evidence. They recheck current actor and
 Task/Batch identity; the API retains current Workspace authorization, Audit,
 counter updates, QC and notification ordering.
 
-Contributor recording takes a NOWAIT SHARE lock on the exact Batch so it can
-coexist with Batch readers, followed by the same NOWAIT UPDATE lock on the exact
-Task. Other workflow operations retain their NOWAIT UPDATE Batch lock. Actor
-freshness, Task/Batch identity and expected status/review-round checks remain in
-the caller transaction.
+Contributor recording first takes a nonblocking transaction advisory lock keyed
+by the exact Batch, retaining same-batch writer exclusion until the caller commits
+or rolls back. It then takes a NOWAIT SHARE lock on that Batch so original-authority
+readers can coexist, followed by the same NOWAIT UPDATE lock on the exact Task.
+The writer exclusion prevents competing contributors from both holding SHARE
+before later Batch state/counter writes upgrade to UPDATE. Different batches
+remain independent; competing writers still receive the existing busy response.
+Other workflow operations retain their NOWAIT UPDATE Batch lock. Actor freshness,
+Task/Batch identity and expected status/review-round checks remain in the caller
+transaction.
+
+This compatibility applies to contributor recording, not to the caller's whole
+workflow. Batch status/counter transitions, cleanup and review completion may
+still require an exclusive Batch lock before or after recording evidence.
 
 The API borrows its existing connection and synchronizes its ORM cache from the
 owner result. Neither data client commits or rolls back. These transaction locks
