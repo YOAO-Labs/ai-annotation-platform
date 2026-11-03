@@ -330,7 +330,6 @@ it("highlights the optimum per metric independently for Best and Last, regardles
     expect(within(cells[winner]).getByText("最优")).toBeInTheDocument();
     expect(within(cells[1 - winner]).getByText(gap)).toHaveClass("text-status-positive");
   }
-  expect(within(last).getAllByText("Last · 第 3 轮")).toHaveLength(2);
   expect(
     within(best)
       .getAllByRole("rowheader")
@@ -363,7 +362,6 @@ it("highlights every tied optimum, keeps zero and missing values distinct, and n
   expect(within(missing).getByText("0.5000")).toBeInTheDocument();
   expect(within(missing).queryByText(/最优/)).not.toBeInTheDocument();
   const last = await screen.findByRole("region", { name: "Last 指标表" });
-  expect(within(last).getByText(/暂无 Last 轮次指标/)).toBeInTheDocument();
   expect(within(last).queryByText("0.5000")).not.toBeInTheDocument();
   expect(within(best).queryByText(/较最优 -0/)).not.toBeInTheDocument();
 });

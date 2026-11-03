@@ -40,12 +40,12 @@ export function TrainingComparisonMetricTable({
   return (
     <section aria-labelledby={`${source}-metrics-title`}>
       <h2 id={`${source}-metrics-title`} className="text-md font-semibold">
-        {label} · {source === "best" ? "最佳权重最终评估" : "最近一轮上报指标"}
+        {source === "best" ? "最佳权重最终评估" : "最近上报轮次指标"} · {label}
       </h2>
       <p className="mb-3 mt-1 text-xs leading-relaxed text-muted-foreground">
         {source === "best"
-          ? "最佳权重在冻结验证集上的最终评估，续训可保留历史最佳权重。"
-          : "所选执行最近上报的轮次指标；训练完成后为最后一轮，不代表最佳权重评估。"}
+          ? "读取所选成功执行保存的最佳权重最终评估；续训可能沿用历史最佳权重。"
+          : "读取所选执行最近上报的轮次指标，不代表最佳权重的最终评估。"}
         同口径下每行最优值高亮，并列最优同时标记；绿色差值表示落后最优值的百分点。
       </p>
       <div
@@ -67,11 +67,15 @@ export function TrainingComparisonMetricTable({
                   <span className="mt-1 block text-2xs font-normal text-muted-foreground">
                     {source === "best"
                       ? e.report?.descriptor?.candidate.best_epoch != null
-                        ? `Best · 第 ${e.report.descriptor.candidate.best_epoch} 轮`
-                        : "Best · 最佳轮次未记录"
+                        ? `最佳轮次 · 第 ${e.report.descriptor.candidate.best_epoch} 轮`
+                        : e.report
+                          ? "最佳轮次未记录"
+                          : "最终评估不可用"
                       : comparisonLatestPoint(e)
-                        ? `Last · 第 ${comparisonLatestPoint(e)!.epoch} 轮`
-                        : "Last · 暂无轮次"}
+                        ? `上报轮次 · 第 ${comparisonLatestPoint(e)!.epoch} 轮`
+                        : e.eventsError || e.error
+                          ? "轮次不可用"
+                          : "暂无轮次事件"}
                   </span>
                 </th>
               ))}
@@ -115,7 +119,9 @@ export function TrainingComparisonMetricTable({
             {!metrics.length && (
               <tr>
                 <td colSpan={experiments.length + 1} className="text-muted-foreground">
-                  {source === "best" ? "暂无 Best 最终评估指标。" : "暂无 Last 轮次指标。"}
+                  {source === "best"
+                    ? "所选执行暂无可用的最终评估指标。"
+                    : "所选执行暂无可用的轮次指标。"}
                   缺失结果显示为 —，不参与排名。
                 </td>
               </tr>

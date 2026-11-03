@@ -97,7 +97,12 @@ export function TrainingComparisonResults({
                 )}
                 {!e.report && !e.loading && !e.reportError && !e.error && (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    本次执行尚无成功发布的最终报告。
+                    所选执行暂无可读取的最终评估报告。
+                  </p>
+                )}
+                {e.report && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    已保存最终评估报告；不代表模型已注册、发布或部署。
                   </p>
                 )}
                 {e.report && (
@@ -163,7 +168,13 @@ export function TrainingComparisonResults({
                   <dl className="mt-3 space-y-2 text-xs">
                     <div>
                       <dt className="text-muted-foreground">最新上报轮次</dt>
-                      <dd>{latest ? `第 ${latest.epoch} 轮` : "暂无轮次事件"}</dd>
+                      <dd>
+                        {latest
+                          ? `第 ${latest.epoch} 轮`
+                          : e.eventsError || e.error
+                            ? "轮次不可用"
+                            : "暂无轮次事件"}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">执行墙钟耗时</dt>
@@ -188,8 +199,8 @@ export function TrainingComparisonResults({
             })}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            最新轮次不代表最佳权重。耗时包含准备、评估和上传，不是 GPU
-            计算时间；提前完成不能据此认定为耐心早停。
+            最新上报轮次不代表最佳权重。耗时从执行开始计至完成，未完成时计至当前；包含准备、评估和上传，不是
+            GPU 计算时间。提前完成不能据此认定为耐心早停。
           </p>
         </section>
         <section aria-label="分类别最终评估">
@@ -202,7 +213,7 @@ export function TrainingComparisonResults({
               >
                 <h3 className="mb-3 text-sm font-medium">{name(e)}</h3>
                 {!e.report ? (
-                  <p className="text-xs text-muted-foreground">最终报告不可用。</p>
+                  <p className="text-xs text-muted-foreground">所选执行的最终评估报告不可用。</p>
                 ) : !e.report.per_class_available ? (
                   <p className="text-xs text-muted-foreground">该评估器未提供分类别指标。</p>
                 ) : !e.report.per_class_total ? (
