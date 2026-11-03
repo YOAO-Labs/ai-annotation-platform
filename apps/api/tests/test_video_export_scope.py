@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 import hashlib
-from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import pytest
@@ -14,7 +13,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindin
 from app.services.storage import storage_service
 from app.services import task_originals
 from tests.test_task_originals import (
-    original_db as original_db,
+    current_original_db as current_original_db,
     original_client as original_client,
     verified,
 )
@@ -243,19 +242,38 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     assert (scope.from_frame, scope.to_frame) == (3, 9)
     assert [segment.segment_index for segment in scope.segments] == [1, 2, 3]
 
-    dispatched: dict = {}
-    monkeypatch.setattr(
-        "app.workers.export.run_export.delay",
-        lambda **kwargs: dispatched.update(kwargs),
-    )
+    dispatched: list[dict] = []
+
+    async def dispatch(**kwargs):
+        dispatched.append(kwargs)
+        return kwargs["execution_id"]
+
+    monkeypatch.setattr("app.services.jobs_queue.dispatch_job", dispatch)
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export?targets=video_json",
         json={"scope": request.model_dump(mode="json")},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 202
-    expected_scope = scope.as_dict()
-    assert dispatched["opts"]["video_export_scope"] == expected_scope
+    expected_scope = {
+        "task_id": str(task.id),
+        "dataset_item_id": str(item.id),
+        "selection_kind": "segments",
+        "from_frame": 3,
+        "to_frame": 9,
+        "segments": [
+            {
+                "id": str(segments[index].id),
+                "segment_index": index,
+                "start_frame": start,
+                "end_frame": end,
+            }
+            for index, start, end in ((1, 3, 5), (2, 6, 8), (3, 9, 9))
+        ],
+    }
+    assert scope.as_dict() == expected_scope
+    assert len(dispatched) == 1
+    assert dispatched[0]["kwargs"]["opts"]["video_export_scope"] == expected_scope
     job = await db_session.get(AsyncJob, uuid.UUID(response.json()["job_id"]))
     assert job is not None
     assert job.payload["video_export_scope"] == expected_scope
@@ -278,28 +296,36 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
 
 
 async def test_standalone_video_frame_scope_needs_no_fake_item(
-    original_db, original_client
+    current_original_db, original_client
 ):
-    db_session = original_db
+    db_session = current_original_db
     task, allocation, created = await verified(db_session, original_client)
+    project = await db_session.get(Project, task.project_id)
+    project.data_type = "video"
     task.file_type = "video"
-    await task_originals.publish(db_session, task, allocation, created)
+    await task_originals.publish(
+        db_session, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     await db_session.commit()
-    project = SimpleNamespace(id=task.project_id, data_type="video")
+    task_id = task.id
+    db_session.expunge(task)
     request = VideoExportScopeRequest.model_validate(
         {
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "selection": {"kind": "frames", "from_frame": 0, "to_frame": 17},
         }
     )
     scope = await normalize_video_export_scope(
         db_session, project=project, request=request
     )
+    assert scope.task_id == task_id
+    assert scope.selection_kind == "frames"
+    assert (scope.from_frame, scope.to_frame) == (0, 17)
     assert scope.dataset_item_id is None
     assert VideoExportScope.from_dict(scope.as_dict()) == scope
     segment_request = VideoExportScopeRequest.model_validate(
         {
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "selection": {
                 "kind": "segments",
                 "start_segment_id": str(uuid.uuid4()),
