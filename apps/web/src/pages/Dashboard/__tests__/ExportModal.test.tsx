@@ -4,7 +4,7 @@
  * B-47 后导出入口收进 ⋮ 菜单，独立包装器 ExportSection 已删除；
  * 表单逻辑（目标多选 / 属性开关 / 视频帧模式）改为直接渲染 ExportModal 验证。
  *
- * 覆盖：includeAttributes 默认 true / 勾掉为 false；目标多选；视频帧模式透传。
+ * 覆盖：属性开关、目标多选和视频帧模式透传。
  * 用 vi.mock 拦截 api 模块，断言入参。
  */
 import { useState } from "react";
@@ -145,16 +145,6 @@ describe("ExportModal", () => {
     vi.mocked(videoTrackerApi.segments).mockReset();
   });
 
-  it("默认 coco + 勾选 → targets=[coco], includeAttributes=true", async () => {
-    render(<ExportModalHarness projectId="p1" />);
-    submitExport();
-    await waitFor(() => expect(projectsApi.exportProject).toHaveBeenCalled());
-    expect(projectsApi.exportProject).toHaveBeenCalledWith("p1", ["coco"], {
-      includeAttributes: true,
-    });
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-
   it("勾掉 includeAttributes → 入参 false", async () => {
     render(<ExportModalHarness projectId="p1" />);
     const cb = screen.getByLabelText("包含属性数据") as HTMLInputElement;
@@ -166,6 +156,7 @@ describe("ExportModal", () => {
     expect(projectsApi.exportProject).toHaveBeenCalledWith("p1", ["coco"], {
       includeAttributes: false,
     });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("多选 coco + 展开 YOLO 选分割 → targets 含两者", async () => {

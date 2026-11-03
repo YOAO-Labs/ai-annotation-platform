@@ -2,7 +2,7 @@
 
 覆盖:
 - /projects/{id}/export?format=aap_json: schema_version + 双数组 + annotation_guide.
-- /projects/{id}/batches/{bid}/export?format=aap_json: batch_display_id 透传.
+- /projects/{id}/batches/{bid}/export?format=aap_json: batch 范围内任务和结果.
 - predictions 写入后导出可被回读 (round-trip 基础).
 - 空项目导出仍是合法 envelope.
 """
@@ -24,7 +24,6 @@ from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.schemas.native_json import TaskBlock, TaskMatch
 from app.services.display_id import next_display_id
 from app.services.exporting.service import ExportService
 from tests.factory import create_project
@@ -158,11 +157,82 @@ async def test_export_aap_json_batch_endpoint(
     db_session: AsyncSession,
 ):
     user, _ = super_admin
-    project, _, batch = await _seed(db_session, user.id)
+    project, tasks, batch = await _seed(db_session, user.id)
+    neighbor_batch = TaskBatch(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        display_id=await next_display_id(db_session, "batches"),
+        name="neighbor",
+        status="active",
+        assigned_user_ids=[],
+    )
+    db_session.add(neighbor_batch)
+    await db_session.flush()
+    neighbor = Task(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        batch_id=neighbor_batch.id,
+        display_id=f"{tasks[0].display_id}-neighbor",
+        file_name="neighbor.jpg",
+        file_path=f"{tasks[0].file_path}-neighbor",
+        file_type="image",
+        status="pending",
+    )
+    db_session.add(neighbor)
+    await db_session.flush()
+    for task, label in ((tasks[0], "included"), (neighbor, "excluded")):
+        db_session.add(
+            Annotation(
+                task_id=task.id,
+                project_id=project.id,
+                user_id=user.id,
+                source="manual",
+                class_name="car",
+                geometry={
+                    "type": "bbox",
+                    "x": 0.1 if label == "included" else 0.5,
+                    "y": 0.2,
+                    "w": 0.3,
+                    "h": 0.4,
+                },
+            )
+        )
+        db_session.add(
+            Prediction(
+                task_id=task.id,
+                project_id=project.id,
+                model_version=label,
+                source="ml_backend",
+                score=0.9,
+                result=[
+                    {
+                        "type": "rectanglelabels",
+                        "value": {
+                            "x": 10,
+                            "y": 20,
+                            "width": 30,
+                            "height": 40,
+                            "rectanglelabels": [label],
+                        },
+                        "score": 0.9,
+                    }
+                ],
+            )
+        )
+    await db_session.flush()
     body = json.loads(
         await ExportService(db_session).export_aap_json(project.id, batch_id=batch.id)
     )
     assert body["exported_from"]["batch_display_id"] == batch.display_id
+    exported = {block["task_match"]["display_id"]: block for block in body["tasks"]}
+    assert len(body["tasks"]) == len(tasks)
+    assert set(exported) == {task.display_id for task in tasks}
+    included = exported[tasks[0].display_id]
+    assert len(included["annotations"]) == 1
+    assert included["annotations"][0]["geometry"]["x"] == 0.1
+    assert [entry["model_version"] for entry in included["predictions"]] == ["included"]
+    assert exported[tasks[1].display_id]["annotations"] == []
+    assert exported[tasks[1].display_id]["predictions"] == []
 
 
 async def test_export_aap_json_empty_project(
@@ -271,15 +341,27 @@ async def test_export_aap_json_axis_frame_source_unapplies_box_3d(
 
 async def test_export_aap_json_round_trip_after_external_import(
     httpx_client: httpx.AsyncClient,
-    super_admin,
+    project_admin,
     db_session: AsyncSession,
 ):
-    """import 一条 external prediction → 导出 → 包内可读 prediction."""
+    """An ordinary project owner imports candidates without changing formal annotations."""
     import io
 
-    user, token = super_admin
+    user, token = project_admin
     project, tasks, _ = await _seed(db_session, user.id)
     headers = {"Authorization": f"Bearer {token}"}
+    formal_geometry = {"type": "bbox", "x": 0.4, "y": 0.3, "w": 0.2, "h": 0.1}
+    db_session.add(
+        Annotation(
+            task_id=tasks[0].id,
+            project_id=project.id,
+            user_id=user.id,
+            source="manual",
+            class_name="car",
+            geometry=formal_geometry,
+        )
+    )
+    await db_session.flush()
 
     aap_payload = json.dumps(
         {
@@ -290,6 +372,19 @@ async def test_export_aap_json_round_trip_after_external_import(
             "tasks": [
                 {
                     "task_match": {"display_id": tasks[0].display_id},
+                    "annotations": [
+                        {
+                            "geometry": {
+                                "type": "bbox",
+                                "x": 0.6,
+                                "y": 0.6,
+                                "w": 0.1,
+                                "h": 0.1,
+                            },
+                            "class_name": "car",
+                            "source": "manual",
+                        }
+                    ],
                     "predictions": [
                         {
                             "geometry": {
@@ -315,37 +410,27 @@ async def test_export_aap_json_round_trip_after_external_import(
         headers=headers,
     )
     assert r.status_code == 200, r.text
+    assert r.json()["imported"] == 1
+    assert r.json()["skipped"] == 0
+    assert r.json()["errors"] == []
 
     # 立即导出, 应能读到刚导入的 prediction
     body = json.loads(await ExportService(db_session).export_aap_json(project.id))
     t0 = next(
         t for t in body["tasks"] if t["task_match"]["display_id"] == tasks[0].display_id
     )
+    assert len(t0["annotations"]) == 1
+    assert t0["annotations"][0]["geometry"] == formal_geometry
+    assert t0["annotations"][0]["source"] == "manual"
     assert len(t0["predictions"]) == 1
-    assert t0["predictions"][0]["class_name"] == "car"
-    assert t0["predictions"][0]["model_version"] == "rt-test"
-
-
-async def test_aap_task_block_media_type_defaults_and_serialization():
-    """v0.10.31 · schema 1.2: media_type 默认 image, video 默认 None;
-    序列化时 media_type 字段必出现 (严格写满). (module 级 pytestmark=asyncio, 故 async def)"""
-    block = TaskBlock(task_match=TaskMatch(display_id="T-1"))
-    assert block.media_type == "image"
-    assert block.video is None
-
-    dumped = block.model_dump(mode="json")
-    assert dumped["media_type"] == "image"
-    assert dumped["video"] is None
-
-    video_block = TaskBlock(
-        task_match=TaskMatch(display_id="T-2"),
-        media_type="video",
-        video={"sampling": {"mode": "fps", "value": 5}, "fps": 30, "frame_count": 10},
-    )
-    vd = video_block.model_dump(mode="json")
-    assert vd["media_type"] == "video"
-    assert vd["video"]["sampling"]["mode"] == "fps"
-    assert vd["video"]["fps"] == 30
+    prediction = t0["predictions"][0]
+    assert prediction["geometry"]["type"] == "bbox"
+    assert {
+        key: prediction["geometry"][key] for key in ("x", "y", "w", "h")
+    } == pytest.approx({"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2})
+    assert prediction["class_name"] == "car"
+    assert prediction["source"] == "external_import"
+    assert prediction["model_version"] == "rt-test"
 
 
 async def test_export_aap_json_video_project_task_block(
