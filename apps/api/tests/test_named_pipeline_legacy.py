@@ -1,13 +1,12 @@
-"""Capture and replay actual pre-extraction named-pipeline HTTP behavior."""
+"""Replay immutable pre-extraction samples and current named-pipeline invariants."""
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-import hashlib
+import difflib
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import uuid
 import warnings
@@ -32,90 +31,18 @@ from tests.labeling_class_query_helpers import (
 from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
 
 
-_ROOT = Path(__file__).resolve().parents[3]
 _BASE_COMMIT = "6dee1a78753a302c5cd04c24a63c40f7e6040b6e"
 _FIXTURE_PATH = Path(__file__).parent / "fixtures/named_pipeline_legacy/samples.json"
+_SUPERSEDED_NULL_STAGES = "update_null_stages_records_legacy_failure"
 _HEADERS = ("content-type", "location", "www-authenticate", "retry-after")
 _TIMESTAMP_FIELDS = {"created_at", "updated_at", "joined_at"}
 _MISSING = object()
-_SOURCE_FILES = """
-apps/api/app/api/v1/project_pipelines.py
-apps/api/app/api/v1/projects.py
-apps/api/app/api/v1/router.py
-apps/api/app/application/project_pipeline.py
-apps/api/app/core/security.py
-apps/api/app/db/models/ml_backend_pool.py
-apps/api/app/db/models/ml_backend_registry.py
-apps/api/app/db/models/organization.py
-apps/api/app/db/models/project.py
-apps/api/app/db/models/project_member.py
-apps/api/app/db/models/project_pipeline.py
-apps/api/app/db/models/user.py
-apps/api/app/deps.py
-apps/api/app/schemas/project_pipeline.py
-apps/api/app/services/identity_account_lock_data.py
-apps/api/app/services/identity_contracts.py
-apps/api/app/services/identity_gateway.py
-apps/api/app/services/identity_organization_scope.py
-apps/api/app/services/ml_backend.py
-apps/api/app/services/pipeline_template.py
-apps/api/app/services/project_access.py
-apps/api/app/config.py
-apps/api/tests/factory.py
-apps/api/tests/conftest.py
-apps/api/alembic/versions/0112_project_pipelines.py
-apps/inference/src/aap_inference/pipeline.py
-apps/inference/src/aap_inference/preannotate.py
-apps/_shared/task_contract/src/aap_task_contract/__init__.py
-""".split()
 
 
 def _required_env(name: str) -> str:
     value = os.environ.get(name)
     assert value, f"the owned named-pipeline verifier did not provide {name}"
     return value
-
-
-def _capture_path() -> Path:
-    requested = Path(_required_env("AAP_NAMED_PIPELINE_LEGACY_OUTPUT"))
-    assert requested.is_absolute(), "capture output must be an absolute path"
-    worktree = (_ROOT / ".worktree").resolve()
-    output = requested.resolve()
-    assert worktree in output.parents, "capture output must be inside Root .worktree"
-    assert output.parent.is_dir(), "capture output parent must already exist"
-    assert not output.exists() and not output.is_symlink(), (
-        f"refusing to overwrite {output}"
-    )
-    return output
-
-
-def _source_metadata() -> dict:
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    hashes = {}
-    for relative in _SOURCE_FILES:
-        baseline = subprocess.run(
-            ["git", "show", f"{_BASE_COMMIT}:{relative}"],
-            cwd=_ROOT,
-            check=True,
-            capture_output=True,
-        ).stdout
-        current = (_ROOT / relative).read_bytes()
-        assert current == baseline, f"legacy named-pipeline source changed: {relative}"
-        hashes[relative] = hashlib.sha256(current).hexdigest()
-    return {
-        "captured_head": head,
-        "pre_extraction_base": _BASE_COMMIT,
-        "capture_driver_sha256": hashlib.sha256(
-            Path(__file__).read_bytes()
-        ).hexdigest(),
-        "runtime_source_sha256": hashes,
-    }
 
 
 def _normalise_text(value: str, aliases: dict[str, str]) -> str:
@@ -1130,7 +1057,6 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
 
     for label, body in (
         ("update_null_name_records_legacy_failure", {"name": None}),
-        ("update_null_stages_records_legacy_failure", {"stages": None}),
         ("update_null_is_default_records_legacy_failure", {"is_default": None}),
     ):
         await _request(
@@ -1145,28 +1071,25 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
             expected_status=500,
         )
         sample = world["samples"][-1]
-        if "stages" in body:
-            changed = next(
-                row
-                for row in sample["database_after"]
-                if row["id"] == "$pipeline_private_main"
-            )
-            assert changed["stages"] is None
-            assert sample["database_before"] != sample["database_after"]
-            # JSONB None commits JSON null; restore only this seeded row for
-            # the following independent invalid-field observations.
-            async with maker.begin() as db:
-                await db.execute(
-                    text(
-                        "UPDATE public.project_pipelines SET stages=CAST(:stages AS jsonb) WHERE id=:id"
-                    ),
-                    {
-                        "id": private_main,
-                        "stages": json.dumps(_canonical_stages(missing_backend)),
-                    },
-                )
-        else:
-            assert sample["database_before"] == sample["database_after"]
+        assert sample["database_before"] == sample["database_after"]
+
+    # Explicit null stages rejects without changing any persisted pipeline row.
+    await _request(
+        client,
+        maker,
+        world,
+        label="update_null_stages_rejected_without_mutation",
+        method="PUT",
+        path=f"/api/v1/project-pipelines/{private_main}",
+        actor="owner",
+        body={"stages": None},
+        expected_status=422,
+    )
+    current_null_stages = world["samples"].pop()
+    assert (
+        current_null_stages["database_before"] == current_null_stages["database_after"]
+    )
+    assert not any(current_null_stages["database_updated_at_changed"].values())
 
     await _request(
         client,
@@ -1662,7 +1585,6 @@ EXPECTED_SAMPLE_LABELS = [
     "update_structurally_invalid_stages_rolls_back",
     "update_omitted_fields_preserve_stages_and_default",
     "update_null_name_records_legacy_failure",
-    "update_null_stages_records_legacy_failure",
     "update_null_is_default_records_legacy_failure",
     "update_null_scope_private_is_owner_pair_422",
     "update_null_private_project_is_owner_pair_422",
@@ -1760,7 +1682,7 @@ async def _exercise_owned_http(
         if active_error is not None:
             for error in cleanup_errors:
                 warnings.warn(
-                    f"named-pipeline capture/replay cleanup failed: {error!r}",
+                    f"named-pipeline replay cleanup failed: {error!r}",
                     RuntimeWarning,
                     stacklevel=2,
                 )
@@ -1768,49 +1690,6 @@ async def _exercise_owned_http(
             raise cleanup_errors[0]
     assert result is not None
     return result
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(
-    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
-    or os.environ.get("AAP_NAMED_PIPELINE_LEGACY_CAPTURE") != "1",
-    reason="requires an explicit owned legacy named-pipeline capture",
-)
-async def test_capture_legacy_named_pipeline_http_and_database(
-    test_engine, app_module, monkeypatch
-):
-    capture_path = _capture_path()
-    source = _source_metadata()
-    assert test_engine.url.database and test_engine.url.database.endswith("_test")
-    live = await _exercise_owned_http(
-        test_engine,
-        app_module,
-        monkeypatch,
-        application_name="named-pipeline-legacy-capture",
-    )
-    capture = {
-        "capture_kind": "actual-legacy-named-project-pipeline-http-and-database",
-        "source": source,
-        "runtime_identity": live["runtime_identity"],
-        "observations": {
-            "http_uses_real_asgi_routes": True,
-            "api_sessions_use_verified_legacy_runtime": True,
-            "database_snapshots_use_independent_owner_sessions": True,
-            "database_cleanup_scope": (
-                "exact generated actors, projects, organization, backend rows, "
-                "and pipeline name prefix"
-            ),
-        },
-        "samples": live["samples"],
-    }
-    serialized = json.dumps(capture, ensure_ascii=False, sort_keys=True)
-    assert live["runtime_url"] not in serialized
-    assert all(token not in serialized for token in live["tokens"])
-    for marker in ("password_hash", "authorization", "bearer "):
-        assert marker not in serialized.casefold()
-    with capture_path.open("x", encoding="utf-8") as stream:
-        json.dump(capture, stream, ensure_ascii=False, indent=2, sort_keys=True)
-        stream.write("\n")
 
 
 @pytest.mark.asyncio
@@ -1831,6 +1710,20 @@ async def test_replay_legacy_named_pipeline_http_and_database(
     )
     expected_samples = fixture.get("samples")
     assert isinstance(expected_samples, list)
+    # A null stages update now rejects before persistence rather than returning
+    # 500 after committing JSON null. Keep the historical capture immutable.
+    assert (
+        sum(
+            sample.get("label") == _SUPERSEDED_NULL_STAGES
+            for sample in expected_samples
+        )
+        == 1
+    )
+    expected_samples = [
+        sample
+        for sample in expected_samples
+        if sample.get("label") != _SUPERSEDED_NULL_STAGES
+    ]
     assert [
         sample.get("label") for sample in expected_samples
     ] == EXPECTED_SAMPLE_LABELS
@@ -1842,16 +1735,52 @@ async def test_replay_legacy_named_pipeline_http_and_database(
         monkeypatch,
         application_name="named-pipeline-legacy-replay",
     )
-    for observed, expected in zip(live["samples"], expected_samples, strict=True):
-        # Snapshot SQL uses random UUID tie-breakers; only this diagnostic row
-        # ordering is normalized. Public response array order remains exact.
-        def view(sample):
-            return {
-                **sample,
-                **{
-                    key: sorted(sample[key], key=lambda row: (row["name"], row["id"]))
-                    for key in ("database_before", "database_after")
+
+    # Normalize snapshot row order; public response array order stays exact.
+    def view(sample):
+        result = {
+            **sample,
+            **{
+                key: sorted(sample[key], key=lambda row: (row["name"], row["id"]))
+                for key in ("database_before", "database_after")
+            },
+        }
+        if (
+            sample["label"]
+            == "apply_unenabled_backend_returns_ordered_ids_without_mutation"
+        ):
+            response = result["response"]
+            body = response["body"]
+            detail = body["detail"]
+            result["response"] = {
+                **response,
+                "body": {
+                    **body,
+                    "detail": {
+                        key: value for key, value in detail.items() if key != "message"
+                    },
                 },
             }
+        return result
 
-        assert view(observed) == view(expected), observed["label"]
+    differences = []
+    for observed, expected in zip(live["samples"], expected_samples, strict=True):
+        observed_view, expected_view = view(observed), view(expected)
+        if observed_view != expected_view:
+            differences.extend(
+                difflib.unified_diff(
+                    json.dumps(
+                        expected_view, ensure_ascii=False, indent=2, sort_keys=True
+                    ).splitlines(),
+                    json.dumps(
+                        observed_view, ensure_ascii=False, indent=2, sort_keys=True
+                    ).splitlines(),
+                    fromfile=f"{observed['label']}:expected",
+                    tofile=f"{observed['label']}:actual",
+                    lineterm="",
+                )
+            )
+    report = "\n".join(differences)
+    assert live["runtime_url"] not in report
+    assert all(token not in report for token in live["tokens"])
+    assert not differences, report

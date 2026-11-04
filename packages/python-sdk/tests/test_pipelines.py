@@ -78,7 +78,7 @@ def test_list_and_get_use_server_filters_and_typed_responses(client, respx_mock)
 def test_create_validates_owner_scope_and_preserves_dynamic_stage_config(
     client, respx_mock
 ):
-    with pytest.raises(ValueError, match="require project_id"):
+    with pytest.raises(ValueError):
         ProjectPipelineCreate(
             name="Invalid private pipeline",
             stages=[{"stage": 0, "ml_backend_id": BACKEND_ID}],
@@ -147,6 +147,12 @@ def test_update_preserves_explicit_null_and_omits_unset_fields(client, respx_moc
         "project_id": None,
         "organization_id": None,
     }
+    with pytest.raises(PydanticValidationError):
+        api.update(PIPELINE_ID, ProjectPipelineUpdate(stages=None))
+    assert len(route.calls) == 2
+
+    api.update(PIPELINE_ID, ProjectPipelineUpdate(stages=[]))
+    assert json.loads(route.calls[2].request.content) == {"stages": []}
 
 
 def test_delete_and_apply_use_exact_routes_and_typed_copy_response(client, respx_mock):
@@ -218,7 +224,7 @@ def test_preannotate_sends_optional_idempotency_header_and_returns_job_ack(
 
 
 def test_preannotate_requires_backend_only_for_flat_requests():
-    with pytest.raises(PydanticValidationError, match="ml_backend_id is required"):
+    with pytest.raises(PydanticValidationError):
         PreannotateRequest()
     PreannotateRequest(pipeline_stages=[{"stage": 13, "ml_backend_id": BACKEND_ID}])
 

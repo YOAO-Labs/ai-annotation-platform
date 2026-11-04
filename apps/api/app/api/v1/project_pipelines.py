@@ -83,9 +83,9 @@ async def update_pipeline(
     changes = data.model_dump(exclude_unset=True)
     await assert_model_reference_scope(
         db,
-        changes.get("stages", current.stages),
-        changes.get("scope", current.scope),
-        changes.get("project_id", current.project_id),
+        changes.get("stages", current["stages"]),
+        changes.get("scope", current["scope"]),
+        changes.get("project_id", current["project_id"]),
     )
     mutation = await execute_pipeline_command(
         db,

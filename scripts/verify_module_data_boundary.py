@@ -3447,6 +3447,83 @@ def _psql(
     return result.stdout
 
 
+def _verify_inference_project_grant_reapplication(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    grant_sql: str,
+    variables: dict[str, str],
+    evidence: dict,
+) -> None:
+    """Exercise removal of pre-existing Project column access in the owned DB."""
+
+    def run(sql: str, *, script_variables: dict[str, str] | None = None) -> str:
+        return _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=sql,
+            variables=script_variables,
+        )
+
+    def privileges() -> dict:
+        return json.loads(
+            run(
+                "SELECT pg_catalog.json_build_object("
+                "'project_id',pg_catalog.has_column_privilege("
+                "'inference_code','public.projects','id','SELECT'),"
+                "'project_pool',pg_catalog.has_column_privilege("
+                "'inference_code','public.projects','ml_backend_pool_id','SELECT'),"
+                "'project_table',pg_catalog.has_table_privilege("
+                "'inference_code','public.projects','SELECT'),"
+                "'workspace_project_id',pg_catalog.has_column_privilege("
+                "'workspace_code','public.projects','id','SELECT'),"
+                "'registry_select',pg_catalog.has_table_privilege("
+                "'inference_code','public.ml_backend_registry','SELECT'),"
+                "'project_lock',pg_catalog.has_function_privilege("
+                "'inference_code','aap_workspace_v1.lock_project_reference(uuid)','EXECUTE'),"
+                "'binding_clear',pg_catalog.has_function_privilege("
+                "'inference_code','aap_workspace_v1.clear_primary_backend_bindings(uuid)','EXECUTE'));"
+            )
+        )
+
+    expected = {
+        "project_id": False,
+        "project_pool": False,
+        "project_table": False,
+        "workspace_project_id": True,
+        "registry_select": True,
+        "project_lock": True,
+        "binding_clear": True,
+    }
+    initial = privileges()
+    evidence["fresh"] = initial
+    if initial != expected:
+        raise RuntimeError(
+            "Fresh Inference Project privileges differ from the fixed boundary"
+        )
+    run("GRANT SELECT (id, ml_backend_pool_id) ON public.projects TO inference_code;")
+    staged = privileges()
+    evidence["preexisting"] = staged
+    if staged != {**expected, "project_id": True, "project_pool": True}:
+        raise RuntimeError(
+            "Could not reproduce the prior Inference Project column grants"
+        )
+    run(grant_sql, script_variables=variables)
+    restored = privileges()
+    evidence["reapplied"] = restored
+    if restored != expected:
+        raise RuntimeError(
+            "Reapplied module grants did not remove old Inference Project access"
+        )
+
+
 def _assert_psql_permission_denied(
     container_id: str,
     container_name: str,
@@ -6471,6 +6548,28 @@ def main(
             ),
         )
         phase = "install-module-grants"
+        module_grant_variables = {
+            "expected_database": database,
+            "migration_role": "owner",
+            "identity_owner": "identity_code",
+            "workspace_owner": "workspace_code",
+            "assets_owner": "assets_code",
+            "labeling_owner": "labeling_code",
+            "jobs_owner": "jobs_code",
+            "learning_owner": "learning_code",
+            "inference_owner": "inference_code",
+            "insights_owner": "insights_code",
+            "diagnostics_owner": "diagnostics_code",
+            "export_owner": "export_code",
+            "audit_owner": "audit_code",
+            "settings_owner": "settings_code",
+            "notifications_owner": "notifications_code",
+            "workflow_role": "append_client",
+            "asset_cleanup_role": "asset_cleanup_client",
+            "mask_gc_role": "labeling_mask_gc_client",
+            "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
+            "inference_routing_role": INFERENCE_ROUTING_ROLE,
+        }
         _psql(
             container_id,
             container_name,
@@ -6479,28 +6578,19 @@ def main(
             password=owner_password,
             database=database,
             sql=grant_sql,
-            variables={
-                "expected_database": database,
-                "migration_role": "owner",
-                "identity_owner": "identity_code",
-                "workspace_owner": "workspace_code",
-                "assets_owner": "assets_code",
-                "labeling_owner": "labeling_code",
-                "jobs_owner": "jobs_code",
-                "learning_owner": "learning_code",
-                "inference_owner": "inference_code",
-                "insights_owner": "insights_code",
-                "diagnostics_owner": "diagnostics_code",
-                "export_owner": "export_code",
-                "audit_owner": "audit_code",
-                "settings_owner": "settings_code",
-                "notifications_owner": "notifications_code",
-                "workflow_role": "append_client",
-                "asset_cleanup_role": "asset_cleanup_client",
-                "mask_gc_role": "labeling_mask_gc_client",
-                "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
-                "inference_routing_role": INFERENCE_ROUTING_ROLE,
-            },
+            variables=module_grant_variables,
+        )
+        phase = "verify-inference-project-grant-reapplication"
+        evidence["inference_project_grant_reapplication"] = {}
+        _verify_inference_project_grant_reapplication(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            grant_sql=grant_sql,
+            variables=module_grant_variables,
+            evidence=evidence["inference_project_grant_reapplication"],
         )
         read_relations_after_owner_grants = _installed_read_relation_evidence(
             container_id,

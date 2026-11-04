@@ -41468,19 +41468,12 @@
             "title": "Scope"
           },
           "stages": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stages"
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Stages",
+            "type": "array"
           }
         },
         "title": "ProjectPipelineUpdate",

@@ -261,6 +261,8 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 `client.pipelines` 管理可见编排库；`apply()` 将模板复制到项目，`preannotate()` 才提交推理。使用明确的范围和稳定的 `Idempotency-Key`，通过现有 `jobs.get/wait` 查询受理后的状态。服务器继续校验项目／组织权限、模型服务启用状态、模型能力、任务归属与锁状态，不提供独立的 dry-run。
 
+`client.pipelines.update()` 和 `yoao pipelines update --body` 只发送明确提供的字段。省略 `stages` 保留已有阶段；显式 `stages: null` 在 SDK／CLI 请求校验时被拒绝，直接调用 API 也会返回 422 而不修改原编排。更新阶段使用数组，继续遵守服务端的阶段与权限校验。
+
 ```bash
 yoao notifications list --unread-only --limit 20 --json
 yoao feedbacks thread "$ROOT_ID" --limit 50 --json

@@ -37,7 +37,7 @@ class ProjectPipelineUpdate(BaseModel):
     scope: PipelineScope | None = None
     project_id: UUID | None = None
     organization_id: UUID | None = None
-    stages: list[dict] | None = None
+    stages: list[dict] = Field(default_factory=list)
     is_default: bool | None = None
 
 

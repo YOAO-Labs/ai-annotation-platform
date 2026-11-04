@@ -1177,6 +1177,7 @@ GRANT SELECT (deployment_id) ON public.sample_evaluation_runs TO :"learning_owne
 GRANT SELECT (id, registry_id) ON public.trained_model_deployments TO :"learning_owner";
 
 -- Other owners expose only their project cleanup predicates and row mutations.
+REVOKE SELECT (id, ml_backend_pool_id) ON public.projects FROM :"inference_owner";
 GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
     public.project_pipelines TO :"inference_owner";
 GRANT SELECT (
@@ -2184,6 +2185,9 @@ ALTER FUNCTION aap_inference_registry_ingress_v1.registry_candidates(text)
 ALTER FUNCTION aap_inference_registry_ingress_v1.create_registry(
     uuid, text, text, text, boolean, text
 ) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.create_registry_plugin_legacy(
+    uuid, text, text, text, boolean, text
+) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_registry_ingress_v1.singleton_pool(uuid)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_registry_ingress_v1.create_singleton_pool(
@@ -2192,11 +2196,20 @@ ALTER FUNCTION aap_inference_registry_ingress_v1.create_singleton_pool(
 ALTER FUNCTION aap_inference_registry_ingress_v1.apply_observation(
     uuid, text, text, text, boolean, text, timestamptz, text, boolean, text
 ) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.apply_observation_plugin_legacy(
+    uuid, text, text, text, boolean, text, timestamptz, text, boolean, text
+) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_registry_ingress_v1.disconnect_env_registry(
+    uuid, text
+) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.disconnect_env_registry_plugin_legacy(
     uuid, text
 ) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_registry_ingress_v1.tag_seed_registry(uuid, text)
     OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.tag_seed_registry_plugin_legacy(
+    uuid, text
+) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_registry_ingress_v1.sync_result(uuid, text)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_registry_ingress_v1.record_sync_result(
@@ -3931,7 +3944,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.ml_backend_registry,
     public.project_ml_backend_pool, public.gpu_backend_fences,
     public.gpu_backend_memberships, public.gpu_arbiter_rollouts,
     public.gpu_backend_cancel_intents TO :"inference_owner";
-GRANT SELECT (id, ml_backend_pool_id) ON public.projects TO :"inference_owner";
 DO $inference_owner$
 DECLARE
     v_function record;

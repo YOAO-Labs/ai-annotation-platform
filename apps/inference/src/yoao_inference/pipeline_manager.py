@@ -431,7 +431,9 @@ class PipelineManager:
         if project_id is not None:
             await self._assert_project_visible(transaction, request, project_id)
 
-        if payload.get("stages") is not None:
+        if "stages" in payload:
+            if payload["stages"] is None:
+                raise PipelineRejected(422, "编排阶段不能为 null")
             try:
                 payload["stages"] = validate_saved_pipeline(payload["stages"])
             except PipelineValidationError as error:

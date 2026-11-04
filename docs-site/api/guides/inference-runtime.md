@@ -82,6 +82,8 @@ Assets 提供输入与 crop 发布；Jobs 持有领取／派发／代次；Label
 
 借用模式保留 caller commit；HTTP 模式由选定 owner 提交。含糊确认只查询同命令 status，不重发写命令；unknown 不是回滚证明。原 list／apply 的可见性、stage 校验、Workspace 最终围栏、行投影和 Identity 显示名读取顺序保持。
 
+`PUT /api/v1/project-pipelines/{pipeline_id}` 只更新显式提供的字段。省略 `stages` 时保留原阶段；替换阶段必须提交数组并通过既有校验。显式 `stages: null` 返回 422，原编排及更新时间保持不变；独立 Inference owner 也拒绝该输入，不会先写入无效值再报错。项目／组织授权和模型服务引用范围仍按当前事实校验。
+
 ## Workspace 的后端能力探测
 
 Workspace 只传 registry UUID、不透明 `probe_subject`、timeout 和 `CapabilityLimits`。Inference 打开端点并实际请求 `/setup`，返回绑定后的 modalities，不把 URL、auth 或 extra_params 交给 Workspace。内部 owner／权限失败返回503；真实 backend setup 失败保持 null modalities 的既有 fail-open 行为。

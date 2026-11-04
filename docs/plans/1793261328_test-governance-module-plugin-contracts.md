@@ -1230,6 +1230,9 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - wheel／sdist 在仓外独立安装后，使用真实 API 完成 SDK／CLI 导入、导出及下载；安装了额外依赖的 TUI 用实际客户端提交原生 LiDAR 导出并自动下载，不再以早期 mock-client pilot 作为消费者证明。最终浏览器验证五个相关表面、明暗与宽窄组合；另修复项目导出按 `data_type` 而非 `type_key` 猜测媒体类型的问题。
 - 四个 F0 冻结的阶段 C／E 历史 ZIP 及 annotations 成员摘要保持不变，当前直接 decoder 与目录 adapter 均通过独立几何／轨迹／来源核对；保留的历史 1.3 Mask 原字节也经真实暂存、普通 worker 和像素读回。旧 reader 实际拒绝新 2.0 文件。以上不证明不存在的 LiDAR prediction、完整跨实例视频迁移或旧作业续跑；准确旧 key 的下载／保留／退役仍单列 N6-S。
 - T1 已执行的完整资格尝试失败，未生成默认选集通过结论。已审核的前置修复隔离互斥 LOGIN、极大 Audit ID 与固定账号 seed，保留三条验证器预检 Audit 事件，并在资源分配前检查本地 Node 依赖。共享 grants 修复候选在真实受限 LOGIN／HTTP 的定向 13 项中通过 11 项；两个失败分别为临时 MinIO 探针的响应结构断言错误和 GPU membership trigger 对 JSON 标量执行键删除。项目视频删除丢失物理执行退役检查、部分旧测试合同及 T2 前置仍需收敛；不得把定向结果称为完整默认资格。
+- **流水线局部更新修复已取得定向证据：** 修正映射读取，公开 schema 与独立 owner 均在写入前拒绝 `stages: null`。`96a12de61` 的 borrowed／HTTP 两项完整回放分别核对 69 个保留样本及当前 null 拒绝／状态不变；另一个真实受限 LOGIN 直接向 owner 提交 null 的用例已通过。仅删除未启用模型服务错误的提示文字比较，保留状态、错误中的有序 ID、响应头和数据库前后值；不重录历史字节。当前 checkout 的旧捕获入口因与新合同不再相容而移除，原捕获代码仍保留在 Git 历史。
+- 权限重新应用的真实前后观测证明：旧 Inference owner 的 Project `id`／`ml_backend_pool_id` 列权限被撤销，Workspace ID、Registry 读取和 Workspace lock／clear 能力保留。SDK／OpenAPI 的 26 项检查及实际 CLI 显式 null 拒绝通过；API、Web 和 SDK 产物同步生成。以上仅关闭此定向缺陷，GPU scalar、视频物理退役及完整默认资格仍待验收。
+- T2 的新原件回收资格必须来自协调进程在可销毁数据库中登记的根运行存储身份和源头回执；普通 seed 不能自行声明或修改。父进程另建专用 MinIO 容器、新数据卷及新凭据，实际确认准确新桶已启用版本控制且发布前没有对象、版本、删除标记或 multipart。该物理观测尚未绑定验收数据库、登记根权限或开放普通消费者，不代表 T2 已通过；现有共享存储及旧对象不补造归属。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 
@@ -1238,3 +1241,5 @@ D2 的已审核浏览器回执和四张截图已按原摘要保留在同目录 `
 D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `n4-d1-acceptance/`，逐文件摘要见 `manifest.json`；其中 `cleanup_safety_qualified` 明确为 `false`。这不授予其他夹具回收资格，也不替代 T2 的真实读者闭环。
 
 主进程移除 D1 晚到响应回归中的提示文字耦合，保留可访问错误、较新草稿原文不变和不跳转断言；集成后三个训练相关文件共 100 项测试通过，运行时代码未再改动。
+
+流水线的真实回放、先前失败、独立 native 拒绝与 CLI 结果保留在 `runtime-private/pipeline-update-acceptance/`；源头观测保留在 `runtime-private/fixture-store-genesis.observation.json`。两者分别记录定向合同通过与存储未激活状态，不合并为整阶段完成。

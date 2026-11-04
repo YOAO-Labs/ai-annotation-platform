@@ -24,7 +24,7 @@ export type ProjectPipelineCreatePayload = Omit<ProjectPipelineCreate, "stages">
 };
 
 export type ProjectPipelineUpdatePayload = Omit<ProjectPipelineUpdate, "stages"> & {
-  stages?: PipelineStagePayload[] | null;
+  stages?: PipelineStagePayload[];
 };
 
 function normalizePipeline(pipeline: ProjectPipelineOut): ProjectPipeline {

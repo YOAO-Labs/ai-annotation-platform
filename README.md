@@ -322,7 +322,7 @@ API 变更后同步跑 `pnpm openapi:export` 和 `pnpm codegen`；环境变量�
 | 数据集与存储用户指南       | [docs-site/user-guide/datasets/](./docs-site/user-guide/datasets/index.md)                                                             |
 | 本地开发                   | [docs-site/dev/tutorials/local-dev.md](./docs-site/dev/tutorials/local-dev.md)                                                         |
 | 测试策略                   | [docs-site/dev/testing.md](./docs-site/dev/testing.md)                                                                                 |
-| API 文档                   | [docs-site/api/](./docs-site/api/)                                                                                                     |
+| API 文档                   | [docs-site/api/](./docs-site/api/) · [命名流水线更新与 Inference 事务边界](./docs-site/api/guides/inference-runtime.md#权限事务与恢复) |
 | Python SDK / CLI           | [docs-site/dev/sdk/quickstart.md](./docs-site/dev/sdk/quickstart.md)                                                                   |
 | ML Backend 协议            | [docs-site/dev/reference/ml-backend-protocol.md](./docs-site/dev/reference/ml-backend-protocol.md)                                     |
 | Data Manager               | [用户指南](./docs-site/user-guide/projects/data-manager.md) · [查询与校验契约](./docs-site/dev/reference/data-manager-query.md)        |
