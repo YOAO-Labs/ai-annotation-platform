@@ -107,10 +107,10 @@ function lidarPreflight(
 // 受控 harness：导出完成回调把 open 置 false，便于断言弹窗关闭。
 function ExportModalHarness({
   projectId,
-  projectTypeKey,
+  projectDataType,
 }: {
   projectId: string;
-  projectTypeKey?: string;
+  projectDataType?: string;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -118,7 +118,7 @@ function ExportModalHarness({
       open={open}
       onClose={() => setOpen(false)}
       projectId={projectId}
-      projectTypeKey={projectTypeKey}
+      projectDataType={projectDataType}
     />
   );
 }
@@ -203,7 +203,7 @@ describe("ExportModal", () => {
   });
 
   it("视频项目展示视频目标并传递 Video JSON frame mode", async () => {
-    render(<ExportModalHarness projectId="p3" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p3" projectDataType="video" />);
 
     expect(screen.getByText("Video JSON")).toBeInTheDocument();
     expect(screen.getByText("YOLO 逐帧")).toBeInTheDocument();
@@ -257,7 +257,7 @@ describe("ExportModal", () => {
         },
       ],
     });
-    render(<ExportModalHarness projectId="p-range" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p-range" projectDataType="video" />);
 
     fireEvent.change(screen.getByLabelText("导出范围"), { target: { value: "task" } });
     await screen.findByRole("option", { name: "T-1 · clip.mp4" });
@@ -283,7 +283,7 @@ describe("ExportModal", () => {
   });
 
   it("DAVIS / YouTube-VOS overlap 与 MOTS frame base 同时进入预检和导出", async () => {
-    render(<ExportModalHarness projectId="p-video-mask" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p-video-mask" projectDataType="video" />);
     fireEvent.click(screen.getByText("Video JSON"));
     fireEvent.click(screen.getByText("DAVIS Mask"));
     fireEvent.click(screen.getByText("YouTube-VOS"));
@@ -315,7 +315,7 @@ describe("ExportModal", () => {
   });
 
   it("视频项目可单独导出 YOLO 逐帧检测集", async () => {
-    render(<ExportModalHarness projectId="p4" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p4" projectDataType="video" />);
 
     fireEvent.click(screen.getByText("Video JSON"));
     fireEvent.click(screen.getByText("YOLO 逐帧"));
@@ -327,7 +327,7 @@ describe("ExportModal", () => {
   });
 
   it("视频项目可单独导出 YOLO 逐帧分割集", async () => {
-    render(<ExportModalHarness projectId="p4b" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p4b" projectDataType="video" />);
 
     expect(screen.getByText("YOLO 逐帧分割")).toBeInTheDocument();
 
@@ -341,7 +341,7 @@ describe("ExportModal", () => {
   });
 
   it("视频项目可同选 YOLO 逐帧检测 + 分割，互不覆盖", async () => {
-    render(<ExportModalHarness projectId="p4c" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p4c" projectDataType="video" />);
 
     fireEvent.click(screen.getByText("Video JSON")); // 取消默认 video_json
     fireEvent.click(screen.getByText("YOLO 逐帧"));
@@ -356,7 +356,7 @@ describe("ExportModal", () => {
   });
 
   it("视频项目可单独导出 COCO 逐帧分割集", async () => {
-    render(<ExportModalHarness projectId="p6" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p6" projectDataType="video" />);
 
     expect(screen.getByText("COCO 逐帧分割")).toBeInTheDocument();
 
@@ -370,7 +370,7 @@ describe("ExportModal", () => {
   });
 
   it("视频项目可同选 YOLO 逐帧分割 + COCO 逐帧分割，互不覆盖", async () => {
-    render(<ExportModalHarness projectId="p7" projectTypeKey="video-track" />);
+    render(<ExportModalHarness projectId="p7" projectDataType="video" />);
 
     fireEvent.click(screen.getByText("Video JSON")); // 取消默认 video_json
     fireEvent.click(screen.getByText("YOLO 逐帧分割"));
@@ -385,7 +385,7 @@ describe("ExportModal", () => {
   });
 
   it("点云项目展示标准 3D 目标并默认导出 原生 JSON", async () => {
-    render(<ExportModalHarness projectId="p5" projectTypeKey="lidar" />);
+    render(<ExportModalHarness projectId="p5" projectDataType="lidar" />);
 
     expect(screen.getByText("KITTI 3D")).toBeInTheDocument();
     expect(screen.getByText("Multi-camera COCO")).toBeInTheDocument();
@@ -415,7 +415,7 @@ describe("ExportModal", () => {
   });
 
   it("nuScenes 单独选中时自动预检并可入队", async () => {
-    render(<ExportModalHarness projectId="p-nuscenes" projectTypeKey="lidar" />);
+    render(<ExportModalHarness projectId="p-nuscenes" projectDataType="lidar" />);
 
     fireEvent.click(screen.getByText("原生 JSON"));
     fireEvent.click(screen.getByText("nuScenes"));
@@ -435,7 +435,7 @@ describe("ExportModal", () => {
   });
 
   it("多相机 COCO 单独选中时自动预检且不要求 KITTI 相机", async () => {
-    render(<ExportModalHarness projectId="p-multicamera-coco" projectTypeKey="lidar" />);
+    render(<ExportModalHarness projectId="p-multicamera-coco" projectDataType="lidar" />);
 
     fireEvent.click(screen.getByText("原生 JSON"));
     fireEvent.click(screen.getByText("Multi-camera COCO"));
@@ -462,7 +462,7 @@ describe("ExportModal", () => {
         { code: "camera_calibration_invalid", message: "T-1059 缺少有效内外参" },
       ]),
     );
-    render(<ExportModalHarness projectId="p-lidar-blocked" projectTypeKey="lidar" />);
+    render(<ExportModalHarness projectId="p-lidar-blocked" projectDataType="lidar" />);
 
     fireEvent.click(screen.getByText("KITTI 3D"));
     await screen.findByRole("option", { name: "front" });
