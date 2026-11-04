@@ -282,21 +282,30 @@ async def verified_fixture_owner_url():
     return owner
 
 
+def _fixture_target_id(nonce):
+    return uuid.uuid5(uuid.NAMESPACE_URL, "fixture-original-target:" + nonce)
+
+
+def _scale_only(root):
+    return (
+        root.family == "scale"
+        and root.original_target_id is None
+        and root.original_storage_identity is None
+        and root.original_store_receipt_sha256 is None
+    )
+
+
 async def _complete_provisioning(expected):
     """Probe and atomically enroll the real pre-start provisioning run."""
     from app.core.crypto import decrypt_secret, encrypt_secret
-    from app.db.models.dataset_asset import StorageBinding, StorageLocation
-    from app.db.models.fixture_run import FixtureRun
+    from app.db.models.dataset_asset import StorageLocation
+    from app.db.models.fixture_run import FixtureOriginalTarget, FixtureRun
     from app.db.models.storage_connection import StorageConnection
-    from app.services import (
-        connector_guard,
-        dataset_storage_target,
-        managed_original_creation,
-    )
+    from app.services import connector_guard, dataset_storage_target
     from app.services.managed_original_retirement import managed_storage_identity
     from app.services.managed_s3_target import Target
     from app.services.source_readers.s3 import S3Access
-    from app.services.storage_location import register_connection
+    from app.services.storage_location import connector_location_id, register_connection
     from fixture_store import observe_empty, verified_store
     from verify_storage_candidates import Owner
 
@@ -309,6 +318,7 @@ async def _complete_provisioning(expected):
     )
     owner = Owner(manifest)
     run_id = uuid.UUID(owner.data["fixture_intent"]["provisioning_run_id"])
+    target_id = _fixture_target_id(owner.data["nonce"])
     _refuse_unless(
         expected == {"nonce": owner.data["nonce"], "provisioning_run_id": str(run_id)}
         and "fixture_teardown" not in owner.data
@@ -323,15 +333,15 @@ async def _complete_provisioning(expected):
             connector_guard.assert_host_allowed(
                 owner.data["fixture_store"]["endpoint"], list(allowlist)
             )
-            await managed_original_creation.bootstrap(db)
             roots = list(
                 await db.scalars(
                     select(FixtureRun).where(FixtureRun.parent_run_id.is_(None))
                 )
             )
         store = owner.data["fixture_store"]
+        claimed_roots = [root for root in roots if not _scale_only(root)]
         if store["state"] == "provisioned_unpublished":
-            _refuse_unless(not roots, "fixture_unaccounted_roots")
+            _refuse_unless(not claimed_roots, "fixture_unaccounted_roots")
 
             def probe(endpoint, bucket, account):
                 config = {
@@ -358,8 +368,12 @@ async def _complete_provisioning(expected):
         receipt = store["receipt_sha256"]
         _refuse_unless(
             all(
-                root.original_storage_identity == storage_identity
-                and root.original_store_receipt_sha256 == receipt
+                _scale_only(root)
+                or (
+                    root.original_target_id == target_id
+                    and root.original_storage_identity == storage_identity
+                    and root.original_store_receipt_sha256 == receipt
+                )
                 for root in roots
             ),
             "fixture_unaccounted_roots",
@@ -381,46 +395,17 @@ async def _complete_provisioning(expected):
             root = await db.scalar(
                 select(FixtureRun).where(FixtureRun.id == run_id).with_for_update()
             )
-            if root is None:
-                _refuse_unless(
-                    store["state"] == "observed_unpublished" and not roots,
-                    "fixture_provisioning_root_missing",
-                )
-                stamp = datetime.now(timezone.utc)
-                db.add(
-                    FixtureRun(
-                        id=run_id,
-                        parent_run_id=None,
-                        scope_key=None,
-                        family="owned",
-                        state="retired",
-                        sealed_at=stamp,
-                        retired_at=stamp,
-                        original_storage_identity=storage_identity,
-                        original_store_receipt_sha256=receipt,
-                    )
-                )
-                await db.flush()
-            else:
-                _refuse_unless(
-                    root.parent_run_id is None
-                    and root.scope_key is None
-                    and root.family == "owned"
-                    and root.state == "retired"
-                    and root.sealed_at is not None
-                    and root.retired_at is not None
-                    and root.original_storage_identity == storage_identity
-                    and root.original_store_receipt_sha256 == receipt,
-                    "fixture_provisioning_root_changed",
-                )
             connection = await db.scalar(
                 select(StorageConnection)
                 .where(StorageConnection.id == connection_id)
                 .with_for_update(read=True)
             )
-            if connection is None:
+            new_connection = connection is None
+            if new_connection:
                 _refuse_unless(
-                    store["state"] == "observed_unpublished" and not roots,
+                    store["state"] == "observed_unpublished"
+                    and not claimed_roots
+                    and root is None,
                     "fixture_connection_missing",
                 )
                 connection = StorageConnection(
@@ -435,44 +420,89 @@ async def _complete_provisioning(expected):
                 db.add(connection)
                 await db.flush()
                 location = await register_connection(db, connection)
-                new_connection = True
             else:
                 location = await db.scalar(
                     select(StorageLocation)
                     .where(StorageLocation.connection_id == connection_id)
                     .with_for_update(read=True)
                 )
-                new_connection = False
-                _refuse_unless(
-                    location is not None
-                    and location.enabled
-                    and location.kind == "s3"
-                    and location.config_revision == 1
-                    and connection.revision == 1
-                    and connection.kind == "s3"
-                    and connection.scope == "global"
-                    and connection.project_id is None
-                    and connection.config == config
-                    and decrypt_secret(connection.secret_enc) == account,
-                    "fixture_registered_target_changed",
-                )
-            binding = await db.scalar(
-                select(StorageBinding)
-                .where(StorageBinding.purpose == "datasets")
-                .with_for_update()
+            _refuse_unless(
+                location is not None
+                and location.id == connector_location_id(connection_id)
+                and location.connection_id == connection_id
+                and location.enabled
+                and location.kind == "s3"
+                and location.config_revision == 1
+                and connection.revision == 1
+                and connection.kind == "s3"
+                and connection.scope == "global"
+                and connection.project_id is None
+                and connection.config == config
+                and decrypt_secret(connection.secret_enc) == account,
+                "fixture_registered_target_changed",
             )
-            _refuse_unless(binding is not None, "fixture_datasets_binding_missing")
-            if new_connection:
-                binding.location_id = location.id
-                binding.bucket = store["bucket"]
-                binding.generation += 1
+            target = await db.scalar(
+                select(FixtureOriginalTarget)
+                .where(FixtureOriginalTarget.id == target_id)
+                .with_for_update(read=True)
+            )
+            if target is None:
+                _refuse_unless(
+                    new_connection and not claimed_roots and root is None,
+                    "fixture_target_missing",
+                )
+                target = FixtureOriginalTarget(
+                    id=target_id,
+                    location_id=location.id,
+                    bucket=store["bucket"],
+                    generation=1,
+                    storage_identity=storage_identity,
+                    store_receipt_sha256=receipt,
+                )
+                db.add(target)
+                await db.flush()
+            _refuse_unless(
+                target.location_id == location.id
+                and target.bucket == store["bucket"]
+                and target.generation == 1
+                and target.storage_identity == storage_identity
+                and target.store_receipt_sha256 == receipt,
+                "fixture_registered_target_changed",
+            )
+            if root is None:
+                _refuse_unless(
+                    store["state"] == "observed_unpublished" and not claimed_roots,
+                    "fixture_provisioning_root_missing",
+                )
+                stamp = datetime.now(timezone.utc)
+                db.add(
+                    FixtureRun(
+                        id=run_id,
+                        parent_run_id=None,
+                        scope_key=None,
+                        family="owned",
+                        state="retired",
+                        sealed_at=stamp,
+                        retired_at=stamp,
+                        original_target_id=target.id,
+                        original_storage_identity=storage_identity,
+                        original_store_receipt_sha256=receipt,
+                    )
+                )
+                await db.flush()
             else:
                 _refuse_unless(
-                    binding.location_id == location.id
-                    and binding.bucket == store["bucket"],
-                    "fixture_registered_target_changed",
+                    root.parent_run_id is None
+                    and root.scope_key is None
+                    and root.family == "owned"
+                    and root.state == "retired"
+                    and root.sealed_at is not None
+                    and root.retired_at is not None
+                    and root.original_target_id == target.id
+                    and root.original_storage_identity == storage_identity
+                    and root.original_store_receipt_sha256 == receipt,
+                    "fixture_provisioning_root_changed",
                 )
-            await db.flush()
         store["state"] = "published"
         owner.data["fixture_intent"]["state"] = "published"
         owner.save()
@@ -544,7 +574,15 @@ async def prepare_worktree_store(
                 roots_exist = await db.scalar(
                     text(
                         "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs "
-                        "WHERE parent_run_id IS NULL)"
+                        "WHERE parent_run_id IS NULL AND NOT (family='scale' "
+                        "AND original_target_id IS NULL AND original_storage_identity IS NULL "
+                        "AND original_store_receipt_sha256 IS NULL))"
+                    )
+                )
+                targets_exist = await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM "
+                        "yoao_fixture_v1.fixture_original_targets)"
                     )
                 )
                 encrypted = list(
@@ -601,7 +639,9 @@ async def prepare_worktree_store(
                 raise FixtureSetupRefused("fixture_connector_key_unproven") from None
 
             if not manifest_path.exists():
-                _refuse_unless(not roots_exist, "fixture_unaccounted_roots")
+                _refuse_unless(
+                    not roots_exist and not targets_exist, "fixture_unaccounted_roots"
+                )
                 owner = Owner(manifest_path, create=True)
                 owner.data["fixture_intent"] = {
                     "database": identity,
@@ -712,6 +752,7 @@ async def _settled_database(owner_url, resources, owner):
                 "fixture_database_sessions_active",
             )
             for table in (
+                "yoao_fixture_v1.fixture_original_targets",
                 "yoao_fixture_v1.fixture_runs",
                 "yoao_fixture_v1.fixture_run_admissions",
                 "yoao_fixture_v1.fixture_maintenance_windows",
@@ -725,20 +766,31 @@ async def _settled_database(owner_url, resources, owner):
             storage_identity = managed_storage_identity(
                 store["endpoint"], store["bucket"]
             )
+            target_id = _fixture_target_id(owner.data["nonce"])
             roots = (
                 await db.execute(
                     text(
-                        "SELECT original_storage_identity, original_store_receipt_sha256 "
-                        "FROM yoao_fixture_v1.fixture_runs WHERE parent_run_id IS NULL"
+                        "SELECT id, family, original_target_id, original_storage_identity, "
+                        "original_store_receipt_sha256 FROM yoao_fixture_v1.fixture_runs "
+                        "WHERE parent_run_id IS NULL"
                     )
                 )
             ).all()
+            claimed_roots = [root for root in roots if not _scale_only(root)]
+            provisioning_id = uuid.UUID(
+                owner.data["fixture_intent"]["provisioning_run_id"]
+            )
             _refuse_unless(
-                (store["state"] != "published" or bool(roots))
+                (
+                    store["state"] != "published"
+                    or any(root.id == provisioning_id for root in claimed_roots)
+                )
                 and all(
-                    root[0] == storage_identity
-                    and root[1] == store.get("receipt_sha256")
-                    for root in roots
+                    root.original_target_id == target_id
+                    and root.original_storage_identity == storage_identity
+                    and root.original_store_receipt_sha256
+                    == store.get("receipt_sha256")
+                    for root in claimed_roots
                 ),
                 "fixture_enrollment_changed",
             )
@@ -754,27 +806,51 @@ async def _settled_database(owner_url, resources, owner):
                 uuid.NAMESPACE_URL, "fixture-connection:" + owner.data["nonce"]
             )
             location_id = connector_location_id(connection_id)
-            if roots:
-                target = (
-                    await db.execute(
-                        text(
-                            "SELECT b.location_id,b.bucket,l.connection_id,c.config "
-                            "FROM public.storage_bindings b "
-                            "JOIN public.storage_locations l ON l.id=b.location_id "
-                            "JOIN public.storage_connections c ON c.id=l.connection_id "
-                            "WHERE b.purpose='datasets'"
-                        )
-                    )
-                ).one_or_none()
-                _refuse_unless(
-                    target is not None
-                    and target[0] == location_id
-                    and target[1] == store["bucket"]
-                    and target[2] == connection_id
-                    and target[3].get("endpoint") == store["endpoint"]
-                    and target[3].get("bucket") == store["bucket"],
-                    "fixture_registered_target_changed",
+            targets = (
+                await db.execute(
+                    text(
+                        "SELECT t.id, t.location_id, t.bucket, t.generation, "
+                        "t.storage_identity, t.store_receipt_sha256, l.connection_id, "
+                        "l.enabled, l.kind AS location_kind, l.config_revision, c.config, "
+                        "c.kind AS connection_kind, "
+                        "c.scope, c.project_id, c.revision "
+                        "FROM yoao_fixture_v1.fixture_original_targets t "
+                        "JOIN public.storage_locations l ON l.id=t.location_id "
+                        "JOIN public.storage_connections c ON c.id=l.connection_id "
+                        "WHERE t.id=:target_id OR t.storage_identity=:storage_identity"
+                    ),
+                    {"target_id": target_id, "storage_identity": storage_identity},
                 )
+            ).all()
+            _refuse_unless(
+                (not claimed_roots and not targets)
+                or (
+                    bool(claimed_roots)
+                    and len(targets) == 1
+                    and targets[0].id == target_id
+                    and targets[0].location_id == location_id
+                    and targets[0].bucket == store["bucket"]
+                    and targets[0].generation == 1
+                    and targets[0].storage_identity == storage_identity
+                    and targets[0].store_receipt_sha256 == store.get("receipt_sha256")
+                    and targets[0].connection_id == connection_id
+                    and targets[0].enabled
+                    and targets[0].location_kind == "s3"
+                    and targets[0].config_revision == 1
+                    and targets[0].config
+                    == {
+                        "endpoint": store["endpoint"],
+                        "bucket": store["bucket"],
+                        "base_prefix": "",
+                        "use_ssl": False,
+                    }
+                    and targets[0].connection_kind == "s3"
+                    and targets[0].scope == "global"
+                    and targets[0].project_id is None
+                    and targets[0].revision == 1
+                ),
+                "fixture_registered_target_changed",
+            )
             _refuse_unless(
                 not await db.scalar(
                     text(
@@ -906,8 +982,24 @@ async def _verify_partial_provisioning(owner_url, resources, owner):
                     text("SELECT to_regclass('yoao_fixture_v1.fixture_runs')")
                 )
                 is not None
+                and await db.scalar(
+                    text(
+                        "SELECT to_regclass('yoao_fixture_v1.fixture_original_targets')"
+                    )
+                )
+                is not None
                 and not await db.scalar(
-                    text("SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs)")
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs "
+                        "WHERE state <> 'retired' OR NOT (family='scale' "
+                        "AND original_target_id IS NULL AND original_storage_identity IS NULL "
+                        "AND original_store_receipt_sha256 IS NULL))"
+                    )
+                )
+                and not await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_original_targets)"
+                    )
                 ),
                 "fixture_unaccounted_roots",
             )
@@ -945,9 +1037,23 @@ async def prepare_store_destruction(owner_url, resources, database_exists):
                         is not None
                     ):
                         _refuse_unless(
-                            not await db.scalar(
+                            await db.scalar(
                                 text(
-                                    "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs)"
+                                    "SELECT to_regclass('yoao_fixture_v1.fixture_original_targets')"
+                                )
+                            )
+                            is not None
+                            and not await db.scalar(
+                                text(
+                                    "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs "
+                                    "WHERE state <> 'retired' OR NOT (family='scale' "
+                                    "AND original_target_id IS NULL AND original_storage_identity IS NULL "
+                                    "AND original_store_receipt_sha256 IS NULL))"
+                                )
+                            )
+                            and not await db.scalar(
+                                text(
+                                    "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_original_targets)"
                                 )
                             ),
                             "fixture_manifest_missing",
@@ -1090,8 +1196,8 @@ def finalize_store_destruction(owner, resources):
 async def prepare_fixture_suite(suite_id: str, family: str):
     """Register an open suite against the already enrolled dedicated store."""
     from app.core.crypto import decrypt_secret
-    from app.db.models.dataset_asset import StorageBinding, StorageLocation
-    from app.db.models.fixture_run import FixtureRun
+    from app.db.models.dataset_asset import StorageLocation
+    from app.db.models.fixture_run import FixtureOriginalTarget, FixtureRun
     from app.db.models.storage_connection import StorageConnection
     from app.services import connector_guard
     from app.services.managed_original_retirement import managed_storage_identity
@@ -1133,6 +1239,7 @@ async def prepare_fixture_suite(suite_id: str, family: str):
         store, account = await _settled_thread(verified_store, owner, identity)
         _refuse_unless(store["state"] == "published", "fixture_enrollment_missing")
         provisioning_id = uuid.UUID(owner.data["fixture_intent"]["provisioning_run_id"])
+        target_id = _fixture_target_id(owner.data["nonce"])
         _refuse_unless(identifier != provisioning_id, "fixture_suite_changed")
         storage_identity = managed_storage_identity(store["endpoint"], store["bucket"])
         receipt = store["receipt_sha256"]
@@ -1174,8 +1281,12 @@ async def prepare_fixture_suite(suite_id: str, family: str):
                     and provisioning.sealed_at is not None
                     and provisioning.retired_at is not None
                     and all(
-                        root.original_storage_identity == storage_identity
-                        and root.original_store_receipt_sha256 == receipt
+                        _scale_only(root)
+                        or (
+                            root.original_target_id == target_id
+                            and root.original_storage_identity == storage_identity
+                            and root.original_store_receipt_sha256 == receipt
+                        )
                         for root in roots
                     ),
                     "fixture_enrollment_changed",
@@ -1190,9 +1301,9 @@ async def prepare_fixture_suite(suite_id: str, family: str):
                     .where(StorageLocation.id == location_id)
                     .with_for_update(read=True)
                 )
-                binding = await db.scalar(
-                    select(StorageBinding)
-                    .where(StorageBinding.purpose == "datasets")
+                target = await db.scalar(
+                    select(FixtureOriginalTarget)
+                    .where(FixtureOriginalTarget.id == target_id)
                     .with_for_update(read=True)
                 )
                 _refuse_unless(
@@ -1208,9 +1319,12 @@ async def prepare_fixture_suite(suite_id: str, family: str):
                     and location.kind == "s3"
                     and location.config_revision == 1
                     and location.connection_id == connection_id
-                    and binding is not None
-                    and binding.location_id == location_id
-                    and binding.bucket == store["bucket"],
+                    and target is not None
+                    and target.location_id == location_id
+                    and target.bucket == store["bucket"]
+                    and target.generation == 1
+                    and target.storage_identity == storage_identity
+                    and target.store_receipt_sha256 == receipt,
                     "fixture_registered_target_changed",
                 )
                 root = await db.scalar(
@@ -1226,6 +1340,7 @@ async def prepare_fixture_suite(suite_id: str, family: str):
                             scope_key=None,
                             family=family,
                             state="open",
+                            original_target_id=target.id,
                             original_storage_identity=storage_identity,
                             original_store_receipt_sha256=receipt,
                         )
@@ -1237,6 +1352,7 @@ async def prepare_fixture_suite(suite_id: str, family: str):
                         and root.scope_key is None
                         and root.family == family
                         and root.state == "open"
+                        and root.original_target_id == target.id
                         and root.original_storage_identity == storage_identity
                         and root.original_store_receipt_sha256 == receipt,
                         "fixture_suite_changed",
