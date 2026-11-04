@@ -9,8 +9,8 @@ import uuid
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_contract import (
     MAIL_NATIVE_PROTOCOL,
     MailFinishRequest,
     MailRenewRequest,
@@ -20,8 +20,8 @@ from aap_identity.mail_contract import (
     decode_mail_delivery_policy,
     native_command_json,
 )
-from aap_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
-from aap_identity_runtime.mail_worker import MailExecutor
+from yoao_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from yoao_identity_runtime.mail_worker import MailExecutor
 from app.config import settings
 from app.db.base import async_session
 from app.services.identity_contracts import IdentityGatewayUnavailable

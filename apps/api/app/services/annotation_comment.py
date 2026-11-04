@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm import make_transient_to_detached
 
-from aap_labeling.discussion_contract import (
+from yoao_labeling.discussion_contract import (
     DISCUSSION_PROTOCOL,
     AnnotationCommentRow,
     ClearAnnotationCommentAttachments,

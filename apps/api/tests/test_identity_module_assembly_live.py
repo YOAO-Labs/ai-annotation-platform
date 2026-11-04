@@ -27,7 +27,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 import websockets
 
-from aap_identity.security import create_access_token, decode_access_token
+from yoao_identity.security import create_access_token, decode_access_token
 from tests.factory import create_project, create_user
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.identity_recovery_live_helpers import SMTPInbox

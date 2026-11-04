@@ -18,7 +18,7 @@ from app.db.enums import UserRole
 from app.deps import get_current_user, get_db, require_roles, require_scopes
 from app.schemas.scene import SceneOut, SceneUpdate
 from app.schemas.scene_pose import TrajectoryResponse
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     GetSceneRequest,
     ListScenesRequest,
     MutateSceneRequest,

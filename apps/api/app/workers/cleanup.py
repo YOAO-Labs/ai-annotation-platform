@@ -197,7 +197,7 @@ def refresh_audit_bi_mv() -> dict:
 
 
 async def _refresh_audit_bi_mv_async() -> dict:
-    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+    from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
     async with task_session() as db:
         try:

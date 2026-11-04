@@ -255,7 +255,7 @@ async def test_run_batch_accumulates_total_cost(
     """v0.10.49 · _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result."""
     from app.application import preannotation_execution as execution
     from app.db.models.task import Task
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import FakeModelExecutionPort
 
     user, _ = super_admin
@@ -330,7 +330,7 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
 ):
     from types import SimpleNamespace
 
-    from aap_assets_input_manifests.contract import ManifestScope
+    from yoao_assets_input_manifests.contract import ManifestScope
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_execution import (
         _PreparedAcceptedManifest,
@@ -340,7 +340,7 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
     from app.db.models.task import Task
     from app.services.labeling_prediction_contract import ApplyPredictionResultReceipt
     from app.services.prediction import PredictionService
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
@@ -612,7 +612,7 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
 ):
     from app.db.models.prediction import FailedPrediction
     from app.db.models.task import Task
-    from aap_inference.gpu.contracts import (
+    from yoao_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
@@ -707,7 +707,7 @@ async def test_run_batch_stops_on_cooperative_cancel(
 ):
     """v0.10.51 · batch_predict 在任务边界看到 cancel_requested 后落 cancelled。"""
     from app.db.models.task import Task
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
@@ -808,7 +808,7 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
     from app.db.models.user import User
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import patch_batch_execution
     from app.services.labeling_prediction_contract import ApplyPredictionResultError
     from app.services.prediction import PredictionService
@@ -909,7 +909,7 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
     from app.db.models.task import Task
-    from aap_inference.gpu.contracts import (
+    from yoao_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
@@ -1072,7 +1072,7 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
 
     from app.db.models.task import Task
     from app.db.models.task_lock import TaskLock
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
@@ -1161,7 +1161,7 @@ async def test_workbench_annotator_execution_rechecks_authority_at_write(
 
     from fastapi import HTTPException
 
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch

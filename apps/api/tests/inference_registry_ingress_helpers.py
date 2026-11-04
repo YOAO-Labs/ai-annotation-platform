@@ -62,7 +62,7 @@ async def ingress_provider(database_url):
         try:
             owner = await asyncio.to_thread(
                 _start,
-                [sys.executable, "-m", "aap_inference"],
+                [sys.executable, "-m", "yoao_inference"],
                 environment,
                 directory,
                 directory / "inference-registry-ingress.log",

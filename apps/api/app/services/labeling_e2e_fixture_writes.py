@@ -11,7 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_labeling.e2e_fixture_contract import (
+from yoao_labeling.e2e_fixture_contract import (
     AnnotationFixtureRow,
     FixtureCommand,
     InsertFixtureAnnotations,
@@ -33,7 +33,7 @@ from aap_labeling.e2e_fixture_contract import (
     VideoTrackerJobFixtureRow,
     LABELING_E2E_FIXTURE_PROTOCOL,
 )
-from aap_labeling.e2e_fixture_data import LabelingE2EFixtureData
+from yoao_labeling.e2e_fixture_data import LabelingE2EFixtureData
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.task import Task

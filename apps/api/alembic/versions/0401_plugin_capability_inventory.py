@@ -65,8 +65,8 @@ def _load_inventory():
 
 
 def _validated_inventory(value, rows):
-    from aap_inference_contract.plugin import PluginInstallation, PluginManifest
-    from aap_protocol_v2.vocab import GEOMETRY_VALUES, INPUT_VALUES, PROMPT_VALUES
+    from yoao_inference_contract.plugin import PluginInstallation, PluginManifest
+    from yoao_protocol_v2.vocab import GEOMETRY_VALUES, INPUT_VALUES, PROMPT_VALUES
 
     def check_known(manifest):
         if any(

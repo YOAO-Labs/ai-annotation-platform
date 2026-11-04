@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from aap_protocol_v2.mask_interaction import CocoRlePayload
+from yoao_protocol_v2.mask_interaction import CocoRlePayload
 
 from app.services.sample_evaluation_engine import (
     MAX_PREDICTIONS,

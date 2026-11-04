@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
-from aap_inference.gpu.ledger.installation_domain import ensure_installation_domain
+from yoao_inference.gpu.ledger.installation_domain import ensure_installation_domain
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from tests.test_gpu_arbiter_proof_recovery import (
     _RESOURCE_A,

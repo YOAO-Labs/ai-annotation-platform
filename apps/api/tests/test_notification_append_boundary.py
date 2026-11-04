@@ -5,8 +5,8 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from aap_notifications.preferences import NotificationPreferenceManager
-from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
+from yoao_notifications.preferences import NotificationPreferenceManager
+from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from app.db.models.notification import Notification
 from app.services.notification import NotificationService
 

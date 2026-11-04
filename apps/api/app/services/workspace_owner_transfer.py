@@ -8,15 +8,15 @@ import uuid
 from fastapi import HTTPException
 import httpx
 
-from aap_workspace.config import secret_source
-from aap_workspace.owner_transfer import OwnerTransferManager
-from aap_workspace.owner_transfer_contract import (
+from yoao_workspace.config import secret_source
+from yoao_workspace.owner_transfer import OwnerTransferManager
+from yoao_workspace.owner_transfer_contract import (
     OwnerTransferSuccess,
     OwnerTransferUnavailable,
     decode_owner_transfer_reply,
     decode_owner_transfer_request,
 )
-from aap_workspace.owner_transfer_postgres import OwnerTransferPostgresData
+from yoao_workspace.owner_transfer_postgres import OwnerTransferPostgresData
 from app.config import settings
 from app.services.workspace_owner_transfer_data import WorkspaceOwnerTransferData
 

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy.engine import make_url
 from app.config import settings
 from app.services import ml_backend_env_sync as env
-from aap_inference_contract.registry_ingress import RegistryEnvSyncUnavailable
+from yoao_inference_contract.registry_ingress import RegistryEnvSyncUnavailable
 from tests.inference_registry_ingress_helpers import ingress_dsn
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_asset_storage_cleanup_runtime import (

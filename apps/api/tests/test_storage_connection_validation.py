@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_source.connectors.management import (
+from yoao_assets_source.connectors.management import (
     ConnectorValidationError,
     public_config,
     validate_config,

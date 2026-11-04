@@ -5,7 +5,7 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy.exc import DBAPIError
 
-from aap_labeling.annotation_prediction_contract import (
+from yoao_labeling.annotation_prediction_contract import (
     ANNOTATION_PREDICTION_PROTOCOL,
     ApplySecondaryAttributes,
 )

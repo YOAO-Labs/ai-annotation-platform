@@ -10,9 +10,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_preannotation_results import codec
-from aap_preannotation_results.video_execution import ExecutionProof
-from aap_preannotation_results.video_execution_journal import (
+from yoao_preannotation_results import codec
+from yoao_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution_journal import (
     BeginWindowRequest,
     CaptureWindowRequest,
     FinishRequest,
@@ -27,12 +27,12 @@ from aap_preannotation_results.video_execution_journal import (
     decode_native_reply,
     request_bytes,
 )
-from aap_preannotation_results.video_execution_plan import VideoContinuationPostState
-from aap_preannotation_results.video_execution_planner import (
+from yoao_preannotation_results.video_execution_plan import VideoContinuationPostState
+from yoao_preannotation_results.video_execution_planner import (
     build_video_execution_plan,
     freeze_video_window_settings,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
     snapshot_video_window_checkpoint,
 )

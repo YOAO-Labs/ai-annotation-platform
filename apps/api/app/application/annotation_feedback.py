@@ -41,7 +41,7 @@ from app.services.mask_qc.service import effective_issue_status, load_mask_qc_is
 from app.services.notification import NotificationService
 from app.services.point_cloud_quality.service import refresh_issue_staleness
 from app.services.labeling_spatial_quality import quality_row, spatial_quality_data
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.project_access import (
     lock_current_project_access,
     resolve_project_access_by_id,

@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_audit_contract import ProjectDeletionAuditContext
-from aap_workspace.project_deletion_contract import (
+from yoao_audit_contract import ProjectDeletionAuditContext
+from yoao_workspace.project_deletion_contract import (
     ProjectDeletionFailure,
     ProjectDeletionReceipt,
 )

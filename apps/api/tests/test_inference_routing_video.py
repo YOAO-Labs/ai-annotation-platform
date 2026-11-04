@@ -13,19 +13,19 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import asyncpg
-from aap_assets_video_inputs.tracker import TrackerSourceReferenceRequest
+from yoao_assets_video_inputs.tracker import TrackerSourceReferenceRequest
 from fastapi import FastAPI, HTTPException, Request
 import httpx
 import pytest
 import uvicorn
 from sqlalchemy import text
 
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference_contract.routing import make_routing_command
-from aap_inference_contract.routing import decode_routing_command, RoutingUnavailable
-from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference_contract.routing import make_routing_command
+from yoao_inference_contract.routing import decode_routing_command, RoutingUnavailable
+from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 from app.config import settings
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.ml_backend import MLBackendService

@@ -10,7 +10,7 @@ import uuid
 
 import asyncpg
 import pytest
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     LifecycleModeResponse,
     ManagedLifecycleCapabilities,
@@ -25,21 +25,21 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from aap_inference.backend_endpoint import (
+from yoao_inference.backend_endpoint import (
     BackendEndpointBinding,
     BackendEndpointSnapshot,
 )
-from aap_inference_contract.backend_endpoint import BackendEndpointAuthority
-from aap_inference.gpu.fences import (
+from yoao_inference_contract.backend_endpoint import BackendEndpointAuthority
+from yoao_inference.gpu.fences import (
     activate_gpu_backend_membership,
     advance_gpu_backend_fence,
 )
-from aap_inference.gpu.membership_activation import (
+from yoao_inference.gpu.membership_activation import (
     promote_gpu_backend_membership,
     promote_gpu_resource_memberships,
 )
-from aap_inference.gpu.native import GPUAuthorityPoolData
-from aap_inference.gpu.signing import GPUAdmissionTokenSigner
+from yoao_inference.gpu.native import GPUAuthorityPoolData
+from yoao_inference.gpu.signing import GPUAdmissionTokenSigner
 from sqlalchemy.engine import make_url
 
 

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user, get_db
-from aap_workspace.configuration_requests import (
+from yoao_workspace.configuration_requests import (
     ProjectTemplateCreate,
     ProjectTemplateOut,
     ProjectTemplateUpdate,

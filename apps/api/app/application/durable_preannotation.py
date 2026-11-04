@@ -34,7 +34,7 @@ class RetainedBatchInput:
 @asynccontextmanager
 async def _retained_input(execution, member):
     """Open the original frozen source only when model work is still necessary."""
-    from aap_assets_inputs import contract as c
+    from yoao_assets_inputs import contract as c
     from app.services.accepted_inputs import input_gateway
 
     frozen = member.manifest_member
@@ -374,9 +374,9 @@ async def run_durable_batch(
     failure_context=None,
 ):
     """Resume captured raw/prepared bodies; count only atomic native outcomes."""
-    from aap_preannotation_results.contract import BatchResultFailure
-    from aap_assets_mask_content.contract import MaskContentFailure
-    from aap_inference.gpu.contracts import gpu_arbiter_failure_record
+    from yoao_preannotation_results.contract import BatchResultFailure
+    from yoao_assets_mask_content.contract import MaskContentFailure
+    from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
     from app.services import prediction_progress
     from app.services.async_job_notify import notify_job_terminal
     from app.services.batch_result_masks import normalize_batch_prediction_masks

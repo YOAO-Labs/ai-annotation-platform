@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
@@ -775,7 +775,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
 
                 # Wrong control credentials do not create a template. The
                 # accepted operation is then replayed after a real owner restart.
-                from aap_workspace.configuration_contract import configuration_request
+                from yoao_workspace.configuration_contract import configuration_request
 
                 replay_operation_id = uuid.uuid4()
                 replay_name = f"Workspace direct replay {uuid.uuid4().hex[:8]}"

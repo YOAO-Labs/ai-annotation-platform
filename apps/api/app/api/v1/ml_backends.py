@@ -4,18 +4,18 @@ import json
 import time
 import uuid
 
-from aap_inference import extract_capabilities, resolve_model_task
-from aap_inference.gpu.contracts import GPUArbiterDispatchError
-from aap_inference.gpu.policy import GPUClaimConfigurationError
-from aap_inference_contract.execution import (
+from yoao_inference import extract_capabilities, resolve_model_task
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError
+from yoao_inference.gpu.policy import GPUClaimConfigurationError
+from yoao_inference_contract.execution import (
     DispatchBoundary,
     FrozenModelOperation,
     ModelExecutionError,
     thaw_json,
 )
-from aap_inference_contract.plugin import has_reserved_plugin_metadata
-from aap_inference_contract.topology import to_record
-from aap_protocol_v2 import (
+from yoao_inference_contract.plugin import has_reserved_plugin_metadata
+from yoao_inference_contract.topology import to_record
+from yoao_protocol_v2 import (
     MAX_MASK_RESPONSE_BYTES,
     CocoRlePayload,
     canonical_rle_bytes,
@@ -80,7 +80,7 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultRequest,
 )
 from app.services.prediction import PredictionService, to_video_bbox_result
-from aap_workspace_contract.access import ProjectAccess, ProjectCapability
+from yoao_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.audit import AuditService
 from app.services.ai_mask_receipt import issue_ai_mask_receipt
 from app.services.ai_mask_prompt import resolve_authorized_mask_prompt
@@ -1538,7 +1538,7 @@ async def predict_frame(
 
     与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。
     """
-    from aap_inference.execution_context import build_predict_context
+    from yoao_inference.execution_context import build_predict_context
     from app.services.labeling_write_scope import capture_labeling_write_scope
 
     svc = MLBackendService(db)

@@ -9,10 +9,10 @@ from sqlalchemy import text
 from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_labeling.annotation_statistics_contract import (
+from yoao_labeling.annotation_statistics_contract import (
     AnnotationStatisticsUnavailable,
 )
-from aap_labeling.annotation_statistics_data import LabelingAnnotationStatisticsData
+from yoao_labeling.annotation_statistics_data import LabelingAnnotationStatisticsData
 from app.db.models.task import Task
 
 

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.mask_qc import MaskQCRun
-from aap_workspace.mask_configuration_values import MaskQCConfig
+from yoao_workspace.mask_configuration_values import MaskQCConfig
 from app.services.mask_qc import (
     SingleFrameThresholds,
     TemporalResolvedFrame,
@@ -37,7 +37,7 @@ from app.services.raster_mask_storage import (
 )
 from app.services.video_tracks import resolve_mask_track_state_at_frame
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
-from aap_labeling.quality_data_contract import (
+from yoao_labeling.quality_data_contract import (
     BeginMaskQCRun,
     CancelMaskQCRun,
     CompleteMaskQCRun,

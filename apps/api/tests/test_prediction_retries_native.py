@@ -80,7 +80,7 @@ def _predict(
     count=1,
     invalid_score=False,
 ):
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from app.application import durable_prediction_retry as retry
     from tests.inference_execution_test_ports import pipeline_output
 
@@ -168,7 +168,7 @@ async def test_admission_and_ambiguous_publication_keep_one_job_and_original_cla
         ) == {"submitted": 1, "pending": 0}
         assert len(published) == 2 and published[0] == published[1]
         async with world.writers() as db:
-            from aap_preannotation_results.retry_contract import PredictionRetryFailure
+            from yoao_preannotation_results.retry_contract import PredictionRetryFailure
 
             with pytest.raises(PredictionRetryFailure, match="already_pending"):
                 await call_retry(
@@ -295,7 +295,7 @@ async def test_permanent_failure_is_charged_once_and_replayed_exactly(
             invalid_score=failure == "invalid_metadata",
         )
         if failure == "model_http":
-            from aap_inference_contract.execution import (
+            from yoao_inference_contract.execution import (
                 ExecutionFailure,
                 ModelExecutionError,
             )
@@ -379,7 +379,7 @@ async def test_exhausted_write_contention_resumes_saved_output_without_charging_
             failed = await db.get(FailedPrediction, world.failed_id)
             assert failed.retry_count == 0 and failed.extra["retry_pending"] is True
             assert (await db.get(AsyncJob, world.job_id)).status == "running"
-        from aap_preannotation_results.contract import ClaimBatchResultExecutionRequest
+        from yoao_preannotation_results.contract import ClaimBatchResultExecutionRequest
         from tests.test_batch_result_native_peer import _psql_peer
 
         scope = retry_scope(world.attempt)

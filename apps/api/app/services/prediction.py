@@ -13,8 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_assets_video_inputs.evidence import VideoInputEvidence
-from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
+from yoao_assets_video_inputs.evidence import VideoInputEvidence
+from yoao_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 
 from app.db.enums import UserRole
 from app.services.project_access import get_workspace_project
@@ -43,7 +43,7 @@ from app.services.raster_mask_storage import (
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
 )
-from aap_labeling.prediction_record_contract import (
+from yoao_labeling.prediction_record_contract import (
     InsertPredictionResult,
     InsertPredictionResultData,
     InsertTestSeedPrediction,

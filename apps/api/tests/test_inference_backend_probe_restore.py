@@ -11,9 +11,9 @@ import warnings
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.client import BackendProbeHttpClient
-from aap_inference_contract.probe import BackendProbeUnavailable
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.client import BackendProbeHttpClient
+from yoao_inference_contract.probe import BackendProbeUnavailable
 from tests.inference_backend_probe_helpers import probe_provider
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_identity_recovery import _postgres_tool

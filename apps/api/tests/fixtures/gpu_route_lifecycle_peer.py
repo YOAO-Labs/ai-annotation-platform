@@ -8,16 +8,16 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from fastapi import FastAPI, HTTPException, Request
 import uvicorn
 
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     GenerationTransitionRequest,
     GPU_ADMISSION_TOKEN_HEADER,
     GPU_GENERATION_HEADER,
     LifecycleModeRequest,
 )
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
-from aap_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
-from aap_backend_runtime.managed_pool import BuildArtifact, ManagedLruPool
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_backend_runtime.gpu_lifecycle import ManagedGpuLifecycle
+from yoao_backend_runtime.managed_pool import BuildArtifact, ManagedLruPool
 
 
 class Model:

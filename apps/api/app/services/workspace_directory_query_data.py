@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_workspace.directory_query_contract import (
+from yoao_workspace.directory_query_contract import (
     DirectoryQueryUnavailable,
     decode_directory_query_policy,
 )
-from aap_workspace.directory_query_postgres import (
+from yoao_workspace.directory_query_postgres import (
     DIRECTORY_QUERY_SCHEMA,
     directory_query_step_arguments,
 )

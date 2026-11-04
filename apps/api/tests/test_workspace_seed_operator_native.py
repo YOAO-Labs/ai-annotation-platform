@@ -313,7 +313,7 @@ async def test_import_select_hydrates_expired_fields_without_overwriting_loaded_
 
 
 async def test_seed_native_descriptor_restrictions_errors_and_rollback(test_engine):
-    from aap_workspace.seed_project_contract import (
+    from yoao_workspace.seed_project_contract import (
         decode_nuscenes_seed_defaults_write,
         decode_point_cloud_seed_project_created,
         seed_project_schema,
@@ -322,7 +322,7 @@ async def test_seed_native_descriptor_restrictions_errors_and_rollback(test_engi
 
     expected = seed_project_schema()
     for path in (
-        "apps/workspace/src/aap_workspace/seed_project_protocol.schema.json",
+        "apps/workspace/src/yoao_workspace/seed_project_protocol.schema.json",
         "apps/api/alembic/sql/0301_workspace_seed_project.schema.json",
     ):
         assert json.loads((ROOT / path).read_text()) == expected

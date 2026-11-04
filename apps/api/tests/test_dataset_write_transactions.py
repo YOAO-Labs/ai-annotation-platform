@@ -38,7 +38,7 @@ async def test_zip_seals_all_bytes_before_metadata_and_rolls_back_late_authority
     from sqlalchemy import func, update
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+    from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
     from app.core.security import create_access_token, hash_password
     from app.db.models.api_key import ApiKey
     from app.db.models.dataset import Dataset
@@ -198,7 +198,7 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
     from sqlalchemy import func, text, update
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+    from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
     from app.core.security import create_access_token
     from app.db.models.dataset import Dataset
     from app.db.models.user import User

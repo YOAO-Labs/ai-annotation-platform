@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from aap_identity.key_contract import KeyReply, KeyRequest
+from yoao_identity.key_contract import KeyReply, KeyRequest
 
 
 class ApiKeyManagementPort(Protocol):

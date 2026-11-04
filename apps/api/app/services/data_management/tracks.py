@@ -39,7 +39,7 @@ from app.services.data_management.entities import (
     task_dataset_item_id_expr,
 )
 from app.services.data_management.entity_filters import compile_entity_filter
-from aap_workspace.configuration_policy import project_kind
+from yoao_workspace.configuration_policy import project_kind
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.video_tracks import frame_is_outside
 from app.services.labeling_core_read_relations import (

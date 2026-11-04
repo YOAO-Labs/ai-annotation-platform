@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.registry_ingress import (
     RegistryEnvSyncUnavailable,
     decode_registry_env_sync_result,
     make_registry_env_sync_request,
 )
-from aap_inference_contract.registry_ingress_client import RegistryEnvSyncHttpClient
-from aap_workspace.config import secret_source
+from yoao_inference_contract.registry_ingress_client import RegistryEnvSyncHttpClient
+from yoao_workspace.config import secret_source
 
 from app.config import settings
 from app.services.inference_limits import capability_limits_from_settings

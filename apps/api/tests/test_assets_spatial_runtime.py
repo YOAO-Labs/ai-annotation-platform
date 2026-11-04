@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ItemFactsPage,
     LayoutMutationResult,
     LayoutPage,
@@ -322,8 +322,8 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                 container,
                 "python",
                 "-c",
-                "import sys; from aap_assets_catalog.config import load_config; "
-                "from aap_assets_catalog.object_signer import CatalogObjectSigner,SourceObjectChanged; "
+                "import sys; from yoao_assets_catalog.config import load_config; "
+                "from yoao_assets_catalog.object_signer import CatalogObjectSigner,SourceObjectChanged; "
                 "reader=CatalogObjectSigner(load_config());\n"
                 "try: reader.get_calibration_source(sys.argv[1],expected_etag=sys.argv[2])\n"
                 "except SourceObjectChanged: pass\n"

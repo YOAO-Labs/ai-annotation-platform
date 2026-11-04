@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aap_notifications.publication_client import RemotePublicationClient
-from aap_notifications.publication_contract import ImmediatePublicationUnavailable
+from yoao_notifications.publication_client import RemotePublicationClient
+from yoao_notifications.publication_contract import ImmediatePublicationUnavailable
 
 from app.config import settings
 

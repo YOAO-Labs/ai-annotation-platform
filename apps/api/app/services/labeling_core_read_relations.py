@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.core_read_contract import CORE_READ_COLUMNS, CORE_READ_RELATIONS
+from yoao_labeling.core_read_contract import CORE_READ_COLUMNS, CORE_READ_RELATIONS
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.task import Task

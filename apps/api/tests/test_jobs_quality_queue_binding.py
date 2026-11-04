@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_jobs.queue_contract import (
+from yoao_jobs.queue_contract import (
     JobsQueueUnavailable,
     decode_queue_request,
     encode_dispatch_request,

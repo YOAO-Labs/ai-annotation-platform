@@ -13,8 +13,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
 from tests.test_mask_gc_native import _native_call, _stage_one_old_candidate, _key
 from app.services import mask_gc
 

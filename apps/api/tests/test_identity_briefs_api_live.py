@@ -10,7 +10,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from tests.factory import (
     create_batch,
     create_membership,

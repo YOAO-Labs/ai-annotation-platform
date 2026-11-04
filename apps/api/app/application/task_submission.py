@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.project_access import get_workspace_project
 from app.application.task_workflow_locks import (
@@ -28,7 +28,7 @@ from app.services.batch import BatchService
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.mask_qc.config import load_mask_qc_config
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import task_access
 from app.services.labeling_core_read_relations import (

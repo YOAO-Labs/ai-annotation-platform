@@ -8,13 +8,13 @@ from uuid import uuid4
 
 import pytest
 
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer_contract import (
     VideoWriterReceipt,
     VideoWriterRejected,
     VideoWriterUnavailable,
     video_writer_command_digest,
 )
-from aap_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution import ExecutionProof
 from app.services.video_tracking import writer
 from app.services.video_tracking.execution import (
     TrackerExecutionDeferred,

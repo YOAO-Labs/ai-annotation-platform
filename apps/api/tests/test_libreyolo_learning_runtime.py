@@ -80,8 +80,8 @@ def test_install_and_publish_keep_trial_runtime_pinned():
 
 
 def test_declared_capability_requires_both_approval_and_observation():
-    from aap_inference.capabilities import extract_capabilities
-    from aap_inference.pool_capability import capability_fingerprint, diff_capabilities
+    from yoao_inference.capabilities import extract_capabilities
+    from yoao_inference.pool_capability import capability_fingerprint, diff_capabilities
 
     version = libre_version()
     cpu = {
@@ -138,8 +138,8 @@ def test_declared_capability_requires_both_approval_and_observation():
 def test_native_checkpoint_compatibility_requires_explicit_matching_format(
     invalid_format,
 ):
-    from aap_inference.capabilities import extract_capabilities
-    from aap_inference_contract.plugin import ManagedModelCompatibility
+    from yoao_inference.capabilities import extract_capabilities
+    from yoao_inference_contract.plugin import ManagedModelCompatibility
 
     version = libre_version()
     version.framework = "ultralytics"

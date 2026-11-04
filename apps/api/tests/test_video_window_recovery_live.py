@@ -16,16 +16,16 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
-from aap_assets_video_inputs.tracker import TrackerSourceReferenceRequest
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
-from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
+from yoao_assets_video_inputs.tracker import TrackerSourceReferenceRequest
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import make_routing_command
+from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from fastapi import FastAPI, HTTPException, Request
 import httpx
 import pytest
 import uvicorn
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 

@@ -7,13 +7,13 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.frame_layout import (
+from yoao_assets_source.frame_layout import (
     PreparedDatasetItem,
     PreparedPointCloudFrame,
     group_frames,
     source_ingest_logical_path,
 )
-from aap_assets_catalog.spatial_contract import ReadPreparationRequest
+from yoao_assets_catalog.spatial_contract import ReadPreparationRequest
 
 from app.services.assets_spatial import AssetsSpatialGateway
 

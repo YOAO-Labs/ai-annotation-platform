@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.offboarding_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.offboarding_contract import (
     decode_native_offboarding_command,
     decode_native_offboarding_reply,
 )

@@ -10,14 +10,14 @@ import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from aap_jobs.dispatch_contract import (
+from yoao_jobs.dispatch_contract import (
     JOBS_DISPATCH_FUNCTIONS,
     DispatchLease,
     DispatchPurpose,
     JobsDispatchRejected,
 )
-from aap_jobs.dispatch_data import JobsDispatchDataClient
-from aap_jobs.queue_contract import JobsQueueUnavailable, encode_dispatch_request
+from yoao_jobs.dispatch_data import JobsDispatchDataClient
+from yoao_jobs.queue_contract import JobsQueueUnavailable, encode_dispatch_request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 

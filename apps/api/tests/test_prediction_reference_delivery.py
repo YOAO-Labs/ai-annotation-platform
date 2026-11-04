@@ -23,7 +23,7 @@ from app.db.models.prediction_input import PredictionInputLease
 from app.services import prediction_references as refs, async_job as jobs
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
-from aap_inference.backend_transport import PredictionResult
+from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction import PredictionService
 from app.services.prediction_execution import create_snapshot, validate_task_scope
 from app.services.prediction_inputs import PredictionInputs

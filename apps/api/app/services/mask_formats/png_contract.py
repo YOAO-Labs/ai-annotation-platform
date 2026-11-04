@@ -3,7 +3,7 @@ from __future__ import annotations
 import struct
 from typing import BinaryIO
 
-from aap_assets_source.archive import ArchiveSafetyError
+from yoao_assets_source.archive import ArchiveSafetyError
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 

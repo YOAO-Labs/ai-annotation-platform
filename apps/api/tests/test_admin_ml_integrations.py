@@ -263,7 +263,9 @@ def _patch_unregistered_smoke(
 
     async def smoke_unregistered(endpoint, body):
         calls.append(("smoke", endpoint.url, body))
-        from aap_inference_contract.backend_control import BackendUnregisteredSmokeResult
+        from yoao_inference_contract.backend_control import (
+            BackendUnregisteredSmokeResult,
+        )
 
         return BackendUnregisteredSmokeResult.model_validate(
             smoke_result
@@ -605,23 +607,31 @@ async def test_unregistered_smoke_test_blocks_raw_load_in_effective_enforce(
     httpx_client, super_admin, monkeypatch
 ):
     _, token = super_admin
-    from aap_inference_contract.backend_control import BackendControlFailure
+    from yoao_inference_contract.backend_control import BackendControlFailure
     from app.services.inference_backend_control import BackendControlOperationError
 
     calls = []
 
     async def probe(endpoint, *, timeout_seconds):
         calls.append(("health", endpoint.url))
-        return _probe_fact({"ok": True, "loaded": False, "pool": {"loaded_variants": []}})
+        return _probe_fact(
+            {"ok": True, "loaded": False, "pool": {"loaded_variants": []}}
+        )
 
     async def smoke(endpoint, body):
-        raise BackendControlOperationError(BackendControlFailure(
-            code="gpu_config_invalid", status_code=503,
-            detail={"error_code": "gpu_config_invalid", "message": (
-                "effective enforce 下未注册 URL 只能执行只读 health/setup；"
-                "请先注册 backend 并完成受管身份绑定"
-            )},
-        ))
+        raise BackendControlOperationError(
+            BackendControlFailure(
+                code="gpu_config_invalid",
+                status_code=503,
+                detail={
+                    "error_code": "gpu_config_invalid",
+                    "message": (
+                        "effective enforce 下未注册 URL 只能执行只读 health/setup；"
+                        "请先注册 backend 并完成受管身份绑定"
+                    ),
+                },
+            )
+        )
 
     _patch_control(monkeypatch, manual_probe=probe, smoke_unregistered=smoke)
     res = await httpx_client.post(
@@ -777,7 +787,7 @@ async def test_registered_smoke_test_uses_managed_lifecycle_service(
 async def test_registered_smoke_test_preserves_backend_control_error_contract(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    from aap_inference_contract.backend_control import BackendControlFailure
+    from yoao_inference_contract.backend_control import BackendControlFailure
     from app.services.inference_backend_control import BackendControlOperationError
     from app.db.models.ml_backend_registry import MLBackendRegistry
 

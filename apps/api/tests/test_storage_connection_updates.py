@@ -17,8 +17,8 @@ import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_source import connections_workflow
-from aap_assets_source.connectors import probe as probe_module
+from yoao_assets_source import connections_workflow
+from yoao_assets_source.connectors import probe as probe_module
 from app.config import settings
 from app.core.crypto import decrypt_secret
 from app.db.models.audit_log import AuditLog
@@ -196,7 +196,7 @@ async def test_connection_test_receipts_are_sanitized_and_replayable(
         actor_id,
         connection_id,
     ):
-        from aap_assets_source.connections_contract import TestConnectionRequest
+        from yoao_assets_source.connections_contract import TestConnectionRequest
         from app.services.assets_connections import AssetsConnectionsGateway
 
         async def tested(operation_id):
@@ -237,8 +237,8 @@ async def committed_world(test_engine, monkeypatch):
         await db.commit()
     connection_id = uuid.uuid4()
     async with maker() as db:
-        from aap_audit_contract import ProjectDeletionAuditContext
-        from aap_assets_source.connections_contract import CreateConnectionRequest
+        from yoao_audit_contract import ProjectDeletionAuditContext
+        from yoao_assets_source.connections_contract import CreateConnectionRequest
         from app.services.assets_connections import AssetsConnectionsGateway
 
         created = await AssetsConnectionsGateway(db).create_connection(
@@ -331,7 +331,7 @@ async def test_validation_holds_no_row_locks_and_rechecks_publication(
 
         async def candidate():
             async with maker() as db:
-                from aap_assets_source.connections_contract import (
+                from yoao_assets_source.connections_contract import (
                     UpdateConnectionRequest,
                 )
                 from app.services.assets_connections import AssetsConnectionsGateway
@@ -656,7 +656,7 @@ async def test_candidate_rechecks_accepted_api_key_after_probe(
 ):
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from aap_assets_source.connections_contract import (
+    from yoao_assets_source.connections_contract import (
         ConnectionAuthorityProof,
         UpdateConnectionRequest,
     )
@@ -736,8 +736,8 @@ async def test_connection_probe_lease_survives_cancellation_until_thread_closes(
     """The owner probe keeps its storage_operations receipt until the thread ends."""
     from sqlalchemy import delete, func, select
 
-    from aap_assets_source.connectors import probe as owner_probe
-    from aap_assets_source.connections_contract import (
+    from yoao_assets_source.connectors import probe as owner_probe
+    from yoao_assets_source.connections_contract import (
         TestConnectionRequest,
     )
     from app.db.models.storage_maintenance import (

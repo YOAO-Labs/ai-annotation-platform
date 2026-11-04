@@ -30,7 +30,7 @@ from typing import Any
 from datetime import datetime, timezone
 import uuid
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     ImageBackfillSelection,
     ImageSourceSelector,
     ReadImageGenerationRequest,

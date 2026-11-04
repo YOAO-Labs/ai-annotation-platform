@@ -5,7 +5,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from aap_inference_contract.topology import freeze_json
+from yoao_inference_contract.topology import freeze_json
 
 from app.services.video_tracking import backend_identity
 from app.services.video_tracking.backend_identity import (
@@ -298,7 +298,7 @@ def test_worker_normalization_policy_changes_the_compatibility_identity():
 
 
 def test_frozen_outside_threshold_is_passed_to_core_frame_parser():
-    from aap_inference.tracker import frame_result_from_payload
+    from yoao_inference.tracker import frame_result_from_payload
 
     payload = {
         "frame_index": 1,

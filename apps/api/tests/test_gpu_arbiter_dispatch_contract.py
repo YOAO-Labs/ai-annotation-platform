@@ -4,17 +4,17 @@ import json
 
 import pytest
 
-from aap_inference_contract.gpu import (
+from yoao_inference_contract.gpu import (
     GPU_CALLER_DATA_PROTOCOL,
     GPU_CALLER_NATIVE_ACTIONS,
     GPU_CALLER_NATIVE_FUNCTIONS,
     GPU_CALLER_NATIVE_SCHEMA,
     GPUAuthorityUnavailable,
 )
-from aap_inference.gpu.native import GPUCallerPostgresData
-from aap_owner_data import postgres as postgres_module
+from yoao_inference.gpu.native import GPUCallerPostgresData
+from yoao_owner_data import postgres as postgres_module
 
-from aap_inference.gpu.contracts import (
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
     GPUDispatchGrant,
@@ -212,8 +212,6 @@ def test_dispatch_outcome_channel_rejects_invalid_http_status(
 
     with pytest.raises(ValueError, match="HTTP status"):
         channel.report_response(status_code)  # type: ignore[arg-type]
-
-
 
 
 @pytest.mark.asyncio

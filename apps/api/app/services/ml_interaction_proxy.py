@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Literal
 
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     MAX_MASK_DIMENSION,
     MAX_MASK_PIXELS,
     MAX_MASK_RUNS,

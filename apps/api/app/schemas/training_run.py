@@ -17,7 +17,7 @@ from pydantic import (
 )
 from app.schemas.training_initialization import TrainingInitialization
 from training_contract.dataset import config_task
-from aap_task_contract import normalize_task, normalize_task_fields
+from yoao_task_contract import normalize_task, normalize_task_fields
 
 
 class TrainingConfiguration(BaseModel):

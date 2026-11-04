@@ -9,7 +9,7 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     LockWorkerJob,
     ReadWorkerJob,
     ReadWorkerSegment,

@@ -4,7 +4,7 @@ import asyncio
 import time
 import uuid
 
-from aap_site_agent_contract import ProtocolError, parse_json
+from yoao_site_agent_contract import ProtocolError, parse_json
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 

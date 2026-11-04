@@ -18,8 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 from PIL import Image
-from aap_assets_media.contract import InternalSourceRequest, MediaSource
-from aap_assets_media.transport import SourceReference
+from yoao_assets_media.contract import InternalSourceRequest, MediaSource
+from yoao_assets_media.transport import SourceReference
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem

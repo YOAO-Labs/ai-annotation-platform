@@ -8,19 +8,19 @@ from typing import NoReturn
 from urllib.parse import urlsplit
 
 import httpx
-from aap_identity_admission.client import RemoteAdmissionClient
-from aap_identity_admission.contract import (
+from yoao_identity_admission.client import RemoteAdmissionClient
+from yoao_identity_admission.contract import (
     IdentityFailure,
     IdentityUnavailable,
     Principal,
 )
-from aap_identity.actor_contract import (
+from yoao_identity.actor_contract import (
     ACTOR_PROTOCOL,
     ActorContext,
     ActorContextRequest,
     decode_actor_reply,
 )
-from aap_identity.actor_reader import ActorContextReader
+from yoao_identity.actor_reader import ActorContextReader
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -196,7 +196,7 @@ class IdentityGateway:
             raise IdentityGatewayUnavailable() from None
 
     def embedded_data(self, db: AsyncSession | None):
-        from aap_identity.postgres import PostgresData
+        from yoao_identity.postgres import PostgresData
 
         try:
             if self.identity_url is not None:
@@ -217,7 +217,7 @@ class IdentityGateway:
             raise IdentityGatewayUnavailable() from None
 
     def embedded_authenticator(self, db: AsyncSession | None):
-        from aap_identity.authenticator import Authenticator
+        from yoao_identity.authenticator import Authenticator
 
         secret = (
             self.signing_secret
@@ -229,7 +229,7 @@ class IdentityGateway:
         return Authenticator(self.embedded_data(db), secret=secret)
 
     async def _authenticate_embedded(self, token: str, *, db: AsyncSession | None):
-        from aap_identity.contract import IdentityFailure, IdentityUnavailable
+        from yoao_identity.contract import IdentityFailure, IdentityUnavailable
 
         try:
             return await self.embedded_authenticator(db).authenticate(token)

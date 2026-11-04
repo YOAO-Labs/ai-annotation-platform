@@ -7,8 +7,8 @@ import uuid
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import Principal
-from aap_identity.group_contract import GroupFailure, decode_group_request
+from yoao_identity.contract import Principal
+from yoao_identity.group_contract import GroupFailure, decode_group_request
 from app.deps import get_current_principal, get_db
 from app.middleware.request_id import request_id_var
 from app.services.audit import audit_origin_from_request

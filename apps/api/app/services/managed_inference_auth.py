@@ -3,13 +3,13 @@
 from pathlib import Path
 
 import httpx
-from aap_protocol_v2.backend_auth import (
+from yoao_protocol_v2.backend_auth import (
     BACKEND_SERVICES,
     managed_provider,
     normalized_backend_url,
     validate_backend_urls,
 )
-from aap_protocol_v2.managed_credential import (
+from yoao_protocol_v2.managed_credential import (
     CredentialFileError,
     ensure_credential,
     read_credential,

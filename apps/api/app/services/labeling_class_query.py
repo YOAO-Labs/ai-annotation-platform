@@ -7,17 +7,17 @@ import asyncio
 from fastapi import HTTPException
 import httpx
 
-from aap_labeling.class_queries import (
+from yoao_labeling.class_queries import (
     LabelingClassQueryManager,
     materialize_labeling_class_query_data,
 )
-from aap_labeling.class_query_contract import (
+from yoao_labeling.class_query_contract import (
     LabelingClassQueryUnavailable,
     decode_labeling_class_query_reply,
     labeling_class_query_request,
 )
-from aap_labeling.class_query_postgres import LabelingClassQueryPostgresData
-from aap_labeling.config import secret_source
+from yoao_labeling.class_query_postgres import LabelingClassQueryPostgresData
+from yoao_labeling.config import secret_source
 
 from app.config import settings
 from app.services.labeling_class_query_data import LabelingClassQueryData

@@ -1,6 +1,6 @@
 """Backward-compatible imports for the portable workbench preference models."""
 
-from aap_identity.workbench_workspace import (
+from yoao_identity.workbench_workspace import (
     CORE_PANELS,
     MAX_NAMED_PRESETS,
     MAX_PRESET_NAME_LENGTH,

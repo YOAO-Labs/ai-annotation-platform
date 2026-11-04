@@ -57,7 +57,7 @@ async def test_only_superadmin_can_inspect_or_initialize_local_credentials(
 async def test_status_is_read_only_and_initialize_does_not_register_or_expose_secret(
     route_app,
 ):
-    from aap_protocol_v2.managed_credential import read_credential
+    from yoao_protocol_v2.managed_credential import read_credential
 
     app, db, _, _, directory = route_app
     async with httpx.AsyncClient(

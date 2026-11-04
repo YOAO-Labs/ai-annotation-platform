@@ -12,11 +12,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.directory_contract import DirectoryFailure, decode_directory_request
-from aap_identity.directory_manager import DirectoryManager
-from aap_identity.directory_postgres import DirectoryPostgresData
-from aap_identity.postgres import PostgresData
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.directory_contract import DirectoryFailure, decode_directory_request
+from yoao_identity.directory_manager import DirectoryManager
+from yoao_identity.directory_postgres import DirectoryPostgresData
+from yoao_identity.postgres import PostgresData
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,

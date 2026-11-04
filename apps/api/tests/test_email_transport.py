@@ -4,7 +4,7 @@ from email.message import EmailMessage
 
 import pytest
 
-from aap_mail_transport import MailDeliveryResult, MailOutcome, MailReason, SMTPConfig
+from yoao_mail_transport import MailDeliveryResult, MailOutcome, MailReason, SMTPConfig
 from app.services.email import SmtpConfigError, _send_message
 
 

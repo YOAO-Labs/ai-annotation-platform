@@ -15,14 +15,14 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from aap_workspace.project_deletion import ProjectDeletionManager
-from aap_workspace.project_deletion_contract import (
+from yoao_workspace.project_deletion import ProjectDeletionManager
+from yoao_workspace.project_deletion_contract import (
     ProjectDeletionCommand,
     ProjectDeletionReceipt,
     decode_project_deletion_reply,
     project_deletion_schema,
 )
-from aap_workspace.project_deletion_postgres import ProjectDeletionPostgresData
+from yoao_workspace.project_deletion_postgres import ProjectDeletionPostgresData
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_project_deletion_data import (
     _assert_graph_unchanged,
@@ -85,7 +85,7 @@ async def test_frozen_receipt_and_deletion_only_capability(test_engine):
     descriptor = json.loads(
         (
             ROOT
-            / "apps/workspace/src/aap_workspace/project_deletion_protocol.schema.json"
+            / "apps/workspace/src/yoao_workspace/project_deletion_protocol.schema.json"
         ).read_text()
     )
     assert descriptor == project_deletion_schema()

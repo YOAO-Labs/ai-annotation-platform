@@ -11,7 +11,7 @@ from training_contract.initialization import (
     validate_pin,
 )
 from training_contract.models import model_spec
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 from training_contract.dataset import (
     SEGMENTATION,
     config_task,

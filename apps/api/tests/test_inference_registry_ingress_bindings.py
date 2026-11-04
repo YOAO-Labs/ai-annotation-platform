@@ -9,13 +9,13 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     RegistryEnvSyncUnavailable,
     make_registry_env_sync_request,
     registry_env_sync_status_request,
 )
-from aap_inference_contract.registry_ingress_client import (
+from yoao_inference_contract.registry_ingress_client import (
     RegistryEnvSyncHttpClient,
     _AmbiguousRegistryEnvSyncResponse,
 )

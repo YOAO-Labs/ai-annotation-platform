@@ -46,11 +46,11 @@ async def backfill_frame_poses(
     from sqlalchemy import select
 
     from app.db.models.dataset import Dataset
-    from aap_assets_catalog.spatial_contract import (
+    from yoao_assets_catalog.spatial_contract import (
         ListScenesRequest,
         UpsertPosesRequest,
     )
-    from aap_assets_catalog.spatial_values import FramePose
+    from yoao_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
 
     try:

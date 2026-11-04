@@ -9,9 +9,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_assets_video_inputs import execution as e
-from aap_assets_video_inputs import tracker as c
-from aap_assets_video_inputs import values as v
+from yoao_assets_video_inputs import execution as e
+from yoao_assets_video_inputs import tracker as c
+from yoao_assets_video_inputs import values as v
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
 from app.db.models.task import Task

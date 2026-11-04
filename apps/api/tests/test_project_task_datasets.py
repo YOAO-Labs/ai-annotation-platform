@@ -20,7 +20,7 @@ from training_contract.dataset import (
     DatasetContractError,
     data_contract,
 )
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 
 from app.db.models.project import Project
 from app.db.models.project_task_dataset import (

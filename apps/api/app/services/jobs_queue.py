@@ -6,8 +6,8 @@ import asyncio
 import uuid
 from pathlib import Path
 
-from aap_jobs.queue_client import JobsQueueClient, JobsQueueExecutionControl
-from aap_jobs.queue_contract import (
+from yoao_jobs.queue_client import JobsQueueClient, JobsQueueExecutionControl
+from yoao_jobs.queue_contract import (
     JobsQueueContractError,
     JobsQueueUnavailable,
 )
@@ -176,7 +176,7 @@ async def publish_queue_envelope(envelope: dict) -> str:
         except Exception:
             raise JobsQueueUnavailable() from None
 
-    from aap_jobs.queue_contract import (
+    from yoao_jobs.queue_contract import (
         QueueCanvas,
         QueueDispatch,
         decode_queue_request,
@@ -194,7 +194,7 @@ async def publish_queue_envelope(envelope: dict) -> str:
         )
     if not isinstance(operation, QueueCanvas):
         raise JobsQueueContractError()
-    from aap_jobs.queue_runtime import publish_canvas
+    from yoao_jobs.queue_runtime import publish_canvas
     from app.workers.celery_app import celery_app
 
     await asyncio.to_thread(publish_canvas, celery_app, operation)

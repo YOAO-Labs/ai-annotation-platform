@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     LockWorkerJob,
     ReadWorkerJob,
     ReadWorkerSegment,
@@ -25,7 +25,7 @@ from aap_labeling.video_control_contract import (
     SubmitVideoSegment,
     UnassignVideoSegment,
 )
-from aap_labeling.video_control_data import VideoControlDataClient
+from yoao_labeling.video_control_data import VideoControlDataClient
 from app.db.models.dataset import VideoSegment
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob

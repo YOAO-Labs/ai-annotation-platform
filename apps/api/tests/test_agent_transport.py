@@ -7,7 +7,7 @@ import json
 import stat
 import uuid
 
-from aap_site_agent_contract import digest
+from yoao_site_agent_contract import digest
 import pytest
 
 from app.db.models.dataset_asset import StorageLocation

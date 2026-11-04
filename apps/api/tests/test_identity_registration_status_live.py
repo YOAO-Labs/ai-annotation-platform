@@ -15,7 +15,7 @@ import pytest
 from jose.exceptions import JWTError
 from sqlalchemy import select, text
 
-from aap_identity.security import decode_access_token
+from yoao_identity.security import decode_access_token
 from app.db.models.user import User
 from tests.identity_recovery_live_helpers import cleanup
 from tests.test_identity_admission_live import ROOT, _start_api, _start_identity, _token

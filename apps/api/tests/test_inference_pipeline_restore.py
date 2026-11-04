@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_contract import (
     PIPELINE_PROTOCOL,
     PipelineQueryFailure,
     PipelineStatusSuccess,
@@ -23,9 +23,9 @@ from aap_inference.pipeline_contract import (
     pipeline_status_request,
     pipeline_policy,
 )
-from aap_inference.pipeline_manager import PipelineManager
-from aap_inference.pipeline_postgres import PipelinePostgresData
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_inference.pipeline_manager import PipelineManager
+from yoao_inference.pipeline_postgres import PipelinePostgresData
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.user import User
 from app.services import inference_pipelines as gateway

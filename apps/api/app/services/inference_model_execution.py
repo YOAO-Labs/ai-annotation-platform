@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import replace
 
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     DispatchBoundary,
     FrozenModelOperation,
     ModelExecutionError,
@@ -17,10 +17,10 @@ from aap_inference_contract.execution import (
     freeze_json,
     thaw_json,
 )
-from aap_inference_contract.execution_client import ModelExecutionHttpClient
-from aap_inference_contract.routing import RoutingScopeView
-from aap_inference_contract.plugin import plugin_is_active
-from aap_workspace.config import secret_source
+from yoao_inference_contract.execution_client import ModelExecutionHttpClient
+from yoao_inference_contract.routing import RoutingScopeView
+from yoao_inference_contract.plugin import plugin_is_active
+from yoao_workspace.config import secret_source
 
 from app.config import settings
 from app.observability.metrics import observe_ml_backend
@@ -155,7 +155,7 @@ class _ModelExecutionGateway(ModelExecutionPort):
                 )
                 approved_registry_ids = None
                 if reference is None:
-                    from aap_inference_contract.plugin_assets import (
+                    from yoao_inference_contract.plugin_assets import (
                         resolve_plugin_selection,
                     )
                     from app.services.model_catalog import (

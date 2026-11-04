@@ -10,7 +10,7 @@ import uuid
 import pytest
 from sqlalchemy.exc import DBAPIError
 
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_contract import (
     PIPELINE_PROTOCOL,
     PipelineErrorDetails,
     PipelineFailure,

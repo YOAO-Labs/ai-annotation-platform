@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, NoReturn
 
-from aap_protocol_v2 import MaskPromptPayload
+from yoao_protocol_v2 import MaskPromptPayload
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession

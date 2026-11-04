@@ -22,7 +22,7 @@ from app.db.models.video_track_quality import (
     VideoTrackQualityIssue,
     VideoTrackQualityRun,
 )
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
@@ -116,7 +116,7 @@ from app.api.v1.tasks._shared import (
     require_task_review_write,
     logger,
 )
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 
 router = APIRouter()
 
@@ -183,7 +183,7 @@ async def get_point_cloud_manifest(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from aap_assets_catalog.spatial_contract import SpatialFailure
+    from yoao_assets_catalog.spatial_contract import SpatialFailure
     from app.services import media_item_reads
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.project_access import get_workspace_project
@@ -265,7 +265,7 @@ async def get_point_cloud_manifest(
     if primary_link is not None:
         primary_item = items_by_id.get(primary_link.dataset_item_id)
         if primary_item is not None and primary_item.scene_id is not None:
-            from aap_assets_catalog.spatial_contract import GetSceneRequest
+            from yoao_assets_catalog.spatial_contract import GetSceneRequest
             from app.services import scene_pose as scene_pose_svc
 
             scene = await gateway.get_scene(

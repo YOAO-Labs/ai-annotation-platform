@@ -9,14 +9,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.discussion_contract import (
+from yoao_labeling.discussion_contract import (
     DiscussionCommand,
     DiscussionData,
     LabelingDiscussionUnavailable,
     LabelingTaskEventsUnavailable,
     TaskEventCommand,
 )
-from aap_labeling.discussion_data import (
+from yoao_labeling.discussion_data import (
     LabelingDiscussionDataClient,
     LabelingTaskEventDataClient,
 )

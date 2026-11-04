@@ -20,7 +20,7 @@ from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_gateway import get_identity_gateway
 
 if TYPE_CHECKING:
-    from aap_identity.contract import Principal
+    from yoao_identity.contract import Principal
 
 from app.services.labeling_core_read_relations import (
     get_core_row,
@@ -97,7 +97,7 @@ def _notification_inventory_visible(principal) -> bool:
 
 
 async def _notification_message_allowed(token: str, data) -> bool:
-    from aap_notifications.websocket import notification_message_allowed
+    from yoao_notifications.websocket import notification_message_allowed
 
     return await notification_message_allowed(
         token,
@@ -570,7 +570,7 @@ async def notifications_socket(
         )
         return
 
-    from aap_notifications.websocket import serve_notification_socket
+    from yoao_notifications.websocket import serve_notification_socket
 
     await serve_notification_socket(
         websocket,

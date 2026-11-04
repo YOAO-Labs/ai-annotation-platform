@@ -15,8 +15,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.provisioning import AccountProvisioningManager
-from aap_identity.provisioning_contract import (
+from yoao_identity.provisioning import AccountProvisioningManager
+from yoao_identity.provisioning_contract import (
     PROVISIONING_PROTOCOL,
     ProvisioningCreateRequest,
     ProvisioningLookupRequest,
@@ -34,7 +34,7 @@ _MIGRATION = (
     Path(__file__).parents[1] / "alembic/versions/0252_identity_provisioning.py"
 )
 _CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/provisioning_protocol.schema.json"
+    _ROOT / "apps/identity/src/yoao_identity/provisioning_protocol.schema.json"
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-provisioning-grants.sql"
@@ -287,7 +287,7 @@ async def test_bootstrap_defaults_audit_atomicity_and_existing_email_noop(
             assert audit["request_id"] == request_id
             assert json.loads(audit["detail_json"]) == {"email": email}
 
-        import aap_identity.provisioning as provisioning_module
+        import yoao_identity.provisioning as provisioning_module
 
         def fail_if_hashed(_password):
             pytest.fail("an existing bootstrap email must not be hashed again")
@@ -378,7 +378,7 @@ async def test_bootstrap_defaults_audit_atomicity_and_existing_email_noop(
 @pytest.mark.asyncio
 async def test_import_environment_guard_reuse_and_defaults(test_engine, monkeypatch):
     _require_owned_acceptance()
-    import aap_identity.provisioning as provisioning_module
+    import yoao_identity.provisioning as provisioning_module
 
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     account_id = uuid.uuid4()

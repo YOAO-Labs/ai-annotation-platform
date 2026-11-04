@@ -12,8 +12,8 @@ import httpx
 import pytest
 from sqlalchemy import delete, text
 
-from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
-from aap_workspace_contract.read_relations import PROJECT_COUNTER_COLUMNS
+from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from yoao_workspace_contract.read_relations import PROJECT_COUNTER_COLUMNS
 from app.config import settings
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation

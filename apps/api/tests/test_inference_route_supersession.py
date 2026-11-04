@@ -12,18 +12,18 @@ from fastapi import FastAPI
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.backend_endpoint import BackendEndpointSnapshot
-from aap_inference.owner_transport import (
+from yoao_inference.backend_endpoint import BackendEndpointSnapshot
+from yoao_inference.owner_transport import (
     ModelDispatchDenied,
     RoutingModelRequestContextFactory,
 )
-from aap_inference.request_tracking import http_client
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.execution import (
+from yoao_inference.request_tracking import http_client
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionRouteBinding,
 )
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     RoutingRejectedResult,
     make_routing_command,
 )

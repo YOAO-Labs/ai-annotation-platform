@@ -16,7 +16,7 @@ from app.schemas.task import (
     TaskListResponse,
 )
 from app.schemas.scene import NeighborsResponse
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )

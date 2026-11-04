@@ -9,8 +9,8 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.platform_role_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.platform_role_contract import (
     PlatformRoleFailure,
     decode_platform_role_request,
     decode_platform_role_reply,

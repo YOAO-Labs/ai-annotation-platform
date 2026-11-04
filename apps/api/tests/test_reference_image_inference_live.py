@@ -10,7 +10,7 @@ from urllib.request import urlopen
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
-from aap_protocol_v2 import CocoRlePayload, native_mask_candidate_id
+from yoao_protocol_v2 import CocoRlePayload, native_mask_candidate_id
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings

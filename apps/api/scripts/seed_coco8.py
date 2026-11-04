@@ -334,7 +334,7 @@ async def main() -> None:
         from sqlalchemy import select
 
         from app.db.models.dataset import Dataset
-        from aap_assets_images.contract import ImageBackfillSelection
+        from yoao_assets_images.contract import ImageBackfillSelection
         from app.services.assets_images import image_policy
         from scripts.image_media_backfill import accept_image_backfill
 

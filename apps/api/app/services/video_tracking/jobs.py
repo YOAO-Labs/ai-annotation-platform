@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.config import settings
 from app.services import async_job as async_job_svc
@@ -62,7 +62,7 @@ from app.services.labeling_core_read_relations import (
     lock_task_for_core_read,
     task_row,
 )
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     CancelJob,
     CreateJob,
     ExpireCandidates,

@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import values as v
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import values as v
 from app.services.accepted_video_inputs import (
     SqlAlchemyVideoInputDatabase,
     VideoInputGateway,
@@ -284,7 +284,7 @@ async def test_bad_native_receipt_rolls_back_independent_transaction():
 async def test_local_gateway_closes_owned_clients_when_setup_or_body_fails(
     monkeypatch, fail_at
 ):
-    from aap_assets_images_runtime.config import ImageStorageConfig
+    from yoao_assets_images_runtime.config import ImageStorageConfig
     from app.config import settings
     from app.services.accepted_video_inputs import video_input_gateway
 
@@ -318,7 +318,7 @@ async def test_local_gateway_closes_owned_clients_when_setup_or_body_fails(
     monkeypatch.setattr("app.services.assets_images.image_storage", lambda: source)
     monkeypatch.setattr("app.services.assets_images.image_policy", policy)
     monkeypatch.setattr(
-        "aap_assets_video_inputs_runtime.storage.S3VideoInputStorage", make_storage
+        "yoao_assets_video_inputs_runtime.storage.S3VideoInputStorage", make_storage
     )
     with pytest.raises((TypeError, AttributeError, RuntimeError)):
         async with video_input_gateway():

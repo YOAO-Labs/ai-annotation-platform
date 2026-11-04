@@ -13,8 +13,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from aap_inference import capability_registry as reg
-from aap_inference import capabilities as caps
+from yoao_inference import capability_registry as reg
+from yoao_inference import capabilities as caps
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -25,7 +25,7 @@ def _load_backend_vocab():
 
     vocab.py 纯常量、无第三方依赖, 故可独立 exec, 不必把整个包加进 pythonpath。
     """
-    path = REPO_ROOT / "apps/_shared/protocol_v2/src/aap_protocol_v2/vocab.py"
+    path = REPO_ROOT / "apps/_shared/protocol_v2/src/yoao_protocol_v2/vocab.py"
     spec = importlib.util.spec_from_file_location("_aap_protocol_v2_vocab", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

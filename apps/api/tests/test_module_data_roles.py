@@ -763,9 +763,9 @@ async def test_input_runtime_profiles_pass_real_preflight_and_typed_native_calls
 ):
     import asyncpg
 
-    from aap_assets_images_runtime.health import check_capabilities
-    from aap_assets_inputs import contract as c
-    from aap_assets_inputs_runtime.database import AsyncpgInputDatabase
+    from yoao_assets_images_runtime.health import check_capabilities
+    from yoao_assets_inputs import contract as c
+    from yoao_assets_inputs_runtime.database import AsyncpgInputDatabase
 
     url = make_url(_role_url(url_name, username)).set(drivername="postgresql")
     pool = await asyncpg.create_pool(

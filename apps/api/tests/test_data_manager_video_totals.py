@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from aap_assets_media.contract import VideoTotals, VideoTotalsRequest
+from yoao_assets_media.contract import VideoTotals, VideoTotalsRequest
 from app.services.data_management import service as data_management
 
 

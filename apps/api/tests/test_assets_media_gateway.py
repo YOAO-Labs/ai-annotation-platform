@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media import contract as c
-from aap_assets_media.transport import MediaReferences
+from yoao_assets_media import contract as c
+from yoao_assets_media.transport import MediaReferences
 from app.services import assets_media
 
 
@@ -161,8 +161,8 @@ async def test_selected_remote_provider_never_runs_local_executor(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_remote_cli_dry_run_never_constructs_api_s3_storage(monkeypatch):
-    from aap_assets_media_runtime import processing
-    from aap_assets_media_runtime.http_source import HttpMediaSourceStorage
+    from yoao_assets_media_runtime import processing
+    from yoao_assets_media_runtime.http_source import HttpMediaSourceStorage
 
     monkeypatch.setattr(assets_media.settings, "assets_media_url", "http://media.local")
     monkeypatch.setattr(assets_media.settings, "assets_media_token", "t" * 32)

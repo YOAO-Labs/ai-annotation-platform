@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_inference_contract.topology import to_record
+from yoao_inference_contract.topology import to_record
 from app.config import settings
 from app.services.inference_topology_data import InferenceTopologyData
 from app.schemas.ml_routing import (
@@ -25,7 +25,7 @@ from app.schemas.ml_routing import (
     TopologyResponse,
 )
 from app.services.ml_routing.ledger import RoutingLedger
-from aap_inference.pool_capability import capability_fingerprint
+from yoao_inference.pool_capability import capability_fingerprint
 
 
 def _derive_pool_status(

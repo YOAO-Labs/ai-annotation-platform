@@ -12,14 +12,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.postgres import PostgresData
-from aap_identity.suspension_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.postgres import PostgresData
+from yoao_identity.suspension_contract import (
     SuspensionFailure,
     decode_suspension_request,
 )
-from aap_identity.suspension_manager import SuspensionManager
-from aap_identity.suspension_postgres import SuspensionPostgresData
+from yoao_identity.suspension_manager import SuspensionManager
+from yoao_identity.suspension_postgres import SuspensionPostgresData
 from app.db.models.user import User
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (

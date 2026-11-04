@@ -480,7 +480,7 @@ def _verify_worker_container(container_id: str, name: str, image: str, identity:
         and labels.get(_CONTAINER_ID_LABEL) == identity
         and not observed.get("Mounts")
         and not (observed.get("NetworkSettings", {}).get("Ports") or {})
-        and config.get("Cmd") == ["python", "-m", "aap_assets_cleanup"]
+        and config.get("Cmd") == ["python", "-m", "yoao_assets_cleanup"]
         and not any(
             value.startswith(
                 (

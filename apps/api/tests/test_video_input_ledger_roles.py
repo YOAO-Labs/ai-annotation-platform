@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from aap_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import execution as c
 from tests.test_video_input_ledger_control import _call, _captured, _observation, _page
 
 pytestmark = [

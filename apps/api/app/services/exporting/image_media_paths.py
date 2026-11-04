@@ -4,7 +4,7 @@ import re
 import uuid
 
 from app.services.content_snapshot import ContentError
-from aap_workspace_contract import derive_classes_list
+from yoao_workspace_contract import derive_classes_list
 
 TARGETS = frozenset(
     {

@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.recovery_crypto import token_hash
+from yoao_identity.recovery_crypto import token_hash
 from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.user import User

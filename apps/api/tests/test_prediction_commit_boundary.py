@@ -15,11 +15,11 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import func, select, text
 
-from aap_assets_images.contract import ObjectIdentity
-from aap_assets_images_runtime.storage import S3ImageStorage
-from aap_assets_input_manifests import contract as manifests
-from aap_assets_inputs import contract as inputs
-from aap_assets_inputs_runtime.storage import S3InputStorage
+from yoao_assets_images.contract import ObjectIdentity
+from yoao_assets_images_runtime.storage import S3ImageStorage
+from yoao_assets_input_manifests import contract as manifests
+from yoao_assets_inputs import contract as inputs
+from yoao_assets_inputs_runtime.storage import S3InputStorage
 from app.api.v1.async_jobs import cancel_async_job
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
@@ -33,7 +33,7 @@ from app.db.models.user import User
 from app.deps import get_job_cancellation_port, get_job_execution_control
 from app.services import async_job as jobs
 from app.services.accepted_input_manifests import get_input_manifest_capture
-from aap_inference.backend_transport import PredictionResult
+from yoao_inference.backend_transport import PredictionResult
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.application.preannotation_results import BatchResultExecution
@@ -836,7 +836,7 @@ async def test_explicit_partial_pipeline_commits_candidates_and_retry_context(
 async def test_partial_completion_rejects_foreign_candidate_ids(
     commit_world, monkeypatch
 ):
-    from aap_preannotation_results.contract import BatchResultFailure
+    from yoao_preannotation_results.contract import BatchResultFailure
 
     world = commit_world
     original = PredictionService.create_failed
@@ -886,7 +886,7 @@ async def test_partial_completion_rejects_foreign_candidate_ids(
 async def test_frame_fanout_preserves_its_existing_reset_contract(
     managed_worker_world, monkeypatch, mode
 ):
-    from aap_assets_inputs_runtime.storage import S3InputStorage
+    from yoao_assets_inputs_runtime.storage import S3InputStorage
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_execution import run_preannotation
     from app.workers.frame_preannotate import JobsFramePreannotationDispatcher

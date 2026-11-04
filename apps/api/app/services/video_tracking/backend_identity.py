@@ -11,14 +11,14 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from aap_preannotation_results.video_execution_plan import BackendCompatibilityIdentity
+from yoao_preannotation_results.video_execution_plan import BackendCompatibilityIdentity
 
-from aap_inference.tracker import (
+from yoao_inference.tracker import (
     TrackerFrameResult,
     bbox_from_geometry as _bbox_from_geometry,
     bbox_from_points as _bbox_from_points,
 )
-from aap_inference_contract.topology import to_record
+from yoao_inference_contract.topology import to_record
 from app.services.video_tracking.adapters import MockBboxTrackerAdapter, TrackerContext
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")

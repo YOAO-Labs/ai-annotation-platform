@@ -214,8 +214,8 @@ async def _seed_tracker_api_world(
 
 async def _prepare_tracker_metadata(media, directory: Path, world: dict) -> dict:
     """Materialize the owner generation required by the tracker HTTP entry point."""
-    from aap_assets_media import contract as media_contract
-    from aap_assets_media.client import MediaClient
+    from yoao_assets_media import contract as media_contract
+    from yoao_assets_media.client import MediaClient
     from tests.test_assets_media_live import (
         _process_log,
         _runtime_database_url,
@@ -260,7 +260,7 @@ async def _prepare_tracker_metadata(media, directory: Path, world: dict) -> dict
         [
             sys.executable,
             "-m",
-            "aap_assets_media_runtime.worker",
+            "yoao_assets_media_runtime.worker",
             "--once",
             "--job-id",
             str(accepted.work.job_id),
@@ -466,7 +466,7 @@ async def _exercise_api_tracker_phase(
 ) -> dict:
     from app.db.models.async_job import AsyncJobStatus
     from app.db.models.video_tracker_job import VideoTrackerJobStatus
-    from aap_jobs.queue_contract import load_queue_configuration
+    from yoao_jobs.queue_contract import load_queue_configuration
     from tests.test_jobs_module_assembly_live import (
         _assert_owned_broker_target,
     )
@@ -831,8 +831,8 @@ async def _assert_restored_tracker_readback(
     source_phase: dict,
     source_headers: dict[str, str],
 ) -> dict:
-    from aap_assets_video_inputs import tracker as tracker_contract
-    from aap_assets_video_inputs.tracker_client import TrackerVideoInputClient
+    from yoao_assets_video_inputs import tracker as tracker_contract
+    from yoao_assets_video_inputs.tracker_client import TrackerVideoInputClient
     from app.db.models.async_job import AsyncJobStatus
     from app.db.models.video_tracker_job import VideoTrackerJobStatus
 
@@ -1113,12 +1113,12 @@ async def exercise_video_tracker_queue_and_restore(
                         )
 
                         import subprocess
-                        from aap_inference.restore import VideoRestoreManager
-                        from aap_inference.restore_contract import RestoreCommand
-                        from aap_inference.restore_postgres import (
+                        from yoao_inference.restore import VideoRestoreManager
+                        from yoao_inference.restore_contract import RestoreCommand
+                        from yoao_inference.restore_postgres import (
                             VideoRestorePostgresProvider,
                         )
-                        from aap_inference.routing_backend_control import (
+                        from yoao_inference.routing_backend_control import (
                             BackendRoutingControl,
                         )
                         from tests.test_video_restore_worker_live import _clone_role_dsn

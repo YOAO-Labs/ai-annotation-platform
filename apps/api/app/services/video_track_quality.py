@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project

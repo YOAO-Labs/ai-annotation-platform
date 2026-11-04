@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import inspect
 from sqlalchemy.exc import DBAPIError
 
-from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
 from app.db.models.project import Project
 from app.services import project_workspace
 from app.application import point_cloud_quality_promotion

@@ -17,14 +17,14 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import asyncpg
-from aap_assets_video_inputs.tracker import TrackerSourceReferenceRequest
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
-from aap_labeling.video_writer_client import VideoWriterHttpClient
-from aap_labeling.video_writer_contract import video_writer_operation_id
-from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_assets_video_inputs.tracker import TrackerSourceReferenceRequest
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import make_routing_command
+from yoao_labeling.video_writer_client import VideoWriterHttpClient
+from yoao_labeling.video_writer_contract import video_writer_operation_id
+from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 from fastapi import FastAPI, HTTPException, Request
 import httpx
 import pytest
@@ -333,7 +333,7 @@ class _StandaloneWriter:
 
     def start(self) -> None:
         self.process, self.stream = _start_process(
-            [sys.executable, "-m", "aap_labeling.video_writer_main"],
+            [sys.executable, "-m", "yoao_labeling.video_writer_main"],
             self.environment,
             self.log,
         )
@@ -734,7 +734,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                                     .all()
                                 )
                             assert pins == [True, True]
-                        from aap_preannotation_results.video_window_checkpoint import (
+                        from yoao_preannotation_results.video_window_checkpoint import (
                             decode_video_window_checkpoint_payload,
                         )
 
@@ -1019,8 +1019,8 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                         root.root_kind == "video_tracker_running_outputs"
                         for root in mask_roots
                     )
-                    from aap_assets_mask_content.client import MaskContentClient
-                    from aap_assets_mask_content.contract import (
+                    from yoao_assets_mask_content.client import MaskContentClient
+                    from yoao_assets_mask_content.contract import (
                         GetRequest,
                         MaskReference,
                     )

@@ -3,13 +3,13 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     ManagedLifecycleCapabilities,
     canonical_managed_lifecycle_capabilities,
 )
-from aap_inference import ModelCapability
+from yoao_inference import ModelCapability
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from aap_task_contract import normalize_modality_fields
+from yoao_task_contract import normalize_modality_fields
 
 from app.utils.gpu_resource import validate_gpu_resource_id
 

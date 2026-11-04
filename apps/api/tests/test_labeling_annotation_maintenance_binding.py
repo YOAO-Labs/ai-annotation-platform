@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 
-from aap_labeling.annotation_maintenance_contract import DraftData, MaintenanceDraft
+from yoao_labeling.annotation_maintenance_contract import DraftData, MaintenanceDraft
 from app.db.models.task_lock import AnnotationDraft
 from app.services.labeling_annotation_maintenance import (
     LabelingAnnotationMaintenanceService,

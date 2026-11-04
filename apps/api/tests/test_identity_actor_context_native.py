@@ -8,8 +8,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.postgres import PostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.postgres import PostgresData
 from tests.test_identity_auth_native import _call, _cleanup, _seed
 from tests.test_identity_auth_roles import _dsn
 

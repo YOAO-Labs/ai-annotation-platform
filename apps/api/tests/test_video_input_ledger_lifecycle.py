@@ -5,9 +5,9 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import values as v
-from aap_assets_video_inputs.evidence import (
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import values as v
+from yoao_assets_video_inputs.evidence import (
     AttachAnnotationVideoInputSourceRequest,
     CopyAnnotationVideoInputSourcesRequest,
     parse_labeling_native,

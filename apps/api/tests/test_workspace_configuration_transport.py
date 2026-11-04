@@ -8,12 +8,12 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aap_workspace.configuration_contract import (
+from yoao_workspace.configuration_contract import (
     configuration_rename_success_reply,
     configuration_success_reply,
     decode_configuration_request,
 )
-from aap_workspace_contract.project_query_contract import (
+from yoao_workspace_contract.project_query_contract import (
     ProjectClassRenameEvidence,
     ProjectQuerySuccess,
     project_query_request,
@@ -62,7 +62,7 @@ async def test_remote_transport_retry_reuses_uuid_and_never_calls_local_writer(
         assert request.headers["Authorization"] == "Bearer private-token"
         if len(seen) == 1:
             raise httpx.ConnectError("Lost reply", request=request)
-        from aap_workspace.configuration_contract import decode_configuration_request
+        from yoao_workspace.configuration_contract import decode_configuration_request
 
         reply = configuration_success_reply(
             decode_configuration_request(command), resource

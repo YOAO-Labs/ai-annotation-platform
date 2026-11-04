@@ -37,10 +37,10 @@ from app.services.prediction_retry_data import (
     SqlAlchemyPredictionRetryData,
 )
 from app.services.raster_mask_contract import RasterMaskContractError
-from aap_inference.gpu.contracts import GPUArbiterDispatchError
-from aap_inference.execution_pipeline import execute_task_pipeline
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError
+from yoao_inference.execution_pipeline import execute_task_pipeline
 
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ModelExecutionError,
     freeze_json,
     thaw_json,
@@ -76,7 +76,7 @@ def _model_execution_port(db):
 
 
 async def call_retry(database, operation, **values):
-    from aap_preannotation_results import retry_contract as c
+    from yoao_preannotation_results import retry_contract as c
 
     request = c.OPERATIONS[operation].request.model_validate_json(_json_text(values))
     try:
@@ -354,7 +354,7 @@ async def _infer(execution, attempt, prepared, session_factory):
                 ):
                     raise ValueError("retry execution snapshot changed")
             if snapshot_payload is not None:
-                from aap_inference.execution_pipeline import resolve_input_mode
+                from yoao_inference.execution_pipeline import resolve_input_mode
                 from app.services.prediction_execution import (
                     build_stage_context,
                     execution_summary,
@@ -685,8 +685,8 @@ async def _apply_snapshot(execution, attempt, data, session_factory, result, req
 async def _finish_failure(
     execution, attempt, data, session_factory, error, *, abandon=False
 ):
-    from aap_preannotation_results.retry_contract import PredictionRetryFailure
-    from aap_inference.gpu.contracts import gpu_arbiter_failure_record
+    from yoao_preannotation_results.retry_contract import PredictionRetryFailure
+    from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
     from app.services.labeling_write_guard import lock_labeling_write
 
     gpu_error = gpu_arbiter_failure_record(error)
@@ -959,8 +959,8 @@ async def run_durable_prediction_retry(
                 ):
                     code = "storage_unavailable"
                 raise PreannotationResultDeferred(code) from None
-            from aap_preannotation_results.contract import BatchResultFailure
-            from aap_preannotation_results.retry_contract import PredictionRetryFailure
+            from yoao_preannotation_results.contract import BatchResultFailure
+            from yoao_preannotation_results.retry_contract import PredictionRetryFailure
 
             if isinstance(error, (BatchResultFailure, PredictionRetryFailure)):
                 outcome = await _terminal_outcome(data, attempt)

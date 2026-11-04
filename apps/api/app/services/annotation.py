@@ -15,7 +15,7 @@ from sqlalchemy import inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_labeling.annotation_write_contract import (
+from yoao_labeling.annotation_write_contract import (
     ANNOTATION_WRITE_PROTOCOL,
     BindSceneTrackMember,
     CreateAnnotation,
@@ -24,15 +24,15 @@ from aap_labeling.annotation_write_contract import (
     UpdateAnnotation,
     WriteCreateReceipt,
 )
-from aap_labeling.annotation_bulk_contract import (
+from yoao_labeling.annotation_bulk_contract import (
     ANNOTATION_BULK_PROTOCOL,
     AnnotationBulkPatch,
     UpdateAnnotations,
 )
-from aap_labeling.cross_frame_write_policy import (
+from yoao_labeling.cross_frame_write_policy import (
     PROPAGATABLE_GEOMETRY_TYPES as PROPAGATABLE_GEOMETRY_TYPES,
 )
-from aap_labeling.annotation_prediction_contract import (
+from yoao_labeling.annotation_prediction_contract import (
     ApplySecondaryAttributes,
     CreateAcceptedAnnotation,
     MarkSecondaryChild,
@@ -66,7 +66,7 @@ from app.services.labeling_write_guard import lock_labeling_write
 from app.services.secondary_inference_result import (
     SecondaryInferenceResult,
 )
-from aap_inference_contract.execution import thaw_json
+from yoao_inference_contract.execution import thaw_json
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
@@ -348,7 +348,7 @@ class AnnotationService:
             return
         if class_name == "__unknown":
             return
-        from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
+        from yoao_workspace.configuration_policy import lookup_classes_for_tool_unit
         from fastapi import HTTPException
 
         project = await get_workspace_project(self.db, project_id=project_id)
@@ -687,8 +687,8 @@ class AnnotationService:
         accepted_input_sha256 = None
         accepted_video_input = None
         if "accepted_input" in meta_extra:
-            from aap_assets_inputs import contract as accepted_inputs_contract
-            from aap_assets_inputs.contract import InputFailure
+            from yoao_assets_inputs import contract as accepted_inputs_contract
+            from yoao_assets_inputs.contract import InputFailure
 
             raw_input = meta_extra.get("accepted_input")
             try:
@@ -755,8 +755,8 @@ class AnnotationService:
             accepted_input_sha256 = sha256
             write_scope = replace(write_scope, accepted_input_id=accepted_input_id)
         if "accepted_video_input" in meta_extra:
-            from aap_assets_video_inputs import execution as video_execution
-            from aap_assets_video_inputs.evidence import (
+            from yoao_assets_video_inputs import execution as video_execution
+            from yoao_assets_video_inputs.evidence import (
                 VideoEvidenceFailure,
                 VideoInputEvidence,
                 parse_prediction_evidence,
@@ -1111,7 +1111,7 @@ class AnnotationService:
                     sha256=accepted_input_sha256,
                 )
         if accepted_video_input is not None:
-            from aap_assets_video_inputs.evidence import VideoEvidenceFailure
+            from yoao_assets_video_inputs.evidence import VideoEvidenceFailure
             from app.services.accepted_video_inputs import (
                 attach_annotation_video_input_source,
             )

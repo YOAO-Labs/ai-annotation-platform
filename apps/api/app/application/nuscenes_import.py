@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from aap_assets_source.operator_contract import RecountOperatorItemsRequest
+from yoao_assets_source.operator_contract import RecountOperatorItemsRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow

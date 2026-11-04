@@ -13,7 +13,7 @@ from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.services.video_tracking.adapters import TrackerContext
-from aap_inference.tracker import TrackerFrameResult
+from yoao_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import run_tracker_job
 from tests.tracker_input_test_ports import tracker_fake_propagation
 

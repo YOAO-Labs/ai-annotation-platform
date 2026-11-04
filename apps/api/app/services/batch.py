@@ -11,7 +11,7 @@ from sqlalchemy import select, func, or_, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.batch_control_contract import (
+from yoao_labeling.batch_control_contract import (
     ApplyBatchAssignments,
     AssignTasks,
     BatchAssignment,
@@ -57,7 +57,7 @@ from app.services.progress import (
     publish_batch_assignment_change,
     publish_batch_status_change,
 )
-from aap_workspace_contract.access import membership_role_compatible
+from yoao_workspace_contract.access import membership_role_compatible
 from app.services.labeling_scene import resolve_task_scene_frames
 from app.services.labeling_write_scope import LabelingBatchWriteScope
 from app.services.labeling_write_guard import lock_labeling_batch_write
@@ -1148,7 +1148,7 @@ class BatchService:
         """
 
         from app.services.annotation_evidence import lock_tasks_for_evidence
-        from aap_workspace_contract.access import ProjectCapability
+        from yoao_workspace_contract.access import ProjectCapability
         from app.services.project_access import resolve_project_access
         from app.services.task_lock import assert_task_user_active
 

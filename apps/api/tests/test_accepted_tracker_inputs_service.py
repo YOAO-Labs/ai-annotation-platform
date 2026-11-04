@@ -6,8 +6,8 @@ import uuid
 
 import pytest
 
-from aap_assets_video_inputs import tracker as t
-from aap_assets_video_inputs.tracker import TrackerFailure
+from yoao_assets_video_inputs import tracker as t
+from yoao_assets_video_inputs.tracker import TrackerFailure
 from app.services.accepted_tracker_inputs import (
     TrackerInputDeferred,
     TrackerVideoInputGateway,

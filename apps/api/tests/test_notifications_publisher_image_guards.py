@@ -228,7 +228,7 @@ def test_default_container_command_uses_the_installed_publisher_cli(monkeypatch)
     assert container_id == "container-id"
     assert arguments_seen[-3:] == [
         IMAGE_ID,
-        "aap-notifications-publisher",
+        "yoao-notifications-publisher",
         "--once",
     ]
     assert "--entrypoint" not in arguments_seen

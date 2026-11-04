@@ -16,8 +16,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_video_inputs import execution as tracker_input_execution
-from aap_assets_video_inputs_runtime.garbage import VideoGarbageCollector
+from yoao_assets_video_inputs import execution as tracker_input_execution
+from yoao_assets_video_inputs_runtime.garbage import VideoGarbageCollector
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import ProjectDataset
 from app.db.models.video_tracker_job import VideoTrackerJob
@@ -1663,18 +1663,18 @@ def _function_url(test_engine, kind):
 async def test_portable_function_only_client_preserves_retirement_failure(
     test_engine, kind
 ):
-    from aap_workspace.dataset_unlink import DatasetUnlinkManager
-    from aap_workspace.dataset_unlink_contract import (
+    from yoao_workspace.dataset_unlink import DatasetUnlinkManager
+    from yoao_workspace.dataset_unlink_contract import (
         DatasetUnlinkCommand,
         DatasetUnlinkFailure,
     )
-    from aap_workspace.dataset_unlink_postgres import DatasetUnlinkPostgresData
-    from aap_workspace.project_deletion import ProjectDeletionManager
-    from aap_workspace.project_deletion_contract import (
+    from yoao_workspace.dataset_unlink_postgres import DatasetUnlinkPostgresData
+    from yoao_workspace.project_deletion import ProjectDeletionManager
+    from yoao_workspace.project_deletion_contract import (
         ProjectDeletionCommand,
         ProjectDeletionFailure,
     )
-    from aap_workspace.project_deletion_postgres import ProjectDeletionPostgresData
+    from yoao_workspace.project_deletion_postgres import ProjectDeletionPostgresData
 
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
     async with owner.begin() as db:

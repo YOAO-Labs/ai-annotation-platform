@@ -15,8 +15,8 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
-from aap_identity.recovery_crypto import mail_key_from_secret
-from aap_identity.security import create_access_token
+from yoao_identity.recovery_crypto import mail_key_from_secret
+from yoao_identity.security import create_access_token
 from app.db.models.group import Group
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User

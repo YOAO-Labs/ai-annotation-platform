@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJobKind
@@ -64,7 +64,7 @@ from app.services.video_tracks import (
 )
 from app.utils.raster_mask_rle import coco_rle_area
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
-from aap_labeling.quality_data_contract import (
+from yoao_labeling.quality_data_contract import (
     AttachRepairJob,
     AttachRepairRollbackJob,
     BeginRepairExecution,

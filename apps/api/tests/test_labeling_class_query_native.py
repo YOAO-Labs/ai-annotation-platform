@@ -9,20 +9,20 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.class_queries import (
+from yoao_labeling.class_queries import (
     LabelingClassQueryManager,
     materialize_labeling_class_query_data,
 )
-from aap_labeling.class_query_contract import (
+from yoao_labeling.class_query_contract import (
     LabelingClassQueryUnavailable,
     labeling_class_query_request,
 )
-from aap_labeling.class_query_postgres import (
+from yoao_labeling.class_query_postgres import (
     CLASS_QUERY_FUNCTIONS,
     CLASS_QUERY_SCHEMA,
     LabelingClassQueryPostgresData,
 )
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.services.labeling_class_query_data import LabelingClassQueryData
 from tests.factory import create_project, create_task, create_user

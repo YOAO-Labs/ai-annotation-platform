@@ -28,7 +28,7 @@ from pydantic import (
     model_validator,
 )
 
-from aap_assets_catalog.spatial_values import LidarAxisConvention, SensorCalibration
+from yoao_assets_catalog.spatial_values import LidarAxisConvention, SensorCalibration
 
 from app.utils.raster_mask_rle import MAX_IMAGE_MASK_DIMENSION
 
@@ -439,7 +439,7 @@ class PolygonGeometry(BaseModel):
 class MultiPolygonGeometry(BaseModel):
     """多连通域 polygon 集合。每个 polygons[i] 内部仍是带 hole 的单连通 PolygonGeometry。
 
-    配合 anno-mask-utils 的 mask_to_multi_polygon 输出。Predictor 在单连通无 hole 时
+    配合 yoao-mask-utils 的 mask_to_multi_polygon 输出。Predictor 在单连通无 hole 时
     仍输出 PolygonGeometry 兼容老前端; 多连通或带 hole 才走本分支。
     """
 

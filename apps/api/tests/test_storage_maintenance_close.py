@@ -9,12 +9,12 @@ import paramiko
 import pytest
 
 from app.config import settings
-from aap_assets_source.connectors import probe as probe_module
+from yoao_assets_source.connectors import probe as probe_module
 from app.services import filesystem_storage as fs, storage_access
 from app.services.source_readers import s3 as s3_reference
 from app.services.source_readers import sftp as sftp_reference
-from aap_assets_source.connectors.s3 import S3CompatibleSource
-from aap_assets_source.connectors.sftp import SftpSource
+from yoao_assets_source.connectors.s3 import S3CompatibleSource
+from yoao_assets_source.connectors.sftp import SftpSource
 from tests.test_s3_references import MemoryS3
 from tests.test_sftp_references import MemoryFile, MemorySftp
 
@@ -194,7 +194,7 @@ def test_sftp_probe_does_not_swallow_failed_body_close(tmp_path, monkeypatch):
 def test_copy_adapter_closes_real_s3_client_and_failed_sftp_constructor(monkeypatch):
     closed = []
     monkeypatch.setattr(
-        "aap_assets_source.connectors.s3.boto3.client",
+        "yoao_assets_source.connectors.s3.boto3.client",
         lambda *args, **kwargs: SimpleNamespace(close=lambda: closed.append("s3")),
     )
     source = S3CompatibleSource({"endpoint": "example.test", "bucket": "data"}, {})

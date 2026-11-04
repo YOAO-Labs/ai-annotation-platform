@@ -6,10 +6,10 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from aap_inference.gpu.client import GPUAuthorityHTTPClient
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
-from aap_inference_contract.gpu import GPU_AUTHORITY_REPLY_MAX_BYTES
-from aap_workspace.config import secret_source
+from yoao_inference.gpu.client import GPUAuthorityHTTPClient
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from yoao_inference_contract.gpu import GPU_AUTHORITY_REPLY_MAX_BYTES
+from yoao_workspace.config import secret_source
 
 from app.config import settings
 

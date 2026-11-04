@@ -10,13 +10,13 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
-from aap_inference.gpu.settings import (
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from yoao_inference.gpu.settings import (
     GPUArbiterMode,
     GPUAuthoritySettings,
     parse_gpu_resources,
 )
-from aap_inference.backend_transport import BackendTransport
+from yoao_inference.backend_transport import BackendTransport
 from scripts.validate_gpu_arbitration import (
     ActionSpec,
     BackendEndpoint,

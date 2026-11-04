@@ -20,8 +20,8 @@ from app.db.models.point_cloud_quality import (
 )
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
-from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
-from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
+from yoao_assets_catalog.spatial_values import SensorCalibration, calibration_digest
+from yoao_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )

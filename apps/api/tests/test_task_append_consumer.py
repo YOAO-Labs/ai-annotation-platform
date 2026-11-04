@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from aap_assets_source.operator_contract import OperatorItem, OperatorSourceEntry
+from yoao_assets_source.operator_contract import OperatorItem, OperatorSourceEntry
 from pydantic import ValidationError
 from sqlalchemy import delete, event, func, insert, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker

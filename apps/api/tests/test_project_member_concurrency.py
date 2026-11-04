@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from aap_workspace.contract import MembershipRecord
+from yoao_workspace.contract import MembershipRecord
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
@@ -24,7 +24,7 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from aap_workspace_contract.access import ProjectCapability
+from yoao_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 from app.services.workspace_membership import change_role, remove_member
 from app.services.workspace_membership import add_member, preview_role_change

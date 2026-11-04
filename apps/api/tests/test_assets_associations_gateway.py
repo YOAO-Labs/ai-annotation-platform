@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog.associations_contract import (
+from yoao_assets_catalog.associations_contract import (
     ASSOCIATIONS_SCHEMA,
     DatasetProjectsResult,
     LinkedProjectSnapshot,

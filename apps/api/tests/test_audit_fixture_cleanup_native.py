@@ -12,8 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_audit.maintenance_contract import MAINTENANCE_PROTOCOL
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.maintenance_contract import MAINTENANCE_PROTOCOL
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 
 async def test_api_filtering_cleanup_propagates_audit_owner_failure(monkeypatch):

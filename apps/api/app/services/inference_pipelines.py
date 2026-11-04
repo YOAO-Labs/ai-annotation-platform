@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 import uuid
 
-from aap_inference.pipeline_client import PipelineHttpClient
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_client import PipelineHttpClient
+from yoao_inference.pipeline_contract import (
     PipelineCommandRequest,
     PipelineInvalidRequest,
     PipelinePostCommitFailure,
@@ -16,8 +16,8 @@ from aap_inference.pipeline_contract import (
     pipeline_command_request,
     pipeline_query_request,
 )
-from aap_inference.pipeline_manager import PipelineManager
-from aap_workspace.config import secret_source
+from yoao_inference.pipeline_manager import PipelineManager
+from yoao_workspace.config import secret_source
 from fastapi import HTTPException
 import httpx
 from sqlalchemy.exc import SQLAlchemyError

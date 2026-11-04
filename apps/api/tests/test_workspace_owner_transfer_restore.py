@@ -11,9 +11,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_workspace.owner_transfer_contract import decode_owner_transfer_request
-from aap_workspace.owner_transfer import OwnerTransferManager
-from aap_workspace.owner_transfer_postgres import OwnerTransferPostgresData
+from yoao_workspace.owner_transfer_contract import decode_owner_transfer_request
+from yoao_workspace.owner_transfer import OwnerTransferManager
+from yoao_workspace.owner_transfer_postgres import OwnerTransferPostgresData
 from app.db.models.project import Project
 from app.db.models.user import User
 from tests.test_identity_recovery import _alembic, _postgres_tool

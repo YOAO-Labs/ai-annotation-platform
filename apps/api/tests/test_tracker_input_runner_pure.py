@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_assets_video_inputs.tracker import TrackerFailure
+from yoao_assets_video_inputs.tracker import TrackerFailure
 from app.services.video_tracking import runner
 from app.services.video_tracking.runner import (
     TrackerJobStateConflict,

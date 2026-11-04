@@ -25,8 +25,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 import websockets
 from jose.exceptions import JWTError
 
-from aap_identity.contract import decode_principal_reply
-from aap_identity.security import (
+from yoao_identity.contract import decode_principal_reply
+from yoao_identity.security import (
     create_access_token,
     decode_access_token,
     hash_password,
@@ -53,19 +53,19 @@ pytestmark = [
 INSTALLATION_PROBE = """
 import hashlib, importlib.util, json, os, sys
 from pathlib import Path
-import aap_identity, aap_identity_runtime, aap_mail_transport
+import yoao_identity, yoao_identity_runtime, yoao_mail_transport
 assert all(importlib.util.find_spec(name) is None for name in
            ('app', 'sqlalchemy', 'celery', 'boto3', 'torch'))
 assert importlib.util.find_spec('redis') is not None
 files = {}
-for module in (aap_identity, aap_identity_runtime, aap_mail_transport):
+for module in (yoao_identity, yoao_identity_runtime, yoao_mail_transport):
     directory = Path(module.__file__).resolve().parent
     assert directory.is_relative_to(Path(sys.prefix).resolve())
     assert 'site-packages' in directory.parts
     for path in directory.rglob('*'):
         if path.suffix in ('.py', '.json'):
             files[str(path.relative_to(directory.parent))] = hashlib.sha256(path.read_bytes()).hexdigest()
-assert 'aap_identity/protocol.schema.json' in files
+assert 'yoao_identity/protocol.schema.json' in files
 mountinfo = Path('/proc/self/mountinfo')
 tmpfs = mountinfo.is_file() and any(
     row.split()[4] == '/tmp' and ' - tmpfs ' in row
@@ -420,7 +420,7 @@ def _start_identity(
         path.chmod(0o600)
         environment[f"IDENTITY_{name.upper()}_FILE"] = str(path)
     return _start(
-        [str(interpreter), "-I", "-m", "aap_identity_runtime"],
+        [str(interpreter), "-I", "-m", "yoao_identity_runtime"],
         environment,
         directory,
         directory / f"identity-{environment['IDENTITY_PORT']}.log",

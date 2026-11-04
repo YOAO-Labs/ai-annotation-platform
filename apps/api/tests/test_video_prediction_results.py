@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from aap_inference_contract.execution import thaw_json
+from yoao_inference_contract.execution import thaw_json
 
 from app.services import video_prediction_results as subject
 from app.services.content_snapshot import ContentError

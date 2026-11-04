@@ -13,12 +13,12 @@ from cryptography.fernet import Fernet
 import pytest
 from sqlalchemy import text
 
-from aap_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
-from aap_identity.recovery_contract import decode_recovery_request
-from aap_identity.recovery_crypto import token_hash
-from aap_identity.recovery_manager import RecoveryManager
-from aap_identity.recovery_postgres import RecoveryPostgresData
-from aap_identity_runtime.mail_worker import MailExecutor
+from yoao_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from yoao_identity.recovery_contract import decode_recovery_request
+from yoao_identity.recovery_crypto import token_hash
+from yoao_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_postgres import RecoveryPostgresData
+from yoao_identity_runtime.mail_worker import MailExecutor
 from tests.identity_recovery_live_helpers import SMTPInbox, cleanup, command, outbox
 from tests.test_identity_admission_live import _dsn, _world
 from tests.test_identity_admission_live import ROOT

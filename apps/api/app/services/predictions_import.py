@@ -48,7 +48,7 @@ from app.services.labeling_prediction_contract import (
 )
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
-from aap_workspace_contract import derive_classes_list
+from yoao_workspace_contract import derive_classes_list
 from app.services.task_matcher import (
     normalize_file_stem_path,
     resolve_task,
@@ -351,7 +351,7 @@ async def _hold_import_authority(
         bind_project_write_policy_resolver,
         restore_project_write_policy_failure,
     )
-    from aap_workspace_contract.access import (
+    from yoao_workspace_contract.access import (
         ProjectWritePolicyFailure,
         ProjectWritePolicyRequest,
     )

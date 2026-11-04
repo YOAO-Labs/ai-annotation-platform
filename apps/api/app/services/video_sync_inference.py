@@ -42,7 +42,7 @@ def _changed():
 
 def _dispatch_fact(dispatch):
     """Opaque, credential-free facts for the actual selected attempt."""
-    from aap_inference_contract.execution import ModelExecutionDispatch
+    from yoao_inference_contract.execution import ModelExecutionDispatch
 
     if (
         not isinstance(dispatch, ModelExecutionDispatch)

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from aap_task_contract import VISUAL_TASK_VALUES
+from yoao_task_contract import VISUAL_TASK_VALUES
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 
 import asyncio
 import hashlib

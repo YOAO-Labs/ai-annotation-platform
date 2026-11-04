@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import text, update
 from sqlalchemy.engine import make_url
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from app.db.models.user import User
 from tests.factory import create_user
 from tests.test_identity_admission_live import (

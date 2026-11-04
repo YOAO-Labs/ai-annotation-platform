@@ -17,13 +17,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.gc_client import MaskGcClient
-from aap_assets_mask_content import gc_contract as byte
-from aap_assets_mask_content.gc_storage import S3MaskGcStore
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc.coordinator import run_cycle
-from aap_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.gc_client import MaskGcClient
+from yoao_assets_mask_content import gc_contract as byte
+from yoao_assets_mask_content.gc_storage import S3MaskGcStore
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc.coordinator import run_cycle
+from yoao_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
 from tests.test_asset_storage_cleanup_runtime import _object_exists, _required_env
 from tests.test_mask_content_live import (
     _owned_resources,
@@ -140,7 +140,7 @@ def _start_delayed_byte_runtime(bucket, credentials, tmp_path, monkeypatch):
 from pathlib import Path
 import time
 from botocore.client import BaseClient
-from aap_assets_mask_content_runtime.__main__ import main
+from yoao_assets_mask_content_runtime.__main__ import main
 original = BaseClient._make_api_call
 def invoke(self, name, arguments):
     result = original(self, name, arguments)
@@ -158,7 +158,7 @@ main()
     original_popen = subprocess.Popen
 
     def start(command, **kwargs):
-        assert command[1:] == ["-m", "aap_assets_mask_content_runtime"]
+        assert command[1:] == ["-m", "yoao_assets_mask_content_runtime"]
         return original_popen([command[0], "-c", bootstrap], **kwargs)
 
     with monkeypatch.context() as context:

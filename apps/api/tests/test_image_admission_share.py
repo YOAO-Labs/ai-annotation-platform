@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images.policy import ImagePolicy
 from app.db.models.task import Task
 from tests.factory import create_project
 from tests.test_identity_auth_native import _cleanup, _seed

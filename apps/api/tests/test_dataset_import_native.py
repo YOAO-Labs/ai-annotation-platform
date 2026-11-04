@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import text, update
 from sqlalchemy.exc import DBAPIError
 
-from aap_assets_source.contract import SourceDeletionRequest
+from yoao_assets_source.contract import SourceDeletionRequest
 from app.config import settings
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.db.models.dataset import Dataset, DatasetItem

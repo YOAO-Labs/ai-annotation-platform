@@ -13,12 +13,12 @@ from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.exc import StaleDataError
 
-from aap_labeling.task_maintenance_contract import (
+from yoao_labeling.task_maintenance_contract import (
     TaskMaintenanceCommand,
     TaskMaintenanceData,
     TaskMaintenanceUnavailable,
 )
-from aap_labeling.task_maintenance_data import TaskMaintenanceDataClient
+from yoao_labeling.task_maintenance_data import TaskMaintenanceDataClient
 from app.services.labeling_annotation_data import _native_error_fields
 
 

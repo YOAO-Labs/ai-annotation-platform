@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_labeling.class_query_contract import (
+from yoao_labeling.class_query_contract import (
     LabelingClassQueryUnavailable,
     decode_labeling_class_query_policy,
 )
-from aap_labeling.class_query_postgres import CLASS_QUERY_SCHEMA
+from yoao_labeling.class_query_postgres import CLASS_QUERY_SCHEMA
 
 
 class LabelingClassQueryData:

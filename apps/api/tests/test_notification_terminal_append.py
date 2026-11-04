@@ -16,13 +16,13 @@ from app.db.models.notification_preference import NotificationPreference
 from app.db.models.user import User
 from app.services.async_job_notify import notify_job_terminal
 from app.services.notification import NotificationService
-from aap_notifications.terminal_append import NotificationTerminalAppendManager
-from aap_notifications.terminal_append_contract import (
+from yoao_notifications.terminal_append import NotificationTerminalAppendManager
+from yoao_notifications.terminal_append_contract import (
     TERMINAL_APPEND_PROTOCOL,
     NotificationTerminalAppendUnavailable,
     TerminalNotificationRequest,
 )
-from aap_notifications.terminal_append_postgres import (
+from yoao_notifications.terminal_append_postgres import (
     NotificationTerminalAppendPostgresData,
 )
 

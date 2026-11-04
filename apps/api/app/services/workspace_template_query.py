@@ -7,15 +7,15 @@ import asyncio
 from fastapi import HTTPException
 import httpx
 
-from aap_workspace.config import secret_source
-from aap_workspace.template_queries import TemplateQueryManager
-from aap_workspace.template_query_contract import (
+from yoao_workspace.config import secret_source
+from yoao_workspace.template_queries import TemplateQueryManager
+from yoao_workspace.template_query_contract import (
     TemplateQueryUnavailable,
     decode_template_query_reply,
     materialize_template_query_data,
     template_query_request,
 )
-from aap_workspace.template_query_postgres import TemplateQueryPostgresData
+from yoao_workspace.template_query_postgres import TemplateQueryPostgresData
 from app.config import settings
 from app.services.workspace_template_query_data import WorkspaceTemplateQueryData
 

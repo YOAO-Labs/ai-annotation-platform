@@ -23,8 +23,8 @@ from tests.factory import create_user
 
 
 async def _group_command(db, actor_id, operation, payload, *, operation_id=None):
-    from aap_identity.contract import Principal
-    from aap_identity.group_contract import (
+    from yoao_identity.contract import Principal
+    from yoao_identity.group_contract import (
         decode_native_group_command,
         decode_native_group_reply,
     )
@@ -215,7 +215,7 @@ async def test_busy_logout_does_not_revoke_token_before_account_admission(
 async def test_group_authority_stays_fenced_until_commit_and_rechecks_disable(
     test_engine,
 ):
-    from aap_identity.group_contract import GroupFailure
+    from yoao_identity.group_contract import GroupFailure
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as setup:

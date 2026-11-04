@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
-from aap_identity.deactivation_contract import decode_deactivation_due_request
+from yoao_identity.deactivation_contract import decode_deactivation_due_request
 from app.services.identity_deactivation_data import IdentityDeactivationDueData
 
 

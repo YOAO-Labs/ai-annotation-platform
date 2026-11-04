@@ -19,8 +19,8 @@ from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
-from aap_assets_catalog.spatial_contract import UpdateCalibrationRequest
+from yoao_assets_catalog.spatial_values import SensorCalibration, calibration_digest
+from yoao_assets_catalog.spatial_contract import UpdateCalibrationRequest
 from app.schemas.multicamera_annotation import NormalizedCameraBbox
 from app.services.exporting import packaging
 from app.services.exporting.lidar_preflight import preflight_lidar_export

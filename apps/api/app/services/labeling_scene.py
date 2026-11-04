@@ -12,7 +12,7 @@ from app.schemas.scene import NeighborInfo, NeighborsResponse
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene_read import read_scene_data
 from app.services.labeling_core_read_relations import get_core_row, task_row
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     GetSceneRequest,
     ReadItemsRequest,
     ReadLayoutRequest,

@@ -31,7 +31,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 import uuid
 
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     BackendResidency,
     GPU_ADMISSION_TOKEN_HEADER,
@@ -46,12 +46,12 @@ from app.db.models.gpu_backend_cancel_intent import GPUBackendCancelIntent
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from aap_inference.backend_transport import BackendTransport
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUDispatchRequest
-from aap_inference.gpu.ledger import GPUArbiterStore, GPUArbiterStoreError
-from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
-from aap_inference.gpu.signing import GPUAdmissionTokenSigner
-from aap_workspace.config import secret_source
+from yoao_inference.backend_transport import BackendTransport
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUDispatchRequest
+from yoao_inference.gpu.ledger import GPUArbiterStore, GPUArbiterStoreError
+from yoao_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from yoao_inference.gpu.signing import GPUAdmissionTokenSigner
+from yoao_workspace.config import secret_source
 from app.observability.metrics import observe_ml_backend
 from app.utils.gpu_resource import validate_gpu_resource_id
 
@@ -1406,7 +1406,7 @@ async def refresh_runtime_proofs(
     """Persist fresh challenge proofs before the mutating validation run."""
 
     if refresher is None:
-        from aap_inference.gpu_health import PersistedGPUHealthRefresher
+        from yoao_inference.gpu_health import PersistedGPUHealthRefresher
         from app.services.inference_limits import capability_limits_from_settings
 
         refresher = PersistedGPUHealthRefresher(
@@ -2825,12 +2825,12 @@ async def run_validation(
     config: Settings,
 ) -> dict[str, Any]:
     import asyncpg
-    from aap_inference.gpu.dispatch import build_gpu_dispatch_context_factory
-    from aap_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
-    from aap_inference.gpu.native import GPUAuthorityPoolData
-    from aap_inference.gpu_health import PersistedGPUHealthRefresher
-    from aap_inference.owner_transport import BackendTransportGPUControlAdapter
-    from aap_inference.routing_runtime import RoutingRuntime
+    from yoao_inference.gpu.dispatch import build_gpu_dispatch_context_factory
+    from yoao_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
+    from yoao_inference.gpu.native import GPUAuthorityPoolData
+    from yoao_inference.gpu_health import PersistedGPUHealthRefresher
+    from yoao_inference.owner_transport import BackendTransportGPUControlAdapter
+    from yoao_inference.routing_runtime import RoutingRuntime
     from app.services.inference_limits import capability_limits_from_settings
 
     _validate_run_safety(

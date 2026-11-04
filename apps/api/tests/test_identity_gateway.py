@@ -7,7 +7,12 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.contract import FailureCode, Principal, failure_reply, principal_reply
+from yoao_identity.contract import (
+    FailureCode,
+    Principal,
+    failure_reply,
+    principal_reply,
+)
 from app.services.identity_contracts import (
     IdentityCredentialRejected,
     IdentityGatewayUnavailable,
@@ -72,7 +77,7 @@ async def test_remote_gateway_uses_versioned_control_authenticated_protocol(
     principal = _principal()
     client = _Client(_Response(200, principal_reply(principal)))
     monkeypatch.setattr(
-        "aap_identity_admission.client.httpx.AsyncClient",
+        "yoao_identity_admission.client.httpx.AsyncClient",
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
@@ -95,7 +100,7 @@ async def test_remote_credential_failure_never_falls_back_to_embedded(monkeypatc
     code: FailureCode = "credential_revoked"
     client = _Client(_Response(200, failure_reply(code)))
     monkeypatch.setattr(
-        "aap_identity_admission.client.httpx.AsyncClient",
+        "yoao_identity_admission.client.httpx.AsyncClient",
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
@@ -115,7 +120,7 @@ async def test_remote_credential_failure_never_falls_back_to_embedded(monkeypatc
 async def test_remote_outage_and_bad_control_credentials_fail_closed(monkeypatch):
     client = _Client(_Response(503, {"error": "unavailable"}))
     monkeypatch.setattr(
-        "aap_identity_admission.client.httpx.AsyncClient",
+        "yoao_identity_admission.client.httpx.AsyncClient",
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
@@ -161,9 +166,9 @@ async def test_secret_file_is_bounded_and_configuration_never_falls_back(tmp_pat
 async def test_remote_response_budget_is_enforced_during_stream(monkeypatch):
     client = _Client(_Response(200, principal_reply(_principal())))
     monkeypatch.setattr(
-        "aap_identity_admission.client.httpx.AsyncClient", lambda **kwargs: client
+        "yoao_identity_admission.client.httpx.AsyncClient", lambda **kwargs: client
     )
-    monkeypatch.setattr("aap_identity_admission.client.MAX_RESPONSE_BYTES", 128)
+    monkeypatch.setattr("yoao_identity_admission.client.MAX_RESPONSE_BYTES", 128)
     with pytest.raises(IdentityGatewayUnavailable):
         await IdentityGateway(
             identity_url="https://identity.internal", identity_token="control"

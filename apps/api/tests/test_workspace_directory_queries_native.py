@@ -10,24 +10,24 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.directory_queries import DirectoryQueryManager
-from aap_workspace.directory_query_contract import (
+from yoao_workspace.directory_queries import DirectoryQueryManager
+from yoao_workspace.directory_query_contract import (
     DIRECTORY_QUERY_PROTOCOL,
     DirectoryQueryProjectId,
     DirectoryQueryUserId,
     decode_directory_query_step,
     directory_query_request,
 )
-from aap_workspace.directory_query_postgres import (
+from yoao_workspace.directory_query_postgres import (
     DIRECTORY_QUERY_FUNCTIONS,
     DIRECTORY_QUERY_SCHEMA,
     DirectoryQueryPostgresData,
     directory_query_step_arguments,
 )
-from aap_workspace.directory_query_values import (
+from yoao_workspace.directory_query_values import (
     materialize_directory_query_data,
 )
-from aap_workspace_contract.member_values import (
+from yoao_workspace_contract.member_values import (
     PROJECT_MEMBER_COLUMNS,
     PROJECT_MEMBER_MENTION_COLUMNS,
 )
@@ -65,7 +65,7 @@ async def _step(connection, request, action, parameters=None):
 
 
 async def test_directory_login_has_only_two_functions_and_no_data_access(test_engine):
-    from aap_owner_data.postgres import verify_function_only_role
+    from yoao_owner_data.postgres import verify_function_only_role
 
     dsn = _directory_dsn(test_engine)
     assert await DirectoryQueryPostgresData(dsn).directory_query_policy() is None

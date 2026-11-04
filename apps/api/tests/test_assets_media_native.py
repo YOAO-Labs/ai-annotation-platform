@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_media.contract import GarbageBatch, MediaClaim, MediaSource
+from yoao_assets_media.contract import GarbageBatch, MediaClaim, MediaSource
 from app.db.models.asset_media import AssetMediaJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
@@ -172,7 +172,7 @@ async def _claim_prefix(db_session):
 async def test_metadata_freshness_does_not_require_h264_playback_copy_or_optional_poster(
     db_session, poster_error
 ):
-    from aap_assets_media.contract import MetadataResult
+    from yoao_assets_media.contract import MetadataResult
 
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id, data_type="video")

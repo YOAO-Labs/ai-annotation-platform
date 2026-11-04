@@ -237,13 +237,13 @@ async def _run():
     sys.path.insert(0, "/app")
     from sqlalchemy import event, inspect, text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from aap_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
-    from aap_jobs.fixture_cleanup_contract import JOBS_FIXTURE_CLEANUP_PROTOCOL
-    from aap_jobs.fixture_filter_contract import JOBS_FILTER_FIXTURE_PROTOCOL
-    from aap_jobs.action_idempotency_contract import JOBS_ACTION_IDEMPOTENCY_PROTOCOL
-    from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
+    from yoao_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
+    from yoao_jobs.fixture_cleanup_contract import JOBS_FIXTURE_CLEANUP_PROTOCOL
+    from yoao_jobs.fixture_filter_contract import JOBS_FILTER_FIXTURE_PROTOCOL
+    from yoao_jobs.action_idempotency_contract import JOBS_ACTION_IDEMPOTENCY_PROTOCOL
+    from yoao_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
-    from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
+    from yoao_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
     from app.services import async_job as async_job_svc

@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
     ManagedOriginalOperation,
     decode_managed_original_reply,

@@ -34,7 +34,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from aap_identity.read_relation_contract import AccountProfile
+from yoao_identity.read_relation_contract import AccountProfile
 
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember

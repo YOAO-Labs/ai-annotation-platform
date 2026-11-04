@@ -9,9 +9,9 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.admin_password_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.admin_password_contract import (
     AdminPasswordFailure,
     decode_admin_password_reply,
     decode_admin_password_request,

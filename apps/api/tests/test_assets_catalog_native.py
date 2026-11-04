@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_catalog_operation import DatasetCatalogOperation
-from aap_assets_catalog.spatial_contract import SPATIAL_NATIVE_SIGNATURES
+from yoao_assets_catalog.spatial_contract import SPATIAL_NATIVE_SIGNATURES
 from app.db.models.project import Project
 from app.db.models.user import User
 

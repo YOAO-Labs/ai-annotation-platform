@@ -12,8 +12,8 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from aap_identity.account_contract import AccountFailure, decode_account_request
-from aap_identity.contract import Principal
+from yoao_identity.account_contract import AccountFailure, decode_account_request
+from yoao_identity.contract import Principal
 from app.api.v1.account_commands import _reject_account_error, execute_account
 from app.config import settings
 from app.services.identity_account_commands import (
@@ -263,7 +263,7 @@ async def test_http_composer_cannot_replace_the_admitted_actor():
 
     class Commands:
         async def execute(self, command):
-            from aap_identity.account_contract import decode_account_reply
+            from yoao_identity.account_contract import decode_account_reply
 
             return decode_account_reply(command, _reply(command, unrelated))
 

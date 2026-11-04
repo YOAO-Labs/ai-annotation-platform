@@ -12,7 +12,7 @@ from app.services.exporting import image_frozen
 from app.services.exporting.contracts import source_contract
 from app.services.exporting.service import _export_annotation_copy
 from app.services.exporting.video_scope import VideoExportScope, clip_video_geometry
-from aap_workspace_contract import derive_attribute_keys, derive_classes_list
+from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
 from app.services.video_canonical import (
     VideoBoundaryUnreconciledError,
     _core_scope,

@@ -9,7 +9,10 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.discussion_contract import AnnotationCommentRow, AnnotationFeedbackRow
+from yoao_labeling.discussion_contract import (
+    AnnotationCommentRow,
+    AnnotationFeedbackRow,
+)
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.services.annotation_comment import AnnotationCommentService

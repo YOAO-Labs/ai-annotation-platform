@@ -32,7 +32,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.task import Task
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     ResolveTask,
     ResolveTaskByStem,

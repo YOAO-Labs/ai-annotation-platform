@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
-from aap_inference.gpu.contracts import (
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )

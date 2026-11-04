@@ -15,7 +15,7 @@ from app.services.dataset_unlink_contract import (
     decode_unlink_reply,
 )
 from app.services.dataset_unlink_data import DatasetUnlinkData
-from aap_audit_contract import ProjectDeletionAuditContext
+from yoao_audit_contract import ProjectDeletionAuditContext
 
 
 ACTOR_ID = uuid.uuid4()

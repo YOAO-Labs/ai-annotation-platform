@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 
 from app.db.models.task import Task
-from aap_labeling.video_bbox_editing_policy import (
+from yoao_labeling.video_bbox_editing_policy import (
     clean_bbox_geometry as _clean_bbox_geometry,  # noqa: F401
     clip_outside_ranges as _clip_outside_ranges,  # noqa: F401
     composition_keyframe as _composition_keyframe,  # noqa: F401

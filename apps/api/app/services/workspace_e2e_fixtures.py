@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_workspace.e2e_fixture_contract import (
+from yoao_workspace.e2e_fixture_contract import (
     E2EProjectRecord,
     E2ETemplateRecord,
     decode_fixture_cleanup_guard,

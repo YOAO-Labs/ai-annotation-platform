@@ -14,18 +14,18 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.backend_endpoint import BackendEndpointManager
-from aap_inference.backend_endpoint_postgres import BackendEndpointPostgresData
-from aap_inference.model_execution import BackendTransportModelExecutionProvider
-from aap_inference.owner_transport import RoutingModelRequestContextFactory
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.execution import (
+from yoao_inference.backend_endpoint import BackendEndpointManager
+from yoao_inference.backend_endpoint_postgres import BackendEndpointPostgresData
+from yoao_inference.model_execution import BackendTransportModelExecutionProvider
+from yoao_inference.owner_transport import RoutingModelRequestContextFactory
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionError,
     ModelExecutionRouteBinding,
 )
-from aap_inference_contract.plugin_assets import PluginAssetDescriptor
-from aap_inference_contract.routing import RoutingScopeView, make_routing_command
+from yoao_inference_contract.plugin_assets import PluginAssetDescriptor
+from yoao_inference_contract.routing import RoutingScopeView, make_routing_command
 from app.services.inference_backend_control import capture_backend_endpoint_subject
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_routing_native import _connect

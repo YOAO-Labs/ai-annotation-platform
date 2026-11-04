@@ -105,7 +105,7 @@ async def template_query_provider(dsn, token, *, configuration_dsn=None):
         try:
             owner = await asyncio.to_thread(
                 _start,
-                [sys.executable, "-m", "aap_workspace"],
+                [sys.executable, "-m", "yoao_workspace"],
                 environment,
                 directory,
                 directory / "workspace-query.log",

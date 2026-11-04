@@ -762,7 +762,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
             )
 
         control_process, stream = _start_process(
-            [sys.executable, "-m", "aap_assets_media_runtime"],
+            [sys.executable, "-m", "yoao_assets_media_runtime"],
             control_environment,
             control_log,
         )
@@ -778,7 +778,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 [
                     sys.executable,
                     "-m",
-                    "aap_assets_media_runtime.worker",
+                    "yoao_assets_media_runtime.worker",
                     "--healthcheck",
                 ],
                 cwd=ROOT,
@@ -792,7 +792,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 "restricted media worker login failed healthcheck"
             )
             worker_process, stream = _start_process(
-                [sys.executable, "-m", "aap_assets_media_runtime.worker"],
+                [sys.executable, "-m", "yoao_assets_media_runtime.worker"],
                 worker_environment,
                 worker_log,
             )
@@ -976,7 +976,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 [
                     sys.executable,
                     "-m",
-                    "aap_assets_media_runtime.worker",
+                    "yoao_assets_media_runtime.worker",
                     "--once",
                     "--job-id",
                     str(expired_job["job_id"]),
@@ -1007,7 +1007,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 [
                     sys.executable,
                     "-m",
-                    "aap_assets_media_runtime.worker",
+                    "yoao_assets_media_runtime.worker",
                     "--once",
                     "--job-id",
                     str(expired_job["job_id"]),
@@ -1094,7 +1094,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 [
                     sys.executable,
                     "-m",
-                    "aap_assets_media_runtime.worker",
+                    "yoao_assets_media_runtime.worker",
                     "--once",
                     "--job-id",
                     str(

@@ -1,10 +1,10 @@
-from aap_task_contract import normalize_task_fields
+from yoao_task_contract import normalize_task_fields
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from aap_workspace.configuration_values import (
+from yoao_workspace.configuration_values import (
     AttributeSchema as _AttributeSchema,
     ClassConfigEntry as _ClassConfigEntry,
     ClassesConfig as _ClassesConfig,
@@ -13,12 +13,12 @@ from aap_workspace.configuration_values import (
     VideoCollaborationConfig as _VideoCollaborationConfig,
     VideoSamplingConfig as _VideoSamplingConfig,
 )
-from aap_workspace.mask_configuration_values import MaskQCConfig as _MaskQCConfig
-from aap_workspace.point_quality_configuration_values import (
+from yoao_workspace.mask_configuration_values import MaskQCConfig as _MaskQCConfig
+from yoao_workspace.point_quality_configuration_values import (
     PointCloudQualityConfig as _PointCloudQualityConfig,
 )
 from app.db.enums import PlatformRole, ProjectRole
-from aap_workspace_contract.access import ProjectCapability
+from yoao_workspace_contract.access import ProjectCapability
 
 
 class ProjectBatchSummary(BaseModel):
@@ -140,7 +140,7 @@ class ProjectOut(BaseModel):
     def _derive_flat_class_views(self) -> "ProjectOut":
         # v0.10.22 · classes / classes_config / attribute_schema 无 DB 列,
         # 从 tool_bindings 派生扁平投影供前端 / 导出消费.
-        from aap_workspace_contract import (
+        from yoao_workspace_contract import (
             derive_attribute_schema,
             derive_classes_config,
             derive_classes_list,

@@ -5,7 +5,7 @@ import io
 
 import pytest
 
-from aap_audit.maintenance_config import (
+from yoao_audit.maintenance_config import (
     AuditArchiveS3Config,
     ConfigurationError,
 )

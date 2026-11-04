@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_preannotation_results.video_execution import (
+from yoao_preannotation_results.video_execution import (
     ExecutionClaim,
     ExecutionSettled,
     VideoExecutionFailure,
@@ -22,8 +22,8 @@ pytestmark = pytest.mark.asyncio
 
 
 def _writer_rejection_port(monkeypatch, job_id, codes):
-    from aap_preannotation_results.video_execution import ExecutionProof
-    from aap_labeling.video_writer_contract import LABELING_VIDEO_WRITER_DATA_SCHEMA
+    from yoao_preannotation_results.video_execution import ExecutionProof
+    from yoao_labeling.video_writer_contract import LABELING_VIDEO_WRITER_DATA_SCHEMA
     from app.services.video_tracking import writer
 
     proof = ExecutionProof(
@@ -210,7 +210,7 @@ async def test_repeated_execution_contention_retries_held_mask_without_inference
     monkeypatch,
 ):
     from app.services import raster_mask_storage as storage
-    from aap_inference.tracker import TrackerFrameResult
+    from yoao_inference.tracker import TrackerFrameResult
 
     rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
     reference = storage.build_rle_reference(rle)
@@ -369,7 +369,7 @@ async def test_broker_signal_cannot_terminalize_claimed_tracker_summary(
 
 
 async def test_route_heartbeat_contention_does_not_end_the_tracker(monkeypatch):
-    from aap_inference_contract.routing import RoutingUnavailable
+    from yoao_inference_contract.routing import RoutingUnavailable
     from app.services.ml_routing.authority import RoutingRejected
 
     heartbeat = AsyncMock(

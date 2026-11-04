@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
-from aap_inference_contract.backend_control import (
+from yoao_inference_contract.backend_control import (
     BackendControlFailure,
     BackendControlSetupResult,
 )

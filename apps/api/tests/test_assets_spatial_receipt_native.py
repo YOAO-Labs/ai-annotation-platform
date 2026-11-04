@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import text
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ItemFactsPage,
     LayoutMutationResult,
     LayoutPage,

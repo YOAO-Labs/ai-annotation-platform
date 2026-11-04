@@ -10,20 +10,20 @@ from typing import Protocol
 
 import httpx
 
-from aap_identity.account_contract import (
+from yoao_identity.account_contract import (
     AccountReply,
     AccountRequest,
     decode_account_reply,
 )
-from aap_identity.account_manager import AccountManager
-from aap_identity.account_postgres import AccountPostgresData
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.presence_contract import (
+from yoao_identity.account_manager import AccountManager
+from yoao_identity.account_postgres import AccountPostgresData
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.presence_contract import (
     PresenceRequest,
     decode_presence_reply,
     decode_presence_request,
 )
-from aap_identity.presence_postgres import PresencePostgresData
+from yoao_identity.presence_postgres import PresencePostgresData
 from app.config import settings
 from app.services.identity_account_data import (
     IdentityAccountCommandData,

@@ -14,7 +14,7 @@ import pytest
 import redis.asyncio as redis
 from sqlalchemy import delete, select, text, update
 
-from aap_identity.security import decode_access_token
+from yoao_identity.security import decode_access_token
 from app.db.models.notification import Notification
 from app.db.models.user import User
 from tests.factory import create_user
@@ -106,7 +106,7 @@ def _run_publisher(test_engine, directory, redis_url, label):
             os.environ["AAP_IDENTITY_RUNTIME_PYTHON"],
             "-I",
             "-m",
-            "aap_identity_runtime.notification_worker",
+            "yoao_identity_runtime.notification_worker",
             "--once",
         ],
         cwd=directory,
@@ -747,7 +747,7 @@ async def test_deactivation_outbox_commits_and_publisher_death_is_recovered(
                 os.environ["AAP_IDENTITY_RUNTIME_PYTHON"],
                 "-I",
                 "-m",
-                "aap_identity_runtime.notification_worker",
+                "yoao_identity_runtime.notification_worker",
                 "--once",
             ],
             cwd=tmp_path,

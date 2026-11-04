@@ -5,7 +5,7 @@ from pathlib import Path
 import uuid
 
 import pytest
-from aap_assets_source.operator_contract import (
+from yoao_assets_source.operator_contract import (
     CreateOperatorImageDatasetRequest,
     OperatorSourceEntry,
 )

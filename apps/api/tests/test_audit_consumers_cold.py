@@ -21,7 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from app.config import settings
 from app.db.models.audit_log import AuditLog
 from tests import test_labeling_module_api_cold as cold
@@ -288,7 +288,7 @@ async def main():
  try:
   async with engine.connect() as db:
    row=(await db.execute(text("SELECT current_user,current_database(),has_table_privilege(current_user,'public.audit_logs','SELECT'),has_table_privilege(current_user,'public.audit_logs','INSERT')"))).one()
-  package=Path(importlib.import_module('aap_audit.query_contract').__file__).resolve()
+  package=Path(importlib.import_module('yoao_audit.query_contract').__file__).resolve()
   print(json.dumps({'role':row[0],'database':row[1],'private_select':row[2],'private_insert':row[3],'installed':package.is_relative_to(Path(sysconfig.get_paths()['purelib']))}))
  finally:await engine.dispose()
 asyncio.run(main())

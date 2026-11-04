@@ -18,7 +18,7 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.lifecycle import JobsLifecycleManager
+from yoao_jobs.lifecycle import JobsLifecycleManager
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData

@@ -14,10 +14,10 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from aap_audit.maintenance_config import load_archive_s3_config
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
-from aap_audit.maintenance_contract import AuditPartition
-from aap_audit.partitions import AuditPartitionManager
+from yoao_audit.maintenance_config import load_archive_s3_config
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.maintenance_contract import AuditPartition
+from yoao_audit.partitions import AuditPartitionManager
 
 from app.config import settings
 from app.services.storage import storage_service

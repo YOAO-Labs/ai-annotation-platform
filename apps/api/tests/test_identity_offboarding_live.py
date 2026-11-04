@@ -14,9 +14,9 @@ import httpx
 import pytest
 from sqlalchemy import delete, select, text
 
-from aap_identity.directory_contract import DirectoryUserRecord
-from aap_identity.recovery_crypto import token_hash
-from aap_identity.security import create_access_token, decode_access_token
+from yoao_identity.directory_contract import DirectoryUserRecord
+from yoao_identity.recovery_crypto import token_hash
+from yoao_identity.security import create_access_token, decode_access_token
 from app.db.models.api_key import ApiKey
 from app.db.models.audit_log import AuditLog
 from app.db.models.password_reset_token import PasswordResetToken

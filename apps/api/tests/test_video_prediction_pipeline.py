@@ -7,8 +7,8 @@ import uuid
 
 import pytest
 
-from aap_inference.execution_pipeline import execute_task_pipeline
-from aap_inference_contract.execution import (
+from yoao_inference.execution_pipeline import execute_task_pipeline
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     ModelExecutionDispatch,
     ModelExecutionObservation,

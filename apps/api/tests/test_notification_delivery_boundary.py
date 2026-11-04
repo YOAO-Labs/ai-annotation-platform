@@ -10,8 +10,8 @@ import uuid
 
 import pytest
 
-from aap_notifications.delivery_worker import NotificationPublisher
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.delivery_worker import NotificationPublisher
+from yoao_notifications.notification_delivery_contract import (
     NotificationDeliveryUnavailable,
 )
 from app.config import settings

@@ -27,7 +27,7 @@ from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServiceP
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.user import User
-from aap_inference.pool_capability import (
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
 )

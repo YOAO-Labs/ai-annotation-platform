@@ -13,9 +13,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_inference.routing_postgres import RoutingPostgresData
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import (
+from yoao_inference.routing_postgres import RoutingPostgresData
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import (
     make_routing_command,
     make_routing_runtime_request,
     make_routing_status_request,

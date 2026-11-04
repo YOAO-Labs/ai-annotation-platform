@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from app.services import training_storage_io as storage_io
 
-from aap_protocol_v2.backend_auth import managed_provider
+from yoao_protocol_v2.backend_auth import managed_provider
 
-from aap_task_contract import normalize_task, normalize_task_fields
+from yoao_task_contract import normalize_task, normalize_task_fields
 from training_contract.dataset import config_task
 from training_contract.inference_runtime import validate_inference_runtime
 
@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import replace
 
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -340,7 +340,7 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
 
     The caller must first hold Inference's registry lock in this transaction.
     """
-    from aap_jobs.domain_query_contract import FrozenDeploymentUsageRequest
+    from yoao_jobs.domain_query_contract import FrozenDeploymentUsageRequest
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     deployments = (
@@ -378,7 +378,7 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
 async def retire_deployment(db, project_id, version_id, deployment_id, *, terminal):
     """Stop new references first; terminal retirement only after dependencies drain."""
     from app.services.inference_topology_data import InferenceTopologyData
-    from aap_jobs.domain_query_contract import FrozenDeploymentUsageRequest
+    from yoao_jobs.domain_query_contract import FrozenDeploymentUsageRequest
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     version = await load_version(db, project_id, version_id)
@@ -595,7 +595,7 @@ def check_install_runtime(version, deployment, receipt):
 
 def check_declared_compatibility(backend, version, runtime=None):
     """Match approved and observed generic managed-model capabilities."""
-    from aap_inference_contract.topology import to_record
+    from yoao_inference_contract.topology import to_record
 
     params = to_record(backend.extra_params or {})
     plugin = params.get("plugin")
@@ -668,7 +668,7 @@ def wire_reference(ref):
 
 async def enabled_backend(db, project_id, registry_id):
     from app.services.inference_topology_data import InferenceTopologyData
-    from aap_inference_contract.plugin import plugin_is_active
+    from yoao_inference_contract.plugin import plugin_is_active
 
     facts = await InferenceTopologyData(db).lock_plugin_registry(registry_id)
     if facts is None:

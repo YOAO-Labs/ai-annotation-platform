@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.services import task_access
 from app.db.models.annotation import Annotation
@@ -29,7 +29,7 @@ from app.deps import (
     require_scopes,
     require_active_task_actor,
 )
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )
@@ -45,7 +45,7 @@ from app.services.labeling_core_read_relations import (
     lock_task_for_core_read,
     task_row,
 )
-from aap_workspace.mask_configuration_values import (
+from yoao_workspace.mask_configuration_values import (
     MASK_QC_RULE_CODES,
     MaskCompareBaseline,
 )

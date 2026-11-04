@@ -13,7 +13,7 @@ from sqlalchemy.orm import registry
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.e2e_fixture_contract import (
+from yoao_identity.e2e_fixture_contract import (
     ACCOUNT_PROFILE_FIELDS,
     FixtureInvitation,
 )

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from aap_protocol_v2 import NativeMaskCandidate, NativeMaskCandidateValue
+from yoao_protocol_v2 import NativeMaskCandidate, NativeMaskCandidateValue
 from sqlalchemy import delete, func, select
 
 from app.config import settings
@@ -145,7 +145,7 @@ def _body(
     source: Annotation | None = None,
     candidate_index: int = 0,
 ) -> dict:
-    from aap_protocol_v2 import CocoRlePayload, native_mask_candidate_id
+    from yoao_protocol_v2 import CocoRlePayload, native_mask_candidate_id
 
     prompt_revision = "rev:test:1"
     rle_model = CocoRlePayload.model_validate(rle)
@@ -289,7 +289,7 @@ async def test_exemplar_both_accept_uses_original_mask_index(
     media_type,
 ):
     from app.api.v1.ml_backends import _interactive_response
-    from aap_inference.backend_transport import PredictionResult
+    from yoao_inference.backend_transport import PredictionResult
 
     user, token = super_admin
     task, backend, pool = await _seed(

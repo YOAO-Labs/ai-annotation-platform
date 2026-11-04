@@ -5,7 +5,7 @@ from __future__ import annotations
 from app.services import training_storage_io as storage_io
 from app.services import storage_access
 
-from aap_task_contract import normalize_task, legacy_training_task
+from yoao_task_contract import normalize_task, legacy_training_task
 from training_contract.catalog import definition_for_identity, instance_rle_capability
 import hashlib
 import hmac

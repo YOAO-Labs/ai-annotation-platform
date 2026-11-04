@@ -16,13 +16,13 @@ from app.services.prediction import (
     derive_tool_unit_from_ls_type,
     derive_tool_unit_from_result,
 )
-from aap_workspace_contract import (
+from yoao_workspace_contract import (
     derive_attribute_schema,
     derive_classes_config,
     derive_classes_list,
     resolve_class_visual,
 )
-from aap_workspace.configuration_policy import (
+from yoao_workspace.configuration_policy import (
     coalesce_legacy_into_tool_bindings,
     derive_tool_unit_for_type_key,
     lookup_classes_for_tool_unit,

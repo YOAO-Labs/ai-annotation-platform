@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from aap_inference.pipeline_contract import PipelineErrorDetails, PipelineFailure
+from yoao_inference.pipeline_contract import PipelineErrorDetails, PipelineFailure
 from app.api.v1 import project_pipelines
 from app.schemas.project_pipeline import ProjectPipelineCreate, ProjectPipelineUpdate
 from app.services import inference_pipelines

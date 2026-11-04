@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog import (
+from yoao_assets_catalog import (
     CatalogFailure,
     CatalogItem,
     CreateDatasetRequest,
@@ -27,7 +27,7 @@ from aap_assets_catalog import (
     UpdateDatasetRequest,
     decode_reply,
 )
-from aap_assets_catalog.associations_contract import (
+from yoao_assets_catalog.associations_contract import (
     AssociationFailure,
     DatasetProjectsResult,
     ListDatasetProjectsRequest,
@@ -35,10 +35,10 @@ from aap_assets_catalog.associations_contract import (
     ProjectDatasetsResult,
     decode_associations_reply,
 )
-from aap_assets_images.contract import ReadImageSourceRequest
-from aap_assets_images.transport import ImageSourceReference
-from aap_assets_media.contract import ReadSourceRequest
-from aap_assets_media.transport import SourceReference
+from yoao_assets_images.contract import ReadImageSourceRequest
+from yoao_assets_images.transport import ImageSourceReference
+from yoao_assets_media.contract import ReadSourceRequest
+from yoao_assets_media.transport import SourceReference
 
 from app.config import settings
 from app.services.assets_media import browser_media_url

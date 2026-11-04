@@ -33,7 +33,7 @@ from app.schemas.video_frame_service import (
     VideoSegmentsResponse,
 )
 from app.services.audit import AuditAction, AuditService
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.video_chapters import VideoChapterWorkflow
 from app.services.labeling_core_read_relations import task_row

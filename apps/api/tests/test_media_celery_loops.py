@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from aap_assets_media import contract as c
+from yoao_assets_media import contract as c
 from app.services import assets_media
 from app.workers import _db
 from app.workers import media as media_workers
@@ -198,7 +198,7 @@ def test_media_gateway_derives_independent_factory_from_bound_session(
         return FakeExecutor()
 
     monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", fake_sessionmaker)
-    monkeypatch.setattr("aap_assets_media_runtime.control.MediaControl", FakeControl)
+    monkeypatch.setattr("yoao_assets_media_runtime.control.MediaControl", FakeControl)
     monkeypatch.setattr(assets_media, "media_storage", lambda **_kwargs: object())
     monkeypatch.setattr(assets_media, "_executor", fake_executor)
 

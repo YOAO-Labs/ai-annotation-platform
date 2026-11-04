@@ -6,9 +6,9 @@ from threading import Event
 import httpx
 import pytest
 
-from aap_assets_mask_content.gc_contract import MaskGcFailure
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc.client import LabelingMaskGcClient
+from yoao_assets_mask_content.gc_contract import MaskGcFailure
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc.client import LabelingMaskGcClient
 from app.application import raster_mask_retention as retention
 from app.config import settings
 from app.services import mask_gc_collection as collection

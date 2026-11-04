@@ -317,7 +317,7 @@ async def test_complete_selection_never_reselects_current_tasks():
 async def test_captured_mask_result_survives_byte_provider_outage(
     monkeypatch, failure_code
 ):
-    from aap_assets_mask_content.contract import MaskContentFailure
+    from yoao_assets_mask_content.contract import MaskContentFailure
     from app.application import durable_preannotation as workflow
     from app.services import batch_result_masks
 
@@ -471,7 +471,7 @@ async def test_definitive_heartbeat_lease_loss_stops_further_writes(monkeypatch)
 async def test_six_hundred_results_fit_a_small_open_file_budget(monkeypatch):
     import json
     import app.application.preannotation_results as application
-    import aap_preannotation_results.codec as codec
+    import yoao_preannotation_results.codec as codec
 
     _task, scope, request, _member, _result = facts()
     execution = BatchResultExecution(

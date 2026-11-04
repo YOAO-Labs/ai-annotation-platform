@@ -12,9 +12,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_inference.restore import VideoRestoreManager
-from aap_inference.restore_contract import RestoreCommand
-from aap_inference.restore_postgres import VideoRestorePostgresProvider
+from yoao_inference.restore import VideoRestoreManager
+from yoao_inference.restore_contract import RestoreCommand
+from yoao_inference.restore_postgres import VideoRestorePostgresProvider
 
 from tests.conftest import create_registry_with_pool
 from tests.test_identity_module_assembly_live import _restored_database

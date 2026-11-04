@@ -8,7 +8,7 @@ import math
 import zipfile
 from copy import deepcopy
 from pathlib import Path
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 from app.services import storage_access
 from training_contract.dataset import (
     DETECTION_CONTRACT,

@@ -9,7 +9,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_assets_source.legacy_upload_contract import decode_legacy_upload_reply
+from yoao_assets_source.legacy_upload_contract import decode_legacy_upload_reply
 from app.db.models.dataset import DatasetItem
 from tests.test_dataset_upload_native import _cleanup_world, _seed_world
 

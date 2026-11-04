@@ -7,8 +7,8 @@ from fastapi import HTTPException
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.contract import SourceDeletionRequest
-from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
+from yoao_assets_source.contract import SourceDeletionRequest
+from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
 from app.db.models.dataset import ProjectDataset
 from app.services.assets_source import AssetsSourceGateway
 from app.db.models.project import Project
@@ -21,7 +21,7 @@ from app.services.dataset_unlink_contract import (
     DatasetUnlinkReceipt,
 )
 from app.services.dataset_unlink_data import DatasetUnlinkData
-from aap_audit_contract import ProjectDeletionAuditContext
+from yoao_audit_contract import ProjectDeletionAuditContext
 
 
 async def delete_dataset(

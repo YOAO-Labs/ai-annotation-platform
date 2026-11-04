@@ -9,8 +9,8 @@ import math
 from types import SimpleNamespace
 import uuid
 
-from aap_inference_contract.execution import ModelTaskResult
-from aap_inference.tracker import TrackerFrameResult
+from yoao_inference_contract.execution import ModelTaskResult
+from yoao_inference.tracker import TrackerFrameResult
 
 from app.services.content_snapshot import ContentError
 from app.services.video_prediction_originals import normalize_probe

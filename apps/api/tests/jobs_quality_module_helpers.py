@@ -446,7 +446,7 @@ async def exercise_quality_dispatch(
     assert str(test_engine.url.database).endswith("_test")
     _assert_owned_broker_target(sender, "media")
 
-    from aap_jobs.queue_contract import load_queue_configuration
+    from yoao_jobs.queue_contract import load_queue_configuration
 
     routes = load_queue_configuration()["task_routes"]
     assert {routes[item["task"]]["queue"] for item in _QUALITY_TASKS} == {"media"}

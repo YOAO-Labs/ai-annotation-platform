@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.batch_control_contract import (
+from yoao_labeling.batch_control_contract import (
     DeactivatePredictionAnnotations,
     DetachPredictionParents,
 )

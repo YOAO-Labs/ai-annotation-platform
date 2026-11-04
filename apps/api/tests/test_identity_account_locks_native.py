@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from aap_identity.account_lock_contract import (
+from yoao_identity.account_lock_contract import (
     ACCOUNT_LOCK_PROTOCOL,
     AccountLockRequest,
     decode_account_lock_reply,

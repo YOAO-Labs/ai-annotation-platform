@@ -9,8 +9,8 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from aap_assets_video_inputs import execution as e
-from aap_assets_video_inputs import tracker as c
+from yoao_assets_video_inputs import execution as e
+from yoao_assets_video_inputs import tracker as c
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
     VideoTrackerJobStatus,

@@ -8,8 +8,8 @@ import json
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
-from aap_workspace.owner_transfer import OwnerTransferCommandFailure
-from aap_workspace.owner_transfer_contract import (
+from yoao_workspace.owner_transfer import OwnerTransferCommandFailure
+from yoao_workspace.owner_transfer_contract import (
     OwnerTransferError,
     OwnerTransferUnavailable,
     decode_owner_transfer_policy,

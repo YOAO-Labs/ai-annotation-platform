@@ -13,8 +13,8 @@ TRACE_PREFIX = "AAP_IDENTITY_ROUTE_TRACE "
 OWNER_TRACE = r"""
 import contextvars, json, re, sys, time, traceback, urllib.parse
 import asyncpg
-from aap_identity.contract import IdentityUnavailable
-import aap_identity_runtime.api as api
+from yoao_identity.contract import IdentityUnavailable
+import yoao_identity_runtime.api as api
 
 path_context = contextvars.ContextVar("identity_rpc_path", default=None)
 connections = {}
@@ -118,7 +118,7 @@ def create_app(*args, **kwargs):
             path_context.reset(token)
     return traced
 api.create_app = create_app
-from aap_identity_runtime.__main__ import main
+from yoao_identity_runtime.__main__ import main
 main()
 """
 

@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.pipeline_client import PipelineHttpClient
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_client import PipelineHttpClient
+from yoao_inference.pipeline_contract import (
     PipelineFailure,
     PipelineStatusSuccess,
     PipelineSuccess,

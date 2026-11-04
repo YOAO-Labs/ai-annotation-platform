@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.async_job_list_query_contract import AsyncJobListQuery
+from yoao_jobs.async_job_list_query_contract import AsyncJobListQuery
 from app.application.async_job_contracts import AsyncJobOperationFailure
 from app.services.project_access import get_workspace_project
 from app.db.enums import PlatformRole, ProjectRole

@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 
-from aap_assets_images import contract as c
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images import contract as c
+from yoao_assets_images.policy import ImagePolicy
 from app.config import settings
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class SqlAlchemyImageDatabase:
         self.commit = commit
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
-        from aap_assets_images_runtime.database import validate_native_result
+        from yoao_assets_images_runtime.database import validate_native_result
 
         definition = c.OPERATIONS.get(operation)
         if definition is None or type(request) is not definition.request:
@@ -122,8 +122,8 @@ class _IndependentImageDatabase:
 
 
 def image_storage(*, control: bool = False):
-    from aap_assets_images_runtime.config import ImageStorageConfig
-    from aap_assets_images_runtime.storage import S3ImageStorage
+    from yoao_assets_images_runtime.config import ImageStorageConfig
+    from yoao_assets_images_runtime.storage import S3ImageStorage
 
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = f"{scheme}://{settings.minio_endpoint}"
@@ -193,7 +193,7 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
             SqlAlchemyImageDatabase(db, commit=False), caller_transaction=True
         )
     if settings.assets_media_url:
-        from aap_assets_images.client import ImageClient
+        from yoao_assets_images.client import ImageClient
 
         provider = ImageClient(
             settings.assets_media_url,
@@ -201,7 +201,7 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
             timeout_seconds=settings.assets_media_timeout_seconds,
         )
     else:
-        from aap_assets_images_runtime.control import ImageControl
+        from yoao_assets_images_runtime.control import ImageControl
 
         bind = getattr(db, "bind", None)
         if isinstance(bind, AsyncConnection):
@@ -221,7 +221,7 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
 
 
 def image_executor(*, session_factory=None):
-    from aap_assets_images_runtime.worker import ImageExecutor
+    from yoao_assets_images_runtime.worker import ImageExecutor
 
     return ImageExecutor(
         _IndependentImageDatabase(session_factory),

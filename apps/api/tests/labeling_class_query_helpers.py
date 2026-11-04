@@ -259,7 +259,7 @@ async def installed_labeling_query_provider(dsn, token):
         }
         owner = await asyncio.to_thread(
             _start,
-            [str(interpreter), "-I", "-m", "aap_labeling"],
+            [str(interpreter), "-I", "-m", "yoao_labeling"],
             environment,
             directory,
             directory / "owner.log",

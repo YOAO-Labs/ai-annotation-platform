@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
 )
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from app.services.identity_contracts import IdentityGatewayUnavailable
 
 _DSN = "postgresql://owner.example/identity"

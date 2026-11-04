@@ -11,14 +11,14 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     RoutingScopeView,
     RoutingUnavailable,
     make_routing_command,
     make_routing_runtime_request,
     make_routing_status_request,
 )
-from aap_inference_contract.routing_client import RoutingHttpClient
+from yoao_inference_contract.routing_client import RoutingHttpClient
 from app.config import settings
 from app.services.ml_routing.authority import RoutingAuthority
 from tests.labeling_class_query_helpers import assert_owned_test_database
@@ -104,7 +104,7 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
             str(python),
             "-I",
             "-m",
-            "aap_inference",
+            "yoao_inference",
             cwd=tmp_path,
             env=environment,
             stdout=log,

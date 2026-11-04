@@ -9,14 +9,14 @@ import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.video_bbox_editing_data import VideoBBoxEditingDataClient
-from aap_labeling.video_bbox_editing_contract import VideoBBoxEditingRejected
-from aap_labeling.video_bbox_editing_policy import (
+from yoao_labeling.video_bbox_editing_data import VideoBBoxEditingDataClient
+from yoao_labeling.video_bbox_editing_contract import VideoBBoxEditingRejected
+from yoao_labeling.video_bbox_editing_policy import (
     VideoBBoxAnnotationFacts,
     VideoBBoxTaskFacts,
     compose_video_tracks_command,
 )
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from tests.factory import create_project, create_task, create_user
 from tests.test_labeling_class_usage_reads_legacy import _cleanup_owned

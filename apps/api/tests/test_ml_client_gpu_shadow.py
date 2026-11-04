@@ -11,37 +11,37 @@ import uuid
 import weakref
 
 import pytest
-from aap_protocol_v2.lifecycle import AdmissionScope
+from yoao_protocol_v2.lifecycle import AdmissionScope
 from structlog.testing import capture_logs
 
-from aap_inference.backend_endpoint import (
+from yoao_inference.backend_endpoint import (
     BackendEndpointManager,
     BackendEndpointSnapshot,
 )
-from aap_inference.backend_transport import get_semaphore
-from aap_inference.gpu.backend_dispatch import BackendGPUDispatchContextFactory
-from aap_inference.gpu.contracts import (
+from yoao_inference.backend_transport import get_semaphore
+from yoao_inference.gpu.backend_dispatch import BackendGPUDispatchContextFactory
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
     GPUDispatchGrant,
     GPUDispatchRequest,
 )
-from aap_inference.gpu.native import GPUAuthorityData, GPUAuthorityDataProvider
-from aap_inference.gpu.settings import (
+from yoao_inference.gpu.native import GPUAuthorityData, GPUAuthorityDataProvider
+from yoao_inference.gpu.settings import (
     GPUArbiterMode,
     GPUAuthoritySettings,
     parse_gpu_resources,
 )
-from aap_inference_contract.backend_control import BackendControlRequest
-from aap_inference_contract.backend_endpoint import (
+from yoao_inference_contract.backend_control import BackendControlRequest
+from yoao_inference_contract.backend_endpoint import (
     BackendEndpointBinding,
     BackendEndpointPurpose,
 )
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionRouteBinding,
 )
-from aap_inference_contract.gpu import GPUAuthorityAction, GPUAuthorityUnavailable
+from yoao_inference_contract.gpu import GPUAuthorityAction, GPUAuthorityUnavailable
 
 
 RESOURCE_ID = "node-a/index:0"

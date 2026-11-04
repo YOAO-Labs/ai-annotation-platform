@@ -39,15 +39,15 @@ from collections.abc import Awaitable, Callable
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_assets_media.contract import InternalSourceRequest
+from yoao_assets_media.contract import InternalSourceRequest
 
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from aap_assets_catalog.spatial_values import SensorCalibration
-from aap_assets_catalog.spatial_values import FramePose
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_values import SensorCalibration
+from yoao_assets_catalog.spatial_values import FramePose
+from yoao_assets_catalog.spatial_contract import (
     GetSceneRequest,
     SpatialItem,
     SpatialScene,
@@ -58,8 +58,8 @@ from app.services.exporting.service import (
     UnsupportedExportError,
     _bbox_geometry,
 )
-from aap_assets_catalog.axis_convention import R_NORM
-from aap_assets_catalog.spatial_values import AxisFrame
+from yoao_assets_catalog.axis_convention import R_NORM
+from yoao_assets_catalog.spatial_values import AxisFrame
 from app.services.exporting.lidar import (
     LidarCameraExportCtx,
     LidarFrameExportCtx,
@@ -98,7 +98,7 @@ from app.services.exporting.video_mask_formats import (
     exact_mask_frames,
     object_manifest,
 )
-from aap_workspace_contract import (
+from yoao_workspace_contract import (
     derive_attribute_schema,
     derive_classes_list,
 )

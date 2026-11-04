@@ -11,7 +11,7 @@ from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     VIDEO_CONTROL_PROTOCOL,
     ClaimVideoSegment,
     HeartbeatVideoSegment,

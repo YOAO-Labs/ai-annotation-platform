@@ -11,9 +11,9 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.scene_read_contract import scene_read_request
-from aap_labeling.scene_read_data import SceneReadDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.scene_read_contract import scene_read_request
+from yoao_labeling.scene_read_data import SceneReadDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project

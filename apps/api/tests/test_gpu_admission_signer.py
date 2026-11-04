@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import json
 
 import pytest
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,
     verify_admission_token,
@@ -13,8 +13,8 @@ from aap_protocol_v2.lifecycle import (
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
-from aap_inference.gpu.signing import (
+from yoao_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from yoao_inference.gpu.signing import (
     GPUAdmissionSignerConfigError,
     GPUAdmissionTokenSigner,
 )

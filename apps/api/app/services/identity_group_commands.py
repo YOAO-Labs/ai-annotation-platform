@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.group_contract import GroupReply, GroupRequest, decode_group_reply
-from aap_identity.group_manager import GroupManager
-from aap_identity.group_postgres import GroupPostgresData
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.group_contract import GroupReply, GroupRequest, decode_group_reply
+from yoao_identity.group_manager import GroupManager
+from yoao_identity.group_postgres import GroupPostgresData
 from app.config import settings
 from app.services.identity_account_commands import (
     _AccountAuthenticator,

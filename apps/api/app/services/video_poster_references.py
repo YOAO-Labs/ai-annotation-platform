@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-from aap_assets_media.contract import ReadSourceRequest
-from aap_assets_media.transport import SourceReference
+from yoao_assets_media.contract import ReadSourceRequest
+from yoao_assets_media.transport import SourceReference
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.assets_media import browser_media_url, media_gateway

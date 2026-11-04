@@ -6,9 +6,9 @@ import asyncio
 import logging
 import uuid
 
-from aap_assets_source.import_delivery_contract import DatasetImportDelivery
-from aap_assets_source.ingest_contract import IngestDeliveryLease
-from aap_assets_media.contract import MetadataSpec, ScheduleWorkRequest
+from yoao_assets_source.import_delivery_contract import DatasetImportDelivery
+from yoao_assets_source.ingest_contract import IngestDeliveryLease
+from yoao_assets_media.contract import MetadataSpec, ScheduleWorkRequest
 
 from app.services.dataset_import_delivery import (
     claim_dataset_import_delivery,

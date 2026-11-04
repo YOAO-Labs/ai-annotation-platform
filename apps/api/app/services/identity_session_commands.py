@@ -8,15 +8,15 @@ from typing import Protocol
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.session_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.session_contract import (
     SessionReply,
     SessionRequest,
     SessionFailure,
     decode_session_reply,
 )
-from aap_identity.session_manager import SessionManager
-from aap_identity.session_postgres import SessionPostgresData
+from yoao_identity.session_manager import SessionManager
+from yoao_identity.session_postgres import SessionPostgresData
 from app.config import settings
 from app.services import login_failed_counter
 from app.services.identity_contracts import IdentityGatewayUnavailable

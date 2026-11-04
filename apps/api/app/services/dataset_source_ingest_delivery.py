@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     INGEST_DELIVERY_SCHEMA,
     IngestDeliveryAcknowledged,
     IngestDeliveryLease,

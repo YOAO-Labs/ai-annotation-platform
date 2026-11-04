@@ -20,7 +20,7 @@ video_track_mask 的内容寻址 RLE 可跨实例迁移；scene_tracks 保留 3D
 
 from __future__ import annotations
 
-from aap_task_contract import Task as VisualTaskName
+from yoao_task_contract import Task as VisualTaskName
 
 from datetime import datetime
 from typing import Any, Literal

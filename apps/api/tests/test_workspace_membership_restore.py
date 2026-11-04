@@ -11,9 +11,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_workspace.contract import decode_membership_request
-from aap_workspace.manager import MembershipManager
-from aap_workspace.postgres import MembershipPostgresData
+from yoao_workspace.contract import decode_membership_request
+from yoao_workspace.manager import MembershipManager
+from yoao_workspace.postgres import MembershipPostgresData
 from app.db.models.project import Project
 from app.db.models.user import User
 from tests.test_identity_recovery import _alembic, _postgres_tool

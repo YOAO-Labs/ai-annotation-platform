@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.spatial_quality_contract import (
+from yoao_labeling.spatial_quality_contract import (
     SPATIAL_QUALITY_FUNCTION,
     SpatialQualityUnavailable,
     decode_spatial_quality_reply,

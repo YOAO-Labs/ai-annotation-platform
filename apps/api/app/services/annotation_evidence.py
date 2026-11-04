@@ -11,8 +11,8 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_audit.read_relation_postgres import audit_events
-from aap_labeling.review_evidence_policy import (
+from yoao_audit.read_relation_postgres import audit_events
+from yoao_labeling.review_evidence_policy import (
     ReviewActorIneligible,
     ReviewEvidenceUnknown,
     assert_review_evidence_current as _assert_review_evidence_current,

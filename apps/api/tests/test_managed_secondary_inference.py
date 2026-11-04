@@ -28,7 +28,7 @@ from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.services import storage_access
 from app.services.annotation import AnnotationService
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from tests.inference_execution_test_ports import FakeModelExecutionPort
 from tests import live_provider_guard
 from tests.conftest import create_registry_with_pool

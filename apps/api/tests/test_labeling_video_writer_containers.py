@@ -17,7 +17,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from aap_labeling.video_writer_contract import VideoWriterRejected
+from yoao_labeling.video_writer_contract import VideoWriterRejected
 from sqlalchemy.engine import make_url
 
 pytestmark = [
@@ -38,8 +38,8 @@ _SOURCE_REVISION = "10a6a829991555fce58ccb28a0b0ff4b31881dd4"
 _OWNER_LABEL = "org.aap.acceptance"
 _IDENTITY_LABEL = "org.aap.acceptance-id"
 _FORBIDDEN_DISTRIBUTIONS = {
-    "aap-api",
-    "aap-inference",
+    "api",
+    "yoao-inference",
     "sqlalchemy",
     "celery",
     "boto3",
@@ -185,7 +185,7 @@ commands = sorted(
 module_names = (
     "app",
     "aap_api",
-    "aap_inference",
+    "yoao_inference",
     "sqlalchemy",
     "celery",
     "boto3",
@@ -276,7 +276,7 @@ class _RestrictedWriterContainer:
         ) or []
         if not (
             config.get("Image") == self.image_id
-            and config.get("Cmd") == ["aap-labeling-video-writer"]
+            and config.get("Cmd") == ["yoao-labeling-video-writer"]
             and config.get("User") == "10006:10006"
             and labels.get("org.aap.source-revision") == _SOURCE_REVISION
             and host.get("ReadonlyRootfs") is True

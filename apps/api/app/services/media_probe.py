@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from aap_media_probe import probe as local_probe
-from aap_media_probe.client import (
+from yoao_media_probe import probe as local_probe
+from yoao_media_probe.client import (
     MediaProbeClient,
     MediaProbeError,
     httpx as httpx,
 )
-from aap_media_probe.probe import (
+from yoao_media_probe.probe import (
     FFPROBE_TIMEOUT_SECONDS as FFPROBE_TIMEOUT_SECONDS,
     FFProbeError as FFProbeError,
     _parse_frame_time_ms as _parse_frame_time_ms,

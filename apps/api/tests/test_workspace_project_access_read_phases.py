@@ -15,9 +15,9 @@ from sqlalchemy import delete, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.project_queries import ProjectQueryManager
-from aap_workspace_contract.project_query_contract import project_query_request
-from aap_workspace_contract.project_query_values import materialize_project_query_data
+from yoao_workspace.project_queries import ProjectQueryManager
+from yoao_workspace_contract.project_query_contract import project_query_request
+from yoao_workspace_contract.project_query_values import materialize_project_query_data
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
@@ -58,7 +58,7 @@ def _legacy_reader(tmp_path):
     path.write_bytes(
         raw.replace(
             b"from aap_workspace.access_contract import",
-            b"from aap_workspace_contract.access import",
+            b"from yoao_workspace_contract.access import",
         )
     )
     spec = importlib.util.spec_from_file_location("frozen_legacy_project_access", path)

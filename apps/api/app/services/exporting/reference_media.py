@@ -46,7 +46,7 @@ async def authorize_export_job(
 ):
     """Preserve whole-project export capability and explicit-task visibility."""
     from app.services.data_management.task_filters import visible_tasks_stmt
-    from aap_workspace_contract.access import ProjectCapability
+    from yoao_workspace_contract.access import ProjectCapability
 
     project = await get_workspace_project(
         db, project_id=project_id, populate_existing=True

@@ -11,13 +11,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_inference.plugin_installation import validate_installation_command
-from aap_inference.topology import (
+from yoao_inference.plugin_installation import validate_installation_command
+from yoao_inference.topology import (
     RegistryDeletion,
     RegistryTopologySnapshot,
     RepairModelLockStatus,
 )
-from aap_inference_contract.topology import (
+from yoao_inference_contract.topology import (
     PoolFacts,
     PoolMemberFacts,
     ProjectAssociationFacts,
@@ -28,7 +28,7 @@ from aap_inference_contract.topology import (
     RegistryReference,
     to_record,
 )
-from aap_inference_contract.plugin import (
+from yoao_inference_contract.plugin import (
     PluginInstallationResponse,
     PreparePluginInstallation,
 )
@@ -264,7 +264,7 @@ class InferenceTopologyData:
     def _raise_native_error(error: DBAPIError) -> None:
         message = _primary_message(error)
         if message.startswith("aap_inference_topology:"):
-            from aap_inference.topology import (
+            from yoao_inference.topology import (
                 CapabilityRevalidationError,
                 ManagedMutationBlocked,
                 PoolCapabilityUnavailable,
@@ -337,7 +337,7 @@ class InferenceTopologyData:
         if message == "disabled member needs capability re-validation before resume":
             raise ValueError(message) from error
         if "member upsert review became stale" in message:
-            from aap_inference.topology import TopologyChanged
+            from yoao_inference.topology import TopologyChanged
 
             raise TopologyChanged(
                 "ml_backend_topology_changed",
@@ -410,8 +410,8 @@ class InferenceTopologyData:
     async def prepare_plugin_installation(
         self, payload: PreparePluginInstallation
     ) -> PluginInstallationResponse:
-        from aap_inference.gpu.policy import validate_gpu_claim
-        from aap_inference.topology import BackendTopologyCoordinator
+        from yoao_inference.gpu.policy import validate_gpu_claim
+        from yoao_inference.topology import BackendTopologyCoordinator
         from app.config import settings
 
         normalized_url = payload.url.rstrip("/")

@@ -14,7 +14,7 @@ from app.schemas.multicamera_annotation import (
     CameraProjectionResidual,
     NormalizedCameraBbox,
 )
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     LockCalibrationFactsRequest,
     ReadItemsRequest,
     SpatialItem,
@@ -30,7 +30,7 @@ from app.services.pointcloud_projection import (
     projection_residual,
 )
 from app.services.labeling_scene import resolve_task_scene_frames
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     CameraTrackSnapshot,
     LockCameraMemberScope,

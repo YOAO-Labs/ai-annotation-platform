@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid5
 
-from aap_inference_contract.routing import RoutingUnavailable
-from aap_inference_contract.scope_retirement import (
+from yoao_inference_contract.routing import RoutingUnavailable
+from yoao_inference_contract.scope_retirement import (
     ScopeRetirementView,
     make_scope_retirement_request,
 )
-from aap_preannotation_results.video_execution_journal import ReadRequest
+from yoao_preannotation_results.video_execution_journal import ReadRequest
 
 from app.services.ml_routing.authority import RoutingAuthority
 from .execution import TrackerExecutionDeferred, TrackerExecutionLost, execution_proof

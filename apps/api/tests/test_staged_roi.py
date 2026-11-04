@@ -12,9 +12,9 @@ from dataclasses import dataclass
 
 import pytest
 from PIL import Image
-from aap_inference_contract.execution import ModelTaskResult
+from yoao_inference_contract.execution import ModelTaskResult
 
-from aap_inference.roi import (
+from yoao_inference.roi import (
     collect_geometry_shapes,
     compose_transforms,
     crop_inputs_from_boxes,

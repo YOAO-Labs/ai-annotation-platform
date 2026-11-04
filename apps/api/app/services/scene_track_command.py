@@ -13,14 +13,14 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.scene_track_command_contract import (
+from yoao_labeling.scene_track_command_contract import (
     SceneTrackCommandFailure,
     SceneTrackCommandOperation,
     SceneTrackCommandUnavailable,
     scene_track_command,
 )
-from aap_labeling.scene_track_command_data import SceneTrackCommandDataClient
-from aap_labeling.scene_read_contract import (
+from yoao_labeling.scene_track_command_data import SceneTrackCommandDataClient
+from yoao_labeling.scene_read_contract import (
     SceneAnnotationRecord,
     SceneTrackIntervalRecord,
     SceneTrackRecord,

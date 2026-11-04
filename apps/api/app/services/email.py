@@ -7,7 +7,7 @@ from email.message import EmailMessage
 from email.utils import formatdate
 from typing import Any
 
-from aap_mail_transport import MailOutcome, MailReason, SMTPConfig, send_message
+from yoao_mail_transport import MailOutcome, MailReason, SMTPConfig, send_message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.system_settings_service import SystemSettingsService

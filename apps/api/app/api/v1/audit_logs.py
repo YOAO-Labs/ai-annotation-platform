@@ -13,13 +13,13 @@ from sqlalchemy import String, and_, cast, func, or_, outerjoin, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from aap_audit import (
+from yoao_audit import (
     EXPORT_MAX_ROWS,
     AuditQueryAfter,
     AuditQueryFilters,
     AuditQueryRequest,
 )
-from aap_audit.query_postgres import AuditQueryPostgresData
+from yoao_audit.query_postgres import AuditQueryPostgresData
 
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole

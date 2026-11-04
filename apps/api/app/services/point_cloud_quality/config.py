@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
+from yoao_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.services.mask_qc.service import canonical_digest
 
 

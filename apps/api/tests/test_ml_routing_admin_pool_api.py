@@ -10,13 +10,13 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
-from aap_inference.health import reconcile_pool_capability
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.pool_capability import (
+from yoao_inference.health import reconcile_pool_capability
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
 )
-from aap_inference.routing_runtime import RoutingRuntime
+from yoao_inference.routing_runtime import RoutingRuntime
 
 from app.config import settings
 from app.db.models.audit_log import AuditLog
@@ -124,7 +124,7 @@ async def test_member_mutation_projects_cached_pool_after_commit(
         # The savepoint world is intentionally invisible to the out-of-process
         # owner; the real drain refusal is exercised by
         # test_remove_managed_member_requires_real_drain over a committed world.
-        from aap_inference.topology import RegistryTopologySnapshot
+        from yoao_inference.topology import RegistryTopologySnapshot
         from app.services.ml_routing import safety
 
         async def quiescent(_db, registry_id):

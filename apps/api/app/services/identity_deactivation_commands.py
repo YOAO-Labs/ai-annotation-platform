@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.deactivation_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.deactivation_contract import (
     DeactivationRequest,
     DeactivationReply,
     DeactivationDueRequest,
@@ -15,8 +15,8 @@ from aap_identity.deactivation_contract import (
     decode_deactivation_reply,
     decode_deactivation_due_reply,
 )
-from aap_identity.deactivation_manager import DeactivationManager
-from aap_identity.deactivation_postgres import (
+from yoao_identity.deactivation_manager import DeactivationManager
+from yoao_identity.deactivation_postgres import (
     DeactivationPostgresData,
     DeactivationDuePostgresData,
 )

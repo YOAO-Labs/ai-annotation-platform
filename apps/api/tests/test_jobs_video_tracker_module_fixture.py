@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 import httpx
 
-from aap_jobs.queue_contract import load_queue_configuration
+from yoao_jobs.queue_contract import load_queue_configuration
 from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
 from tests.jobs_video_tracker_module_helpers import (
     _VIDEO_TRACKER_TASK_NAME,

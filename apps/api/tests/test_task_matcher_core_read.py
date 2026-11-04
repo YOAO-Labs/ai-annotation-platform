@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.annotation_transfer_contract import TaskMatchSnapshot
+from yoao_labeling.annotation_transfer_contract import TaskMatchSnapshot
 from app.services import task_matcher
 
 

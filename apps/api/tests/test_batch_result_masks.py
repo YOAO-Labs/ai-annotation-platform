@@ -178,7 +178,7 @@ async def test_normalize_leaves_reference_masks_and_nonmask_requests_untouched()
 
 @pytest.mark.parametrize("field", ["id", "track_id", "attributes"])
 def test_native_mask_candidate_rejects_unmodeled_prediction_metadata(field):
-    from aap_protocol_v2 import NativeMaskCandidate
+    from yoao_protocol_v2 import NativeMaskCandidate
     from pydantic import ValidationError
 
     candidate = {

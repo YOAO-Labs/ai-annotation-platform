@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     ApplyReview,
     ClaimVideoSegment,
     HeartbeatVideoSegment,
@@ -27,8 +27,8 @@ from aap_labeling.video_control_contract import (
     UnassignVideoSegment,
     SourceAnnotationWrite,
 )
-from aap_labeling.video_control_data import VideoControlDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.video_control_data import VideoControlDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
 from app.db.models.project_member import ProjectMember

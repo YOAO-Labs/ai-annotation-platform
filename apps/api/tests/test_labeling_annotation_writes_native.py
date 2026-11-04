@@ -7,7 +7,7 @@ import asyncpg
 import pytest
 from sqlalchemy import delete, select
 
-from aap_labeling.annotation_write_contract import (
+from yoao_labeling.annotation_write_contract import (
     ANNOTATION_WRITE_PROTOCOL,
     CreateAnnotation,
     DeleteAnnotation,
@@ -15,7 +15,7 @@ from aap_labeling.annotation_write_contract import (
     UpdateAnnotation,
     WriteCreateReceipt,
 )
-from aap_labeling.annotation_write_data import AnnotationWriteDataClient
+from yoao_labeling.annotation_write_data import AnnotationWriteDataClient
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.task import Task

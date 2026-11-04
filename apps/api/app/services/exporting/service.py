@@ -25,12 +25,12 @@ from app.services.exporting.scope import ids_clause
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from aap_assets_catalog.spatial_contract import SpatialItem
+from yoao_assets_catalog.spatial_contract import SpatialItem
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrackInterval
 from app.db.models.task import Task
-from aap_workspace_contract import (
+from yoao_workspace_contract import (
     derive_attribute_keys,
     derive_attribute_schema,
     derive_classes_config,
@@ -40,7 +40,7 @@ from aap_workspace_contract import (
 from app.services.prediction import to_internal_shape
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.assets_spatial_views import spatial_scene_references
-from aap_assets_catalog.axis_convention import (
+from yoao_assets_catalog.axis_convention import (
     AxisFrame,
     transform_box_geometry_axis_frame,
 )
@@ -390,7 +390,7 @@ class ExportService:
         return video_source_contract(project, task, item, metadata, scope)
 
     async def _video_source(self, dataset_item_id: uuid.UUID):
-        from aap_assets_media.contract import InternalSourceRequest
+        from yoao_assets_media.contract import InternalSourceRequest
 
         from app.services.assets_media import media_gateway
 

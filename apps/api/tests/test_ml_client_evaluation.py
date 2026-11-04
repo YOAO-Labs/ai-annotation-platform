@@ -9,7 +9,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aap_inference import backend_transport
+from yoao_inference import backend_transport
 from tests.test_ml_client_metrics import _backend, _transport
 
 
@@ -143,7 +143,7 @@ async def test_large_segment_completed_receipt_recovers_through_read_and_seal(
 ):
     from app.services import managed_inference as managed
     from app.services.training_dataset_bridge import content_digest
-    from aap_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
+    from yoao_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
     from training_contract.model_return import (
         SEGMENTATION_OUTPUT_CONTRACT,
         SEGMENTATION_RUNTIME,
@@ -340,7 +340,7 @@ async def test_unknown_evaluation_paths_and_methods_are_rejected_before_http(
 async def test_controlled_route_forwards_only_qualified_context_and_byte_budget(
     monkeypatch,
 ):
-    from aap_inference_contract.execution import FrozenModelOperation, thaw_json
+    from yoao_inference_contract.execution import FrozenModelOperation, thaw_json
     from app.services import inference_model_execution, trained_models
 
     target = uuid.uuid4()

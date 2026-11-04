@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from aap_identity.contract import Principal
-from aap_identity.offboarding_contract import (
+from yoao_identity.contract import Principal
+from yoao_identity.offboarding_contract import (
     OffboardingFailure,
     decode_offboarding_request,
 )

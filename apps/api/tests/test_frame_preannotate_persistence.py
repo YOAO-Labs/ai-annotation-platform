@@ -11,8 +11,8 @@ from kombu.utils.json import dumps, loads
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_video_inputs import execution as video_execution
-from aap_assets_video_inputs import values as video_values
+from yoao_assets_video_inputs import execution as video_execution
+from yoao_assets_video_inputs import values as video_values
 from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
@@ -34,7 +34,7 @@ from tests.test_video_input_ledger_lifecycle import (
 )
 
 
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from tests.inference_execution_test_ports import FakeModelExecutionPort
 
 
@@ -520,7 +520,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
 async def test_media_owner_busy_defers_before_prediction(
     frame_world, test_db_url, monkeypatch
 ):
-    from aap_assets_video_inputs.execution import VideoInputFailure
+    from yoao_assets_video_inputs.execution import VideoInputFailure
 
     world = frame_world
     predict = AsyncMock()

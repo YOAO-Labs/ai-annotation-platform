@@ -19,8 +19,8 @@ import pytest
 from PIL import Image
 from sqlalchemy import text
 
-from aap_assets_inputs import contract as c
-from aap_assets_inputs.client import InputClient
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs.client import InputClient
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import ProjectDataset
 from tests.factory import create_project, create_task
@@ -245,7 +245,7 @@ async def _prove_cleanup_rescans_late_versions(runtime, input_id, tmp_path):
     }
     log = tmp_path / "input-cleanup.log"
     process, stream = _start_process(
-        [sys.executable, "-m", "aap_assets_cleanup"], environment, log
+        [sys.executable, "-m", "yoao_assets_cleanup"], environment, log
     )
     runtime.processes.append(process)
     runtime.streams.append(stream)

@@ -43,7 +43,7 @@ from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
     heartbeat_task_lock_for_legacy_video,
 )
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 

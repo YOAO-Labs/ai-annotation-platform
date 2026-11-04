@@ -30,12 +30,12 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_labeling.e2e_fixture_contract import TaskFixturePatch
-from aap_workspace.e2e_fixture_contract import (
+from yoao_labeling.e2e_fixture_contract import TaskFixturePatch
+from yoao_workspace.e2e_fixture_contract import (
     WorkspaceE2EFixtureUnavailable,
     decode_fixture_count,
 )
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 from app.config import settings
 from app.core.security import create_access_token
@@ -1683,7 +1683,7 @@ async def _build_project_roles_image_project(
     """
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.task import Task
-    from aap_workspace.configuration_policy import coalesce_legacy_into_tool_bindings
+    from yoao_workspace.configuration_policy import coalesce_legacy_into_tool_bindings
     from app.services.storage import storage_service
 
     kw: dict = {"classes": ["car", "person"]}
@@ -3459,7 +3459,7 @@ async def seed_native_mask_candidate(
     import hashlib
     from uuid import UUID
 
-    from aap_protocol_v2 import (
+    from yoao_protocol_v2 import (
         CocoRlePayload,
         canonical_rle_bytes,
         native_mask_candidate_id,

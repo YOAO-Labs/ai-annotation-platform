@@ -10,7 +10,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import func, select, text
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     CalibrationMutationResult,
     CalibrationPage,
     CalibrationRecord,
@@ -20,7 +20,7 @@ from aap_assets_catalog.spatial_contract import (
     decode_spatial_reply,
     normalize_calibration_record,
 )
-from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
+from yoao_assets_catalog.spatial_values import SensorCalibration, calibration_digest
 from app.db.models.audit_log import AuditLog
 from app.db.models.dataset import DatasetItem, SensorCalibrationRevision
 from app.db.models.project import Project

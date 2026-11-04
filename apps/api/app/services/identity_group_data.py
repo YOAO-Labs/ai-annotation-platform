@@ -9,8 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.group_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.group_contract import (
     decode_native_group_command,
     decode_native_group_reply,
 )

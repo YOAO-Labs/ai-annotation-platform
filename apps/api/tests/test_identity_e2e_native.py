@@ -15,7 +15,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_identity.e2e_fixture_contract import ACCOUNT_PROFILE_FIELDS
+from yoao_identity.e2e_fixture_contract import ACCOUNT_PROFILE_FIELDS
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.project import Project
 from app.db.models.user import User

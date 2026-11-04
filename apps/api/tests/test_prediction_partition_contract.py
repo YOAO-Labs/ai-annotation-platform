@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_labeling.prediction_partition_contract import (
+from yoao_labeling.prediction_partition_contract import (
     EnsurePredictionPartition,
     PREDICTION_PARTITIONS_PROTOCOL,
     PredictionPartitionUnavailable,
@@ -23,13 +23,13 @@ def test_prediction_partition_contract_matches_frozen_artifacts():
     api_sql = api_root / "alembic/sql/0357_labeling_prediction_partitions.sql"
     package_sql = (
         apps_root
-        / "labeling/src/aap_labeling/sql/0357_labeling_prediction_partitions.sql"
+        / "labeling/src/yoao_labeling/sql/0357_labeling_prediction_partitions.sql"
     )
     api_schema = (
         api_root / "alembic/sql/0357_labeling_prediction_partitions.schema.json"
     )
     package_schema = (
-        apps_root / "labeling/src/aap_labeling/prediction-partitions.schema.json"
+        apps_root / "labeling/src/yoao_labeling/prediction-partitions.schema.json"
     )
 
     assert api_sql.read_bytes() == package_sql.read_bytes()

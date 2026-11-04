@@ -15,8 +15,8 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_inference.pool_capability import capability_fingerprint
-from aap_inference_contract.topology import PoolFacts, to_record
+from yoao_inference.pool_capability import capability_fingerprint
+from yoao_inference_contract.topology import PoolFacts, to_record
 from app.config import settings
 from app.services.inference_topology_data import InferenceTopologyData
 from app.services.ml_routing.contracts import (
@@ -80,7 +80,7 @@ class MLBackendRouter:
         execution: dict | None = None,
     ) -> RouteSelection:
         """Reserve durable execution ownership using current committed topology."""
-        from aap_inference_contract.routing import RoutingUnavailable
+        from yoao_inference_contract.routing import RoutingUnavailable
         from .authority import RoutingRejected
 
         try:

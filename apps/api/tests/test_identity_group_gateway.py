@@ -12,8 +12,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from starlette.requests import Request
 
-from aap_identity.contract import Principal
-from aap_identity.group_contract import decode_group_reply, decode_group_request
+from yoao_identity.contract import Principal
+from yoao_identity.group_contract import decode_group_reply, decode_group_request
 from app.api.v1 import groups, users
 from app.api.v1.group_commands import (
     execute_group,

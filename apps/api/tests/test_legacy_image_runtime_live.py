@@ -16,9 +16,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_assets_images import contract as images
-from aap_assets_input_manifests import contract as manifests
-from aap_assets_inputs import contract as inputs
+from yoao_assets_images import contract as images
+from yoao_assets_input_manifests import contract as manifests
+from yoao_assets_inputs import contract as inputs
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob

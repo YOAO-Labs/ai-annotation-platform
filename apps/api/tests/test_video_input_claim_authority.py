@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import execution as c
 from tests.test_video_input_ledger_control import _call
 from tests.test_video_input_ledger_execution import _seed_prepared_video_input
 from tests.test_video_input_ledger_lifecycle import _frame_request, _ready_plan

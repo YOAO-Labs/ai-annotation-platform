@@ -37,7 +37,7 @@ MASK_STRATEGY = {
 
 
 def strategy_for(ref):
-    from aap_task_contract import normalize_task
+    from yoao_task_contract import normalize_task
 
     return (
         MASK_STRATEGY

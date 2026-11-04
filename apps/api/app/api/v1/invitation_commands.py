@@ -7,8 +7,8 @@ import uuid
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import Principal
-from aap_identity.invitation_contract import (
+from yoao_identity.contract import Principal
+from yoao_identity.invitation_contract import (
     InvitationFailure,
     decode_invitation_request,
 )

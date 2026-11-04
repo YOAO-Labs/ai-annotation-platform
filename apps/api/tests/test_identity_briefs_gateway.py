@@ -15,8 +15,8 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.briefs_contract import decode_briefs_request
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.briefs_contract import decode_briefs_request
+from yoao_identity.contract import IdentityUnavailable
 from app.services import identity_briefs_commands as commands_module
 from app.services import user_brief
 from app.services.identity_briefs_commands import IdentityBriefsCommands

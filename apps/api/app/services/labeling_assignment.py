@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.batch_control_contract import ApplyTaskAssignments, TaskAssignment
+from yoao_labeling.batch_control_contract import ApplyTaskAssignments, TaskAssignment
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User

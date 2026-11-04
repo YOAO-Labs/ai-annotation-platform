@@ -7,7 +7,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
-from aap_assets_inputs.contract import InputFailure
+from yoao_assets_inputs.contract import InputFailure
 
 from app.config import settings
 from app.db.models.prediction import Prediction

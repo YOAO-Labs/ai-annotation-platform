@@ -23,7 +23,7 @@ from app.application.async_job_read import (
     _build_async_job_query,
 )
 from app.services.jobs_list_query_data import JobsListQueryPostgresData
-from aap_jobs.async_job_list_query_contract import AsyncJobListQuery
+from yoao_jobs.async_job_list_query_contract import AsyncJobListQuery
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember

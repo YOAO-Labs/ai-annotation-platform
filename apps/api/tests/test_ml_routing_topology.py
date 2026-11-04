@@ -32,7 +32,7 @@ async def test_topology_super_admin_sees_full_detail(
         health_meta={"capabilities": caps},
         last_checked_at=datetime.now(UTC),
     )
-    from aap_inference.pool_capability import (
+    from yoao_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -140,7 +140,7 @@ async def test_topology_status_derivation(
         health_meta={"capabilities": caps},
         last_checked_at=datetime.now(UTC),
     )
-    from aap_inference.pool_capability import (
+    from yoao_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -260,7 +260,7 @@ async def test_runtime_snapshot_keeps_unknown_inflight_when_owner_unavailable(
 ) -> None:
     from app.services.ml_routing import router
     from app.services.ml_routing.authority import RoutingAuthority
-    from aap_inference_contract.routing import RoutingUnavailable
+    from yoao_inference_contract.routing import RoutingUnavailable
 
     async def unavailable(_self, _registry_ids):
         raise RoutingUnavailable()

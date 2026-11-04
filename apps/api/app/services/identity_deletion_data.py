@@ -8,8 +8,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deletion_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deletion_contract import (
     decode_native_deletion_command,
     decode_native_deletion_reply,
 )

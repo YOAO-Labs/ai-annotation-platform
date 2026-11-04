@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_inference.topology import RegistryTopologySnapshot
+from yoao_inference.topology import RegistryTopologySnapshot
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.inference_health_data import InferenceHealthData
@@ -526,7 +526,7 @@ async def test_delete_and_workspace_binding_writer_fail_fast_instead_of_deadlock
 async def test_accept_drift_does_not_lock_other_registry_behind_pool(
     test_engine, monkeypatch
 ):
-    from aap_inference.pool_capability import capability_fingerprint
+    from yoao_inference.pool_capability import capability_fingerprint
 
     await assert_owned_test_database(test_engine)
     registry_id, pool_id = await _seed(test_engine, monkeypatch)
@@ -709,7 +709,7 @@ async def test_workspace_enablement_rejects_membership_changed_while_waiting(
     from app.db.models.user import User
     from app.db.models.ml_backend_registry import ProjectMLBackendPool
     from app.services.workspace_configuration_data import _diagnostic
-    from aap_workspace.configuration_postgres import configuration_busy_error
+    from yoao_workspace.configuration_postgres import configuration_busy_error
 
     await assert_owned_test_database(test_engine)
     registry_id, pool_id = await _seed(test_engine, monkeypatch, state="draining")

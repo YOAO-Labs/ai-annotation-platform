@@ -19,9 +19,9 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.client import MaskContentClient
-from aap_assets_mask_content.contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.client import MaskContentClient
+from yoao_assets_mask_content.contract import (
     DeleteRequest,
     GetRequest,
     ListRequest,
@@ -153,7 +153,7 @@ def _start_runtime(role, *, bucket: str, credentials: tuple[str, str], tmp_path)
     assert len(token) >= 32
     log_stream = (tmp_path / f"mask-{role}.log").open("wb")
     process = subprocess.Popen(
-        [sys.executable, "-m", "aap_assets_mask_content_runtime"],
+        [sys.executable, "-m", "yoao_assets_mask_content_runtime"],
         cwd=ROOT / "apps/assets-mask-content/src",
         env=environment,
         stdin=subprocess.DEVNULL,

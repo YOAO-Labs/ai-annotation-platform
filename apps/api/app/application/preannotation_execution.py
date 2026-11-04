@@ -1,12 +1,12 @@
-from aap_task_contract import normalize_task_fields
-from aap_inference import resolve_model_task
-from aap_inference.execution_context import build_predict_context, model_label
-from aap_inference.execution_pipeline import (
+from yoao_task_contract import normalize_task_fields
+from yoao_inference import resolve_model_task
+from yoao_inference.execution_context import build_predict_context, model_label
+from yoao_inference.execution_pipeline import (
     execute_task_pipeline,
     resolve_input_mode,
     stage_totals_snapshot,
 )
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ModelExecutionError,
     freeze_json,
     thaw_json,
@@ -47,7 +47,7 @@ async def _preannotation_actor_revoked(
 ) -> bool:
     """Check current account and project authority; task eligibility is separate."""
     from fastapi import HTTPException
-    from aap_workspace_contract.access import ProjectCapability
+    from yoao_workspace_contract.access import ProjectCapability
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import (
         is_privileged_for_project,
@@ -109,7 +109,7 @@ class _PreparedAcceptedInput:
     local_path: Path
 
     async def verify_source(self):
-        from aap_assets_inputs.contract import InputRequest
+        from yoao_assets_inputs.contract import InputRequest
 
         record = await self.gateway.verify_source(
             InputRequest(
@@ -125,7 +125,7 @@ class _PreparedAcceptedInput:
             or record.sha256 != self.reference.input.sha256
             or record.byte_size != self.reference.input.byte_size
         ):
-            from aap_assets_inputs.contract import InputFailure
+            from yoao_assets_inputs.contract import InputFailure
 
             raise InputFailure("input_corrupt")
         return record
@@ -175,9 +175,9 @@ def _video_input_task_source_matches(task, binding) -> bool:
 
 async def _verified_video_manifest_plan(gateway, member, *, actor_id):
     """Verify a retained source and its complete selected timebase before writes."""
-    from aap_assets_video_inputs import execution as video_execution
-    from aap_assets_video_inputs import values as video_values
-    from aap_assets_video_inputs.execution import VideoInputFailure
+    from yoao_assets_video_inputs import execution as video_execution
+    from yoao_assets_video_inputs import values as video_values
+    from yoao_assets_video_inputs.execution import VideoInputFailure
 
     record = member.input
     if (
@@ -252,8 +252,8 @@ async def _verified_video_manifest_plan(gateway, member, *, actor_id):
 
 
 async def _accepted_video_members(prepared: _PreparedAcceptedVideoManifest):
-    from aap_assets_video_inputs import execution as video_execution
-    from aap_assets_video_inputs.execution import VideoInputFailure
+    from yoao_assets_video_inputs import execution as video_execution
+    from yoao_assets_video_inputs.execution import VideoInputFailure
 
     members = []
     cursor = 0
@@ -332,7 +332,7 @@ async def _prepare_accepted_input_manifest(
     request: BatchPredictionRequest, SessionLocal
 ):
     """Validate the durable selection and seal it before the existing Job claim."""
-    from aap_assets_input_manifests import contract as c
+    from yoao_assets_input_manifests import contract as c
     from app.db.models.async_job import AsyncJobStatus
     from app.services import async_job as async_job_svc
 
@@ -533,9 +533,9 @@ async def _prepare_accepted_video_manifest(
     request: BatchPredictionRequest, SessionLocal
 ):
     """Validate and seal the retained video selection before any overwrite."""
-    from aap_assets_video_inputs import authority as authority_contract
-    from aap_assets_video_inputs import execution as execution_contract
-    from aap_assets_video_inputs.execution import VideoInputFailure
+    from yoao_assets_video_inputs import authority as authority_contract
+    from yoao_assets_video_inputs import execution as execution_contract
+    from yoao_assets_video_inputs.execution import VideoInputFailure
     from app.db.models.async_job import AsyncJobStatus
     from app.services import async_job as async_job_svc
 
@@ -687,7 +687,7 @@ async def _prepare_accepted_video_manifest(
 @asynccontextmanager
 async def _prepare_manifest_member(manifest: _PreparedAcceptedManifest, member):
     """Materialize one sealed member at a time, retaining its original Input ID."""
-    from aap_assets_inputs import contract as c
+    from yoao_assets_inputs import contract as c
 
     input_record = member.input
     input_metadata = None
@@ -774,7 +774,7 @@ async def _prepare_manifest_member(manifest: _PreparedAcceptedManifest, member):
 
 
 async def _verify_accepted_input_source(prepared: _PreparedAcceptedInput) -> None:
-    from aap_assets_inputs.contract import InputFailure
+    from yoao_assets_inputs.contract import InputFailure
 
     for attempt in range(_WRITE_ATTEMPTS):
         try:
@@ -859,7 +859,7 @@ def _canonical_input_id_map(value, task_id: uuid.UUID) -> dict[str, str]:
 @asynccontextmanager
 async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal):
     """Check durable identity and readiness before any job claim or overwrite."""
-    from aap_assets_inputs import contract as c
+    from yoao_assets_inputs import contract as c
     from app.db.models.async_job import AsyncJobStatus
     from app.services.labeling_core_read_relations import get_core_row, task_row
     from app.services import async_job as async_job_svc
@@ -1213,7 +1213,7 @@ async def run_preannotation(
             settings.preannotation_results_database_url
             or settings.preannotation_results_database_url_file
         ):
-            from aap_preannotation_results_runtime.config import (
+            from yoao_preannotation_results_runtime.config import (
                 ConfigurationError,
                 load_config,
             )
@@ -1454,7 +1454,7 @@ async def _execute_preannotation(
     from app.services.identity_contracts import IdentityActorStatus
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
-    from aap_inference.gpu.contracts import (
+    from yoao_inference.gpu.contracts import (
         gpu_arbiter_failure_record,
         summarize_gpu_arbiter_failures,
     )
@@ -1558,7 +1558,7 @@ async def _execute_preannotation(
             ):
                 return
             if accepted_input_manifest_protocol is not None and not resuming_results:
-                from aap_assets_input_manifests.contract import MANIFEST_SCHEMA
+                from yoao_assets_input_manifests.contract import MANIFEST_SCHEMA
 
                 manifest_payload = precreated_job.payload or {}
                 if (
@@ -2826,7 +2826,7 @@ async def _execute_preannotation(
                     yield ordinal - 1, selected_task, None, None
                 return
 
-            from aap_assets_input_manifests.contract import ManifestPageRequest
+            from yoao_assets_input_manifests.contract import ManifestPageRequest
 
             remaining_authority_ids = (
                 set(authority_task_ids) if reference_job is not None else None

@@ -52,7 +52,7 @@ class SqlPredictionRetry(PredictionRetryPort):
         project_id=None,
         follow_target_queue=True,
     ):
-        from aap_preannotation_results.retry_contract import (
+        from yoao_preannotation_results.retry_contract import (
             AdmitPredictionRetryRequest,
             PredictionRetryFailure,
         )
@@ -285,7 +285,7 @@ async def _recorded_failed_ids(db: AsyncSession, job: AsyncJob) -> list[uuid.UUI
     result = job.result or {}
     if "batch_result_scope" not in result:
         return _payload_uuid_list(result, "failed_prediction_ids")
-    from aap_preannotation_results.contract import (
+    from yoao_preannotation_results.contract import (
         BatchResultFailure,
         ReadBatchResultExecutionRequest,
         Scope,

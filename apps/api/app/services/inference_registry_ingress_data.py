@@ -14,8 +14,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, attributes, object_session
 
-from aap_inference.registry_ingress import RegistrySeedFacts
-from aap_inference_contract.topology import PoolFacts
+from yoao_inference.registry_ingress import RegistrySeedFacts
+from yoao_inference_contract.topology import PoolFacts
 from app.db.models.ml_backend_registry import MLBackendRegistry
 
 _NATIVE = "aap_inference_registry_ingress_v1."

@@ -21,23 +21,23 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_labeling.video_writer import VideoWriterManager
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer import VideoWriterManager
+from yoao_labeling.video_writer_contract import (
     VideoWriterFailure,
     make_video_writer_command,
     video_writer_command_digest,
 )
-from aap_labeling.video_writer_postgres import VideoWriterPostgresProvider
-from aap_owner_data.postgres import verify_function_only_role
-from aap_preannotation_results.video_execution_journal import (
+from yoao_labeling.video_writer_postgres import VideoWriterPostgresProvider
+from yoao_owner_data.postgres import verify_function_only_role
+from yoao_preannotation_results.video_execution_journal import (
     CaptureWindowRequest,
     PutPartRequest,
     SealWindowRequest,
 )
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.video_execution_plan import (
     VideoContinuationPostState,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
     snapshot_video_window_checkpoint,
 )

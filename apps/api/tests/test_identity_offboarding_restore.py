@@ -12,14 +12,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.offboarding_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.offboarding_contract import (
     OffboardingFailure,
     decode_offboarding_request,
 )
-from aap_identity.offboarding_manager import OffboardingManager
-from aap_identity.offboarding_postgres import OffboardingPostgresData
-from aap_identity.postgres import PostgresData
+from yoao_identity.offboarding_manager import OffboardingManager
+from yoao_identity.offboarding_postgres import OffboardingPostgresData
+from yoao_identity.postgres import PostgresData
 from app.db.models.user import User
 from tests.test_identity_admission_live import _dsn, _token, _world
 from tests.test_identity_recovery import (

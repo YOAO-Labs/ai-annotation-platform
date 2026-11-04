@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from aap_workspace.mask_configuration_values import MaskQCConfig
+from yoao_workspace.mask_configuration_values import MaskQCConfig
 
 DEFAULT_RULE_SEVERITIES = {
     "empty_mask": "blocker",

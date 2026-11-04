@@ -4,7 +4,7 @@ import inspect
 import uuid
 from types import SimpleNamespace
 
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     FrozenModelOperation,
     ModelExecutionObservation,
@@ -51,7 +51,7 @@ class FakeModelExecutionPort:
         actual_pool_id = self.pool_id or operation.requested_pool_id
         route_scope_id = uuid.uuid4()
         if before_dispatch is not None:
-            from aap_inference_contract.execution import ModelExecutionDispatch
+            from yoao_inference_contract.execution import ModelExecutionDispatch
 
             health = operation.health_meta or {}
             await before_dispatch(
@@ -140,7 +140,7 @@ def patch_batch_execution(monkeypatch, respond, *, instance_id=None, pool_id=Non
 
 
 def _dispatch(operation, *, route_scope_id, instance_id, pool_id):
-    from aap_inference_contract.execution import ModelExecutionDispatch
+    from yoao_inference_contract.execution import ModelExecutionDispatch
 
     health = operation.health_meta or {}
     return ModelExecutionDispatch(
@@ -195,7 +195,7 @@ class PredictionClientExecutionPort:
     async def execute(
         self, operation: FrozenModelOperation, *, before_dispatch=None
     ) -> ModelOperationResult:
-        from aap_inference_contract.execution import thaw_json
+        from yoao_inference_contract.execution import thaw_json
 
         actual_registry_id = self.instance_id or operation.requested_registry_id
         actual_pool_id = self.pool_id or operation.requested_pool_id
@@ -261,11 +261,11 @@ async def run_client_task_pipeline(
 
     from PIL import Image
 
-    from aap_inference.execution_pipeline import (
+    from yoao_inference.execution_pipeline import (
         execute_task_pipeline,
         resolve_input_mode,
     )
-    from aap_inference_contract.execution import thaw_json
+    from yoao_inference_contract.execution import thaw_json
 
     modes = tuple(stage_modes or (resolve_input_mode(stage) for stage in stages))
     source_image = None

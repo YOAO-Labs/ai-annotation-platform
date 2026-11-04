@@ -30,11 +30,11 @@ from app.services.sensor_calibration import (
     calibration_digest,
 )
 from app.services.project_access import get_workspace_project
-from aap_assets_catalog.axis_convention import R_NORM
-from aap_workspace_contract import derive_classes_list
+from yoao_assets_catalog.axis_convention import R_NORM
+from yoao_workspace_contract import derive_classes_list
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.assets_spatial import AssetsSpatialGateway
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ReadPosesRequest,
     SpatialFailure,
     normalize_calibration_record,

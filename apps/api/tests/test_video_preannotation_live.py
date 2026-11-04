@@ -22,13 +22,13 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_assets_video_inputs.evidence import (
+from yoao_assets_video_inputs.evidence import (
     VideoInputEvidence,
     VideoInputFailureEvidence,
     parse_prediction_evidence,
 )
-from aap_assets_video_inputs.execution import VideoInputFailure
-from aap_inference_contract.execution import (
+from yoao_assets_video_inputs.execution import VideoInputFailure
+from yoao_inference_contract.execution import (
     ExecutionFailure,
     ExecutionProvenance,
     FrozenModelOperation,
@@ -188,7 +188,7 @@ def _start_polling_video_worker(runtime, directory):
     )
     environment["ASSETS_MEDIA_POLL_SECONDS"] = "0.1"
     process, stream = _start_process(
-        [sys.executable, "-m", "aap_assets_media_runtime.worker"],
+        [sys.executable, "-m", "yoao_assets_media_runtime.worker"],
         environment,
         directory / "video-consumer-worker.log",
     )

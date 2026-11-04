@@ -23,7 +23,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_assets_video_inputs import execution as video_execution
+from yoao_assets_video_inputs import execution as video_execution
 from app.config import settings
 from tests.test_asset_storage_cleanup_runtime import (
     _docker as _shared_docker,
@@ -795,7 +795,7 @@ async def test_media_containers_reclaim_and_fence_a_paused_original_lease(
                 command = [
                     "python",
                     "-m",
-                    "aap_assets_media_runtime.worker",
+                    "yoao_assets_media_runtime.worker",
                     "--once",
                     "--input-id",
                     str(input_id),
@@ -918,7 +918,7 @@ async def test_media_containers_reclaim_and_fence_a_paused_original_lease(
                 worker_b_command = [
                     "python",
                     "-m",
-                    "aap_assets_media_runtime.worker",
+                    "yoao_assets_media_runtime.worker",
                 ]
                 worker_b = _start_worker_container(
                     name=worker_b_name,

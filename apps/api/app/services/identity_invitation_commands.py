@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.invitation_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.invitation_contract import (
     InvitationReply,
     InvitationRequest,
     decode_invitation_reply,
 )
-from aap_identity.invitation_manager import InvitationManager
-from aap_identity.invitation_postgres import InvitationPostgresData
+from yoao_identity.invitation_manager import InvitationManager
+from yoao_identity.invitation_postgres import InvitationPostgresData
 from app.config import settings
 from app.services.identity_account_commands import (
     _AccountAuthenticator,

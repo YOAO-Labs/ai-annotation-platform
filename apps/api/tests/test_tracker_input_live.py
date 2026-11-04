@@ -12,9 +12,9 @@ import httpx
 import pytest
 from sqlalchemy import select, text
 
-from aap_assets_video_inputs import execution as e
-from aap_assets_video_inputs import tracker as t
-from aap_assets_video_inputs.tracker_client import TrackerVideoInputClient
+from yoao_assets_video_inputs import execution as e
+from yoao_assets_video_inputs import tracker as t
+from yoao_assets_video_inputs.tracker_client import TrackerVideoInputClient
 from training_contract.observability import redact_text
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -180,7 +180,7 @@ async def _materialize(runtime, tmp_path, status):
         [
             sys.executable,
             "-m",
-            "aap_assets_media_runtime.worker",
+            "yoao_assets_media_runtime.worker",
             "--once",
             "--tracker-input-id",
             str(status.input_id),

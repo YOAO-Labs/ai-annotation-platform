@@ -1,6 +1,6 @@
 """Compatibility exports for the Workspace Dataset unlink contract."""
 
-from aap_workspace.dataset_unlink_contract import (
+from yoao_workspace.dataset_unlink_contract import (
     Count,
     DatasetUnlinkCommand,
     DatasetUnlinkFailure,

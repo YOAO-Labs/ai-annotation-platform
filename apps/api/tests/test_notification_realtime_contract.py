@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_notifications.publication_contract import PublicationAuthorization
+from yoao_notifications.publication_contract import PublicationAuthorization
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
 

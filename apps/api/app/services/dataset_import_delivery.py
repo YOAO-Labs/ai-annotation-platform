@@ -7,13 +7,13 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.import_delivery_contract import (
+from yoao_assets_source.import_delivery_contract import (
     DatasetImportDelivery,
     DatasetImportDeliveryCompletion,
     decode_dataset_import_delivery_claim,
     decode_dataset_import_delivery_completion,
 )
-from aap_assets_source.ingest_contract import IngestDeliveryLease
+from yoao_assets_source.ingest_contract import IngestDeliveryLease
 
 _CLAIM = text(
     "SELECT aap_assets_v1.claim_dataset_import_delivery(:lease_token, :lease_seconds)"

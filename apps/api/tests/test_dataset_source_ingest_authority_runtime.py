@@ -236,7 +236,7 @@ async def ordinary_source_stack(test_engine, app_module, monkeypatch, tmp_path):
             process = await asyncio.create_subprocess_exec(
                 sys.executable,
                 "-m",
-                "aap_assets_source_runtime",
+                "yoao_assets_source_runtime",
                 cwd=ROOT,
                 env=env,
                 stdout=log,

@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 import uvicorn
 
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 
 
 app = FastAPI()

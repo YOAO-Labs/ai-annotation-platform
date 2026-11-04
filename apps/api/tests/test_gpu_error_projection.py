@@ -9,10 +9,10 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
-from aap_inference.gpu.client import GPUAuthorityHTTPClient
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference_contract.gpu import GPUInstallationControlRequest
+from yoao_inference.gpu.client import GPUAuthorityHTTPClient
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference_contract.gpu import GPUInstallationControlRequest
 from app.api.v1.admin_plugin_installations import _gpu_error
 from app.services.inference_gpu import _GPUHttpTransport
 

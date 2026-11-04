@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 from app.config import settings
 from tests import test_labeling_module_api_cold as cold
 from tests.notifications_publisher_acceptance_helpers import (
@@ -230,7 +230,7 @@ async def main():
     raise AssertionError('worker can alter Audit storage')
    except DBAPIError as error:assert error.orig.sqlstate=='42501'
    finally:await db.rollback()
-  installed=Path(importlib.import_module('aap_audit.maintenance_postgres').__file__).resolve().is_relative_to(Path(sysconfig.get_paths()['purelib']))
+  installed=Path(importlib.import_module('yoao_audit.maintenance_postgres').__file__).resolve().is_relative_to(Path(sysconfig.get_paths()['purelib']))
   tasks=[ensure_future_audit_partitions,archive_old_audit_partitions,refresh_audit_bi_mv]
   assert not any(t.acks_late for t in tasks)
   print(json.dumps(dict(role=row[0],database=row[1],audit_select=row[2],audit_insert=row[3],jobs_select=row[4],jobs_insert=row[5],notifications_select=row[6],maintenance_command=row[7],audit_alter_denied=True,installed=installed,early_ack=True)))

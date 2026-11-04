@@ -11,11 +11,11 @@ from sqlalchemy import event, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
-from aap_jobs.lifecycle_contract import (
+from yoao_jobs.lifecycle_contract import (
     ASYNC_JOB_FUNCTION_ROW_TYPES,
     ASYNC_JOB_ROW_COLUMNS,
 )
-from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
+from yoao_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
 from app.db.models.async_job import AsyncJob
 from app.services import async_job as async_job_service
 from app.services.jobs_lifecycle_data import job_lock_statement

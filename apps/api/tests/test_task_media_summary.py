@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import MediaSummaries, MediaSummary, SummaryRequest
+from yoao_assets_media.contract import MediaSummaries, MediaSummary, SummaryRequest
 from app.api.v1.tasks._shared import _attach_dimensions, _attach_dimensions_batch
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 

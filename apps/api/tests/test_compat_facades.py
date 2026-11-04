@@ -351,19 +351,19 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_arbiter_store",
-        public_module="aap_inference.gpu.ledger",
+        public_module="yoao_inference.gpu.ledger",
         exports=(
             _exports(
-                "aap_inference.gpu.ledger.keys",
+                "yoao_inference.gpu.ledger.keys",
                 "GPUArbiterKeys",
                 "gpu_arbiter_keys",
             ),
             _exports(
-                "aap_inference.gpu.ledger.store",
+                "yoao_inference.gpu.ledger.store",
                 "GPUArbiterStore",
             ),
             _exports(
-                "aap_inference.gpu.ledger.types",
+                "yoao_inference.gpu.ledger.types",
                 "GPU_COLD_ADMISSION_OPERATION",
                 "GPU_EVICTION_OPERATION",
                 "GPUAdmissionResult",
@@ -391,7 +391,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "GPUTransitionResult",
             ),
             _exports(
-                "aap_inference.gpu.ledger.validation",
+                "yoao_inference.gpu.ledger.validation",
                 "normalize_gpu_backend_max_concurrency",
             ),
         ),
@@ -402,27 +402,27 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_admission_signer",
-        public_module="aap_inference.gpu.signing",
+        public_module="yoao_inference.gpu.signing",
         exports=(
             _exports(
-                "aap_inference.gpu.signing",
+                "yoao_inference.gpu.signing",
                 "GPUAdmissionSignerConfigError",
                 "GPUAdmissionTokenSigner",
             ),
         ),
         consumer_modules=(
-            "aap_inference.gpu.dispatch",
-            "aap_inference.gpu.membership_activation",
-            "aap_inference.gpu.rollout_control",
+            "yoao_inference.gpu.dispatch",
+            "yoao_inference.gpu.membership_activation",
+            "yoao_inference.gpu.rollout_control",
             "scripts.validate_gpu_arbitration",
         ),
     ),
     FacadeSpec(
         facade_module="app.services.gpu_arbiter_rollout",
-        public_module="aap_inference.gpu.rollout_state",
+        public_module="yoao_inference.gpu.rollout_state",
         exports=(
             _exports(
-                "aap_inference.gpu.rollout_state",
+                "yoao_inference.gpu.rollout_state",
                 "GPUArbiterRolloutConflict",
                 "GPUArbiterRolloutDecision",
                 "GPUArbiterRolloutSnapshot",
@@ -440,16 +440,16 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         ),
         consumer_modules=(
             "app.api.v1.admin_ml_integrations",
-            "aap_inference.model_execution",
+            "yoao_inference.model_execution",
             "app.workers.ml_health",
         ),
     ),
     FacadeSpec(
         facade_module="app.services.gpu_collector_database",
-        public_module="aap_inference.gpu.collector_database",
+        public_module="yoao_inference.gpu.collector_database",
         exports=(
             _exports(
-                "aap_inference.gpu.collector_database",
+                "yoao_inference.gpu.collector_database",
                 "GPUCollectorDatabase",
                 "GPUCollectorDatabaseConfigError",
                 "load_gpu_collector_database_url",
@@ -461,10 +461,10 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_dispatch_authority",
-        public_module="aap_inference.gpu.dispatch",
+        public_module="yoao_inference.gpu.dispatch",
         exports=(
             _exports(
-                "aap_inference.gpu.dispatch",
+                "yoao_inference.gpu.dispatch",
                 "build_gpu_dispatch_context_factory",
             ),
         ),
@@ -478,10 +478,10 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_membership_activation",
-        public_module="aap_inference.gpu.membership_activation",
+        public_module="yoao_inference.gpu.membership_activation",
         exports=(
             _exports(
-                "aap_inference.gpu.membership_activation",
+                "yoao_inference.gpu.membership_activation",
                 "GPUMembershipPromotionResult",
                 "promote_gpu_backend_membership",
                 "promote_gpu_resource_memberships",
@@ -491,10 +491,10 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_rollout_control",
-        public_module="aap_inference.gpu.rollout_control",
+        public_module="yoao_inference.gpu.rollout_control",
         exports=(
             _exports(
-                "aap_inference.gpu.rollout_control",
+                "yoao_inference.gpu.rollout_control",
                 "GPURolloutControlResult",
                 "advance_gpu_backend_rollout_control",
                 "advance_gpu_resource_rollout_control",
@@ -507,7 +507,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         public_module="app.services.gpu_arbiter",
         exports=(
             _exports(
-                "aap_inference.gpu.contracts",
+                "yoao_inference.gpu.contracts",
                 "GPUArbiterDispatchError",
                 "GPUArbiterErrorCode",
                 "GPUDispatchContextFactory",
@@ -523,7 +523,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "summarize_gpu_arbiter_failures",
             ),
             _exports(
-                "aap_inference.gpu.policy",
+                "yoao_inference.gpu.policy",
                 "GPUClaimConfigurationError",
                 "GPUShadowCandidate",
                 "GPUShadowDecision",
@@ -536,7 +536,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "validate_gpu_claim",
             ),
             _exports(
-                "aap_inference.gpu.fences",
+                "yoao_inference.gpu.fences",
                 "GPUFenceCounter",
                 "GPUFenceExhaustedError",
                 "GPUFenceMembershipError",
@@ -548,7 +548,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "record_gpu_backend_token_expiry",
             ),
             _exports(
-                "aap_inference.gpu.proofs",
+                "yoao_inference.gpu.proofs",
                 "GPUBusyEvictionRuntimeSubjectError",
                 "GPUColdRuntimeSubject",
                 "GPUColdRuntimeSubjectError",
@@ -579,7 +579,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "record_gpu_resident_runtime_token_expiry",
             ),
             _exports(
-                "aap_inference.gpu.control_preparation",
+                "yoao_inference.gpu.control_preparation",
                 "GPULegacyAckBlockedError",
                 "GPULegacyAckPreparation",
                 "GPURolloutControlBlockedError",
@@ -588,7 +588,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "prepare_gpu_backend_rollout_control",
             ),
             _exports(
-                "aap_inference.gpu.reconciliation",
+                "yoao_inference.gpu.reconciliation",
                 "GPUResourceRepairResult",
                 "GPUResourceRuntimeObservation",
                 "commit_gpu_proof_reset_from_health",
@@ -597,7 +597,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "repair_gpu_resource",
             ),
             _exports(
-                "aap_inference.gpu.retirement",
+                "yoao_inference.gpu.retirement",
                 "GPURetiredLiveProof",
                 "GPURetiredProbeResult",
                 "GPUTombstoneCollectionResult",
@@ -605,7 +605,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "probe_retired_gpu_membership",
             ),
             _exports(
-                "aap_inference.gpu.diagnostics",
+                "yoao_inference.gpu.diagnostics",
                 "build_backend_gpu_config_status",
                 "build_resource_summaries",
                 "claimed_budget_by_resource",
@@ -676,7 +676,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         public_module="app.services.assets_spatial",
         exports=(
             _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
-            _exports("aap_assets_catalog.spatial_values", "FramePose"),
+            _exports("yoao_assets_catalog.spatial_values", "FramePose"),
         ),
         consumer_modules=(
             "app.api.v1.scenes",
@@ -689,8 +689,8 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         public_module="app.services.assets_spatial",
         exports=(
             _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
-            _exports("aap_assets_catalog.spatial_workflow", "SpatialWorkflow"),
-            _exports("aap_assets_source.scene_layout", "plan_scenes"),
+            _exports("yoao_assets_catalog.spatial_workflow", "SpatialWorkflow"),
+            _exports("yoao_assets_source.scene_layout", "plan_scenes"),
         ),
         consumer_modules=(
             "app.api.v1.datasets",
@@ -704,12 +704,12 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         exports=(
             _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
             _exports(
-                "aap_assets_catalog.spatial_values",
+                "yoao_assets_catalog.spatial_values",
                 "SensorCalibration",
                 "calibration_digest",
             ),
             _exports(
-                "aap_assets_catalog.spatial_contract", "normalize_calibration_record"
+                "yoao_assets_catalog.spatial_contract", "normalize_calibration_record"
             ),
         ),
         consumer_modules=(
@@ -724,12 +724,12 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         exports=(
             _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
             _exports(
-                "aap_assets_catalog.axis_sniff",
+                "yoao_assets_catalog.axis_sniff",
                 "AxisObservation",
                 "AxisSniffResult",
                 "sniff_axis_convention",
             ),
-            _exports("aap_assets_catalog.spatial_values", "SensorCalibration"),
+            _exports("yoao_assets_catalog.spatial_values", "SensorCalibration"),
         ),
         consumer_modules=("app.api.v1.datasets", "app.services.assets_spatial"),
     ),

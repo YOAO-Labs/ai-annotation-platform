@@ -16,15 +16,15 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.key_contract import decode_key_request
-from aap_identity.key_manager import KeyManager
-from aap_identity.key_postgres import KeyPostgresData
-from aap_identity.postgres import PostgresData
-from aap_identity.recovery_contract import decode_recovery_request
-from aap_identity.recovery_manager import RecoveryManager
-from aap_identity.recovery_postgres import RecoveryPostgresData
-from aap_identity.security import verify_password
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.key_contract import decode_key_request
+from yoao_identity.key_manager import KeyManager
+from yoao_identity.key_postgres import KeyPostgresData
+from yoao_identity.postgres import PostgresData
+from yoao_identity.recovery_contract import decode_recovery_request
+from yoao_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_postgres import RecoveryPostgresData
+from yoao_identity.security import verify_password
 from tests.identity_recovery_live_helpers import (
     SMTPInbox,
     cleanup,

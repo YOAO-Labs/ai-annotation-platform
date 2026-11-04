@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from app.config import Settings, settings
 from app.core import crypto
 from app.services import connector_guard as cg
-from aap_assets_source.connectors.sftp import load_sftp_private_key
+from yoao_assets_source.connectors.sftp import load_sftp_private_key
 
 
 # ── Fernet 加解密 ─────────────────────────────────────────────────────

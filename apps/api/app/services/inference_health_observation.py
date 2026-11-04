@@ -10,21 +10,21 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_inference.backend_endpoint import (
+from yoao_inference.backend_endpoint import (
     BackendEndpointManager,
     BackendEndpointUnavailable,
 )
-from aap_inference_contract.client import BackendHealthObservationHttpClient
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.client import BackendHealthObservationHttpClient
+from yoao_inference_contract.health_observation import (
     BackendHealthObservationInvalidRequest,
     BackendHealthObservationUnavailable,
     decode_health_observation_reply,
     make_health_observation_request,
 )
-from aap_inference_contract.health_observation_outcome import (
+from yoao_inference_contract.health_observation_outcome import (
     decode_health_observation_outcome,
 )
-from aap_workspace.config import secret_source
+from yoao_workspace.config import secret_source
 from app.config import settings
 
 _ENDPOINT_CAPTURE = text(

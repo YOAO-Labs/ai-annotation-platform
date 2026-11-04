@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 import redis
-from aap_inference.gpu.contracts import GPUArbiterErrorCode
-from aap_inference.tracker import TrackerSessionState
-from aap_inference_contract.execution import (
+from yoao_inference.gpu.contracts import GPUArbiterErrorCode
+from yoao_inference.tracker import TrackerSessionState
+from yoao_inference_contract.execution import (
     ExecutionFailure,
     ExecutionProvenance,
     ModelExecutionError,

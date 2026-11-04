@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 
-from aap_assets_video_inputs import authority as c
+from yoao_assets_video_inputs import authority as c
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql/0223_video_input_authorities.sql"

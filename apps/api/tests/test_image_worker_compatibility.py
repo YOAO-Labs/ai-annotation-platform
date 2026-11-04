@@ -84,7 +84,7 @@ async def test_task_bound_image_gateway_keeps_independent_calls_in_the_task_engi
     from app.config import settings
     from app.workers._db import task_session
     from app.services.assets_images import image_gateway
-    from aap_assets_images.contract import OPERATIONS
+    from yoao_assets_images.contract import OPERATIONS
 
     monkeypatch.setattr(settings, "assets_media_url", "")
     assert make_url(settings.database_url).database == test_engine.url.database

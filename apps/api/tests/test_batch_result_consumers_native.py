@@ -491,8 +491,15 @@ async def test_managed_image_authority_runs_only_after_native_selection_start(
                 },
             )
             proof = await capture_authority(
-                owner, project, actor, credential, [task], snapshot,
-                scope="bulk", batch_id=None, predict_mode=world.request.predict_mode,
+                owner,
+                project,
+                actor,
+                credential,
+                [task],
+                snapshot,
+                scope="bulk",
+                batch_id=None,
+                predict_mode=world.request.predict_mode,
             )
             job = await jobs.get_job(owner, world.execution.scope["job_id"])
             await jobs.bind_execution_snapshot(
@@ -504,11 +511,18 @@ async def test_managed_image_authority_runs_only_after_native_selection_start(
 
         async with world.writers() as db:
             authority = ReferencePredictionJob(
-                db, world.execution.scope["job_id"], proof,
-                project_id=world.project_id, actor_id=world.actor_id,
-                task_ids=[world.task_id], batch_id=None, scope="bulk",
-                predict_mode=world.request.predict_mode, snapshot_id=snapshot_id,
-                snapshot_digest=snapshot_digest, node_id="native-test",
+                db,
+                world.execution.scope["job_id"],
+                proof,
+                project_id=world.project_id,
+                actor_id=world.actor_id,
+                task_ids=[world.task_id],
+                batch_id=None,
+                scope="bulk",
+                predict_mode=world.request.predict_mode,
+                snapshot_id=snapshot_id,
+                snapshot_digest=snapshot_digest,
+                node_id="native-test",
             )
             with pytest.raises(ContentError, match="prediction_authority_revoked"):
                 await authority.authorize()
@@ -535,9 +549,13 @@ async def test_managed_image_authority_runs_only_after_native_selection_start(
             raise ValueError("model failure after authorization")
 
         monkeypatch.setattr(ReferencePredictionJob, "authorize", authorize_running)
-        monkeypatch.setattr(execution, "_model_execution_port", lambda *_a, **_k: object())
+        monkeypatch.setattr(
+            execution, "_model_execution_port", lambda *_a, **_k: object()
+        )
         monkeypatch.setattr(execution, "_run_task_pipeline", fail_after_start)
-        monkeypatch.setattr(prediction_progress, "publish_progress", lambda *_a, **_k: None)
+        monkeypatch.setattr(
+            prediction_progress, "publish_progress", lambda *_a, **_k: None
+        )
         await execution.run_preannotation(world.request, execution_id="managed-start")
         assert len(observed) == 1 and observed[0][0] == "running"
         assert observed[0][1] is not None
@@ -557,7 +575,7 @@ async def test_real_runner_continues_after_a_failed_member_and_publishes_durable
     monkeypatch,
 ):
     from app.application import preannotation_execution as execution
-    from aap_inference.backend_transport import PredictionResult
+    from yoao_inference.backend_transport import PredictionResult
     from app.services import prediction_progress
     from app.db.models.notification import Notification
 
@@ -567,7 +585,7 @@ async def test_real_runner_continues_after_a_failed_member_and_publishes_durable
 
         from sqlalchemy import inspect as sa_inspect
 
-        from aap_inference.backend_transport import PredictionResult
+        from yoao_inference.backend_transport import PredictionResult
         from tests.inference_execution_test_ports import pipeline_output
 
         async def infer(task, stages, _model_ports, *_args, **_kwargs):
@@ -649,7 +667,7 @@ async def test_legacy_delivery_without_job_id_resumes_the_same_captured_job(
     from app.application import preannotation_execution as execution
     from sqlalchemy import inspect as sa_inspect
 
-    from aap_inference.backend_transport import PredictionResult
+    from yoao_inference.backend_transport import PredictionResult
     from tests.inference_execution_test_ports import pipeline_output
 
     async with _world(test_engine, staged=False, result_count=1) as world:

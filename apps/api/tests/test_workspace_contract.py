@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     MANAGER_CAPABILITIES,
     ProjectAccess,
     ProjectCapability,
@@ -21,23 +21,21 @@ from aap_workspace_contract.access import (
 def test_shared_workspace_contract_cold_imports_without_workspace_runtime():
     api_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(
-        api_root.parent / "_shared" / "workspace_contract" / "src"
-    )
+    env["PYTHONPATH"] = str(api_root.parent / "_shared" / "workspace_contract" / "src")
     subprocess.run(
         [
             sys.executable,
             "-c",
             (
                 "import sys; "
-                "from aap_workspace_contract.access import ProjectAccess, ProjectCapability, "
+                "from yoao_workspace_contract.access import ProjectAccess, ProjectCapability, "
                 "ProjectWritePolicyFailure, ProjectWritePolicyRequest, ProjectWritePolicyResolver; "
-                "from aap_workspace_contract.project_query_contract import "
+                "from yoao_workspace_contract.project_query_contract import "
                 "ProjectQueryRequest, ProjectQuerySuccess; "
-                "from aap_workspace_contract.project_query_values import decode_project_row; "
-                "from aap_workspace_contract.project_read_authority import "
+                "from yoao_workspace_contract.project_query_values import decode_project_row; "
+                "from yoao_workspace_contract.project_read_authority import "
                 "accessible_project_row; "
-                "from aap_workspace_contract.member_values import "
+                "from yoao_workspace_contract.member_values import "
                 "decode_project_member_rows; "
                 "assert ProjectAccess and ProjectCapability and ProjectWritePolicyFailure; "
                 "assert ProjectWritePolicyRequest and ProjectWritePolicyResolver; "
@@ -45,13 +43,13 @@ def test_shared_workspace_contract_cold_imports_without_workspace_runtime():
                 "assert decode_project_row and accessible_project_row and "
                 "decode_project_member_rows; "
                 "assert not any(name == 'app' or name.startswith('app.') for name in sys.modules); "
-                "assert not any(name == 'aap_workspace' or name.startswith('aap_workspace.') for name in sys.modules); "
+                "assert not any(name == 'yoao_workspace' or name.startswith('yoao_workspace.') for name in sys.modules); "
                 "assert 'fastapi' not in sys.modules; "
                 "assert 'sqlalchemy' not in sys.modules; "
                 "assert 'httpx' not in sys.modules; "
                 "assert 'asyncpg' not in sys.modules; "
-                "assert not any(name == 'aap_inference' or "
-                "name.startswith('aap_inference.') for name in sys.modules)"
+                "assert not any(name == 'yoao_inference' or "
+                "name.startswith('yoao_inference.') for name in sys.modules)"
             ),
         ],
         cwd=api_root,

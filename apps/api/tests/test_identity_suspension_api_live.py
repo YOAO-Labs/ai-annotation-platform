@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from aap_identity.recovery_crypto import mail_encryption_id, mail_key_from_secret
-from aap_identity.security import decode_access_token
+from yoao_identity.recovery_crypto import mail_encryption_id, mail_key_from_secret
+from yoao_identity.security import decode_access_token
 from app.db.models.user import User
 from tests.factory import create_api_key, create_user
 from tests.identity_recovery_helpers import seed_challenge

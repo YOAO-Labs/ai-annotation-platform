@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import Uuid, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from aap_notifications.delivery_read_postgres import (
+from yoao_notifications.delivery_read_postgres import (
     NotificationDeliveryReadPostgresData,
 )
 

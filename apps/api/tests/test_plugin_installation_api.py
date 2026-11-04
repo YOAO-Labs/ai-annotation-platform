@@ -5,14 +5,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-from aap_inference_contract.plugin import (
+from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from yoao_inference_contract.plugin import (
     PluginInstallationResponse,
     PluginLaunchReceipt,
 )
-from aap_inference_contract.routing import RoutingEpochView, RoutingUnavailable
-from aap_protocol_v2.lifecycle import ManagedLifecycleCapabilities
-from aap_protocol_v2.version import PROTOCOL_VERSION
+from yoao_inference_contract.routing import RoutingEpochView, RoutingUnavailable
+from yoao_protocol_v2.lifecycle import ManagedLifecycleCapabilities
+from yoao_protocol_v2.version import PROTOCOL_VERSION
 from app.services.plugin_installation_observation import (
     PluginObservationRejected,
     verify_endpoint_observation,
@@ -269,7 +269,7 @@ async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_an
         == "runtime-boot"
     )
     from hashlib import sha256
-    from aap_inference_contract.plugin import PluginLifecycleQualification
+    from yoao_inference_contract.plugin import PluginLifecycleQualification
 
     with pytest.raises(PluginObservationRejected):
         verify_endpoint_observation(
@@ -376,9 +376,9 @@ async def test_prepare_requires_super_admin_and_replay_matches_intent(
 async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkeypatch):
     import hashlib
     import json
-    from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
-    from aap_lifecycle_contract import memory_cycle_evidence
-    from aap_inference_contract.plugin import PluginLifecycleQualification
+    from yoao_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
+    from yoao_lifecycle_contract import memory_cycle_evidence
+    from yoao_inference_contract.plugin import PluginLifecycleQualification
     from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
     original, receipt, challenge, health, setup = observation()
@@ -629,7 +629,7 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkey
     from types import SimpleNamespace
     from urllib.parse import parse_qs, urlsplit
 
-    from aap_inference.health_observation_manager import _default_client_factory
+    from yoao_inference.health_observation_manager import _default_client_factory
 
     class HealthHandler(BaseHTTPRequestHandler):
         def log_message(self, _format, *args):
@@ -913,7 +913,7 @@ async def test_activate_and_disable_are_revision_fenced(
 async def test_asset_decisions_require_admin_and_compare_revision(
     httpx_client, super_admin, project_admin, monkeypatch, db_session
 ):
-    from aap_inference_contract.plugin_assets import PluginAssetDescriptor
+    from yoao_inference_contract.plugin_assets import PluginAssetDescriptor
     from app.api.v1 import admin_plugin_installations as routes
 
     owner, admin_token = super_admin

@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.quality_data_contract import (
+from yoao_labeling.quality_data_contract import (
     AttachRepairRollbackJob,
     DecideMaskQCIssue,
     FailRepairRollback,
@@ -23,8 +23,8 @@ from aap_labeling.quality_data_contract import (
     RecordRepairCandidate,
     RecordRepairRollbackShard,
 )
-from aap_labeling.quality_data_data import QualityDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.quality_data_data import QualityDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.mask_repair_batch import MaskRepairBatch

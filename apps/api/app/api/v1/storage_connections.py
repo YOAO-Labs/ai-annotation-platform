@@ -17,8 +17,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_audit_contract import ProjectDeletionAuditContext
-from aap_assets_source.connections_contract import (
+from yoao_audit_contract import ProjectDeletionAuditContext
+from yoao_assets_source.connections_contract import (
     CreateConnectionRequest,
     DeleteConnectionRequest,
     ReadConnectionRequest,
@@ -233,7 +233,7 @@ async def update_connection(
     if api_key_id:
         import uuid as _uuid
 
-        from aap_assets_source.connections_contract import (
+        from yoao_assets_source.connections_contract import (
             ConnectionAuthorityProof,
         )
         from app.services.identity_account_lock_data import (

@@ -5,8 +5,8 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from aap_assets_mask_content.contract import MaskContentFailure
-from aap_workspace.configuration_policy import ConfigurationPolicyError
+from yoao_assets_mask_content.contract import MaskContentFailure
+from yoao_workspace.configuration_policy import ConfigurationPolicyError
 from app.config import settings
 from app.api.v1.router import api_router
 from app.api.v1.admin_plugin_installations import router as plugin_installations_router

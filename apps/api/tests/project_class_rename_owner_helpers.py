@@ -301,7 +301,7 @@ async def _installed_configuration_provider(
         port = int(environment["WORKSPACE_PORT"])
         owner = await asyncio.to_thread(
             _start,
-            [str(interpreter), "-I", "-m", "aap_workspace"],
+            [str(interpreter), "-I", "-m", "yoao_workspace"],
             environment,
             directory,
             directory / "workspace-class-rename-owner.log",

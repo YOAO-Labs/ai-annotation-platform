@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from aap_identity.contract import Principal
-from aap_identity.directory_contract import DirectoryFailure, decode_directory_request
+from yoao_identity.contract import Principal
+from yoao_identity.directory_contract import DirectoryFailure, decode_directory_request
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -11,7 +11,7 @@ import tempfile
 import time
 import uuid
 
-from aap_site_agent_contract import digest, validate_command, validate_result
+from yoao_site_agent_contract import digest, validate_command, validate_result
 import redis.asyncio as aioredis
 from sqlalchemy import delete, func, inspect, or_, select, text, update
 

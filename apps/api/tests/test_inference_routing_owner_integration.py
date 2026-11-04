@@ -19,19 +19,19 @@ import pytest
 import uvicorn
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_backend_control import BackendRoutingControl
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import (
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_backend_control import BackendRoutingControl
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import (
     make_routing_command,
     make_routing_quiescence_request,
     make_routing_runtime_request,
     RoutingRejectedResult,
     RoutingUnavailable,
 )
-from aap_inference_contract.routing_client import RoutingHttpClient
-from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_inference_contract.routing_client import RoutingHttpClient
+from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 from app.db.models.user import User
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
@@ -184,7 +184,7 @@ async def _start_model_execution_owner(tmp_path, routing_dsn: str):
             process = await asyncio.create_subprocess_exec(
                 sys.executable,
                 "-m",
-                "aap_inference",
+                "yoao_inference",
                 cwd=Path(__file__).resolve().parents[3],
                 env=environment,
                 stdout=log_file,
@@ -803,7 +803,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         # owner while preserving this caller's uncommitted business update.
         from app.config import GPUArbiterMode, settings
         from app.services.inference_model_execution import model_execution_port
-        from aap_inference_contract.execution import FrozenModelOperation
+        from yoao_inference_contract.execution import FrozenModelOperation
 
         (
             execution_process,

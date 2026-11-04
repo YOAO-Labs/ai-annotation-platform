@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
 
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,
@@ -31,8 +31,8 @@ from app.deps import get_prediction_input_session_factory
 from app.services.ai_mask_receipt import issue_ai_mask_receipt, verify_ai_mask_receipt
 from app.services.ai_mask_session import verify_ai_mask_session
 from app.services.ai_mask_session import issue_ai_mask_session
-from aap_inference_contract.backend_control import BackendControlSetupResult
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.backend_control import BackendControlSetupResult
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from app.services.reference_inference import validate_native_receipt
 from tests.inference_execution_test_ports import FakeModelExecutionPort
 from tests.test_dataset_content import content_world as content_world, headers

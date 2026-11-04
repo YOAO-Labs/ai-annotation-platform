@@ -16,16 +16,16 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_owner_data.postgres import FunctionRoleUnavailable
-from aap_workspace.dataset_unlink import DatasetUnlinkManager
-from aap_workspace.dataset_unlink_contract import (
+from yoao_owner_data.postgres import FunctionRoleUnavailable
+from yoao_workspace.dataset_unlink import DatasetUnlinkManager
+from yoao_workspace.dataset_unlink_contract import (
     DatasetUnlinkCommand,
     DatasetUnlinkFailure,
     DatasetUnlinkPreviewCommand,
     dataset_unlink_schema,
     decode_unlink_reply,
 )
-from aap_workspace.dataset_unlink_postgres import DatasetUnlinkPostgresData
+from yoao_workspace.dataset_unlink_postgres import DatasetUnlinkPostgresData
 from app.core.security import create_access_token
 from app.db.models.dataset import ProjectDataset
 from app.middleware import audit as audit_middleware
@@ -103,7 +103,7 @@ async def test_two_function_login_has_exact_contract_and_no_private_capabilities
     test_engine,
 ):
     descriptor = (
-        ROOT / "apps/workspace/src/aap_workspace/dataset_unlink_protocol.schema.json"
+        ROOT / "apps/workspace/src/yoao_workspace/dataset_unlink_protocol.schema.json"
     )
     assert json.loads(descriptor.read_text()) == dataset_unlink_schema()
     async with _world(test_engine) as (fixture, connection):

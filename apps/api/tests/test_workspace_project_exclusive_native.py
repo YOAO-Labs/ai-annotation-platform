@@ -16,8 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import make_url
 
-from aap_workspace_contract.project_lock import decode_project_lock_reply
-from aap_workspace_contract.project_query_values import materialize_project_base_row
+from yoao_workspace_contract.project_lock import decode_project_lock_reply
+from yoao_workspace_contract.project_query_values import materialize_project_base_row
 
 from app.application.project_workspace import lock_workspace_project
 from app.application import point_cloud_quality_promotion

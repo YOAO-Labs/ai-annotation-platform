@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import NoReturn
 
-from aap_identity.contract import REFRESH_GRACE_SECONDS
+from yoao_identity.contract import REFRESH_GRACE_SECONDS
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 

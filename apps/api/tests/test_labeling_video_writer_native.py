@@ -206,7 +206,7 @@ async def test_native_source_mapping_matches_frozen_legacy_observations(db_sessi
 
 
 async def test_publication_lookup_requires_current_proof_and_is_read_only(db_session):
-    from aap_labeling.video_writer_contract import video_writer_operation_id
+    from yoao_labeling.video_writer_contract import video_writer_operation_id
 
     job, proof = await _claimed_running_job(db_session)
     operation_id = video_writer_operation_id(uuid.UUID(proof["run_id"]))

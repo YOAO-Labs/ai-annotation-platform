@@ -8,8 +8,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_input_manifests import contract as c
-from aap_assets_inputs import contract as inputs
+from yoao_assets_input_manifests import contract as c
+from yoao_assets_inputs import contract as inputs
 from app.services.accepted_input_manifests import (
     InputManifestGateway,
     SqlAlchemyManifestDatabase,

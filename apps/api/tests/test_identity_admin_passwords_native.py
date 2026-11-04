@@ -13,17 +13,17 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import aap_identity
-from aap_identity.admin_password_contract import (
+import yoao_identity
+from yoao_identity.admin_password_contract import (
     AdminPasswordFailure,
     decode_admin_password_request,
 )
-from aap_identity.admin_password_manager import AdminPasswordManager
-from aap_identity.admin_password_postgres import AdminPasswordPostgresData
-from aap_identity.authenticator import Authenticator, VerifiedCredential
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.postgres import PostgresData
-from aap_identity.security import create_access_token
+from yoao_identity.admin_password_manager import AdminPasswordManager
+from yoao_identity.admin_password_postgres import AdminPasswordPostgresData
+from yoao_identity.authenticator import Authenticator, VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.postgres import PostgresData
+from yoao_identity.security import create_access_token
 from app.db.models.api_key import ApiKey
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -35,11 +35,11 @@ from tests.test_identity_auth_native import _cleanup, _seed
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/native_admin_password_protocol.schema.json"
+    _ROOT / "apps/identity/src/yoao_identity/native_admin_password_protocol.schema.json"
 )
 if not _CANONICAL_SCHEMA.is_file():
     _CANONICAL_SCHEMA = (
-        Path(aap_identity.__file__).resolve().parent
+        Path(yoao_identity.__file__).resolve().parent
         / "native_admin_password_protocol.schema.json"
     )
 _SUPPORT = _SQL_DIR / "0244_identity_admin_passwords_support.sql"

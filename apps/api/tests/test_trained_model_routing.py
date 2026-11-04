@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from aap_inference_contract.execution import ModelTaskResult
+from yoao_inference_contract.execution import ModelTaskResult
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.services import trained_models
 from app.services.ml_routing.contracts import RejectionReason, RouterMode

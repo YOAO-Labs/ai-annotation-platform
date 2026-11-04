@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
-from aap_assets_video_inputs.evidence import VideoInputEvidence
+from yoao_assets_video_inputs.evidence import VideoInputEvidence
 
 from app.services.labeling_write_scope import LabelingWriteScope
 

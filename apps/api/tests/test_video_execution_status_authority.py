@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from aap_inference_contract.routing import RoutingVideoExecutionProof
-from aap_inference_contract.video_execution import (
+from yoao_inference_contract.routing import RoutingVideoExecutionProof
+from yoao_inference_contract.video_execution import (
     VIDEO_EXECUTION_DATA_PROTOCOL,
     decode_video_execution_status_result,
     video_execution_status_result_bytes,

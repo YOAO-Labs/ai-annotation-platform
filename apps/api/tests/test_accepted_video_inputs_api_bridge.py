@@ -5,8 +5,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs.evidence import ready_evidence
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs.evidence import ready_evidence
 from app.db.models.annotation import Annotation
 from app.services.accepted_video_inputs import (
     SqlAlchemyVideoInputDatabase,

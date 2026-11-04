@@ -10,9 +10,9 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.scene_track_command_contract import scene_track_command
-from aap_labeling.scene_track_command_data import SceneTrackCommandDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.scene_track_command_contract import scene_track_command
+from yoao_labeling.scene_track_command_data import SceneTrackCommandDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project

@@ -12,20 +12,20 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import aap_identity
-from aap_identity.authenticator import Authenticator, VerifiedCredential
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.platform_role_contract import (
+import yoao_identity
+from yoao_identity.authenticator import Authenticator, VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.platform_role_contract import (
     PlatformRoleFailure,
     decode_labeling_platform_role_facts,
     decode_platform_role_request,
     decode_workspace_platform_role_facts,
     validate_platform_role_fact_coverage,
 )
-from aap_identity.platform_role_manager import PlatformRoleManager
-from aap_identity.platform_role_postgres import PlatformRolePostgresData
-from aap_identity.postgres import PostgresData
-from aap_identity.security import create_access_token
+from yoao_identity.platform_role_manager import PlatformRoleManager
+from yoao_identity.platform_role_postgres import PlatformRolePostgresData
+from yoao_identity.postgres import PostgresData
+from yoao_identity.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -40,9 +40,9 @@ _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _NATIVE_SCHEMA = _SQL_DIR / "0245_identity_platform_roles.schema.json"
 _WORKSPACE_SCHEMA = _SQL_DIR / "0245_platform_role_workspace_facts.schema.json"
 _LABELING_SCHEMA = _SQL_DIR / "0245_platform_role_labeling_facts.schema.json"
-_CANONICAL_ROOT = _ROOT / "apps/identity/src/aap_identity"
+_CANONICAL_ROOT = _ROOT / "apps/identity/src/yoao_identity"
 if not (_CANONICAL_ROOT / "native_platform_role_protocol.schema.json").is_file():
-    _CANONICAL_ROOT = Path(aap_identity.__file__).resolve().parent
+    _CANONICAL_ROOT = Path(yoao_identity.__file__).resolve().parent
 _SUPPORT = _SQL_DIR / "0245_identity_platform_roles_support.sql"
 _ARTIFACT = _SQL_DIR / "0245_identity_platform_roles.sql"
 _MIGRATION = (

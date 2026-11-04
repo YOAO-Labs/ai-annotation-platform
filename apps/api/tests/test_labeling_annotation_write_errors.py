@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
 
-from aap_labeling.annotation_write_contract import (
+from yoao_labeling.annotation_write_contract import (
     ANNOTATION_WRITE_PROTOCOL,
     ReadCreateReceipt,
 )

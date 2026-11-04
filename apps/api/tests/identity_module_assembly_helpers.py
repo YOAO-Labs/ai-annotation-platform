@@ -1052,7 +1052,7 @@ class IdentityModuleStack:
         if getattr(self, "_notification_publication_enabled", False):
             publisher_image = "${AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE:?}"
             publisher_overrides = """
-    command: ["aap-notifications-publisher"]
+    command: ["yoao-notifications-publisher"]
     user: "10004:10004"
     environment:
       NOTIFICATION_PUBLISH_API_TOKEN_FILE: /run/secrets/notification_publication_token
@@ -1102,7 +1102,7 @@ class IdentityModuleStack:
   jobs-queue:
     image: ${AAP_JOBS_QUEUE_RUNTIME_IMAGE:?}
     build: !reset null
-    command: ["aap-jobs-queue"]
+    command: ["yoao-jobs-queue"]
     user: "10005:10005"
     environment:
       JOBS_QUEUE_BROKER_URL_FILE: /run/secrets/jobs_queue_broker_url

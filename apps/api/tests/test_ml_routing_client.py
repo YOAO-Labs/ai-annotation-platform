@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_inference_contract.backend_endpoint import (
+from yoao_inference_contract.backend_endpoint import (
     make_backend_endpoint_subject,
 )
-from aap_inference_contract.execution import FrozenModelOperation
-from aap_inference_contract.routing import RoutingScopeView
+from yoao_inference_contract.execution import FrozenModelOperation
+from yoao_inference_contract.routing import RoutingScopeView
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.db.models.ml_backend_registry import (
     MLBackendRegistry,

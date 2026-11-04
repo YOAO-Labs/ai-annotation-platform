@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from aap_assets_source.legacy_upload_contract import decode_legacy_upload_reply
+from yoao_assets_source.legacy_upload_contract import decode_legacy_upload_reply
 from tests.test_assets_images_control import _seed_actor, _seed_image_item
 
 pytestmark = pytest.mark.asyncio

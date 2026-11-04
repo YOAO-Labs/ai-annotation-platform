@@ -13,7 +13,7 @@ from app.services.mask_gc import mask_fence_error_code
 
 def _native_rejection(exc):
     from typing import get_args
-    from aap_preannotation_results.contract import ErrorCode
+    from yoao_preannotation_results.contract import ErrorCode
 
     allowed = frozenset(get_args(ErrorCode))
     pending, seen = [exc], set()
@@ -41,8 +41,8 @@ class SqlAlchemyBatchResultData:
         self.writer = writer
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
-        from aap_preannotation_results.contract import BatchResultFailure
-        from aap_preannotation_results_runtime.database import (
+        from yoao_preannotation_results.contract import BatchResultFailure
+        from yoao_preannotation_results_runtime.database import (
             prepare_native_call,
             validate_native_result,
         )
@@ -78,7 +78,7 @@ class IndependentBatchResultData:
         self.session_factory = session_factory
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
-        from aap_preannotation_results.contract import BatchResultFailure
+        from yoao_preannotation_results.contract import BatchResultFailure
 
         async with self.session_factory() as db:
             try:

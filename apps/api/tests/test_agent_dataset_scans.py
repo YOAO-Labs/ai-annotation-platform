@@ -314,7 +314,7 @@ def worker_session(db_session, monkeypatch):
 
 
 def remote_exchange(monkeypatch, world, *, after_result=None, uncertain=False):
-    from aap_site_agent_contract import digest, validate_result
+    from yoao_site_agent_contract import digest, validate_result
     from app.services import agent_transport as transport
 
     receipts = []

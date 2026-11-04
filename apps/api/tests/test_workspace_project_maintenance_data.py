@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
-from aap_workspace.project_maintenance_contract import (
+from yoao_workspace.project_maintenance_contract import (
     PROTOCOL,
     ProjectMaintenanceUnavailable,
 )
@@ -213,7 +213,7 @@ async def test_quality_writer_rejects_an_unbound_write_reply():
 
 @pytest.mark.parametrize("valid", [True, False])
 async def test_seed_writer_synchronizes_cache_only_after_a_bound_reply(valid):
-    from aap_workspace.seed_project_contract import PROTOCOL as SEED_PROTOCOL
+    from yoao_workspace.seed_project_contract import PROTOCOL as SEED_PROTOCOL
 
     project_id = uuid.uuid4()
     timestamp = datetime(2026, 10, 23, tzinfo=UTC)
@@ -263,7 +263,7 @@ async def test_seed_writer_synchronizes_cache_only_after_a_bound_reply(valid):
 async def test_directory_seed_creator_rejects_mismatched_id_without_committing(
     monkeypatch,
 ):
-    from aap_workspace.seed_project_contract import PROTOCOL as SEED_PROTOCOL
+    from yoao_workspace.seed_project_contract import PROTOCOL as SEED_PROTOCOL
 
     project_id = uuid.uuid4()
     monkeypatch.setattr("app.services.project_workspace.uuid.uuid4", lambda: project_id)

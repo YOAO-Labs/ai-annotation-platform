@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 
-from aap_assets_source.import_contract import ImportAcceptance, ImportContext
+from yoao_assets_source.import_contract import ImportAcceptance, ImportContext
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.dataset import Dataset
 from app.db.models.storage_connection import StorageConnection

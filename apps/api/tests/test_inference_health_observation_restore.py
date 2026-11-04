@@ -11,10 +11,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_inference.health_observation_postgres import (
+from yoao_inference.health_observation_postgres import (
     BackendHealthObservationPostgresData,
 )
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.health_observation import (
     BackendHealthObservationUnavailable,
 )
 from app.db.models.ml_backend_registry import MLBackendRegistry

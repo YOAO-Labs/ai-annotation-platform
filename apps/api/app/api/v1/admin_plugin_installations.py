@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_inference.gpu.contracts import GPUArbiterDispatchError
-from aap_inference_contract.gpu import GPUInstallationControlRequest
-from aap_inference_contract.backend_control import BackendRequestOnlyEndpoint
-from aap_inference_contract.backend_control_client import BackendControlUnavailable
-from aap_inference_contract.routing import RoutingEpochView, RoutingUnavailable
-from aap_inference_contract.plugin import (
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError
+from yoao_inference_contract.gpu import GPUInstallationControlRequest
+from yoao_inference_contract.backend_control import BackendRequestOnlyEndpoint
+from yoao_inference_contract.backend_control_client import BackendControlUnavailable
+from yoao_inference_contract.routing import RoutingEpochView, RoutingUnavailable
+from yoao_inference_contract.plugin import (
     PluginActivateRequest,
     PluginInstallationCommand,
     PluginInstallationResponse,
@@ -21,7 +21,7 @@ from aap_inference_contract.plugin import (
     PluginQuiesceResponse,
     PreparePluginInstallation,
 )
-from aap_inference_contract.plugin_assets import (
+from yoao_inference_contract.plugin_assets import (
     PluginAssetApprovalState,
     PluginAssetApprovalUpdate,
 )

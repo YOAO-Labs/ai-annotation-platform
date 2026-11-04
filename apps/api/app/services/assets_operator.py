@@ -14,13 +14,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.managed_original_contract import (
     ManagedOriginalFailureEvidence,
     ManagedOriginalOperation,
     decode_managed_original_reply,
     require_managed_original_ok,
 )
-from aap_assets_source.operator_contract import (
+from yoao_assets_source.operator_contract import (
     OPERATOR_BATCH_SIZE,
     OPERATOR_ERROR_CODES,
     OPERATOR_NATIVE_ARGUMENTS,

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 
-from aap_identity.deactivation_contract import decode_deactivation_due_request
+from yoao_identity.deactivation_contract import decode_deactivation_due_request
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_deactivation_commands import (
     DeactivationOperatorBusy,

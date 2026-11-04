@@ -11,11 +11,11 @@ from app.services.workspace_read_relations import (
     project_search_member_ids as project_search_member_ids,
 )
 
-from aap_workspace_contract.project_query_contract import (
+from yoao_workspace_contract.project_query_contract import (
     ProjectQueryUnavailable,
     decode_project_query_policy,
 )
-from aap_workspace.project_query_postgres import (
+from yoao_workspace.project_query_postgres import (
     PROJECT_QUERY_SCHEMA,
     project_query_step_arguments,
 )

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.project import Project
@@ -56,7 +56,7 @@ from app.services.mask_formats.service import (
     staging_owner,
     storage_call,
 )
-from aap_workspace_contract.access import ProjectAccess, ProjectCapability
+from yoao_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.identity_contracts import IdentityActorFacts
 
 

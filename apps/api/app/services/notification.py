@@ -31,31 +31,31 @@ from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from aap_notifications.preferences import NotificationPreferenceManager
-from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
-from aap_notifications.append import NotificationAppendManager
-from aap_notifications.append_contract import AppendNotificationRequest
-from aap_notifications.append_postgres import NotificationAppendPostgresData
-from aap_notifications.read_state import NotificationReadStateManager
-from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
-from aap_notifications.delete import NotificationDeleteManager
-from aap_notifications.delete_postgres import NotificationDeletePostgresData
-from aap_notifications.redis_pubsub import channel_for, publish_json as _publish_json
-from aap_notifications.publication import NotificationPublicationManager
-from aap_notifications.terminal_append import NotificationTerminalAppendManager
-from aap_notifications.terminal_append_contract import (
+from yoao_notifications.preferences import NotificationPreferenceManager
+from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
+from yoao_notifications.append import NotificationAppendManager
+from yoao_notifications.append_contract import AppendNotificationRequest
+from yoao_notifications.append_postgres import NotificationAppendPostgresData
+from yoao_notifications.read_state import NotificationReadStateManager
+from yoao_notifications.read_state_postgres import NotificationReadStatePostgresData
+from yoao_notifications.delete import NotificationDeleteManager
+from yoao_notifications.delete_postgres import NotificationDeletePostgresData
+from yoao_notifications.redis_pubsub import channel_for, publish_json as _publish_json
+from yoao_notifications.publication import NotificationPublicationManager
+from yoao_notifications.terminal_append import NotificationTerminalAppendManager
+from yoao_notifications.terminal_append_contract import (
     TERMINAL_APPEND_PROTOCOL,
     TerminalNotificationRequest,
 )
-from aap_notifications.terminal_append_postgres import (
+from yoao_notifications.terminal_append_postgres import (
     NotificationTerminalAppendPostgresData,
 )
-from aap_notifications.inbox_query_postgres import NotificationInboxQueryPostgresData
-from aap_notifications.delivery_read import (
+from yoao_notifications.inbox_query_postgres import NotificationInboxQueryPostgresData
+from yoao_notifications.delivery_read import (
     NotificationDeliveryReadPolicy,
     notification_project_id,
 )
-from aap_notifications.delivery_read_postgres import (
+from yoao_notifications.delivery_read_postgres import (
     NotificationDeliveryReadPostgresData,
 )
 from app.services.notification_publication import publish_notification_request

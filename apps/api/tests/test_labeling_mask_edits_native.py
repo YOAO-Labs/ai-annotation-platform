@@ -11,15 +11,15 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.exc import DBAPIError
 
-from aap_labeling.ai_mask_accept_contract import (
+from yoao_labeling.ai_mask_accept_contract import (
     AI_MASK_ACCEPT_PROTOCOL,
     FindAiMaskDecision,
     LockAiMaskDecision,
     RecordAiMaskDecision,
     RefineAiMaskAnnotation,
 )
-from aap_labeling.ai_mask_accept_data import AiMaskAcceptDataClient
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.ai_mask_accept_data import AiMaskAcceptDataClient
+from yoao_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     ApplyMaskMutations,
     ApplyPolygonSlice,
@@ -33,15 +33,15 @@ from aap_labeling.mask_edit_contract import (
     UpdateMaskAnnotation,
     WriteAnnotationOperation,
 )
-from aap_labeling.mask_edit_data import MaskEditDataClient
-from aap_labeling.mask_revision_contract import (
+from yoao_labeling.mask_edit_data import MaskEditDataClient
+from yoao_labeling.mask_revision_contract import (
     MASK_REVISION_PROTOCOL,
     MaskRevisionReference,
     ProtectMaskRevisions,
     ResolveMaskRevisions,
 )
-from aap_labeling.mask_revision_data import MaskRevisionDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.mask_revision_data import MaskRevisionDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationOperation

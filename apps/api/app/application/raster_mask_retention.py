@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from aap_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc import contract as c
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_labeling.quality_data_contract import (
+from yoao_labeling.quality_data_contract import (
     CheckRasterMaskReference,
     QUALITY_DATA_PROTOCOL,
     ReadRasterMaskReferences,

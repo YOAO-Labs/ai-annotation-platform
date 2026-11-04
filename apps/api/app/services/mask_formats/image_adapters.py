@@ -32,8 +32,8 @@ from app.services.mask_formats.image_codecs import (
     rasterize_normalized_polygon,
 )
 from app.services.mask_formats.image_export import indexed_overlap_summary
-from aap_assets_source.archive import ArchiveLimits, SafeZipArchive
-from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
+from yoao_assets_source.archive import ArchiveLimits, SafeZipArchive
+from yoao_workspace.configuration_policy import lookup_classes_for_tool_unit
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.task_matcher import resolve_task, resolve_task_by_file_stem
 from app.utils.raster_mask_rle import coco_rle_area, validate_coco_rle

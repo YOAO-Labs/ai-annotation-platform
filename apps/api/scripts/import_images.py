@@ -27,7 +27,7 @@ from uuid import uuid4
 import boto3
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from aap_assets_source.operator_contract import (
+from yoao_assets_source.operator_contract import (
     OPERATOR_BATCH_SIZE,
     CreateOperatorImageDatasetRequest,
     OperatorSourceEntry,

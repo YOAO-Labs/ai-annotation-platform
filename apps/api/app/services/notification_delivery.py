@@ -7,8 +7,8 @@ import asyncio
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_notifications.notification_delivery_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_PROTOCOL,
     NotificationDeliveryUnavailable,
     NotificationClaimRequest,
@@ -18,10 +18,10 @@ from aap_notifications.notification_delivery_contract import (
     decode_notification_finish_reply,
     native_notification_command_json,
 )
-from aap_notifications.notification_delivery_postgres import (
+from yoao_notifications.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
 )
-from aap_notifications.delivery_worker import NotificationPublisher
+from yoao_notifications.delivery_worker import NotificationPublisher
 from app.config import settings
 from app.db.base import async_session
 from app.services.identity_gateway import get_identity_gateway, identity_database_source

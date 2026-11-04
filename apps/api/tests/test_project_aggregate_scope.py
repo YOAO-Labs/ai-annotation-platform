@@ -18,7 +18,7 @@ from app.application.async_job_read import _build_async_job_query
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from aap_workspace_contract.access import platform_role_is_manager
+from yoao_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import (
     ANNOTATOR_ROLE,
     DASHBOARD_PLATFORM_ROLES,
@@ -181,7 +181,7 @@ import uuid
 
 class RejectProvider(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname in {'aap_workspace', 'aap_labeling'} or fullname.startswith(('aap_workspace.', 'aap_labeling.')):
+        if fullname in {'yoao_workspace', 'yoao_labeling'} or fullname.startswith(('yoao_workspace.', 'yoao_labeling.')):
             raise ImportError('client must not load an owner provider runtime')
 
 sys.meta_path.insert(0, RejectProvider())

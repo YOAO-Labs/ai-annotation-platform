@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import Principal
+from yoao_identity.contract import Principal
 from app.core.ratelimit import limiter
 from app.deps import bearer_scheme, get_current_principal, get_current_user, get_db
 from app.schemas.me import AvatarRefUpdate, PasswordChange, ProfileUpdate

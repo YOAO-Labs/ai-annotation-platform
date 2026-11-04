@@ -10,9 +10,9 @@ import asyncpg
 import pytest
 from sqlalchemy import delete, text
 
-from aap_labeling.batch_control_contract import PrepareBatchCleanup
-from aap_labeling.batch_control_data import LabelingBatchControlData
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.batch_control_contract import PrepareBatchCleanup
+from yoao_labeling.batch_control_data import LabelingBatchControlData
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock

@@ -23,10 +23,10 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import RoutingScopeView
-from aap_inference_contract.scope_retirement import make_scope_retirement_request
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import RoutingScopeView
+from yoao_inference_contract.scope_retirement import make_scope_retirement_request
 from app.config import settings
 from app.services.ml_backend import MLBackendService
 from app.services.ml_routing.authority import RoutingAuthority
@@ -393,13 +393,13 @@ async def _stop_media_peer(media) -> dict:
         process
         for process in processes
         if isinstance(process.args, (list, tuple))
-        and "aap_assets_media_runtime" in process.args
+        and "yoao_assets_media_runtime" in process.args
     ]
     materializers = [
         process
         for process in processes
         if isinstance(process.args, (list, tuple))
-        and "aap_assets_media_runtime.worker" in process.args
+        and "yoao_assets_media_runtime.worker" in process.args
     ]
     if (
         len(controls) != 1
@@ -415,7 +415,7 @@ async def _stop_media_peer(media) -> dict:
     process = controls[0]
     if process.poll() is not None or not isinstance(process.args, (list, tuple)):
         raise LocalFenceRefused("media_process_not_running")
-    if "aap_assets_media_runtime" not in process.args:
+    if "yoao_assets_media_runtime" not in process.args:
         raise LocalFenceRefused("media_process_identity_mismatch")
     process_id = process.pid
     await asyncio.to_thread(_stop_process, process)
@@ -682,13 +682,13 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                 process
                 for process in media.processes
                 if isinstance(process.args, (list, tuple))
-                and "aap_assets_media_runtime" in process.args
+                and "yoao_assets_media_runtime" in process.args
             ]
             materializers = [
                 process
                 for process in media.processes
                 if isinstance(process.args, (list, tuple))
-                and "aap_assets_media_runtime.worker" in process.args
+                and "yoao_assets_media_runtime.worker" in process.args
             ]
             if (
                 len(media_processes) != 1

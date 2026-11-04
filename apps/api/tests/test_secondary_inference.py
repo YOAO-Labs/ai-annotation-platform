@@ -15,11 +15,11 @@ import pytest
 from fastapi import HTTPException
 from PIL import Image
 
-from aap_inference.backend_transport import PredictionResult
+from yoao_inference.backend_transport import PredictionResult
 import app.services.inference_model_execution as model_execution_mod
 import app.services.prediction_context as prediction_context
 import app.services.storage as storage_mod
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ExecutionFailure,
     ExecutionProvenance,
     ModelExecutionError,
@@ -43,7 +43,7 @@ class _FakeManagedOperation:
         self.closed = False
 
     async def prepare_crop(self, ls_box, *, pad):
-        from aap_inference.roi import crop_inputs_from_boxes
+        from yoao_inference.roi import crop_inputs_from_boxes
 
         batch = crop_inputs_from_boxes(
             Image.new("RGB", (200, 200)),

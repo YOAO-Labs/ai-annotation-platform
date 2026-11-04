@@ -8,12 +8,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_images.geometry import (
+from yoao_assets_images.geometry import (
     build_manifest,
     canonical_manifest_bytes,
     sha256_digest,
 )
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images.policy import ImagePolicy
 from app.db.models.dataset import DatasetItem
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
@@ -128,8 +128,8 @@ async def _seed_image_item(db_session, *, actor_id, width=5000, height=5000):
 async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
     db_session,
 ):
-    from aap_assets_images.contract import ObjectIdentity, ReadImageSourceRequest
-    from aap_assets_images_runtime.control import ImageControl
+    from yoao_assets_images.contract import ObjectIdentity, ReadImageSourceRequest
+    from yoao_assets_images_runtime.control import ImageControl
     from app.services.assets_images import SqlAlchemyImageDatabase
 
     class SourceStorage:
@@ -1196,7 +1196,7 @@ async def test_saved_retry_source_snapshot_change_returns_source_changed(db_sess
 
 
 async def test_malformed_saved_retry_receipt_still_returns_invalid_response(db_session):
-    from aap_assets_images.policy import ImagePolicy
+    from yoao_assets_images.policy import ImagePolicy
 
     actor_id = await _seed_actor(db_session)
     _, item_id = await _seed_image_item(db_session, actor_id=actor_id)

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import uuid
 
-from aap_inference_contract.plugin import has_reserved_plugin_metadata
-from aap_inference_contract.topology import RegistryPublicFacts
-from aap_protocol_v2.backend_auth import managed_provider
+from yoao_inference_contract.plugin import has_reserved_plugin_metadata
+from yoao_inference_contract.topology import RegistryPublicFacts
+from yoao_protocol_v2.backend_auth import managed_provider
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_access import get_workspace_project
-from aap_inference.gpu.policy import validate_gpu_claim
+from yoao_inference.gpu.policy import validate_gpu_claim
 from app.config import settings
 
 
@@ -84,13 +84,13 @@ class MLBackendService:
         self.db = db
 
     def _topology(self):
-        from aap_inference.topology import BackendTopologyCoordinator
+        from yoao_inference.topology import BackendTopologyCoordinator
         from app.services.inference_topology_data import InferenceTopologyData
 
         return BackendTopologyCoordinator(InferenceTopologyData(self.db))
 
     async def _topology_call(self, operation):
-        from aap_inference.topology import (
+        from yoao_inference.topology import (
             CapabilityRevalidationError,
             ManagedMutationBlocked,
             PoolCapabilityMismatch,
@@ -168,7 +168,7 @@ class MLBackendService:
                 env_managed_default = source == "env"
         if managed_provider(kwargs.get("auth_method")) is not None:
             if env_managed_default:
-                from aap_protocol_v2.managed_credential import ensure_credential
+                from yoao_protocol_v2.managed_credential import ensure_credential
                 from app.services.managed_inference_auth import credential_directory
 
                 kwargs["auth_token"] = ensure_credential(credential_directory(provider))
@@ -300,7 +300,9 @@ class MLBackendService:
             return None
         old_extra = row.extra_params
         new_extra = kwargs.get("extra_params", old_extra)
-        if has_reserved_plugin_metadata(old_extra) or has_reserved_plugin_metadata(new_extra):
+        if has_reserved_plugin_metadata(old_extra) or has_reserved_plugin_metadata(
+            new_extra
+        ):
             raise GPUBackendManagedMutationBlocked(
                 "Plugin installation changes require the installation owner"
             )
@@ -333,7 +335,9 @@ class MLBackendService:
             from app.services.managed_inference_auth import initialize_managed_auth
 
             kwargs["auth_token"] = await initialize_managed_auth(
-                kwargs.get("url", snapshot["url"]), kwargs.get("auth_token"), next_method
+                kwargs.get("url", snapshot["url"]),
+                kwargs.get("auth_token"),
+                next_method,
             )
         elif (
             managed_provider(snapshot["auth_method"]) is not None

@@ -9,12 +9,12 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,
 )
-from aap_protocol_v2 import encode_low_res_mask, native_mask_candidate_id
+from yoao_protocol_v2 import encode_low_res_mask, native_mask_candidate_id
 from fastapi import HTTPException
 import numpy as np
 import httpx
@@ -34,8 +34,8 @@ from app.db.models.user import User
 from app.services.ai_mask_receipt import issue_ai_mask_receipt, verify_ai_mask_receipt
 from app.services.ai_mask_session import issue_ai_mask_session, verify_ai_mask_session
 from app.services.content_snapshot import ContentError
-from aap_inference_contract.backend_control import BackendControlSetupResult
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.backend_control import BackendControlSetupResult
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from tests.inference_execution_test_ports import FakeModelExecutionPort
 from tests.factory import create_project
 from tests.managed_image_inference_fixtures import (

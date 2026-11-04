@@ -100,7 +100,7 @@ async def seed_pointcloud(
         find_import_project,
     )
     from app.services.storage import storage_service
-    from aap_assets_catalog.spatial_contract import SetDatasetAxisRequest
+    from yoao_assets_catalog.spatial_contract import SetDatasetAxisRequest
     from app.services.assets_spatial import AssetsSpatialGateway
 
     if await find_import_project(db, project_display_id) is not None:

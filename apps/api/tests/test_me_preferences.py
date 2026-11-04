@@ -2426,7 +2426,7 @@ async def test_shortcut_validation_resets_invalid_entry_explicitly(
 
 def test_portable_policy_can_clear_a_nonfinite_legacy_shortcut_value():
     """Nonfinite legacy objects cannot cross the JSONB/owner wire boundary."""
-    from aap_identity.preferences import patch_preferences
+    from yoao_identity.preferences import patch_preferences
 
     existing = {"workbench": {"shortcuts": {"image": {"legacy.command": float("inf")}}}}
     merged, response = patch_preferences(

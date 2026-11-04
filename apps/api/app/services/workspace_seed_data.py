@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, aliased, attributes, object_session
 from sqlalchemy.orm.exc import StaleDataError
 
-from aap_workspace.media_seed_project_contract import (
+from yoao_workspace.media_seed_project_contract import (
     MediaSeedProjectUnavailable,
     MEDIA_SEED_PROJECT_PROJECTION_FIELDS,
     decode_media_seed_project_created,

@@ -20,7 +20,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.services.video_tracking.adapters import TrackerContext
-from aap_inference.tracker import TrackerFrameResult
+from yoao_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import (
     _partition_results_by_instance,
     accept_tracker_job,

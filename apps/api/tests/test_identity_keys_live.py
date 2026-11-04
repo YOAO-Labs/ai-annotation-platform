@@ -15,8 +15,8 @@ import httpx
 import pytest
 from sqlalchemy import text
 
-from aap_identity.key_manager import derive_key_material
-from aap_identity.security import decode_access_token
+from yoao_identity.key_manager import derive_key_material
+from yoao_identity.security import decode_access_token
 from tests.test_identity_admission_live import (
     ROOT,
     _cleanup,

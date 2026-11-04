@@ -14,21 +14,21 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from aap_inference.backend_transport import BackendTransportError
-from aap_inference.gpu.contracts import GPUDispatchGrant
-from aap_inference.gpu.dispatch import _call_eviction_lifecycle
-from aap_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
-from aap_inference.owner_transport import (
+from yoao_inference.backend_transport import BackendTransportError
+from yoao_inference.gpu.contracts import GPUDispatchGrant
+from yoao_inference.gpu.dispatch import _call_eviction_lifecycle
+from yoao_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
+from yoao_inference.owner_transport import (
     BackendTransportGPUControlAdapter,
     _transport_identity,
 )
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import (
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import (
     RoutingBeginResult,
     RoutingScopeView,
     make_routing_command,
 )
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,
     GPU_ADMISSION_TOKEN_HEADER,

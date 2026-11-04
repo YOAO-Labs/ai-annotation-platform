@@ -49,7 +49,7 @@ def _record_batch_delivery(task_id, task, **_kwargs) -> None:
 
 def install() -> None:
     from app.application.preannotation_results import BatchResultExecution
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from app.workers.tasks import batch_predict
     from app.workers.predictions_retry import retry_failed_prediction
     from tests.inference_execution_test_ports import pipeline_output

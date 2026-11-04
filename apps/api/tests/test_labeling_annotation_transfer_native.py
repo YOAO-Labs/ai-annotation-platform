@@ -12,7 +12,7 @@ import asyncpg
 import pytest
 from sqlalchemy import delete, select
 
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     ApplyConversion,
     CreateImportedAnnotation,
@@ -22,8 +22,8 @@ from aap_labeling.annotation_transfer_contract import (
     PurgeImportedAnnotations,
     ResolveTask,
 )
-from aap_labeling.annotation_transfer_data import AnnotationTransferDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.annotation_transfer_data import AnnotationTransferDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationLineageEdge
 from app.db.models.task import Task

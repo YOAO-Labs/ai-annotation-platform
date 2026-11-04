@@ -10,11 +10,11 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import RoutingRejectedResult, RoutingUnavailable
-from aap_inference_contract.routing_client import RoutingHttpClient
-from aap_protocol_v2.scope_retirement import SCOPE_RETIREMENT_PATH
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import RoutingRejectedResult, RoutingUnavailable
+from yoao_inference_contract.routing_client import RoutingHttpClient
+from yoao_protocol_v2.scope_retirement import SCOPE_RETIREMENT_PATH
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_routing_native import _connect
 from tests.test_inference_routing_owner_integration import (
@@ -152,7 +152,7 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                         str(installed_python),
                         "-I",
                         "-m",
-                        "aap_inference",
+                        "yoao_inference",
                         cwd=tmp_path,
                         env=owner_environment,
                         stdout=log,

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from aap_task_contract import VisualTask
+from yoao_task_contract import VisualTask
 from pydantic import BaseModel, Field
 
 from app.schemas.training_dataset import TrainingDatasetSummary

@@ -6,7 +6,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_labeling.batch_control_contract import (
+from yoao_labeling.batch_control_contract import (
     ApplyBatchAssignments,
     ApplyTaskAssignments,
     AssignTasks,
@@ -35,7 +35,7 @@ from aap_labeling.batch_control_contract import (
     TransitionBatch,
     UpdateBatch,
 )
-from aap_labeling.batch_control_data import LabelingBatchControlData
+from yoao_labeling.batch_control_data import LabelingBatchControlData
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch

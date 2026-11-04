@@ -10,7 +10,7 @@ from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.services import async_job as jobs, task_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from aap_workspace_contract.access import ProjectCapability
+from yoao_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 
 EXPORT_JOB_KIND = "export"

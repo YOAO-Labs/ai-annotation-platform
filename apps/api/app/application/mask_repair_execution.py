@@ -8,18 +8,18 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any
 
-from aap_inference import extract_capabilities
-from aap_inference.gpu.contracts import (
+from yoao_inference import extract_capabilities
+from yoao_inference.gpu.contracts import (
     GPUArbiterErrorCode,
     gpu_arbiter_failure_record,
 )
-from aap_labeling.video_control_contract import MarkEnqueued, ReadWorkerJob
-from aap_inference_contract.execution import (
+from yoao_labeling.video_control_contract import MarkEnqueued, ReadWorkerJob
+from yoao_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionError,
     thaw_json,
 )
-from aap_protocol_v2 import MAX_MASK_RESPONSE_BYTES
+from yoao_protocol_v2 import MAX_MASK_RESPONSE_BYTES
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

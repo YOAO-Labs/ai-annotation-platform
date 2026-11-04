@@ -7,13 +7,13 @@ from collections.abc import Sequence
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     BATCH_SIZE,
     ImageFailure,
     ReadImageSourceRequest,
     http_error_status,
 )
-from aap_assets_images.transport import (
+from yoao_assets_images.transport import (
     ImageSourceReference,
     ImageSourceReferencesRequest,
     require_source_reference_scope,

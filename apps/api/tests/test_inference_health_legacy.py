@@ -204,7 +204,7 @@ async def _observe(test_engine, monkeypatch):
                     )
                     registry_id = backend.id
                     if case == "cpu_drift":
-                        from aap_inference.health import reconcile_pool_capability
+                        from yoao_inference.health import reconcile_pool_capability
                         from app.services.inference_health_data import (
                             InferenceHealthData,
                         )

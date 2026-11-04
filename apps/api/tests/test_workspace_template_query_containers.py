@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.template_query_contract import template_query_request
+from yoao_workspace.template_query_contract import template_query_request
 from app.config import settings
 from app.core.security import create_access_token
 from app.deps import get_db
@@ -73,7 +73,7 @@ async def _query_container(test_engine, directory, token):
         == os.environ["AAP_WORKSPACE_TEMPLATE_QUERY_IDENTITY"]
     )
     assert image["Config"]["User"] == "10004:10004"
-    assert image["Config"]["Cmd"] == ["python", "-m", "aap_workspace"]
+    assert image["Config"]["Cmd"] == ["python", "-m", "yoao_workspace"]
     parsed = make_url(template_query_dsn(test_engine))
     container_dsn = parsed.set(host="host.docker.internal").render_as_string(
         hide_password=False

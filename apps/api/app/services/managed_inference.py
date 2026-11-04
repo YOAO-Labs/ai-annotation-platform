@@ -15,8 +15,8 @@ from training_contract.models import model_spec
 from app.db.models.trained_model import ModelDeployment
 from app.schemas.sample_evaluation import EvaluationProfile
 from app.services import sample_evaluation_engine as engine, trained_models
-from aap_inference.backend_transport import PredictionResult
-from aap_task_contract import normalize_task
+from yoao_inference.backend_transport import PredictionResult
+from yoao_task_contract import normalize_task
 from app.services.training_dataset_bridge import content_digest
 from app.services.trained_model_reference_contract import (
     FreezeModelReferenceError,
@@ -205,7 +205,7 @@ async def backend_control_handle(db, model_ref, *, session_factory):
 
 
 def _prediction_result(result):
-    from aap_inference_contract.execution import thaw_json
+    from yoao_inference_contract.execution import thaw_json
 
     return PredictionResult(
         task_id=result.task_id,
@@ -222,7 +222,7 @@ def _prediction_result(result):
 
 
 def recovered_result(receipt, model_ref):
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
 
     response = receipt.get("response")
     if (
@@ -312,7 +312,7 @@ def checked_receipt(row, receipt):
 
 
 async def predict(db, factory, *, project_id, spec, row, png, owner, operation):
-    from aap_inference_contract.execution import FrozenModelOperation
+    from yoao_inference_contract.execution import FrozenModelOperation
     from app.services.inference_model_execution import model_execution_port
 
     registry_id = uuid.UUID(spec["model_ref"]["registry_id"])

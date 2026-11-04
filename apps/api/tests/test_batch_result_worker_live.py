@@ -343,7 +343,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
         retry_scope = None
         if delivery_kind == "retry" and digest_bound_at_admission:
             from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
-            from aap_preannotation_results.retry_contract import (
+            from yoao_preannotation_results.retry_contract import (
                 AdmitPredictionRetryRequest,
             )
 
@@ -424,7 +424,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                 from app.services.prediction_retry_data import (
                     SqlAlchemyPredictionRetryData,
                 )
-                from aap_preannotation_results.retry_contract import (
+                from yoao_preannotation_results.retry_contract import (
                     ReadPredictionRetryRequest,
                 )
 

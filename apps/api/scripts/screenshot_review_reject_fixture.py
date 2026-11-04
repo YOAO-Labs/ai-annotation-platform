@@ -33,7 +33,7 @@ from app.services.annotation_evidence import (  # noqa: E402
 )
 from app.services.batch import BatchService  # noqa: E402
 from scripts.cleanup_screenshot_ocr_flow import assert_screenshot_scope  # noqa: E402
-from aap_labeling.screenshot_operations_contract import (  # noqa: E402
+from yoao_labeling.screenshot_operations_contract import (  # noqa: E402
     RestoreReviewReject,
     SCREENSHOT_OPERATIONS_PROTOCOL,
 )

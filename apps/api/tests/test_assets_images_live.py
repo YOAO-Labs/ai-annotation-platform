@@ -23,7 +23,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images.policy import ImagePolicy
 from app.application.dataset_deletion import unlink_dataset_from_project
 from app.db.models.dataset import DatasetItem, ProjectDataset
 from app.db.models.task import Task
@@ -279,7 +279,7 @@ class _ImageLiveRuntime:
             srgb_profile=self.srgb_profile,
             vips_gate=gate,
         )
-        command = [sys.executable, "-m", "aap_assets_images_runtime.worker"]
+        command = [sys.executable, "-m", "yoao_assets_images_runtime.worker"]
         if job_id is not None and input_id is not None:
             raise ValueError("choose an image job or an input reservation")
         if job_id is not None:
@@ -475,7 +475,7 @@ async def _image_live_runtime(test_engine, tmp_path: Path):
         image_control_settings=_CONTROL_POLICY_ENV,
     )
     control_process, control_stream = _start_process(
-        [sys.executable, "-m", "aap_assets_media_runtime"],
+        [sys.executable, "-m", "yoao_assets_media_runtime"],
         control_environment,
         control_log,
     )
@@ -531,7 +531,7 @@ async def _image_live_runtime(test_engine, tmp_path: Path):
             [
                 sys.executable,
                 "-m",
-                "aap_assets_images_runtime.worker",
+                "yoao_assets_images_runtime.worker",
                 "--healthcheck",
             ],
             cwd=ROOT,
@@ -639,7 +639,7 @@ def _write_processing_gate(directory: Path, *, backend: str) -> tuple[Path, Path
 import sys as _sys
 import time as _time
 from pathlib import Path as _Path
-if 'aap_assets_images_runtime.processing' in _sys.orig_argv:
+if 'yoao_assets_images_runtime.processing' in _sys.orig_argv:
     {imports}
     _original = {target}
     def _gated(*args, **kwargs):
@@ -1175,7 +1175,7 @@ async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fen
             tile = tile_response.json()["data"]["items"][0]
             tile_download = await runtime.control_client.get(tile["url"])
             assert tile_download.status_code == 200 and tile_download.content
-            from aap_assets_images.geometry import expected_tile_dimensions
+            from yoao_assets_images.geometry import expected_tile_dimensions
 
             expected_size = expected_tile_dimensions(levels[0], 0, 0)
             with Image.open(BytesIO(tile_download.content)) as rendered_tile:

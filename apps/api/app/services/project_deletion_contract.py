@@ -1,6 +1,6 @@
 """Compatibility exports for the Workspace project deletion contract."""
 
-from aap_workspace.project_deletion_contract import (
+from yoao_workspace.project_deletion_contract import (
     PROJECT_DELETION_PROTOCOL,
     ProjectDeletionCommand,
     ProjectDeletionFailure,

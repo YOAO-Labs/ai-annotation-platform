@@ -14,7 +14,7 @@ import pytest
 from app.config import settings
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.services.video_tracking.adapters import TrackerContext
-from aap_inference.tracker import TrackerFrameResult
+from yoao_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import (
     _combo_seeds_from_discovery,
     run_tracker_job,

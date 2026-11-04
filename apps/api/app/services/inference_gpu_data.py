@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from aap_inference.gpu.caller_admin import (
+from yoao_inference.gpu.caller_admin import (
     GPUCallerAdministrativeData,
     bind_gpu_caller_administrative_data,
 )
-from aap_inference_contract.gpu import GPUAuthorityUnavailable
+from yoao_inference_contract.gpu import GPUAuthorityUnavailable
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 

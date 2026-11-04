@@ -61,7 +61,7 @@ from app.schemas.data_manager import (
     DataManagerScopeSummary,
     DataManagerSummaryResponse,
 )
-from aap_workspace.configuration_policy import project_kind
+from yoao_workspace.configuration_policy import project_kind
 from app.services.prediction import to_internal_shape
 from app.services.project_access import is_privileged_for_project
 from app.services.feedback import unresolved_issue_count_sq
@@ -84,7 +84,7 @@ VIDEO_TOTALS_BATCH_ITEMS = 100_000
 async def _read_video_media_totals(
     db: AsyncSession, item_ids: list[UUID]
 ) -> tuple[int, int]:
-    from aap_assets_media.contract import MediaFailure, VideoTotalsRequest
+    from yoao_assets_media.contract import MediaFailure, VideoTotalsRequest
 
     from app.services.assets_media import media_gateway, media_http_error
 

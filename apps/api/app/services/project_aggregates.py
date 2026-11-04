@@ -28,8 +28,8 @@ from app.db.enums import (
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
-from aap_identity.read_relation_contract import AccountProfile
-from aap_workspace_contract.access import platform_role_is_manager
+from yoao_identity.read_relation_contract import AccountProfile
+from yoao_workspace_contract.access import platform_role_is_manager
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
 from app.services.workspace_read_relations import (

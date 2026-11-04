@@ -11,7 +11,7 @@ import pytest
 from fastapi import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ApplyPreparationRequest,
     PreparePointcloudRequest,
     PreparationMutationResult,

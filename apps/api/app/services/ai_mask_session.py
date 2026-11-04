@@ -8,7 +8,7 @@ import json
 import time
 from typing import Any
 
-from aap_protocol_v2 import MAX_LOW_RES_MASK_INPUT_CHARS, decode_low_res_mask
+from yoao_protocol_v2 import MAX_LOW_RES_MASK_INPUT_CHARS, decode_low_res_mask
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import settings

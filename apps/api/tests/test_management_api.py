@@ -150,8 +150,8 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
     monkeypatch: pytest.MonkeyPatch,
 ):
     from contextlib import asynccontextmanager
-    import aap_mail_transport
-    from aap_mail_transport import MailDeliveryResult, MailOutcome, MailReason
+    import yoao_mail_transport
+    from yoao_mail_transport import MailDeliveryResult, MailOutcome, MailReason
     from app.config import settings
     from app.services import identity_mail_v2_delivery
 
@@ -200,7 +200,7 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
         sent.append(message.get_content())
         return MailDeliveryResult(MailOutcome.DELIVERED, MailReason.SENT)
 
-    monkeypatch.setattr(aap_mail_transport, "send_message", fake_send)
+    monkeypatch.setattr(yoao_mail_transport, "send_message", fake_send)
     response = await httpx_client.post(
         f"/api/v1/invitations/{invitation.id}/send-email",
         headers=_headers(super_admin),
@@ -215,7 +215,7 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
     def fail_send(config, message):
         return MailDeliveryResult(MailOutcome.REJECTED, MailReason.RECIPIENT_REJECTED)
 
-    monkeypatch.setattr(aap_mail_transport, "send_message", fail_send)
+    monkeypatch.setattr(yoao_mail_transport, "send_message", fail_send)
     failed = await httpx_client.post(
         f"/api/v1/invitations/{invitation.id}/send-email",
         headers=_headers(super_admin),

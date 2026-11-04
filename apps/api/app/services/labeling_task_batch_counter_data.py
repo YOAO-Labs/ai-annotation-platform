@@ -11,7 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, attributes
 from sqlalchemy.orm.exc import StaleDataError
 
-from aap_labeling.task_maintenance_contract import (
+from yoao_labeling.task_maintenance_contract import (
     TASK_MAINTENANCE_PROTOCOL,
     BatchCounterPatch,
     TaskMaintenanceUnavailable,

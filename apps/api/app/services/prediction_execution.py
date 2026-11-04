@@ -119,7 +119,7 @@ def freeze_builtin_defaults(backend, model, stage, *, project_thresholds=None):
 
 
 def build_stage_context(stage, payload):
-    from aap_inference.execution_context import build_predict_context
+    from yoao_inference.execution_context import build_predict_context
 
     context = build_predict_context(
         prompt=payload["prompt"] if stage.get("parent_stage") is None else None,

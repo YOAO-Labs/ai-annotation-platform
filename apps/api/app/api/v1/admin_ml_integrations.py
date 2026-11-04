@@ -20,15 +20,15 @@ import uuid
 from uuid import UUID
 
 import httpx
-from aap_inference.gpu.contracts import (
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
-from aap_inference.gpu.policy import GPUClaimConfigurationError
-from aap_inference_contract.topology import to_record
-from aap_inference_contract.backend_control import BackendRequestOnlyEndpoint
-from aap_protocol_v2.backend_auth import normalized_backend_url
-from aap_inference.gpu.policy import strict_gpu_loaded_evidence
+from yoao_inference.gpu.policy import GPUClaimConfigurationError
+from yoao_inference_contract.topology import to_record
+from yoao_inference_contract.backend_control import BackendRequestOnlyEndpoint
+from yoao_protocol_v2.backend_auth import normalized_backend_url
+from yoao_inference.gpu.policy import strict_gpu_loaded_evidence
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
 from sqlalchemy import select
@@ -384,8 +384,8 @@ class ManagedAuthInitialize(BaseModel):
 
 
 async def _managed_auth_status(db: AsyncSession) -> ManagedAuthStatus:
-    from aap_protocol_v2.backend_auth import BACKEND_SERVICES
-    from aap_protocol_v2.managed_credential import CredentialFileError, read_credential
+    from yoao_protocol_v2.backend_auth import BACKEND_SERVICES
+    from yoao_protocol_v2.managed_credential import CredentialFileError, read_credential
     from app.services.managed_inference_auth import (
         configured_backends,
         credential_directory,
@@ -441,8 +441,8 @@ async def initialize_managed_backends(
     db: AsyncSession = Depends(get_db),
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    from aap_protocol_v2.backend_auth import managed_provider
-    from aap_protocol_v2.managed_credential import (
+    from yoao_protocol_v2.backend_auth import managed_provider
+    from yoao_protocol_v2.managed_credential import (
         CredentialFileError,
         ensure_credential,
     )

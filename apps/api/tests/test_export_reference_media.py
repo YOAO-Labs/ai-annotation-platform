@@ -452,7 +452,7 @@ async def test_original_authority_and_binding_rechecked_after_snapshot(
 async def test_output_authority_fences_real_key_authentication(
     referenced_cache, test_engine, monkeypatch, change
 ):
-    from aap_identity.postgres import PostgresData
+    from yoao_identity.postgres import PostgresData
     from app.services.identity_gateway import IdentityGateway
 
     world = referenced_cache

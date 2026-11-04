@@ -8,8 +8,8 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from aap_audit.query_contract import decode_query_reply
-from aap_audit.query_postgres import AuditQueryPostgresData
+from yoao_audit.query_contract import decode_query_reply
+from yoao_audit.query_postgres import AuditQueryPostgresData
 from app.api.v1.audit_logs import _encode_cursor, export_audit_logs, list_audit_logs
 from app.db.enums import UserRole
 from app.services.audit import AuditService

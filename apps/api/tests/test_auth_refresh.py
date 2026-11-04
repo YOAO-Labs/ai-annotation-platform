@@ -20,7 +20,7 @@ from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from aap_identity.security import ISSUER, signing_key
+from yoao_identity.security import ISSUER, signing_key
 from app.core.ratelimit import limiter
 from app.core.security import ALGORITHM, create_access_token
 from app.db.models.user import User
@@ -245,7 +245,7 @@ async def test_refresh_missing_current_account_is_inactive(httpx_client):
 async def test_refresh_preserves_busy_source_status(
     httpx_client, app_module, code, status
 ):
-    from aap_identity.session_contract import SessionFailure
+    from yoao_identity.session_contract import SessionFailure
     from app.api.v1.auth import get_session_commands
 
     class Owner:
@@ -270,7 +270,7 @@ async def test_refresh_preserves_busy_source_status(
 async def test_refresh_rejects_an_owner_reply_for_another_actor(
     httpx_client, db_session, monkeypatch
 ):
-    from aap_identity.contract import Principal, principal_reply
+    from yoao_identity.contract import Principal, principal_reply
 
     user = await _seed_user(db_session)
     value = _make_token_with_exp(

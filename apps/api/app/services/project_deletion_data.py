@@ -2,12 +2,12 @@
 
 from uuid import UUID
 
-from aap_workspace.project_deletion import ProjectDeletionManager
-from aap_workspace.project_deletion_contract import (
+from yoao_workspace.project_deletion import ProjectDeletionManager
+from yoao_workspace.project_deletion_contract import (
     ProjectDeletionCommand,
     ProjectDeletionReceipt,
 )
-from aap_audit_contract import ProjectDeletionAuditContext
+from yoao_audit_contract import ProjectDeletionAuditContext
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 

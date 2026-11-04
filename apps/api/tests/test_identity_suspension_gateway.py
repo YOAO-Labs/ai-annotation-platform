@@ -8,8 +8,8 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.suspension_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.suspension_contract import (
     SuspensionFailure,
     decode_suspension_request,
     decode_suspension_reply,

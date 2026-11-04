@@ -9,12 +9,12 @@ import uuid
 import pytest
 from sqlalchemy import event, select, text
 
-from aap_inference.registry_ingress import (
+from yoao_inference.registry_ingress import (
     RegistrySeedFacts,
     ensure_singleton_pool,
     get_or_create_seed,
 )
-from aap_inference_contract.topology import PoolFacts
+from yoao_inference_contract.topology import PoolFacts
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.user import User
 

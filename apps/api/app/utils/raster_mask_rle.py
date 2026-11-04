@@ -1,6 +1,6 @@
 """COCO uncompressed RLE codec for API validation and export paths.
 
-The tracker backends use the independent ``anno-mask-utils`` package. This
+The tracker backends use the independent ``yoao-mask-utils`` package. This
 API-local copy keeps the production API image free of backend runtime packages;
 shared golden fixtures assert identical behavior across runtimes.
 """

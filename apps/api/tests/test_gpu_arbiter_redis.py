@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 from redis.cluster import key_slot
 
 from app.config import settings
-from aap_inference.gpu.ledger import (
+from yoao_inference.gpu.ledger import (
     GPUAllocation,
     GPUAllocationState,
     GPUArbiterStore,
@@ -26,8 +26,8 @@ from aap_inference.gpu.ledger import (
     gpu_arbiter_keys,
     normalize_gpu_backend_max_concurrency,
 )
-from aap_inference.gpu.ledger import store as gpu_arbiter_store_module
-from aap_inference.gpu.ledger.types import _LEDGER_REVISION_REBASE_THRESHOLD
+from yoao_inference.gpu.ledger import store as gpu_arbiter_store_module
+from yoao_inference.gpu.ledger.types import _LEDGER_REVISION_REBASE_THRESHOLD
 
 
 _TEST_BACKEND_DOMAIN = (
@@ -9597,7 +9597,7 @@ async def test_installation_domain_evolves_missing_authoritative_members(
 ) -> None:
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
-    from aap_inference.gpu.ledger import installation_domain
+    from yoao_inference.gpu.ledger import installation_domain
 
     first, _ = redis_stores
     resource = "installation-domain-empty"
@@ -9643,8 +9643,8 @@ async def test_installation_domain_refuses_to_drop_or_reidentify_members(
 ) -> None:
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
-    from aap_inference.gpu.ledger import installation_domain
-    from aap_inference_contract.gpu import GPUAuthorityUnavailable
+    from yoao_inference.gpu.ledger import installation_domain
+    from yoao_inference_contract.gpu import GPUAuthorityUnavailable
 
     first, _ = redis_stores
     resource = "installation-domain-mismatch"
@@ -9690,12 +9690,12 @@ async def test_terminal_recovery_keeps_native_intent_after_ledger_generation_los
     from types import SimpleNamespace
 
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from aap_protocol_v2.lifecycle import verify_admission_token
-    from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-    from aap_inference.gpu.installation_quiescence import quiesce_gpu_installation
-    from aap_inference.gpu.ledger import installation_domain
-    from aap_inference.gpu.signing import GPUAdmissionTokenSigner
-    from aap_inference_contract.gpu import GPUInstallationControlRequest
+    from yoao_protocol_v2.lifecycle import verify_admission_token
+    from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+    from yoao_inference.gpu.installation_quiescence import quiesce_gpu_installation
+    from yoao_inference.gpu.ledger import installation_domain
+    from yoao_inference.gpu.signing import GPUAdmissionTokenSigner
+    from yoao_inference_contract.gpu import GPUInstallationControlRequest
 
     first, observer = redis_stores
     request = GPUInstallationControlRequest(

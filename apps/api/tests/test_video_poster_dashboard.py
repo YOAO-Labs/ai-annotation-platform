@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import ReadSourceRequest
+from yoao_assets_media.contract import ReadSourceRequest
 from app.api.v1.dashboard import annotator as annotator_dashboard
 from app.api.v1.dashboard import reviewer as reviewer_dashboard
 from app.db.enums import UserRole

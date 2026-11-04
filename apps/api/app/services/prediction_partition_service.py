@@ -8,8 +8,8 @@ from datetime import date, datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.prediction_partition_contract import EnsurePredictionPartition
-from aap_labeling.prediction_partition_data import PredictionPartitionDataClient
+from yoao_labeling.prediction_partition_contract import EnsurePredictionPartition
+from yoao_labeling.prediction_partition_data import PredictionPartitionDataClient
 
 
 logger = logging.getLogger(__name__)

@@ -12,7 +12,7 @@ from sqlalchemy import event, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import aliased
 
-from aap_workspace_contract.read_relations import (
+from yoao_workspace_contract.read_relations import (
     PROJECT_COUNTER_COLUMNS,
     PROJECT_COUNTER_FACT_COLUMNS,
     PROJECT_FACT_COLUMNS,
@@ -20,7 +20,7 @@ from aap_workspace_contract.read_relations import (
     PROJECT_FACTS_RELATION,
     read_relations_schema,
 )
-from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
 from app.db.models.project import Project
 from app.services.annotation_comment import AnnotationCommentService
 from app.services.notification import NotificationService

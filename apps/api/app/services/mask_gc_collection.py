@@ -6,15 +6,15 @@ import asyncio
 from contextlib import contextmanager
 from uuid import uuid4
 
-from aap_assets_mask_content import gc_contract as byte
-from aap_assets_mask_content.gc_client import MaskGcClient
-from aap_assets_mask_content.gc_storage import S3MaskGcStore
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc.client import (
+from yoao_assets_mask_content import gc_contract as byte
+from yoao_assets_mask_content.gc_client import MaskGcClient
+from yoao_assets_mask_content.gc_storage import S3MaskGcStore
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc.client import (
     LabelingMaskGcClient,
     LabelingMaskGcClientFailure,
 )
-from aap_labeling_mask_gc.coordinator import run_cycle
+from yoao_labeling_mask_gc.coordinator import run_cycle
 
 from app.config import settings
 from app.services.mask_gc import IndependentMaskGcDatabase

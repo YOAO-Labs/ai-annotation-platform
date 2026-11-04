@@ -7,8 +7,8 @@ from dataclasses import replace
 from typing import Any
 from urllib.parse import urlsplit
 
-from aap_inference.registry_ingress import get_or_create_seed
-from aap_inference_contract.topology import RegistryPublicFacts
+from yoao_inference.registry_ingress import get_or_create_seed
+from yoao_inference_contract.topology import RegistryPublicFacts
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -9,25 +9,25 @@ import time
 import uuid
 
 import pytest
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,
     DrainTransitionResponse,
     ManagedUnloadResponse,
 )
 
-from aap_inference.backend_endpoint import (
+from yoao_inference.backend_endpoint import (
     BackendEndpointBinding,
     BackendEndpointSnapshot,
 )
-from aap_inference_contract.backend_endpoint import BackendEndpointAuthority
-from aap_inference.gpu import dispatch as authority_module
-from aap_inference.gpu.contracts import (
+from yoao_inference_contract.backend_endpoint import BackendEndpointAuthority
+from yoao_inference.gpu import dispatch as authority_module
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
     GPUDispatchRequest,
 )
-from aap_inference.gpu.proofs import (
+from yoao_inference.gpu.proofs import (
     GPUColdRuntimeSubject,
     GPUColdTerminalCommitResult,
     GPUEvictionCommitResult,
@@ -39,7 +39,7 @@ from aap_inference.gpu.proofs import (
     GPUResidentRuntimeSubject,
     GPUResidentRuntimeSubjectError,
 )
-from aap_inference.gpu.ledger import (
+from yoao_inference.gpu.ledger import (
     GPUAdmissionResult,
     GPUAllocation,
     GPUAllocationState,

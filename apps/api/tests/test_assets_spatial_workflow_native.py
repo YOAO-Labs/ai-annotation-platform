@@ -7,11 +7,11 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_catalog.config import load_config
-from aap_assets_catalog.database import CatalogDatabase
-from aap_assets_catalog.spatial_contract import UpdateCalibrationRequest
-from aap_assets_catalog.spatial_values import calibration_digest
-from aap_assets_catalog.spatial_workflow import SpatialWorkflow
+from yoao_assets_catalog.config import load_config
+from yoao_assets_catalog.database import CatalogDatabase
+from yoao_assets_catalog.spatial_contract import UpdateCalibrationRequest
+from yoao_assets_catalog.spatial_values import calibration_digest
+from yoao_assets_catalog.spatial_workflow import SpatialWorkflow
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_assets_catalog_native import _CATALOG_URL, _ROLE_ACCEPTANCE
 from tests.test_assets_spatial_calibration_native import (

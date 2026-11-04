@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from aap_assets_source.operator_contract import OperatorItem, OperatorSourceEntry
+from yoao_assets_source.operator_contract import OperatorItem, OperatorSourceEntry
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 

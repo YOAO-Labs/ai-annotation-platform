@@ -16,7 +16,7 @@ import uuid
 import pytest
 from sqlalchemy import delete, select, text
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from app.db.models.api_key import ApiKey
 from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project

@@ -10,7 +10,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.registry_ingress import get_or_create_seed
+from yoao_inference.registry_ingress import get_or_create_seed
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.inference_registry_ingress_data import InferenceRegistryIngressData
 from tests.labeling_class_query_helpers import assert_owned_test_database

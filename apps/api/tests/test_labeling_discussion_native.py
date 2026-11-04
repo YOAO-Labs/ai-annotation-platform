@@ -10,7 +10,7 @@ import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.discussion_contract import (
+from yoao_labeling.discussion_contract import (
     DISCUSSION_PROTOCOL,
     TASK_EVENT_PROTOCOL,
     CreateAnnotationComment,
@@ -22,7 +22,7 @@ from aap_labeling.discussion_contract import (
     SoftDeleteAnnotationComment,
     TaskEventInsertRow,
 )
-from aap_labeling.discussion_data import (
+from yoao_labeling.discussion_data import (
     LabelingDiscussionDataClient,
     LabelingTaskEventDataClient,
 )

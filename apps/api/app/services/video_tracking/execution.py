@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_preannotation_results.video_execution import (
+from yoao_preannotation_results.video_execution import (
     ClaimRequest,
     ExecutionClaim,
     ExecutionProof,

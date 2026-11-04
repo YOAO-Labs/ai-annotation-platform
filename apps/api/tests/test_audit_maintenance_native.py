@@ -9,8 +9,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_audit.maintenance_contract import MAINTENANCE_PROTOCOL
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.maintenance_contract import MAINTENANCE_PROTOCOL
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 
 async def test_maintenance_preserves_partition_identity_lock_and_caller_rollback(
@@ -106,7 +106,7 @@ async def test_maintenance_login_snapshots_exact_json_and_serializes_competing_d
     import asyncpg
     from sqlalchemy.engine import make_url
 
-    from aap_owner_data.postgres import verify_function_only_role
+    from yoao_owner_data.postgres import verify_function_only_role
 
     def asyncpg_dsn(value: str) -> str:
         return (

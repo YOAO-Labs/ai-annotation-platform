@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import pytest
-from aap_workspace.configuration_policy import (
+from yoao_workspace.configuration_policy import (
     ConfigurationPolicyError,
     assert_project_kind_consistent,
     data_type_from_type_key,

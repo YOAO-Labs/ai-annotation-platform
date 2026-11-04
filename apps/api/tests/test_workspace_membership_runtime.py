@@ -91,7 +91,7 @@ async def _start_workspace(test_engine, directory, control):
     }
     return await asyncio.to_thread(
         _start,
-        [str(interpreter), "-I", "-m", "aap_workspace"],
+        [str(interpreter), "-I", "-m", "yoao_workspace"],
         environment,
         directory,
         directory / "workspace.log",
@@ -524,9 +524,9 @@ async def test_current_nul_reason_still_aborts_at_audit_without_effects(
 async def test_literal_reason_and_receipt_fingerprint_keep_exact_text(
     test_engine, monkeypatch, binding
 ):
-    from aap_workspace.contract import decode_membership_request
-    from aap_workspace.manager import MembershipManager
-    from aap_workspace.postgres import MembershipPostgresData
+    from yoao_workspace.contract import decode_membership_request
+    from yoao_workspace.manager import MembershipManager
+    from yoao_workspace.postgres import MembershipPostgresData
     from app.services.workspace_membership_data import WorkspaceMembershipData
 
     monkeypatch.setattr(settings, "workspace_membership_url", "")

@@ -139,7 +139,7 @@ def _verify_image_worker_container(
         and observed.get("Image") == image_id
         and config.get("Image") == image_ref
         and config.get("User") == "10005:10005"
-        and config.get("Cmd") == ["python", "-m", "aap_assets_images_runtime.worker"]
+        and config.get("Cmd") == ["python", "-m", "yoao_assets_images_runtime.worker"]
         and labels.get(_ACCEPTANCE) == "module-data-boundary"
         and labels.get(_IDENTITY) == container_identity
         and observed.get("Mounts") == []
@@ -265,7 +265,7 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
                 container_id,
                 "python",
                 "-m",
-                "aap_assets_images_runtime.worker",
+                "yoao_assets_images_runtime.worker",
                 "--healthcheck",
                 timeout=30,
             )

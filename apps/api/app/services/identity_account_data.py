@@ -11,14 +11,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_identity.account_contract import (
+from yoao_identity.account_contract import (
     AccountFailure,
     decode_native_apply_command,
     decode_native_prepare_command,
     decode_native_prepare_reply,
     decode_native_account_reply,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from app.db.models.user import User
 from app.services.identity_session_data import _json_value
 

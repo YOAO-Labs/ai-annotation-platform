@@ -8,13 +8,13 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
-from aap_workspace.configuration import ConfigurationCommandFailure
-from aap_workspace.configuration_contract import (
+from yoao_workspace.configuration import ConfigurationCommandFailure
+from yoao_workspace.configuration_contract import (
     ConfigurationError,
     ConfigurationUnavailable,
     decode_configuration_policy,
 )
-from aap_workspace.configuration_postgres import configuration_busy_error
+from yoao_workspace.configuration_postgres import configuration_busy_error
 
 
 def _guide_patch(request_json):

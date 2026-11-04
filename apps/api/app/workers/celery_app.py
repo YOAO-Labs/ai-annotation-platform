@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab
-from aap_jobs.queue_contract import load_queue_configuration
+from yoao_jobs.queue_contract import load_queue_configuration
 from app.config import settings
 
 celery_app = Celery(

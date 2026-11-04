@@ -10,13 +10,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     CalibrationMutationResult,
     CalibrationPage,
     canonical_calibration_document,
     normalize_calibration_record,
 )
-from aap_assets_catalog.spatial_values import calibration_digest
+from yoao_assets_catalog.spatial_values import calibration_digest
 from app.db.models.dataset import SensorCalibrationRevision
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_assets_catalog_native import _CATALOG_URL, _ROLE_ACCEPTANCE, _call

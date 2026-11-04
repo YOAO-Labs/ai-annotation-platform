@@ -14,14 +14,14 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_labeling.annotation_write_contract import (
+from yoao_labeling.annotation_write_contract import (
     ANNOTATION_WRITE_PROTOCOL,
     ReadCreateReceipt,
     WriteCreateReceipt,
 )
-from aap_labeling.annotation_write_data import AnnotationWriteDataClient
-from aap_labeling.core_read_contract import CORE_READ_RELATIONS
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.annotation_write_data import AnnotationWriteDataClient
+from yoao_labeling.core_read_contract import CORE_READ_RELATIONS
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.task import Task
 from tests.factory import create_task
 from tests.labeling_class_query_helpers import assert_owned_test_database

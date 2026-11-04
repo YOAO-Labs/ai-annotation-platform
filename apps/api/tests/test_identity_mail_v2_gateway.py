@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_v2_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_v2_contract import (
     MAIL_V2_NATIVE_PROTOCOL,
     InvitationMailV2Lease,
 )
@@ -132,11 +132,11 @@ def _api_settings(**overrides):
 
 @pytest.fixture(autouse=True)
 def source_injected_mail_crypto_and_smtp(monkeypatch):
-    crypto = types.ModuleType("aap_identity.recovery_crypto")
+    crypto = types.ModuleType("yoao_identity.recovery_crypto")
     crypto.mail_encryption_id = lambda _key: "b" * 64
     crypto.decrypt_mail_token = lambda _ciphertext, _key, _epoch: TOKEN
     crypto.token_hash = lambda value: hashlib.sha256(value.encode()).hexdigest()
-    monkeypatch.setitem(sys.modules, "aap_identity.recovery_crypto", crypto)
+    monkeypatch.setitem(sys.modules, "yoao_identity.recovery_crypto", crypto)
 
 
 def test_malformed_claim_and_claim_binding_failures_rollback_before_commit():
@@ -200,7 +200,7 @@ def test_stale_owner_false_reply_rolls_back_before_commit(operation):
 
 
 def test_embedded_gateway_closes_each_short_session_before_smtp(monkeypatch):
-    from aap_identity_runtime.mail_worker import MailExecutor
+    from yoao_identity_runtime.mail_worker import MailExecutor
 
     settings = _api_settings()
     monkeypatch.setattr(gateway, "settings", settings)

@@ -14,7 +14,7 @@ from app.services.annotation_slice_contracts import (
     AnnotationSliceError as _AnnotationSliceError,
     annotation_slice_digest as _annotation_slice_digest,
 )
-from aap_labeling.mask_revision_contract import (
+from yoao_labeling.mask_revision_contract import (
     ExpireMaskRevisions,
     MaskRevisionReference,
     ProtectMaskRevisions,

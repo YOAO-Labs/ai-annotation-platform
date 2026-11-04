@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import HTTPException
 from pydantic import BeforeValidator
 from sqlalchemy import case, func
-from aap_task_contract import TASK_ALIASES
+from yoao_task_contract import TASK_ALIASES
 
 
 def _iso_date(value):

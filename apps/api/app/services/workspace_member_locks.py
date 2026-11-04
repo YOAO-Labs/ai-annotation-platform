@@ -11,7 +11,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_workspace_contract.member_values import (
+from yoao_workspace_contract.member_values import (
     ProjectMemberRowsUnavailable,
     ProjectMemberRow,
     decode_project_member_rows,

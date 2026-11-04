@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_notifications.delivery_read_postgres import (
+from yoao_notifications.delivery_read_postgres import (
     NotificationDeliveryReadPostgresData,
 )
 from app.db.models.notification import Notification

@@ -5,7 +5,7 @@ import uuid
 
 import httpx
 import pytest
-from aap_jobs.queue_contract import JobsQueueUnavailable
+from yoao_jobs.queue_contract import JobsQueueUnavailable
 from app import deps
 from app.config import Settings
 from app.services import jobs_queue

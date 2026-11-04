@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 
-from aap_assets_video_inputs import selection as contract
+from yoao_assets_video_inputs import selection as contract
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql/0224_video_input_selection.sql"
@@ -28,7 +28,7 @@ def test_video_selection_artifact_matches_portable_contract():
         json.loads(
             (
                 ROOT
-                / "apps/assets-media/src/aap_assets_video_inputs/selection.schema.json"
+                / "apps/assets-media/src/yoao_assets_video_inputs/selection.schema.json"
             ).read_text()
         )
         == contract.contract_document()

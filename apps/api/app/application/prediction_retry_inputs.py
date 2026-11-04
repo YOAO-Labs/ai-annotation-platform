@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from aap_assets_video_inputs.evidence import (
+from yoao_assets_video_inputs.evidence import (
     VideoInputEvidence,
     VideoInputFailureEvidence,
 )
@@ -66,7 +66,7 @@ _UNPREPARED_RETRY_INPUT = object()
 
 
 async def _verify_retry_source(gateway, request):
-    from aap_assets_inputs.contract import InputFailure
+    from yoao_assets_inputs.contract import InputFailure
 
     for attempt in range(_WRITE_ATTEMPTS):
         try:
@@ -88,7 +88,7 @@ async def _verify_retry_source(gateway, request):
 
 
 async def _verify_video_retry_source(gateway, request, *, expected_plan=None):
-    from aap_assets_video_inputs.execution import (
+    from yoao_assets_video_inputs.execution import (
         LockVideoInputRequest,
         VideoInputFailure,
     )
@@ -135,7 +135,7 @@ def _accepted_input_metadata(value, *, task_id, project_id) -> dict:
 
 def _accepted_manifest_metadata(value, *, task_id, project_id, actor_id):
     """Validate the sealed bulk-image evidence recorded on the failure."""
-    from aap_assets_input_manifests import contract as manifest_contract
+    from yoao_assets_input_manifests import contract as manifest_contract
 
     if not isinstance(value, dict):
         raise ValueError("accepted input manifest evidence is malformed")
@@ -174,7 +174,7 @@ def _accepted_manifest_metadata(value, *, task_id, project_id, actor_id):
 
 async def _sealed_manifest_member(gateway, manifest):
     """Fetch only this task's member from the already sealed bulk selection."""
-    from aap_assets_input_manifests import contract as manifest_contract
+    from yoao_assets_input_manifests import contract as manifest_contract
 
     scope = manifest_contract.ManifestScope(
         job_id=manifest["manifest_id"],
@@ -215,7 +215,7 @@ async def _sealed_manifest_member(gateway, manifest):
 
 
 def _accepted_video_failure(value, *, task_id, project_id):
-    from aap_assets_video_inputs.evidence import (
+    from yoao_assets_video_inputs.evidence import (
         VideoEvidenceFailure,
         VideoInputFailureEvidence,
         parse_prediction_evidence,
@@ -239,8 +239,8 @@ async def _prepare_retry_input(
     session_factory, failed_id: str, actor_id: str | None = None, *, frozen_attempt=None
 ):
     """Prepare the retained version before model execution or a started notification."""
-    from aap_assets_inputs import contract as c
-    from aap_assets_inputs.contract import InputFailure
+    from yoao_assets_inputs import contract as c
+    from yoao_assets_inputs.contract import InputFailure
     from app.services.inference_topology_data import InferenceTopologyData
 
     fid = uuid.UUID(failed_id)
@@ -373,9 +373,9 @@ async def _prepare_retry_input(
         return
 
     if manifest is not None:
-        from aap_assets_input_manifests import contract as manifest_contract
-        from aap_assets_inputs import contract as c
-        from aap_assets_inputs.contract import InputFailure
+        from yoao_assets_input_manifests import contract as manifest_contract
+        from yoao_assets_inputs import contract as c
+        from yoao_assets_inputs.contract import InputFailure
         from app.services.accepted_input_manifests import input_manifest_gateway
 
         async with input_manifest_gateway(session_factory=session_factory) as gateway:
@@ -441,8 +441,8 @@ async def _prepare_retry_input(
         return
 
     if accepted_video_failure is not None:
-        from aap_assets_video_inputs import execution as video_execution
-        from aap_assets_video_inputs.evidence import (
+        from yoao_assets_video_inputs import execution as video_execution
+        from yoao_assets_video_inputs.evidence import (
             ready_evidence,
         )
         from app.services.accepted_video_inputs import video_input_gateway

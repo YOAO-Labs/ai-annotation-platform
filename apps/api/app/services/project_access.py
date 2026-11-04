@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess as _ProjectAccess,
     ProjectAccessPolicyFailure,
     project_manager_access,
@@ -25,17 +25,17 @@ from aap_workspace_contract.access import (
     membership_role_compatible as _membership_role_compatible,
     platform_role_is_manager as _platform_role_is_manager,
 )
-from aap_workspace_contract.member_values import (
+from yoao_workspace_contract.member_values import (
     ProjectMemberRowsUnavailable,
     decode_project_member_rows,
 )
-from aap_workspace_contract.project_query_contract import (
+from yoao_workspace_contract.project_query_contract import (
     ProjectQueryUnavailable,
     decode_project_query_step,
     project_query_request,
 )
-from aap_workspace_contract.project_query_values import materialize_project_base_row
-from aap_workspace_contract.wire import _reject_constant, _unique_object
+from yoao_workspace_contract.project_query_values import materialize_project_base_row
+from yoao_workspace_contract.wire import _reject_constant, _unique_object
 from app.db.enums import (
     PlatformRole,
 )

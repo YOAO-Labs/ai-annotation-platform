@@ -9,15 +9,15 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.recovery_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.recovery_contract import (
     RecoveryFailure,
     decode_native_recovery_apply_command,
     decode_native_recovery_prepare_command,
     decode_native_recovery_prepare_reply,
     decode_native_recovery_reply,
 )
-from aap_identity.registration_contract import (
+from yoao_identity.registration_contract import (
     REGISTRATION_STATUS_PROTOCOL,
     RegistrationStatusFallbacks,
     RegistrationStatusRequest,

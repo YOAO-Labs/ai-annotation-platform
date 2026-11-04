@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.services import annotation as annotation_service
-from aap_assets_inputs.contract import InputFailure
+from yoao_assets_inputs.contract import InputFailure
 from app.application.candidate_decision import bind_candidate_decision_port
 from app.services.candidate_decision_contract import CandidateAcceptCommand
 from app.services.annotation import AnnotationService, _sync_attributes_meta

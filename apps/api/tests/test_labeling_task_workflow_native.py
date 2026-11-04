@@ -7,13 +7,13 @@ import asyncpg
 import pytest
 from sqlalchemy import delete, text
 
-from aap_labeling.task_workflow_contract import (
+from yoao_labeling.task_workflow_contract import (
     TASK_WORKFLOW_PROTOCOL,
     ClearReviewEvidence,
     RecordAnnotationActor,
     TaskWorkflowFailure,
 )
-from aap_labeling.task_workflow_data import LabelingTaskWorkflowData
+from yoao_labeling.task_workflow_data import LabelingTaskWorkflowData
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from tests.factory import create_batch, create_task

@@ -11,9 +11,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_inputs import contract as c
-from aap_assets_inputs.client import InputClient
-from aap_assets_inputs_runtime.database import validate_native_result
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs.client import InputClient
+from yoao_assets_inputs_runtime.database import validate_native_result
 from app.config import settings
 
 
@@ -155,10 +155,10 @@ async def input_gateway(*, session_factory=None):
             yield InputGateway(client)
         return
 
-    from aap_assets_images_runtime.control import ImageControl
-    from aap_assets_inputs_runtime.control import InputControl
-    from aap_assets_inputs_runtime.storage import S3InputStorage
-    from aap_assets_inputs_runtime.worker import InputExecutor
+    from yoao_assets_images_runtime.control import ImageControl
+    from yoao_assets_inputs_runtime.control import InputControl
+    from yoao_assets_inputs_runtime.storage import S3InputStorage
+    from yoao_assets_inputs_runtime.worker import InputExecutor
     from app.services.assets_images import (
         _IndependentImageDatabase,
         image_policy,

@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import uuid
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_postgres import MailSettingsPostgresData
-from aap_identity.mail_v2_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_postgres import MailSettingsPostgresData
+from yoao_identity.mail_v2_contract import (
     MAIL_V2_NATIVE_PROTOCOL,
     MailV2FinishRequest,
     MailV2RenewRequest,
@@ -16,8 +16,8 @@ from aap_identity.mail_v2_contract import (
     decode_mail_v2_claim_request,
     native_mail_v2_command_json,
 )
-from aap_identity.mail_v2_postgres import MailV2PostgresData
-from aap_identity_runtime.mail_worker import MailExecutor
+from yoao_identity.mail_v2_postgres import MailV2PostgresData
+from yoao_identity_runtime.mail_worker import MailExecutor
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 

@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.project_maintenance_contract import (
+from yoao_workspace.project_maintenance_contract import (
     PROTOCOL,
     ProjectMaintenanceUnavailable,
     decode_import_project_reference,
@@ -106,7 +106,7 @@ async def test_descriptor_and_function_only_login_match_exact_capabilities(test_
     assert expected["$id"] == PROTOCOL
     for path in (
         ROOT
-        / "apps/workspace/src/aap_workspace/project_maintenance_protocol.schema.json",
+        / "apps/workspace/src/yoao_workspace/project_maintenance_protocol.schema.json",
         ROOT / "apps/api/alembic/sql/0288_workspace_project_maintenance.schema.json",
     ):
         assert json.loads(path.read_text()) == expected

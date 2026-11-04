@@ -23,7 +23,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.schemas.annotation_feedback import FeedbackAnchorPosition
-from aap_labeling.discussion_contract import (
+from yoao_labeling.discussion_contract import (
     DISCUSSION_PROTOCOL,
     AnnotationFeedbackRow,
     CreateAnnotationFeedback,

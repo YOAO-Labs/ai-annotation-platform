@@ -505,7 +505,7 @@ async def seed(
             )
             for ds_id, disp, data_type in ds_rows.all():
                 if data_type == "image":
-                    from aap_assets_images.contract import ImageBackfillSelection
+                    from yoao_assets_images.contract import ImageBackfillSelection
                     from app.services.assets_images import image_policy
                     from scripts.image_media_backfill import accept_image_backfill
 

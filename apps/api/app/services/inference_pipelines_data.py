@@ -8,7 +8,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_inference.pipeline_contract import PipelineRejected
+from yoao_inference.pipeline_contract import PipelineRejected
 
 PIPELINE_SCHEMA = "aap_inference_pipelines_v1"
 
@@ -44,7 +44,7 @@ def _json_text(value) -> str:
             separators=(",", ":"),
         )
     except (TypeError, ValueError, UnicodeError, RecursionError):
-        from aap_inference.pipeline_contract import PipelineInvalidRequest
+        from yoao_inference.pipeline_contract import PipelineInvalidRequest
 
         raise PipelineInvalidRequest() from None
 

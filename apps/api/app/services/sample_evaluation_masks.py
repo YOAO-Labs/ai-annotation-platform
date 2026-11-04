@@ -7,7 +7,7 @@ import json
 import math
 from collections import Counter
 
-from aap_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
+from yoao_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
 from training_contract.model_return import (
     SEGMENTATION_OUTPUT_CONTRACT,
     segmentation_runtime,

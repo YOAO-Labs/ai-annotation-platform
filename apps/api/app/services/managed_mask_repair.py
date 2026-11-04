@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 import uuid
 
-from aap_labeling.core_read_contract import CORE_READ_COLUMNS
+from yoao_labeling.core_read_contract import CORE_READ_COLUMNS
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -911,7 +911,7 @@ class ManagedRepairUnit:
             raise ContentError("repair_model_changed")
 
     async def before_dispatch(self, transport):
-        from aap_inference import extract_capabilities
+        from yoao_inference import extract_capabilities
 
         setup = await transport.setup()
         self.validate_capabilities(extract_capabilities(setup))
@@ -966,7 +966,7 @@ class ManagedRepairUnit:
         }
 
     async def note_committed_mutation(self, payload, response):
-        from aap_labeling.mask_edit_contract import ReadOperation, MASK_EDIT_PROTOCOL
+        from yoao_labeling.mask_edit_contract import ReadOperation, MASK_EDIT_PROTOCOL
         from app.services.labeling_mask_edit import mask_edit_command
 
         operation = await mask_edit_command(

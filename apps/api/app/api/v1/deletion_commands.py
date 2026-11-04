@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from aap_identity.contract import Principal
-from aap_identity.deletion_contract import DeletionFailure, decode_deletion_request
+from yoao_identity.contract import Principal
+from yoao_identity.deletion_contract import DeletionFailure, decode_deletion_request
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 

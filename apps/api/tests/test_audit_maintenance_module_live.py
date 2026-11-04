@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 from app.config import settings
 from tests.test_asset_storage_cleanup_runtime import (
     _container_s3_endpoint,
@@ -58,7 +58,7 @@ def _image() -> dict:
     details = json.loads(_docker("image", "inspect", receipt["image_id"]))[0]
     assert details["Id"] == receipt["image_id"]
     assert details["Config"]["User"] == "10006:10006"
-    assert details["Config"]["Entrypoint"] == ["aap-audit-maintenance"]
+    assert details["Config"]["Entrypoint"] == ["yoao-audit-maintenance"]
     assert details["Config"]["Labels"]["org.aap.acceptance-id"] == receipt["identity"]
     return receipt
 

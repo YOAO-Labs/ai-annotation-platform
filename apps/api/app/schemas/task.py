@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
-from aap_assets_catalog.spatial_values import (
+from yoao_assets_catalog.spatial_values import (
     FramePose,
     LidarAxisConvention,
     SensorCalibration,

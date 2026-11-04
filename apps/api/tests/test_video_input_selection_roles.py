@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from aap_assets_video_inputs import selection as c
+from yoao_assets_video_inputs import selection as c
 from tests.test_video_input_authorities_native import _seed_video_task
 from tests.test_video_input_selection_native import _add_task
 

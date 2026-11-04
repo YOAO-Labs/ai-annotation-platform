@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from aap_jobs.dispatch_contract import DispatchLease
+    from yoao_jobs.dispatch_contract import DispatchLease
 
 
 @dataclass(frozen=True, slots=True)

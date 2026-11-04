@@ -12,14 +12,14 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.platform_role_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.platform_role_contract import (
     PlatformRoleFailure,
     decode_platform_role_request,
 )
-from aap_identity.platform_role_manager import PlatformRoleManager
-from aap_identity.platform_role_postgres import PlatformRolePostgresData
-from aap_identity.postgres import PostgresData
+from yoao_identity.platform_role_manager import PlatformRoleManager
+from yoao_identity.platform_role_postgres import PlatformRolePostgresData
+from yoao_identity.postgres import PostgresData
 from app.db.models.user import User
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (

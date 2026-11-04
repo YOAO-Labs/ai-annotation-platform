@@ -20,15 +20,15 @@ import logging
 import uuid
 from typing import NoReturn
 
-from aap_inference import resolve_model_task
-from aap_inference_contract.topology import RegistryPublicFacts
+from yoao_inference import resolve_model_task
+from yoao_inference_contract.topology import RegistryPublicFacts
 
-from aap_inference.secondary import (
+from yoao_inference.secondary import (
     apply_secondary_result,
     build_secondary_context,
 )
-from aap_inference.roi import _box_bbox_pct, crop_inputs_from_boxes
-from aap_inference_contract.execution import (
+from yoao_inference.roi import _box_bbox_pct, crop_inputs_from_boxes
+from yoao_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionError,
     thaw_json,

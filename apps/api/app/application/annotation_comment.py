@@ -31,7 +31,7 @@ from app.services.discussion_notifications import (
 from app.services.feedback import FeedbackService
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.notification import NotificationService
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
 from app.services.labeling_core_read_relations import lock_annotation_rows_for_core_read
 

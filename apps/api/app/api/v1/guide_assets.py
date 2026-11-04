@@ -13,7 +13,7 @@ from app.deps import (
     require_project_owner,
     require_project_visible,
 )
-from aap_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
+from yoao_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
 from app.schemas.guide_asset import (
     GuideAssetEntry,
     GuideAssetUploadInitRequest,

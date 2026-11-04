@@ -6,9 +6,9 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from aap_inference_contract.backend_control_client import BackendControlHttpClient
-from aap_inference_contract.backend_endpoint import BackendEndpointBinding
-from aap_workspace.config import secret_source
+from yoao_inference_contract.backend_control_client import BackendControlHttpClient
+from yoao_inference_contract.backend_endpoint import BackendEndpointBinding
+from yoao_workspace.config import secret_source
 
 from app.config import settings
 from app.services.ml_routing.authority import RoutingAuthority, lifecycle_control

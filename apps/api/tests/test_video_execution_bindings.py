@@ -13,19 +13,19 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_preannotation_results.video_execution import (
+from yoao_preannotation_results.video_execution import (
     ClaimRequest,
     GuardRequest,
     VideoExecutionFailure,
 )
-from aap_preannotation_results_runtime.video_execution_database import (
+from yoao_preannotation_results_runtime.video_execution_database import (
     VideoExecutionPostgresData,
 )
-from aap_preannotation_results.video_execution_journal import (
+from yoao_preannotation_results.video_execution_journal import (
     ReadRequest,
     VideoJournalFailure,
 )
-from aap_preannotation_results_runtime.video_journal_database import (
+from yoao_preannotation_results_runtime.video_journal_database import (
     VideoJournalPostgresData,
 )
 from tests.labeling_class_query_helpers import assert_owned_test_database
@@ -147,7 +147,7 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
         tracker_execution,
     )
     from app.services.video_tracking.control import video_control_job
-    from aap_labeling.video_control_contract import StartWorkerJob
+    from yoao_labeling.video_control_contract import StartWorkerJob
 
     functions = (
         "aap_jobs_v1.video_execution_step(text,text)",

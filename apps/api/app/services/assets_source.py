@@ -15,7 +15,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceDeletionRequest,
     SourceFailure,
     UploadCompleteRequest,
@@ -24,22 +24,22 @@ from aap_assets_source.contract import (
     UploadOutcome,
     decode_source_reply,
 )
-from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
-from aap_assets_source.legacy_upload_contract import (
+from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
+from yoao_assets_source.legacy_upload_contract import (
     LegacyUploadCompletion,
     LegacyUploadLockRequest,
     LegacyUploadState,
     decode_legacy_upload_reply,
 )
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     IngestCommand,
     IngestFailure,
     IngestReceipt,
     decode_ingest_reply,
     require_ingest_scope,
 )
-from aap_assets_source.upload_contract import DatasetUploadFailure
-from aap_assets_source_runtime.image_admission import ImageAdmission
+from yoao_assets_source.upload_contract import DatasetUploadFailure
+from yoao_assets_source_runtime.image_admission import ImageAdmission
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
@@ -299,7 +299,7 @@ def _managed_client(storage: StorageService):
 
 class _LocalStoragePort:
     def __init__(self, storage: StorageService) -> None:
-        from aap_assets_source_runtime.managed_storage import ManagedStorage
+        from yoao_assets_source_runtime.managed_storage import ManagedStorage
 
         self._storage = storage
         self._managed = ManagedStorage(_managed_client(storage), timeout_seconds=60)
@@ -367,7 +367,7 @@ class _LocalStoragePort:
         on_writing=None,
         on_written=None,
     ):
-        from aap_assets_source_runtime.ingest_storage_errors import (
+        from yoao_assets_source_runtime.ingest_storage_errors import (
             ManagedStorageError,
         )
 
@@ -392,7 +392,7 @@ class _LocalStoragePort:
     async def verify_managed_original(
         self, target, *, sha256: str, size_bytes: int, image: bool = False
     ):
-        from aap_assets_source_runtime.ingest_storage_errors import (
+        from yoao_assets_source_runtime.ingest_storage_errors import (
             ManagedStorageError,
         )
 
@@ -756,7 +756,7 @@ class AssetsSourceGateway:
             _raise_failure(exc, operation=endpoint)
 
     def _local_workflow(self):
-        from aap_assets_source_runtime.workflow import UploadWorkflow
+        from yoao_assets_source_runtime.workflow import UploadWorkflow
 
         return UploadWorkflow(
             upload_data=DatasetUploadData(self._db),
@@ -770,9 +770,9 @@ class AssetsSourceGateway:
         )
 
     def _local_ingest_workflow(self):
-        from aap_assets_source_runtime.ingest_storage import IngestStorage
-        from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
-        from aap_assets_source_runtime.managed_storage import ManagedStorage
+        from yoao_assets_source_runtime.ingest_storage import IngestStorage
+        from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
+        from yoao_assets_source_runtime.managed_storage import ManagedStorage
 
         from app.services.assets_source_ingest import DatasetSourceIngestData
 

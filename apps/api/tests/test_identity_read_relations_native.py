@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.requests import Request
 
-from aap_identity.read_relation_contract import identity_read_relation_schema
+from yoao_identity.read_relation_contract import identity_read_relation_schema
 from app.core.security import create_access_token, decode_access_token
 from app.db.models.notification import Notification
 from app.db.models.project import Project
@@ -69,7 +69,7 @@ def test_read_relation_descriptors_match_the_installed_portable_contract():
     expected = identity_read_relation_schema()
     assert (
         json.loads(
-            files("aap_identity").joinpath("read_relations.schema.json").read_text()
+            files("yoao_identity").joinpath("read_relations.schema.json").read_text()
         )
         == expected
     )

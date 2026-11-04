@@ -29,7 +29,7 @@ from app.services.annotation_track_identity import prepare_compact_track_identit
 from app.services.annotation_propagation import _new_track_id
 from app.services.scene_track_domain import SceneTrackIntegrityError
 from app.services.labeling_scene import resolve_task_scene_frames
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     CreateImportedAnnotation,
     ImportedInterval,
@@ -194,7 +194,7 @@ async def import_native_json_annotations(
         project.tool_bindings or {} if project else {}
     )
 
-    from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
+    from yoao_workspace.configuration_policy import lookup_classes_for_tool_unit
 
     for block in envelope.tasks:
         match_dict = block.task_match.model_dump(exclude_none=True)

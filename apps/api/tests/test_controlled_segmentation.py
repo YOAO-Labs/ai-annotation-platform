@@ -5,10 +5,10 @@ import hashlib
 from types import SimpleNamespace
 
 import pytest
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from training_contract.model_return import SEGMENTATION_RUNTIME, segmentation_identity
 
-from aap_inference.execution_context import build_predict_context
+from yoao_inference.execution_context import build_predict_context
 from app.services import trained_models
 from app.services.raster_mask_storage import canonical_rle_bytes
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle

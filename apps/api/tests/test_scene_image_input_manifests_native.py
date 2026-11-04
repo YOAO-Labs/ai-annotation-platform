@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_input_manifests import contract as manifests
+from yoao_assets_input_manifests import contract as manifests
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.services.accepted_input_manifests import (

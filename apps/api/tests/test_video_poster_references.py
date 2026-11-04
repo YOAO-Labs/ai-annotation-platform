@@ -5,8 +5,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import MediaFailure, MediaSource, ReadSourceRequest
-from aap_assets_media.transport import SourceReference
+from yoao_assets_media.contract import MediaFailure, MediaSource, ReadSourceRequest
+from yoao_assets_media.transport import SourceReference
 from app.services import video_poster_references
 
 

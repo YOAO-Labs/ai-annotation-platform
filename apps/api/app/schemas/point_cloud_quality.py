@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from aap_workspace.point_quality_configuration_values import (
+from yoao_workspace.point_quality_configuration_values import (
     PointCloudQualityConfig as _PointCloudQualityConfig,
 )
 

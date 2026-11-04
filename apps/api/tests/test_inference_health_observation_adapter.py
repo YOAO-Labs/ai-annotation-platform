@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.health_observation import (
     BackendHealthObservationUnavailable,
 )
 from app.services.inference_health_observation import _verified_outcome

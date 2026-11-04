@@ -6,7 +6,7 @@ The legacy model's forgiving display projection must never drive association.
 
 from __future__ import annotations
 
-from aap_task_contract import VISUAL_TASK_VALUES, normalize_task
+from yoao_task_contract import VISUAL_TASK_VALUES, normalize_task
 from sqlalchemy import and_, case, func, literal, not_, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import defer

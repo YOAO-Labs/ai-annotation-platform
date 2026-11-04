@@ -11,10 +11,10 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.recovery_contract import RecoveryFailure, decode_recovery_request
-from aap_identity.recovery_crypto import mail_key_from_secret
-from aap_identity.recovery_manager import RecoveryManager
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.recovery_contract import RecoveryFailure, decode_recovery_request
+from yoao_identity.recovery_crypto import mail_key_from_secret
+from yoao_identity.recovery_manager import RecoveryManager
 from app.api.v1.recovery_commands import _reject_recovery_error
 from app.config import settings
 from app.services.identity_contracts import IdentityGatewayUnavailable

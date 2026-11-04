@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from aap_assets_media import contract as c
+from yoao_assets_media import contract as c
 from app.db.models.asset_media import AssetMediaJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.task import Task

@@ -13,7 +13,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, NoDecode
 from sqlalchemy.engine import make_url
 
-from aap_inference.gpu.settings import (
+from yoao_inference.gpu.settings import (
     GPUArbiterMode,
     GPUResourceSettings,
     parse_gpu_resources,
@@ -484,7 +484,7 @@ class Settings(BaseSettings):
     @field_validator("ml_managed_backend_urls", mode="before")
     @classmethod
     def _managed_backend_urls(cls, value):
-        from aap_protocol_v2.backend_auth import validate_backend_urls
+        from yoao_protocol_v2.backend_auth import validate_backend_urls
 
         if isinstance(value, str) and not value.strip():
             value = cls.model_fields["ml_managed_backend_urls"].default

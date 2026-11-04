@@ -11,7 +11,7 @@ from app.services.labeling_task_creation_contract import (
     TaskCreationCounts,
 )
 from app.services.labeling_tasks import LabelingTaskService
-from aap_assets_catalog.spatial_contract import PreparePointcloudRequest
+from yoao_assets_catalog.spatial_contract import PreparePointcloudRequest
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.pointcloud_import import prepare_pointcloud_frames
 from app.services.project_access import lock_creation_project_manager

@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from aap_task_contract import TASK_VALUES
+from yoao_task_contract import TASK_VALUES
 
 from app.services.video_context import derive_sampled_frames, derive_step
 

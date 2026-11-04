@@ -7,16 +7,16 @@ from uuid import uuid4
 
 import pytest
 
-from aap_preannotation_results import contract as c
-from aap_preannotation_results.video_execution import ExecutionProof
-from aap_preannotation_results.video_execution_journal import ReadRequest, SCHEMA
-from aap_preannotation_results.video_execution_plan import VideoContinuationPostState
-from aap_preannotation_results.video_execution_planner import (
+from yoao_preannotation_results import contract as c
+from yoao_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution_journal import ReadRequest, SCHEMA
+from yoao_preannotation_results.video_execution_plan import VideoContinuationPostState
+from yoao_preannotation_results.video_execution_planner import (
     VideoExecutionInputFacts,
     build_video_execution_plan,
     freeze_video_window_settings,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
     snapshot_video_window_checkpoint,
 )

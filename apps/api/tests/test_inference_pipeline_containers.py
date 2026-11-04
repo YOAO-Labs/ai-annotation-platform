@@ -20,8 +20,8 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.pipeline_client import PipelineHttpClient
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_client import PipelineHttpClient
+from yoao_inference.pipeline_contract import (
     PipelineQuerySuccess,
     PipelineStatusSuccess,
     pipeline_command_request,
@@ -55,16 +55,16 @@ _ROOT = Path(__file__).resolve().parents[3]
 _IMAGE_ACCEPTANCE = "inference-pipeline-owner"
 _RUN_ACCEPTANCE = "module-data-boundary"
 _PACKAGE_SOURCE_PATHS = {
-    "aap_inference": "apps/inference/src/aap_inference",
-    "aap_inference_contract": (
-        "apps/_shared/inference_contract/src/aap_inference_contract"
+    "yoao_inference": "apps/inference/src/yoao_inference",
+    "yoao_inference_contract": (
+        "apps/_shared/inference_contract/src/yoao_inference_contract"
     ),
-    "aap_owner_data": "apps/_shared/owner_data/src/aap_owner_data",
-    "aap_workspace_contract": (
-        "apps/_shared/workspace_contract/src/aap_workspace_contract"
+    "yoao_owner_data": "apps/_shared/owner_data/src/yoao_owner_data",
+    "yoao_workspace_contract": (
+        "apps/_shared/workspace_contract/src/yoao_workspace_contract"
     ),
-    "aap_task_contract": "apps/_shared/task_contract/src/aap_task_contract",
-    "aap_protocol_v2": "apps/_shared/protocol_v2/src/aap_protocol_v2",
+    "yoao_task_contract": "apps/_shared/task_contract/src/yoao_task_contract",
+    "yoao_protocol_v2": "apps/_shared/protocol_v2/src/yoao_protocol_v2",
 }
 _PACKAGE_SUFFIXES = {".py", ".json", ".sql"}
 
@@ -100,12 +100,12 @@ from pathlib import Path
 
 packages = {}
 for name in (
-    "aap_inference",
-    "aap_inference_contract",
-    "aap_owner_data",
-    "aap_workspace_contract",
-    "aap_task_contract",
-    "aap_protocol_v2",
+    "yoao_inference",
+    "yoao_inference_contract",
+    "yoao_owner_data",
+    "yoao_workspace_contract",
+    "yoao_task_contract",
+    "yoao_protocol_v2",
 ):
     spec = importlib.util.find_spec(name)
     if spec is None or not spec.submodule_search_locations:
@@ -120,7 +120,7 @@ for name in (
     }
 forbidden = {
     name: importlib.util.find_spec(name) is not None
-    for name in ("app", "aap_api", "aap_workspace", "celery", "sqlalchemy")
+    for name in ("app", "aap_api", "yoao_workspace", "celery", "sqlalchemy")
 }
 print(json.dumps({"packages": packages, "forbidden_runtime_modules": forbidden,
                   "fastapi_transitive_dependency_retained": importlib.util.find_spec("fastapi") is not None}, sort_keys=True))
@@ -177,7 +177,7 @@ async def _inference_container(test_engine, directory: Path, token: str):
     assert image_labels.get("org.aap.acceptance") == _IMAGE_ACCEPTANCE
     assert image_labels.get("org.aap.acceptance-id") == expected_identity
     assert image.get("Config", {}).get("User") == "10008:10008"
-    assert image.get("Config", {}).get("Cmd") == ["python", "-m", "aap_inference"]
+    assert image.get("Config", {}).get("Cmd") == ["python", "-m", "yoao_inference"]
 
     parsed = make_url(pipeline_dsn(test_engine))
     container_dsn = parsed.set(host="host.docker.internal").render_as_string(
@@ -237,7 +237,7 @@ async def _inference_container(test_engine, directory: Path, token: str):
         assert labels.get("org.aap.acceptance") == _RUN_ACCEPTANCE
         assert labels.get("org.aap.acceptance-id") == identity
         assert observed["Config"]["User"] == "10008:10008"
-        assert observed["Config"]["Cmd"] == ["python", "-m", "aap_inference"]
+        assert observed["Config"]["Cmd"] == ["python", "-m", "yoao_inference"]
         host = observed["HostConfig"]
         assert host["ReadonlyRootfs"] is True and host["CapDrop"] == ["ALL"]
         assert "no-new-privileges:true" in host["SecurityOpt"]

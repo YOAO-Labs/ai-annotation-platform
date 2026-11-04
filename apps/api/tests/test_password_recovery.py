@@ -12,12 +12,12 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.recovery_contract import (
+from yoao_identity.recovery_contract import (
     RecoveryFailure,
     decode_recovery_request,
 )
-from aap_identity.recovery_crypto import token_hash
-from aap_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_crypto import token_hash
+from yoao_identity.recovery_manager import RecoveryManager
 from app.core.ratelimit import limiter
 from app.core.security import (
     create_access_token,
@@ -214,15 +214,15 @@ async def test_forgot_password_smtp_failure_keeps_uniform_response_and_invalidat
 ):
     user, _ = annotator
     caplog.set_level(logging.INFO)
-    import aap_mail_transport
+    import yoao_mail_transport
 
-    from aap_mail_transport import MailDeliveryResult, MailOutcome, MailReason
+    from yoao_mail_transport import MailDeliveryResult, MailOutcome, MailReason
 
     def reject(config, message):
         credential_mail_capture.messages.append(message)
         return MailDeliveryResult(MailOutcome.REJECTED, MailReason.NOT_CONFIGURED)
 
-    monkeypatch.setattr(aap_mail_transport, "send_message", reject)
+    monkeypatch.setattr(yoao_mail_transport, "send_message", reject)
 
     response = await httpx_client.post(
         "/api/v1/auth/forgot-password",

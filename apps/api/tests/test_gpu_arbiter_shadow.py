@@ -7,13 +7,13 @@ from types import SimpleNamespace
 import pytest
 from structlog.testing import capture_logs
 
-from aap_inference.gpu.diagnostics import record_unregistered_gpu_shadow_dispatch
-from aap_inference.gpu.policy import (
+from yoao_inference.gpu.diagnostics import record_unregistered_gpu_shadow_dispatch
+from yoao_inference.gpu.policy import (
     effective_gpu_arbiter_mode,
     evaluate_gpu_shadow_decision,
     gpu_shadow_observation_enabled,
 )
-from aap_inference.gpu.settings import (
+from yoao_inference.gpu.settings import (
     GPUArbiterMode,
     GPUAuthoritySettings,
     parse_gpu_resources,

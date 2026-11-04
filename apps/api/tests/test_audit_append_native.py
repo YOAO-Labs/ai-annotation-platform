@@ -8,17 +8,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_audit.append_contract import AppendEvent, AppendRequest
-from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
-from aap_audit.postgres import AuditAppendPostgresData
-from aap_audit.query_contract import (
+from yoao_audit.append_contract import AppendEvent, AppendRequest
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
+from yoao_audit.postgres import AuditAppendPostgresData
+from yoao_audit.query_contract import (
     AuditQueryAfter,
     AuditQueryFilters,
     AuditQueryRequest,
     decode_query_reply,
     validate_query_reply,
 )
-from aap_audit.query_postgres import AuditQueryPostgresData
+from yoao_audit.query_postgres import AuditQueryPostgresData
 from app.api.v1.audit_logs import _legacy_query_datetime, _query_filters
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User

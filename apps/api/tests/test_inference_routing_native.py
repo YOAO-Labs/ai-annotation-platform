@@ -296,8 +296,8 @@ async def test_epoch_without_control_auth_does_not_leave_an_unrecoverable_hold(
 async def test_terminal_drain_uses_scoped_native_unload_control(test_engine):
     import base64
 
-    from aap_inference.routing_runtime import RoutingRuntime
-    from aap_inference_contract.routing import (
+    from yoao_inference.routing_runtime import RoutingRuntime
+    from yoao_inference_contract.routing import (
         RoutingRejectedResult,
         make_routing_command,
     )

@@ -2,8 +2,8 @@
 
 from uuid import UUID
 
-from aap_workspace.dataset_unlink import DatasetUnlinkManager
-from aap_workspace.dataset_unlink_contract import DatasetUnlinkPreviewCommand
+from yoao_workspace.dataset_unlink import DatasetUnlinkManager
+from yoao_workspace.dataset_unlink_contract import DatasetUnlinkPreviewCommand
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 

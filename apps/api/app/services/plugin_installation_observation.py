@@ -7,9 +7,9 @@ import json
 import secrets
 from typing import Any
 
-from aap_lifecycle_contract import validate_managed_lifecycle_evidence
-from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-from aap_inference_contract.plugin import (
+from yoao_lifecycle_contract import validate_managed_lifecycle_evidence
+from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from yoao_inference_contract.plugin import (
     PluginInstallationResponse,
     PluginLaunchReceipt,
     PluginManifest,
@@ -17,13 +17,13 @@ from aap_inference_contract.plugin import (
     PluginPoolTopology,
     PluginLifecycleQualification,
 )
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     BackendResidency,
     LifecycleState,
     canonical_managed_lifecycle_capabilities,
 )
-from aap_protocol_v2.version import PROTOCOL_VERSION
-from aap_protocol_v2.vocab import GEOMETRY_VALUES, INPUT_VALUES, PROMPT_VALUES
+from yoao_protocol_v2.version import PROTOCOL_VERSION
+from yoao_protocol_v2.vocab import GEOMETRY_VALUES, INPUT_VALUES, PROMPT_VALUES
 from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 from training_contract.model_return import LIBRE_RUNTIME
 

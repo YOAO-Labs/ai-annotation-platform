@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from aap_identity.security import (
+from yoao_identity.security import (
     ALGORITHM as _ALGORITHM,
     create_access_token as _create_access_token,
     decode_access_token as _decode_access_token,

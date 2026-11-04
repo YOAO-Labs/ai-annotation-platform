@@ -155,7 +155,7 @@ def notifications_container_command(
 ) -> tuple[str, ...]:
     """Resolve Docker CMD semantics for the publisher and its test listener."""
     if entrypoint is None:
-        return ("aap-notifications-publisher", *(command or ("--once",)))
+        return ("yoao-notifications-publisher", *(command or ("--once",)))
     return command or ()
 
 

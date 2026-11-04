@@ -10,11 +10,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.admin_password_postgres import AdminPasswordPostgresData
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.directory_postgres import DirectoryPostgresData
-from aap_identity.platform_role_postgres import PlatformRolePostgresData
-from aap_identity.suspension_postgres import SuspensionPostgresData
+from yoao_identity.admin_password_postgres import AdminPasswordPostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.directory_postgres import DirectoryPostgresData
+from yoao_identity.platform_role_postgres import PlatformRolePostgresData
+from yoao_identity.suspension_postgres import SuspensionPostgresData
 from app.config import settings
 
 

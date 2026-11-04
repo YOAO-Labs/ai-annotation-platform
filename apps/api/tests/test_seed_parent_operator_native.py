@@ -29,7 +29,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.orm.exc import StaleDataError
 from app.services.workspace_read_relations import project_member_facts
 from app.services.seed_membership_data import SeedMembershipWrites
-from aap_workspace.seed_member_contract import SeedMemberWriteUnavailable
+from yoao_workspace.seed_member_contract import SeedMemberWriteUnavailable
 
 ROOT = Path(__file__).resolve().parents[3]
 OLD = datetime(2000, 1, 1, tzinfo=UTC)

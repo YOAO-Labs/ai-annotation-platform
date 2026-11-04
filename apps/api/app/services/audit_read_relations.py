@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from aap_audit.read_relation_postgres import audit_events
+from yoao_audit.read_relation_postgres import audit_events
 from app.db.models.audit_log import AuditLog
 
 # Map the published relation to the existing ORM entity. Normal ORM reads then

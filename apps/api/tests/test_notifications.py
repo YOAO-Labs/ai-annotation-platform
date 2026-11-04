@@ -13,7 +13,7 @@ from app.db.models.notification_preference import NotificationPreference
 from app.services.display_id import next_display_id
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
-from aap_notifications.preferences_policy import (
+from yoao_notifications.preferences_policy import (
     KNOWN_NOTIFICATION_TYPES,
     default_toast_for,
 )
@@ -22,8 +22,8 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_notifications.read_state import NotificationReadStateManager
-from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
+from yoao_notifications.read_state import NotificationReadStateManager
+from yoao_notifications.read_state_postgres import NotificationReadStatePostgresData
 
 
 def _bearer(token: str) -> dict[str, str]:

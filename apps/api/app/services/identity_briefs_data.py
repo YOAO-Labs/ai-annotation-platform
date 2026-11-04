@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.briefs_contract import (
+from yoao_identity.briefs_contract import (
     decode_native_briefs_command,
     decode_native_briefs_reply,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from app.services.identity_session_data import _json_value
 
 

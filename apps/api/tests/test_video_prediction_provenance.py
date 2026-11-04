@@ -9,11 +9,11 @@ import uuid
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from aap_assets_video_inputs.evidence import (
+from yoao_assets_video_inputs.evidence import (
     VideoInputEvidence,
     VideoInputFailureEvidence,
 )
-from aap_assets_video_inputs.values import FrameTimeEntry
+from yoao_assets_video_inputs.values import FrameTimeEntry
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.labeling_write_scope import LabelingWriteScope
 
@@ -248,7 +248,7 @@ async def test_raw_video_fence_accepts_current_workflow_version_with_original_so
 async def test_preannotation_video_job_requires_matching_frame_proof(monkeypatch):
     from fastapi import HTTPException
 
-    from aap_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
+    from yoao_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
     from app.services import labeling_write_guard
 
     evidence = _evidence()
@@ -321,7 +321,7 @@ async def test_preannotation_video_job_requires_matching_frame_proof(monkeypatch
 async def test_video_retry_prepares_exact_retained_frame_before_retry_admission(
     monkeypatch,
 ):
-    import aap_assets_video_inputs.evidence as video_evidence
+    import yoao_assets_video_inputs.evidence as video_evidence
     from app.services import accepted_video_inputs
     from app.workers.predictions_retry import _prepare_retry_input
 
@@ -423,7 +423,7 @@ async def test_video_retry_prepares_exact_retained_frame_before_retry_admission(
 async def test_video_retry_busy_frame_defers_before_model_execution(
     monkeypatch, wait_at
 ):
-    from aap_assets_video_inputs.execution import VideoInputFailure
+    from yoao_assets_video_inputs.execution import VideoInputFailure
     from app.services import accepted_video_inputs
     from app.workers.predictions_retry import (
         FrozenInputRetryDeferred,

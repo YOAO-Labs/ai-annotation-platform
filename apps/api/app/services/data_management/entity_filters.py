@@ -16,7 +16,7 @@ from app.services.data_management.filter_tree import (
     validate_in_value,
 )
 from app.services.data_management.schema import build_data_manager_schema
-from aap_workspace.configuration_policy import project_kind
+from yoao_workspace.configuration_policy import project_kind
 from app.services.feedback import annotation_unresolved_issue_count_sq
 from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.services.data_management.task_filters import (

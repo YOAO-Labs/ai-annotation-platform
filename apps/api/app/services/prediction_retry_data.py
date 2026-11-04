@@ -37,8 +37,8 @@ class SqlAlchemyPredictionRetryData:
 
     async def call(self, operation, request):
         from typing import get_args
-        from aap_preannotation_results import retry_contract as c
-        from aap_preannotation_results_runtime.retry_database import (
+        from yoao_preannotation_results import retry_contract as c
+        from yoao_preannotation_results_runtime.retry_database import (
             prepare_native_call,
             validate_native_result,
         )
@@ -74,7 +74,7 @@ class IndependentPredictionRetryData:
         self.session_factory = session_factory
 
     async def call(self, operation, request):
-        from aap_preannotation_results.retry_contract import PredictionRetryFailure
+        from yoao_preannotation_results.retry_contract import PredictionRetryFailure
 
         async with self.session_factory() as db:
             try:
@@ -102,7 +102,10 @@ async def retry_executor_sessions(fallback):
     ):
         yield fallback
         return
-    from aap_preannotation_results_runtime.config import ConfigurationError, load_config
+    from yoao_preannotation_results_runtime.config import (
+        ConfigurationError,
+        load_config,
+    )
     from sqlalchemy.engine import make_url
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from app.application.preannotation_results import PreannotationResultDeferred

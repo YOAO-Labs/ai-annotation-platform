@@ -14,9 +14,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_media import contract as c
-from aap_assets_media.client import MediaClient
-from aap_assets_media_runtime.database import validate_native_result
+from yoao_assets_media import contract as c
+from yoao_assets_media.client import MediaClient
+from yoao_assets_media_runtime.database import validate_native_result
 from app.config import settings
 
 
@@ -84,7 +84,7 @@ class _IndependentMediaDatabase:
 
 
 def media_storage(*, control: bool = False):
-    from aap_assets_media_runtime.storage import S3MediaStorage
+    from yoao_assets_media_runtime.storage import S3MediaStorage
 
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = f"{scheme}://{settings.minio_endpoint}"
@@ -150,8 +150,8 @@ async def _wake(job_id: UUID | None, generation: int):
 
 def _executor(*, session_factory=None):
     from app.services.media_probe import configured_probe_client
-    from aap_assets_media_runtime.config import MediaExecutionSettings
-    from aap_assets_media_runtime.worker import MediaExecutor
+    from yoao_assets_media_runtime.config import MediaExecutionSettings
+    from yoao_assets_media_runtime.worker import MediaExecutor
 
     return MediaExecutor(
         _IndependentMediaDatabase(session_factory),
@@ -337,7 +337,7 @@ def media_gateway(
             timeout_seconds=settings.assets_media_timeout_seconds,
         )
     else:
-        from aap_assets_media_runtime.control import MediaControl
+        from yoao_assets_media_runtime.control import MediaControl
 
         if caller_transaction:
             if db is None:
@@ -387,11 +387,11 @@ async def maintain_video_media(*, session_factory=None):
 
 async def probe_video_timetable(source: c.MediaSource, *, sparse_stride: int = 1):
     """Trusted CLI dry-run uses the portable decoder, without publication."""
-    from aap_assets_media_runtime.processing import probe_source_timetable
+    from yoao_assets_media_runtime.processing import probe_source_timetable
     from app.services.media_probe import configured_probe_client
 
     if settings.assets_media_url:
-        from aap_assets_media_runtime.http_source import HttpMediaSourceStorage
+        from yoao_assets_media_runtime.http_source import HttpMediaSourceStorage
 
         storage = HttpMediaSourceStorage(media_gateway().provider, source)
     else:
@@ -405,7 +405,7 @@ async def probe_video_timetable(source: c.MediaSource, *, sparse_stride: int = 1
 
 
 def media_http_error(exc: c.MediaFailure) -> HTTPException:
-    from aap_assets_media_runtime.api import error_status
+    from yoao_assets_media_runtime.api import error_status
 
     messages = {
         "source_missing": "Video not found",

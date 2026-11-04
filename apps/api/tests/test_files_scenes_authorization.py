@@ -8,14 +8,14 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import func, select
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     AcceptedImageWork,
     ImageWorkReference,
 )
 from app.core.security import create_access_token
 from app.db.models.dataset import Dataset
 from app.db.models.task import Task
-from aap_assets_catalog.spatial_contract import CreateSceneRequest, GetSceneRequest
+from yoao_assets_catalog.spatial_contract import CreateSceneRequest, GetSceneRequest
 from app.services.assets_spatial import AssetsSpatialGateway
 from tests.factory import create_api_key
 from tests.factory import create_membership, create_project, create_task, create_user

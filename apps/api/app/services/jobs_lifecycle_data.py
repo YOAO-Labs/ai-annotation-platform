@@ -11,7 +11,7 @@ from sqlalchemy.orm.bulk_persistence import (
     BulkUDCompileState,
 )
 
-from aap_jobs.row_lock_contract import (
+from yoao_jobs.row_lock_contract import (
     JOBS_EXECUTION_SNAPSHOT_FUNCTION,
     JOBS_ROW_LOCK_FUNCTIONS,
 )

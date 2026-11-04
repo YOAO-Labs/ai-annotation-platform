@@ -15,15 +15,15 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_identity.recovery_contract import RecoveryFailure, decode_recovery_request
-from aap_identity.recovery_manager import RecoveryManager
-from aap_identity.recovery_postgres import RecoveryPostgresData
-from aap_identity.registration_contract import (
+from yoao_identity.recovery_contract import RecoveryFailure, decode_recovery_request
+from yoao_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_postgres import RecoveryPostgresData
+from yoao_identity.registration_contract import (
     REGISTRATION_STATUS_PROTOCOL,
     RegistrationStatusRequest,
     registration_status_schema,
 )
-from aap_identity.registration_reader import RegistrationStatusReader
+from yoao_identity.registration_reader import RegistrationStatusReader
 from app.db.models.system_setting import SystemSetting
 from app.db.models.user import User
 from app.services.identity_recovery_data import IdentityRecoveryCommandData
@@ -81,7 +81,7 @@ def test_registration_read_descriptors_match_the_portable_owner_contract():
     expected = registration_status_schema()
     assert (
         json.loads(
-            files("aap_identity")
+            files("yoao_identity")
             .joinpath("registration_status.schema.json")
             .read_text()
         )

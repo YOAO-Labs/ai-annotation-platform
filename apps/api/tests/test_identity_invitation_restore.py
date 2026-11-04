@@ -12,16 +12,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.invitation_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.invitation_contract import (
     InvitationFailure,
     decode_invitation_request,
 )
-from aap_identity.invitation_manager import InvitationManager
-from aap_identity.invitation_postgres import InvitationPostgresData
-from aap_identity.mail_v2_postgres import MailV2PostgresData
-from aap_identity.postgres import PostgresData
-from aap_identity.recovery_crypto import decrypt_mail_token, mail_key_from_secret
+from yoao_identity.invitation_manager import InvitationManager
+from yoao_identity.invitation_postgres import InvitationPostgresData
+from yoao_identity.mail_v2_postgres import MailV2PostgresData
+from yoao_identity.postgres import PostgresData
+from yoao_identity.recovery_crypto import decrypt_mail_token, mail_key_from_secret
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,

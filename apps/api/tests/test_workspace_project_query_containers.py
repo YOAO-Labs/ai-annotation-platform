@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace_contract.project_query_contract import project_query_request
+from yoao_workspace_contract.project_query_contract import project_query_request
 from app.config import settings
 from app.core.security import create_access_token
 from app.deps import get_db
@@ -79,7 +79,7 @@ async def _query_container(
     assert labels["org.aap.acceptance"] == f"workspace-{query_kind}-query-owner"
     assert labels["org.aap.acceptance-id"] == os.environ[f"{variable_prefix}_IDENTITY"]
     assert image["Config"]["User"] == "10004:10004"
-    assert image["Config"]["Cmd"] == ["python", "-m", "aap_workspace"]
+    assert image["Config"]["Cmd"] == ["python", "-m", "yoao_workspace"]
     from tests.workspace_directory_query_helpers import directory_query_dsn
 
     selected_dsn = (

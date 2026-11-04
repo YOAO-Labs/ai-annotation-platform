@@ -11,25 +11,25 @@ from fastapi import HTTPException
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceFailure,
     SourceDeletionRequest,
     UploadInitRequest,
     UploadOutcome,
 )
-from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
+from yoao_assets_source.ingest_contract import (
     INGEST_SCHEMA,
     SCAN_REQUEST_DIGEST,
     IngestCommand,
     IngestReceipt,
 )
-from aap_assets_source.legacy_upload_contract import (
+from yoao_assets_source.legacy_upload_contract import (
     LegacyUploadCompletion,
     LegacyUploadLockRequest,
 )
-from aap_assets_source.upload_contract import DatasetUploadCompletedResult
-from aap_assets_source_runtime.workflow import UploadWorkflow
+from yoao_assets_source.upload_contract import DatasetUploadCompletedResult
+from yoao_assets_source_runtime.workflow import UploadWorkflow
 from app.api.v1 import datasets as dataset_routes
 from app.config import settings
 from app.services.assets_source import (
@@ -331,8 +331,8 @@ async def test_local_gateway_composes_the_shared_runtime_workflow(monkeypatch):
 async def test_local_ingest_uses_shared_workflow_sql_port_and_explicit_bucket(
     monkeypatch,
 ):
-    from aap_assets_source_runtime.ingest_storage import IngestStorage
-    from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+    from yoao_assets_source_runtime.ingest_storage import IngestStorage
+    from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
     from app.services.assets_source_ingest import DatasetSourceIngestData
 
     monkeypatch.setattr(settings, "assets_source_url", "")

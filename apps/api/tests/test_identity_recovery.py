@@ -16,42 +16,44 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.account_contract import AccountFailure, decode_account_request
-from aap_identity.account_manager import AccountManager
-from aap_identity.account_postgres import AccountPostgresData
-from aap_identity.contract import IdentityFailure
-from aap_identity.deactivation_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.account_contract import AccountFailure, decode_account_request
+from yoao_identity.account_manager import AccountManager
+from yoao_identity.account_postgres import AccountPostgresData
+from yoao_identity.contract import IdentityFailure
+from yoao_identity.deactivation_contract import (
     decode_deactivation_due_request,
     decode_deactivation_request,
 )
-from aap_identity.deactivation_manager import DeactivationManager
-from aap_identity.deactivation_postgres import (
+from yoao_identity.deactivation_manager import DeactivationManager
+from yoao_identity.deactivation_postgres import (
     DeactivationDuePostgresData,
     DeactivationPostgresData,
 )
-from aap_identity.group_contract import decode_group_request
-from aap_identity.group_manager import GroupManager
-from aap_identity.group_postgres import GroupPostgresData
-from aap_identity.key_contract import KeyFailure, decode_key_request
-from aap_identity.key_manager import KeyManager
-from aap_identity.key_postgres import KeyPostgresData
-from aap_identity.mail_contract import MAIL_POLICY
-from aap_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
-from aap_identity.notification_delivery_postgres import NotificationDeliveryPostgresData
-from aap_identity.recovery_contract import RecoveryFailure, decode_recovery_request
-from aap_identity.recovery_crypto import (
+from yoao_identity.group_contract import decode_group_request
+from yoao_identity.group_manager import GroupManager
+from yoao_identity.group_postgres import GroupPostgresData
+from yoao_identity.key_contract import KeyFailure, decode_key_request
+from yoao_identity.key_manager import KeyManager
+from yoao_identity.key_postgres import KeyPostgresData
+from yoao_identity.mail_contract import MAIL_POLICY
+from yoao_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from yoao_identity.notification_delivery_postgres import (
+    NotificationDeliveryPostgresData,
+)
+from yoao_identity.recovery_contract import RecoveryFailure, decode_recovery_request
+from yoao_identity.recovery_crypto import (
     decrypt_mail_token,
     mail_key_from_secret,
     token_hash,
 )
-from aap_identity.recovery_manager import RecoveryManager
-from aap_identity.recovery_postgres import RecoveryPostgresData
-from aap_identity.postgres import PostgresData
-from aap_identity.security import decode_access_token
-from aap_identity.session_contract import SessionFailure, decode_session_request
-from aap_identity.session_manager import SessionManager
-from aap_identity.session_postgres import SessionPostgresData
+from yoao_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_postgres import RecoveryPostgresData
+from yoao_identity.postgres import PostgresData
+from yoao_identity.security import decode_access_token
+from yoao_identity.session_contract import SessionFailure, decode_session_request
+from yoao_identity.session_manager import SessionManager
+from yoao_identity.session_postgres import SessionPostgresData
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import ROOT, _cleanup, _dsn, _token, _world

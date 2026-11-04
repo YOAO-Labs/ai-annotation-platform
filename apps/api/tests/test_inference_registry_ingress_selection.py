@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.registry_ingress import (
     REGISTRY_ENV_SYNC_RESULT_PROTOCOL,
     RegistryEnvSyncUnavailable,
     registry_env_sync_command_sha256,

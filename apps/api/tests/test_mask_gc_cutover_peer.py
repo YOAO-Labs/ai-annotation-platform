@@ -22,10 +22,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from aap_assets_mask_content import gc_contract as byte
-from aap_assets_mask_content.gc_client import MaskGcClient
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
+from yoao_assets_mask_content import gc_contract as byte
+from yoao_assets_mask_content.gc_client import MaskGcClient
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
 from tests.test_asset_storage_cleanup_runtime import _object_exists, _required_env
 from tests.test_mask_content_live import (
     _free_loopback_port,
@@ -130,7 +130,7 @@ def _start_gc_runtime(test_engine, content_origin, content_token, tmp_path):
         [
             os.environ.get("AAP_MASK_GC_RUNTIME_PYTHON", sys.executable),
             "-m",
-            "aap_labeling_mask_gc_runtime",
+            "yoao_labeling_mask_gc_runtime",
         ],
         cwd=tmp_path
         if os.environ.get("AAP_MASK_GC_RUNTIME_PYTHON")

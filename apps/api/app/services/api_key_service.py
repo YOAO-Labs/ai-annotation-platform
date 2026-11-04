@@ -7,10 +7,10 @@ import asyncio
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.key_contract import KeyReply, KeyRequest, decode_key_reply
-from aap_identity.key_manager import KeyManager
-from aap_identity.key_postgres import KeyPostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.key_contract import KeyReply, KeyRequest, decode_key_reply
+from yoao_identity.key_manager import KeyManager
+from yoao_identity.key_postgres import KeyPostgresData
 from app.config import settings
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import (

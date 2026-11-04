@@ -40,7 +40,7 @@ from app.schemas.video_tracker_job import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.jobs_dispatch import publish_prepared_dispatch
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_tracking.jobs import (
     accept_tracker_job,

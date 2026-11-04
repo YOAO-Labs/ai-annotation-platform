@@ -26,7 +26,7 @@ from tests.test_video_deletion_retirement_native import _seed_unretired
 ROOT = Path(__file__).resolve().parents[3]
 _ROLE = "identity_api_consumer"
 _CALL = "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
-_SCHEMA = ROOT / "apps/jobs/src/aap_jobs/fixture_cleanup.schema.json"
+_SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_cleanup.schema.json"
 _NODE = ROOT / "apps/jobs/conformance/node/fixture_cleanup_acceptance.mjs"
 
 pytestmark = [

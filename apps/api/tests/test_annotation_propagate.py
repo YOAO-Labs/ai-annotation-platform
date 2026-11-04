@@ -420,8 +420,8 @@ async def test_propagate_endpoint_annotation_task_mismatch_404(
 
 async def _seed_poses(db, scene_id, frames: int, step: float = 2.0):
     """直线轨迹: 帧 i 的 ego 在世界系 x = i*step,无旋转。"""
-    from aap_assets_catalog.spatial_values import FramePose
-    from aap_assets_catalog.spatial_contract import UpsertPosesRequest
+    from yoao_assets_catalog.spatial_values import FramePose
+    from yoao_assets_catalog.spatial_contract import UpsertPosesRequest
     from app.services.assets_spatial import AssetsSpatialGateway
 
     await AssetsSpatialGateway(db).upsert_poses(

@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 
-from aap_identity.account_lock_contract import accepted_api_key_schema
+from yoao_identity.account_lock_contract import accepted_api_key_schema
 from app.db.models.api_key import ApiKey
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.training_dataset_bridge import TrainingDatasetError
@@ -38,7 +38,7 @@ def test_accepted_key_sql_descriptor_matches_the_portable_contract():
 
     assert (
         json.loads(
-            files("aap_identity")
+            files("yoao_identity")
             .joinpath("accepted_api_key_protocol.schema.json")
             .read_text()
         )

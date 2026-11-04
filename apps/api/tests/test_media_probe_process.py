@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_media_probe import probe
+from yoao_media_probe import probe
 from app.services import media_probe
 
 

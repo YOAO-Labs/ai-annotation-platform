@@ -8,8 +8,8 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deletion_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deletion_contract import (
     DeletionFailure,
     decode_deletion_request,
     decode_deletion_reply,

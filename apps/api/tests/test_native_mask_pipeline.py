@@ -8,7 +8,7 @@ import uuid
 from PIL import Image
 import pytest
 
-from aap_inference.roi import crop_inputs_from_boxes, geometry_prompts_from_boxes
+from yoao_inference.roi import crop_inputs_from_boxes, geometry_prompts_from_boxes
 from app.services.controlled_segmentation import validate_portable_masks
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import coco_rle_bbox_pixels, encode_coco_rle

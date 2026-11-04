@@ -20,7 +20,7 @@ from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from PIL import Image
 import pytest
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from sqlalchemy import select
 from training_contract import definition
 from training_contract.dataset import (

@@ -7,7 +7,7 @@ import json
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from aap_workspace.scale_seed_contract import (
+from yoao_workspace.scale_seed_contract import (
     decode_scale_seed_cleanup,
     decode_scale_seed_count,
     decode_scale_seed_project_id,

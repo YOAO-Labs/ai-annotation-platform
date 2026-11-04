@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     AcceptedImageWork,
     ImageBackfillSelection,
     ImageBackfillSpec,
@@ -14,7 +14,7 @@ from aap_assets_images.contract import (
     ImageWorkReference,
     ScheduleImageMediaRequest,
 )
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,

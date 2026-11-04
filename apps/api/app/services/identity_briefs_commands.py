@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.briefs_contract import (
+from yoao_identity.briefs_contract import (
     BriefsFailure,
     BriefsReply,
     BriefsRequest,
     decode_briefs_reply,
 )
-from aap_identity.briefs_manager import BriefsManager
-from aap_identity.briefs_postgres import BriefsPostgresData
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.briefs_manager import BriefsManager
+from yoao_identity.briefs_postgres import BriefsPostgresData
+from yoao_identity.contract import IdentityUnavailable
 from app.config import settings
 from app.services.identity_account_commands import _remote_json, account_json
 from app.services.identity_briefs_data import IdentityBriefsData

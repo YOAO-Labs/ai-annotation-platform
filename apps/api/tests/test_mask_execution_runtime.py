@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,

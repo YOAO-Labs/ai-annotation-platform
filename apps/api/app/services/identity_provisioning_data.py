@@ -9,12 +9,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import aliased, load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.provisioning_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.provisioning_contract import (
     ProvisioningCreateRequest,
     ProvisioningLookupRequest,
 )
-from aap_identity.seed_persona_contract import SeedPersonaRequest
+from yoao_identity.seed_persona_contract import SeedPersonaRequest
 from app.db.models.user import User
 from app.services.identity_read_relations import account_profiles
 

@@ -35,7 +35,7 @@ from app.services.labeling_core_read_relations import (
 )
 from app.services.content_snapshot import ContentError
 from app.services.task_scope import ids_clause
-from aap_workspace_contract import derive_classes_list
+from yoao_workspace_contract import derive_classes_list
 
 CONTRACT = 2
 TARGETS = frozenset({"kitti", "pointmask", "coco-multicamera", "nuscenes"})

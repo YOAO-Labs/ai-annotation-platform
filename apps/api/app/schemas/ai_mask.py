@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from aap_protocol_v2 import NativeMaskCandidate
+from yoao_protocol_v2 import NativeMaskCandidate
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from app.schemas.annotation import AnnotationOut

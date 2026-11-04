@@ -14,14 +14,14 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.owner_transfer import OwnerTransferManager
-from aap_workspace.owner_transfer_contract import (
+from yoao_workspace.owner_transfer import OwnerTransferManager
+from yoao_workspace.owner_transfer_contract import (
     OWNER_TRANSFER_PROTOCOL,
     OwnerTransferFailure,
     OwnerTransferRequest,
     OwnerTransferSuccess,
 )
-from aap_workspace.owner_transfer_postgres import OwnerTransferPostgresData
+from yoao_workspace.owner_transfer_postgres import OwnerTransferPostgresData
 from app.config import settings
 from app.db.models.project import Project
 from app.db.models.user import User

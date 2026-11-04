@@ -182,7 +182,7 @@ async def unlink(db, *, actor_id, project_id, key):
 
 
 def _raise_command_failure(error):
-    from aap_workspace.configuration import ConfigurationCommandFailure
+    from yoao_workspace.configuration import ConfigurationCommandFailure
 
     if isinstance(error, ConfigurationCommandFailure):
         failure = error.error

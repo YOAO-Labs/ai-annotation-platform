@@ -11,20 +11,20 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.deletion_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.deletion_contract import (
     DeletionFailure,
     decode_deletion_request,
     decode_native_deletion_reply,
     native_deletion_command,
 )
-from aap_identity.deletion_manager import (
+from yoao_identity.deletion_manager import (
     DeletionManager,
     deletion_derivation_id,
     deletion_request_fingerprint,
 )
-from aap_identity.deletion_postgres import DeletionPostgresData
-from aap_identity.postgres import PostgresData
+from yoao_identity.deletion_postgres import DeletionPostgresData
+from yoao_identity.postgres import PostgresData
 from app.config import settings
 from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken

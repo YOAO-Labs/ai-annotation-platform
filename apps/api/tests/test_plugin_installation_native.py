@@ -14,8 +14,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference_contract.plugin import PreparePluginInstallation
-from aap_inference_contract.routing import (
+from yoao_inference_contract.plugin import PreparePluginInstallation
+from yoao_inference_contract.routing import (
     make_routing_command,
     routing_command_bytes,
     routing_command_sha256,

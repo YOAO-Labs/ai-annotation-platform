@@ -14,8 +14,8 @@ from fastapi import FastAPI, HTTPException
 from jose import jwt
 from starlette.requests import Request
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.invitation_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.invitation_contract import (
     NativeInvitationConfig,
     NativeInvitationDerived,
     decode_invitation_reply,

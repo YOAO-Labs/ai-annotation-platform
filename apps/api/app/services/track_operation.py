@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.scene_read_contract import SceneAnnotationRecord
+from yoao_labeling.scene_read_contract import SceneAnnotationRecord
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.schemas.track_operation import TrackOperationRequest, TrackSummary

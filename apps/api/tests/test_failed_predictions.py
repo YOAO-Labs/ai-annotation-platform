@@ -422,7 +422,7 @@ def _passthrough_session_factory(db_session: AsyncSession):
 async def test_retry_worker_tracks_success_in_async_jobs(
     db_session, super_admin, monkeypatch, controlled
 ):
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from app.workers import predictions_retry as retry_worker
     from tests.inference_execution_test_ports import (
         patch_retry_execution,
@@ -529,7 +529,7 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from app.services.prediction import PredictionService
     from app.workers import predictions_retry as retry_worker
     from tests.inference_execution_test_ports import (
@@ -663,7 +663,7 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    from aap_assets_inputs.contract import InputFailure
+    from yoao_assets_inputs.contract import InputFailure
     from app.workers import predictions_retry as retry_worker
 
     user, _ = super_admin
@@ -835,7 +835,7 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
 async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     db_session, super_admin, monkeypatch
 ):
-    from aap_inference.gpu.contracts import (
+    from yoao_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )

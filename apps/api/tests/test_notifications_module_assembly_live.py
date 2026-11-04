@@ -21,14 +21,14 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import websockets
 
-from aap_assets_source.import_delivery_contract import (
+from yoao_assets_source.import_delivery_contract import (
     decode_dataset_import_delivery_claim,
 )
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.notification_delivery_contract import (
     decode_notification_claim_reply,
 )
-from aap_notifications.realtime_event_contract import notification_sync_message
-from aap_notifications.websocket import (
+from yoao_notifications.realtime_event_contract import notification_sync_message
+from yoao_notifications.websocket import (
     _NOTIFICATION_GATE_ATTEMPTS,
     _NOTIFICATION_GATE_RETRY_SECONDS,
 )
@@ -310,8 +310,8 @@ asyncio.run(main())
 
 async def _deliver_notification_import_in_api(stack, delivery):
     source = """import asyncio, json, sys
-from aap_assets_source.import_delivery_contract import DatasetImportDelivery
-from aap_notifications.publication_contract import ImmediatePublicationUnavailable
+from yoao_assets_source.import_delivery_contract import DatasetImportDelivery
+from yoao_notifications.publication_contract import ImmediatePublicationUnavailable
 from app.workers._db import task_session
 from app.workers.dataset_import_delivery import _deliver_one
 

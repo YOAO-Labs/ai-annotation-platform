@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import uuid
 
-from aap_protocol_v2 import encode_low_res_mask
+from yoao_protocol_v2 import encode_low_res_mask
 from fastapi import HTTPException
 import numpy as np
 import pytest

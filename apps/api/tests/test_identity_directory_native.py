@@ -12,21 +12,21 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.authenticator import Authenticator, VerifiedCredential
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.directory_contract import (
+from yoao_identity.authenticator import Authenticator, VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.directory_contract import (
     DirectoryFailure,
     decode_directory_request,
     decode_native_directory_reply,
     native_directory_command,
 )
-from aap_identity.directory_manager import (
+from yoao_identity.directory_manager import (
     DirectoryManager,
     directory_request_fingerprint,
 )
-from aap_identity.directory_postgres import DirectoryPostgresData
-from aap_identity.postgres import PostgresData
-from aap_identity.security import create_access_token
+from yoao_identity.directory_postgres import DirectoryPostgresData
+from yoao_identity.postgres import PostgresData
+from yoao_identity.security import create_access_token
 from app.db.native_schema import NATIVE_MANAGED_TABLES
 from tests.test_identity_auth_native import _cleanup, _seed
 
@@ -34,7 +34,7 @@ from tests.test_identity_auth_native import _cleanup, _seed
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/native_directory_protocol.schema.json"
+    _ROOT / "apps/identity/src/yoao_identity/native_directory_protocol.schema.json"
 )
 _SUPPORT = _SQL_DIR / "0243_identity_directory_support.sql"
 _ARTIFACT = _SQL_DIR / "0243_identity_directory.sql"

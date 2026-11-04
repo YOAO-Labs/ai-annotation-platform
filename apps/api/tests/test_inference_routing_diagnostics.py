@@ -6,13 +6,13 @@ import uuid
 
 import pytest
 
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_runtime import RoutingRuntime
 from app.config import settings
 from app.services.ml_routing import router
 from app.services.ml_routing.authority import RoutingAuthority
 from app.services.ml_routing.ledger import RoutingLedger
-from aap_inference_contract.routing import RoutingUnavailable
+from yoao_inference_contract.routing import RoutingUnavailable
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_routing_native import (
     _cleanup,

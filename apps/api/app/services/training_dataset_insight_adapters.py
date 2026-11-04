@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 from training_contract.dataset import (
     DETECTION_CONTRACT,
     SEGMENTATION_CONTRACT,

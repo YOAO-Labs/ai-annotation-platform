@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.directory_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.directory_contract import (
     DirectoryReply,
     DirectoryRequest,
     decode_directory_reply,
 )
-from aap_identity.directory_manager import DirectoryManager
-from aap_identity.directory_postgres import DirectoryPostgresData
+from yoao_identity.directory_manager import DirectoryManager
+from yoao_identity.directory_postgres import DirectoryPostgresData
 from app.config import settings
 from app.services.identity_account_commands import (
     _AccountAuthenticator,

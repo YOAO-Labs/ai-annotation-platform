@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy import func, select
 
-from aap_assets_media.contract import ObjectIdentity
-from aap_assets_video_inputs.tracker import TrackerInputReadRequest
+from yoao_assets_media.contract import ObjectIdentity
+from yoao_assets_video_inputs.tracker import TrackerInputReadRequest
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.audit_log import AuditLog

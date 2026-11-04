@@ -6,7 +6,7 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-from aap_inference_contract.execution import ModelTaskResult
+from yoao_inference_contract.execution import ModelTaskResult
 from fastapi import HTTPException
 from training_contract.catalog import digest
 from training_contract.initialization import policy_for_model

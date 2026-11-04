@@ -148,7 +148,7 @@ async def test_predict_frame_route_records_dual_id(
     httpx_client, db_session, super_admin, monkeypatch, config
 ) -> None:
     """The /predict-frame route records both pool + instance on the persisted Prediction."""
-    from aap_inference_contract.execution import ModelTaskResult
+    from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import FakeModelExecutionPort
 
     user, token = super_admin

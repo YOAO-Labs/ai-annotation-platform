@@ -2,7 +2,7 @@ from typing import Annotated
 import uuid
 from datetime import datetime, timezone
 from typing import Literal
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     MediaFailure,
     MetadataSpec,
     RequestWorkRequest,
@@ -23,29 +23,29 @@ from starlette.requests import parse_options_header
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceDeletionRequest,
     UploadCompleteRequest,
     UploadInitRequest,
 )
-from aap_assets_source.import_contract import ImportLimits
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.import_contract import ImportLimits
+from yoao_assets_source.ingest_contract import (
     IngestAuthority,
     IngestCommand,
     IngestReceipt,
     ZIP_MAX_BYTES,
 )
-from aap_assets_source.connectors.base import SourcePathError
-from aap_assets_source.connectors.host_guard import ConnectorHostDenied
-from aap_assets_source.connectors.registry import (
+from yoao_assets_source.connectors.base import SourcePathError
+from yoao_assets_source.connectors.host_guard import ConnectorHostDenied
+from yoao_assets_source.connectors.registry import (
     target_host as connector_target_host,
     validate_source_path as validate_connector_source_path,
 )
-from aap_assets_catalog import (
+from yoao_assets_catalog import (
     CreateDatasetRequest,
     GetDatasetRequest,
 )
-from aap_assets_catalog.associations_contract import ListDatasetProjectsRequest
+from yoao_assets_catalog.associations_contract import ListDatasetProjectsRequest
 from app.deps import (
     get_db,
     get_current_user,
@@ -95,7 +95,7 @@ from app.services.assets_import import DatasetImportCapabilities
 from app.services.storage import storage_service
 from app.services.content_snapshot import IMAGE_RESPONSES
 from app.services.system_settings_service import SystemSettingsService
-from aap_audit_contract import ProjectDeletionAuditContext
+from yoao_audit_contract import ProjectDeletionAuditContext
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -372,7 +372,7 @@ async def sniff_axis_convention(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
-    from aap_assets_catalog.spatial_contract import SniffAxisRequest
+    from yoao_assets_catalog.spatial_contract import SniffAxisRequest
     from app.services.assets_spatial import (
         AssetsSpatialGateway,
         AssetsSpatialGatewayError,
@@ -1219,7 +1219,7 @@ async def backfill_scenes_endpoint(
     from app.schemas.scene import InferenceResult
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.assets_spatial import AssetsSpatialGatewayError
-    from aap_assets_catalog.spatial_contract import BackfillScenesRequest
+    from yoao_assets_catalog.spatial_contract import BackfillScenesRequest
 
     operation_id = idempotency_key or uuid.uuid4()
 

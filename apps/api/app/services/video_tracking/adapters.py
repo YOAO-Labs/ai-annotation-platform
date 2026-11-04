@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from aap_inference.tracker import (
+from yoao_inference.tracker import (
     TrackerFrameResult as _TrackerFrameResult,
     TrackerSessionState as _TrackerSessionState,
     bbox_from_geometry,
@@ -15,7 +15,7 @@ from aap_inference.tracker import (
     continue_tracker_session,
     tracker_frame_results,
 )
-from aap_inference_contract.execution import ExecutionProvenance
+from yoao_inference_contract.execution import ExecutionProvenance
 from app.config import settings
 from app.services.inference_model_execution import model_execution_port
 
@@ -129,7 +129,7 @@ class MLBackendVideoTrackerAdapter:
             or ctx.requested_registry_id is None
             or ctx.required_instance_id is None
         ):
-            from aap_inference_contract.execution import (
+            from yoao_inference_contract.execution import (
                 ExecutionFailure,
                 ModelExecutionError,
             )

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from aap_task_contract import normalize_task_fields
-from aap_inference.pipeline_policy import validate_pipeline_scope_owner
+from yoao_task_contract import normalize_task_fields
+from yoao_inference.pipeline_policy import validate_pipeline_scope_owner
 
 from datetime import datetime
 from typing import Literal

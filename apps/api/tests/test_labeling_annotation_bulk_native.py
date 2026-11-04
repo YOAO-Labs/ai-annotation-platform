@@ -10,13 +10,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.annotation_bulk_contract import (
+from yoao_labeling.annotation_bulk_contract import (
     ANNOTATION_BULK_PROTOCOL,
     AnnotationBulkPatch,
     UpdateAnnotations,
 )
-from aap_labeling.annotation_bulk_data import AnnotationBulkDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.annotation_bulk_data import AnnotationBulkDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.services.annotation import _sync_attributes_meta
 from tests.factory import create_project, create_task, create_user

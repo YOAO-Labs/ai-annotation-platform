@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     INGEST_DELIVERY_SCHEMA,
     IngestDeliveryLease,
     IngestFailure,

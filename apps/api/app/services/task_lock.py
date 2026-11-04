@@ -11,13 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, make_transient_to_detached
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.task_locks_contract import (
+from yoao_labeling.task_locks_contract import (
     TASK_LOCKS_FUNCTION,
     TaskLockRecord,
     TaskLocksUnavailable,
     task_locks_command,
 )
-from aap_labeling.task_locks_data import TaskLocksData
+from yoao_labeling.task_locks_data import TaskLocksData
 from app.db.models.task_lock import TaskLock
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.labeling_core_read_relations import task_lock_row

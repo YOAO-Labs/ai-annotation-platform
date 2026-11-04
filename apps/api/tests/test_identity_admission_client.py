@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_identity_admission.contract import (
+from yoao_identity_admission.contract import (
     IdentityFailure,
     IdentityUnavailable,
     Principal,

@@ -5,8 +5,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import DBAPIError
 
-from aap_workspace.configuration import ConfigurationCommandFailure
-from aap_workspace.configuration_contract import configuration_request
+from yoao_workspace.configuration import ConfigurationCommandFailure
+from yoao_workspace.configuration_contract import configuration_request
 from app.services.workspace_configuration_data import WorkspaceConfigurationData
 
 pytestmark = pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_preliminary_flush_busy_mapping_matches_account_read_kind(
 async def test_missing_probe_key_is_unavailable_only_for_backend_action(
     action, expected
 ):
-    from aap_workspace.configuration_contract import ConfigurationUnavailable
+    from yoao_workspace.configuration_contract import ConfigurationUnavailable
 
     class MissingKeyError(Exception):
         sqlstate = "55000"

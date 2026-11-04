@@ -11,15 +11,15 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.cross_frame_write_contract import (
+from yoao_labeling.cross_frame_write_contract import (
     CrossFrameSourceFence,
     CrossFrameTargetWrite,
     CrossFrameTaskFence,
     cross_frame_write_command,
     cross_frame_write_command_json,
 )
-from aap_labeling.cross_frame_write_data import CrossFrameWriteDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.cross_frame_write_data import CrossFrameWriteDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from tests.test_annotation_cross_frame_write_fences import (

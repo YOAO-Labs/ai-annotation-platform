@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_inputs import contract as c
+from yoao_assets_inputs import contract as c
 from app.db.models.annotation import Annotation
 from app.services.accepted_inputs import (
     SqlAlchemyInputDatabase,

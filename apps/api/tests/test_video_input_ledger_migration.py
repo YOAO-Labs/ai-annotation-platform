@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_assets_video_inputs import evidence, execution
+from yoao_assets_video_inputs import evidence, execution
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql"

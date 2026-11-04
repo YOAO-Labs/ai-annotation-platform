@@ -18,8 +18,8 @@ from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
-from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
-from aap_assets_catalog.spatial_values import SensorCalibration
+from yoao_workspace.point_quality_configuration_values import PointCloudQualityConfig
+from yoao_assets_catalog.spatial_values import SensorCalibration
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.point_cloud_quality import originals
 from app.services.point_cloud_quality.config import severity_for_rule

@@ -16,17 +16,17 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_assets_video_inputs.tracker import (
+from yoao_assets_video_inputs.tracker import (
     TrackerInputReadRequest,
     TrackerSourceReferenceRequest,
 )
-from aap_assets_video_inputs.tracker_client import TrackerVideoInputClient
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.restore_contract import canonical_command_json
-from aap_inference.restore_postgres import VideoRestorePostgresProvider
-from aap_inference.routing_backend_control import BackendRoutingControl
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
+from yoao_assets_video_inputs.tracker_client import TrackerVideoInputClient
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.restore_contract import canonical_command_json
+from yoao_inference.restore_postgres import VideoRestorePostgresProvider
+from yoao_inference.routing_backend_control import BackendRoutingControl
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import make_routing_command
 from app.services.ml_backend import MLBackendService
 from tests.test_assets_media_live import _free_loopback_port, _stop_process
 from tests.test_identity_recovery import _postgres_tool

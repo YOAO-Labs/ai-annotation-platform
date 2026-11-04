@@ -12,8 +12,8 @@ import pytest_asyncio
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.routing_runtime import RoutingRuntime
 from app.config import settings
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
@@ -150,7 +150,7 @@ async def _seed_pool_with_two_members(
     )
     db.add_all([r1, r2])
     await db.flush()
-    from aap_inference.pool_capability import capability_fingerprint
+    from yoao_inference.pool_capability import capability_fingerprint
 
     fp = capability_fingerprint(caps["capabilities"])
     pool = MLBackendServicePool(
@@ -285,7 +285,7 @@ async def test_enforce_without_redis_reserves_durable_scope(routing_admission) -
 async def test_unavailable_owner_fails_closed_without_redis_fallback(
     committed_routes, monkeypatch
 ) -> None:
-    from aap_inference_contract.routing import RoutingUnavailable
+    from yoao_inference_contract.routing import RoutingUnavailable
 
     db_session, proj, pool, _, _ = committed_routes
     route = MLBackendRouter(db_session, mode=RouterMode.ENFORCE)

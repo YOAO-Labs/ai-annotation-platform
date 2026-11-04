@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import Response
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     AcceptedImageWork,
     ImageBackfillSpec,
     ImageWorkReference,

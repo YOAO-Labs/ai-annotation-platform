@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 from sqlalchemy import func, select, text
 
-from aap_jobs.async_job_list_query_contract import AsyncJobListQuery
+from yoao_jobs.async_job_list_query_contract import AsyncJobListQuery
 
 
 class JobsListQuerySession(Protocol):

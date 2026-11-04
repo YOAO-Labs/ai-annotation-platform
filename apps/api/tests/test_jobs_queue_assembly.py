@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from aap_jobs.queue_client import JobsQueueExecutionControl
-from aap_jobs.queue_contract import (
+from yoao_jobs.queue_client import JobsQueueExecutionControl
+from yoao_jobs.queue_contract import (
     JobsQueueContractError,
     JobsQueueUnavailable,
     load_queue_configuration,

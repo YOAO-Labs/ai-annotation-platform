@@ -7,13 +7,13 @@ import asyncpg
 import pytest
 from sqlalchemy import delete
 
-from aap_labeling.annotation_prediction_contract import (
+from yoao_labeling.annotation_prediction_contract import (
     ANNOTATION_PREDICTION_PROTOCOL,
     ApplySecondaryAttributes,
     CreateAcceptedAnnotation,
     MarkSecondaryChild,
 )
-from aap_labeling.annotation_prediction_data import AnnotationPredictionDataClient
+from yoao_labeling.annotation_prediction_data import AnnotationPredictionDataClient
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.task import Task

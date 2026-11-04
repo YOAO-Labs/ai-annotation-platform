@@ -42,10 +42,10 @@ from app.services.screenshot_seed_spec import (
     USER_SPECS,
     resolve_project_spec,
 )
-from aap_assets_catalog.spatial_contract import SetDatasetAxisRequest
+from yoao_assets_catalog.spatial_contract import SetDatasetAxisRequest
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.storage import storage_service
-from aap_labeling.screenshot_operations_contract import (
+from yoao_labeling.screenshot_operations_contract import (
     LinkSeedTasksToBatches,
     PinSeedTaskTimestamps,
     ReconcileSeedAnnotations,
@@ -1185,7 +1185,7 @@ async def prepare_screenshot_seed_media(
     db: AsyncSession, *, asset_sha256: dict[str, str]
 ) -> dict[str, int]:
     """Accept owner work, wait for current outputs, and verify screenshot media."""
-    from aap_assets_images.contract import (
+    from yoao_assets_images.contract import (
         ImageBackfillSelection,
     )
     from app.services.assets_images import image_gateway, image_policy
@@ -1276,7 +1276,7 @@ async def prepare_screenshot_seed_media(
                 )
 
             if image_items:
-                from aap_assets_images.contract import (
+                from yoao_assets_images.contract import (
                     ImageSourceSelector,
                     ReadImageSummariesRequest,
                 )
@@ -1306,7 +1306,7 @@ async def prepare_screenshot_seed_media(
                     pending_image = True
 
             if video_items:
-                from aap_assets_media.contract import SummaryRequest
+                from yoao_assets_media.contract import SummaryRequest
                 from app.services.assets_media import media_gateway
 
                 for offset in range(0, len(video_items), 500):

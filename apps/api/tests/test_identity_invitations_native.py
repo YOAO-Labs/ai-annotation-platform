@@ -10,11 +10,11 @@ from pydantic import ValidationError
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.invitation_manager import InvitationManager
-from aap_identity.invitation_postgres import InvitationPostgresData
-from aap_identity.postgres import PostgresData
-from aap_identity.invitation_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.invitation_manager import InvitationManager
+from yoao_identity.invitation_postgres import InvitationPostgresData
+from yoao_identity.postgres import PostgresData
+from yoao_identity.invitation_contract import (
     NativeInvitationApplyReply,
     NativeInvitationPrepareReply,
     decode_invitation_request,

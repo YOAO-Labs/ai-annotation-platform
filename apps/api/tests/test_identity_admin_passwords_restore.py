@@ -12,14 +12,14 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.admin_password_contract import (
+from yoao_identity.admin_password_contract import (
     AdminPasswordFailure,
     decode_admin_password_request,
 )
-from aap_identity.admin_password_manager import AdminPasswordManager
-from aap_identity.admin_password_postgres import AdminPasswordPostgresData
-from aap_identity.authenticator import Authenticator
-from aap_identity.postgres import PostgresData
+from yoao_identity.admin_password_manager import AdminPasswordManager
+from yoao_identity.admin_password_postgres import AdminPasswordPostgresData
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.postgres import PostgresData
 from app.db.models.user import User
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (

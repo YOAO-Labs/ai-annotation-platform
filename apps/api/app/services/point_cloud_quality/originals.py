@@ -17,8 +17,8 @@ from app.db.models.project import Project
 from app.services import comment_attachment_authority as credentials
 from app.services import original_content_access as access
 from app.services import original_sources, storage_access
-from aap_assets_catalog.axis_convention import R_NORM
-from aap_workspace_contract.access import ProjectCapability
+from yoao_assets_catalog.axis_convention import R_NORM
+from yoao_workspace_contract.access import ProjectCapability
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.mask_qc.service import canonical_digest

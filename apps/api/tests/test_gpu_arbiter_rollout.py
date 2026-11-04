@@ -9,16 +9,16 @@ from sqlalchemy import delete, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from aap_inference.gpu.rollout_state import (
+from yoao_inference.gpu.rollout_state import (
     GPUArbiterRolloutConflict,
     GPUArbiterRolloutSnapshot,
     classify_gpu_arbiter_rollout,
     gpu_rollout_boundary_active,
 )
-from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from yoao_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
 from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.services.inference_gpu_data import open_gpu_authority_data
-from aap_inference_contract.gpu import GPUAdminRolloutSnapshot
+from yoao_inference_contract.gpu import GPUAdminRolloutSnapshot
 
 
 def _resource_id() -> str:

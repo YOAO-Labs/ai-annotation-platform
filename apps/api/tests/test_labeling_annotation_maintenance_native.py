@@ -8,7 +8,7 @@ import asyncpg
 import pytest
 from sqlalchemy import delete
 
-from aap_labeling.annotation_maintenance_contract import (
+from yoao_labeling.annotation_maintenance_contract import (
     ANNOTATION_MAINTENANCE_PROTOCOL,
     CleanupAnnotationReference,
     CleanupSchema,
@@ -17,7 +17,7 @@ from aap_labeling.annotation_maintenance_contract import (
     ReadDraft,
     SaveDraft,
 )
-from aap_labeling.annotation_maintenance_data import AnnotationMaintenanceDataClient
+from yoao_labeling.annotation_maintenance_data import AnnotationMaintenanceDataClient
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.db.models.task_lock import AnnotationDraft

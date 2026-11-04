@@ -11,30 +11,30 @@ import socket
 import uuid
 
 import asyncpg
-from aap_inference.restore import RestoreUnavailable, VideoRestoreManager
-from aap_inference.restore_postgres import VideoRestorePostgresProvider
-from aap_inference.routing_backend_control import BackendRoutingControl
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
-from aap_labeling.video_writer import VideoWriterManager
-from aap_labeling.video_writer_contract import (
+from yoao_inference.restore import RestoreUnavailable, VideoRestoreManager
+from yoao_inference.restore_postgres import VideoRestorePostgresProvider
+from yoao_inference.routing_backend_control import BackendRoutingControl
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import make_routing_command
+from yoao_labeling.video_writer import VideoWriterManager
+from yoao_labeling.video_writer_contract import (
     make_video_writer_command,
     video_writer_command_digest,
 )
-from aap_labeling.video_writer_postgres import VideoWriterPostgresProvider
-from aap_preannotation_results.video_execution import (
+from yoao_labeling.video_writer_postgres import VideoWriterPostgresProvider
+from yoao_preannotation_results.video_execution import (
     RenewRequest,
     VideoExecutionFailure,
 )
-from aap_preannotation_results.video_execution_plan import decode_video_execution_plan
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_execution_plan import decode_video_execution_plan
+from yoao_preannotation_results.video_window_checkpoint import (
     decode_video_window_checkpoint_manifest,
 )
-from aap_preannotation_results_runtime.video_execution_database import (
+from yoao_preannotation_results_runtime.video_execution_database import (
     VideoExecutionPostgresData,
 )
-from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER, ROUTE_STATUS_PATH
-from aap_protocol_v2.routing_runtime import install_backend_routing_controller
+from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER, ROUTE_STATUS_PATH
+from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 from fastapi import FastAPI, Request
 import httpx
 import pytest

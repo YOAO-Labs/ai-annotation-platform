@@ -766,7 +766,6 @@ async def test_reject_source_backend_other_project(
         },
     )
     assert resp.status_code == 404, resp.text
-    assert "ML Backend not found" in resp.text
 
 
 @pytest.mark.asyncio

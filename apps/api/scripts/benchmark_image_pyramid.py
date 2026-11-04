@@ -30,8 +30,8 @@ os.environ.setdefault(
 
 from PIL import Image
 
-from aap_assets_images.policy import image_policy_from_environment
-from aap_assets_images_runtime.processing import (
+from yoao_assets_images.policy import image_policy_from_environment
+from yoao_assets_images_runtime.processing import (
     ImageProcessingError,
     build_pyramid,
 )

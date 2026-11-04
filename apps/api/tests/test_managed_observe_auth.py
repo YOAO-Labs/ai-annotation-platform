@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from aap_inference.backend_control_manager import BackendControlManager
-from aap_protocol_v2.managed_credential import ensure_credential
+from yoao_inference.backend_control_manager import BackendControlManager
+from yoao_protocol_v2.managed_credential import ensure_credential
 
 from app.api.v1 import admin_ml_integrations as routes
 from app.config import settings
@@ -55,6 +55,7 @@ def transport(tmp_path, monkeypatch):
     monkeypatch.setattr(routes.httpx, "AsyncClient", client)
     db = AsyncMock()
     rows = []
+
     async def catalog(_self):
         return rows
 
@@ -65,13 +66,20 @@ def transport(tmp_path, monkeypatch):
         yield
 
     opener = SimpleNamespace(open=AsyncMock(), readiness=AsyncMock(return_value=True))
-    stats = SimpleNamespace(snapshots=AsyncMock(), readiness=AsyncMock(return_value=True))
+    stats = SimpleNamespace(
+        snapshots=AsyncMock(), readiness=AsyncMock(return_value=True)
+    )
     manager = BackendControlManager(
         {
             purpose: opener
             for purpose in (
-                "setup", "health_observation", "catalog_fallback", "stats",
-                "backend_read", "lifecycle", "execution",
+                "setup",
+                "health_observation",
+                "catalog_fallback",
+                "stats",
+                "backend_read",
+                "lifecycle",
+                "execution",
             )
         },
         SimpleNamespace(ml_health_timeout=1, ml_predict_timeout=1),
@@ -81,7 +89,8 @@ def transport(tmp_path, monkeypatch):
         stats_data=stats,
     )
     monkeypatch.setattr(
-        routes, "backend_control_service",
+        routes,
+        "backend_control_service",
         lambda session: BackendControlService(session, request_only_client=manager),
     )
     return db, rows, calls, options, secret
@@ -148,6 +157,7 @@ async def test_observe_never_equates_unrecognized_origins(transport, monkeypatch
     assert all("Authorization" not in request.headers for request in calls)
     assert not result.targets[0].registered
 
+
 async def test_ambiguous_same_origin_registrations_never_send_credentials(
     transport, monkeypatch
 ):
@@ -163,7 +173,6 @@ async def test_ambiguous_same_origin_registrations_never_send_credentials(
         await routes.observe_backends(db=db, _admin=None)
     assert error.value.status_code == 409
     assert calls == []
-
 
 
 async def test_unregistered_smoke_test_keeps_auth_on_its_fixed_target(

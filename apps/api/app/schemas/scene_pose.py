@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from aap_assets_catalog.spatial_values import FramePose
+from yoao_assets_catalog.spatial_values import FramePose
 
 
 class TrajectoryResponse(BaseModel):

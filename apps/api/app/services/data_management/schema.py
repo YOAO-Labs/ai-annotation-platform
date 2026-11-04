@@ -23,7 +23,7 @@ from app.schemas.data_manager import (
     DataManagerSchemaResponse,
     DataManagerToolUnitOut,
 )
-from aap_workspace.configuration_policy import project_kind
+from yoao_workspace.configuration_policy import project_kind
 
 
 _TEXT_OPS = ["eq", "ne", "in"]

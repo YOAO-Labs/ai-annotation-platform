@@ -12,7 +12,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_assets_media.contract import MediaClaim
+from yoao_assets_media.contract import MediaClaim
 from app.db.models.asset_media import AssetMediaJob
 from app.db.models.dataset import DatasetItem
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres

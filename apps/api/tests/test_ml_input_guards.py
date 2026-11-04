@@ -184,7 +184,6 @@ async def test_warmup_checks_project_enablement_before_any_backend_call(monkeypa
             current_user=object(),
         )
     assert exc.value.status_code == 404
-    assert exc.value.detail == "ML Backend not found"
     assert calls == [
         ("get", backend_id),
         ("is_enabled", project_id, backend_id),

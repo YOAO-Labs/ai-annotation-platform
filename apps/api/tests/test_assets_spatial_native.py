@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     DatasetAxisMutationResult,
     LayoutPage,
     PoseMutationResult,
@@ -29,7 +29,7 @@ from aap_assets_catalog.spatial_contract import (
     SPATIAL_SCHEMA,
     decode_spatial_reply,
 )
-from aap_assets_catalog.spatial_values import FramePose
+from yoao_assets_catalog.spatial_values import FramePose
 from tests.factory import create_project
 from tests.test_assets_catalog_native import (
     _CATALOG_LOGIN_FUNCTIONS,

@@ -1,4 +1,4 @@
-from aap_task_contract import Task as VisualTaskName, normalize_task_fields
+from yoao_task_contract import Task as VisualTaskName, normalize_task_fields
 import logging
 
 from pydantic import (
@@ -12,7 +12,7 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
-from aap_workspace.configuration_values import (
+from yoao_workspace.configuration_values import (
     RETIRED_AI_INTERACTIVE as _RETIRED_AI_INTERACTIVE,
     ToolUnitId as _ToolUnitId,
     map_retired_tool_unit as _map_retired_tool_unit,

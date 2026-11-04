@@ -120,7 +120,7 @@ async def project_query_provider(dsn, token, *, briefs_dsn=None):
             environment[variable] = str(path)
         owner = await asyncio.to_thread(
             _start,
-            [str(interpreter), "-I", "-m", "aap_workspace"],
+            [str(interpreter), "-I", "-m", "yoao_workspace"],
             environment,
             directory,
             directory / "owner.log",

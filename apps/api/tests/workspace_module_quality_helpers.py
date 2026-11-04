@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from aap_workspace.point_quality_configuration_values import (
+from yoao_workspace.point_quality_configuration_values import (
     PointCloudQualityConfig,
     PointCloudQualityGovernanceConfig,
 )

@@ -50,7 +50,7 @@ from app.services.batch import (
     assert_can_transition,
     REVERSE_TRANSITIONS,
 )
-from aap_workspace_contract.access import ProjectAccess, ProjectCapability
+from yoao_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.management import preview_batch_distribution
 from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.notification import NotificationService

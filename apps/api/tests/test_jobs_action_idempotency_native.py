@@ -30,7 +30,7 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
 ROOT = Path(__file__).resolve().parents[3]
 ROLE = "identity_api_consumer"
-SCHEMA = ROOT / "apps/jobs/src/aap_jobs/action_idempotency.schema.json"
+SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/action_idempotency.schema.json"
 NODE = ROOT / "apps/jobs/conformance/node/action_idempotency_acceptance.mjs"
 JOB_KIND = "data_manager_acceptance"
 ACTION = "data_manager_acceptance"

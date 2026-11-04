@@ -55,7 +55,7 @@ def test_chunks_canonical_ordinals_without_consulting_frame_count():
 
 
 def test_segment_count_is_bounded_by_timebase_page_size():
-    from aap_assets_video_inputs.values import PAGE_SIZE
+    from yoao_assets_video_inputs.values import PAGE_SIZE
 
     plans, total = plan_video_task_segments((_plan("task-a", PAGE_SIZE + 1),), 500)
 

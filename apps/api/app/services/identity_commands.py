@@ -8,9 +8,9 @@ from datetime import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.provisioning import AccountProvisioningManager
-from aap_identity.scale_seed_actor_contract import decode_scale_seed_actor_reply
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.provisioning import AccountProvisioningManager
+from yoao_identity.scale_seed_actor_contract import decode_scale_seed_actor_reply
 from app.db.enums import UserRole
 from app.services.user_lifecycle import UserLifecycleService
 from app.services.identity_contracts import IdentityActorFacts

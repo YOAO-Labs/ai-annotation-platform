@@ -19,7 +19,7 @@ from app.schemas._jsonb_types import SensorCalibration
 from app.schemas.native_json import SceneTrackEntry, SceneTrackIntervalEntry
 from app.services.content_snapshot import ContentError
 from app.services.exporting.service import ExportService, _export_annotation_copy
-from aap_workspace_contract import derive_attribute_keys, derive_classes_list
+from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
 from app.services.sensor_calibration import (
     SensorCalibrationState,
     _metadata_calibration,

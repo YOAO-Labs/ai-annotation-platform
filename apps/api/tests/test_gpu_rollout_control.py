@@ -7,7 +7,7 @@ import uuid
 
 import asyncpg
 import pytest
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     ManagedLifecycleCapabilities,
     managed_lifecycle_capability_sha256,
 )
@@ -20,16 +20,16 @@ from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from aap_inference.gpu.control_preparation import (
+from yoao_inference.gpu.control_preparation import (
     prepare_gpu_backend_rollout_control,
 )
-from aap_inference.gpu.fences import activate_gpu_backend_membership
-from aap_inference.gpu.native import GPUAuthorityPoolData
-from aap_inference.gpu.rollout_state import (
+from yoao_inference.gpu.fences import activate_gpu_backend_membership
+from yoao_inference.gpu.native import GPUAuthorityPoolData
+from yoao_inference.gpu.rollout_state import (
     begin_gpu_arbiter_rollout,
     complete_gpu_arbiter_rollout,
 )
-from aap_inference.gpu.settings import GPUArbiterMode
+from yoao_inference.gpu.settings import GPUArbiterMode
 
 
 _RESOURCE = "node-rollout-control/GPU-a"

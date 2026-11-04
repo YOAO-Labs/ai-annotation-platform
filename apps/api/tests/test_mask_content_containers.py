@@ -14,8 +14,8 @@ import httpx
 import pytest
 from sqlalchemy.engine import make_url
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.contract import MAX_MASK_RUNS, RleContent
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.contract import MAX_MASK_RUNS, RleContent
 from app.config import settings
 from tests.test_assets_media_containers import _memory_peak
 from tests.test_asset_storage_cleanup_runtime import (

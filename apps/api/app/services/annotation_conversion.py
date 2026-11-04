@@ -66,7 +66,7 @@ from app.services.video_tracks import (
     sorted_keyframes,
 )
 from app.utils.raster_mask_rle import MAX_DENSE_MASK_PIXELS
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     ApplyConversion,
     ConversionAction,

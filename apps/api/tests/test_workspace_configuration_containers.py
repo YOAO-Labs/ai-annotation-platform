@@ -22,7 +22,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.configuration_contract import configuration_request
+from yoao_workspace.configuration_contract import configuration_request
 from app.core.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
@@ -98,7 +98,7 @@ def _verify_image(image_ref: str, expected_identity: str) -> dict:
     assert labels.get("org.aap.acceptance") == _IMAGE_ACCEPTANCE
     assert labels.get("org.aap.acceptance-id") == expected_identity
     assert config.get("User") == "10004:10004"
-    assert config.get("Cmd") == ["python", "-m", "aap_workspace"]
+    assert config.get("Cmd") == ["python", "-m", "yoao_workspace"]
     assert config.get("Entrypoint") in (None, [])
     image_id = image.get("Id")
     assert isinstance(image_id, str) and image_id.startswith("sha256:")

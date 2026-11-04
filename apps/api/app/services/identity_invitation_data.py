@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.invitation_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.invitation_contract import (
     decode_native_invitation_apply_command,
     decode_native_invitation_apply_reply,
     decode_native_invitation_prepare_command,

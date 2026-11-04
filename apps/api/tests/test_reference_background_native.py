@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from sqlalchemy import delete, select
 from training_contract.model_return import segmentation_identity
 
@@ -22,7 +22,7 @@ from app.services import async_job as jobs, prediction_references as refs
 from app.services import reference_native_predictions as native, trained_models
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
-from aap_inference.backend_transport import PredictionResult
+from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction import PredictionService
 from app.services.prediction_execution import execution_summary, load_snapshot
 from app.services.prediction_inputs import PredictionInputs

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import boto3
 from botocore.exceptions import ClientError
-from aap_assets_catalog.object_signer import create_source_read_client
+from yoao_assets_catalog.object_signer import create_source_read_client
 
 from app.config import settings
 from app.services.reference_keys import reject_reference

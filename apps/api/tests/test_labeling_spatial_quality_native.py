@@ -12,11 +12,11 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.spatial_quality_contract import (
+from yoao_labeling.spatial_quality_contract import (
     spatial_quality_request,
     spatial_quality_request_json,
 )
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene, VideoSegment
 from app.db.models.point_cloud_quality import (

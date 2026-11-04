@@ -13,19 +13,19 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_workspace.configuration import ConfigurationManager
-from aap_workspace.configuration_contract import configuration_request
-from aap_workspace.configuration_postgres import ConfigurationPostgresData
-from aap_workspace.configuration_requests import (
+from yoao_workspace.configuration import ConfigurationManager
+from yoao_workspace.configuration_contract import configuration_request
+from yoao_workspace.configuration_postgres import ConfigurationPostgresData
+from yoao_workspace.configuration_requests import (
     ProjectTemplateCreate,
     ProjectTemplateOut,
 )
-from aap_workspace.template_queries import TemplateQueryManager
-from aap_workspace.template_query_contract import (
+from yoao_workspace.template_queries import TemplateQueryManager
+from yoao_workspace.template_query_contract import (
     materialize_template_query_data,
     template_query_request,
 )
-from aap_workspace.template_query_postgres import TemplateQueryPostgresData
+from yoao_workspace.template_query_postgres import TemplateQueryPostgresData
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from app.services.workspace_template_query_data import WorkspaceTemplateQueryData

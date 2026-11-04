@@ -7,11 +7,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.screenshot_operations_contract import (
+from yoao_labeling.screenshot_operations_contract import (
     ScreenshotOperationsCommand,
     ScreenshotOperationsResult,
 )
-from aap_labeling.screenshot_operations_data import ScreenshotOperationsDataClient
+from yoao_labeling.screenshot_operations_data import ScreenshotOperationsDataClient
 
 
 def _sqlstate(error: BaseException) -> str | None:

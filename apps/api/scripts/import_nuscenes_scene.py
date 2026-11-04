@@ -427,7 +427,7 @@ async def import_nuscenes(
     flush 到调用方事务。返回 {"dataset_id", "scenes": [{"name", "frames"}...],
     "total_items"}。
     """
-    from aap_assets_source.operator_contract import (
+    from yoao_assets_source.operator_contract import (
         EnsureOperatorNuScenesDatasetRequest,
         NuScenesDatasetSpec,
         OperatorDimensions,
@@ -435,7 +435,7 @@ async def import_nuscenes(
         OperatorSourcePatch,
     )
     from app.application.nuscenes_import import NuScenesImportWorkflow
-    from aap_assets_catalog.spatial_contract import (
+    from yoao_assets_catalog.spatial_contract import (
         AssignItemsRequest,
         CreateSceneRequest,
         ListScenesRequest,
@@ -444,7 +444,7 @@ async def import_nuscenes(
         SetSceneSourceRequest,
         UpsertPosesRequest,
     )
-    from aap_assets_catalog.spatial_values import FramePose
+    from yoao_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.assets_operator import AssetsOperatorGateway
 

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     FailuresRequest,
     MediaFailure,
     RetryRequest as MediaRetryRequest,

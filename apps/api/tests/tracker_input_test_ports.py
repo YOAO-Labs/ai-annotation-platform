@@ -10,8 +10,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 import uuid
 
-from aap_inference.tracker import TrackerSessionState
-from aap_inference_contract.execution import (
+from yoao_inference.tracker import TrackerSessionState
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     ModelExecutionObservation,
     ModelOperationResult,
@@ -22,7 +22,7 @@ from app.services.video_tracking.adapters import (
     TrackerPropagationResult,
     _response_digest,
 )
-from aap_assets_video_inputs import tracker as t
+from yoao_assets_video_inputs import tracker as t
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
@@ -471,7 +471,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             return None
 
         async def input_facts(self):
-            from aap_preannotation_results.video_execution_planner import (
+            from yoao_preannotation_results.video_execution_planner import (
                 VideoExecutionInputFacts,
             )
 
@@ -515,7 +515,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             )
 
         async def freeze(self, plan):
-            from aap_preannotation_results.video_execution_plan import (
+            from yoao_preannotation_results.video_execution_plan import (
                 decode_video_execution_plan,
             )
 
@@ -523,7 +523,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             return self.plan
 
         async def resume(self):
-            from aap_preannotation_results.video_window_checkpoint import (
+            from yoao_preannotation_results.video_window_checkpoint import (
                 decide_video_window_resume,
             )
 
@@ -570,11 +570,11 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                 raise AssertionError("unit journal has no held window payload") from exc
 
         async def save(self, window, attempt, payload):
-            from aap_preannotation_results.video_window_checkpoint import (
+            from yoao_preannotation_results.video_window_checkpoint import (
                 decode_video_window_checkpoint_payload,
                 snapshot_video_window_checkpoint,
             )
-            from aap_preannotation_results.video_execution_plan import (
+            from yoao_preannotation_results.video_execution_plan import (
                 canonical_video_json,
             )
 
@@ -636,7 +636,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
 
         @staticmethod
         def _reply(data):
-            from aap_labeling.video_writer_contract import (
+            from yoao_labeling.video_writer_contract import (
                 LABELING_VIDEO_WRITER_DATA_SCHEMA,
             )
 
@@ -650,7 +650,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
 
         @staticmethod
         def _reject(code):
-            from aap_labeling.video_writer_contract import (
+            from yoao_labeling.video_writer_contract import (
                 LABELING_VIDEO_WRITER_DATA_SCHEMA,
             )
 
@@ -664,7 +664,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
         def _execution_snapshot(execution):
             import hashlib
 
-            from aap_assets_video_inputs.tracker import (
+            from yoao_assets_video_inputs.tracker import (
                 TrackerCorrectionMaskSnapshot,
                 TrackerExecutionSpec,
                 TrackerSourceAnnotationSnapshot,
@@ -726,7 +726,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             )
 
         async def _facts_for(self, arguments, acceptance):
-            from aap_labeling.video_writer_contract import (
+            from yoao_labeling.video_writer_contract import (
                 VideoWriterAcceptance,
                 VideoWriterFacts,
                 VideoWriterJobFacts,
@@ -776,7 +776,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             import json
             from datetime import datetime, timezone
 
-            from aap_labeling.video_writer_contract import (
+            from yoao_labeling.video_writer_contract import (
                 VIDEO_WRITER_FUNCTION,
                 VideoWriterReceipt,
                 VideoWriterStoredCheckpoint,

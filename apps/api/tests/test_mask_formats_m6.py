@@ -22,7 +22,7 @@ from app.services.exporting.cache import compute_cache_key
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
 from app.services.mask_formats.contracts import StagedObject
-from aap_assets_source.archive import (
+from yoao_assets_source.archive import (
     ArchiveLimits,
     ArchiveSafetyError,
     SafeZipArchive,

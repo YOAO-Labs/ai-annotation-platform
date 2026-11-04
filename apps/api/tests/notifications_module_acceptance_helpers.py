@@ -142,7 +142,7 @@ async def verify_notification_publish_database_role(
 ) -> None:
     url = notification_publish_database_url(dsn, reference_url)
 
-    from aap_owner_data.postgres import verify_function_only_role
+    from yoao_owner_data.postgres import verify_function_only_role
 
     connection = await asyncpg.connect(
         url.render_as_string(hide_password=False), timeout=5

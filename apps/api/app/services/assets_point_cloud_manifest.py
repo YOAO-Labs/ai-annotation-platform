@@ -6,13 +6,13 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ReadItemsRequest,
     ReadLayoutRequest,
     SpatialFailure,
     SpatialItem,
 )
-from aap_assets_catalog.spatial_values import FramePose
+from yoao_assets_catalog.spatial_values import FramePose
 
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.assets_point_cloud_manifest_contract import (

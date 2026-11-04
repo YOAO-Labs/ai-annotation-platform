@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_labeling.task_workflow_contract import (
+from yoao_labeling.task_workflow_contract import (
     TASK_WORKFLOW_PROTOCOL,
     AcceptRejection,
     ApproveReview,
@@ -31,8 +31,8 @@ from aap_labeling.task_workflow_contract import (
     TaskWorkflowUnavailable,
     WithdrawTask,
 )
-from aap_labeling.task_workflow_data import LabelingTaskWorkflowData
-from aap_labeling.task_maintenance_contract import (
+from yoao_labeling.task_workflow_data import LabelingTaskWorkflowData
+from yoao_labeling.task_maintenance_contract import (
     TASK_MAINTENANCE_PROTOCOL,
     DeleteSourceLessChildren,
     DeleteSourceLessTaskRecords,

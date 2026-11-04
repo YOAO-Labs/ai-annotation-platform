@@ -16,7 +16,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.db.models.trained_model import TrainedModelVersion, ModelDeployment
-from aap_inference.backend_transport import PredictionResult
+from yoao_inference.backend_transport import PredictionResult
 from app.services import trained_models
 from tests.factory import create_task, create_membership
 from tests.inference_execution_test_ports import PredictionClientExecutionPort
@@ -506,7 +506,7 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     proof = retry_job.payload["prediction_authority"]
     assert proof["schema"] == 2
     assert proof["tasks"][0]["original"] == original_binding["original"]
-    from aap_preannotation_results.retry_contract import ReadPredictionRetryRequest
+    from yoao_preannotation_results.retry_contract import ReadPredictionRetryRequest
     from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
 
     assert response.json() == {"status": "queued", "failed_id": str(fid)}
@@ -710,9 +710,9 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     from app.workers.tasks import batch_predict
     from app.services import accepted_inputs
     from tests.conftest import _create_user
-    from aap_assets_images.contract import ObjectIdentity
-    from aap_assets_images_runtime.storage import S3ImageStorage
-    from aap_assets_inputs_runtime.storage import S3InputStorage
+    from yoao_assets_images.contract import ObjectIdentity
+    from yoao_assets_images_runtime.storage import S3ImageStorage
+    from yoao_assets_inputs_runtime.storage import S3InputStorage
     from app.db.models.dataset import DatasetItem
 
     db_session = audited_prediction_world.db

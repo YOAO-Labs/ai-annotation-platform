@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from aap_identity.contract import Principal
-from aap_identity.admin_password_contract import (
+from yoao_identity.contract import Principal
+from yoao_identity.admin_password_contract import (
     AdminPasswordFailure,
     decode_admin_password_request,
 )

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from aap_inference.backend_transport import BackendTransport
+from yoao_inference.backend_transport import BackendTransport
 from fastapi import HTTPException
 
 from app.observability.metrics import observe_ml_backend
@@ -76,7 +76,7 @@ async def test_predict_observes_success_histogram():
 
     client = _transport(_backend())
     with patch(
-        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+        "yoao_inference.backend_transport.httpx.AsyncClient", side_effect=factory
     ):
         results = await client.predict([{"id": "t1"}])
 
@@ -117,7 +117,7 @@ async def test_predict_observes_error_histogram_and_reraises():
 
     client = _transport(_backend())
     with patch(
-        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+        "yoao_inference.backend_transport.httpx.AsyncClient", side_effect=factory
     ):
         with pytest.raises(httpx.ConnectError):
             await client.predict([{"id": "t1"}])
@@ -163,7 +163,7 @@ async def test_max_concurrency_semaphore_caps_in_flight_predictions():
     client = _transport(backend)
 
     with patch(
-        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+        "yoao_inference.backend_transport.httpx.AsyncClient", side_effect=factory
     ):
         await asyncio.gather(*(client.predict([{"id": f"t{i}"}]) for i in range(5)))
 

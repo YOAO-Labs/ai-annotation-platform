@@ -3,7 +3,7 @@
 from sqlalchemy import String, column, table
 from sqlalchemy.dialects.postgresql import UUID
 
-from aap_jobs.notification_scope_contract import NOTIFICATION_SCOPE_RELATION
+from yoao_jobs.notification_scope_contract import NOTIFICATION_SCOPE_RELATION
 
 _SCHEMA, _RELATION = NOTIFICATION_SCOPE_RELATION.split(".", 1)
 

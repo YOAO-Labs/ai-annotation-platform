@@ -10,14 +10,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
-from aap_workspace.mask_configuration_values import MaskQCConfig
+from yoao_workspace.mask_configuration_values import MaskQCConfig
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
@@ -30,7 +30,7 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.raster_mask_storage import collect_mask_references
-from aap_labeling.quality_data_contract import (
+from yoao_labeling.quality_data_contract import (
     DecideMaskQCIssue,
     FailMaskQCRun,
     ReadMaskQCRunByJob,

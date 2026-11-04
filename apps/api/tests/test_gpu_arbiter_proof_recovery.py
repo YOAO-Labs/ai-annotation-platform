@@ -12,7 +12,7 @@ import uuid
 
 import asyncpg
 import pytest
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     AdmissionScope,
     ManagedLifecycleCapabilities,
     managed_lifecycle_capability_sha256,
@@ -26,19 +26,19 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
-from aap_inference.backend_endpoint import BackendEndpointSnapshot
+from yoao_inference.backend_endpoint import BackendEndpointSnapshot
 from app.config import settings
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_cancel_intent import GPUBackendCancelIntent
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from aap_inference.gpu import proofs as gpu_proofs_service
-from aap_inference.gpu.contracts import GPUDispatchRequest
-from aap_inference.gpu.fences import (
+from yoao_inference.gpu import proofs as gpu_proofs_service
+from yoao_inference.gpu.contracts import GPUDispatchRequest
+from yoao_inference.gpu.fences import (
     activate_gpu_backend_membership,
     record_gpu_backend_token_expiry,
 )
-from aap_inference.gpu.proofs import (
+from yoao_inference.gpu.proofs import (
     GPUBusyEvictionRuntimeSubjectError,
     GPUColdRuntimeSubjectError,
     GPUEvictionCancelRuntimeSubjectError,
@@ -54,18 +54,18 @@ from aap_inference.gpu.proofs import (
     prepare_gpu_idle_eviction_runtime_generation,
     record_gpu_resident_runtime_token_expiry,
 )
-from aap_inference.gpu.reconciliation import (
+from yoao_inference.gpu.reconciliation import (
     commit_gpu_proof_reset_from_health,
     repair_gpu_resource,
 )
-from aap_inference.gpu.retirement import collect_gpu_backend_tombstone
-from aap_inference.gpu.dispatch import build_gpu_dispatch_context_factory
-from aap_inference.gpu.collector_database import (
+from yoao_inference.gpu.retirement import collect_gpu_backend_tombstone
+from yoao_inference.gpu.dispatch import build_gpu_dispatch_context_factory
+from yoao_inference.gpu.collector_database import (
     GPUCollectorDatabase,
     validate_gpu_collector_role_boundary,
 )
-from aap_inference.gpu.native import GPUAuthorityPoolData
-from aap_inference.gpu.ledger import (
+from yoao_inference.gpu.native import GPUAuthorityPoolData
+from yoao_inference.gpu.ledger import (
     GPUAllocation,
     GPUAllocationState,
     GPUArbiterStore,
@@ -73,8 +73,8 @@ from aap_inference.gpu.ledger import (
     GPUProofResetContext,
     GPUReconcileResult,
 )
-from aap_inference.gpu.signing import GPUAdmissionTokenSigner
-from aap_inference.gpu.settings import (
+from yoao_inference.gpu.signing import GPUAdmissionTokenSigner
+from yoao_inference.gpu.settings import (
     GPUArbiterMode,
     GPUAuthoritySettings,
     GPUResourceSettings,

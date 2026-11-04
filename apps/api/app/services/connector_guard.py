@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from aap_assets_source.connectors.host_guard import (
+from yoao_assets_source.connectors.host_guard import (
     ConnectorAllowlistInvalid,
     ConnectorHostDenied,
     assert_host_allowed,

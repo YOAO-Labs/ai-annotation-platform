@@ -286,8 +286,8 @@ async def test_actor_routes_resolve_identity_principal_once(
     from app.db.models.user import User
     from app.deps import get_db, get_identity_gateway
     from app.api.v1.api_keys import get_api_key_management
-    from aap_identity.contract import Principal
-    from aap_identity.key_contract import decode_key_reply
+    from yoao_identity.contract import Principal
+    from yoao_identity.key_contract import decode_key_reply
     from tests.factory import make_user_dict
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)

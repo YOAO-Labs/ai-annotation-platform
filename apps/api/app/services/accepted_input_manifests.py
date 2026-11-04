@@ -10,8 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_input_manifests import contract as c
-from aap_assets_inputs import contract as inputs
+from yoao_assets_input_manifests import contract as c
+from yoao_assets_inputs import contract as inputs
 from app.config import settings
 from app.services.accepted_inputs import input_gateway
 
@@ -232,7 +232,7 @@ class InputManifestGateway:
 async def input_manifest_gateway(*, session_factory=None):
     async with input_gateway(session_factory=session_factory) as original_inputs:
         if settings.assets_media_url:
-            from aap_assets_input_manifests.client import ManifestClient
+            from yoao_assets_input_manifests.client import ManifestClient
 
             async with ManifestClient(
                 settings.assets_media_url, settings.assets_media_token
@@ -240,7 +240,7 @@ async def input_manifest_gateway(*, session_factory=None):
                 yield InputManifestGateway(client, original_inputs)
             return
 
-        from aap_assets_input_manifests_runtime.control import ManifestControl
+        from yoao_assets_input_manifests_runtime.control import ManifestControl
 
         provider = ManifestControl(
             _IndependentManifestDatabase(session_factory),

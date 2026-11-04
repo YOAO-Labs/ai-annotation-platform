@@ -11,7 +11,7 @@ from app.deps import (
 )
 from app.db.models.project_member import ProjectMember
 from app.db.models.dataset import DatasetItem
-from aap_assets_media.contract import ReadSourceRequest
+from yoao_assets_media.contract import ReadSourceRequest
 from app.services.labeling_discussion_relations import task_event_facts
 from app.db.enums import UserRole, TaskStatus, ProjectRole
 from app.schemas.dashboard import (

@@ -9,11 +9,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.annotation_write_contract import (
+from yoao_labeling.annotation_write_contract import (
     AnnotationWriteCommand,
     AnnotationWriteUnavailable,
 )
-from aap_labeling.annotation_write_data import AnnotationWriteDataClient
+from yoao_labeling.annotation_write_data import AnnotationWriteDataClient
 
 
 def _native_error_fields(error: BaseException):

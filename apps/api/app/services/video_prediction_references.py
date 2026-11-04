@@ -15,8 +15,8 @@ import uuid
 
 from sqlalchemy import select
 
-from aap_inference import extract_capabilities
-from aap_inference_contract.execution import ModelExecutionDispatch, thaw_json
+from yoao_inference import extract_capabilities
+from yoao_inference_contract.execution import ModelExecutionDispatch, thaw_json
 
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
@@ -886,7 +886,7 @@ class VideoPredictionJob:
 
     async def before_dispatch(self, task, dispatch, *, stage_id=None):
         """Run at the execution owner's exact pre-dispatch boundary."""
-        from aap_inference_contract.execution import ModelExecutionDispatch, thaw_json
+        from yoao_inference_contract.execution import ModelExecutionDispatch, thaw_json
 
         self.resolve_url(task)
         stage_id, selected = self._selected_model(stage_id)
@@ -1028,7 +1028,7 @@ class VideoPredictionJob:
         self, task_id, stage_id, qualified, *, window=None, direction="forward"
     ):
         from app.services.video_prediction_results import validate_adaptation
-        from aap_inference.execution_pipeline import lineage_shape_id
+        from yoao_inference.execution_pipeline import lineage_shape_id
 
         if (task_id, stage_id) not in self.executions or task_id in self.finished:
             reject("prediction_video_dispatch_unrecorded")

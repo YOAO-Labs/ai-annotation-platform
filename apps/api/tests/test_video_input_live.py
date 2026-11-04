@@ -20,8 +20,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs.client import VideoInputClient
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs.client import VideoInputClient
 from tests.test_asset_storage_cleanup_runtime import (
     _expect_s3_denied,
     _local_s3_client,
@@ -161,7 +161,7 @@ async def _video_runtime(test_engine, tmp_path, *, source_test_engine=None):
     )
     log = tmp_path / "video-input-control.log"
     process, stream = _start_process(
-        [sys.executable, "-m", "aap_assets_media_runtime"], environment, log
+        [sys.executable, "-m", "yoao_assets_media_runtime"], environment, log
     )
     origin = f"http://127.0.0.1:{port}"
     http = httpx.AsyncClient(base_url=origin, timeout=15, trust_env=False)
@@ -215,7 +215,7 @@ async def _run_video_worker(runtime, tmp_path, *, input_id=None, frame_id=None):
         [
             sys.executable,
             "-m",
-            "aap_assets_media_runtime.worker",
+            "yoao_assets_media_runtime.worker",
             "--once",
             selector,
             str(value),
@@ -530,7 +530,7 @@ async def _prove_video_cleanup_process(
     }
     log = tmp_path / "video-input-cleanup.log"
     process, stream = _start_process(
-        [sys.executable, "-m", "aap_assets_cleanup"], environment, log
+        [sys.executable, "-m", "yoao_assets_cleanup"], environment, log
     )
     runtime.processes.append(process)
     runtime.streams.append(stream)

@@ -1,6 +1,6 @@
 """Compatibility exports for Labeling's portable cross-frame geometry policy."""
 
-from aap_labeling.cross_frame_write_policy import (
+from yoao_labeling.cross_frame_write_policy import (
     FramePose,
     Mat3,
     PsrDict,

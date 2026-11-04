@@ -9,8 +9,8 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 
-from aap_audit.append_contract import AppendEvent, AppendRequest
-from aap_audit.postgres import AuditAppendPostgresData
+from yoao_audit.append_contract import AppendEvent, AppendRequest
+from yoao_audit.postgres import AuditAppendPostgresData
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User

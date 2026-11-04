@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from aap_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
+from yoao_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
 from fastapi import HTTPException
 from training_contract.model_return import (
     SEGMENTATION_OUTPUT_CONTRACT,

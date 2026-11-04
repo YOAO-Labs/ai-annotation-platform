@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     AcceptedImageWork,
     ImageBackfillSelection,
     ImageBackfillSpec,
     ScheduleImageMediaRequest,
 )
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images.policy import ImagePolicy
 
 
 async def accept_image_backfill(

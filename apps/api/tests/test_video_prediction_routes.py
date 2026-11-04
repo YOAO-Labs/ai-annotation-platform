@@ -41,7 +41,7 @@ from app.services import managed_original_creation as creation
 from app.services import prediction_inputs, task_originals
 from app.services import video_prediction_originals as originals
 from app.services.dataset_assets import register_item_asset
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from app.services.prediction_execution import load_snapshot
 from app.workers import tasks as worker
 from tests.conftest import create_registry_with_pool

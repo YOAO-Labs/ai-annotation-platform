@@ -54,7 +54,7 @@ def plan_video_task_segments(
     plans: tuple[VideoFrameTaskPlan, ...], chunk_size: int
 ) -> tuple[list[dict], int]:
     """Chunk frozen selected ordinals without consulting mutable video metadata."""
-    from aap_assets_video_inputs import values as video_values
+    from yoao_assets_video_inputs import values as video_values
 
     size = min(max(1, int(chunk_size)), video_values.PAGE_SIZE)
     segments = []
@@ -272,7 +272,7 @@ class JobsFramePreannotationDispatcher:
         self, request: FramePreannotationDispatchRequest, *, db
     ) -> PreparedFramePreannotationDispatch:
         """Freeze the canvas with the parent's running/preparation transaction."""
-        from aap_jobs.queue_contract import encode_canvas_request
+        from yoao_jobs.queue_contract import encode_canvas_request
 
         from app.services.jobs_dispatch import jobs_dispatch_data
 
@@ -519,7 +519,7 @@ def _write_scope_matches_video_source(write_scope, plan) -> bool:
 
 
 async def _read_video_time_entries(gateway, plan, *, actor_id, ordinals):
-    from aap_assets_video_inputs import values as video_values
+    from yoao_assets_video_inputs import values as video_values
 
     if not ordinals or any(type(value) is not int or value < 1 for value in ordinals):
         raise ValueError("frame segment contains invalid selected ordinals")
@@ -648,12 +648,12 @@ async def _run_segment(
         create_async_engine,
     )
 
-    from aap_inference.execution_context import build_predict_context
-    from aap_inference.gpu.contracts import (
+    from yoao_inference.execution_context import build_predict_context
+    from yoao_inference.gpu.contracts import (
         GPUArbiterErrorCode,
         gpu_arbiter_failure_record,
     )
-    from aap_inference_contract.execution import (
+    from yoao_inference_contract.execution import (
         FrozenModelOperation,
         ModelExecutionError,
         thaw_json,
@@ -669,9 +669,9 @@ async def _run_segment(
         capture_labeling_write_scope,
     )
     from app.services.labeling_write_guard import lock_labeling_write
-    from aap_assets_video_inputs import evidence as video_evidence
-    from aap_assets_video_inputs import execution as video_execution
-    from aap_assets_video_inputs.execution import VideoInputFailure
+    from yoao_assets_video_inputs import evidence as video_evidence
+    from yoao_assets_video_inputs import execution as video_execution
+    from yoao_assets_video_inputs.execution import VideoInputFailure
 
     task_id = segment["task_id"]
     input_id = segment["input_id"]
@@ -1570,7 +1570,7 @@ async def _finish_segment(
     job_id: str,
     segment_id: str,
 ) -> dict:
-    from aap_inference.gpu.contracts import summarize_gpu_arbiter_failures
+    from yoao_inference.gpu.contracts import summarize_gpu_arbiter_failures
 
     if gpu_arbiter_failures:
         stats["gpu_arbiter_failures"] = summarize_gpu_arbiter_failures(
@@ -1753,7 +1753,7 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
     )
 
     from app.services import async_job as async_job_svc
-    from aap_inference.gpu.contracts import summarize_gpu_arbiter_failures
+    from yoao_inference.gpu.contracts import summarize_gpu_arbiter_failures
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(

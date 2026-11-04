@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.platform_role_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.platform_role_contract import (
     PlatformRoleReply,
     PlatformRoleRequest,
     decode_platform_role_reply,
 )
-from aap_identity.platform_role_manager import PlatformRoleManager
-from aap_identity.platform_role_postgres import PlatformRolePostgresData
+from yoao_identity.platform_role_manager import PlatformRoleManager
+from yoao_identity.platform_role_postgres import PlatformRolePostgresData
 from app.config import settings
 from app.services.identity_account_commands import (
     _AccountAuthenticator,

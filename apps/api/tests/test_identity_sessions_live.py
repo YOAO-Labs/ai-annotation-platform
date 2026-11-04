@@ -18,7 +18,7 @@ from redis.exceptions import ResponseError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from aap_identity.security import decode_access_token
+from yoao_identity.security import decode_access_token
 from tests.test_asset_storage_cleanup_runtime import _inspect_docker
 from tests.test_identity_admission_live import (
     ROOT,

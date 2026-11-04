@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from typing import Any
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_assets_media.contract import MediaFailure, ReadSourceRequest
-from aap_assets_images.contract import ReadImageSourceRequest
+from yoao_assets_media.contract import MediaFailure, ReadSourceRequest
+from yoao_assets_images.contract import ReadImageSourceRequest
 
 from app.db.enums import UserRole
 from app.db.models.user import User
@@ -18,7 +18,7 @@ from app.schemas.task import (
 from app.schemas.image_pyramid import ImagePyramidSummary
 from app.deps import get_current_user, get_db
 from app.services import task_access
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )

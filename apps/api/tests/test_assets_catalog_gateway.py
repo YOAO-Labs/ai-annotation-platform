@@ -13,7 +13,7 @@ from fastapi import Response
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog import (
+from yoao_assets_catalog import (
     CatalogItem,
     CreateDatasetRequest,
     DatasetPatch,
@@ -24,16 +24,16 @@ from aap_assets_catalog import (
     ListItemsRequest,
     UpdateDatasetRequest,
 )
-from aap_assets_images.contract import ImageOwner, ImageSource, ObjectIdentity
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import ImageOwner, ImageSource, ObjectIdentity
+from yoao_assets_images.contract import (
     AcceptedImageWork,
     ImageBackfillSpec,
     ImageWorkReference,
 )
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images.transport import ImageSourceReference
-from aap_assets_media.contract import MediaSource
-from aap_assets_media.transport import SourceReference
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images.transport import ImageSourceReference
+from yoao_assets_media.contract import MediaSource
+from yoao_assets_media.transport import SourceReference
 from app.services import assets_catalog
 from app.services.dataset import DatasetService
 from app.api.v1 import datasets as dataset_routes

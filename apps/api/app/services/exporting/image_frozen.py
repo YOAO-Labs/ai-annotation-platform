@@ -16,7 +16,7 @@ from app.db.models.task import Task
 from app.schemas.native_json import SceneTrackEntry, SceneTrackIntervalEntry
 from app.services.content_snapshot import ContentError
 from app.services.exporting.service import ExportService, _export_annotation_copy
-from aap_workspace_contract import derive_attribute_keys, derive_classes_list
+from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
 
 
 def _reject():

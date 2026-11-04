@@ -17,14 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from aap_inference.gpu.fences import (
+from yoao_inference.gpu.fences import (
     GPUFenceExhaustedError,
     GPUFenceMembershipError,
     activate_gpu_backend_membership,
     advance_gpu_backend_fence,
     record_gpu_backend_token_expiry,
 )
-from aap_inference.gpu.native import GPUAuthorityPoolData
+from yoao_inference.gpu.native import GPUAuthorityPoolData
 
 
 @pytest.fixture

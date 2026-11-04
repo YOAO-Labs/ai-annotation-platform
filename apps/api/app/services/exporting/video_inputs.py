@@ -29,7 +29,7 @@ from app.services.exporting.video_media_paths import TARGETS, logical_sources
 from app.services.exporting.video_frozen import FrozenVideo, scope_from_dict
 from app.services.raster_mask_storage import collect_mask_references
 from app.services.reference_keys import is_reference
-from aap_workspace_contract import derive_classes_list
+from yoao_workspace_contract import derive_classes_list
 from app.services.task_scope import ids_clause
 
 CONTRACT = 4

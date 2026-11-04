@@ -7,7 +7,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from aap_inference.backend_transport import (
+from yoao_inference.backend_transport import (
     GPU_HEALTH_CHALLENGE_ECHO_MARKER,
     GPU_HEALTH_CHALLENGE_HEADER,
     GPU_HEALTH_CHALLENGE_QUERY_PARAM,
@@ -23,7 +23,7 @@ def _patched(transport):
         return real(*args, **kwargs)
 
     return patch(
-        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+        "yoao_inference.backend_transport.httpx.AsyncClient", side_effect=factory
     )
 
 

@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from aap_assets_mask_content.contract import MaskContentFailure
+from yoao_assets_mask_content.contract import MaskContentFailure
 from app.config import settings
 from app.services import mask_content
 from app.services.raster_mask_storage import (

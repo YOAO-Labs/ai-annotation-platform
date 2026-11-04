@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aap_assets_inputs import contract as c
+from yoao_assets_inputs import contract as c
 from app.application.preannotation_contract import BatchPredictionRequest
 from app.db.models.async_job import AsyncJob
 from app.application.preannotation_execution import (
@@ -238,7 +238,7 @@ async def test_unsealed_manifest_defers_before_job_claim(monkeypatch, code):
     from types import ModuleType
     import sys
 
-    from aap_assets_input_manifests import contract as manifests
+    from yoao_assets_input_manifests import contract as manifests
 
     job_id, actor_id, project_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     digest = "f" * 64

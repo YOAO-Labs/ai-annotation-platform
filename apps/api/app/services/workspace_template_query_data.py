@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_workspace.template_query_contract import (
+from yoao_workspace.template_query_contract import (
     TemplateQueryUnavailable,
     decode_template_query_policy,
 )
-from aap_workspace.template_query_postgres import template_query_step_arguments
+from yoao_workspace.template_query_postgres import template_query_step_arguments
 
 
 class WorkspaceTemplateQueryData:

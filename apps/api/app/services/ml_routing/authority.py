@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 import uuid
 
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     RoutingRejectedResult,
     RoutingScopeView,
     RoutingUnavailable,
@@ -19,19 +19,19 @@ from aap_inference_contract.routing import (
     make_routing_quiescence_request,
     make_routing_runtime_request,
 )
-from aap_inference_contract.routing_client import RoutingHttpClient
-from aap_inference_contract.scope_retirement import (
+from yoao_inference_contract.routing_client import RoutingHttpClient
+from yoao_inference_contract.scope_retirement import (
     ScopeRetirementRequest,
     ScopeRetirementResult,
     ScopeRetirementUnavailable,
     decode_scope_retirement_request,
     decode_scope_retirement_result,
 )
-from aap_inference_contract.video_execution import (
+from yoao_inference_contract.video_execution import (
     VideoScopeRejected,
     decode_video_execution_status_request,
 )
-from aap_workspace.config import secret_source
+from yoao_workspace.config import secret_source
 
 from app.config import settings
 

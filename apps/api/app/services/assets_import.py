@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
-from aap_assets_source.import_contract import (
+from yoao_assets_source.import_contract import (
     ImportAcceptance,
     ImportContext,
     ImportFailure,

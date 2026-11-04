@@ -7,7 +7,7 @@ from typing import Iterable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.briefs_contract import decode_briefs_request
+from yoao_identity.briefs_contract import decode_briefs_request
 from app.schemas.user import UserBrief
 from app.services.identity_briefs_commands import IdentityBriefsCommands
 from app.services.identity_gateway import get_identity_gateway

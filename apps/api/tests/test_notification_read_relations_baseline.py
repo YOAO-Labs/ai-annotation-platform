@@ -12,7 +12,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.services.async_job_notify import notify_job_terminal
 from app.services.notification import NotificationService
-from aap_notifications.terminal_append_postgres import (
+from yoao_notifications.terminal_append_postgres import (
     NotificationTerminalAppendPostgresData,
 )
 

@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
-from aap_assets_source.operator_contract import (
+from yoao_assets_source.operator_contract import (
     OPERATOR_NATIVE_ARGUMENTS,
     OPERATOR_NATIVE_SIGNATURES,
     AppendOperatorItemsRequest,
@@ -185,7 +185,7 @@ async def test_operator_schema_copies_and_native_signature_manifest_match():
     )
     package_schema_path = (
         Path(__file__).parents[3]
-        / "apps/assets-source/src/aap_assets_source/operator_contract.schema.json"
+        / "apps/assets-source/src/yoao_assets_source/operator_contract.schema.json"
     )
     package_schema = json.loads(package_schema_path.read_text(encoding="utf-8"))
     assert migration_schema == package_schema == operator_contract_document()

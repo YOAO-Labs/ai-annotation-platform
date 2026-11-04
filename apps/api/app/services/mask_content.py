@@ -5,9 +5,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from aap_assets_mask_content.client import MaskContentClient
-from aap_assets_mask_content.contract import MaskContentFailure
-from aap_assets_mask_content.storage import S3MaskContentStore
+from yoao_assets_mask_content.client import MaskContentClient
+from yoao_assets_mask_content.contract import MaskContentFailure
+from yoao_assets_mask_content.storage import S3MaskContentStore
 
 from app.config import settings
 

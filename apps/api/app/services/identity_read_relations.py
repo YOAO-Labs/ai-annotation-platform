@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from aap_identity.read_relation_contract import AccountProfile
+from yoao_identity.read_relation_contract import AccountProfile
 
 account_profiles = table(
     "account_profiles",

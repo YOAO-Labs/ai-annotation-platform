@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.config import settings
 from app.db.models.async_job import AsyncJobKind
@@ -37,7 +37,7 @@ from app.services import storage_migration_read_publications as read_publication
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.catalog import registry
 from app.services.storage import storage_service
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     CancelPendingMaskFormatImport,
     CreateMaskFormatImport,

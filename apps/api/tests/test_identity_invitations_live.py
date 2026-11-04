@@ -15,7 +15,7 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import delete, select, text, update
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from app.db.models.group import Group
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -156,7 +156,7 @@ def _start_mail_v2(test_engine, directory, encryption_key, smtp, *, port=None):
             os.environ["AAP_IDENTITY_RUNTIME_PYTHON"],
             "-I",
             "-m",
-            "aap_identity_runtime.mail_worker_v2",
+            "yoao_identity_runtime.mail_worker_v2",
         ],
         environment,
         directory,

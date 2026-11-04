@@ -18,7 +18,7 @@ from app.services.labeling_core_read_relations import (
     lock_task_for_core_read,
     task_row,
 )
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.project_access import lock_current_project_access
 from app.services.identity_contracts import IdentityActorFacts
 

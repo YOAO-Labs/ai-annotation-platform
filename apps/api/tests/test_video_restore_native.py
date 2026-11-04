@@ -15,16 +15,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_inference.restore import VideoRestoreManager
-from aap_inference.restore_contract import RestoreCommand
-from aap_inference.restore_postgres import VideoRestorePostgresProvider
-from aap_owner_data.postgres import verify_function_only_role
-from aap_preannotation_results.video_execution import (
+from yoao_inference.restore import VideoRestoreManager
+from yoao_inference.restore_contract import RestoreCommand
+from yoao_inference.restore_postgres import VideoRestorePostgresProvider
+from yoao_owner_data.postgres import verify_function_only_role
+from yoao_preannotation_results.video_execution import (
     ClaimRequest,
     RenewRequest,
     VideoExecutionFailure,
 )
-from aap_preannotation_results_runtime.video_execution_database import (
+from yoao_preannotation_results_runtime.video_execution_database import (
     VideoExecutionPostgresData,
 )
 from tests.test_identity_recovery import _alembic, _postgres_tool

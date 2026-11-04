@@ -9,13 +9,13 @@ import asyncpg
 import pytest
 from sqlalchemy.engine import make_url
 
-from aap_inference.backend_transport import BackendTransport
-from aap_inference.health import BackendHealthCoordinator
-from aap_inference.health_data_postgres import (
+from yoao_inference.backend_transport import BackendTransport
+from yoao_inference.health import BackendHealthCoordinator
+from yoao_inference.health_data_postgres import (
     HealthDataPostgresData,
     HealthDataUnavailable,
 )
-from aap_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.capabilities import CapabilityLimits
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_health_data_native import (
     _connect,

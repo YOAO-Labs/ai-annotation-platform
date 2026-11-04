@@ -10,9 +10,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_identity.briefs_contract import decode_briefs_request
-from aap_identity.briefs_manager import BriefsManager
-from aap_identity.briefs_postgres import BriefsPostgresData
+from yoao_identity.briefs_contract import decode_briefs_request
+from yoao_identity.briefs_manager import BriefsManager
+from yoao_identity.briefs_postgres import BriefsPostgresData
 from app.db.models.user import User
 from tests.test_identity_recovery import (
     _postgres_tool,

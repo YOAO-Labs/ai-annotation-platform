@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_source.operator_contract import OPERATOR_NATIVE_ARGUMENTS
+from yoao_assets_source.operator_contract import OPERATOR_NATIVE_ARGUMENTS
 from tests.test_asset_storage_cleanup_runtime import _required_env, _verify_postgres
 from tests.test_assets_catalog_native import _seed_actor
 

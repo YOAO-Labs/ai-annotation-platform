@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,
@@ -28,8 +28,8 @@ from aap_protocol_v2 import (
 )
 from PIL import Image
 
-from aap_inference_contract.backend_control import BackendControlSetupResult
-from aap_inference_contract.execution import (
+from yoao_inference_contract.backend_control import BackendControlSetupResult
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     ModelExecutionObservation,
     ModelOperationResult,

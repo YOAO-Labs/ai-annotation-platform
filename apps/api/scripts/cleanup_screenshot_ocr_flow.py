@@ -34,13 +34,13 @@ from app.services.screenshot_seed_spec import (  # noqa: E402
     SEED_MANAGED_BY,
 )
 from app.workers.celery_app import celery_app  # noqa: E402
-from aap_labeling.screenshot_operations_contract import (  # noqa: E402
+from yoao_labeling.screenshot_operations_contract import (  # noqa: E402
     CleanupOCRRows,
     DeleteOCRPredictions,
     FinishOCRCleanup,
     SCREENSHOT_OPERATIONS_PROTOCOL,
 )
-from aap_labeling.prediction_record_contract import (  # noqa: E402
+from yoao_labeling.prediction_record_contract import (  # noqa: E402
     DeletePredictionData,
     PredictionIdentity,
 )

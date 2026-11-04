@@ -16,8 +16,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
-from aap_workspace_contract.read_relations import PROJECT_COUNTER_COLUMNS
+from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from yoao_workspace_contract.read_relations import PROJECT_COUNTER_COLUMNS
 
 
 def project_facts():

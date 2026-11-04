@@ -24,8 +24,8 @@ from sqlalchemy.engine import URL, make_url
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-from aap_notifications.realtime_event_contract import notification_event_message
-from aap_notifications.websocket import (
+from yoao_notifications.realtime_event_contract import notification_event_message
+from yoao_notifications.websocket import (
     _NOTIFICATION_GATE_ATTEMPTS,
     _NOTIFICATION_GATE_RETRY_SECONDS,
 )
@@ -304,7 +304,7 @@ async def _assert_role_capabilities(
     expected_role: str,
     actor_id: uuid.UUID,
 ) -> None:
-    from aap_owner_data.postgres import verify_function_only_role
+    from yoao_owner_data.postgres import verify_function_only_role
 
     connection = await asyncpg.connect(
         asyncpg_connection_url(dsn).render_as_string(hide_password=False), timeout=5
@@ -805,27 +805,24 @@ async def test_cold_notifications_owner_behind_api_bridge(
                         previous_sdk_modules = {
                             name: module
                             for name, module in tuple(sys.modules.items())
-                            if name == "ai_annotation"
-                            or name.startswith("ai_annotation.")
+                            if name == "yoao" or name.startswith("yoao.")
                         }
                         for name in previous_sdk_modules:
                             sys.modules.pop(name, None)
                         sys.path.insert(0, sdk_path)
                         try:
-                            import ai_annotation
-                            from ai_annotation.notification_models import (
+                            import yoao
+                            from yoao.notification_models import (
                                 Notification as SdkNotification,
                             )
-                            from ai_annotation.stream_models import (
+                            from yoao.stream_models import (
                                 NotificationSyncEvent as SdkNotificationSyncEvent,
                             )
 
                             assert (
-                                Path(ai_annotation.__file__)
-                                .resolve()
-                                .is_relative_to(sdk_source)
+                                Path(yoao.__file__).resolve().is_relative_to(sdk_source)
                             )
-                            with ai_annotation.Client(
+                            with yoao.Client(
                                 base_url=stack.api_origin,
                                 api_key=token,
                                 timeout=10,
@@ -875,9 +872,7 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             await _wait_for_subscribers(redis_publisher, channel, 0)
                         finally:
                             for name in tuple(sys.modules):
-                                if name == "ai_annotation" or name.startswith(
-                                    "ai_annotation."
-                                ):
+                                if name == "yoao" or name.startswith("yoao."):
                                     sys.modules.pop(name, None)
                             sys.modules.update(previous_sdk_modules)
                             sys.path.remove(sdk_path)

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.mask_edit_contract import (
     ClaimRasterMaskUploads,
     ClaimRasterMaskUploadsData,
 )

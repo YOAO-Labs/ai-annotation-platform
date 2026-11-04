@@ -20,7 +20,7 @@ from app.services import async_job as jobs, prediction_acceptance as acceptance
 from app.services.annotation import AnnotationService
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
-from aap_inference.backend_transport import PredictionResult
+from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction_inputs import PredictionInputs
 from app.workers import predictions_retry as retry
 from tests.factory import create_task, create_batch

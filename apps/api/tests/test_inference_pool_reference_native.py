@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.ml_backend_pool import MLBackendServicePool
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.workspace_project_query_helpers import _dsn

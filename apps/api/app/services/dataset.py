@@ -27,7 +27,7 @@ from app.services.dataset_storage_keys import (
     dataset_item_relative_path,
 )
 from app.services.project_kind import dataset_has_scenes
-from aap_workspace.configuration_policy import (
+from yoao_workspace.configuration_policy import (
     dataset_kind,
     kind_mismatch_detail,
     media_kind_aliases,
@@ -38,7 +38,7 @@ from app.services.system_settings_service import SystemSettingsService
 from app.services.reference_keys import is_reference, PREFIX
 from app.services.dataset_source_access import validate_dataset_write
 from app.services.dataset_lifecycle import require_writable
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ProvenanceEntry,
     ReadItemsRequest,
     RecordCalibrationProvenanceRequest,

@@ -45,7 +45,7 @@ async def test_metadata_transport_is_authenticated_and_optional(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(
-        "aap_inference.backend_transport.httpx.AsyncClient",
+        "yoao_inference.backend_transport.httpx.AsyncClient",
         factory,
     )
     result = await client.model_metadata()

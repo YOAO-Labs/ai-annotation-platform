@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from aap_assets_images.contract import ImageBackfillSelection
+from yoao_assets_images.contract import ImageBackfillSelection
 from scripts.image_media_backfill import accept_image_backfill
 from scripts.seed_large_images import _pyramid_statuses
 

@@ -586,7 +586,7 @@ def live_inputs(world):
 
 
 def dispatch_fact(world, identifier, *, capabilities_value=None):
-    from aap_inference_contract.execution import ModelExecutionDispatch
+    from yoao_inference_contract.execution import ModelExecutionDispatch
 
     requested = uuid.UUID(world.proof["models"][0]["requested_registry_id"])
     pool_id = uuid.UUID(world.proof["models"][0]["pool_id"])

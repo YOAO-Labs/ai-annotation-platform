@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     SPATIAL_NATIVE_SIGNATURES,
     SPATIAL_NATIVE_ARGUMENTS,
     SPATIAL_OPERATIONS,
@@ -74,7 +74,7 @@ from aap_assets_catalog.spatial_contract import (
     normalize_calibration_record,
     require_spatial_scope,
 )
-from aap_assets_catalog.spatial_values import FramePose
+from yoao_assets_catalog.spatial_values import FramePose
 
 from app.services.assets_catalog import (
     AssetsCatalogGateway,
@@ -182,8 +182,8 @@ class AssetsSpatialGateway:
         self._catalog = AssetsCatalogGateway(db)
 
     def _spatial_workflow(self):
-        from aap_assets_catalog.object_signer import SpatialCalibrationSourceReader
-        from aap_assets_catalog.spatial_workflow import SpatialWorkflow
+        from yoao_assets_catalog.object_signer import SpatialCalibrationSourceReader
+        from yoao_assets_catalog.spatial_workflow import SpatialWorkflow
 
         return SpatialWorkflow(
             native=SameSessionAssetsSpatialGateway(self.db),

@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 
-from aap_assets_source.ingest_contract import IngestReceipt
+from yoao_assets_source.ingest_contract import IngestReceipt
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.task import Task

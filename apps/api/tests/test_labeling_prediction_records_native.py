@@ -11,12 +11,12 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.prediction_partition_contract import (
+from yoao_labeling.prediction_partition_contract import (
     EnsurePredictionPartition,
     PREDICTION_PARTITIONS_PROTOCOL,
 )
-from aap_labeling.prediction_partition_data import PredictionPartitionDataClient
-from aap_labeling.prediction_record_contract import (
+from yoao_labeling.prediction_partition_data import PredictionPartitionDataClient
+from yoao_labeling.prediction_record_contract import (
     PREDICTION_RECORDS_PROTOCOL,
     CreateFailedPrediction,
     DeletePredictionsForTasks,
@@ -26,13 +26,13 @@ from aap_labeling.prediction_record_contract import (
     RejectPredictionCandidate,
     RestoreFailedPrediction,
 )
-from aap_labeling.prediction_record_data import PredictionRecordDataClient
-from aap_labeling.screenshot_operations_contract import (
+from yoao_labeling.prediction_record_data import PredictionRecordDataClient
+from yoao_labeling.screenshot_operations_contract import (
     RestoreReviewReject,
     SCREENSHOT_OPERATIONS_PROTOCOL,
 )
-from aap_labeling.screenshot_operations_data import ScreenshotOperationsDataClient
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.screenshot_operations_data import ScreenshotOperationsDataClient
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.task import Task
 from tests.factory import create_project, create_task, create_user

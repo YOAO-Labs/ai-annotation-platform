@@ -14,11 +14,11 @@ import uuid
 import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
-from aap_assets_source.frame_layout import PreparedDatasetItem, group_frames
+from yoao_assets_source.frame_layout import PreparedDatasetItem, group_frames
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items
-from aap_assets_catalog.spatial_values import SensorCalibration
+from yoao_assets_catalog.spatial_values import SensorCalibration
 from tests.factory import create_project
 
 

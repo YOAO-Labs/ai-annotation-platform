@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from aap_inference.capability_registry import (
+from yoao_inference.capability_registry import (
     GEOMETRIES,
     INFRAS,
     INPUTS,
@@ -17,7 +17,7 @@ from aap_inference.capability_registry import (
     PROMPTS,
     TASKS,
 )
-from aap_task_contract import TASK_ALIASES
+from yoao_task_contract import TASK_ALIASES
 
 import hashlib
 import json

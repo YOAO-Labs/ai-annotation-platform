@@ -9,9 +9,9 @@ import uuid
 import httpx
 from fastapi import HTTPException
 
-from aap_workspace.config import secret_source
-from aap_workspace.configuration import ConfigurationManager
-from aap_workspace.configuration_contract import (
+from yoao_workspace.config import secret_source
+from yoao_workspace.configuration import ConfigurationManager
+from yoao_workspace.configuration_contract import (
     ConfigurationUnavailable,
     ConfigurationRenameResult,
     ConfigurationRenameSuccess,
@@ -21,7 +21,7 @@ from aap_workspace.configuration_contract import (
     configuration_request,
     decode_configuration_reply,
 )
-from aap_workspace.configuration_postgres import ConfigurationPostgresData
+from yoao_workspace.configuration_postgres import ConfigurationPostgresData
 from app.config import settings
 from app.services.inference_limits import capability_limits_from_settings
 from app.services.workspace_configuration_data import WorkspaceConfigurationData

@@ -8,7 +8,7 @@ import json
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_workspace.contract import (
+from yoao_workspace.contract import (
     MembershipInvalidRequest,
     NativeMembershipApplyRequest,
     MembershipUnavailable,
@@ -19,7 +19,7 @@ from aap_workspace.contract import (
 )
 
 
-from aap_workspace.manager import MembershipCommandFailure
+from yoao_workspace.manager import MembershipCommandFailure
 
 
 class WorkspaceMembershipData:

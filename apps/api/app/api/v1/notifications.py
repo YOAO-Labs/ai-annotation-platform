@@ -20,11 +20,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_notifications.preferences import (
+from yoao_notifications.preferences import (
     KNOWN_NOTIFICATION_TYPES,
     NotificationPreferenceManager,
 )
-from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
+from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from app.deps import get_db, get_current_user
 from app.schemas.notification import NotificationList, NotificationOut, UnreadCount
 from app.services.notification import NotificationService

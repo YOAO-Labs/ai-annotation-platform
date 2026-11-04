@@ -43,7 +43,7 @@ from app.services.data_management.task_metrics import (  # noqa: F401
     pending_prediction_shapes_expr,
     pending_tracker_jobs_expr,
 )
-from aap_workspace.configuration_policy import project_kind
+from yoao_workspace.configuration_policy import project_kind
 from app.services.project_access import is_privileged_for_project
 from app.services.scheduler import task_visibility_clause
 from app.services.feedback import unresolved_issue_count_sq

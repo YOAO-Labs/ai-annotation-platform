@@ -246,7 +246,7 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
             self.container_id,
             "/opt/venv/bin/python",
             "-m",
-            "aap_inference",
+            "yoao_inference",
         )
         self._routing_owner_served = True
 

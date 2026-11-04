@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_inference.gpu.settings import (
+from yoao_inference.gpu.settings import (
     GPUArbiterMode,
     GPUAuthoritySettings,
     parse_gpu_resources,

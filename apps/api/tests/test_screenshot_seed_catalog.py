@@ -9,10 +9,10 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from aap_assets_images import contract as image_contract
-from aap_assets_images.geometry import build_manifest
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images.transport import ImageTileRequest
+from yoao_assets_images import contract as image_contract
+from yoao_assets_images.geometry import build_manifest
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images.transport import ImageTileRequest
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset

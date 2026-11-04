@@ -10,8 +10,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.annotation_statistics_data import LabelingAnnotationStatisticsData
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.annotation_statistics_data import LabelingAnnotationStatisticsData
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from tests.factory import create_project, create_task, create_user

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aap_inference.backend_transport import BackendTransport
+from yoao_inference.backend_transport import BackendTransport
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.services import inference_backend_control
 from tests.conftest import create_registry_with_pool

@@ -8,11 +8,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, select
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     PreparationMutationResult,
     SpatialLayoutPlan,
 )
-from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
+from yoao_assets_catalog.spatial_values import SensorCalibration, calibration_digest
 from app.db.models.dataset import Dataset, DatasetItem, SensorCalibrationRevision
 from tests.test_assets_catalog_native import _call
 from tests.test_assets_spatial_native import (

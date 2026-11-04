@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from PIL import Image
 
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     SCAN_REQUEST_DIGEST,
     IngestBatchPlan,
     IngestBatchResult,
@@ -34,8 +34,8 @@ from aap_assets_source.ingest_contract import (
     IngestSourceEntry,
     decode_ingest_reply,
 )
-from aap_assets_source.frame_layout import PreparedDatasetItem
-from aap_assets_source.scene_layout import SceneLayoutInput, plan_scenes
+from yoao_assets_source.frame_layout import PreparedDatasetItem
+from yoao_assets_source.scene_layout import SceneLayoutInput, plan_scenes
 from app.config import settings
 from app.services.dataset_assets import ensure_legacy_bindings
 from tests.fakes.managed_creation_storage import CreationStorage
@@ -247,8 +247,8 @@ async def _prepare(db, world, command, entries):
 
 async def _stage_physical(db, world, command, plan, completions, *, stage=True):
     from app.services.assets_source_ingest import DatasetSourceIngestData
-    from aap_assets_source_runtime.ingest_storage import IngestStorage
-    from aap_assets_source_runtime.ingest_workflow import (
+    from yoao_assets_source_runtime.ingest_storage import IngestStorage
+    from yoao_assets_source_runtime.ingest_workflow import (
         IngestWorkflow,
         _ingest_original_request,
     )
@@ -331,7 +331,7 @@ async def _complete(db, command, plan, *, world=None):
 
 
 async def _admit_images(db, world, plan, completions):
-    from aap_assets_source_runtime.image_admission import ImageAdmission
+    from yoao_assets_source_runtime.image_admission import ImageAdmission
     from app.services.assets_images import image_gateway, image_policy
 
     admission = ImageAdmission(

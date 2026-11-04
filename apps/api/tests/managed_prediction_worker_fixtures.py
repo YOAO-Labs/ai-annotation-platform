@@ -332,7 +332,7 @@ async def run_managed_batch(db, *, before_worker=None, **kwargs):
         User, uuid.UUID(kwargs.get("user_id") or str(project.owner_id))
     )
     tasks = [await db.get(Task, uuid.UUID(value)) for value in kwargs["task_ids"]]
-    from aap_task_contract import normalize_task_fields
+    from yoao_task_contract import normalize_task_fields
 
     semantic = normalize_task_fields(
         {key: kwargs.get(key) for key in ("task", "task_type", "prompt_type")}

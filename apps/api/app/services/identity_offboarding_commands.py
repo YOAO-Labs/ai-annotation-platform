@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.offboarding_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.offboarding_contract import (
     OffboardingReply,
     OffboardingRequest,
     decode_offboarding_reply,
 )
-from aap_identity.offboarding_manager import OffboardingManager
-from aap_identity.offboarding_postgres import OffboardingPostgresData
+from yoao_identity.offboarding_manager import OffboardingManager
+from yoao_identity.offboarding_postgres import OffboardingPostgresData
 
 from app.config import settings
 from app.services.identity_account_commands import (

@@ -44,7 +44,7 @@ from app.services.labeling_write_scope import (
 )
 from app.services.polygon_slice import PolygonSliceGeometryError, slice_polygon
 from app.services.task_lock import TaskLockConflictError
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.mask_edit_contract import (
     ApplyPolygonSlice,
     ApplySliceRestore,
     AnnotationLineage,

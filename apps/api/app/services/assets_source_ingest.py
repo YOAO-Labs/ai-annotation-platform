@@ -6,10 +6,10 @@ import json
 from uuid import UUID
 
 from app.services import managed_original_native as native_lifecycle
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
 )
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     IngestBatchPlan,
     IngestBatchResult,
     IngestCommand,

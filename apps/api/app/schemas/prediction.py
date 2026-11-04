@@ -1,4 +1,4 @@
-from aap_workspace.configuration_values import ToolUnitId as _ToolUnitId
+from yoao_workspace.configuration_values import ToolUnitId as _ToolUnitId
 from app.schemas._jsonb_types import (
     BboxGeometry,
     KeypointGeometry,

@@ -458,7 +458,7 @@ async def test_native_rejects_unpublishable_canvas_without_saving_an_intent(
 async def test_relay_claims_just_before_publish_and_survives_a_competing_ack(
     db_session,
 ):
-    from aap_jobs.dispatch_relay import JobsDispatchRelay
+    from yoao_jobs.dispatch_relay import JobsDispatchRelay
     from app.services.jobs_dispatch import jobs_dispatch_data
 
     jobs = [_job() for _ in range(3)]
@@ -584,7 +584,7 @@ async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
     import asyncpg
     from sqlalchemy.engine import make_url
 
-    from aap_jobs.dispatch_postgres import JobsDispatchPostgres
+    from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
     from app.config import settings
     from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 

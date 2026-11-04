@@ -4,12 +4,12 @@
 扁平并集、模态派生。
 """
 
-from aap_protocol_v2.lifecycle import ManagedLifecycleCapabilities
+from yoao_protocol_v2.lifecycle import ManagedLifecycleCapabilities
 from pydantic import ValidationError
 import pytest
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference import INPUT_VALUES, derive_modalities, extract_capabilities
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference import INPUT_VALUES, derive_modalities, extract_capabilities
 from app.schemas.ml_backend import BackendCapabilities
 from app.services.inference_limits import capability_limits_from_settings
 

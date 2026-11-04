@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy import inspect
 
-from aap_assets_inputs.contract import InputFailure
+from yoao_assets_inputs.contract import InputFailure
 from app.workers.predictions_retry import (
     FrozenInputRetryDeferred,
     _prepare_retry_input,

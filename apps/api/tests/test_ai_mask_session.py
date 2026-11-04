@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from aap_protocol_v2 import encode_low_res_mask
+from yoao_protocol_v2 import encode_low_res_mask
 from app.services.ai_mask_session import (
     AiMaskSessionError,
     MASK_SESSION_TTL_SECONDS,

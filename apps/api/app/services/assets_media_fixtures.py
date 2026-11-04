@@ -13,7 +13,7 @@ from pathlib import Path
 import tempfile
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     BATCH_SIZE,
     Artifact,
     ChunkResult,

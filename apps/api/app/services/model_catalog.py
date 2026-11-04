@@ -8,11 +8,11 @@ from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
-from aap_protocol_v2.backend_auth import managed_provider
-from aap_protocol_v2.model_metadata import ModelMetadataResponse, classes_digest
-from aap_inference_contract.topology import to_record
-from aap_inference_contract.plugin_assets import plugin_asset_reason
-from aap_task_contract import normalize_task
+from yoao_protocol_v2.backend_auth import managed_provider
+from yoao_protocol_v2.model_metadata import ModelMetadataResponse, classes_digest
+from yoao_inference_contract.topology import to_record
+from yoao_inference_contract.plugin_assets import plugin_asset_reason
+from yoao_task_contract import normalize_task
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -36,7 +36,7 @@ from app.schemas.model_catalog import (
     ModelCatalogResponse,
 )
 from app.services import trained_models
-from aap_inference.pool_capability import capability_fingerprint
+from yoao_inference.pool_capability import capability_fingerprint
 from app.services.ml_routing.contracts import RouterMode
 from app.services.ml_routing.router import _router_mode
 from app.services.inference_topology_data import InferenceTopologyData
@@ -96,7 +96,7 @@ def concrete_variants(model):
 
 
 def backend_reason(backend, pool, member, *, enabled, member_count):
-    from aap_inference_contract.plugin import plugin_is_active
+    from yoao_inference_contract.plugin import plugin_is_active
 
     if not plugin_is_active(backend.extra_params):
         return "plugin_inactive", "推理插件安装未启用"

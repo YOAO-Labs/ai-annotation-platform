@@ -16,10 +16,10 @@ import pytest
 from PIL import Image
 from sqlalchemy import select, text
 
-from aap_assets_input_manifests import contract as c
-from aap_assets_input_manifests.client import ManifestClient
-from aap_assets_inputs import contract as inputs
-from aap_assets_inputs.client import InputClient
+from yoao_assets_input_manifests import contract as c
+from yoao_assets_input_manifests.client import ManifestClient
+from yoao_assets_inputs import contract as inputs
+from yoao_assets_inputs.client import InputClient
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.task import Task
@@ -54,8 +54,8 @@ def installed_runtime_processes(monkeypatch):
     def installed(command, environment, log_path):
         module = command[2] if command[1:2] == ["-m"] else None
         assert module in {
-            "aap_assets_media_runtime",
-            "aap_assets_images_runtime.worker",
+            "yoao_assets_media_runtime",
+            "yoao_assets_images_runtime.worker",
         }
         started.append(module)
         isolated_environment = {
@@ -69,7 +69,7 @@ def installed_runtime_processes(monkeypatch):
 
     monkeypatch.setattr(images, "_start_process", installed)
     yield
-    assert "aap_assets_media_runtime" in started
+    assert "yoao_assets_media_runtime" in started
 
 
 class _DropPreparedResponse(httpx.AsyncBaseTransport):

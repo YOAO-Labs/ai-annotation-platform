@@ -8,12 +8,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.annotation_prediction_contract import (
+from yoao_labeling.annotation_prediction_contract import (
     ANNOTATION_PREDICTION_PROTOCOL,
     AnnotationPredictionCommand,
     AnnotationPredictionUnavailable,
 )
-from aap_labeling.annotation_prediction_data import AnnotationPredictionDataClient
+from yoao_labeling.annotation_prediction_data import AnnotationPredictionDataClient
 from app.services.labeling_annotation_data import _native_error_fields
 from app.db.models.task import Task
 

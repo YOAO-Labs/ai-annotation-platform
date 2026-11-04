@@ -1,4 +1,4 @@
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 import uuid
 from datetime import datetime
 from typing import Literal

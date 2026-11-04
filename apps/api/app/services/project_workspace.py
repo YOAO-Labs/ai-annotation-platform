@@ -13,20 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_workspace.project_maintenance_contract import (
+from yoao_workspace.project_maintenance_contract import (
     decode_import_project_reference,
     decode_point_quality_config_write,
 )
-from aap_workspace.seed_project_contract import (
+from yoao_workspace.seed_project_contract import (
     decode_nuscenes_seed_defaults_write,
     decode_point_cloud_seed_project_created,
 )
-from aap_workspace_contract.project_lock import (
+from yoao_workspace_contract.project_lock import (
     ProjectLockUnavailable,
     decode_project_lock_reply,
 )
-from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
-from aap_workspace_contract.project_query_values import materialize_project_base_row
+from yoao_workspace_contract.project_query_contract import ProjectQueryUnavailable
+from yoao_workspace_contract.project_query_values import materialize_project_base_row
 from app.db.models.project import Project
 
 _LOCK_PROJECT_ROW = text(

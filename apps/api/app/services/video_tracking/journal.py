@@ -7,8 +7,8 @@ from tempfile import TemporaryFile
 
 from sqlalchemy import text
 
-from aap_preannotation_results import contract as c
-from aap_preannotation_results.video_execution_journal import (
+from yoao_preannotation_results import contract as c
+from yoao_preannotation_results.video_execution_journal import (
     BeginWindowRequest,
     CaptureWindowRequest,
     CloseSpanRequest,
@@ -24,8 +24,10 @@ from aap_preannotation_results.video_execution_journal import (
     decode_native_reply,
     request_bytes,
 )
-from aap_preannotation_results.video_execution_plan import VideoExecutionContractFailure
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_execution_plan import (
+    VideoExecutionContractFailure,
+)
+from yoao_preannotation_results.video_window_checkpoint import (
     decide_video_window_resume,
     require_video_window_replay_match,
     snapshot_video_window_checkpoint,

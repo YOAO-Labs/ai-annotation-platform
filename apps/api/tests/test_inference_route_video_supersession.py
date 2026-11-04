@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import (
+from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference_contract.routing import (
     RoutingBeginResult,
     RoutingRejectedResult,
     make_routing_command,

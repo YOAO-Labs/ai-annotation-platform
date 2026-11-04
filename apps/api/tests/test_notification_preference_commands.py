@@ -367,7 +367,7 @@ def test_notification_preference_catalog_cold_load_uses_only_stdlib():
 import importlib
 import sys
 sys.path.insert(0, sys.argv[1])
-importlib.import_module("aap_notifications.preferences_policy")
+importlib.import_module("yoao_notifications.preferences_policy")
 blocked = (
     "sqlalchemy",
     "fastapi",

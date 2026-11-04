@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
-from aap_labeling.e2e_fixture_contract import TaskBatchFixturePatch, TaskFixturePatch
+from yoao_labeling.e2e_fixture_contract import TaskBatchFixturePatch, TaskFixturePatch
 
 from app.services.workspace_e2e_fixtures import (
     create_fixture_project as _create_project,
@@ -1201,13 +1201,13 @@ async def _seed_lidar(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], prefix: str
 ) -> FilteringLidarManifest:
     from app.api.v1._test_seed import _make_test_pcd_frames
-    from aap_assets_catalog.spatial_contract import (
+    from yoao_assets_catalog.spatial_contract import (
         AssignItemsRequest,
         CreateSceneRequest,
         SceneAssignment,
         UpsertPosesRequest,
     )
-    from aap_assets_catalog.spatial_values import FramePose
+    from yoao_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.task_dataset_link import link_items
     from app.db.models.project_task_view import ProjectTaskView
@@ -1488,7 +1488,7 @@ async def _seed_operations(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any]
 ) -> FilteringOperationsManifest:
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-    from aap_identity.e2e_fixture_contract import FixtureInvitation
+    from yoao_identity.e2e_fixture_contract import FixtureInvitation
     from app.db.models.async_job import AsyncJob
     from app.db.models.bug_report import BugReport
     from app.middleware.request_id import request_id_var

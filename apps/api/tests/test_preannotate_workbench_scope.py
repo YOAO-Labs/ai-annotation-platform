@@ -118,7 +118,7 @@ def _mock_celery(monkeypatch, app_module):
                 uuid.uuid5(uuid.NAMESPACE_URL, f"{request.job_id}:{request.task_id}"),
             )
             if captured.pop("lose_admission_response", False):
-                from aap_assets_inputs.contract import InputFailure
+                from yoao_assets_inputs.contract import InputFailure
 
                 raise InputFailure("storage_unavailable")
             return type(

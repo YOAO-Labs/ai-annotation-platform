@@ -11,14 +11,14 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
-from aap_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_contract import DispatchLease
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
 from app.db.models.project import Project
-from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
+from yoao_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
@@ -38,7 +38,7 @@ from app.services.point_cloud_quality.config import (
 )
 from app.services.labeling_scene import resolve_task_scene_frames
 from app.services.labeling_scene import read_spatial_item_facts
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     GetSceneRequest,
     ReadPosesRequest,
     SpatialFailure,

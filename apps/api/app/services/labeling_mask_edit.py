@@ -11,19 +11,19 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.ai_mask_accept_contract import (
+from yoao_labeling.ai_mask_accept_contract import (
     AiMaskAcceptCommand,
     AiMaskAcceptUnavailable,
     LockAiMaskDecision,
 )
-from aap_labeling.ai_mask_accept_data import AiMaskAcceptDataClient
-from aap_labeling.mask_edit_contract import MaskEditCommand, MaskEditUnavailable
-from aap_labeling.mask_edit_data import MaskEditDataClient
-from aap_labeling.mask_revision_contract import (
+from yoao_labeling.ai_mask_accept_data import AiMaskAcceptDataClient
+from yoao_labeling.mask_edit_contract import MaskEditCommand, MaskEditUnavailable
+from yoao_labeling.mask_edit_data import MaskEditDataClient
+from yoao_labeling.mask_revision_contract import (
     MaskRevisionCommand,
     MaskRevisionUnavailable,
 )
-from aap_labeling.mask_revision_data import MaskRevisionDataClient
+from yoao_labeling.mask_revision_data import MaskRevisionDataClient
 from app.db.models.task import Task
 from app.services.labeling_annotation_data import _native_error_fields
 
@@ -72,7 +72,9 @@ async def _command(db: AsyncSession, sql: str, client_type, request, unavailable
                 status_code, response_detail = 409, {"reason": "mask_write_conflict"}
             raise MaskOwnerCommandError(status_code, response_detail) from exc
         if isinstance(request, LockAiMaskDecision) and sqlstate in {
-            "55P03", "40P01", "40001"
+            "55P03",
+            "40P01",
+            "40001",
         }:
             raise
         if sqlstate in {"55P03", "40P01", "40001"}:

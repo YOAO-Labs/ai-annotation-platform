@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     MAX_MASK_UPLOAD_KEYS_PER_COMMAND,
     ClaimRasterMaskUploads,
@@ -26,7 +26,7 @@ from aap_labeling.mask_edit_contract import (
     ReserveRasterMaskUpload,
 )
 
-from aap_assets_mask_content.contract import (
+from yoao_assets_mask_content.contract import (
     MaskContentFailure,
 )
 

@@ -5,7 +5,7 @@ import os
 import pytest
 from sqlalchemy import text
 
-from aap_assets_video_inputs import tracker as c
+from yoao_assets_video_inputs import tracker as c
 
 pytestmark = [
     pytest.mark.asyncio,

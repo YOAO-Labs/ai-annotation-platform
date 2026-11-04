@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.mask_edit_contract import (
     LockRasterMaskUploadTaskData,
     RasterMaskUploadRecord,
     ReserveRasterMaskUploadData,

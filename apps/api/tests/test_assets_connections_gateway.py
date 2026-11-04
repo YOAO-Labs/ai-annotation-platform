@@ -12,7 +12,7 @@ from fastapi import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.connections_contract import (
     CONNECTIONS_SCHEMA,
     ConnectionCursor,
     ConnectionMutation,

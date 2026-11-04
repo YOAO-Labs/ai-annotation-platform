@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
-from aap_preannotation_results.video_execution import VideoExecutionFailure
+from yoao_preannotation_results.video_execution import VideoExecutionFailure
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.video_tracking import execution, runner
 
@@ -1030,7 +1030,7 @@ async def test_video_route_intent_binds_approved_candidates_to_claim(
 ):
     import hashlib
 
-    from aap_inference_contract.routing import (
+    from yoao_inference_contract.routing import (
         make_routing_command,
         routing_command_bytes,
         routing_command_sha256,

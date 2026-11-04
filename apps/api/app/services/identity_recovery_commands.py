@@ -8,21 +8,21 @@ from typing import Protocol
 
 import httpx
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.recovery_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.recovery_contract import (
     RecoveryReply,
     RecoveryRequest,
     decode_recovery_reply,
 )
-from aap_identity.recovery_crypto import mail_encryption_id, mail_key_from_secret
-from aap_identity.recovery_manager import RecoveryManager
-from aap_identity.recovery_postgres import RecoveryPostgresData
-from aap_identity.registration_contract import (
+from yoao_identity.recovery_crypto import mail_encryption_id, mail_key_from_secret
+from yoao_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_postgres import RecoveryPostgresData
+from yoao_identity.registration_contract import (
     REGISTRATION_STATUS_PROTOCOL,
     RegistrationStatusRequest,
     decode_registration_status_reply,
 )
-from aap_identity.registration_reader import RegistrationStatusReader
+from yoao_identity.registration_reader import RegistrationStatusReader
 from app.config import settings
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import (

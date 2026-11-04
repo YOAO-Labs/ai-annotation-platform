@@ -13,10 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
-from aap_assets_images import contract as image_contract
-from aap_inference_contract.topology import to_record
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images.transport import (
+from yoao_assets_images import contract as image_contract
+from yoao_inference_contract.topology import to_record
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images.transport import (
     ImageAssetReferencesRequest,
     ImageGenerationReferenceRequest,
     ImageTileRequest,
@@ -35,7 +35,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 from app.services.identity_commands import IdentityCommandService
-from aap_assets_catalog.spatial_values import SensorCalibration
+from yoao_assets_catalog.spatial_values import SensorCalibration
 from app.services.ml_backend import MLBackendService
 from app.services.screenshot_seed_backends import (
     backend_requirement_issues,

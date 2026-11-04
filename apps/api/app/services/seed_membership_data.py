@@ -10,14 +10,14 @@ from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.exc import StaleDataError
 
-from aap_workspace.seed_member_contract import (
+from yoao_workspace.seed_member_contract import (
     SEED_MEMBER_PROTOCOL,
     SeedMemberInsert,
     SeedMemberUpdate,
     SeedMemberWriteRequest,
     decode_seed_member_write_reply,
 )
-from aap_workspace.seed_member_assignment_contract import (
+from yoao_workspace.seed_member_assignment_contract import (
     decode_seed_member_assignment_reply,
 )
 from app.db.models.project_member import ProjectMember

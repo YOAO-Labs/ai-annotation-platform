@@ -11,13 +11,13 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from aap_labeling.video_bbox_editing_contract import (
+from yoao_labeling.video_bbox_editing_contract import (
     VideoBBoxEditingCommand,
     VideoBBoxEditingRejected,
     VideoBBoxEditingUnavailable,
 )
-from aap_labeling.video_bbox_editing_data import VideoBBoxEditingDataClient
-from aap_labeling.video_bbox_editing_policy import (
+from yoao_labeling.video_bbox_editing_data import VideoBBoxEditingDataClient
+from yoao_labeling.video_bbox_editing_policy import (
     VideoBBoxAnnotationFacts,
     VideoBBoxTaskFacts,
     compose_video_tracks_command,

@@ -333,7 +333,7 @@ async def test_definite_avatar_rejection_retains_pending_receipt(
     app_module,
 ):
     """A definite owner rejection never deletes bytes whose commit is unknown."""
-    from aap_identity.account_contract import AccountFailure
+    from yoao_identity.account_contract import AccountFailure
     from app.api.v1.account_commands import get_account_commands
     from app.services.identity_account_commands import IdentityAccountCommands
     from app.services.identity_gateway import get_identity_gateway

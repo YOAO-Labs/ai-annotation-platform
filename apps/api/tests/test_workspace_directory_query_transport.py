@@ -10,7 +10,7 @@ from fastapi import HTTPException
 import httpx
 import pytest
 
-from aap_workspace.directory_query_contract import (
+from yoao_workspace.directory_query_contract import (
     DIRECTORY_QUERY_PROTOCOL,
     DirectoryQuerySuccess,
     decode_directory_query_request,

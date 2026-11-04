@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 
-from aap_inference import extract_capabilities
+from yoao_inference import extract_capabilities
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.inference_backend_control import (

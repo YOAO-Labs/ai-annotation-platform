@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.import_contract import (
+from yoao_assets_source.import_contract import (
     ImportAcceptance,
     ImportContext,
     ImportLimits,

@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from training_contract.dataset import DETECTION
-from aap_task_contract import (
+from yoao_task_contract import (
     VisualTask,
     legacy_training_task,
     normalize_task,

@@ -5,9 +5,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from aap_assets_source.upload_contract import validate_relative_file_name
+from yoao_assets_source.upload_contract import validate_relative_file_name
 
-from aap_assets_catalog.spatial_values import LidarAxisConvention
+from yoao_assets_catalog.spatial_values import LidarAxisConvention
 
 from app.schemas._jsonb_types import DatasetItemMetadata
 from app.schemas.dataset_source import AgentSourceStatus

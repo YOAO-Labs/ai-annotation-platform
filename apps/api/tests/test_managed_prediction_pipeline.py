@@ -13,8 +13,8 @@ import uuid
 from PIL import Image
 import pytest
 
-from aap_inference.execution_pipeline import _publish_crop_inputs
-from aap_inference.roi import RoIContentTooLarge, crop_inputs_from_boxes
+from yoao_inference.execution_pipeline import _publish_crop_inputs
+from yoao_inference.roi import RoIContentTooLarge, crop_inputs_from_boxes
 from app.application import preannotation_execution
 from app.db.models.task import Task
 
@@ -61,7 +61,7 @@ def test_deferred_crop_keeps_bytes_private_and_does_not_upload():
 
 
 def test_deferred_crop_enforces_encoded_limit_before_buffer_growth(monkeypatch):
-    monkeypatch.setattr("aap_inference.roi.MAX_CROP_BYTES", 32)
+    monkeypatch.setattr("yoao_inference.roi.MAX_CROP_BYTES", 32)
     with image() as source, pytest.raises(RoIContentTooLarge) as failure:
         crop_inputs_from_boxes(source, [box()], delivery="deferred")
     assert failure.value.code == "prediction_input_too_large"

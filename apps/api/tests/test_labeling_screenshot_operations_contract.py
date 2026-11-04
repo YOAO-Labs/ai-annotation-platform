@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from aap_labeling.screenshot_operations_contract import (
+from yoao_labeling.screenshot_operations_contract import (
     ResetSeedTasks,
     SCREENSHOT_OPERATIONS_FUNCTION,
     SCREENSHOT_OPERATIONS_PROTOCOL,
@@ -65,7 +65,7 @@ def test_screenshot_operation_protocol_is_closed_and_self_consistent():
 
     packaged_sql = (
         _ROOT
-        / "apps/labeling/src/aap_labeling/sql/0363_labeling_screenshot_operations.sql"
+        / "apps/labeling/src/yoao_labeling/sql/0363_labeling_screenshot_operations.sql"
     )
     migration_sql = (
         _ROOT / "apps/api/alembic/sql/0363_labeling_screenshot_operations.sql"
@@ -73,7 +73,7 @@ def test_screenshot_operation_protocol_is_closed_and_self_consistent():
     assert migration_sql.read_bytes() == packaged_sql.read_bytes()
     schema = json.loads(
         (
-            _ROOT / "apps/labeling/src/aap_labeling/screenshot-operations.schema.json"
+            _ROOT / "apps/labeling/src/yoao_labeling/screenshot-operations.schema.json"
         ).read_text(encoding="utf-8")
     )
     assert schema["$id"] == SCREENSHOT_OPERATIONS_PROTOCOL
@@ -81,7 +81,7 @@ def test_screenshot_operation_protocol_is_closed_and_self_consistent():
     assert (
         _ROOT / "apps/api/alembic/sql/0363_labeling_screenshot_operations.schema.json"
     ).read_bytes() == (
-        _ROOT / "apps/labeling/src/aap_labeling/screenshot-operations.schema.json"
+        _ROOT / "apps/labeling/src/yoao_labeling/screenshot-operations.schema.json"
     ).read_bytes()
     assert (
         schema["x-postgresql-functions"][SCREENSHOT_OPERATIONS_FUNCTION]["returns"]

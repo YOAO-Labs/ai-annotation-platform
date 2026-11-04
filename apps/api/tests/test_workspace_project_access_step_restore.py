@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import delete, text, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_workspace_contract.member_values import decode_project_member_rows
-from aap_workspace_contract.project_query_values import decode_project_row
+from yoao_workspace_contract.member_values import decode_project_member_rows
+from yoao_workspace_contract.project_query_values import decode_project_row
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres

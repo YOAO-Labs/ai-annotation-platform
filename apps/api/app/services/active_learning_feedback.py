@@ -133,7 +133,7 @@ async def evaluation_facts(db, project, round, references):
         attempt = await db.get(EvaluationAttempt, ref.attempt_id)
         if not attempt or attempt.run_id != run.id:
             raise rounds.reject("attempt_missing", "后续评估执行尝试不存在", 404)
-        from aap_task_contract import normalize_task
+        from yoao_task_contract import normalize_task
 
         if normalize_task(
             run.spec["model_ref"].get("task", "detect")

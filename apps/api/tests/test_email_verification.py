@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.recovery_crypto import token_hash
+from yoao_identity.recovery_crypto import token_hash
 from app.config import settings
 from app.db.models.email_verification_token import EmailVerificationToken
 from app.db.models.user import User

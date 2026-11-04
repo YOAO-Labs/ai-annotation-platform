@@ -27,11 +27,11 @@ from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.user import User
-from aap_inference.gpu.contracts import (
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
-from aap_inference_contract.topology import PoolFacts
+from yoao_inference_contract.topology import PoolFacts
 from app.services.inference_topology_data import InferenceTopologyData
 from app.services.ml_backend import MLBackendDeleteBlocked, MLBackendService
 from app.services.ml_routing.contracts import RoutingCandidate, TrafficState
@@ -1851,8 +1851,8 @@ async def test_manager_to_public_gpu_readiness(
     monkeypatch, state, enabled, observed_ready, domain_matches, expected, code
 ):
     from unittest.mock import AsyncMock
-    from aap_inference.gpu.manager import GPUAuthorityManager
-    from aap_inference.gpu.settings import (
+    from yoao_inference.gpu.manager import GPUAuthorityManager
+    from yoao_inference.gpu.settings import (
         GPUArbiterMode as Mode,
         GPUAuthoritySettings,
         GPUResourceSettings,
@@ -1993,8 +1993,8 @@ async def test_manager_to_public_gpu_readiness(
 
 
 async def test_manager_retired_plugin_diagnostics_are_validated_and_claim_sensitive():
-    from aap_inference.gpu.manager import GPUAuthorityManager
-    from aap_inference.gpu.settings import GPUArbiterMode as Mode, GPUAuthoritySettings
+    from yoao_inference.gpu.manager import GPUAuthorityManager
+    from yoao_inference.gpu.settings import GPUArbiterMode as Mode, GPUAuthoritySettings
 
     manifest = {
         "plugin_id": "libreyolo",

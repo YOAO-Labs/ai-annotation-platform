@@ -15,7 +15,7 @@ from sqlalchemy import event, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import aliased
 
-from aap_workspace_contract.member_values import (
+from yoao_workspace_contract.member_values import (
     PROJECT_MEMBER_COLUMNS,
 )
 from app.db.models.project_member import ProjectMember

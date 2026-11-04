@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.account_lock_contract import (
+from yoao_identity.account_lock_contract import (
     ACCOUNT_LOCK_PROTOCOL,
     ACCEPTED_API_KEY_PROTOCOL,
     AcceptedApiKeyRequest,
@@ -19,7 +19,7 @@ from aap_identity.account_lock_contract import (
     AccountLockRequest,
     decode_account_lock_reply,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from app.services.identity_contracts import (
     AcceptedApiKeyFacts,
     IdentityActorFacts,

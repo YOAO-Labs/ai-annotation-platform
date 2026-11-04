@@ -10,11 +10,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_video_inputs import evidence as e
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import values as v
-from aap_assets_video_inputs.client import VideoInputClient
-from aap_assets_video_inputs.http_contract import require_scope
+from yoao_assets_video_inputs import evidence as e
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import values as v
+from yoao_assets_video_inputs.client import VideoInputClient
+from yoao_assets_video_inputs.http_contract import require_scope
 from app.config import settings
 
 
@@ -234,12 +234,12 @@ async def video_input_gateway(*, session_factory=None):
             yield VideoInputGateway(client)
         return
 
-    from aap_assets_video_inputs_runtime.control import VideoInputControl
-    from aap_assets_video_inputs_runtime.storage import (
+    from yoao_assets_video_inputs_runtime.control import VideoInputControl
+    from yoao_assets_video_inputs_runtime.storage import (
         S3VideoInputStorage,
         VideoSourceStorage,
     )
-    from aap_assets_video_inputs_runtime.worker import VideoInputExecutor
+    from yoao_assets_video_inputs_runtime.worker import VideoInputExecutor
     from app.services.assets_images import image_policy, image_storage
 
     async with AsyncExitStack() as resources:

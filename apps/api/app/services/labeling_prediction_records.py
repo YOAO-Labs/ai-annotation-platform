@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.prediction_record_contract import (
+from yoao_labeling.prediction_record_contract import (
     DeletePredictionData,
     DeletePredictionsForBatch,
     DeletePredictionsForTasks,
@@ -33,7 +33,7 @@ from aap_labeling.prediction_record_contract import (
     RestoreFailedPrediction,
     PREDICTION_RECORDS_PROTOCOL,
 )
-from aap_labeling.prediction_record_data import PredictionRecordDataClient
+from yoao_labeling.prediction_record_data import PredictionRecordDataClient
 
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 

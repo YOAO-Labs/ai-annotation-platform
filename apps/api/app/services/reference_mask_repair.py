@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
 
-from aap_inference_contract.topology import to_record
+from yoao_inference_contract.topology import to_record
 from sqlalchemy import select
 
 from app.services.content_snapshot import ContentError

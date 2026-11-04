@@ -22,7 +22,7 @@ _FIXTURE_DELETES = (_JOBS_DELETE, _LABELING_DELETE)
 def test_labeling_fixture_cleanup_resources_match_the_frozen_migration():
     root = Path(__file__).resolve().parents[3]
     migration = root / "apps/api/alembic/sql/0358_labeling_fixture_cleanup"
-    resource = files("aap_labeling")
+    resource = files("yoao_labeling")
     sql = resource.joinpath("sql/0358_labeling_fixture_cleanup.sql").read_text(
         encoding="utf-8"
     )

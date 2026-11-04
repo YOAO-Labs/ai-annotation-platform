@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deactivation_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deactivation_contract import (
     decode_native_deactivation_command,
     decode_native_deactivation_reply,
     decode_deactivation_due_request,

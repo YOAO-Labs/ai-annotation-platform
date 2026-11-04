@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.probe import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.probe import (
     BackendProbeLegacyFailure,
     BackendProbeUnavailable,
 )

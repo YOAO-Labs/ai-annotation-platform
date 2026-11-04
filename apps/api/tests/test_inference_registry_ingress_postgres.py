@@ -10,11 +10,11 @@ import asyncpg
 import pytest
 from sqlalchemy.engine import make_url
 
-from aap_inference.registry_ingress import sync_environment
-from aap_inference.registry_ingress_postgres import RegistryIngressPostgresData
-from aap_inference.health_data_postgres import HealthDataUnavailable
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference.registry_ingress import sync_environment
+from yoao_inference.registry_ingress_postgres import RegistryIngressPostgresData
+from yoao_inference.health_data_postgres import HealthDataUnavailable
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     make_registry_env_sync_request,
     registry_env_sync_command_sha256,
 )

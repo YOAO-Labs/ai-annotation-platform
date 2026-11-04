@@ -10,7 +10,7 @@ from fastapi import FastAPI
 import httpx
 import pytest
 
-from aap_identity.registration_contract import REGISTRATION_STATUS_PROTOCOL
+from yoao_identity.registration_contract import REGISTRATION_STATUS_PROTOCOL
 from app.api.v1 import auth
 from app.api.v1.recovery_commands import get_recovery_commands
 from app.config import settings

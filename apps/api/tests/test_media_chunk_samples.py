@@ -1,7 +1,7 @@
 import base64
 import struct
 
-from aap_media_probe.probe import parse_ffprobe_packet_samples
+from yoao_media_probe.probe import parse_ffprobe_packet_samples
 from app.workers.media_codec import (
     _avc_codec_string,
     _extract_decoder_config,

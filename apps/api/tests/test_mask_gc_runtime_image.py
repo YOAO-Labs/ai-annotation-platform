@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from aap_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc import contract as c
 from app.config import settings
 from app.services import mask_gc_collection as collection
 from tests.test_assets_media_containers import _memory_peak
@@ -174,9 +174,9 @@ async def test_installed_gc_progresses_past_retained_prefix_with_independent_bud
                 "-c",
                 (
                     "import importlib.util,json,os,sys; from pathlib import Path; "
-                    "import aap_labeling_mask_gc,aap_labeling_mask_gc_runtime; "
+                    "import yoao_labeling_mask_gc,yoao_labeling_mask_gc_runtime; "
                     "assert os.getuid()==10003; "
-                    "assert Path(aap_labeling_mask_gc.__file__).is_relative_to(sys.prefix); "
+                    "assert Path(yoao_labeling_mask_gc.__file__).is_relative_to(sys.prefix); "
                     "assert not Path('/app').exists(); "
                     "assert all(importlib.util.find_spec(m) is None for m in "
                     "('app','sqlalchemy','celery','redis','boto3')); "

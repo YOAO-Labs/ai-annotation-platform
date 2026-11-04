@@ -10,8 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_workspace.contract import MembershipUnavailable
-from aap_workspace.postgres import MembershipPostgresData
+from yoao_workspace.contract import MembershipUnavailable
+from yoao_workspace.postgres import MembershipPostgresData
 from app.config import settings
 
 pytestmark = [

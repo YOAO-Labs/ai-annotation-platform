@@ -33,11 +33,11 @@ from app.services.identity_commands import IdentityCommandService  # noqa: E402
 from app.services.prediction import PredictionService  # noqa: E402
 from app.workers.celery_app import celery_app  # noqa: E402
 from scripts.cleanup_screenshot_ocr_flow import assert_screenshot_scope  # noqa: E402
-from aap_labeling.screenshot_operations_contract import (  # noqa: E402
+from yoao_labeling.screenshot_operations_contract import (  # noqa: E402
     CleanupRecoveryRows,
     SCREENSHOT_OPERATIONS_PROTOCOL,
 )
-from aap_labeling.prediction_record_contract import (  # noqa: E402
+from yoao_labeling.prediction_record_contract import (  # noqa: E402
     DeletePredictionData,
     PredictionIdentity,
 )

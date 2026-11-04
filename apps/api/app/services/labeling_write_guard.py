@@ -9,13 +9,13 @@ from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_video_inputs.evidence import VideoEvidenceFailure, VideoInputEvidence
-from aap_assets_video_inputs.execution import (
+from yoao_assets_video_inputs.evidence import VideoEvidenceFailure, VideoInputEvidence
+from yoao_assets_video_inputs.execution import (
     FrozenFramePlan,
     LockVideoInputRequest,
     VideoInputFailure,
 )
-from aap_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
+from yoao_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
 
 from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.db.models.async_job import AsyncJobKind
@@ -30,7 +30,7 @@ from app.services.labeling_write_scope import (
     LabelingWriteOperation,
     LabelingWriteScope,
 )
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.project_access import lock_current_project_access
 from app.services.task_lock import TaskLockService
 from app.services.labeling_core_read_relations import (
@@ -57,7 +57,7 @@ async def _lock_accepted_input_source(
     expected_job_id: uuid.UUID | None = None,
 ) -> None:
     """Run the source-only native fence inside this Labeling transaction."""
-    from aap_assets_inputs.contract import InputFailure
+    from yoao_assets_inputs.contract import InputFailure
 
     from app.services.accepted_inputs import lock_input_source
 

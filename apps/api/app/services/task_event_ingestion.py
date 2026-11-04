@@ -21,10 +21,10 @@ from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.schemas.task_event import TaskEventIn
-from aap_workspace_contract.access import ProjectCapability
+from yoao_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
-from aap_labeling.discussion_contract import (
+from yoao_labeling.discussion_contract import (
     TASK_EVENT_PROTOCOL,
     InsertTaskEvents,
     ReadTaskEvents,

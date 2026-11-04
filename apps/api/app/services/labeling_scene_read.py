@@ -6,13 +6,13 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.scene_read_contract import (
+from yoao_labeling.scene_read_contract import (
     SCENE_READ_FUNCTION,
     SceneReadData,
     SceneReadUnavailable,
     scene_read_request,
 )
-from aap_labeling.scene_read_data import SceneReadDataClient
+from yoao_labeling.scene_read_data import SceneReadDataClient
 
 
 _SCENE_READ_STEP = text(

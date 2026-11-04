@@ -10,8 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.directory_postgres import DirectoryPostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.directory_postgres import DirectoryPostgresData
 from app.config import settings
 
 

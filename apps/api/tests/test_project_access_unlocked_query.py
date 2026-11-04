@@ -7,8 +7,8 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from aap_workspace_contract.member_values import PROJECT_MEMBER_COLUMNS
-from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from yoao_workspace_contract.member_values import PROJECT_MEMBER_COLUMNS
+from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.services import project_access

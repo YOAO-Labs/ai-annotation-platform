@@ -18,7 +18,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
-from aap_workspace.mask_configuration_values import MaskQCConfig
+from yoao_workspace.mask_configuration_values import MaskQCConfig
 from app.db.models.raster_mask_object import (
     RasterMaskObject as Object,
     RasterMaskPublication as Publication,

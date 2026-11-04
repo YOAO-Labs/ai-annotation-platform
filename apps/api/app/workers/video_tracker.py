@@ -10,7 +10,7 @@ from app.services.project_access import get_workspace_project
 from app.db.models.video_tracker_job import VideoTrackerJobKind, VideoTrackerJobStatus
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
-from aap_inference.gpu.contracts import gpu_arbiter_failure_record
+from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
 from app.services.accepted_tracker_inputs import TrackerInputDeferred
 from app.services.video_tracking.execution import (
     TrackerExecutionDeferred,
@@ -19,7 +19,7 @@ from app.services.video_tracking.execution import (
 )
 from app.services.video_tracking.control import video_control_command, video_control_job
 from app.services.labeling_core_read_relations import get_core_row, task_row
-from aap_labeling.video_control_contract import LockWorkerJob, ReadWorkerJob
+from yoao_labeling.video_control_contract import LockWorkerJob, ReadWorkerJob
 from app.services.video_tracking.runner import run_tracker_job
 from app.workers.celery_app import celery_app
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from aap_inference_contract.client import BackendProbeHttpClient
-from aap_inference_contract.probe import BackendProbeUnavailable
-from aap_workspace.config import secret_source
+from yoao_inference_contract.client import BackendProbeHttpClient
+from yoao_inference_contract.probe import BackendProbeUnavailable
+from yoao_workspace.config import secret_source
 
 from app.config import settings
 

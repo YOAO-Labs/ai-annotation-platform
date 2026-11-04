@@ -12,11 +12,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.connections_contract import (
     CONNECTION_NATIVE_SIGNATURES,
     RUNTIME_NATIVE_SIGNATURES,
 )
-from aap_assets_source_runtime.database import ROLE_PREFLIGHT_SQL
+from yoao_assets_source_runtime.database import ROLE_PREFLIGHT_SQL
 from tests.test_asset_storage_cleanup_runtime import _required_env, _verify_postgres
 from tests.test_assets_catalog_native import _seed_actor
 

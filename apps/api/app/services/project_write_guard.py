@@ -37,7 +37,7 @@ from app.services.project_access import (
     restore_project_write_policy_failure,
 )
 from app.services.workspace_member_locks import lock_project_member_reference
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,
 )

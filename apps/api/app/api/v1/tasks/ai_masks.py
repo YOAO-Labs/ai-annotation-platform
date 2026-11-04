@@ -12,7 +12,7 @@ from app.api.v1.tasks._shared import (
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.ai_mask_accept import AiMaskAcceptError, accept_ai_mask_candidate
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import content_http_error

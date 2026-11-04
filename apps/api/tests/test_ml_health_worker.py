@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     ManagedLifecycleCapabilities,
     managed_lifecycle_capability_sha256,
 )
@@ -28,7 +28,7 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.inference_gpu_data import bind_gpu_authority_data
 from app.services.inference_health_data import InferenceHealthData
 from app.services.ml_backend import MLBackendService
-from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
 
 
 async def _make_backend(db: AsyncSession, url: str = "http://example/"):

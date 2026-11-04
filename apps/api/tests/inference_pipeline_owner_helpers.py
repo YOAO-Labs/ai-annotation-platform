@@ -87,7 +87,7 @@ async def _http_owner(test_engine, tmp_path, *, database: str | None, token: str
 
         owner = await asyncio.to_thread(
             _start,
-            [str(interpreter), "-I", "-m", "aap_inference"],
+            [str(interpreter), "-I", "-m", "yoao_inference"],
             environment,
             directory,
             log_path,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from aap_identity.contract import Principal
-from aap_identity.platform_role_contract import (
+from yoao_identity.contract import Principal
+from yoao_identity.platform_role_contract import (
     PlatformRoleFailure,
     decode_platform_role_request,
 )

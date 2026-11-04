@@ -116,7 +116,7 @@ def _verify_image(image_ref: str, expected_identity: str) -> dict:
     assert labels.get("org.aap.acceptance-id") == expected_identity
     assert labels.get("org.aap.source-revision") == _SOURCE_REVISION
     assert config.get("User") == "10004:10004"
-    assert config.get("Cmd") == ["python", "-m", "aap_workspace"]
+    assert config.get("Cmd") == ["python", "-m", "yoao_workspace"]
     assert config.get("Entrypoint") in (None, [])
     image_id = image.get("Id")
     assert isinstance(image_id, str) and image_id.startswith("sha256:")
@@ -177,7 +177,7 @@ def _verify_container(
     assert labels.get("org.aap.acceptance") == _CONTAINER_ACCEPTANCE
     assert labels.get("org.aap.acceptance-id") == container_identity
     assert config.get("User") == "10004:10004"
-    assert config.get("Cmd") == ["python", "-m", "aap_workspace"]
+    assert config.get("Cmd") == ["python", "-m", "yoao_workspace"]
     assert config.get("Entrypoint") in (None, [])
     assert host.get("NetworkMode") == network_name
     assert host.get("ReadonlyRootfs") is True

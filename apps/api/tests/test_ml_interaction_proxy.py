@@ -5,7 +5,7 @@ import pytest
 import uuid
 from copy import deepcopy
 from types import SimpleNamespace
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,
@@ -14,7 +14,7 @@ from aap_protocol_v2 import (
 )
 from fastapi import HTTPException
 
-from aap_inference.backend_transport import bounded_stream_response
+from yoao_inference.backend_transport import bounded_stream_response
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
@@ -422,7 +422,7 @@ def test_native_companion_boxes_are_negotiated_by_platform(output_geometry) -> N
 def test_native_exemplar_both_signs_only_masks_at_original_indices(frame_index) -> None:
     from app.api.v1.ml_backends import _interactive_response
     from app.services.ai_mask_receipt import verify_ai_mask_receipt
-    from aap_inference.backend_transport import PredictionResult
+    from yoao_inference.backend_transport import PredictionResult
 
     raw = _native_pairs("revision")
     task_id, backend_id = uuid.uuid4(), uuid.uuid4()

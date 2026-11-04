@@ -379,7 +379,7 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
 async def test_restricted_operator_pages_large_sources_and_rolls_back_oversized_patch(
     test_engine,
 ):
-    from aap_assets_source.operator_contract import (
+    from yoao_assets_source.operator_contract import (
         OPERATOR_PAGE_BYTES,
         OPERATOR_REPLY_BYTES,
         CreateOperatorImageDatasetRequest,

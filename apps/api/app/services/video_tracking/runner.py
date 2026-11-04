@@ -14,15 +14,15 @@ from types import SimpleNamespace
 
 import redis.asyncio as aioredis
 from fastapi import HTTPException
-from aap_protocol_v2 import CorrectionFramePrompt
-from aap_preannotation_results import contract as video_contract
-from aap_preannotation_results.video_execution import ExecutionSettled
-from aap_preannotation_results.video_execution_plan import VideoContinuationPostState
-from aap_preannotation_results.video_execution_planner import (
+from yoao_protocol_v2 import CorrectionFramePrompt
+from yoao_preannotation_results import contract as video_contract
+from yoao_preannotation_results.video_execution import ExecutionSettled
+from yoao_preannotation_results.video_execution_plan import VideoContinuationPostState
+from yoao_preannotation_results.video_execution_planner import (
     build_video_execution_plan,
     freeze_video_window_settings,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
 )
 from sqlalchemy import inspect
@@ -31,14 +31,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.util import identity_key
 from training_contract.observability import redact_text
 
-from aap_inference.tracker import TrackerFrameResult, TrackerSessionState
-from aap_inference_contract.execution import ModelExecutionError, thaw_json
-from aap_inference.gpu.contracts import (
+from yoao_inference.tracker import TrackerFrameResult, TrackerSessionState
+from yoao_inference_contract.execution import ModelExecutionError, thaw_json
+from yoao_inference.gpu.contracts import (
     GPUArbiterErrorCode,
     gpu_arbiter_failure_record,
 )
-from aap_assets_video_inputs import tracker as tracker_inputs
-from aap_assets_video_inputs.tracker import TrackerFailure
+from yoao_assets_video_inputs import tracker as tracker_inputs
+from yoao_assets_video_inputs.tracker import TrackerFailure
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
@@ -48,7 +48,7 @@ from app.db.models.video_tracker_job import (
     VideoTrackerJobStatus,
 )
 from app.schemas.video_tracker_job import VideoTrackerJobOut
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     ApplyReview,
     CheckReviewScopes,
     LockReviewAnnotations,
@@ -220,7 +220,7 @@ async def publish_tracker_event(channel: str, payload: dict) -> None:
 
 async def _renew_tracker_route(router, lease, job_id: uuid.UUID) -> bool:
     """Retry liveness updates without turning contention into tracker failure."""
-    from aap_inference_contract.routing import RoutingUnavailable
+    from yoao_inference_contract.routing import RoutingUnavailable
     from app.services.ml_routing.authority import RoutingRejected
 
     while True:
@@ -3628,7 +3628,7 @@ async def _run_tracker_job_claimed(
         # v0.23.3 ADR-0050 §11 · 取得 job-scope route lease (enforce) / 记录 would-select
         # (observe)。tracker 整 job pin 一个实例, lease 周期 heartbeat 续命 (不能中途换实例)。
         if backend is not None:
-            from aap_inference_contract.plugin_assets import (
+            from yoao_inference_contract.plugin_assets import (
                 plugin_asset_reason,
                 resolve_plugin_selection,
             )
@@ -3834,7 +3834,7 @@ async def _run_tracker_job_claimed(
             and tracker_lease.scope is not None
         ):
             await db.commit()
-            from aap_inference_contract.routing import RoutingUnavailable
+            from yoao_inference_contract.routing import RoutingUnavailable
 
             try:
                 runtime_snapshot = await tracker_router.authority.runtime_snapshot(

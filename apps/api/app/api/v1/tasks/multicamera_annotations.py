@@ -35,13 +35,13 @@ from app.services.multicamera_annotation import (
     restore_camera_member,
     update_camera_member,
 )
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     ReadCameraTargetRequest,
     UpdateCalibrationRequest,
 )
-from aap_audit_contract import ProjectDeletionAuditContext
+from yoao_audit_contract import ProjectDeletionAuditContext
 from app.middleware.request_id import request_id_var
 from app.services.audit import audit_origin_from_request
 from app.services.project_access import get_workspace_project

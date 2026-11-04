@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images.policy import ImagePolicy
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 from tests.test_assets_images_execution import (

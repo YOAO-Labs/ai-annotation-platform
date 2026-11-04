@@ -12,7 +12,7 @@ async def test_materialized_view_only_contains_completed_utc_days(
 ):
     from contextlib import asynccontextmanager
 
-    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+    from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
     from app.workers import cleanup
 
     now = datetime.now(timezone.utc)
@@ -97,7 +97,7 @@ async def test_daily_projection_preserves_materialized_view_native_types(db_sess
 
 
 async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
-    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+    from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
     from app.api.v1.audit_logs import _load_monthly_summary_rows
 
     now = datetime.now(timezone.utc)
@@ -175,7 +175,7 @@ async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
 async def test_monthly_summary_merges_dimensions_and_business_scope(
     httpx_client, db_session, auth_headers
 ):
-    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+    from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
     today = datetime.now(timezone.utc).date()
     month_index = today.year * 12 + today.month - 1 + 2

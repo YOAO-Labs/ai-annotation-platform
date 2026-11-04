@@ -25,9 +25,9 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_video_inputs.client import VideoInputClient
-from aap_assets_video_inputs.execution import VideoFrameRequest
-from aap_assets_video_inputs.evidence import (
+from yoao_assets_video_inputs.client import VideoInputClient
+from yoao_assets_video_inputs.execution import VideoFrameRequest
+from yoao_assets_video_inputs.evidence import (
     VideoInputEvidence,
     parse_prediction_evidence,
 )
@@ -1279,7 +1279,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             identity=identity,
             environment_file=control_env,
             entrypoint="python",
-            command=["-m", "aap_assets_media_runtime"],
+            command=["-m", "yoao_assets_media_runtime"],
             user="10005:10005",
             cpus="0.25",
             memory="384m",
@@ -1323,7 +1323,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             identity=identity,
             environment_file=worker_env,
             entrypoint="python",
-            command=["-m", "aap_assets_media_runtime.worker"],
+            command=["-m", "yoao_assets_media_runtime.worker"],
             user="10005:10005",
             cpus="0.75",
             memory="768m",

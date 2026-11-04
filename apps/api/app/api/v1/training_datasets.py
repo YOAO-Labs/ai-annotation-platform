@@ -41,7 +41,7 @@ from app.services.training_list_filters import (
     created_date_bounds,
     literal_search_pattern,
 )
-from aap_task_contract import VisualTask
+from yoao_task_contract import VisualTask
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest

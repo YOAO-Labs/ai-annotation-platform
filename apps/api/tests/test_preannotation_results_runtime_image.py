@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.engine import make_url
 
-from aap_preannotation_results import contract as c
+from yoao_preannotation_results import contract as c
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_batch_result_consumers_native import _ready, _world
 
@@ -107,9 +107,9 @@ async def test_installed_read_only_runtime_claims_and_reads_the_saved_bundle(
             "-c",
             (
                 "import importlib.util,json,os,sys; from pathlib import Path; "
-                "import aap_preannotation_results, aap_preannotation_results_runtime; "
+                "import yoao_preannotation_results, yoao_preannotation_results_runtime; "
                 "assert os.getuid()==10004; "
-                "assert Path(aap_preannotation_results.__file__).is_relative_to(sys.prefix); "
+                "assert Path(yoao_preannotation_results.__file__).is_relative_to(sys.prefix); "
                 "assert not Path('/app').exists(); "
                 "assert all(importlib.util.find_spec(m) is None for m in "
                 "('app','sqlalchemy','celery','redis','boto3')); "
@@ -193,7 +193,7 @@ async def test_installed_read_only_runtime_claims_and_reads_the_saved_bundle(
 async def test_installed_retry_cli_reads_and_publishes_with_only_executor_capabilities(
     test_engine, tmp_path
 ):
-    from aap_preannotation_results import retry_contract as retry
+    from yoao_preannotation_results import retry_contract as retry
     from tests.test_prediction_retries_native import _world as retry_world
 
     image = os.environ["AAP_PREANNOTATION_RESULT_RUNTIME_IMAGE"]

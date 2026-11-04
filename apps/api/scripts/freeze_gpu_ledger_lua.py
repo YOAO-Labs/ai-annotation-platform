@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from aap_inference.gpu.ledger import scripts as lua_sources
+    from yoao_inference.gpu.ledger import scripts as lua_sources
 
     rows = compute_digest(lua_sources)
 

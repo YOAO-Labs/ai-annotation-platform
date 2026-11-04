@@ -15,7 +15,7 @@ import uuid
 
 import pytest
 
-from aap_inference import extract_capabilities
+from yoao_inference import extract_capabilities
 from app.services.ml_backend import MLBackendService
 from tests.factory import create_project
 

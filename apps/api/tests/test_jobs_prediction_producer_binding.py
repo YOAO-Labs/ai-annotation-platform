@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_jobs.queue_contract import JobsQueueUnavailable
+from yoao_jobs.queue_contract import JobsQueueUnavailable
 from app import deps
 from app.application.preannotation_contract import BatchPredictionRequest
 from app.config import Settings

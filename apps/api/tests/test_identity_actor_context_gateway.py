@@ -14,8 +14,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.actor_contract import ActorContext, actor_failure_reply, actor_reply
-from aap_identity.contract import Principal
+from yoao_identity.actor_contract import ActorContext, actor_failure_reply, actor_reply
+from yoao_identity.contract import Principal
 from app.db.models.user import User
 from app.deps import get_current_principal, get_current_user, get_db
 from app.services.identity_contracts import (

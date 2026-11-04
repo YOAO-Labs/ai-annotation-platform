@@ -8,14 +8,14 @@ import uuid
 from fastapi import HTTPException
 import httpx
 
-from aap_workspace.config import secret_source
-from aap_workspace.contract import (
+from yoao_workspace.config import secret_source
+from yoao_workspace.contract import (
     MembershipUnavailable,
     decode_membership_reply,
     decode_membership_request,
 )
-from aap_workspace.manager import MembershipManager
-from aap_workspace.postgres import MembershipPostgresData
+from yoao_workspace.manager import MembershipManager
+from yoao_workspace.postgres import MembershipPostgresData
 from app.config import settings
 from app.middleware.request_id import request_id_var
 from app.services.workspace_membership_data import WorkspaceMembershipData

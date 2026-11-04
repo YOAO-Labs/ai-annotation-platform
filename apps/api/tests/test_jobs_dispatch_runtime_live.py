@@ -26,7 +26,7 @@ import redis
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
-from aap_jobs.dispatch_postgres import JobsDispatchPostgres
+from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
 from app.application.preannotation_contract import (
     FramePreannotationDispatchRequest,
     VideoFrameTaskPlan,
@@ -201,9 +201,9 @@ class _SecondPublicationGate:
 _PUBLISHER = r"""
 import asyncio, json, os
 from pathlib import Path
-from aap_jobs.dispatch_contract import DispatchLease
-from aap_jobs.dispatch_postgres import JobsDispatchPostgres
-from aap_jobs.queue_client import JobsQueueClient
+from yoao_jobs.dispatch_contract import DispatchLease
+from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
+from yoao_jobs.queue_client import JobsQueueClient
 async def main():
     lease = DispatchLease.model_validate_json(Path(os.environ['LEASE_FILE']).read_text())
     token = Path(os.environ['TOKEN_FILE']).read_text()
@@ -235,7 +235,7 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
     assert binary.is_absolute()
     assert all(
         (binary / name).is_file()
-        for name in ("python", "aap-jobs-queue", "aap-jobs-dispatch-relay")
+        for name in ("python", "yoao-jobs-queue", "yoao-jobs-dispatch-relay")
     )
     world = frame_world
     _install_video_gateway(monkeypatch, world)
@@ -324,7 +324,7 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
             hide_password=False
         )
         async with _queue(
-            binary / "aap-jobs-queue",
+            binary / "yoao-jobs-queue",
             directory=tmp_path,
             environment=environment,
             broker=proxied,
@@ -371,7 +371,7 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
         before = await observer.client.status(lease.intent_id)
         assert before.state == "leased" and before.generation == 1
         async with _queue(
-            binary / "aap-jobs-queue",
+            binary / "yoao-jobs-queue",
             directory=tmp_path,
             environment=environment,
             broker=broker_url,
@@ -386,7 +386,7 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
                 "JOBS_QUEUE_TOKEN_FILE": token_file,
             }
             async with _child(
-                [str(binary / "aap-jobs-dispatch-relay")],
+                [str(binary / "yoao-jobs-dispatch-relay")],
                 environment=relay_env,
                 directory=tmp_path,
                 name="relay",

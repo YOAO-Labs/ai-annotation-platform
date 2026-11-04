@@ -217,7 +217,7 @@ async def provider_url(
             try:
                 owner = await asyncio.to_thread(
                     _start,
-                    [sys.executable, "-m", "aap_workspace"],
+                    [sys.executable, "-m", "yoao_workspace"],
                     environment,
                     directory,
                     directory / "workspace-owner.log",

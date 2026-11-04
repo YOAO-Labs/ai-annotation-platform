@@ -12,8 +12,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.models.dataset import Dataset
-from aap_assets_catalog.spatial_values import FramePose
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_values import FramePose
+from yoao_assets_catalog.spatial_contract import (
     CreateSceneRequest,
     ReadPosesRequest,
     UpsertPosesRequest,

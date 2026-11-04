@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_catalog.spatial_values import SensorCalibration
+from yoao_assets_catalog.spatial_values import SensorCalibration
 
-from aap_workspace.configuration_values import (
+from yoao_workspace.configuration_values import (
     AttributeField,
     AttributeSchema,
     ClassConfigEntry,
@@ -796,7 +796,7 @@ def test_dataset_item_metadata_empty_calibration_none():
 
 
 def test_map_retired_tool_unit_by_geometry():
-    from aap_workspace.configuration_values import map_retired_tool_unit
+    from yoao_workspace.configuration_values import map_retired_tool_unit
 
     for gtype in (
         "polygon",

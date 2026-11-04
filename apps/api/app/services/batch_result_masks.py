@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from aap_protocol_v2 import NativeMaskCandidate
+from yoao_protocol_v2 import NativeMaskCandidate
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -10,9 +10,9 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.engine import make_url
 
-from aap_inference.registry_ingress_manager import RegistryEnvSyncManager
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference.registry_ingress_manager import RegistryEnvSyncManager
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     make_registry_env_sync_request,
     registry_env_sync_command_sha256,
     registry_env_sync_status_request,

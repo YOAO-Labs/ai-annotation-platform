@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import uuid
 from typing import Sequence
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     BATCH_SIZE,
     BackfillRequest,
     BackfillSelection,

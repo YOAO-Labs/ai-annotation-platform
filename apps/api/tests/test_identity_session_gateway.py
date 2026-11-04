@@ -11,8 +11,8 @@ from fastapi import HTTPException
 from starlette.requests import Request
 from types import SimpleNamespace
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.session_contract import SessionFailure, decode_session_request
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.session_contract import SessionFailure, decode_session_request
 from app.api.v1.auth import _execute_session, _session_error
 from app.config import settings
 from app.services.identity_contracts import IdentityGatewayUnavailable

@@ -683,7 +683,7 @@ async def test_register_http_transaction_rolls_back_account_membership_invite_an
 async def test_concurrent_acceptance_on_independent_postgres_sessions_returns_one_409(
     test_engine,
 ):
-    from aap_identity.invitation_contract import (
+    from yoao_identity.invitation_contract import (
         InvitationFailure,
         decode_invitation_request,
     )

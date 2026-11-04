@@ -12,7 +12,7 @@ from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
 )
 from app.db.models.project import Project
-from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
+from yoao_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.services.point_cloud_quality.config import (
     effective_thresholds,
     load_point_cloud_quality_config,

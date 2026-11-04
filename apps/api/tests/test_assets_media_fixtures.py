@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     AcceptedWork,
     Artifact,
     ChunkResult,

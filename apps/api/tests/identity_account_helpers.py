@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock
 
 from starlette.requests import Request
 
-from aap_identity.account_manager import AccountManager
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import Principal
+from yoao_identity.account_manager import AccountManager
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import Principal
 from app.api.v1.me import update_preferences
 from app.config import settings
 from app.core.security import create_access_token

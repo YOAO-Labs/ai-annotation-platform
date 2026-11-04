@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from aap_assets_source.import_delivery_contract import (
+from yoao_assets_source.import_delivery_contract import (
     DatasetImportDeliveryFailure,
     decode_dataset_import_delivery_claim,
     decode_dataset_import_delivery_completion,

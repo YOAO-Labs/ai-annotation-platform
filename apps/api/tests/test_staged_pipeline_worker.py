@@ -12,14 +12,14 @@ import uuid
 import pytest
 from PIL import Image
 
-from aap_inference.execution_pipeline import (
+from yoao_inference.execution_pipeline import (
     compute_stage_depths,
     execute_task_pipeline,
     resolve_input_mode,
     resolve_pad,
     stage_totals_snapshot,
 )
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     FrozenModelOperation,
     ModelExecutionObservation,
@@ -27,7 +27,7 @@ from aap_inference_contract.execution import (
     ModelTaskResult,
     thaw_json,
 )
-from aap_inference.gpu.contracts import (
+from yoao_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )

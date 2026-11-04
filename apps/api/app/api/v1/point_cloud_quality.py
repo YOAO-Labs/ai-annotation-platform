@@ -28,7 +28,7 @@ from app.deps import (
     require_project_visible,
     require_active_task_actor,
 )
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )
@@ -37,7 +37,7 @@ from app.services.project_access import (
     get_workspace_project,
     resolve_project_access,
 )
-from aap_workspace.point_quality_configuration_values import (
+from yoao_workspace.point_quality_configuration_values import (
     POINT_CLOUD_QUALITY_RULE_CODES,
 )
 from app.schemas.point_cloud_quality import (

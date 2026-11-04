@@ -13,16 +13,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_labeling.class_query_postgres import (
+from yoao_labeling.class_query_postgres import (
     CLASS_QUERY_FUNCTIONS,
     CLASS_QUERY_SCHEMA,
     LabelingClassQueryPostgresData,
 )
-from aap_owner_data.postgres import verify_function_only_role
-from aap_workspace.project_queries import ProjectQueryManager
-from aap_workspace_contract.project_query_contract import project_query_request
-from aap_workspace.project_query_postgres import ProjectQueryPostgresData
-from aap_workspace_contract.project_query_values import materialize_project_query_data
+from yoao_owner_data.postgres import verify_function_only_role
+from yoao_workspace.project_queries import ProjectQueryManager
+from yoao_workspace_contract.project_query_contract import project_query_request
+from yoao_workspace.project_query_postgres import ProjectQueryPostgresData
+from yoao_workspace_contract.project_query_values import materialize_project_query_data
 from tests.labeling_class_query_helpers import (
     add_frozen_interleave_row,
     aliased_uuid,

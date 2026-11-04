@@ -113,7 +113,7 @@ def _root(payload):
 
 
 def _lineage_validator(task_id, payload, extra, result_index, root):
-    from aap_inference.execution_pipeline import resolve_input_mode
+    from yoao_inference.execution_pipeline import resolve_input_mode
 
     stages = {s["stage"]: s for s in payload["stages"]}
     pipeline = extra["pipeline"]

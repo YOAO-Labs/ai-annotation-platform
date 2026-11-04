@@ -7,11 +7,11 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_source.import_delivery_contract import (
+from yoao_assets_source.import_delivery_contract import (
     DatasetImportDelivery,
     DatasetImportDeliveryCompletion,
 )
-from aap_notifications.publication_contract import PublicationAuthorization
+from yoao_notifications.publication_contract import PublicationAuthorization
 from app.services import dataset_import_delivery as delivery_data
 from app.services import notification as notification_module
 from app.services.notification import NotificationService

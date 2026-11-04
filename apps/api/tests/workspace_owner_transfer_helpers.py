@@ -111,7 +111,7 @@ async def _provider_url(
             assert drop_operation_id is None
             interpreter = Path(os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"])
             assert interpreter.is_file()
-            command = [str(interpreter), "-I", "-m", "aap_workspace"]
+            command = [str(interpreter), "-I", "-m", "yoao_workspace"]
         owner = await asyncio.to_thread(
             _start,
             command,

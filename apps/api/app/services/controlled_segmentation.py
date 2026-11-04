@@ -4,7 +4,7 @@ import json
 import math
 from dataclasses import replace
 
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 
 from training_contract.model_return import (
     SEGMENTATION_OUTPUT_CONTRACT,

@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.admin_password_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.admin_password_contract import (
     AdminPasswordReply,
     AdminPasswordRequest,
     decode_admin_password_reply,
 )
-from aap_identity.admin_password_manager import AdminPasswordManager
-from aap_identity.admin_password_postgres import AdminPasswordPostgresData
+from yoao_identity.admin_password_manager import AdminPasswordManager
+from yoao_identity.admin_password_postgres import AdminPasswordPostgresData
 from app.config import settings
 from app.services.identity_account_commands import (
     _AccountAuthenticator,

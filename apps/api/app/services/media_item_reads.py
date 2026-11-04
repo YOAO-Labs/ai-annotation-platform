@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_catalog.spatial_contract import ReadItemsRequest, SpatialItem
+from yoao_assets_catalog.spatial_contract import ReadItemsRequest, SpatialItem
 
 
 async def read_items(
@@ -89,7 +89,7 @@ async def read_dataset_items(
     db: AsyncSession, dataset_id: uuid.UUID
 ) -> list[SpatialItem]:
     """Page the whole dataset projection; callers keep their bounded filters."""
-    from aap_assets_catalog.spatial_contract import ReadItemsRequest
+    from yoao_assets_catalog.spatial_contract import ReadItemsRequest
     from app.services.assets_spatial import AssetsSpatialGateway
 
     gateway = AssetsSpatialGateway(db)

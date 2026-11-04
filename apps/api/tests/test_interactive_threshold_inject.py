@@ -16,8 +16,8 @@ import pytest
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
-from aap_inference_contract.backend_control import BackendControlSetupResult
-from aap_inference_contract.execution import (
+from yoao_inference_contract.backend_control import BackendControlSetupResult
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     ModelExecutionObservation,
     ModelOperationResult,

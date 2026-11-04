@@ -59,7 +59,7 @@ def test_revision_uses_one_new_native_artifact():
 
 
 def test_current_native_schema_matches_the_portable_gc_contract():
-    from aap_labeling_mask_gc.contract import contract_document
+    from yoao_labeling_mask_gc.contract import contract_document
 
     assert (
         json.loads((SQL / "0234_mask_gc.schema.json").read_text())

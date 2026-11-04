@@ -11,9 +11,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_video_inputs import tracker as t
-from aap_assets_video_inputs import tracker_http
-from aap_assets_video_inputs import execution as video_execution
+from yoao_assets_video_inputs import tracker as t
+from yoao_assets_video_inputs import tracker_http
+from yoao_assets_video_inputs import execution as video_execution
 from app.config import settings
 
 
@@ -228,7 +228,7 @@ class TrackerVideoInputGateway:
 async def tracker_video_input_gateway(*, session_factory=None):
     """Use the private Media peer when configured, otherwise compose locally."""
     if settings.assets_media_url:
-        from aap_assets_video_inputs.tracker_client import TrackerVideoInputClient
+        from yoao_assets_video_inputs.tracker_client import TrackerVideoInputClient
 
         async with TrackerVideoInputClient(
             settings.assets_media_url, settings.assets_media_token
@@ -236,17 +236,17 @@ async def tracker_video_input_gateway(*, session_factory=None):
             yield TrackerVideoInputGateway(client)
         return
 
-    from aap_assets_video_inputs_runtime.tracker_control import (
+    from yoao_assets_video_inputs_runtime.tracker_control import (
         TrackerVideoInputControl,
     )
-    from aap_assets_video_inputs_runtime.tracker_database import (
+    from yoao_assets_video_inputs_runtime.tracker_database import (
         TrackerVideoInputExecutorDatabase,
     )
-    from aap_assets_video_inputs_runtime.storage import (
+    from yoao_assets_video_inputs_runtime.storage import (
         S3VideoInputStorage,
         VideoSourceStorage,
     )
-    from aap_assets_video_inputs_runtime.worker import VideoInputExecutor
+    from yoao_assets_video_inputs_runtime.worker import VideoInputExecutor
     from app.services.assets_images import image_policy, image_storage
 
     async with AsyncExitStack() as resources:

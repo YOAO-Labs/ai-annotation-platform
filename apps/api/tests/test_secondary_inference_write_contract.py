@@ -24,7 +24,7 @@ from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.secondary_inference_result import (
     SecondaryInferenceResult,
 )
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     freeze_json,
 )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from app.db.models.dataset import Dataset, DatasetItem
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     BackfillScenesRequest,
     CreateSceneRequest,
     ReadItemsRequest,

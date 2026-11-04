@@ -24,7 +24,7 @@ from app.services.managed_image_inference import (
 )
 from app.services.predictions_import import internal_geometry_to_ls_shape
 from app.services.project_write_guard import _busy_lock_error
-from aap_inference.roi import CropBatch, crop_inputs_from_boxes
+from yoao_inference.roi import CropBatch, crop_inputs_from_boxes
 
 
 def _annotation_facts(annotation):

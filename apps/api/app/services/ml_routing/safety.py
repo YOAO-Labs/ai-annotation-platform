@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from aap_inference.topology import RegistryTopologySnapshot
-from aap_inference_contract.routing import RoutingUnavailable
+from yoao_inference.topology import RegistryTopologySnapshot
+from yoao_inference_contract.routing import RoutingUnavailable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.inference_topology_data import InferenceTopologyData

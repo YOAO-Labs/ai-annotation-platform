@@ -15,8 +15,8 @@ import pytest
 from fastapi import HTTPException, Request
 from sqlalchemy import delete, select, text
 
-from aap_identity.contract import Principal
-from aap_identity.security import create_access_token
+from yoao_identity.contract import Principal
+from yoao_identity.security import create_access_token
 from app.db.models.api_key import ApiKey
 from app.db.models.user import User
 from tests.factory import create_api_key

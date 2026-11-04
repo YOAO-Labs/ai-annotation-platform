@@ -14,13 +14,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.video_writer_client import VideoWriterHttpClient
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer_client import VideoWriterHttpClient
+from yoao_labeling.video_writer_contract import (
     VideoWriterRejected,
     make_video_writer_command,
     video_writer_command_digest,
 )
-from aap_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution import ExecutionProof
 from tests.test_labeling_video_writer_containers import (
     _RestrictedWriterContainer,
     _inspect_image,
@@ -56,9 +56,9 @@ from pathlib import Path
 import sys
 import time
 
-from aap_labeling.video_writer import VideoWriterManager
-from aap_labeling.video_writer_contract import VideoWriterRejected
-from aap_labeling.video_writer_postgres import VideoWriterPostgresProvider
+from yoao_labeling.video_writer import VideoWriterManager
+from yoao_labeling.video_writer_contract import VideoWriterRejected
+from yoao_labeling.video_writer_postgres import VideoWriterPostgresProvider
 
 commands = json.loads(sys.stdin.read())
 dsn = Path("/run/secrets/video_writer_database_url").read_text(encoding="utf-8").strip()

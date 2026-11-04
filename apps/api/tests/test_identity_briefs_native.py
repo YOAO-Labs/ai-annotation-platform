@@ -13,10 +13,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import aap_identity
-from aap_identity.briefs_contract import decode_briefs_request
-from aap_identity.briefs_manager import BriefsManager
-from aap_identity.briefs_postgres import BriefsPostgresData
+import yoao_identity
+from yoao_identity.briefs_contract import decode_briefs_request
+from yoao_identity.briefs_manager import BriefsManager
+from yoao_identity.briefs_postgres import BriefsPostgresData
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from tests.factory import create_project
@@ -33,11 +33,11 @@ _LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
 _VERIFIER = _ROOT / "scripts/verify_module_data_boundary.py"
 _FIXTURE = Path(__file__).parent / "fixtures/identity_briefs_legacy.json"
 _CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/native_briefs_protocol.schema.json"
+    _ROOT / "apps/identity/src/yoao_identity/native_briefs_protocol.schema.json"
 )
 if not _CANONICAL_SCHEMA.is_file():
     _CANONICAL_SCHEMA = (
-        Path(aap_identity.__file__).resolve().parent
+        Path(yoao_identity.__file__).resolve().parent
         / "native_briefs_protocol.schema.json"
     )
 

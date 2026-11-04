@@ -13,10 +13,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import aap_identity
-from aap_identity.authenticator import Authenticator
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.offboarding_contract import (
+import yoao_identity
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.offboarding_contract import (
     OffboardingApplyPayload,
     OffboardingFailure,
     OffboardingScopeBasis,
@@ -25,13 +25,13 @@ from aap_identity.offboarding_contract import (
     native_apply_offboarding_command,
     native_prepare_offboarding_command,
 )
-from aap_identity.offboarding_manager import (
+from yoao_identity.offboarding_manager import (
     OffboardingManager,
     offboarding_derivation_id,
     offboarding_request_fingerprint,
 )
-from aap_identity.offboarding_postgres import OffboardingPostgresData
-from aap_identity.postgres import PostgresData
+from yoao_identity.offboarding_postgres import OffboardingPostgresData
+from yoao_identity.postgres import PostgresData
 from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.native_schema import NATIVE_MANAGED_TABLES
@@ -56,11 +56,11 @@ _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-offboarding-grants.sql"
 _LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
 _CANONICAL_SCHEMA = (
-    _ROOT / "apps/identity/src/aap_identity/native_offboarding_protocol.schema.json"
+    _ROOT / "apps/identity/src/yoao_identity/native_offboarding_protocol.schema.json"
 )
 if not _CANONICAL_SCHEMA.is_file():
     _CANONICAL_SCHEMA = (
-        Path(aap_identity.__file__).resolve().parent
+        Path(yoao_identity.__file__).resolve().parent
         / "native_offboarding_protocol.schema.json"
     )
 

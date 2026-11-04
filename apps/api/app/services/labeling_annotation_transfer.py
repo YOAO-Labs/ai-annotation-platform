@@ -8,12 +8,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_FUNCTION,
     AnnotationTransferCommand,
     AnnotationTransferUnavailable,
 )
-from aap_labeling.annotation_transfer_data import AnnotationTransferDataClient
+from yoao_labeling.annotation_transfer_data import AnnotationTransferDataClient
 from app.services.labeling_annotation_data import _native_error_fields
 
 

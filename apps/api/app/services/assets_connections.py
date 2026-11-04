@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.connections_contract import (
     CONNECTION_NATIVE_ARGUMENTS,
     CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
@@ -258,7 +258,7 @@ class AssetsConnectionsGateway:
         self._peer = _peer_url()
 
     def _workflow(self):
-        from aap_assets_source.connections_workflow import (
+        from yoao_assets_source.connections_workflow import (
             ConnectionsOptions,
             ConnectionsWorkflow,
         )

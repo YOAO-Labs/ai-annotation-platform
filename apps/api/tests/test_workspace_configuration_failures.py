@@ -12,15 +12,15 @@ import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.configuration import ConfigurationManager
-from aap_workspace.configuration_columns import encode_config_columns
-from aap_workspace.configuration_contract import (
+from yoao_workspace.configuration import ConfigurationManager
+from yoao_workspace.configuration_columns import encode_config_columns
+from yoao_workspace.configuration_contract import (
     ConfigurationStepSuccess,
     ConfigurationUnavailable,
     configuration_request,
     decode_configuration_step_reply,
 )
-from aap_workspace.configuration_postgres import ConfigurationPostgresData
+from yoao_workspace.configuration_postgres import ConfigurationPostgresData
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User

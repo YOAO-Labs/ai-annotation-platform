@@ -95,7 +95,7 @@ async def install_and_trial(
     frozen_reference = models.frozen_reference(
         version, deployment, include_runtime=runtime is not None, runtime=runtime
     )
-    from aap_inference_contract.execution import FrozenModelOperation, thaw_json
+    from yoao_inference_contract.execution import FrozenModelOperation, thaw_json
     from app.services.inference_model_execution import (
         installation_trial_model_execution_port,
     )

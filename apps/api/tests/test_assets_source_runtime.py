@@ -339,7 +339,7 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
             stack.container,
             "python",
             "-c",
-            "import importlib.util; assert all(importlib.util.find_spec(x) is None for x in ('app','sqlalchemy','celery','redis','torch')); from importlib.resources import files; assert files('aap_assets_source').joinpath('protocol.schema.json').is_file()",
+            "import importlib.util; assert all(importlib.util.find_spec(x) is None for x in ('app','sqlalchemy','celery','redis','torch')); from importlib.resources import files; assert files('yoao_assets_source').joinpath('protocol.schema.json').is_file()",
         )
         assert isolated == ""
         initialized = await _initialize(stack, world.dataset_id)

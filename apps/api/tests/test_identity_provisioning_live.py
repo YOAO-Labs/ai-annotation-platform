@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_identity.security import hash_password, verify_password
+from yoao_identity.security import hash_password, verify_password
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres

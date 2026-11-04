@@ -6,9 +6,9 @@ from uuid import UUID
 
 import pytest
 
-from aap_inference.gpu.client import GPUAuthorityHTTPClient
-from aap_inference.gpu.contracts import GPUArbiterDispatchError
-from aap_inference_contract.gpu import GPU_ADMIN_HTTP_PROTOCOL, GPU_ADMIN_PROBE_PATH
+from yoao_inference.gpu.client import GPUAuthorityHTTPClient
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError
+from yoao_inference_contract.gpu import GPU_ADMIN_HTTP_PROTOCOL, GPU_ADMIN_PROBE_PATH
 
 
 class _BytesResponse:

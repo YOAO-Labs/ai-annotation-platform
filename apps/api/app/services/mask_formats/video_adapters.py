@@ -30,8 +30,8 @@ from app.services.mask_formats.image_codecs import (
     normalize_coco_segmentation_rle,
     rasterize_coco_polygons,
 )
-from aap_assets_source.archive import ArchiveLimits, SafeZipArchive
-from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
+from yoao_assets_source.archive import ArchiveLimits, SafeZipArchive
+from yoao_workspace.configuration_policy import lookup_classes_for_tool_unit
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from app.services.task_matcher import (
     resolve_task,

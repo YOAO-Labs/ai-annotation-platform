@@ -9,9 +9,9 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling.task_locks_contract import task_locks_command
-from aap_labeling.task_locks_data import TaskLocksData
-from aap_owner_data.postgres import verify_function_only_role
+from yoao_labeling.task_locks_contract import task_locks_command
+from yoao_labeling.task_locks_data import TaskLocksData
+from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.task_lock import TaskLock
 from tests.factory import create_project, create_task, create_user
 from tests.test_labeling_class_usage_reads_legacy import _cleanup_owned

@@ -8,8 +8,8 @@ from math import isfinite
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.account_contract import AccountFailure, decode_account_request
-from aap_identity.contract import Principal
+from yoao_identity.account_contract import AccountFailure, decode_account_request
+from yoao_identity.contract import Principal
 from app.deps import get_current_principal, get_db
 from app.middleware.request_id import request_id_var
 from app.services.audit import audit_origin_from_request

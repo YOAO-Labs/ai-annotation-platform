@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from aap_assets_catalog.spatial_values import SensorCalibration
+from yoao_assets_catalog.spatial_values import SensorCalibration
 
 
 CameraVisibility = Literal["visible", "occluded", "truncated", "unknown"]

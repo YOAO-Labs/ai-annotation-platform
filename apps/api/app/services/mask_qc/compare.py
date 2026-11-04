@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from aap_workspace.mask_configuration_values import (
+from yoao_workspace.mask_configuration_values import (
     MaskCompareBaseline as _MaskCompareBaseline,
 )
 from app.schemas.mask_qc import MaskCompareOut

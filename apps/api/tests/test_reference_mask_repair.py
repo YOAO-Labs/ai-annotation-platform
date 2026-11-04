@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 import uuid
 
 import httpx
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,
@@ -59,9 +59,9 @@ from app.services.mask_repair import (
     store_repair_result_rles,
 )
 from app.services.mask_repair_execution import start_attempt
-from aap_inference import extract_capabilities
-from aap_inference_contract.backend_control import BackendControlSetupResult
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference import extract_capabilities
+from yoao_inference_contract.backend_control import BackendControlSetupResult
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from app.services.raster_mask_storage import (
     build_rle_reference,
     lock_raster_mask_references,

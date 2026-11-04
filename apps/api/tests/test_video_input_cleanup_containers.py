@@ -47,7 +47,7 @@ async def test_cleanup_container_reaps_video_attempts_and_late_versions(
     peaks = []
 
     def start(command, environment, log):
-        if command[1:3] != ["-m", "aap_assets_cleanup"]:
+        if command[1:3] != ["-m", "yoao_assets_cleanup"]:
             return original_start(command, environment, log)
         supplied = make_url(environment["ASSET_CLEANUP_DATABASE_URL"])
         assert (supplied.host, supplied.port, supplied.database, supplied.username) == (

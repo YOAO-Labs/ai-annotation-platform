@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from aap_inference.gpu.collector_database import (
+from yoao_inference.gpu.collector_database import (
     GPUCollectorDatabaseConfigError,
     load_gpu_collector_database_url,
     validate_gpu_collector_role_boundary,
 )
-from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from yoao_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
 
 
 def _config(path: Path | str) -> GPUAuthoritySettings:

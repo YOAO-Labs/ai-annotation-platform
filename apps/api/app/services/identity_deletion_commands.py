@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.deletion_contract import (
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.deletion_contract import (
     DeletionReply,
     DeletionRequest,
     decode_deletion_reply,
 )
-from aap_identity.deletion_manager import DeletionManager
-from aap_identity.deletion_postgres import DeletionPostgresData
+from yoao_identity.deletion_manager import DeletionManager
+from yoao_identity.deletion_postgres import DeletionPostgresData
 
 from app.config import settings
 from app.services.identity_account_commands import (

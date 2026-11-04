@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_video_inputs import authority, execution, values
+from yoao_assets_video_inputs import authority, execution, values
 from app.api.v1.projects import (
     _build_video_input_selection,
     _capture_video_input_manifest,

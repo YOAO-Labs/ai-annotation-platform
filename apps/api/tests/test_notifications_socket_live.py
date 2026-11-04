@@ -21,7 +21,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import websockets
 
-from aap_audit.read_relation_postgres import audit_events
+from yoao_audit.read_relation_postgres import audit_events
 from app.api.v1 import ws
 from app.core.security import create_access_token
 from app.db.models.notification import Notification

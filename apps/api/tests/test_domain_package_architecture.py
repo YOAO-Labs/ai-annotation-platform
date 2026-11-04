@@ -1051,14 +1051,14 @@ def test_inference_pool_capability_policy_is_portable() -> None:
         / "apps"
         / "inference"
         / "src"
-        / "aap_inference"
+        / "yoao_inference"
         / "pool_capability.py"
     )
     tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
     forbidden = ("app", "sqlalchemy", "fastapi", "celery", "httpx")
     imports = [
         imported
-        for imported, _local in _collect_imports(tree, "aap_inference.pool_capability")
+        for imported, _local in _collect_imports(tree, "yoao_inference.pool_capability")
     ]
     offenders = [
         imported
@@ -1071,10 +1071,10 @@ def test_inference_pool_capability_policy_is_portable() -> None:
 
 
 def test_backend_http_implementation_lives_in_portable_inference_owner() -> None:
-    source = _REPO_ROOT / "apps/inference/src/aap_inference/backend_transport.py"
+    source = _REPO_ROOT / "apps/inference/src/yoao_inference/backend_transport.py"
     tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
     forbidden = ("app", "sqlalchemy", "fastapi", "celery", "structlog", "redis")
-    imports = _collect_imports(tree, "aap_inference.backend_transport")
+    imports = _collect_imports(tree, "yoao_inference.backend_transport")
     assert not [
         imported
         for imported, _local in imports

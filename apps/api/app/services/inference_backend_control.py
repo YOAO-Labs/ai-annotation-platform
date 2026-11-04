@@ -11,14 +11,14 @@ from typing import Any, Protocol
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_inference.backend_endpoint import (
+from yoao_inference.backend_endpoint import (
     BackendEndpointAuthorityRejected,
     BackendEndpointBinding,
     BackendEndpointManager,
     BackendEndpointUnavailable,
 )
-from aap_inference.health import BackendHealthCoordinator
-from aap_inference_contract.backend_control import (
+from yoao_inference.health import BackendHealthCoordinator
+from yoao_inference_contract.backend_control import (
     BACKEND_CONTROL_PROTOCOL,
     BackendCatalogFact,
     BackendControlFailure,
@@ -39,10 +39,10 @@ from aap_inference_contract.backend_control import (
     BackendStatsSnapshotsResult,
     BackendUnregisteredSmokeResult,
 )
-from aap_inference_contract.backend_control_client import (
+from yoao_inference_contract.backend_control_client import (
     BackendControlUnavailable,
 )
-from aap_inference_contract.backend_endpoint import (
+from yoao_inference_contract.backend_endpoint import (
     BackendEndpointPurpose,
     BackendEndpointSubject,
 )
@@ -311,9 +311,15 @@ class BackendControlService:
         )
         if (
             type(result) is not dict
-            or set(result) != {
-                "registry_id", "boot_id", "operation_id", "control_epoch",
-                "generation", "pool_ids", "unloaded",
+            or set(result)
+            != {
+                "registry_id",
+                "boot_id",
+                "operation_id",
+                "control_epoch",
+                "generation",
+                "pool_ids",
+                "unloaded",
             }
             or result["registry_id"] != str(registry_id)
             or result["boot_id"] != boot_id

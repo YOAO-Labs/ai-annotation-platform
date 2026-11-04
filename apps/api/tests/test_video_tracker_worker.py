@@ -11,10 +11,10 @@ from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from aap_inference.backend_transport import PredictionResult
-from aap_inference_contract.execution import thaw_json
+from yoao_inference.backend_transport import PredictionResult
+from yoao_inference_contract.execution import thaw_json
 from app.services.video_tracking.adapters import TrackerContext
-from aap_inference.tracker import TrackerFrameResult
+from yoao_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import accept_tracker_job, run_tracker_job
 from tests.conftest import create_registry_with_pool
 from tests.factory import build_tool_bindings
@@ -49,7 +49,7 @@ def _tracker_routing_scope(
     owner: str,
     operation: str,
 ):
-    from aap_inference_contract.routing import RoutingScopeView
+    from yoao_inference_contract.routing import RoutingScopeView
 
     return RoutingScopeView(
         id=uuid.uuid4(),
@@ -270,7 +270,7 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
 async def test_stage_fence_retries_held_results_and_preserves_cancellation(
     db_session, super_admin, monkeypatch, tracker_input_owner_fakes, fence_event
 ):
-    from aap_assets_video_inputs.tracker import TrackerFailure
+    from yoao_assets_video_inputs.tracker import TrackerFailure
     from app.services.video_tracking import runner
 
     user, _ = super_admin
@@ -467,7 +467,7 @@ async def test_tracker_worker_records_gpu_arbiter_failure(
     db_session, super_admin, monkeypatch
 ):
     from app.services.video_tracking import runner as runner
-    from aap_inference.gpu.contracts import (
+    from yoao_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
@@ -661,7 +661,7 @@ def test_apply_tracker_results_degenerate_polygon_marked_outside():
 
 def test_bbox_from_geometry_seeds_from_polygon_vertices():
     """SAM2 只吃 bbox seed: polygon track / 单帧 polygon 结果都取顶点外接框。"""
-    from aap_inference.tracker import bbox_from_geometry
+    from yoao_inference.tracker import bbox_from_geometry
 
     track = {
         "type": "video_track_polygon",
@@ -1946,7 +1946,7 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
 async def _make_multi_member_tracker_job(db_session, user_id):
     from app.db.models.ml_backend_pool import MLBackendPoolMember
     from app.db.models.ml_backend_registry import MLBackendRegistry
-    from aap_inference.pool_capability import (
+    from yoao_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -2144,7 +2144,7 @@ async def test_tracker_runtime_identity_outage_defers_without_failing_the_job(
     db_session, super_admin, monkeypatch
 ):
     from unittest.mock import AsyncMock
-    from aap_inference_contract.routing import RoutingUnavailable
+    from yoao_inference_contract.routing import RoutingUnavailable
     from app.services.ml_routing.authority import RoutingAuthority
     from app.services.video_tracking.execution import TrackerExecutionDeferred
 
@@ -2292,13 +2292,13 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
     from contextlib import asynccontextmanager
 
     from sqlalchemy import text
-    from aap_inference.pool_capability import (
+    from yoao_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
-    from aap_inference.routing import RoutingManager
-    from aap_inference_contract.plugin_assets import PluginAssetDescriptor
-    from aap_inference_contract.routing import (
+    from yoao_inference.routing import RoutingManager
+    from yoao_inference_contract.plugin_assets import PluginAssetDescriptor
+    from yoao_inference_contract.routing import (
         RoutingRejectedResult,
         make_routing_command,
     )

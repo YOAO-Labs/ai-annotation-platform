@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from aap_identity.security import decode_access_token, verify_password
+from yoao_identity.security import decode_access_token, verify_password
 from tests.test_identity_admission_live import (
     ROOT,
     _cleanup,

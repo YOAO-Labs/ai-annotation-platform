@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc import contract as c
 from app.application.raster_mask_retention import RasterMaskRetentionWorkflow
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -180,7 +180,7 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
     monkeypatch.setattr(settings, "assets_mask_content_url", "")
     monkeypatch.setattr(settings, "assets_mask_cleanup_url", "")
     async with _inventory(test_engine) as world:
-        from aap_assets_mask_content.gc_storage import S3MaskGcStore
+        from yoao_assets_mask_content.gc_storage import S3MaskGcStore
 
         @contextmanager
         def bytes_owner(_storage):

@@ -12,7 +12,7 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy.exc import DBAPIError
 
-from aap_identity.provisioning_contract import (
+from yoao_identity.provisioning_contract import (
     PROVISIONING_PROTOCOL,
     ProvisioningCreateRequest,
     ProvisioningLookupRequest,
@@ -147,7 +147,7 @@ async def test_command_adapter_maps_untrusted_lookup_to_503_without_fallback(pay
 
 async def test_create_reply_must_match_the_generated_account(monkeypatch):
     monkeypatch.setattr(
-        "aap_identity.provisioning.hash_password", lambda _plain: "opaque-hash"
+        "yoao_identity.provisioning.hash_password", lambda _plain: "opaque-hash"
     )
     db = _db()
 

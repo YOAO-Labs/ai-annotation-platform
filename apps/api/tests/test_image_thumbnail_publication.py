@@ -8,10 +8,10 @@ import uuid
 import blurhash
 from PIL import Image
 import pytest
-from aap_assets_images.contract import ImageSource
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images.transport import ImageSourceReference
-from aap_assets_images_runtime.processing import build_thumbnail
+from yoao_assets_images.contract import ImageSource
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images.transport import ImageSourceReference
+from yoao_assets_images_runtime.processing import build_thumbnail
 from app.db.models.dataset import Dataset, DatasetItem
 from app.services.dataset import DatasetService
 from tests.test_assets_images_execution import (

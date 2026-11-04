@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from aap_labeling.batch_control_contract import (
+from yoao_labeling.batch_control_contract import (
     BATCH_CONTROL_DATA_SCHEMA,
     BATCH_CONTROL_FUNCTION,
     BATCH_CONTROL_PROTOCOL,

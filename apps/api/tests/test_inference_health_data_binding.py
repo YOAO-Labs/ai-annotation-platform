@@ -9,9 +9,9 @@ import pytest
 from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_inference import extract_capabilities
-from aap_inference.health import reconcile_pool_capability
-from aap_inference.pool_capability import (
+from yoao_inference import extract_capabilities
+from yoao_inference.health import reconcile_pool_capability
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
 )

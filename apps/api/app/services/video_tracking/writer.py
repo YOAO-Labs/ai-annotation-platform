@@ -8,10 +8,10 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_labeling.config import secret_source
-from aap_labeling.video_writer import VideoWriterManager
-from aap_labeling.video_writer_client import VideoWriterHttpClient
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.config import secret_source
+from yoao_labeling.video_writer import VideoWriterManager
+from yoao_labeling.video_writer_client import VideoWriterHttpClient
+from yoao_labeling.video_writer_contract import (
     VideoWriterExpectedInput,
     VideoWriterFailure,
     VideoWriterRejected,
@@ -22,7 +22,7 @@ from aap_labeling.video_writer_contract import (
     video_writer_command_digest,
     video_writer_data_arguments_bytes,
 )
-from aap_labeling.video_writer_postgres import VideoWriterPostgresProvider
+from yoao_labeling.video_writer_postgres import VideoWriterPostgresProvider
 
 from app.config import settings
 from app.services.raster_mask_storage import load_coco_rle

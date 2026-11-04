@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.review_evidence_policy import record_annotation_actor_policy
+from yoao_labeling.review_evidence_policy import record_annotation_actor_policy
 from app.db.models.task import Task
 from app.services import annotation_evidence as evidence
 

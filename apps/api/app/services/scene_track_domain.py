@@ -12,14 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, make_transient_to_detached
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.scene_track_domain_contract import (
+from yoao_labeling.scene_track_domain_contract import (
     SCENE_TRACK_DOMAIN_FUNCTION,
     SceneTrackDomainFailure,
     SceneTrackDomainUnavailable,
     SceneTrackRecord,
     scene_track_command,
 )
-from aap_labeling.scene_track_domain_data import SceneTrackDomainDataClient
+from yoao_labeling.scene_track_domain_data import SceneTrackDomainDataClient
 
 from app.db.models.annotation import Annotation
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval

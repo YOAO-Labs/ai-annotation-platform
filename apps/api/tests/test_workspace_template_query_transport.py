@@ -10,7 +10,7 @@ from fastapi import HTTPException
 import httpx
 import pytest
 
-from aap_workspace.template_query_contract import (
+from yoao_workspace.template_query_contract import (
     decode_template_query_request,
     template_query_success_reply,
 )

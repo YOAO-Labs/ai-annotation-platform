@@ -12,7 +12,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aap_audit.read_relation_postgres import audit_events
+from yoao_audit.read_relation_postgres import audit_events
 from app.api.v1.audit_logs import _build_base_query, _managed_audit_scope
 from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog

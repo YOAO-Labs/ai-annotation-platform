@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from aap_assets_source.connectors.crypto import (
+from yoao_assets_source.connectors.crypto import (
     ConnectorCryptoError as PortableConnectorCryptoError,
     ConnectorCryptoNotConfigured as PortableConnectorCryptoNotConfigured,
     decrypt_secret as _decrypt_secret,

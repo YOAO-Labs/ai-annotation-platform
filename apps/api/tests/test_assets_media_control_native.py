@@ -100,7 +100,7 @@ async def _seed_item(
 
 
 async def test_media_preferences_preserve_missing_zero_and_current_settings(db_session):
-    from aap_assets_media.contract import MediaFailure, UsageRequest
+    from yoao_assets_media.contract import MediaFailure, UsageRequest
     from app.db.models.system_setting import SystemSetting
     from app.services.assets_media import SqlAlchemyMediaDatabase
 
@@ -128,7 +128,7 @@ async def test_media_preferences_preserve_missing_zero_and_current_settings(db_s
 async def test_nonempty_timetable_and_backfill_pages_preserve_cursor_and_digest(
     db_session,
 ):
-    from aap_assets_media.contract import (
+    from yoao_assets_media.contract import (
         BackfillRequest,
         BackfillSelection,
         TimetableRequest,
@@ -221,7 +221,7 @@ async def test_nonempty_timetable_and_backfill_pages_preserve_cursor_and_digest(
 async def test_task_retry_serializes_task_changes_until_acceptance_transaction_ends(
     test_engine,
 ):
-    from aap_assets_media.contract import FrameSelection
+    from yoao_assets_media.contract import FrameSelection
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = dataset_id = project_id = item_id = task_id = None

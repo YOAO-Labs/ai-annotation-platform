@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.engine import make_url
 
-from aap_preannotation_results import contract as c
+from yoao_preannotation_results import contract as c
 from app.application.durable_preannotation import _apply_ready_result
 from app.application.preannotation_results import BatchResultExecution
 from app.services.prediction import PredictionService

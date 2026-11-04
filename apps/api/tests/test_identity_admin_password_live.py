@@ -17,7 +17,7 @@ import uuid
 import pytest
 from sqlalchemy import delete, text
 
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from app.core.security import hash_password, verify_password
 from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
@@ -176,11 +176,11 @@ async def _audit_count(maker, audit_id):
 async def test_installed_admin_password_replay_restart_scope_and_fencing(
     test_engine, tmp_path, record_property
 ):
-    from aap_identity.admin_password_manager import (
+    from yoao_identity.admin_password_manager import (
         admin_password_request_fingerprint,
         derive_admin_password,
     )
-    from aap_identity.admin_password_contract import decode_admin_password_request
+    from yoao_identity.admin_password_contract import decode_admin_password_request
 
     maker, super_admin_id = await _world(test_engine)
     signing_secret = secrets.token_urlsafe(32)

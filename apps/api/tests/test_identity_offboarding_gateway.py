@@ -8,8 +8,8 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.offboarding_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.offboarding_contract import (
     OffboardingFailure,
     decode_offboarding_reply,
     decode_offboarding_request,

@@ -14,10 +14,10 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import uuid
 
-from aap_inference import extract_capabilities
-from aap_inference_contract.backend_control import BackendControlSetupResult
-from aap_inference_contract.execution import ModelTaskResult, thaw_json
-from aap_protocol_v2 import (
+from yoao_inference import extract_capabilities
+from yoao_inference_contract.backend_control import BackendControlSetupResult
+from yoao_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
     NativeMaskCandidateValue,

@@ -200,7 +200,7 @@ def start_mail(test_engine, directory, key, inbox, *, port=None):
             os.environ["AAP_IDENTITY_RUNTIME_PYTHON"],
             "-I",
             "-m",
-            "aap_identity_runtime.mail_worker",
+            "yoao_identity_runtime.mail_worker",
         ],
         environment,
         directory,
@@ -264,7 +264,7 @@ async def start_mail_container(test_engine, directory, key, inbox):
             image["Id"],
             "python",
             "-m",
-            "aap_identity_runtime.mail_worker",
+            "yoao_identity_runtime.mail_worker",
         )
         container = Container(container_id, identity, "")
         details = _inspect_docker(container_id)

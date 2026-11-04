@@ -27,8 +27,8 @@ _CALL = (
     "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes("
     "CAST(:completed AS pg_catalog.uuid), CAST(:failed AS pg_catalog.uuid))"
 )
-_SCHEMA = ROOT / "apps/jobs/src/aap_jobs/fixture_filter.schema.json"
-_SQL = ROOT / "apps/jobs/src/aap_jobs/sql/0331_jobs_filter_fixtures.sql"
+_SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_filter.schema.json"
+_SQL = ROOT / "apps/jobs/src/yoao_jobs/sql/0331_jobs_filter_fixtures.sql"
 _API_SCHEMA = ROOT / "apps/api/alembic/sql/0331_jobs_filter_fixtures.schema.json"
 _API_SQL = ROOT / "apps/api/alembic/sql/0331_jobs_filter_fixtures.sql"
 _NODE = ROOT / "apps/jobs/conformance/node/filter_fixture_acceptance.mjs"

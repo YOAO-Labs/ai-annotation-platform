@@ -46,7 +46,7 @@ from app.api.v1.tasks._shared import (
     _load_task_or_404,
     require_task_annotation_write,
 )
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_core_read_relations import (
     prediction_meta_row,

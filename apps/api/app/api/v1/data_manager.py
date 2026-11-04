@@ -14,7 +14,7 @@ from app.deps import (
     require_project_visible,
 )
 from app.services.labeling_core_read_relations import task_row
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )

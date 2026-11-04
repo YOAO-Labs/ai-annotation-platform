@@ -14,7 +14,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.annotation_maintenance_contract import (
+from yoao_labeling.annotation_maintenance_contract import (
     ANNOTATION_MAINTENANCE_PROTOCOL,
     AnnotationMaintenanceUnavailable,
     CleanupAnnotationReference,
@@ -24,7 +24,7 @@ from aap_labeling.annotation_maintenance_contract import (
     ReadDraft,
     SaveDraft,
 )
-from aap_labeling.annotation_maintenance_data import AnnotationMaintenanceDataClient
+from yoao_labeling.annotation_maintenance_data import AnnotationMaintenanceDataClient
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch

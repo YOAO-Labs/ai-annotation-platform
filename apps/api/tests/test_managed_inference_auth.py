@@ -6,8 +6,8 @@ import uuid
 
 import httpx
 import pytest
-from aap_inference.topology import BackendTopologyCoordinator
-from aap_protocol_v2.managed_credential import read_credential
+from yoao_inference.topology import BackendTopologyCoordinator
+from yoao_protocol_v2.managed_credential import read_credential
 from fastapi import HTTPException
 from sqlalchemy import text
 
@@ -313,7 +313,7 @@ async def test_new_trusted_registry_defaults_to_managed_but_explicit_none_is_pre
 def test_default_credentials_are_independent_persistent_and_checkout_local(
     store, monkeypatch
 ):
-    from aap_protocol_v2.backend_auth import BACKEND_SERVICES
+    from yoao_protocol_v2.backend_auth import BACKEND_SERVICES
 
     monkeypatch.setattr(
         settings,

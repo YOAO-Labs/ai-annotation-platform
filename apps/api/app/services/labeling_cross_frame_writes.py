@@ -14,7 +14,7 @@ from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.cross_frame_write_contract import (
+from yoao_labeling.cross_frame_write_contract import (
     CROSS_FRAME_WRITE_FUNCTION,
     CrossFrameAnnotationSnapshot,
     CrossFrameSceneTrackEnsure,
@@ -27,8 +27,8 @@ from aap_labeling.cross_frame_write_contract import (
     CrossFrameWriteUnavailable,
     cross_frame_write_command,
 )
-from aap_labeling.cross_frame_write_data import CrossFrameWriteDataClient
-from aap_labeling.cross_frame_write_policy import (
+from yoao_labeling.cross_frame_write_data import CrossFrameWriteDataClient
+from yoao_labeling.cross_frame_write_policy import (
     PROPAGATABLE_GEOMETRY_TYPES,
     compensate_psr,
     interpolate_psr,
@@ -588,7 +588,7 @@ class LabelingCrossFrameWriteService:
         assert_task_visible=None,
         lock_task_for_write=None,
     ) -> tuple[list[Annotation], bool, list[int]]:
-        from aap_assets_catalog.spatial_contract import ReadPosesRequest
+        from yoao_assets_catalog.spatial_contract import ReadPosesRequest
         from app.services.assets_spatial import AssetsSpatialGateway
         from app.services.labeling_scene import (
             get_scene_frame_task_map,

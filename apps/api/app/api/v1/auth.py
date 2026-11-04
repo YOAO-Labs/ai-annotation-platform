@@ -17,8 +17,8 @@ from app.services.identity_mail_delivery import kick_credential_mail
 from app.services.identity_recovery_commands import RecoveryCommandsPort
 
 from app.config import settings
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.session_contract import SessionFailure, decode_session_request
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.session_contract import SessionFailure, decode_session_request
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import IdentityGateway, get_identity_gateway
 from app.services.identity_session_commands import (

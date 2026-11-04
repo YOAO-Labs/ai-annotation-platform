@@ -14,12 +14,12 @@ from app.services.annotation import AnnotationService
 from app.services.bug_report import BugReportService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
-from aap_labeling.task_maintenance_contract import (
+from yoao_labeling.task_maintenance_contract import (
     TASK_MAINTENANCE_PROTOCOL,
     LockSourceLessTasks,
     ReadSourceLessTaskCandidates,
 )
-from aap_workspace_contract import derive_attribute_keys, derive_classes_list
+from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
 
 
 def _task_ids_query(task_ids: list[uuid.UUID]) -> FromClause:

@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_assets_media.contract import MediaFailure, MediaSummary, SummaryRequest
+from yoao_assets_media.contract import MediaFailure, MediaSummary, SummaryRequest
 
 from app.services.assets_media import media_gateway, media_http_error
 from app.services.assets_media_summary_contract import (

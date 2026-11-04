@@ -12,8 +12,8 @@ import httpx
 import pytest
 from starlette.requests import Request
 
-from aap_identity.contract import Principal
-from aap_identity.key_contract import decode_key_reply, decode_key_request
+from yoao_identity.contract import Principal
+from yoao_identity.key_contract import decode_key_reply, decode_key_request
 from app.api.v1.api_keys import _execute
 from app.services.api_key_service import IdentityKeyManagement
 from app.services.identity_gateway import IdentityGateway

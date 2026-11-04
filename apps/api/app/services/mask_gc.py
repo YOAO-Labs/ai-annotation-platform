@@ -73,8 +73,8 @@ class SqlAlchemyMaskGcDatabase:
         self.allowed = _WRITE_OPERATIONS if write else _GC_OPERATIONS
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
-        from aap_labeling_mask_gc import contract as c
-        from aap_labeling_mask_gc_runtime.database import (
+        from yoao_labeling_mask_gc import contract as c
+        from yoao_labeling_mask_gc_runtime.database import (
             prepare_native_call,
             validate_native_result,
         )
@@ -139,7 +139,7 @@ def _write_failure(exc):
 
 
 async def _write_epoch_call(db, operation, request, expected):
-    from aap_labeling_mask_gc.contract import MaskGcFailure
+    from yoao_labeling_mask_gc.contract import MaskGcFailure
 
     try:
         result = await SqlAlchemyMaskGcDatabase(db, commit=False, write=True).call(
@@ -154,7 +154,7 @@ async def _write_epoch_call(db, operation, request, expected):
 
 
 async def read_mask_write_epochs(db, object_keys: Iterable[str]) -> dict[str, int]:
-    from aap_labeling_mask_gc.contract import ReadMaskWriteEpochsRequest
+    from yoao_labeling_mask_gc.contract import ReadMaskWriteEpochsRequest
 
     keys = sorted(set(object_keys))
     found = {}
@@ -172,7 +172,7 @@ async def read_mask_write_epochs(db, object_keys: Iterable[str]) -> dict[str, in
 
 
 async def begin_mask_content_write(db, object_keys: Iterable[str]) -> dict[str, int]:
-    from aap_labeling_mask_gc.contract import BeginMaskContentWriteRequest
+    from yoao_labeling_mask_gc.contract import BeginMaskContentWriteRequest
 
     keys = sorted(set(object_keys))
     found = {}
@@ -190,7 +190,10 @@ async def begin_mask_content_write(db, object_keys: Iterable[str]) -> dict[str, 
 
 
 async def lock_mask_write_epochs(db, epochs: Mapping[str, int]) -> dict[str, int]:
-    from aap_labeling_mask_gc.contract import LockMaskWriteEpochsRequest, MaskWriteEpoch
+    from yoao_labeling_mask_gc.contract import (
+        LockMaskWriteEpochsRequest,
+        MaskWriteEpoch,
+    )
 
     keys = sorted(epochs)
     found = {}
@@ -216,7 +219,7 @@ async def register_tracker_running_mask_root(
     db, *, job_id, task_id, object_key: str
 ) -> bool:
     """Attach one just-written Mask to its live tracker Job in this transaction."""
-    from aap_labeling_mask_gc import contract as c
+    from yoao_labeling_mask_gc import contract as c
 
     request = c.RegisterTrackerRunningMaskRootRequest(
         job_id=job_id,

@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 from uuid import UUID
 from datetime import datetime
 
-from aap_identity.preference_models import (
+from yoao_identity.preference_models import (
     AIToolPreferences as AIToolPreferences,
     CameraPanelState as CameraPanelState,
     FloatingPanelState as FloatingPanelState,
@@ -29,7 +29,7 @@ from aap_identity.preference_models import (
     WorkbenchVideoPreferences as WorkbenchVideoPreferences,
     shortcut_command_domain as shortcut_command_domain,
 )
-from aap_identity.workbench_workspace import (
+from yoao_identity.workbench_workspace import (
     WorkbenchWorkspacePreferences as WorkbenchWorkspacePreferences,
 )
 

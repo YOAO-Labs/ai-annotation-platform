@@ -123,7 +123,7 @@ def _restore_request(value: dict) -> ApplyPredictionResultRequest:
             value[key] = uuid.UUID(value[key])
     value["write_scope"] = restore_write_scope(value["write_scope"])
     if value["accepted_video_input"] is not None:
-        from aap_assets_video_inputs.evidence import (
+        from yoao_assets_video_inputs.evidence import (
             VideoInputEvidence,
             parse_prediction_evidence,
         )
@@ -139,7 +139,7 @@ def _restore_request(value: dict) -> ApplyPredictionResultRequest:
 
 
 def _request(operation: str, value: dict):
-    from aap_preannotation_results.contract import OPERATIONS
+    from yoao_preannotation_results.contract import OPERATIONS
 
     return OPERATIONS[operation].request.model_validate_json(_json_text(value))
 
@@ -187,7 +187,7 @@ class BatchResultExecution:
 
     @staticmethod
     def _validated_scope(value):
-        from aap_preannotation_results.contract import Scope
+        from yoao_preannotation_results.contract import Scope
 
         return Scope.model_validate(value).model_dump(mode="python")
 
@@ -208,7 +208,7 @@ class BatchResultExecution:
             raise PreannotationResultDeferred("lease_lost")
 
     async def call(self, operation, *, leased=True, db=None, **values):
-        from aap_preannotation_results.contract import BatchResultFailure
+        from yoao_preannotation_results.contract import BatchResultFailure
 
         request = _request(operation, self._values(leased=leased, **values))
         try:
@@ -308,12 +308,12 @@ class BatchResultExecution:
         )
 
     async def capture(self, ordinal, requests, *, stage, context):
-        from aap_preannotation_results.codec import (
+        from yoao_preannotation_results.codec import (
             bundle_digest,
             encode_part,
             snapshot_file,
         )
-        from aap_preannotation_results.contract import MAX_PART_BYTES, Scope
+        from yoao_preannotation_results.contract import MAX_PART_BYTES, Scope
         from app.services.prediction import derive_tool_unit_from_result
 
         # One archive keeps the number of open files constant for multi-result
@@ -418,7 +418,7 @@ class BatchResultExecution:
                 raise PreannotationResultDeferred("storage_unavailable") from None
 
     async def load(self, ordinal, *, stage):
-        from aap_preannotation_results.codec import PayloadAssembler
+        from yoao_preannotation_results.codec import PayloadAssembler
         from app.services.labeling_prediction_contract import (
             BatchResultPredictionIdentity,
         )

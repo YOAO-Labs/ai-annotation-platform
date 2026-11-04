@@ -11,8 +11,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from aap_identity.contract import Principal
-from aap_identity.directory_contract import (
+from yoao_identity.contract import Principal
+from yoao_identity.directory_contract import (
     decode_directory_reply,
     decode_directory_request,
 )
@@ -256,7 +256,7 @@ async def test_explicit_directory_dsn_never_uses_caller_sql_on_connection_failur
     monkeypatch,
 ):
     import app.services.identity_directory_commands as owner
-    from aap_identity.contract import IdentityUnavailable
+    from yoao_identity.contract import IdentityUnavailable
 
     request = _command()
     monkeypatch.setattr(
@@ -312,7 +312,7 @@ def test_directory_handlers_have_no_caller_orm_authority(endpoint):
 async def test_owner_credential_failure_after_admission_keeps_public_http_status(
     code, expected_status
 ):
-    from aap_identity.directory_contract import DirectoryFailure
+    from yoao_identity.directory_contract import DirectoryFailure
 
     principal = _principal()
 

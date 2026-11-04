@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_identity.key_contract import KeyFailure, decode_key_request
-from aap_identity.contract import Principal
+from yoao_identity.key_contract import KeyFailure, decode_key_request
+from yoao_identity.contract import Principal
 from app.deps import bearer_scheme, get_current_principal, get_db
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyOut, ApiKeyUpdate
 from app.services.api_key_contracts import ApiKeyManagementPort

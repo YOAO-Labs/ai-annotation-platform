@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import aliased
-from aap_identity.read_relation_contract import AccountProfile
+from yoao_identity.read_relation_contract import AccountProfile
 from app.deps import (
     assert_project_visible,
     get_db,

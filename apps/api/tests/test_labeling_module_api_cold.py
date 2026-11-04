@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
-from aap_identity.security import create_access_token
+from yoao_identity.security import create_access_token
 from app.config import settings
 from app.db.models.annotation import Annotation
 from sqlalchemy import text
@@ -486,7 +486,7 @@ async def main():
     auth_path = Path(os.environ["IDENTITY_AUTH_DATABASE_URL_FILE"])
     api_identity = await current_user(os.environ["DATABASE_URL"])
     auth_identity = await current_user(auth_path.read_text().strip())
-    import aap_labeling.annotation_write_contract as contract
+    import yoao_labeling.annotation_write_contract as contract
     origin = Path(contract.__file__).resolve()
     site = Path(sysconfig.get_paths()["purelib"]).resolve()
     print(json.dumps({"database_role": api_identity[0], "database": api_identity[1],

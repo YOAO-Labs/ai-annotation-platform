@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.configuration_contract import configuration_request
-from aap_workspace.template_query_contract import template_query_request
+from yoao_workspace.configuration_contract import configuration_request
+from yoao_workspace.template_query_contract import template_query_request
 from app.services import workspace_template_query
 from tests.factory import create_user
 from tests.test_workspace_template_query_bindings import _remove_actor

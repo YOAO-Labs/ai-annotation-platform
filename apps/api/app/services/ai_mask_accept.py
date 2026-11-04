@@ -8,13 +8,13 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-from aap_protocol_v2 import native_mask_candidate_id
+from yoao_protocol_v2 import native_mask_candidate_id
 from sqlalchemy import inspect
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.ai_mask_accept_contract import (
+from yoao_labeling.ai_mask_accept_contract import (
     AiMaskDecisionData,
     ExpireAiMaskDecisions,
     FindAiMaskDecision,

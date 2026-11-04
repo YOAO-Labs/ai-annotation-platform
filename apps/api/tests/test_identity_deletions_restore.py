@@ -12,14 +12,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aap_identity.authenticator import Authenticator
-from aap_identity.deletion_contract import (
+from yoao_identity.authenticator import Authenticator
+from yoao_identity.deletion_contract import (
     DeletionFailure,
     decode_deletion_request,
 )
-from aap_identity.deletion_manager import DeletionManager
-from aap_identity.deletion_postgres import DeletionPostgresData
-from aap_identity.postgres import PostgresData
+from yoao_identity.deletion_manager import DeletionManager
+from yoao_identity.deletion_postgres import DeletionPostgresData
+from yoao_identity.postgres import PostgresData
 from app.db.models.user import User
 from tests.test_identity_admission_live import _dsn, _token, _world
 from tests.test_identity_deletions_native import _cleanup_deletion_world

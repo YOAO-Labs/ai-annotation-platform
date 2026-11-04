@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from aap_task_contract import VisualTask
+from yoao_task_contract import VisualTask
 from pydantic import BaseModel, ConfigDict, Field
 from app.schemas._jsonb_types import CocoRleContent
 

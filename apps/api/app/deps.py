@@ -4,10 +4,10 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
-from aap_identity.contract import Principal
+from yoao_identity.contract import Principal
 from app.db.base import async_session
 from app.db.models.project import Project
-from aap_workspace_contract.access import ProjectAccess
+from yoao_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import (
     IdentityActorFacts,
     IdentityCredentialRejected,

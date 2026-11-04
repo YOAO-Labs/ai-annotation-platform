@@ -12,7 +12,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
 
-from aap_identity.account_lock_contract import ACCOUNT_LOCK_PROTOCOL
+from yoao_identity.account_lock_contract import ACCOUNT_LOCK_PROTOCOL
 from app.services.identity_account_lock_data import IdentityAccountLockData
 
 _ACTOR_ID = uuid.UUID(int=11)

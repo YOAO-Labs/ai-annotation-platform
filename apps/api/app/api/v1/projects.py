@@ -1,8 +1,8 @@
-from aap_task_contract import normalize_task
-from aap_inference.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
-import aap_inference.preannotate as preannotate_schemas
-from aap_workspace.configuration_requests import ProjectCreate, ProjectUpdate
-from aap_workspace_contract.project_query_contract import (
+from yoao_task_contract import normalize_task
+from yoao_inference.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
+import yoao_inference.preannotate as preannotate_schemas
+from yoao_workspace.configuration_requests import ProjectCreate, ProjectUpdate
+from yoao_workspace_contract.project_query_contract import (
     ProjectConfigurationEvidence,
 )
 import logging
@@ -20,7 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, or_, select, func
-from aap_assets_catalog.associations_contract import (
+from yoao_assets_catalog.associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetSummary,
 )
@@ -39,14 +39,14 @@ from app.db.enums import (
     UserRole,
     WORKBENCH_AI_EDITABLE_TASK_STATUSES,
 )
-from aap_workspace_contract.access import ProjectCapability
+from yoao_workspace_contract.access import ProjectCapability
 from app.services.workspace_membership import (
     add_member as add_project_member,
     change_role as change_project_member_role,
     preview_role_change as preview_project_member_role_change,
     remove_member as remove_project_member,
 )
-from aap_workspace.contract import MembershipRecord
+from yoao_workspace.contract import MembershipRecord
 from app.services.user_brief import resolve_briefs
 from app.db.models.user import User
 from app.db.models.project import Project
@@ -112,7 +112,7 @@ from app.services.inference_pipelines import (
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
-from aap_workspace_contract.project_query_values import materialize_project_query_data
+from yoao_workspace_contract.project_query_values import materialize_project_query_data
 from app.services.workspace_directory_query import execute_directory_query
 
 from app.services.labeling_core_read_relations import (
@@ -151,7 +151,7 @@ def _frame_pipeline_supported(execution_unit, pipeline_stages) -> bool:
 
 
 def _build_video_input_selection(body, task_ids, *, max_frames: int):
-    from aap_assets_video_inputs import authority, values
+    from yoao_assets_video_inputs import authority, values
 
     return authority.VideoSelection(
         batch_id=body.batch_id,
@@ -168,7 +168,7 @@ def _build_video_input_selection(body, task_ids, *, max_frames: int):
 
 
 def _restore_video_input_selection(body, task_ids, payload):
-    from aap_assets_video_inputs import authority, execution
+    from yoao_assets_video_inputs import authority, execution
 
     raw_selection = (
         payload.get("accepted_video_selection") if isinstance(payload, dict) else None
@@ -194,7 +194,7 @@ def _restore_video_input_selection(body, task_ids, payload):
 
 
 def _video_manifest_payload_matches(payload, job_id, selection) -> bool:
-    from aap_assets_video_inputs import values
+    from yoao_assets_video_inputs import values
 
     task_ids = (
         [str(task_id) for task_id in selection.task_ids]
@@ -239,8 +239,8 @@ async def _capture_video_input_manifest(
     capture_factory: VideoInputManifestCaptureFactory,
     replay: bool,
 ):
-    from aap_assets_video_inputs import execution as video_contract
-    from aap_assets_video_inputs import values
+    from yoao_assets_video_inputs import execution as video_contract
+    from yoao_assets_video_inputs import values
 
     payload = job.payload or {}
     selection_payload = selection.model_dump(mode="json")
@@ -527,7 +527,7 @@ async def delete_project(
     from app.services import guide_asset_uploads as guide_flow
     from app.services.audit import audit_origin_from_request
     from app.services.project_task_dataset import lock_project
-    from aap_audit_contract import ProjectDeletionAuditContext
+    from yoao_audit_contract import ProjectDeletionAuditContext
 
     current_user, proof = await guide_flow.lock_authority(db, current_user, request)
     await lock_project(db, project.id)
@@ -1419,7 +1419,7 @@ async def trigger_preannotation(
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
-    from aap_inference.execution_context import build_predict_context
+    from yoao_inference.execution_context import build_predict_context
     from app.services import prediction_retry, trained_models
 
     execution_unit = _preannotation_execution_unit(body)
@@ -1501,7 +1501,7 @@ async def trigger_preannotation(
     if not backend or not await svc.is_enabled(project.id, source_backend_id):
         raise HTTPException(status_code=404, detail="模型服务不存在")
 
-    from aap_inference.capabilities import resolve_model_task
+    from yoao_inference.capabilities import resolve_model_task
 
     try:
         body.task = resolve_model_task(backend, body.model_id, body.task)
@@ -2150,7 +2150,7 @@ async def trigger_preannotation(
         if not uses_input_manifest:
             return
 
-        from aap_assets_input_manifests import contract as manifests
+        from yoao_assets_input_manifests import contract as manifests
 
         selection = manifests.ManifestSelection(
             batch_id=body.batch_id,
@@ -2230,8 +2230,8 @@ async def trigger_preannotation(
         if not uses_video_manifest:
             return
 
-        from aap_assets_video_inputs import execution as video_contract
-        from aap_assets_video_inputs import values as video_values
+        from yoao_assets_video_inputs import execution as video_contract
+        from yoao_assets_video_inputs import values as video_values
 
         try:
             video_selection = (
@@ -2508,8 +2508,8 @@ async def trigger_preannotation(
                 raise HTTPException(status_code=409, detail="冻结输入身份与作业不匹配")
             accepted_input_task_id = None
     if accepted_input_task_id is not None:
-        from aap_assets_inputs import contract as accepted_inputs_contract
-        from aap_assets_inputs.contract import InputFailure
+        from yoao_assets_inputs import contract as accepted_inputs_contract
+        from yoao_assets_inputs.contract import InputFailure
 
         if precreated_job is None:
             raise RuntimeError("Workbench input admission requires a durable job")
@@ -2797,7 +2797,7 @@ async def preview_orphan_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     """v0.6.7 二修 B-10：预览本项目中「无源 task」（dataset_item_id 为空 / 指向已 unlink 的数据集 / 指向已删除 dataset_item）。"""
-    from aap_labeling.task_maintenance_contract import ReadSourceLessTaskCandidates
+    from yoao_labeling.task_maintenance_contract import ReadSourceLessTaskCandidates
     from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
 
     candidates = await LabelingTaskMaintenanceService(db).command(

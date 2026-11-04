@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from aap_workspace.mask_configuration_values import (
+from yoao_workspace.mask_configuration_values import (
     MaskCompareBaseline as _MaskCompareBaseline,
     MaskQCSeverity as _MaskQCSeverity,
 )

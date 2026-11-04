@@ -1,7 +1,7 @@
 """Borrowed-session binding for the Jobs owner's fixed domain queries."""
 
 from sqlalchemy import select, text
-from aap_jobs.domain_query_contract import (
+from yoao_jobs.domain_query_contract import (
     FrozenDeploymentUsage,
     FrozenDeploymentUsageRequest,
 )

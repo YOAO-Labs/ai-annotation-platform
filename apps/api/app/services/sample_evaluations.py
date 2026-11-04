@@ -7,7 +7,7 @@ from app.services import training_write_accounting as write_accounting
 from contextlib import nullcontext
 from app.services import storage_access
 
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 
 import asyncio
 import copy

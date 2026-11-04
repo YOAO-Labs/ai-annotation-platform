@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 from botocore.exceptions import ClientError
 
 from app.config import settings
-from aap_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
+from yoao_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
 from app.schemas.guide_asset import GuideAssetEntry
 from app.services import annotations_storage, storage_access
 from app.services import storage_migration_artifact_reads as migration_reads

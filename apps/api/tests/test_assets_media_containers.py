@@ -188,7 +188,7 @@ def _verify_container(
     names = {value.partition("=")[0] for value in config.get("Env", [])}
     control = role == "control"
     module = (
-        "aap_assets_media_runtime" if control else "aap_assets_media_runtime.worker"
+        "yoao_assets_media_runtime" if control else "yoao_assets_media_runtime.worker"
     )
     if not (
         observed.get("Id") == container_id

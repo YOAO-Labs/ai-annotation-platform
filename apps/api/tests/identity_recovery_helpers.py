@@ -10,8 +10,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from aap_identity.recovery_crypto import token_hash
-from aap_mail_transport import MailDeliveryResult, MailOutcome, MailReason
+from yoao_identity.recovery_crypto import token_hash
+from yoao_mail_transport import MailDeliveryResult, MailOutcome, MailReason
 from app.db.models.email_verification_token import EmailVerificationToken
 from app.db.models.password_reset_token import PasswordResetToken
 
@@ -53,7 +53,7 @@ class CredentialMailCapture:
 
 @pytest.fixture
 def credential_mail_capture(db_session, monkeypatch):
-    import aap_mail_transport
+    import yoao_mail_transport
     from app.services import identity_mail_delivery
     from app.config import settings
 
@@ -90,5 +90,5 @@ def credential_mail_capture(db_session, monkeypatch):
             "smtp_from": "noreply@example.test",
         },
     )
-    monkeypatch.setattr(aap_mail_transport, "send_message", send)
+    monkeypatch.setattr(yoao_mail_transport, "send_message", send)
     return capture
