@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 
 from app.db.models.annotation import Annotation
@@ -273,3 +274,79 @@ async def test_multi_annotation_restore_rolls_back_if_one_row_changed(
         next(row for row in persisted if str(row.id) == changed_id).class_name
         == "person"
     )
+
+
+@pytest.mark.parametrize("media_type", ["image", "video"])
+async def test_restore_rejects_real_editor_takeover_before_undo_and_redo(
+    media_type, db_session, httpx_client, super_admin, reviewer
+):
+    from app.services.task_lock import TaskLockService
+
+    actor, token = super_admin
+    other, _ = reviewer
+    project = await create_project(db_session, owner_id=actor.id, classes=["car"])
+    task = await create_task(db_session, project_id=project.id)
+    task.file_type = media_type
+    prediction = Prediction(
+        task_id=task.id,
+        project_id=project.id,
+        source="external_import",
+        result=[
+            {
+                "type": "rectanglelabels",
+                "value": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 10,
+                    "height": 10,
+                    "rectanglelabels": ["car"],
+                },
+            }
+        ],
+    )
+    db_session.add(prediction)
+    await db_session.commit()
+    key = str(uuid.uuid4())
+    accepted = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept",
+        headers=_headers(token, key),
+    )
+    assert accepted.status_code == 200, accepted.text
+    annotation = accepted.json()[0]
+    locks = TaskLockService(db_session)
+    assert await locks.acquire(task.id, actor.id) is not None
+    assert await locks.acquire(task.id, other.id, force_takeover=True) is not None
+    await db_session.commit()
+    url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
+    undo = {
+        "target": "before",
+        "expected_versions": {annotation["id"]: annotation["version"]},
+        "idempotency_key": str(uuid.uuid4()),
+        "video_segment_id": None,
+    }
+    blocked = await httpx_client.post(url, json=undo, headers=_headers(token))
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["reason"] == "task_lock_conflict"
+    await db_session.refresh(
+        await db_session.get(Annotation, uuid.UUID(annotation["id"]))
+    )
+    assert (await db_session.get(Annotation, uuid.UUID(annotation["id"]))).is_active
+    assert await locks.release(task.id, other.id)
+    await db_session.commit()
+    undone = await httpx_client.post(url, json=undo, headers=_headers(token))
+    assert undone.status_code == 200, undone.text
+    assert await locks.acquire(task.id, other.id) is not None
+    await db_session.commit()
+    redo = {
+        "target": "after",
+        "expected_versions": undone.json()["result_versions"],
+        "idempotency_key": str(uuid.uuid4()),
+        "video_segment_id": None,
+    }
+    blocked = await httpx_client.post(url, json=redo, headers=_headers(token))
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["reason"] == "task_lock_conflict"
+    await db_session.refresh(
+        await db_session.get(Annotation, uuid.UUID(annotation["id"]))
+    )
+    assert not (await db_session.get(Annotation, uuid.UUID(annotation["id"]))).is_active

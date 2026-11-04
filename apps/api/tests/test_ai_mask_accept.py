@@ -769,6 +769,39 @@ async def test_video_accept_persists_claimed_collaboration_segment(
     assert response.status_code == 200, response.text
     assert response.json()["annotation"]["video_segment_id"] == str(segment.id)
 
+    accepted = response.json()["annotation"]
+    history_url = (
+        f"/api/v1/tasks/{task.id}/acceptance-history/{body['idempotency_key']}/restore"
+    )
+    undo = await httpx_client.post(
+        history_url,
+        json={
+            "target": "before",
+            "expected_versions": {accepted["id"]: accepted["version"]},
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": str(segment.id),
+        },
+        headers=_headers(token),
+    )
+    assert undo.status_code == 200, undo.text
+    released = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/video/segments/{segment.id}:release",
+        headers=_headers(token),
+    )
+    assert released.status_code == 200, released.text
+    redo = await httpx_client.post(
+        history_url,
+        json={
+            "target": "after",
+            "expected_versions": undo.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": str(segment.id),
+        },
+        headers=_headers(token),
+    )
+    assert redo.status_code == 409
+    assert redo.json()["detail"]["reason"] == "video_segment_lease_required"
+
 
 async def test_video_candidate_receipt_is_bound_to_the_requested_frame(
     httpx_client,
@@ -1143,3 +1176,57 @@ async def test_native_create_history_reactivates_original_annotation(
     assert annotation.is_active
     assert annotation.geometry == row["geometry"]
     assert str(annotation.parent_prediction_id) == accepted.json()["prediction"]["id"]
+
+
+@pytest.mark.parametrize("media_type", ["image", "video"])
+async def test_native_history_rejects_same_path_item_replacement(
+    media_type, httpx_client, db_session, super_admin, monkeypatch, accept_storage_mocks
+):
+    user, token = super_admin
+    task, backend, pool = await _seed(
+        db_session, owner_id=user.id, media_type=media_type
+    )
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    body = _body(task, backend, pool, frame_index=4 if media_type == "video" else None)
+    accepted = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/ai-mask-candidates/accept",
+        json=body,
+        headers=_headers(token),
+    )
+    assert accepted.status_code == 200, accepted.text
+    annotation = accepted.json()["annotation"]
+    url = (
+        f"/api/v1/tasks/{task.id}/acceptance-history/{body['idempotency_key']}/restore"
+    )
+    undo = await httpx_client.post(
+        url,
+        json={
+            "target": "before",
+            "expected_versions": {annotation["id"]: annotation["version"]},
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+        headers=_headers(token),
+    )
+    assert undo.status_code == 200, undo.text
+    item = await db_session.get(
+        DatasetItem, task.dataset_item_id, populate_existing=True
+    )
+    old_generation = item.media_source_generation
+    old_path = item.file_path
+    item.file_size = (item.file_size or 0) + 1
+    await db_session.commit()
+    await db_session.refresh(item)
+    assert item.file_path == old_path and item.media_source_generation > old_generation
+    redo = await httpx_client.post(
+        url,
+        json={
+            "target": "after",
+            "expected_versions": undo.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+        headers=_headers(token),
+    )
+    assert redo.status_code == 409
+    assert redo.json()["detail"]["reason"] == "source_changed"

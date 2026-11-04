@@ -315,10 +315,12 @@ async def assert_video_annotation_write_scope(
         )
     segment = (
         await db.execute(
-            select(video_segment_row).where(
+            select(video_segment_row)
+            .where(
                 video_segment_row.id == segment_id,
                 video_segment_row.dataset_item_id == task.dataset_item_id,
             )
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if segment is None:

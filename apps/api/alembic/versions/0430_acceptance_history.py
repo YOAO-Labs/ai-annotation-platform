@@ -52,6 +52,37 @@ def upgrade() -> None:
         "annotation_operations",
         f"kind IN ({_KINDS}, 'accept_prediction', 'restore_acceptance')",
     )
+    _apply((_SQL / "0430_acceptance_source.sql").read_text(encoding="utf-8"))
+    _apply("""
+        DO $owner$
+        DECLARE
+            assets_owner name;
+            labeling_owner name;
+            assets_create boolean;
+        BEGIN
+            SELECT pg_catalog.pg_get_userbyid(proowner) INTO STRICT assets_owner
+            FROM pg_catalog.pg_proc
+            WHERE oid = 'aap_assets_v1._image_owner_source(uuid,uuid,uuid,boolean)'::pg_catalog.regprocedure;
+            SELECT pg_catalog.pg_get_userbyid(proowner) INTO STRICT labeling_owner
+            FROM pg_catalog.pg_proc
+            WHERE oid = 'aap_labeling_v1.mask_edit_command(jsonb)'::pg_catalog.regprocedure;
+            assets_create := pg_catalog.has_schema_privilege(assets_owner, 'aap_assets_v1', 'CREATE');
+            IF NOT assets_create THEN
+                EXECUTE pg_catalog.format('GRANT CREATE ON SCHEMA aap_assets_v1 TO %I', assets_owner);
+            END IF;
+            EXECUTE pg_catalog.format(
+                'ALTER FUNCTION aap_assets_v1._acceptance_history_source(uuid) OWNER TO %I', assets_owner);
+            EXECUTE pg_catalog.format(
+                'GRANT EXECUTE ON FUNCTION aap_assets_v1._acceptance_history_source(uuid) TO %I', labeling_owner);
+            IF NOT assets_create THEN
+                EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA aap_assets_v1 FROM %I', assets_owner);
+            END IF;
+        END
+        $owner$;
+    """)
+    _apply(
+        "REVOKE ALL ON FUNCTION aap_assets_v1._acceptance_history_source(uuid) FROM PUBLIC"
+    )
     _apply((_SQL / "0430_acceptance_history.sql").read_text(encoding="utf-8"))
     _apply("""
         DO $owner$
@@ -85,6 +116,7 @@ def downgrade() -> None:
         raise RuntimeError("Acceptance history exists; retain the compatible schema")
     _mask_command(history=False)
     op.execute("DROP FUNCTION aap_labeling_v1._acceptance_history(jsonb)")
+    op.execute("DROP FUNCTION aap_assets_v1._acceptance_history_source(uuid)")
     op.drop_constraint(
         "ck_annotation_operations_kind", "annotation_operations", type_="check"
     )

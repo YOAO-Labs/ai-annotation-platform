@@ -22,6 +22,12 @@ materialization never falls back to a newer source after acceptance. The input
 control exposes only `/v1/inputs/find`, `/accept`, `/record`, `/reference` and
 `/verify-source`; worker and private source operations are not HTTP routes.
 
+Acceptance-history source fencing is a same-transaction internal Assets owner
+capability, packaged as `sql/0430_acceptance_source.sql`. It returns the existing
+DatasetItem source snapshot, generation and object identity under a bounded row
+lock; only the Labeling owner may execute it. It is not a media HTTP route and
+does not expand any runtime LOGIN or private table privileges.
+
 The optional `apps/assets-media/Dockerfile` targets are `control`, `worker` and
 `image-worker`. The shared control app is defined in
 `docker-compose.assets-media.yml`; its `assets-images-worker` service uses an

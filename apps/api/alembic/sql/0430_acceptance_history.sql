@@ -11,9 +11,16 @@ DECLARE
     v_payload jsonb := p_request -> 'payload';
     v_action text := p_request ->> 'action';
     v_task record;
+    v_segment record;
     v_row record;
     v_original record;
     v_existing record;
+    v_scene_reply jsonb;
+    v_primary_link_id uuid;
+    v_primary_item_id uuid;
+    v_source_item_id uuid;
+    v_asset_source jsonb;
+    v_source_binding jsonb;
     v_account jsonb;
     v_before jsonb := '{}'::jsonb;
     v_after jsonb := '{}'::jsonb;
@@ -44,7 +51,7 @@ BEGIN
             DETAIL = '{"status_code":403,"detail":{"reason":"actor_inactive"}}';
     END IF;
     SELECT task.id,task.project_id,task.batch_id,task.status,task.review_round_id,
-           task.media_source_generation,task.dataset_item_id,task.file_path,task.file_type
+           task.media_source_generation,task.dataset_item_id,task.file_path,task.file_type,task.original_id
     INTO v_task FROM public.tasks AS task
     WHERE task.id = v_task_id FOR UPDATE;
     IF NOT FOUND OR v_task.project_id IS DISTINCT FROM v_project_id
@@ -54,12 +61,39 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
             DETAIL = '{"status_code":409,"detail":{"reason":"task_target_changed"}}';
     END IF;
+    IF v_action IN ('record','restore') THEN
+        SELECT link.id,link.dataset_item_id INTO v_primary_link_id,v_primary_item_id
+        FROM public.task_dataset_item_links AS link
+        WHERE link.task_id = v_task_id AND link.role = 'primary_lidar'
+        FOR SHARE NOWAIT;
+        IF (v_task.dataset_item_id IS NOT NULL AND v_primary_item_id IS NOT NULL
+            AND v_task.dataset_item_id IS DISTINCT FROM v_primary_item_id)
+           OR (v_task.original_id IS NOT NULL
+               AND (v_task.dataset_item_id IS NOT NULL OR v_primary_item_id IS NOT NULL)) THEN
+            RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                DETAIL = '{"status_code":409,"detail":{"reason":"source_changed"}}';
+        END IF;
+        v_source_item_id := COALESCE(v_task.dataset_item_id,v_primary_item_id);
+        IF v_source_item_id IS NOT NULL THEN
+            v_asset_source := aap_assets_v1._acceptance_history_source(v_source_item_id);
+            IF v_asset_source IS NULL OR v_asset_source -> 'source_drifted' IS DISTINCT FROM 'false'::jsonb THEN
+                RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                    DETAIL = '{"status_code":409,"detail":{"reason":"source_changed"}}';
+            END IF;
+        END IF;
+        v_source_binding := jsonb_build_object(
+            'generation',v_task.media_source_generation,'dataset_item_id',v_task.dataset_item_id,
+            'file_path',v_task.file_path,'file_type',v_task.file_type,
+            'original_id',v_task.original_id,'primary_link_id',v_primary_link_id,
+            'primary_item_id',v_primary_item_id,'asset_source',v_asset_source
+        );
+    END IF;
 
     IF v_action = 'snapshot' THEN
         SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.user_id,
                annotation.source,annotation.annotation_type,annotation.tool_unit_id,
                annotation.class_name,annotation.geometry,annotation.confidence,
-               annotation.parent_prediction_id,annotation.parent_annotation_id,annotation.track_id,
+               annotation.parent_prediction_id,annotation.parent_annotation_id,annotation.track_id,annotation.scene_track_id,
                annotation.was_cancelled,annotation.is_active,annotation.attributes,annotation.attributes_meta,
                annotation.is_locked,annotation.sensor_role,annotation.version,annotation.video_segment_id
         INTO v_row FROM public.annotations AS annotation
@@ -74,6 +108,7 @@ BEGIN
             'geometry',v_row.geometry,'class_name',v_row.class_name,
             'annotation_type',v_row.annotation_type,'tool_unit_id',v_row.tool_unit_id,
             'track_id',v_row.track_id,'confidence',v_row.confidence,
+            'scene_track_id',v_row.scene_track_id,
             'parent_prediction_id',v_row.parent_prediction_id,
             'user_id',v_row.user_id,'parent_annotation_id',v_row.parent_annotation_id,'source',v_row.source,
             'attributes',v_row.attributes,'attributes_meta',v_row.attributes_meta,
@@ -95,7 +130,7 @@ BEGIN
         FOR v_row IN SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.user_id,
             annotation.source,annotation.annotation_type,annotation.tool_unit_id,
             annotation.class_name,annotation.geometry,annotation.confidence,
-            annotation.parent_prediction_id,annotation.parent_annotation_id,annotation.track_id,
+            annotation.parent_prediction_id,annotation.parent_annotation_id,annotation.track_id,annotation.scene_track_id,
             annotation.was_cancelled,annotation.is_active,annotation.attributes,annotation.attributes_meta,
             annotation.is_locked,annotation.sensor_role,annotation.version,annotation.video_segment_id
             FROM public.annotations AS annotation
@@ -115,6 +150,7 @@ BEGIN
                 'geometry',v_row.geometry,'class_name',v_row.class_name,
                 'annotation_type',v_row.annotation_type,'tool_unit_id',v_row.tool_unit_id,
                 'track_id',v_row.track_id,'confidence',v_row.confidence,
+                'scene_track_id',v_row.scene_track_id,
                 'parent_prediction_id',v_row.parent_prediction_id,
                 'user_id',v_row.user_id,'parent_annotation_id',v_row.parent_annotation_id,'source',v_row.source,
                 'attributes',v_row.attributes,'attributes_meta',v_row.attributes_meta,
@@ -153,9 +189,7 @@ BEGIN
             gen_random_uuid(),v_task_id,v_actor_id,'accept_prediction',v_idempotency_key,v_digest,v_digest,
             '{}'::jsonb,v_versions,jsonb_build_object('before',v_before,'after',v_after,
                 'current_side','after','current_versions',v_versions,'video_segment_id',v_payload -> 'video_segment_id',
-                'source_binding',jsonb_build_object(
-                    'generation',v_task.media_source_generation,'dataset_item_id',v_task.dataset_item_id,
-                    'file_path',v_task.file_path,'file_type',v_task.file_type)),
+                'source_binding',v_source_binding),
             'committed',v_payload -> 'response',transaction_timestamp(),transaction_timestamp()
         );
         v_result := jsonb_build_object('result_versions',v_versions,'restore_expires_at',v_expiry);
@@ -175,11 +209,25 @@ BEGIN
             RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
                 DETAIL = '{"status_code":410,"detail":{"reason":"restore_expired"}}';
         END IF;
-        IF v_original.report -> 'source_binding' IS DISTINCT FROM jsonb_build_object(
-            'generation',v_task.media_source_generation,'dataset_item_id',v_task.dataset_item_id,
-            'file_path',v_task.file_path,'file_type',v_task.file_type) THEN
+        IF v_original.report -> 'source_binding' IS DISTINCT FROM v_source_binding THEN
             RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
                 DETAIL = '{"status_code":409,"detail":{"reason":"source_changed"}}';
+        END IF;
+        IF v_payload ->> 'video_segment_id' IS NOT NULL THEN
+            SELECT segment.id,segment.status,segment.assignee_id,segment.locked_by,
+                   segment.lock_expires_at INTO v_segment
+            FROM public.video_segments AS segment
+            WHERE segment.id = (v_payload ->> 'video_segment_id')::uuid
+              AND segment.dataset_item_id = v_task.dataset_item_id
+            FOR UPDATE;
+            IF NOT FOUND OR v_segment.status = 'completed'
+               OR v_segment.assignee_id IS DISTINCT FROM v_actor_id
+               OR v_segment.locked_by IS DISTINCT FROM v_actor_id
+               OR v_segment.lock_expires_at IS NULL
+               OR v_segment.lock_expires_at <= clock_timestamp() THEN
+                RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                    DETAIL = '{"status_code":409,"detail":{"reason":"video_segment_lease_required"}}';
+            END IF;
         END IF;
         SELECT operation.* INTO v_existing FROM public.annotation_operations AS operation
         WHERE operation.task_id = v_task_id AND operation.actor_id = v_actor_id
@@ -203,7 +251,7 @@ BEGIN
                 SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.user_id,
                        annotation.source,annotation.annotation_type,annotation.tool_unit_id,
                        annotation.class_name,annotation.geometry,annotation.confidence,
-                       annotation.parent_prediction_id,annotation.parent_annotation_id,annotation.track_id,
+                       annotation.parent_prediction_id,annotation.parent_annotation_id,annotation.track_id,annotation.scene_track_id,
                        annotation.was_cancelled,annotation.is_active,annotation.attributes,annotation.attributes_meta,
                        annotation.is_locked,annotation.sensor_role,annotation.version,annotation.video_segment_id
                 INTO v_row FROM public.annotations AS annotation
@@ -221,6 +269,7 @@ BEGIN
                    OR v_row.annotation_type IS DISTINCT FROM v_snapshot ->> 'annotation_type'
                    OR v_row.tool_unit_id IS DISTINCT FROM v_snapshot ->> 'tool_unit_id'
                    OR v_row.track_id IS DISTINCT FROM v_snapshot ->> 'track_id'
+                   OR v_row.scene_track_id IS DISTINCT FROM (v_snapshot ->> 'scene_track_id')::uuid
                    OR v_row.confidence IS DISTINCT FROM (v_snapshot ->> 'confidence')::double precision
                    OR v_row.attributes IS DISTINCT FROM v_snapshot -> 'attributes'
                    OR v_row.attributes_meta IS DISTINCT FROM v_snapshot -> 'attributes_meta'
@@ -237,6 +286,33 @@ BEGIN
                         DETAIL = '{"status_code":409,"detail":{"reason":"active_children"}}';
                 END IF;
                 IF v_original.report ->> 'current_side' <> v_payload ->> 'target' THEN
+                    IF v_row.scene_track_id IS NOT NULL THEN
+                        v_scene_reply := aap_labeling_v1.scene_track_domain_command(
+                            jsonb_build_object(
+                                'schema','aap-labeling-scene-track-domain/v1','action','touch',
+                                'annotation_id',v_row.id,'scene_track_id',v_row.scene_track_id,
+                                'track_id',v_row.track_id,'class_name',v_row.class_name
+                            )
+                        );
+                        IF v_scene_reply ->> 'schema' IS DISTINCT FROM 'aap-labeling-scene-track-domain/v1'
+                           OR v_scene_reply ->> 'action' IS DISTINCT FROM 'touch'
+                           OR v_scene_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+                            RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                                DETAIL = jsonb_build_object('status_code',409,'detail',
+                                    jsonb_build_object('reason',COALESCE(
+                                        v_scene_reply #>> '{error,code}','scene_track_unavailable')))::text;
+                        END IF;
+                        IF (v_target -> v_key ->> 'active')::boolean IS FALSE AND EXISTS (
+                            SELECT 1 FROM public.annotations AS camera
+                            WHERE camera.task_id = v_task_id
+                              AND camera.scene_track_id = v_row.scene_track_id
+                              AND camera.sensor_role IS NOT NULL
+                              AND camera.is_active IS TRUE AND camera.was_cancelled IS FALSE
+                        ) THEN
+                            RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                                DETAIL = '{"status_code":409,"detail":{"reason":"active_children"}}';
+                        END IF;
+                    END IF;
                     v_snapshot := v_target -> v_key;
                     UPDATE public.annotations SET
                         geometry = v_snapshot -> 'geometry', class_name = v_snapshot ->> 'class_name',

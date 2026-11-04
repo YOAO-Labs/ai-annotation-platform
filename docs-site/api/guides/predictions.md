@@ -79,6 +79,8 @@ Worker 完整核验登记原件的 SHA／长度，并对同一文件实际探测
 
 `POST /api/v1/tasks/{task_id}/acceptance-history/{acceptance_key}/restore` 接受 `target`（`before` 或 `after`）、完整 `expected_versions`（标注 UUID 到版本号）、本次变更的 `idempotency_key` 和原 `video_segment_id`（无视频片段时为 `null`）。响应包含更新后的 `result_versions`、`active_annotation_ids`、`restore_expires_at` 和 `idempotent_replay`。响应中断时，用相同变更键和原请求重放；下一次撤销或重做使用新键和最新版本。多标注采纳整体恢复；重做复用原标注 ID，原生细化同时恢复几何、类别和预测来源。沿用切割操作的 30 天恢复期限；目标版本、任务来源或当前权限变化时拒绝写入，不会覆盖后续编辑。
 
+恢复会在写入前持有当前任务编辑锁或视频片段租约，重新核对素材来源代次与原件身份。3D 标注已有活动相机成员时返回冲突，不会将相机成员留在无活动主标注的状态；成功恢复会推进所属 Scene Track 修订。
+
 引用图片与托管图片的 `mask_repair` SAM 候选经[批量修复独立资格](./tasks-and-annotations.md#mask-质检批量修复)采纳：必须匹配已提交单元、生成时结果/元信息摘要、源标注及当前原图，其凭证不能代替后台分割资格。重复或已驳回候选返回 `409`。`POST /tasks/{task_id}/predictions/{prediction_id}/reject` 按当前任务编辑和 Key 权限写入驳回状态；来源离线或 native mask 开关关闭不阻止驳回。
 
 ## 图片原生候选内容

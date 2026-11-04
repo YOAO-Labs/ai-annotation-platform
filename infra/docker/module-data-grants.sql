@@ -2543,6 +2543,9 @@ ALTER FUNCTION aap_audit_v1.record_identity_invitation_event(
 ) OWNER TO :"audit_owner";
 
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._acceptance_history_source(uuid) OWNER TO :"assets_owner";
+REVOKE ALL ON FUNCTION aap_assets_v1._acceptance_history_source(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION aap_assets_v1._acceptance_history_source(uuid) TO :"labeling_owner";
 ALTER FUNCTION aap_assets_v1._legacy_upload_reply(jsonb, text) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)
     OWNER TO :"assets_owner";
@@ -2849,6 +2852,9 @@ ALTER FUNCTION aap_labeling_v1.task_event_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.mask_edit_command(jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._acceptance_history(jsonb)
+    OWNER TO :"labeling_owner";
+REVOKE ALL ON FUNCTION aap_labeling_v1._acceptance_history(jsonb) FROM PUBLIC;
 ALTER FUNCTION aap_labeling_v1.mask_revision_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb)

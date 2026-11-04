@@ -627,6 +627,57 @@ async def test_video_segment_lifecycle_uses_owner_and_preserves_outer_transactio
         assert claimed["changed"] is True
         assert claimed["segment"]["assignee_id"] == annotator_id
         assert claimed["segment"]["locked_by"] == annotator_id
+        from yoao_labeling.mask_edit_contract import (
+            MASK_EDIT_PROTOCOL,
+            ReadMaskVideoSegments,
+        )
+        from yoao_labeling.mask_edit_data import MaskEditDataClient
+
+        mask_connection = await asyncpg.connect(
+            _dsn(
+                test_engine,
+                "AAP_MODULE_DATA_LABELING_MASK_EDIT_URL",
+                "labeling_mask_edit_client",
+            ),
+            timeout=5,
+            command_timeout=10,
+        )
+        try:
+
+            async def mask_execute(payload):
+                return await mask_connection.fetchval(
+                    "SELECT aap_labeling_v1.mask_edit_command($1::jsonb)", payload
+                )
+
+            mask_client = MaskEditDataClient(mask_execute)
+            async with mask_connection.transaction():
+                locked = await mask_client.command(
+                    ReadMaskVideoSegments(
+                        schema=MASK_EDIT_PROTOCOL,
+                        operation="read_video_segments",
+                        task_id=task_id,
+                        project_id=project_id,
+                        actor_id=annotator_id,
+                        dataset_item_id=item_id,
+                        segment_id=uuid.UUID(str(segment_id)),
+                        lock=True,
+                    )
+                )
+                assert locked.segments[0].locked_by == annotator_id
+                await connection.execute("SET lock_timeout = '100ms'")
+                with pytest.raises(asyncpg.LockNotAvailableError):
+                    await client.command(
+                        ReleaseVideoSegment(
+                            schema="aap-labeling-video-control/v1",
+                            operation="release_segment",
+                            privileged=False,
+                            **target,
+                            now=now + timedelta(seconds=2),
+                        )
+                    )
+                await connection.execute("RESET lock_timeout")
+        finally:
+            await mask_connection.close()
         heartbeat = await client.command(
             HeartbeatVideoSegment(
                 schema="aap-labeling-video-control/v1",

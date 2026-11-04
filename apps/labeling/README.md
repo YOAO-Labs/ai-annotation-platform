@@ -228,6 +228,12 @@ task and complete annotation version set, preserves annotation IDs, journals
 each idempotent transition, and retains image/video Mask revisions under the
 same 30-day policy as slice restore. Current task, actor, segment and source
 qualification remain caller and owner fences; the receipt is not authorization.
+The restore holds the existing task editor scope or video-segment lock through
+the mutation and rechecks the segment lease. For Scene Track members it uses
+the track owner to advance revision and rejects active camera dependencies.
+The Assets-owned history source helper locks the exact direct or primary-linked
+DatasetItem and returns its existing source snapshot, generation and identity;
+only the Labeling owner can execute it, without private Assets table grants.
 
 `scene_read_query` owns the fixed scene/track/interval/member/timeline reads and
 cache projections, with exact request validation and reply scope binding. Three

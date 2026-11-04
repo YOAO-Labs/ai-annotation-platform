@@ -801,6 +801,12 @@ async def test_acceptance_history_runs_under_existing_function_only_role(test_en
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             async with connection.transaction():
                 await connection.fetch("SELECT id FROM public.annotation_operations")
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT aap_assets_v1._acceptance_history_source($1::uuid)",
+                    uuid.uuid4(),
+                )
         await transaction.rollback()
         async with maker() as db:
             row = await db.get(Annotation, annotation_id)
@@ -819,4 +825,149 @@ async def test_acceptance_history_runs_under_existing_function_only_role(test_en
                     delete(Annotation).where(Annotation.task_id == task_id)
                 )
                 await db.execute(delete(Task).where(Task.id == task_id))
+        await _cleanup(maker, world)
+
+
+async def test_acceptance_history_fences_assets_item_under_existing_mask_role(
+    test_engine,
+):
+    from yoao_labeling.mask_edit_contract import AcceptanceHistory
+
+    maker, world = await _seed(test_engine)
+    task_id = dataset_id = item_id = None
+    connection = None
+    try:
+        prediction_id, annotation_id = uuid.uuid4(), uuid.uuid4()
+        async with maker.begin() as db:
+            dataset = Dataset(
+                display_id=f"DS-HIST-{uuid.uuid4().hex[:8]}",
+                name="history source",
+                data_type="video",
+                created_by=world["member_id"],
+            )
+            db.add(dataset)
+            await db.flush()
+            dataset_id = dataset.id
+            item = DatasetItem(
+                dataset_id=dataset.id,
+                file_name="history.mp4",
+                file_path="history/source.mp4",
+                file_type="video",
+                file_size=7,
+            )
+            db.add(item)
+            await db.flush()
+            item_id = item.id
+            task = await create_task(
+                db, project_id=world["project_id"], status="in_progress"
+            )
+            task.dataset_item_id = item.id
+            task.file_type = "video"
+            task.file_path = item.file_path
+            task_id = task.id
+            db.add(
+                Annotation(
+                    id=annotation_id,
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    user_id=world["member_id"],
+                    source="prediction_based",
+                    parent_prediction_id=prediction_id,
+                    annotation_type="bbox",
+                    tool_unit_id="bbox",
+                    class_name="car",
+                    geometry={"type": "bbox"},
+                    attributes={},
+                    attributes_meta={},
+                    version=1,
+                )
+            )
+            await db.flush()
+            context = {
+                "schema": MASK_EDIT_PROTOCOL,
+                "operation": "acceptance_history",
+                "task_id": task.id,
+                "project_id": task.project_id,
+                "actor_id": world["member_id"],
+                "expected_batch_id": task.batch_id,
+                "expected_status": task.status,
+                "expected_review_round_id": task.review_round_id,
+            }
+        connection = await asyncpg.connect(
+            _dsn(test_engine, "AAP_MODULE_DATA_LABELING_MASK_EDIT_URL", _ROLE),
+            timeout=5,
+            command_timeout=10,
+        )
+
+        async def execute(payload):
+            return await connection.fetchval(
+                "SELECT aap_labeling_v1.mask_edit_command($1::jsonb)", payload
+            )
+
+        client = MaskEditDataClient(execute)
+        key = str(uuid.uuid4())
+        async with connection.transaction():
+            await client.command(
+                AcceptanceHistory(
+                    **context,
+                    action="record",
+                    payload={
+                        "acceptance_key": key,
+                        "request_digest": "a" * 64,
+                        "prediction_id": str(prediction_id),
+                        "annotation_ids": [str(annotation_id)],
+                        "video_segment_id": None,
+                        "before": {},
+                        "response": {"annotations": []},
+                    },
+                )
+            )
+            async with maker() as contender:
+                with pytest.raises(DBAPIError) as error:
+                    await contender.execute(
+                        select(DatasetItem.id)
+                        .where(DatasetItem.id == item_id)
+                        .with_for_update(nowait=True)
+                    )
+                assert getattr(error.value.orig, "sqlstate", None) == "55P03"
+                await contender.rollback()
+        async with maker.begin() as db:
+            item = await db.get(DatasetItem, item_id)
+            item.file_size += 1
+        with pytest.raises(asyncpg.PostgresError) as conflict:
+            await client.command(
+                AcceptanceHistory(
+                    **context,
+                    action="restore",
+                    payload={
+                        "acceptance_key": key,
+                        "idempotency_key": str(uuid.uuid4()),
+                        "request_digest": "b" * 64,
+                        "expected_versions": {str(annotation_id): 1},
+                        "target": "before",
+                        "video_segment_id": None,
+                    },
+                )
+            )
+        assert '"source_changed"' in conflict.value.detail
+    finally:
+        if connection is not None:
+            await connection.close()
+        if task_id is not None:
+            async with maker.begin() as db:
+                await db.execute(
+                    delete(AnnotationOperation).where(
+                        AnnotationOperation.task_id == task_id
+                    )
+                )
+                await db.execute(
+                    delete(Annotation).where(Annotation.task_id == task_id)
+                )
+                await db.execute(delete(Task).where(Task.id == task_id))
+                if item_id:
+                    await db.execute(
+                        delete(DatasetItem).where(DatasetItem.id == item_id)
+                    )
+                if dataset_id:
+                    await db.execute(delete(Dataset).where(Dataset.id == dataset_id))
         await _cleanup(maker, world)

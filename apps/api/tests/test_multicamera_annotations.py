@@ -881,3 +881,153 @@ async def test_project_owner_cannot_update_cross_project_shared_calibration(
         )
         is None
     )
+
+
+async def test_acceptance_history_touches_scene_and_rejects_active_camera_dependency(
+    db_session, httpx_client, super_admin
+):
+    from app.services import acceptance_history
+
+    user, token = super_admin
+    task, _camera, source, track = await _seed(db_session, user.id)
+    prediction_id = uuid.uuid4()
+    source.parent_prediction_id = prediction_id
+    source.source = "prediction_based"
+    await db_session.flush()
+    key = str(uuid.uuid4())
+    await acceptance_history.record(
+        db_session,
+        task,
+        user.id,
+        key=key,
+        request_digest=acceptance_history.digest({"prediction_id": str(prediction_id)}),
+        prediction_id=prediction_id,
+        annotations=[source],
+        video_segment_id=None,
+        response={"annotations": []},
+    )
+    await db_session.commit()
+    initial_revision = track.revision
+    url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
+    headers = {"Authorization": f"Bearer {token}"}
+    undo = await httpx_client.post(
+        url,
+        headers=headers,
+        json={
+            "target": "before",
+            "expected_versions": {str(source.id): source.version},
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+    )
+    assert undo.status_code == 200, undo.text
+    await db_session.refresh(track)
+    assert track.revision == initial_revision + 1
+    redo = await httpx_client.post(
+        url,
+        headers=headers,
+        json={
+            "target": "after",
+            "expected_versions": undo.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+    )
+    assert redo.status_code == 200, redo.text
+    await db_session.refresh(source)
+    await db_session.refresh(track)
+    assert source.is_active and track.revision == initial_revision + 2
+    member = await create_camera_member(
+        db_session,
+        task=task,
+        actor_id=user.id,
+        source_annotation_id=source.id,
+        camera_role="camera_front",
+        bbox=NormalizedCameraBbox(x=0.4, y=0.35, w=0.2, h=0.3),
+        visibility="visible",
+        expected_track_revision=track.revision,
+        expected_calibration_revision=1,
+        expected_calibration_digest=calibration_digest(_calibration()),
+    )
+    await db_session.commit()
+    await db_session.refresh(track)
+    before_conflict = track.revision
+    blocked = await httpx_client.post(
+        url,
+        headers=headers,
+        json={
+            "target": "before",
+            "expected_versions": redo.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+    )
+    assert blocked.status_code == 409
+    await db_session.refresh(source)
+    await db_session.refresh(member)
+    await db_session.refresh(track)
+    assert source.is_active and member.is_active and track.revision == before_conflict
+
+
+async def test_acceptance_history_fences_primary_lidar_item_generation(
+    db_session, httpx_client, super_admin
+):
+    from app.services import acceptance_history
+
+    user, token = super_admin
+    task, _camera, source, _track = await _seed(db_session, user.id)
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    task.dataset_item_id = None
+    source.parent_prediction_id = uuid.uuid4()
+    source.source = "prediction_based"
+    await db_session.flush()
+    key = str(uuid.uuid4())
+    await acceptance_history.record(
+        db_session,
+        task,
+        user.id,
+        key=key,
+        request_digest=acceptance_history.digest(
+            {"prediction_id": str(source.parent_prediction_id)}
+        ),
+        prediction_id=source.parent_prediction_id,
+        annotations=[source],
+        video_segment_id=None,
+        response={"annotations": []},
+    )
+    await db_session.commit()
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
+    undo = await httpx_client.post(
+        url,
+        headers=headers,
+        json={
+            "target": "before",
+            "expected_versions": {str(source.id): source.version},
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+    )
+    assert undo.status_code == 200, undo.text
+    await db_session.refresh(task)
+    await db_session.refresh(item)
+    task_generation = task.media_source_generation
+    item_generation = item.media_source_generation
+    item.file_size = (item.file_size or 0) + 1
+    await db_session.commit()
+    await db_session.refresh(task)
+    await db_session.refresh(item)
+    assert task.media_source_generation == task_generation
+    assert item.media_source_generation > item_generation
+    redo = await httpx_client.post(
+        url,
+        headers=headers,
+        json={
+            "target": "after",
+            "expected_versions": undo.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+    )
+    assert redo.status_code == 409
+    assert redo.json()["detail"]["reason"] == "source_changed"

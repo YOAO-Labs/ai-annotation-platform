@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from sqlalchemy.ext.asyncio import AsyncSession
+from yoao_labeling.mask_edit_contract import MASK_EDIT_PROTOCOL, ReadMaskVideoSegments
 
 from app.api.v1.tasks._shared import _load_task_or_404, require_task_annotation_write
 from app.deps import get_current_user, get_db, require_scopes
@@ -16,12 +17,15 @@ from app.services.annotation_evidence import record_annotation_actor
 from app.services.audit import AuditAction, AuditService
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_core_read_relations import lock_task_for_core_read
+from app.services.labeling_mask_edit import MaskOwnerCommandError, mask_edit_command
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     lock_raster_mask_references,
     verify_mask_payload_content,
 )
+from app.services.task_lock import TaskLockConflictError
 from app.services.video_collaboration import (
+    assert_task_lock_for_legacy_video,
     assert_video_annotation_write_scope,
     heartbeat_task_lock_for_legacy_video,
 )
@@ -96,6 +100,12 @@ async def restore_acceptance_history(
         final_access = await task_access.resolve_task_access(
             db, task, current_user.id, lock_membership=True
         )
+        try:
+            await assert_task_lock_for_legacy_video(db, task, current_user.id)
+        except TaskLockConflictError as exc:
+            raise HTTPException(
+                status_code=409, detail={"reason": "task_lock_conflict"}
+            ) from exc
         task = await lock_task_for_core_read(
             db, task_id, lock_mode="update", nowait=False, populate_existing=True
         )
@@ -109,6 +119,23 @@ async def restore_acceptance_history(
         await task_access.assert_review_adjustment_evidence(
             db, task, current_user.id, final_access
         )
+        if payload.video_segment_id is not None and task.dataset_item_id is not None:
+            try:
+                await mask_edit_command(
+                    db,
+                    ReadMaskVideoSegments(
+                        schema=MASK_EDIT_PROTOCOL,
+                        operation="read_video_segments",
+                        task_id=task.id,
+                        project_id=task.project_id,
+                        actor_id=current_user.id,
+                        dataset_item_id=task.dataset_item_id,
+                        segment_id=payload.video_segment_id,
+                        lock=True,
+                    ),
+                )
+            except MaskOwnerCommandError as exc:
+                raise HTTPException(exc.status_code, detail=exc.detail) from exc
         for geometry in geometries:
             await assert_video_annotation_write_scope(
                 db,
