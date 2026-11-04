@@ -353,13 +353,20 @@ export function RegisteredBackendsTab(): ReactNode {
             />
           </TabsContent>
           <TabsContent value="instances">
-            <BackendInstancesSection
-              scope={scope}
-              url={url}
-              patchUrl={patchUrl}
-              urlIssues={urlIssues}
-              onOpenRegister={isSuperAdmin ? () => setRegisterOpen(true) : undefined}
-            />
+            {allQ.isError && !allQ.data ? (
+              <ErrorShell
+                message={`实例列表加载失败：${(allQ.error as Error)?.message ?? "未知错误"}`}
+                onRetry={() => allQ.refetch()}
+              />
+            ) : (
+              <BackendInstancesSection
+                scope={scope}
+                url={url}
+                patchUrl={patchUrl}
+                urlIssues={urlIssues}
+                onOpenRegister={isSuperAdmin ? () => setRegisterOpen(true) : undefined}
+              />
+            )}
           </TabsContent>
           {isSuperAdmin && (
             <TabsContent value="gpu">
