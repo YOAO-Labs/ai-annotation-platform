@@ -1098,3 +1098,15 @@ Orca Run `run_5939cc27ecca` 从排期提交 `e74f38bba` 创建六个独立工作
 前端类型检查、CSS token 检查、仓库要求的 Ruff `0.15.22` 检查与四个文件格式检查、文档站构建均通过。首次误用旧 Ruff 版本被配置拒绝，不计为源码检查失败；改用要求的版本后通过。保留两处既有 Training `z-10` 提示、文档高亮／大 chunk 提示及 Konva 图层提示，没有为检查扩大本轮修改范围。
 
 浏览器关闭后停止本轮普通 API／Web／worker，按准确确认值删除当前工作树自有 test／e2e 数据库、Redis 和各十个桶。六个 worker 工作树验证干净、补丁已集成，所有子模块无未发布提交、未提交文件或 stash 后，由 Orca 移除；保留的六个分支再按预期旧提交原子删除。私有网络 headers、临时夹具脚本及本轮原生依赖已删除，脱敏记录和截图保留。共享生产 MinIO 与生产 API 的原容器 ID 和运行状态不变，日常环境未停止；没有全局 prune、推送或发布。详细回执见 `owned-mode-retirement.json`、`worker-retirement-eligibility.json`、`worker-submodule-retirement-eligibility.json`、`worker-retirement.json`、`worker-branch-retirement.json` 和 `scratch-retirement.json`。
+
+## 15. 阶段 E：N1–N3 收尾与阻塞缺陷
+
+用户批准在阶段 D 基线 `9887506c7` 上继续并行实施，完整收尾产品语言 N1–N3，并修复直接阻塞验收的缺陷。范围与跨仓边界以[产品语言计划第 15 节](1793263851_yoao-product-language-and-naming.md#15-阶段-en1n3-完整收尾)为准，不继续沿用阶段 D 对 N3 的未授权限制；N4–N6、真实发布和生产环境采用仍不自动放行。
+
+测试治理本轮负责三个组合门：
+
+- **反馈与历史行为：** 修复受限 API 创建反馈的 Identity 消费边界，以及候选采纳撤销后的 redo；先保存具体失败证据，修复后核对普通权限、持久结果、上下文隔离及错误路径，不能放宽 grants 或保留无效果的成功操作。
+- **发行物消费者：** 当前包图和真正消费者均纳入；新契约先成为实际可安装制品，后切 SDK／CLI、作者 SDK、官方插件与平台运行消费者。仓外安装、独立资源查找、core-only／extras、模板和真实 HTTP 是退出门，源码 import 或 mock 转发不替代。
+- **N1／N2 集成：** 对既有完成项与新增修改分别对账，真实 UI、文档、命令及业务 smoke 与行为测试相互印证；不为改名更换业务 expected，不新增源码文字或偶然默认值断言。
+
+独立修改工作树使用指定 OMP 模型与 `xhigh`，主进程审核合并并集中执行组合验证。跨仓制品摘要、包名／import／命令映射、配置迁移和临时环境都有准确归属；普通 API／worker 不接触 owner 造数凭据。发现的实际阻塞按原 owner 最小修复，不纳入无关优化。公开发布、模型／GPU 资格和生产资源迁移不得冒充本轮完成结果。
