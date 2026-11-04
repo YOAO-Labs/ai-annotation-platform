@@ -1244,6 +1244,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - CI 的 E2E 入口已改用现有工作树协调器，不再以初始 owner 连接另起普通 API，并保留已构建 Web 的指纹核验与 preview。本地以此前不存在的 `test` 模式实际执行该入口：独立 `_app` LOGIN 的五项高权限标志均关闭，公共 schema 建表返回 `42501`，专属导入／已受理输入桶版本控制已启用，清除 owner 选择变量的冷 API `/health/db` 返回 200。21 项工作树资源回归、配置格式及 workflow 命名检查通过。探针原先错误地要求 SIGTERM 后退出码为零；原始失败回执保留，实际日志显示完成优雅关闭，安装的 Uvicorn 随后重抛信号并返回 `-15`。核实零连接与资源归属后，该临时 `test` 模式已准确销毁，既有 e2e 未动。此证据不含尚未集成的夹具协调器、T2 回收或远端 CI。
 - 固定 MinIO 服务镜像实际包含 `/usr/bin/mc`；主进程核对镜像身份、提取该二进制并在宿主机执行，得到 `RELEASE.2025-08-13T08-35-41Z`，SHA256 为 `01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891`。E2E CI 复用这份镜像内客户端，不新增 Go 构建依赖，也不使用已返回 410 的旧官方下载地址。此证据只证明工具准备和宿主执行，不证明新的 IAM／协调器／回收生命周期已通过。
 - 当前 native Media／Images 的额外只读目标与私有协调器已形成待集成源码，真实独立进程读取仍未验收。源码审查补齐了取消后的物理线程／子进程排空、真实版本删除拒绝探针、引导前工具检查及销毁全程持有同一归属锁；这些修正尚未取得运行证据。nuScenes 辅助原件与回收响应的明确变体正在同一 T2 owner 内收敛，不改变前述未通过状态。
+- 验证器退役临时 resource root 时，若仍有准确源头回执或 owner journal，则保留原目录，并在清理结果登记路径、SHA256 与 `fixture_evidence` 原因；成功销毁运行资源不再同时抹掉物理来源证据。实际调用该退役入口，分别验证真实观测字节副本、真实空 owner 生命周期的 journal 单独存在时均被保留，无此证据的临时根仍删除；临时探针目录已收尾，未改数据库或对象桶。此窄验证不是协调器、T2 物理回收或完整资格通过，证据为 `runtime-private/fixture-evidence-retention-smoke.json`。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 

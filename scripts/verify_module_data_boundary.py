@@ -2026,6 +2026,27 @@ def _write_evidence(path: Path, document: dict) -> None:
     )
 
 
+def _retire_resource_root(resource_root: Path, cleanup: dict) -> None:
+    """Keep physical store evidence after the owned runtime itself is retired."""
+    from worktree_env import state_path
+
+    directory = state_path(resource_root, "test")
+    receipts = sorted(directory.glob("fixture-original-receipt-*.json"))
+    journals = sorted(directory.glob("fixture-store-owner-*.json"))
+    if receipts or journals:
+        cleanup["fixture_evidence"] = [
+            {
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in receipts + journals
+        ]
+        cleanup["resource_root_retained"] = str(resource_root)
+        cleanup["resource_root_retention_reason"] = "fixture_evidence"
+        return
+    shutil.rmtree(resource_root)
+
+
 _STRICT_PROFILE_TARGETS = {
     "tests/test_audit_maintenance_native.py": "audit-maintenance-native",
     "tests/test_audit_maintenance_module_live.py": "audit-maintenance-module",
@@ -10335,9 +10356,7 @@ SELECT pg_catalog.jsonb_build_object(
                 exit_code = 1
         if local_resources_destroyed:
             try:
-                shutil.rmtree(resource_root)
-            except FileNotFoundError:
-                pass
+                _retire_resource_root(resource_root, evidence["cleanup"])
             except Exception as error:
                 evidence["cleanup"]["errors"].append(
                     {"resource": "resource-root", "error_type": type(error).__name__}
