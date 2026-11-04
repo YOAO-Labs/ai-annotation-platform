@@ -16,17 +16,16 @@ last_reviewed: 2026-10-19
 
 本地 Playwright 不应连接开发进程或开发库：
 
-| 用途                |    Web |    API | 数据库                        |
-| ------------------- | -----: | -----: | ----------------------------- |
-| 日常开发            | `3000` | `8000` | `annotation`                  |
-| Playwright E2E      | `3001` | `8010` | `annotation_e2e`              |
-| 本地截图 / 视觉回归 | `3001` | `8010` | `annotation_screenshots_test` |
-| 视觉回归 CI         | `3000` | `8000` | `annotation_screenshots_test` |
+| 用途                |      Web |      API | 数据库                        |
+| ------------------- | -------: | -------: | ----------------------------- |
+| 日常开发            |   `3000` |   `8000` | `annotation`                  |
+| Playwright E2E      | 保留端口 | 保留端口 | 工作树自有 `aap_wt_*_e2e`     |
+| 本地截图 / 视觉回归 |   `3001` |   `8010` | `annotation_screenshots_test` |
+| 视觉回归 CI         |   `3000` |   `8000` | `annotation_screenshots_test` |
 
-`pnpm test:e2e` 会幂等创建 `annotation_e2e`、执行迁移，再启动专用 Web/API。
-`reuseExistingServer` 保持关闭，所以 `3001/8010` 被占用时测试直接失败，不会
-静默改用 `3000/8000`。可用 `PLAYWRIGHT_E2E_DATABASE_URL` 覆盖默认测试库，
-但库名必须以 `_e2e` 或 `_test` 结尾。
+从仓库根目录运行 `pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e`；
+启动器核验独立资源身份并分配保留端口，Playwright 启动专用 Web/API。
+不能仅靠 `PLAYWRIGHT_E2E_DATABASE_URL` 或库名后缀证明资源归属。
 
 ## Seed 路由的三重门禁
 
@@ -40,21 +39,24 @@ last_reviewed: 2026-10-19
 拒绝。production 即使设置开关也不挂载路由。不要在公共 staging 进程中
 开启这个开关。
 
+本地夹具通道还要求启动器提供的规范资源根、identity 和资源清单与数据库
+owner 标记及受限 runtime LOGIN 一致；仅满足上述路由门禁不足以认证资源。
+
 ## Cleanup 是兜底，不是隔离
 
 `reset` 会先清理固定 E2E 资源再重建 fixture；`POST /api/v1/__test/seed/cleanup`
 可幂等删除这些资源。Playwright 的 `globalTeardown` 会在正常结束时调用 cleanup。
 
-强制中断、进程崩溃或 `SIGKILL` 可能使 teardown 来不及执行。这时残留只会留在
-`annotation_e2e`，下次 reset/cleanup 会重新收敛。不能因为存在 teardown 就把
-E2E 指向开发库。
+强制中断、进程崩溃或 `SIGKILL` 可能使 teardown 来不及执行。残留必须按已核验
+的工作树 `e2e` 资源及对应夹具归属排查；不能因为存在 teardown 就把 E2E
+指向开发库，也不能删除无法确认归属的数据。
 
 ## 排查步骤
 
-1. 查看 Playwright 进程的 `PLAYWRIGHT_E2E_DATABASE_URL`，未设置时应使用
-   `annotation_e2e`。
-2. 确认 API 进程的 `DATABASE_URL` 与迁移、建库步骤完全一致。
-3. 确认本地 E2E 连接 `3001/8010`，而不是已在运行的开发服务。
+1. 确认命令由 `dev:worktree -- exec --mode e2e` 启动，并核对该 mode 的资源根、
+   identity、清单和数据库 owner 标记。
+2. 确认 owner 夹具与受限 API runtime 的连接指向同一已核验数据库，账号角色各司其职。
+3. 检查启动器分配的 Web/API 端口，不复用已在运行的开发服务。
 4. 截图自动化单独核对 `annotation_screenshots_test`，不要复用
    `annotation_e2e` 或 `annotation`。
 

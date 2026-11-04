@@ -595,6 +595,7 @@ class LocalResources:
             raise WorktreeError("资源拓扑与本工作树 identity 不一致")
         self.resources = resources
         self.settings = settings
+        self._fixture_overrides = {}
         self.code_root = code_root.resolve()
         self.touched = False
         # Validate every source before connecting or writing. Old manifests remain
@@ -655,6 +656,7 @@ class LocalResources:
     ) -> dict:
         return isolated_environment(
             self.resources,
+            code_root=self.code_root,
             database_url=database_url
             or self.runtime_url().render_as_string(hide_password=False),
             migration_database_url=self.settings.effective_migration_database_url,
@@ -920,7 +922,7 @@ class LocalResources:
         require_owner(self.resources["redis_name"], observed, self.resources["owner"])
         if not observed or not observed["running"] or not observed["port"]:
             raise WorktreeError("独立 Redis 未运行；请先 init")
-        return self._environment(observed["port"])
+        return {**self._environment(observed["port"]), **self._fixture_overrides}
 
     async def database(self, action: str = "inspect") -> dict | None:
         # Same session-lock / AUTOCOMMIT pattern as apps/api/scripts/prepare_e2e_db.py;
@@ -1902,6 +1904,17 @@ class LocalResources:
         validate_revisions(revisions, heads, asyncio.run(self.revisions()), skip=True)
         asyncio.run(self.grant_runtime())
         asyncio.run(self.verify_runtime_login())
+        if self.resources["mode"] in {"test", "e2e"}:
+            from fixture_suite_coordinator import prepare_worktree_store
+
+            self._fixture_overrides = asyncio.run(
+                prepare_worktree_store(
+                    self.environment(),
+                    resources=self.resources,
+                    configured_key=self.settings.connector_encryption_key,
+                    configured_allowlist=self.settings.connector_host_allowlist,
+                )
+            )
         print(
             f"[dev:worktree] {self.resources['database']} 已在 head {heads[0]}",
             file=sys.stderr,
@@ -2089,9 +2102,29 @@ class LocalResources:
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         asyncio.run(self.owned_runtime_role("check_drop"))
-        # Validate every resource before the first destructive operation. Each backend
-        # then rechecks ownership at the write boundary. Never use DROP ... FORCE.
-        asyncio.run(self.database("drop"))
+        fixture_owner = None
+        fixture_lock = None
+        try:
+            if self.resources["mode"] in {"test", "e2e"}:
+                from fixture_suite_coordinator import (
+                    acquire_store_destruction_lock,
+                    finalize_store_destruction,
+                    prepare_store_destruction,
+                )
+
+                fixture_lock = acquire_store_destruction_lock(self.resources)
+                fixture_owner = asyncio.run(
+                    prepare_store_destruction(
+                        self.url, self.resources, inventory["database"] is not None
+                    )
+                )
+            # Recheck each exact owner at the write boundary; never force DROP.
+            asyncio.run(self.database("drop"))
+            if fixture_owner is not None:
+                finalize_store_destruction(fixture_owner, self.resources)
+        finally:
+            if fixture_lock is not None:
+                os.close(fixture_lock)
         asyncio.run(self.owned_runtime_role("drop"))
         if require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]

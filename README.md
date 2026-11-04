@@ -294,9 +294,9 @@ pnpm format
 
 # 前端测试
 pnpm test
-pnpm test:e2e          # 需要 Postgres/Redis/MinIO；自启 3001/8010 与 annotation_e2e
-pnpm --filter web test:e2e:visual  # 视觉基线（独立于默认功能集）
-pnpm --filter web test:e2e:stress  # 完整布局压力矩阵
+pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 隔离资源与受限 API
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # 后端
 cd apps/api && uv run pytest

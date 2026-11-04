@@ -2075,10 +2075,10 @@ node --test scripts/check-workflow-names.test.mjs
 # 前端测试
 pnpm test                        # vitest 单测
 pnpm --filter web test:coverage  # 前端带覆盖率
-pnpm test:e2e                    # Playwright E2E（自启 :3001/:8010，使用 annotation_e2e）
+pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 独立资源与受限 API
 pnpm --filter web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
-pnpm --filter web test:e2e:visual  # 独立视觉基线
-pnpm --filter web test:e2e:stress  # 完整布局压力矩阵
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # 后端 / 共享包测试
 cd apps/api && uv run pytest                                            # FastAPI 平台后端
@@ -2301,9 +2301,9 @@ pnpm docs:media:audit -- --release
 手动入口需工作流先进入默认分支，验收不会自动批准素材或发布版本。
 具体步骤见[生成来源与人工复核版本](docs-site/dev/how-to/update-screenshots.md#生成来源与人工复核版本)。
 
-`pnpm test:e2e` 使用 `annotation_e2e`，截图使用
-`annotation_screenshots_test`，两者都与开发库 `annotation` 隔离。不要为省略建库步骤
-而把两套自动化的 `DATABASE_URL` 指回开发库。
+普通 E2E 使用启动器核验的工作树 `e2e` 资源；截图使用
+`annotation_screenshots_test`。不要为省略建库步骤而把自动化的
+`DATABASE_URL` 指回开发库。
 
 ### 改场景
 

@@ -22,6 +22,17 @@ BUCKETS = {
     "MINIO_INPUTS_BUCKET": "accepted-inputs",
 }
 MODES = ("dev", "test", "e2e")
+FIXTURE_ORIGINAL_ENV_KEYS = frozenset(
+    "AAP_ASSETS_ADDITIONAL_ORIGINAL_" + suffix
+    for suffix in (
+        "ENDPOINT",
+        "BUCKET",
+        "ACCESS_KEY",
+        "SECRET_KEY",
+        "ACCESS_KEY_FILE",
+        "SECRET_KEY_FILE",
+    )
+)
 
 
 class WorktreeError(ValueError):
@@ -116,6 +127,7 @@ def topology(root: Path, identity: dict, mode: str) -> dict:
 def isolated_environment(
     resources: dict,
     *,
+    code_root: Path,
     database_url: str,
     migration_database_url: str,
     minio_endpoint: str,
@@ -163,7 +175,9 @@ def isolated_environment(
         "MIGRATION_DATABASE_URL": migration.render_as_string(hide_password=False),
         "TEST_DATABASE_URL": test_url,
         "PLAYWRIGHT_E2E_DATABASE_URL": test_url,
+        "AAP_WORKTREE_RESOURCE_ROOT": resources["root"],
         "AAP_WORKTREE_MODE": resources["mode"],
+        "FIXTURE_RUNTIME_DATABASE_URL": "",
         "REDIS_URL": redis_url,
         "CELERY_BROKER_URL": redis_url,
         "CELERY_BROKER_READ_URL": redis_url,
@@ -183,7 +197,7 @@ def isolated_environment(
         "TMPDIR": str(directory / "tmp"),
         "TMP": str(directory / "tmp"),
         "TEMP": str(directory / "tmp"),
-        "UV_PROJECT_ENVIRONMENT": str(Path(resources["root"]) / "apps/api/.venv"),
+        "UV_PROJECT_ENVIRONMENT": str(code_root / "apps/api/.venv"),
         "ENVIRONMENT": "development",
         "E2E_SEED_ENABLED": "true" if resources["mode"] in {"test", "e2e"} else "false",
         "ALEMBIC_AUTO_UPGRADE": "false",
@@ -239,12 +253,15 @@ def isolated_environment(
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }
+    fixture_target_keys = (
+        FIXTURE_ORIGINAL_ENV_KEYS if resources["mode"] in {"test", "e2e"} else ()
+    )
     # Pydantic settings are case-insensitive; remove lower-case inherited aliases too.
     return {
         **{
             key: value
             for key, value in inherited.items()
-            if key.upper() not in overrides
+            if key.upper() not in overrides and key.upper() not in fixture_target_keys
         },
         **overrides,
     }

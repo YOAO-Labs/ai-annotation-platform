@@ -111,6 +111,7 @@ class ReviewRegressions(unittest.TestCase):
             dev = topology(root, identity, "dev")
             env = isolated_environment(
                 dev,
+                code_root=root,
                 database_url="postgresql+asyncpg://user:fixture@localhost/db",
                 migration_database_url="",
                 minio_endpoint="localhost:9000",
@@ -181,15 +182,18 @@ class ReviewRegressions(unittest.TestCase):
                 runtime.session_record(resources)
 
     def test_verified_destroy_releases_the_infrastructure_manifest(self):
+        from sqlalchemy.engine import make_url
+
         from worktree_resources import LocalResources
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             resources = topology(root, load_identity(root, create=True), "test")
             manifest = Path(resources["directory"]) / "resources.json"
-            atomic_json(manifest, {"fixture": True})
+            atomic_json(manifest, {"resources": resources})
             backend = object.__new__(LocalResources)
             backend.root, backend.resources = root, resources
+            backend.url = make_url("postgresql+asyncpg://owner@127.0.0.1/postgres")
             backend.inspect = Mock(
                 return_value={
                     "database": None,

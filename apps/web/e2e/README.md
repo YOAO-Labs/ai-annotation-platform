@@ -13,16 +13,16 @@
 ## 本地运行
 
 ```bash
-# 只需先起共享基础设施
-docker compose up -d postgres redis minio
+# 只需先起共享 PostgreSQL 和 MinIO
+docker compose up -d postgres minio
 
-# Playwright 自动准备 annotation_e2e、迁移数据库，并启动专用 Web/API
-cd apps/web && pnpm test:e2e            # 全部功能回归（含布局短流程）
-pnpm test:e2e e2e/tests/auth.spec.ts    # 单文件
-pnpm test:e2e --headed                   # 看着浏览器跑
-pnpm test:e2e --ui                       # 交互式 UI 模式
-pnpm test:e2e:visual                     # 独立截图比较
-pnpm test:e2e:stress                     # 完整布局压力矩阵
+# 从仓库根目录使用归属核验的 e2e 环境
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e e2e/tests/auth.spec.ts
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --headed
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --ui
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 ```
 
 首次运行需要 `pnpm exec playwright install chromium` 装浏览器。
@@ -57,12 +57,10 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 
 修改测试分类后先执行各命令的 `--list --reporter=line`，确认标签不会造成漏选；修改 CI 路由时执行 `node --test scripts/plan-e2e-suites.test.mjs`。本地验证结束后清理当前测试生成的 `test-results/`、`playwright-report/`、`e2e-results.json` 及专用环境数据，保留人工确认需要提交的基线图片。
 
-本地 E2E 固定使用 `annotation_e2e` 逻辑库、Web `127.0.0.1:3001`、API
-`127.0.0.1:8010`。Playwright 不会复用开发端口 `3000/8000`；专用端口被占用时
-直接失败，防止测试误写开发服务。如需使用其它隔离测试库，用
-`PLAYWRIGHT_E2E_DATABASE_URL` 覆盖；目标库名仍必须以 `_e2e` 或 `_test` 结尾。
-
-本地并行运行多组测试时，每组须使用独立测试数据库、服务端口和 `MINIO_DATASETS_BUCKET`。全局 teardown 仍会清理共享 E2E 数据与存储前缀，不能将单个私有 fixture 的隔离视为整套测试可共享数据库或桶。CI 分片使用各自 runner 上的独立 MinIO 服务。
+本地 E2E 由 `dev:worktree` 创建并核对当前资源根的独立数据库、Redis、存储和
+受限 API 账号，自动选择不冲突的 Web/API 端口。不能用一个带 `_test`／`_e2e`
+后缀的数据库或手工覆盖 `PLAYWRIGHT_E2E_DATABASE_URL` 代替资源归属核验。
+需要并行运行时使用不同工作树；单个 owned fixture 不代表整套测试可共享数据库或桶。
 
 ## 数据准备
 
@@ -75,11 +73,12 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 - `E2E_SEED_ENABLED=true`；
 - 当前数据库名以 `_e2e` 或 `_test` 结尾；
 - `PLAYWRIGHT_E2E_DATABASE_URL` 与 runtime `DATABASE_URL` 指向同一显式测试库；
+- 夹具进程使用启动器注入的资源根，且其 identity、资源清单、数据库 owner 标记和受限 runtime LOGIN 均通过核验；
 - `production` 环境永不挂载路由。
 
-截图配置从明确的 `SCREENSHOT_DATABASE_URL` 绑定这两个夹具选库值。仍须单独
-核对实际 API／worker 目标，不能以测试库后缀代替服务身份检查。真实创建／保存
-请求始终通过受限产品 API；夹具不能在保存失败后伪造结果。
+截图采集也必须使用已核验的自有资源及受限产品进程；单独指定
+`SCREENSHOT_DATABASE_URL` 不足以证明资源归属。真实创建／保存请求始终通过受限
+产品 API；夹具不能在保存失败后伪造结果。
 
 **默认使用私有命名空间 fixture**：`await seed.owned()` 按 spec 文件 + 测试标题
 确定性派生命名空间（`^[a-z0-9]{4,12}$`，重试稳定、跨测试唯一），由 `/seed/owned`
@@ -121,8 +120,8 @@ Redis broker 的 Celery worker；确认后设置 `PLAYWRIGHT_AI_REQUEST_WORKER=1
 能访问的非 loopback IPv4；缺省选择本机接口地址。该检查不验证模型质量。
 
 ```bash
-PLAYWRIGHT_AI_REQUEST_WORKER=1 pnpm test:e2e \
-  e2e/tests/workbench-ai-inspector-phases.spec.ts --project=chromium
+PLAYWRIGHT_AI_REQUEST_WORKER=1 pnpm dev:worktree -- exec --mode e2e -- \
+  pnpm --filter web test:e2e e2e/tests/workbench-ai-inspector-phases.spec.ts --project=chromium
 ```
 
 每例在输出目录保存不含凭据的 `ai-request-metadata.json`，记录项目与模型收到的任务 ID。

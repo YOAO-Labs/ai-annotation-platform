@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from uuid import UUID
 from urllib.parse import urlsplit
 
 from sqlalchemy.engine import make_url
@@ -16,6 +17,7 @@ _MASK_LIFECYCLE_ENABLED = (
     os.environ.get("E2E_SEED_ENABLED") == "true"
     and os.environ.get("ENVIRONMENT") == "development"
 )
+_RUNTIME_DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 class SeedSetupRefused(RuntimeError):
@@ -28,7 +30,7 @@ def prepare(payload):
     if os.environ.get("ENVIRONMENT", "development") != "development":
         raise SeedSetupRefused("Fixture setup requires development mode")
     owner = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
-    runtime = make_url(os.environ["DATABASE_URL"])
+    runtime = make_url(_RUNTIME_DATABASE_URL)
     if (
         owner.get_backend_name() != "postgresql"
         or not owner.database
@@ -37,7 +39,22 @@ def prepare(payload):
         != (runtime.host, runtime.port or 5432, runtime.database)
     ):
         raise SeedSetupRefused("Fixture setup requires the same disposable database")
-    if payload.get("operation") == "mask_slice_lifecycle":
+    if payload.get("operation") == "prepare_fixture_suite":
+        data = payload.get("data")
+        if (
+            set(payload) != {"operation", "data"}
+            or not isinstance(data, dict)
+            or set(data) != {"suite_id", "family"}
+            or data["family"] not in {"owned", "screenshot", "scale"}
+        ):
+            raise SeedSetupRefused("Invalid fixture suite preparation request")
+        try:
+            suite_id = UUID(data["suite_id"])
+        except (ValueError, TypeError, AttributeError):
+            raise SeedSetupRefused("Invalid fixture suite identity") from None
+        if str(suite_id) != data["suite_id"]:
+            raise SeedSetupRefused("Invalid fixture suite identity")
+    elif payload.get("operation") == "mask_slice_lifecycle":
         if not _MASK_LIFECYCLE_ENABLED:
             raise SeedSetupRefused(
                 "Mask lifecycle requires explicit E2E development mode"
@@ -58,6 +75,7 @@ def prepare(payload):
             or ".." in path.path.split("/")
         ):
             raise SeedSetupRefused("Only fixture endpoints may use setup credentials")
+    os.environ["FIXTURE_RUNTIME_DATABASE_URL"] = _RUNTIME_DATABASE_URL
     os.environ["DATABASE_URL"] = owner.render_as_string(hide_password=False)
     os.environ["MIGRATION_DATABASE_URL"] = ""
     os.environ["ENVIRONMENT"] = "development"
@@ -71,6 +89,13 @@ async def main():
     protocol_output = sys.stdout
     with redirect_stdout(sys.stderr):
         sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "apps/api"))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+        from fixture_suite_coordinator import (
+            prepare_fixture_suite,
+            verified_fixture_owner_url,
+        )
+
+        await verified_fixture_owner_url()
         import httpx
         from fastapi import FastAPI
         from app.api.v1._test_seed import router
@@ -84,7 +109,10 @@ async def main():
                 transport=httpx.ASGITransport(app), base_url="http://fixture.local"
             ) as client:
                 while True:
-                    if payload.get("operation") == "mask_slice_lifecycle":
+                    if payload.get("operation") == "prepare_fixture_suite":
+                        result = await prepare_fixture_suite(**payload["data"])
+                        status, body = 200, json.dumps(result)
+                    elif payload.get("operation") == "mask_slice_lifecycle":
                         spec = importlib.util.spec_from_file_location(
                             "mask_slice_lifecycle",
                             Path(__file__).with_name("mask-slice-lifecycle.py"),

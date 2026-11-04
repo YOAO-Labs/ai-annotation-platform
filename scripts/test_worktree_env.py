@@ -112,6 +112,7 @@ class EnvironmentTests(unittest.TestCase):
             }
             env = isolated_environment(
                 resources,
+                code_root=root,
                 database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/db",
                 migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/db",
                 minio_endpoint="localhost:9000",
@@ -172,6 +173,7 @@ class EnvironmentTests(unittest.TestCase):
             }
             env = isolated_environment(
                 resources,
+                code_root=root,
                 database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/annotation",
                 migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/annotation",
                 minio_endpoint="localhost:9000",
@@ -252,6 +254,36 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(env["MINIO_PUBLIC_URL"], "/minio")
             self.assertEqual(env["MINIO_PROXY_TARGET"], "http://localhost:9000")
 
+    def test_resource_root_and_code_venv_are_independent(self):
+        from worktree_env import isolated_environment, load_identity, topology
+
+        with (
+            tempfile.TemporaryDirectory() as resources_dir,
+            tempfile.TemporaryDirectory() as code_dir,
+        ):
+            root = Path(resources_dir).resolve()
+            code_root = Path(code_dir).resolve()
+            resources = topology(root, load_identity(root, create=True), "test")
+            env = isolated_environment(
+                resources,
+                code_root=code_root,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited={
+                    "AAP_WORKTREE_RESOURCE_ROOT": "/wrong-root",
+                    "aap_worktree_resource_root": "/also-wrong",
+                    "UV_PROJECT_ENVIRONMENT": "/wrong-venv",
+                },
+            )
+            self.assertEqual(env["AAP_WORKTREE_RESOURCE_ROOT"], str(root))
+            self.assertNotIn("aap_worktree_resource_root", env)
+            self.assertEqual(
+                env["UV_PROJECT_ENVIRONMENT"], str(code_root / "apps/api/.venv")
+            )
+            self.assertTrue(env["TMPDIR"].startswith(resources["directory"]))
+
     def test_legacy_manifest_cannot_launch_with_a_fallback_inputs_bucket(self):
         from worktree_env import load_identity, topology, isolated_environment
 
@@ -262,6 +294,7 @@ class EnvironmentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "显式运行 init"):
                 isolated_environment(
                     resources,
+                    code_root=root,
                     database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/annotation",
                     migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/annotation",
                     minio_endpoint="localhost:9000",
@@ -290,6 +323,7 @@ class EnvironmentTests(unittest.TestCase):
                 {"minio_endpoint": "objects.example:9000"},
             ):
                 arguments = dict(
+                    code_root=root,
                     database_url=local,
                     migration_database_url=local,
                     minio_endpoint="localhost:9000",
