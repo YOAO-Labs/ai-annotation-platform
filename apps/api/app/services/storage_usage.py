@@ -19,7 +19,6 @@ from app.db.models.storage_usage import (
     StorageUsageSnapshot as Snapshot,
     StorageUsageSchedule as Schedule,
 )
-from app.db.models.user import User
 from app.schemas.storage import BucketSummary, BucketsResponse
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
@@ -29,6 +28,7 @@ from app.services.dataset_assets import (
     validate_legacy_bindings,
 )
 from app.services.dataset_content import key_authority
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.storage import storage_service
 from app.services.source_readers.s3 import S3Access
 from app.services.storage_usage_categories import summarize
@@ -59,8 +59,8 @@ def configured_scope():
 
 
 async def require_admin(db, actor_id):
-    actor = await db.get(User, actor_id, populate_existing=True)
-    if actor is None or not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+    if actor is None or not actor.is_active or actor.role != UserRole.SUPER_ADMIN.value:
         raise HTTPException(403, detail={"code": "access_revoked"})
     return actor
 

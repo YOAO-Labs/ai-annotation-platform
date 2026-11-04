@@ -793,6 +793,26 @@ async def test_gpu_resources_reports_per_card_oversubscription_warning(
     }
 
 
+async def test_gpu_resources_reports_unconfigured_authority_as_unavailable(
+    httpx_client, super_admin, monkeypatch
+):
+    _, token = super_admin
+    monkeypatch.setattr(settings, "inference_gpu_url", "")
+    monkeypatch.setattr(settings, "inference_gpu_token", "")
+    monkeypatch.setattr(settings, "inference_gpu_token_file", "")
+
+    response = await httpx_client.get(
+        "/api/v1/admin/ml-integrations/gpu-resources",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "error_code": "gpu_arbiter_unavailable",
+        "message": "GPU authority HTTP client is not configured",
+    }
+
+
 async def test_gpu_resources_requires_superadmin(httpx_client, project_admin):
     _, token = project_admin
 

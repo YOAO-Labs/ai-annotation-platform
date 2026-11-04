@@ -731,12 +731,11 @@ async def list_gpu_resources(
 ) -> GPUArbiterResourcesResponse:
     """Return typed physical resources and static claim diagnostics; no side effects."""
 
-    authority = gpu_authority_client()
-
     # Drop any caller-owned transaction before the authority performs its bounded
     # diagnostics and runtime observations.
     await db.rollback()
     try:
+        authority = gpu_authority_client()
         summary = await authority.get_diagnostics()
     except GPUArbiterDispatchError as exc:
         raise _gpu_dispatch_http_error(exc) from exc

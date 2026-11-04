@@ -43,6 +43,9 @@ from app.schemas.ml_capabilities import (
 )
 from app.services.capability_instances import load_capability_instances
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.inference_control_context import (
+    backend_control_operation_context_factory,
+)
 
 router = APIRouter()
 
@@ -153,7 +156,9 @@ async def get_capability_instances(
     字段裁剪: 不暴露 url / gpu_info / cache / pool 等运维敏感信息,
     让普通登录用户也能看到完整 model 清单。
     """
-    raw = await load_capability_instances(db)
+    raw = await load_capability_instances(
+        db, operation_context_factory=backend_control_operation_context_factory(db)
+    )
     # 逐 backend 构造: 单个 backend 自报格式不合规 (如 variant 选项缺 value / models
     # 非数组) 只跳过它本身并告警, 而非让一条坏数据的 ValidationError 拖垮整个端点 ——
     # 否则一个不合规 backend 会让所有 backend 的卡片一起从能力目录消失 (整体 500)。
