@@ -129,8 +129,8 @@ Segment 模式把 `selection` 改为
 
 **SDK 与 CLI 操作**：
 
-- **异步导出**：Python SDK 使用 `client.exports.create(project_id, targets, body=...)` 与 `client.batches.export(project_id, batch_id, targets, body=...)`，通过 `ExportRequestBody` 指定 `scope`（视频帧／分段范围）或 `lidar` 选项；CLI 对应 `aap export project <project-id> --body <file>` 与 `aap batches export <project-id> <batch-id> --body <file>`。
-- **同步 VOC 下载**：VOC 为同步 ZIP blob，SDK 提供专用的 `client.exports.download_voc(project_id, dest)` 与 `client.batches.download_voc(project_id, batch_id, dest)`；CLI 对应 `aap export project <project-id> --target voc --out <file>` 与 `aap batches download-voc`。下载使用带认证的流式 POST，不解析为异步 Job ID。
+- **异步导出**：Python SDK 使用 `client.exports.create(project_id, targets, body=...)` 与 `client.batches.export(project_id, batch_id, targets, body=...)`，通过 `ExportRequestBody` 指定 `scope`（视频帧／分段范围）或 `lidar` 选项；CLI 对应 `yoao export project <project-id> --body <file>` 与 `yoao batches export <project-id> <batch-id> --body <file>`。
+- **同步 VOC 下载**：VOC 为同步 ZIP blob，SDK 提供专用的 `client.exports.download_voc(project_id, dest)` 与 `client.batches.download_voc(project_id, batch_id, dest)`；CLI 对应 `yoao export project <project-id> --target voc --out <file>` 与 `yoao batches download-voc`。下载使用带认证的流式 POST，不解析为异步 Job ID。
 
 导出会按项目当前类别 / 属性定义做兜底收敛：`class_name` 已不在当前类别集合内的标注不会进入任何导出格式；`annotation.attributes` 只保留当前 attribute schema 内的用户属性 key。这样即使尚未执行 cleanup，导出文件的 schema 与 data 也保持一致。
 

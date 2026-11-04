@@ -34,7 +34,7 @@ last_reviewed: 2026-10-26
 | 站点 Agent 契约 | `apps/_shared/site_agent_contract`                                                          | 中心与跨网络只读站点 Agent 共用的命令、回执、摘要与协议模型                                                |
 | 站点存储 Agent  | `apps/storage-agent`                                                                        | 独立出站 HTTPS 只读目录扫描与分块传输守护进程（零入站监听、本地 SQLite 状态）                              |
 | 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                                        |
-| 项目成员命令    | `apps/workspace` (`aap-workspace`)                                                          | 成员、负责人转移与配置命令的便携 owner；限定本地验收已完成，普通读取与相邻写入仍待迁移                     |
+| 项目成员命令    | `apps/workspace` (`yoao-workspace`)                                                         | 成员、负责人转移与配置命令的便携 owner；限定本地验收已完成，普通读取与相邻写入仍待迁移                     |
 | 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                             |
 | 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除、同步 ZIP/旧前缀扫描、六项连接管理操作与持久连接器导入；纯合同和独立 SQL/S3 身份 |
 | 审计请求契约    | `apps/_shared/audit_contract`                                                               | 冻结请求上下文字段，不依赖 API 或 ORM                                                                      |
@@ -46,7 +46,7 @@ last_reviewed: 2026-10-26
 ## 2. 授权真值（唯一来源）
 
 - 平台身份与项目能力解析：`app/services/project_access.py`
-  纯访问值、能力与标量角色规则位于独立共享契约包 `aap_workspace_contract/access.py`；Workspace 与 API 直接导入该所有者，解析和锁仍由本地 SQL 所有者持有。
+  纯访问值、能力与标量角色规则位于独立共享契约包 `yoao_workspace_contract/access.py`；Workspace 与 API 直接导入该所有者，解析和锁仍由本地 SQL 所有者持有。
   `ProjectWritePolicyResolver` 为只需访问决策的管理围栏、预测导入和上传交付纯值；审核、生命周期和单题/整批送审命令使用 actor UUID，再从同事务锁定账号投影 `identity_contracts.IdentityActorFacts`，每个送审分块重新生成。
   - `resolve_project_access()` / `resolve_project_access_by_id()`：请求期真值，
     每次重读账号与项目，未知的平台/项目角色 fail closed。
@@ -76,7 +76,7 @@ last_reviewed: 2026-10-26
   owner 组合；offboarding 的 HTTP composition/caller port/data 是
   `app/api/v1/offboarding_commands.py`、`app/services/identity_offboarding_commands.py` 和
   `app/services/identity_offboarding_data.py`。Portable contract/manager/Postgres adapter 在
-  `apps/identity/src/aap_identity/{offboarding_contract,offboarding_manager,offboarding_postgres}.py`。
+  `apps/identity/src/yoao_identity/{offboarding_contract,offboarding_manager,offboarding_postgres}.py`。
   旧 API lifecycle coordinator 已移除；`services/user_lifecycle.py` 仅保留
   `UserLifecycleService.lock_accounts`，现经 caller-bound Identity account lock adapter 获取只读事实并保留其显式 rollback 语义。Batch handoff/release helpers 已退役，Project owner
   transfer helper 继续供其他 workflows 使用。各命令的权限、回执和事务边界独立维护；offboarding
@@ -93,7 +93,7 @@ last_reviewed: 2026-10-26
   UPDATE、KEY SHARE 函数，不新增 SQL 或传输协议。Project/member 刷新及 caller 原错误映射
   保持不变；详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 - 同事务 Identity 账号锁：`apps/api/app/services/identity_account_lock_data.py` 调用
-  `apps/identity/src/aap_identity/account_lock_contract.py` 定义的 SHARE/UPDATE/KEY SHARE 三项
+  `apps/identity/src/yoao_identity/account_lock_contract.py` 定义的 SHARE/UPDATE/KEY SHARE 三项
   Native function；它使用 caller connection 并让锁持续到业务写入提交，只返回 id/name/email/role/is_active
   五字段事实。没有 lock HTTP endpoint、独立 DSN 或 User 原表授权；账号、Project、membership 与资源
   的顺序及各 caller 对 NOWAIT、SQLSTATE、busy 和 rollback 的映射仍由原 workflow 持有。跨帧写入每帧重取
@@ -101,7 +101,7 @@ last_reviewed: 2026-10-26
 - 批量 UserBrief enrichment：现有 `app/services/user_brief.py::resolve_briefs` 与
   `resolve_briefs_with_project_role` 为已授权的任务／项目／结果补充六字段用户摘要；
   调用者先检查自己的 rows，helper 不接收 actor，也不增加公共资料查询路由。Identity
-  portable owner 位于 `apps/identity/src/aap_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`；
+  portable owner 位于 `apps/identity/src/yoao_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`；
   项目成员角色只通过 Workspace 的窄批量 capability 读取。该 owner 已通过 64 个 distinct
   selected cases（59 DB/process、5 pure/static），零跳过；旧行为、caller-transaction 和
   可选 private runtime 边界见
@@ -121,26 +121,26 @@ last_reviewed: 2026-10-26
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。
-  可提取的 Python owner 位于 `apps/identity/src/aap_identity/{group_contract,group_manager,group_postgres}.py`，
+  可提取的 Python owner 位于 `apps/identity/src/yoao_identity/{group_contract,group_manager,group_postgres}.py`，
   通过 Workspace 项目成员投影维护作用域并将 Group 状态、审计与冻结 receipt 同事务提交。
   该 owner 只覆盖目录／指派；invite group resolution 由下列 Identity invitation owner 通过私有 helper 内部调用，不授予 GROUP LOGIN。用户目录、平台角色管理与其余账号生命周期仍未整体迁移。
 - 自助注销与到期处理：`api/v1/deactivation_commands.py` 用 `get_current_principal` 和
   `get_deactivation_commands`／`execute_deactivation` 绑定两个用户命令；
   `services/identity_deactivation_commands.py` 适配两个 versioned port，
   `identity_deactivation_data.py` 保留本地 SQL caller transaction。可移植 user/due owner
-  位于 `apps/identity/src/aap_identity/{deactivation_contract,deactivation_manager,deactivation_postgres}.py`；
+  位于 `apps/identity/src/yoao_identity/{deactivation_contract,deactivation_manager,deactivation_postgres}.py`；
   `workers/deactivation.py` 保留原 task 名及 04:00 UTC 调度，
   通过 operation receipts 分页排空，不再直接扫描 User/Notification ORM。
 - 注销通知投递：Identity 命令通过 Notifications owner 原子创建两种固定 event 与 delivery outbox；
-  `apps/identity/src/aap_identity/notification_delivery_{contract,postgres}.py` 提供纯值领取端口，
-  `aap_identity_runtime.notification_worker` 是无 HTTP 的独立 publisher，API 默认 queue
+  `apps/identity/src/yoao_identity/notification_delivery_{contract,postgres}.py` 提供纯值领取端口，
+  `yoao_identity_runtime.notification_worker` 是无 HTTP 的独立 publisher，API 默认 queue
   的 `app.workers.notification_delivery.relay_identity_notifications` 每 10 秒运行并使用相同 executor 与 lease，
   不保留第二条即时发送路径。
 - 在线状态扫描：`workers/presence.py` 解析阈值、计算 cutoff 并持有提交/计数/日志；
   `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 以单条批量更新写身份状态，
   保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。
-- 完整邀请生命周期：`api/v1/invitation_commands.py` 通过 Principal/value dependencies 装配 13 项 invitation contract；`services/identity_invitation_commands.py` 选择调用方事务或 Identity runtime，`identity_invitation_data.py` 只适配本地 SQL。可移植 owner 位于 `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py`；User/Invitation/Group、Workspace membership、Audit 与 token proof 在一个调用方事务中组合，不水合 API ORM User/Project/ProjectMember/TaskBatch。
-- Invitation MailV2：`services/identity_mail_v2_delivery.py` 在邀请 owner commit 后等待有界私有 pending/sent/failed 状态；`app.workers.identity_mail_v2_delivery.relay_invitation_mail` 每 10 秒在 default queue 执行相同 MailV2 executor。独立 sender 用 `apps/identity/src/aap_identity/{mail_v2_contract,mail_v2_postgres}.py`、`aap_identity_runtime.mail_config_v2` 和 `mail_worker_v2.py`，只有 MAILV2/MAIL_SETTINGS/key/SMTP 能力，不持 AUTH/Invitation/User 表权限。
+- 完整邀请生命周期：`api/v1/invitation_commands.py` 通过 Principal/value dependencies 装配 13 项 invitation contract；`services/identity_invitation_commands.py` 选择调用方事务或 Identity runtime，`identity_invitation_data.py` 只适配本地 SQL。可移植 owner 位于 `apps/identity/src/yoao_identity/{invitation_contract,invitation_manager,invitation_postgres}.py`；User/Invitation/Group、Workspace membership、Audit 与 token proof 在一个调用方事务中组合，不水合 API ORM User/Project/ProjectMember/TaskBatch。
+- Invitation MailV2：`services/identity_mail_v2_delivery.py` 在邀请 owner commit 后等待有界私有 pending/sent/failed 状态；`app.workers.identity_mail_v2_delivery.relay_invitation_mail` 每 10 秒在 default queue 执行相同 MailV2 executor。独立 sender 用 `apps/identity/src/yoao_identity/{mail_v2_contract,mail_v2_postgres}.py`、`yoao_identity_runtime.mail_config_v2` 和 `mail_worker_v2.py`，只有 MAILV2/MAIL_SETTINGS/key/SMTP 能力，不持 AUTH/Invitation/User 表权限。
 - 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 消费 `aap-identity-keys/v1` 值消息，`api_key_service.IdentityKeyManagement` 装配调用方事务、函数专用连接或独立运行时。`deps.get_current_principal` 提供准入和审计身份；管理路由不水合 User 或写 key ORM。Identity 命令所有者持有五项操作、当前凭据围栏、签发和冻结回执。
 - 核心会话：`services/identity_session_commands.SessionCommandsPort` 消费 `aap-identity-sessions/v1`，装配同一 Identity 提供方的登录、刷新、登出和全端登出；API 保留限流和 Turnstile 验证，不水合 User 或写会话状态。提供方拥有密码验证、失败计数、当前凭据围栏、冻结签发回执和同事务 Audit 能力；三函数 LOGIN 与登录计数 Redis ACL 分离于其他能力。其他公开注册签发、用户目录／平台管理和完整账号生命周期仍待迁移。
 - 类别重命名：Workspace Configuration 的 `rename_project_class` 组合便携绑定策略与
@@ -150,11 +150,11 @@ last_reviewed: 2026-10-26
 - 项目配置与模板命令：`apps/workspace` 的 portable manager 与 Native 能力持有配置编排、权限围栏及写入，
   `services/workspace_configuration.py::execute_configuration` 装配调用方事务、专用连接或 HTTP；
   原 API 配置 ORM 命令已移除，HTTP 保留提交与响应。
-- 命名预标编排由 `aap_inference.pipeline_manager.PipelineManager` 与 `pipeline_policy` 持有；
+- 命名预标编排由 `yoao_inference.pipeline_manager.PipelineManager` 与 `pipeline_policy` 持有；
   `services/inference_pipelines.py` 选择 API 借用事务、专用 DSN 或 HTTP owner，
   `inference_pipelines_data.py` 只适配固定 Native step。六个 CRUD/apply 公开路由与 DTO 保持原合同，
-  结构校验仍使用 `aap_inference.pipeline.validate_saved_pipeline`；canonical `PipelineStage` /
-  `PreannotateRequest` 位于 `aap_inference.preannotate`。Private Native RPC、Workspace 权威桥接和
+  结构校验仍使用 `yoao_inference.pipeline.validate_saved_pipeline`；canonical `PipelineStage` /
+  `PreannotateRequest` 位于 `yoao_inference.preannotate`。Private Native RPC、Workspace 权威桥接和
   commit/status/projection 阶段见 [后端分层](./backend-layers#分层规则)。
 - 指引图片：`services/guide_asset_uploads.py` 校验受管上传；
   `services/guide_asset_references.py` 调用 Workspace Configuration 的发布、解除引用、列表 CAS 与复制命令。
@@ -224,7 +224,7 @@ last_reviewed: 2026-10-26
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
    素材/帧传递使用 `services/dataset_task_facts`，纯帧分组与 Scene 规划由
-   `apps/assets-source/src/aap_assets_source/frame_layout.py` 和 `scene_layout.py` 提供。
+   `apps/assets-source/src/yoao_assets_source/frame_layout.py` 和 `scene_layout.py` 提供。
    `services/labeling_task_creation_contract` 与 `task_creation_contract` 定义初始/追加建题端口和严格值绑定；`LabelingTaskService` 消费冻结 SQL/JSON 能力，实际写入仅由 Labeling SQL 持有。初始操作保存许可、来源计划、游标和块回执；Jobs 客户端只调用其 owner 的生命周期能力。
    assets 关联结果与建题应用结果只返回 `link_id` 等标量，不向入口交付 `ProjectDataset` ORM。
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
@@ -297,13 +297,13 @@ last_reviewed: 2026-10-26
    讨论流的 `services/task_discussion.py` 与 `services/discussion_notifications.py` 直接调用
    `project_access.resolve_project_access_by_id` 和任务可见性所有者，不依赖 HTTP 装配；
    对实际接收人复核当前项目/任务资格，移除成员后不再成为受限讨论通知目的地。
-8. 通知偏好 GET／PUT 经 `aap_notifications.preferences` 调用 `aap_notifications_v1.preference_command(jsonb)`；`NotificationService.notify` 先用同一 owner 预检静音，再经 `aap_notifications_v1.append_notification(jsonb)` 在原事务写入并合并返回行到 Session identity map。单条／批量已读经 `aap_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`；0318 起，单条删除与清空已读经 `aap_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。这些命令保留 API 的认证、flush、提交和提交后同步职责，并按原 SQLAlchemy evaluator 同步 identity map；HTTP 入口仍持有提交权，通知按 `defer_publish` 合同发布到 `notify:{user_id}`。
+8. 通知偏好 GET／PUT 经 `yoao_notifications.preferences` 调用 `aap_notifications_v1.preference_command(jsonb)`；`NotificationService.notify` 先用同一 owner 预检静音，再经 `aap_notifications_v1.append_notification(jsonb)` 在原事务写入并合并返回行到 Session identity map。单条／批量已读经 `yoao_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`；0318 起，单条删除与清空已读经 `yoao_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。这些命令保留 API 的认证、flush、提交和提交后同步职责，并按原 SQLAlchemy evaluator 同步 identity map；HTTP 入口仍持有提交权，通知按 `defer_publish` 合同发布到 `notify:{user_id}`。
 
 ## 4. ML backend 调用链
 
 1. 协议：`apps/_shared/protocol_v2` 定义请求/响应 schema 与受控词表；
    `apps/web` 的生成类型与 API 快照由 CI 再生成，不手改。
-2. 池内核：独立 Plugin-SDK 仓库的 `packages/inference/runtime/src/aap_backend_runtime/managed_pool.py`
+2. 池内核：独立 Plugin-SDK 仓库的 `packages/inference/runtime/src/yoao_backend_runtime/managed_pool.py`
    提供 builder 单飞、borrower 串行、租约、quarantine 清理与强制回收；
    各 backend 通过 `logger_name` 保留自己的日志身份。
 3. backend 本地实现：`model_pool.py` / `video_pool.py` / `pool_domain.py`
@@ -462,15 +462,15 @@ SAM3 与 Grounded SAM2 是本仓独立 ML 应用；YOLO、RapidOCR 和 ONNXTools
 主 API/worker 可按配置调用本地包或独立 HTTP 服务。协议见[素材探测](/api/guides/media-probe)，
 全模块提取状态见[模块部署](/dev/concepts/module-deployment)。
 
-| 合同                                                              | canonical source                                                                                              |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| HTTP 请求 / 响应                                                  | `apps/api/app/schemas/*.py` 及路由内导出 DTO；`scripts/export_openapi.py` 导出主快照，docs 同步副本不另立真值 |
-| 预标注请求 / stage                                                | `aap_inference.preannotate`，不是 projects 路由中的类型                                                       |
-| 几何 / tool bindings / attributes / calibration                   | `schemas/_jsonb_types.py`                                                                                     |
-| 视频媒体元信息                                                    | `schemas/task.py::VideoMetadata`                                                                              |
-| 独立素材探测 wire                                                 | `apps/media-probe/src/aap_media_probe/protocol.py` 与独立应用导出；`apps/media-probe/openapi.json` 是生成快照 |
-| 视觉任务词表与归一化                                              | `apps/_shared/task_contract`                                                                                  |
-| ML wire / lifecycle / masks                                       | `apps/_shared/protocol_v2`                                                                                    |
-| 冻结训练、原生执行、preview / observation / budget / model return | `apps/_shared/training_contract`                                                                              |
+| 合同                                                              | canonical source                                                                                               |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| HTTP 请求 / 响应                                                  | `apps/api/app/schemas/*.py` 及路由内导出 DTO；`scripts/export_openapi.py` 导出主快照，docs 同步副本不另立真值  |
+| 预标注请求 / stage                                                | `yoao_inference.preannotate`，不是 projects 路由中的类型                                                       |
+| 几何 / tool bindings / attributes / calibration                   | `schemas/_jsonb_types.py`                                                                                      |
+| 视频媒体元信息                                                    | `schemas/task.py::VideoMetadata`                                                                               |
+| 独立素材探测 wire                                                 | `apps/media-probe/src/yoao_media_probe/protocol.py` 与独立应用导出；`apps/media-probe/openapi.json` 是生成快照 |
+| 视觉任务词表与归一化                                              | `apps/_shared/task_contract`                                                                                   |
+| ML wire / lifecycle / masks                                       | `apps/_shared/protocol_v2`                                                                                     |
+| 冻结训练、原生执行、preview / observation / budget / model return | `apps/_shared/training_contract`                                                                               |
 
 API-owned DTO 仍被多个领域消费，`schemas/project.py` 仍依赖服务侧 capability，部分本地 contracts 仍暴露 Session/ORM。它们是已知本地耦合，不因放进 schemas/contracts 文件就成为语言中立协议。提取条件与强事务限制以[后端分层](./backend-layers#跨语言提取前的条件)为准。

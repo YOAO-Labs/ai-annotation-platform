@@ -1,25 +1,27 @@
 ---
-title: aap tui 终端运维台
+title: yoao tui 终端运维台
 audience: [dev]
 type: reference
 status: beta
 last_reviewed: 2026-10-19
 ---
 
-# aap tui 终端运维台
+# yoao tui 终端运维台
 
-`aap tui` 是面向服务器和 SSH 环境的监控与轻运维入口。它提供 Projects、Datasets、Jobs、Training、
+`yoao tui` 是面向服务器和 SSH 环境的监控与轻运维入口。它提供 Projects、Datasets、Jobs、Training、
 ML Backends、看板和绩效七个主视图；写操作只包括项目导出、Job 软取消、
 失败项重试和导出包下载。
 
 ## 安装与启动
 
+先准备经核验的候选 wheel 与包含 TUI extra 完整依赖的 wheelhouse：
+
 ```bash
-pip install 'ai-annotation-sdk[tui]'
-aap tui
+python -m pip install --no-index --find-links /path/to/verified-wheelhouse 'yoao-sdk[tui]'
+yoao tui
 ```
 
-凭据解析与 CLI 相同：显式环境变量 `AAP_BASE_URL` / `AAP_API_KEY` 优先，否则读取 `aap login`
+凭据解析与 CLI 相同：显式环境变量 `YOAO_BASE_URL` / `YOAO_API_KEY` 优先，否则读取 `yoao login`
 写入的配置。TUI 支持 Textual 8.x；SDK release 对 Textual major 设置了上界，避免未经验证的布局和
 worker 行为变化直接进入现有环境。
 
@@ -72,7 +74,7 @@ Training 首次打开时读取全局训练队列，可选择项目和状态并�
 
 选中实验按 `o` / Enter 打开 Overview、Telemetry、Logs 详情，查看当前 attempt、指标、模型回流资格及恢复原因。`r` 重新核对当前 attempt 并刷新；新 attempt 不沿用旧日志游标。遥测与日志按有界序列页读取，空数据和断网错误分别显示，Esc 返回队列。
 
-训练 `succeeded`、`cancelling`、`lost` 等状态直接来自 run/attempt。它们与 Jobs 的完成状态不同，停止中或失联不代表已释放 GPU。训练创建、恢复、部署、发布、自动策略、参数搜索和人工主动学习决策使用 [学习 CLI](./cli#aap-learning) 或 Web 页面；TUI 不提供这些写操作。
+训练 `succeeded`、`cancelling`、`lost` 等状态直接来自 run/attempt。它们与 Jobs 的完成状态不同，停止中或失联不代表已释放 GPU。训练创建、恢复、部署、发布、自动策略、参数搜索和人工主动学习决策使用 [学习 CLI](./cli#yoao-learning) 或 Web 页面；TUI 不提供这些写操作。
 
 ## 看板与绩效
 
@@ -82,7 +84,7 @@ Training 首次打开时读取全局训练队列，可选择项目和状态并�
 project-admin 的跨成员排行需要明确项目上下文，TUI 不猜测项目，可使用：
 
 ```bash
-aap dashboard people --project <project-id>
+yoao dashboard people --project <project-id>
 ```
 
 ## 快捷键

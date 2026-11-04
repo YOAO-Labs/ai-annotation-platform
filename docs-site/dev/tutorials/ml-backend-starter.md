@@ -12,25 +12,25 @@ last_reviewed: 2026-10-30
 
 ## 使用自定义推理 SDK
 
-在线开发使用 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 中的固定公开制品：在全新 CPython 3.11 环境安装推理 SDK，生成作者项目，再通过 `uv lock --python 3.11`／`uv sync --python 3.11 --frozen --no-editable` 安装运行。生成项目固定 SDK 与平台便携契约的 GitHub Release URL；核对各自 manifest 的源码提交与 SHA256，不假定这些包已发布到 PyPI。开发过程不依赖平台或官方插件 checkout、数据库、管理员凭据、Torch 或模型权重。
+作者 SDK 是独立的 `yoao-inference-plugin-sdk`（Python 导入 `yoao_inference_plugin`，命令 `yoao-plugin`），不是调用平台 API 的 `yoao-sdk`。开发过程不依赖平台或官方插件 checkout、数据库、管理员凭据、Torch 或模型权重。
 
-以下为**离线开发**路径：先从可信渠道取得版本化、包含完整依赖闭包的 wheelhouse。除模型依赖外，还须包含 `build`、生成项目声明的构建后端及各自依赖。公开第一方 wheel 发布不是完整离线包；完整第三方依赖和权重的许可分别核验。在 CPython 3.11 新环境安装：
+先从可信渠道取得经核验的候选 SDK、平台便携契约及完整依赖 wheelhouse，包括 `build` 和生成项目的构建后端。指定真实 manifest 路径或 URL 与可信的 manifest SHA256，按[制品获取接口](/dev/concepts/module-deployment#plugin-candidate-artifacts)核验来源；不要假定新发行名已公开发布。第三方依赖和权重的许可分别核验。在 CPython 3.11 新环境安装：
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 export PIP_NO_INDEX=1
 export PIP_FIND_LINKS=/path/to/wheelhouse
-python -m pip install 'aap-inference-plugin-sdk[dev]'
-aap-inference-plugin init my-detector
-aap-inference-plugin build my-detector
+python -m pip install 'yoao-inference-plugin-sdk[dev]'
+yoao-plugin init my-detector
+yoao-plugin build my-detector
 python -m pip install my-detector/dist/*.whl
 umask 077
 python -c 'import secrets; from pathlib import Path; Path("token").write_text(secrets.token_urlsafe(40))'
-aap-inference-plugin dev --entrypoint my-color-region-plugin --device cpu --token-file ./token
+yoao-plugin dev --entrypoint my-color-region-plugin --device cpu --token-file ./token
 ```
 
-SDK 的 `dev` extra 提供 wheel 构建工具。开发者可编辑生成的 provider，重新构建、安装并重启服务；发布制品不依赖 editable 路径。`aap-inference-plugin dev` 仅监听 loopback，调用已安装的作者 console script，预热默认检测变体并检查显式请求设备上的驻留；它移除继承的宿主路由／插件权限配置，不需要 Registry、管理员或 GPU keyring。本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。模型专属 serve 参数放在 `--` 之后，不能覆盖开发工具控制的 host、port、token 或 device。
+SDK 的 `dev` extra 提供 wheel 构建工具。开发者可编辑生成的 provider，重新构建、安装并重启服务；发布制品不依赖 editable 路径。`yoao-plugin dev` 仅监听 loopback，调用已安装的作者 console script，预热默认检测变体并检查显式请求设备上的驻留；它移除继承的宿主路由／插件权限配置，不需要 Registry、管理员或 GPU keyring。本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。模型专属 serve 参数放在 `--` 之后，不能覆盖开发工具控制的 host、port、token 或 device。
 
 生成的 `my_color_region_plugin.py` 是可运行的 CPU 颜色区域算法，**不是预训练模型**：对每个 RGB 通道，选取本通道至少 200、其他通道至多 80 的像素，分别返回 `red-region`／`green-region`／`blue-region` 的一个包围框，分数为 1；同色不连通区域合并到同一框，没有匹配像素则返回空结果。作者替换 `Provider.load`、`ColorRegionModel.predict` 与 `close` 实现自己的模型；发布前修改 distribution、模块和入口名，避免使用示例身份。
 
@@ -70,18 +70,18 @@ Image.new("RGB", (100, 100), "black").save("empty.png")
 
 ```bash
 export AAP_PLUGIN_TOKEN="$(cat ./token)"
-aap-inference-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
+yoao-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
 ```
 
 检查核对多检测与空检测的数量、类别、坐标、分数、认证、参数和本地路径拒绝，只报告 HTTP 事实。CPU 示例不实现 GPU 检查钩子。具备 `probe`／`qualification-server` 钩子的 GPU provider 才能进行下面的可选检查；先确保指定设备获准独占，用于取消场景的图片不大于 2 MiB：
 
 ```bash
-aap-inference-plugin check --qualify-local --entrypoint your-gpu-provider --fixtures ./fixtures.json \
+yoao-plugin check --qualify-local --entrypoint your-gpu-provider --fixtures ./fixtures.json \
   --device cuda:0 --gpu-uuid GPU-实际设备UUID --asset-dir ./assets \
   --exclusive-gpu --report ./local-gpu-evidence.json
 ```
 
-修改模型实现后，重新运行 `aap-inference-plugin build my-detector`，安装新 wheel 并重启开发服务；记录命令输出的 SHA-256。镜像使用已检查的作者 wheel，不依赖平台源码或 editable 安装。
+修改模型实现后，重新运行 `yoao-plugin build my-detector`，安装新 wheel 并重启开发服务；记录命令输出的 SHA-256。镜像使用已检查的作者 wheel，不依赖平台源码或 editable 安装。
 
 本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。看不到必要事实时失败而不虚报成功。平台图片 URL 主机须由部署管理员明确配置。
 
@@ -90,7 +90,7 @@ aap-inference-plugin check --qualify-local --entrypoint your-gpu-provider --fixt
 构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像的 pip 安装步骤禁网并使用 `--require-hashes`，不加载工作目录。系统包安装步骤仍需要可用的软件包源。以下命令使用已安装的 CLI，不要求当前目录位于平台仓库：
 
 ```bash
-aap-inference-plugin build --base-image image@sha256:<真实摘要> \
+yoao-plugin build --base-image image@sha256:<真实摘要> \
   --wheelhouse /path/to/complete-wheelhouse --requirements-lock /path/to/requirements.lock \
   --entrypoint my-color-region-plugin --tag registry.example/my-detector:release --push
 ```
@@ -110,7 +110,7 @@ aap-inference-plugin build --base-image image@sha256:<真实摘要> \
 1. 一个在本机跑通的 echo backend，并通过平台「测试连接」；
 2. 对 `/health`、`/setup`、`/predict` 三端点契约的最小心智模型；
 3. 一个从 echo 改出来的 OCR backend 骨架（真实模型推理 + `attributes.text` 输出）；
-4. 进阶方向：多模型目录 / variants / warmup 与 `aap_protocol_v2` 共享库。
+4. 进阶方向：多模型目录 / variants / warmup 与 `yoao_protocol_v2` 共享库。
 
 ## 前提
 
@@ -246,7 +246,7 @@ async def predict(req: PredictRequest):
 - **预热与运行时观测**：`/setup.warmup_endpoint: true` + `POST /warmup`；`/predict` 响应带 `cache_hit` / `model_load_ms`，前端据此区分「加载中」与「推理中」（协议 §4.2 / §4.4）。
 - **标准错误形态**：非法 variant → 422 `variant_not_supported`；权重缺失 / 显存不可服务 → 503 `model_unavailable` + `Retry-After`（协议 §6）。
 
-**生产建议**：依赖发布的 `aap_protocol_v2` 合同，使用其请求、响应、标准错误与词表。真实推理 backend 的组织方式可参考[官方 YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)。
+**生产建议**：依赖发布的 `yoao_protocol_v2` 合同，使用其请求、响应、标准错误与词表。真实推理 backend 的组织方式可参考[官方 YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)。
 
 本教程的 OCR 主题，真实推理参考 [RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
 

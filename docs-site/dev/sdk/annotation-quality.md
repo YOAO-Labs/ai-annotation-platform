@@ -24,10 +24,10 @@ SDK 提供 `comments`、`annotation_history`、`bug_reports`、`mask_formats`、
 旧 `comments.list` 返回未分页数组。新 page、task_page 和混合 discussion_page 使用 1–200 的 limit 和不透明 cursor；cursor 与父资源、过滤条件绑定，改变条件时从首页开始。混合流保留 comment/feedback 来源类型和服务端 actions，不能仅凭作者 ID 推断编辑权限。
 
 ```bash
-aap comments page "$ANNOTATION_ID" --limit 20 --json
-aap comments discussion "$TASK_ID" --limit 20 --json
-aap annotation-history annotation "$ANNOTATION_ID" --json
-aap describe comments.create --json
+yoao comments page "$ANNOTATION_ID" --limit 20 --json
+yoao comments discussion "$TASK_ID" --limit 20 --json
+yoao annotation-history annotation "$ANNOTATION_ID" --json
+yoao describe comments.create --json
 ```
 
 历史按最新在前返回，包括软删除记录。权限依据 annotation 实际所属任务的项目、批次与分派；冗余 project_id 不是授权依据。历史不是可恢复快照，也没有分页游标。
@@ -45,8 +45,8 @@ aap describe comments.create --json
 管理员可修改状态、分派、重复关系和处理结果。`duplicate_of_id`、`assigned_to_id`、`fixed_in_version`、`resolution` 的显式 null 表示清除。混合提交内容与无权管理字段会整体拒绝。delete 永久删除报告；cluster 只计算最多 50 个新报告的重复建议，不自动合并。
 
 ```bash
-aap bug-reports mine --limit 20 --json
-aap bug-reports list --markdown
+yoao bug-reports mine --limit 20 --json
+yoao bug-reports list --markdown
 ```
 
 列表使用 limit/offset，limit 最多 200。默认 JSON 是 typed page，Markdown 格式返回 `text/markdown` 文本。提交者对 fixed、wont_fix、duplicate 报告发表评论可能重新打开为 triaged，每天最多 5 次；评论另有每小时 60 条限制。
@@ -66,7 +66,7 @@ list 返回项目媒体类型下的服务端适配器能力。SDK 不实现另�
 5. `execute_import` 原样提交回执和摘要；有损计划另需明确 `confirm_lossy=true`。查询 import domain status 与 async_job_id，不能只根据 Job 结束判断全部成功。
 
 ```python
-from ai_annotation import Client, MaskFormatImportExecuteRequest
+from yoao import Client, MaskFormatImportExecuteRequest
 
 PROJECT_ID = "<project-uuid>"
 RECEIPT = "<preflight-receipt>"
@@ -91,9 +91,9 @@ compare 绑定 annotation_version、baseline 和可选原始帧。compare_conten
 `dry_run_repairs` 会持久化计划和回执，但不修改标注。检查每项适用性和跳过原因后，使用 15 分钟内的 actor-owned receipt 与原 plan_digest 执行。保留 repair batch、AsyncJob 和逐项结果；CLI 遇到 partial、failed、cancelled 或 rollback_failed 会先输出完整回执，再退出 1。
 
 ```bash
-aap mask-qc task-summary "$TASK_ID" --json
-aap describe mask_qc.dry_run_repairs --json
-aap describe mask_qc.rollback_repairs --json
+yoao mask-qc task-summary "$TASK_ID" --json
+yoao describe mask_qc.dry_run_repairs --json
+yoao describe mask_qc.rollback_repairs --json
 ```
 
 resume 只针对可恢复的 failed/partial。rollback 只接受保留期内 completed/partial 的 batch，并要求 expected_result_digest；它是显式异步修改，不是失败后的自动补偿。409 后重新读取并重新决定，SDK 不更换版本、摘要或回执自动重试。
@@ -102,12 +102,12 @@ resume 只针对可恢复的 failed/partial。rollback 只接受保留期内 com
 
 读取要求 `review.write` 与当前任务可见性，project/scene 扫描另要求管理权限。问题保留 scene、frame、annotation 和 source_versions。list_issues/get_issue 可能根据输入变化持久化 stale 状态；GET 不一定没有服务端状态影响。wont_fix 必须给 reason，并保留实际 review_verdict。
 
-run 创建可能复用同一来源／配置／范围。派发失败的 503 会返回 `reason`、`run_id`、`async_job_id`，对应已持久化的失败记录。Python 异常 detail 保留原字段；`aap --error-format json` 提供 reason、run_id、job_id。先用 get_run／jobs.get 查看记录，再决定是否重新创建。
+run 创建可能复用同一来源／配置／范围。派发失败的 503 会返回 `reason`、`run_id`、`async_job_id`，对应已持久化的失败记录。Python 异常 detail 保留原字段；`yoao --error-format json` 提供 reason、run_id、job_id。先用 get_run／jobs.get 查看记录，再决定是否重新创建。
 
 ```bash
-aap point-cloud-quality issues "$PROJECT_ID" --limit 20 --json
-aap point-cloud-quality run-get "$PROJECT_ID" "$RUN_ID" --json
-aap describe point_cloud_quality.promote_evaluation --json
+yoao point-cloud-quality issues "$PROJECT_ID" --limit 20 --json
+yoao point-cloud-quality run-get "$PROJECT_ID" "$RUN_ID" --json
+yoao describe point_cloud_quality.promote_evaluation --json
 ```
 
 evaluation 同步冻结已人工评审且未过期的样本。候选 PointCloudQualityConfig 严格校验未知字段；Project 的 PointCloudQualityConfigRead 保留新增字段与较新 schema 的读取内容。评估通过只代表可晋升；promote 由项目管理者明确调用，检查当前基线 revision/digest，不自动重新评估或覆盖已改变的配置。

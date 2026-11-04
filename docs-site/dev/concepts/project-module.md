@@ -38,24 +38,24 @@ Project 是业务顶层容器。项目可以属于 organization；成员、批�
 
 ## 代码入口
 
-| 位置                                                                           | 作用                                               |
-| ------------------------------------------------------------------------------ | -------------------------------------------------- |
-| `apps/api/app/db/models/project.py`                                            | Project 主模型                                     |
-| `apps/api/app/db/models/project_member.py`                                     | 项目成员关系                                       |
-| `apps/api/app/db/models/project_pipeline.py`                                   | 保存编排表映射（API 不直接读写 ORM）               |
-| `apps/api/app/db/models/ml_backend_pool.py` · `ml_backend_registry.py`         | 服务池、物理实例与项目启用关系                     |
-| `apps/api/app/schemas/project.py`                                              | Project 请求 / 响应 schema                         |
-| `apps/api/app/api/v1/projects.py`                                              | 项目 HTTP 路由                                     |
-| `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`                  | 项目 ML 服务池与编排 API                           |
-| `apps/inference/src/aap_inference/preannotate.py`                              | `PipelineStage` / `PreannotateRequest` 请求 schema |
-| `apps/api/app/services/inference_pipelines.py`                                 | 选择命名编排 owner、提交边界和提交后投影           |
-| `apps/api/app/services/inference_pipelines_data.py`                            | 借用 API Session 的固定 Native 数据适配            |
-| `apps/inference/src/aap_inference/pipeline_manager.py` · `pipeline_policy.py`  | 命名编排便携命令、读取与纯策略                     |
-| `apps/inference/src/aap_inference/pipeline_postgres.py` · `pipeline_server.py` | 独立 owner 的 Native 数据与 HTTP server            |
-| `apps/inference/src/aap_inference/pipeline_client.py`                          | 受限 HTTP client 与状态探测                        |
-| `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router)       | 项目级统计与聚合                                   |
-| `apps/web/src/api/projects.ts`                                                 | 前端 project API wrapper                           |
-| `apps/web/src/pages/Projects/`                                                 | 项目设置与管理 UI                                  |
+| 位置                                                                            | 作用                                               |
+| ------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `apps/api/app/db/models/project.py`                                             | Project 主模型                                     |
+| `apps/api/app/db/models/project_member.py`                                      | 项目成员关系                                       |
+| `apps/api/app/db/models/project_pipeline.py`                                    | 保存编排表映射（API 不直接读写 ORM）               |
+| `apps/api/app/db/models/ml_backend_pool.py` · `ml_backend_registry.py`          | 服务池、物理实例与项目启用关系                     |
+| `apps/api/app/schemas/project.py`                                               | Project 请求 / 响应 schema                         |
+| `apps/api/app/api/v1/projects.py`                                               | 项目 HTTP 路由                                     |
+| `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`                   | 项目 ML 服务池与编排 API                           |
+| `apps/inference/src/yoao_inference/preannotate.py`                              | `PipelineStage` / `PreannotateRequest` 请求 schema |
+| `apps/api/app/services/inference_pipelines.py`                                  | 选择命名编排 owner、提交边界和提交后投影           |
+| `apps/api/app/services/inference_pipelines_data.py`                             | 借用 API Session 的固定 Native 数据适配            |
+| `apps/inference/src/yoao_inference/pipeline_manager.py` · `pipeline_policy.py`  | 命名编排便携命令、读取与纯策略                     |
+| `apps/inference/src/yoao_inference/pipeline_postgres.py` · `pipeline_server.py` | 独立 owner 的 Native 数据与 HTTP server            |
+| `apps/inference/src/yoao_inference/pipeline_client.py`                          | 受限 HTTP client 与状态探测                        |
+| `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router)        | 项目级统计与聚合                                   |
+| `apps/web/src/api/projects.ts`                                                  | 前端 project API wrapper                           |
+| `apps/web/src/pages/Projects/`                                                  | 项目设置与管理 UI                                  |
 
 ## 数据模型
 
@@ -137,7 +137,7 @@ archived
 
 如果你改的是「标注长什么样」，十有八九要从 `project.tool_bindings` 入手，而不是 `task`。
 
-写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；模板列表／详情和提交后的响应投影通过 `services/workspace_template_query.py` 进入读取 owner；API 附带成功命令回执读取当前行，再校验公开响应。原模板 ORM 读取适配器已删除；命名流水线复用 Identity 的窄组织事实能力。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；项目普通读取已由查询 owner 提供，成员／mention／access 也已接入各自查询 owner；其余相邻写入继续迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
+写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/yoao_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；模板列表／详情和提交后的响应投影通过 `services/workspace_template_query.py` 进入读取 owner；API 附带成功命令回执读取当前行，再校验公开响应。原模板 ORM 读取适配器已删除；命名流水线复用 Identity 的窄组织事实能力。项目内嵌与命名流水线共用 `yoao_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；项目普通读取已由查询 owner 提供，成员／mention／access 也已接入各自查询 owner；其余相邻写入继续迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 
@@ -233,7 +233,7 @@ Project 决定 task 的这些上层语义：
 
 ## 主要 API 面
 
-`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理。`/project-pipelines` 的五个 CRUD 路由与项目 apply 路由共六个公开路由仍保持原请求 / 响应合同，读写由 `aap_inference.pipeline_manager.PipelineManager` 执行，API 经 `services/inference_pipelines.py` 选择默认借用事务、专用 DSN 或 HTTP owner。命名编排数据不经 `ProjectPipeline` ORM 读写；请求与响应 schema 仍位于 API。项目内嵌旧配置和保存编排结构继续共用 `aap_inference.pipeline.validate_saved_pipeline`，canonical `PipelineStage` 与 `PreannotateRequest` 位于 `aap_inference.preannotate`。
+`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理。`/project-pipelines` 的五个 CRUD 路由与项目 apply 路由共六个公开路由仍保持原请求 / 响应合同，读写由 `yoao_inference.pipeline_manager.PipelineManager` 执行，API 经 `services/inference_pipelines.py` 选择默认借用事务、专用 DSN 或 HTTP owner。命名编排数据不经 `ProjectPipeline` ORM 读写；请求与响应 schema 仍位于 API。项目内嵌旧配置和保存编排结构继续共用 `yoao_inference.pipeline.validate_saved_pipeline`，canonical `PipelineStage` 与 `PreannotateRequest` 位于 `yoao_inference.preannotate`。
 
 项目 apply 保留 `require_project_owner` 在源编排查询之前的入口检查；manager 读取源和 backend 启用事实后，再经 Workspace 固定能力重读当前账号、项目与成员锁。借用事务由 API 提交成功命令，再以完整命令回执读取新投影，并通过 Identity UserBrief 补充创建者名称；apply 响应沿用 `created_by_name: null`。
 
@@ -320,7 +320,7 @@ Project 模型本身保留了多种聚合字段：
 ## 项目读取的所有权基础
 
 权限上下文、能力与角色兼容规则已由独立 Workspace 包的
-`aap_workspace_contract.access` 持有，Workspace／API／服务／worker 调用方直接导入该所有者，
+`yoao_workspace_contract.access` 持有，Workspace／API／服务／worker 调用方直接导入该所有者，
 原 API 值模块已删除。当前 SQL 权限解析、锁与最终写入检查仍由原适配器执行；
 这些值本身不是跨进程授权凭据。
 

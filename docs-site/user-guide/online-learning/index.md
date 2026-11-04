@@ -29,7 +29,7 @@ last_reviewed: 2026-10-26
 
 列表筛选、页码和详情视图通常保存在地址中，返回或刷新后可以继续查看。创建日期筛选按 UTC 日界计算，结束日期包含整天；自动填写的名称使用本地时间。
 
-需要脚本或终端操作时，可以使用 [Python SDK](../../dev/sdk/python-client#在线学习命名空间) 与 [aap learning CLI](../../dev/sdk/cli#aap-learning)。它们沿用相同的项目权限、预检摘要和版本冲突保护；TUI 提供训练队列、执行详情和日志监控，配置、发布与人工决策仍需明确操作。
+需要脚本或终端操作时，可以使用 [Python SDK](../../dev/sdk/python-client#在线学习命名空间) 与 [yoao learning CLI](../../dev/sdk/cli#yoao-learning)。它们沿用相同的项目权限、预检摘要和版本冲突保护；TUI 提供训练队列、执行详情和日志监控，配置、发布与人工决策仍需明确操作。
 
 ## 一轮迭代会留下什么
 

@@ -8,7 +8,7 @@ last_reviewed: 2026-10-26
 
 # 只读站点 Agent 与传输 API
 
-只读站点 Agent（`aap-storage-agent`）用于让中心无法主动入站访问的数据服务器通过出站 HTTPS 连接平台，仅开放管理员在本地显式配置的只读目录根。接口分为两部分：**超级管理员管理端点**（站点、Agent 身份生命周期与 Agent 存储位置登记）与 **Agent 配对及出站传输端点**（一次性配对、命令长轮询、分块上传与结果回执）。
+只读站点 Agent（`yoao-storage-agent`）用于让中心无法主动入站访问的数据服务器通过出站 HTTPS 连接平台，仅开放管理员在本地显式配置的只读目录根。接口分为两部分：**超级管理员管理端点**（站点、Agent 身份生命周期与 Agent 存储位置登记）与 **Agent 配对及出站传输端点**（一次性配对、命令长轮询、分块上传与结果回执）。
 
 部署与升级步骤见[只读站点 Agent 运维指南](/ops/deploy/site-agents)，界面操作见[跨网络站点与 Agent](/user-guide/datasets/site-agents)。
 
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-26
 
 ## 一次性配对与出站传输端点
 
-以下端点专供 `aap-storage-agent` 客户端通过出站 HTTPS 调用，不接受平台用户 JWT 或普通 API Key。除 `/pair` 使用一次性配对码外，其余传输端点均使用配对换取的专用 `Authorization: Bearer <agent_token>`、协议头 `X-Agent-Protocol: 1` 以及会话标识 `X-Agent-Session`（耐久保存在 Agent 本地日志中的 session UUID）。
+以下端点专供 `yoao-storage-agent` 客户端通过出站 HTTPS 调用，不接受平台用户 JWT 或普通 API Key。除 `/pair` 使用一次性配对码外，其余传输端点均使用配对换取的专用 `Authorization: Bearer <agent_token>`、协议头 `X-Agent-Protocol: 1` 以及会话标识 `X-Agent-Session`（耐久保存在 Agent 本地日志中的 session UUID）。
 
 | 方法   | 路径                                               | 认证与用途                                                                                                                                                   |
 | ------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -25,10 +25,10 @@ SDK 在现有 `projects`、`batches`、`datasets`、`dashboard`、`predictions` 
 `projects.query` 的 `page_size` 为 1–100，支持重复类型条件、成员／项目角色和日期筛选。旧数组 list 保持可用。`readiness` 说明指引、类别、数据集、任务、成员和批次是否已准备；它不证明某个执行器此刻在线。
 
 ```bash
-aap projects query --page-size 20 --json
-aap projects readiness "$PROJECT_ID" --json
-aap search query --q inspection --limit 5 --json
-aap describe batches.distribution_apply --json
+yoao projects query --page-size 20 --json
+yoao projects readiness "$PROJECT_ID" --json
+yoao search query --q inspection --limit 5 --json
+yoao describe batches.distribution_apply --json
 ```
 
 搜索的 limit 按项目、任务、数据集和成员分别计算。任务在 limit 之前按当前项目职责、分派和批次状态筛选；启用的协作视频保留项目内读取规则。不要把搜索结果当作之后操作的授权凭据，提交时服务端会重新校验。
@@ -42,7 +42,7 @@ ownership transfer 只允许超级管理员执行，目标必须是启用的 `pr
 分派使用 preview → apply。保存最初的 `batch_ids`、接收人、`only_unassigned` 与返回的 `preview_version`，确认后原样提交。409 后重新预览并重新决定，不自动换成新版本重发旧选择。接收人必须是当前项目内启用、职责匹配的成员。
 
 ```python
-from ai_annotation import BatchDistributionRequest, Client, ReviewedBatchDistribution
+from yoao import BatchDistributionRequest, Client, ReviewedBatchDistribution
 
 PROJECT_ID = "<project-uuid>"
 USER_ID = "<annotator-user-uuid>"
@@ -76,9 +76,9 @@ LiDAR 项目和批次共用预检请求／结果模型。预检需要 `export.an
 连接器导入验证连接器可用性、主机规则和 source path，并冻结受理时的导入预算。HTTP 202 返回 `job_id`；用 jobs 显式查询该 Job，不自动重复创建或等待。scan 是同步扫描和入库，之后可能排队媒体生成，返回 new_items/linked_tasks 不表示媒体已就绪。
 
 ```bash
-aap datasets import-from-connection "$DATASET_ID" --body import.json --yes --json
-aap datasets backfill-scenes "$DATASET_ID" --mode auto --dry-run --json
-aap datasets sniff-axis "$DATASET_ID" --json
+yoao datasets import-from-connection "$DATASET_ID" --body import.json --yes --json
+yoao datasets backfill-scenes "$DATASET_ID" --mode auto --dry-run --json
+yoao datasets sniff-axis "$DATASET_ID" --json
 ```
 
 scene backfill 默认 `dry_run=false`，实际写入须确认；已有 scene 时可能只返回 notes。axis sniff 虽使用 POST，却只返回分析建议，不修改坐标系配置。
@@ -93,7 +93,7 @@ init 支持 PNG、JPEG、WebP、GIF、SVG，单文件最多 5 MiB，返回 15 �
 
 ```python
 from pathlib import Path
-from ai_annotation import Client, GuideAssetUploadCompleteRequest, GuideAssetUploadInitRequest
+from yoao import Client, GuideAssetUploadCompleteRequest, GuideAssetUploadInitRequest
 
 PROJECT_ID = "<project-uuid>"
 source = Path("guide.png")
@@ -116,9 +116,9 @@ complete 重试可能重复登记 key。响应不确定时，先读取当前项�
 `project_performance.members/member/events` 提供指标、证据和 cursor。路径中的 member_id 是用户 UUID；服务端重新校验当前或历史名册资格。日期默认按 Asia/Shanghai 解释，范围最多 90 个本地日。cursor 为 offset 型，筛选变化后重置；保留 null、partial 和 unknown，不用零值替代缺失证据。
 
 ```bash
-aap project-performance members "$PROJECT_ID" --work-type annotation --limit 20 --json
-aap project-performance events "$PROJECT_ID" "$USER_ID" --limit 20 --json
-aap project-performance export "$PROJECT_ID" performance.csv --json
+yoao project-performance members "$PROJECT_ID" --work-type annotation --limit 20 --json
+yoao project-performance events "$PROJECT_ID" "$USER_ID" --limit 20 --json
+yoao project-performance export "$PROJECT_ID" performance.csv --json
 ```
 
 绩效 CSV 含 BOM 和范围头，导出整个筛选集；cursor/limit 不限制导出，服务端会在内存构造完整内容。dashboard 的人员列表／导出也不分页。项目管理员必须指定自有项目；人员详情目标须属于该项目，project_count 与活动流按该项目过滤。成本面板仅超级管理员可见，内部统计失败可能返回零值，不能据此证明没有推理。

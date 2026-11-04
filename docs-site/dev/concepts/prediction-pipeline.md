@@ -11,7 +11,7 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 > 决策依据：[ADR 0014 — Prediction Jobs 历史表](../adr/archive/0014-prediction-jobs-table)
 
-`application/preannotation_contract.py::BatchPredictionRequest` 固定现有任务参数，`preannotation_execution.run_preannotation` 持有业务资源生命周期、Jobs／结果账本和最终写回。模型任务、阶段图、ROI、上下文及结果转换由 `aap_inference.execution_pipeline`、`execution_context`、`roi` 和 `secondary` 持有，通过同一不可变 `ModelExecutionPort` 执行；调用方不再使用旧模型客户端或直接打开后端凭据。
+`application/preannotation_contract.py::BatchPredictionRequest` 固定现有任务参数，`preannotation_execution.run_preannotation` 持有业务资源生命周期、Jobs／结果账本和最终写回。模型任务、阶段图、ROI、上下文及结果转换由 `yoao_inference.execution_pipeline`、`execution_context`、`roi` 和 `secondary` 持有，通过同一不可变 `ModelExecutionPort` 执行；调用方不再使用旧模型客户端或直接打开后端凭据。
 
 HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction_dispatch.py` 保留原 Celery 参数、执行 ID、设备队列及 tracker 超时；`workers/tasks.py::batch_predict` 保留原注册名/签名与失败钩子。Assets 继续提供已校验输入与 crop 发布，Jobs／Labeling 持有原始／准备结果、最终候选和终态；Inference 不代替这些 owner 提交。
 
@@ -166,7 +166,7 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 ### 能力快照落库
 
-`check_health`（`apps/api/app/services/ml_backend.py`）在拉完 `/health` 后 best-effort 探一次 backend `/setup`，调 `extract_capabilities`（`apps/inference/src/aap_inference/capabilities.py`）把能力快照写进 `ml_backend_registry.health_meta["capabilities"]`：
+`check_health`（`apps/api/app/services/ml_backend.py`）在拉完 `/health` 后 best-effort 探一次 backend `/setup`，调 `extract_capabilities`（`apps/inference/src/yoao_inference/capabilities.py`）把能力快照写进 `ml_backend_registry.health_meta["capabilities"]`：
 
 | 字段                 | 来源                             | 含义                                                                            |
 | -------------------- | -------------------------------- | ------------------------------------------------------------------------------- |
@@ -203,7 +203,7 @@ Mask 内容 GET 使用独立只读资格：完整原件和 RLE 先读取并确�
 
 ## 按后端动态参数透传
 
-`PreannotateRequest`（`apps/inference/src/aap_inference/preannotate.py`）新增 `params: dict | None` 字段，由前端按选中 backend 的 `/setup.params` 用 SchemaForm 渲染并按 backend 记忆（`User.preferences.ai.params_by_backend`）后带上。
+`PreannotateRequest`（`apps/inference/src/yoao_inference/preannotate.py`）新增 `params: dict | None` 字段，由前端按选中 backend 的 `/setup.params` 用 SchemaForm 渲染并按 backend 记忆（`User.preferences.ai.params_by_backend`）后带上。
 
 应用命令（`apps/api/app/application/preannotation_execution.py::run_preannotation`）构建 `/predict` context 时：
 
@@ -216,7 +216,7 @@ if params:
 
 ## 幂等预标模式（predict_mode）
 
-`PreannotateRequest.predict_mode`（`apps/inference/src/aap_inference/preannotate.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由应用命令（`apps/api/app/application/preannotation_execution.py::run_preannotation`）决定 task 选取与旧预测处理：
+`PreannotateRequest.predict_mode`（`apps/inference/src/yoao_inference/preannotate.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由应用命令（`apps/api/app/application/preannotation_execution.py::run_preannotation`）决定 task 选取与旧预测处理：
 
 | 模式                     | task 选取                                                            | 旧预测处理                                                                             | 用途                                      |
 | ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- |
@@ -234,9 +234,9 @@ if params:
 
 ## 多阶段预标注（pipeline_stages，路径 B）
 
-`PreannotateRequest.pipeline_stages`（定义于 `apps/inference/src/aap_inference/preannotate.py`）把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
+`PreannotateRequest.pipeline_stages`（定义于 `apps/inference/src/yoao_inference/preannotate.py`）把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
 
-命名预标编排的保存、读取、apply 与本页描述的执行流水线属于相邻层次：结构仍共用 `aap_inference.pipeline.validate_saved_pipeline`，便携命令由 `aap_inference.pipeline_manager.PipelineManager` 持有，API 路由经 `services/inference_pipelines.py` 选择事务或独立 owner。六个公开路由的 DTO 不变；这些命令不会改变本页所述 `PreannotateRequest` 或 worker 执行合同。
+命名预标编排的保存、读取、apply 与本页描述的执行流水线属于相邻层次：结构仍共用 `yoao_inference.pipeline.validate_saved_pipeline`，便携命令由 `yoao_inference.pipeline_manager.PipelineManager` 持有，API 路由经 `services/inference_pipelines.py` 选择事务或独立 owner。六个公开路由的 DTO 不变；这些命令不会改变本页所述 `PreannotateRequest` 或 worker 执行合同。
 
 ### 请求形态
 
@@ -268,7 +268,7 @@ if params:
 
 ### 下游投递路由（`_resolve_input_mode`）
 
-API 端点（`apps/api/app/api/v1/projects.py`）按下游 model 的 `supported_inputs` + `write.target` 烘焙 `input.mode`，`aap_inference.execution_pipeline.resolve_input_mode` 只读已烘焙的字段，缺省回落 `write.target` 启发式（产几何→`geometry`，产属性→`crop`）。
+API 端点（`apps/api/app/api/v1/projects.py`）按下游 model 的 `supported_inputs` + `write.target` 烘焙 `input.mode`，`yoao_inference.execution_pipeline.resolve_input_mode` 只读已烘焙的字段，缺省回落 `write.target` 启发式（产几何→`geometry`，产属性→`crop`）。
 
 | `write.target` × 下游 `supported_inputs`                        | 投递模式               | 投递内容                                                                                  | 典型场景                                                         |
 | --------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
@@ -476,6 +476,6 @@ SAM Prediction、元信息、候选 ID 及生成时结果/元信息摘要与单�
 - 进度发布：`apps/api/app/services/prediction_progress.py::publish_progress`
 - async job service：`apps/api/app/services/async_job.py`
 - 端点：`apps/api/app/api/v1/tasks/predictions.py`（结果查询 + `POST /tasks/{id}/predictions/{pid}/accept` `attribute_overrides`）、`apps/api/app/api/v1/projects.py::trigger_preannotation`（触发）
-- 能力协商：`apps/inference/src/aap_inference/capabilities.py`（`extract_capabilities` / `derive_modalities`，含 `output_attribute_schema` / `composition` 字段）
+- 能力协商：`apps/inference/src/yoao_inference/capabilities.py`（`extract_capabilities` / `derive_modalities`，含 `output_attribute_schema` / `composition` 字段）
 - 前端：`apps/web/src/pages/AIPreAnnotate/`、`apps/web/src/hooks/useGlobalPreannotationJobs.ts`、`apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx`（多阶段编排 UI）
 - 迁移：`apps/api/alembic/versions/0085_drop_prediction_jobs.py`

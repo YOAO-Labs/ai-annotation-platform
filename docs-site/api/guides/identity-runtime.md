@@ -43,8 +43,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 可选 `IDENTITY_ADMISSION_TOKEN(_FILE)` 必须与通用控制 token 不同，只能调用
 `/authenticate` 与 `/actor-status`；其他私有接口仍仅接受通用控制 bearer。
 Notifications 不持有通用控制凭据、签名密钥或 API 数据库凭据。共享
-`aap-identity-admission` 包保留原 Principal／异常类型的类身份；旧 Python 导入路径
-继续导出相同对象，远程客户端支持 API 已有的 HTTP(S) base path。
+`yoao-identity-admission` 包提供 Principal／异常类型；远程客户端支持 API 已有的 HTTP(S) base path。
 
 `POST /v1/identity/actor-status` 请求精确为
 `{"schema":"aap-identity-actor-status/v1","actor_id":"<uuid>"}`。成功回复精确为
@@ -363,7 +362,7 @@ Native schema `aap_identity_invitations_v1` 在 migration 0242 安装。`identit
 
 V2 claim／renew／finish 在发送前后重新校验当前 invitation token hash、有效期、接受／撤销／superseded 状态以及 inviter/project scope。SMTP 网络期间不持 SQL 锁；claim 先提交 lease，current scope 在 claim/renew boundary 围住发送。已经在 SMTP 中的消息无法撤回，因此重发、接受或撤销与正在发送邮件交错时仍按至少一次语义处理。所有目的共用现有 Fernet epoch/key，V2 不存 plaintext token/link 副本，也不回退到当前 key 或新 token；旧 V1 recovery outbox、roles、schemas 与 worker 保持可用。
 
-独立 sender 运行 `python -m aap_identity_runtime.mail_worker_v2`，同一 `MailExecutor` 重用已提取的 SMTP transport；该进程只持 MAILV2 DSN、MAIL_SETTINGS DSN、Fernet key 与 SMTP fallback，不带 Identity/AUTH/control/signing secret，不使用 User/Invitation SQL 事务来发送。`mail_policy/claim/renew/finish` 的短事务在 SMTP 网络调用前后提交，不持 SQL lock。Claims 保存同一 message ID；unknown timeout 允许重复邮件而不损坏邀请链接。邮件 Settings DB snapshot 覆盖 env fallback。
+独立 sender 运行 `python -m yoao_identity_runtime.mail_worker_v2`，同一 `MailExecutor` 重用已提取的 SMTP transport；该进程只持 MAILV2 DSN、MAIL_SETTINGS DSN、Fernet key 与 SMTP fallback，不带 Identity/AUTH/control/signing secret，不使用 User/Invitation SQL 事务来发送。`mail_policy/claim/renew/finish` 的短事务在 SMTP 网络调用前后提交，不持 SQL lock。Claims 保存同一 message ID；unknown timeout 允许重复邮件而不损坏邀请链接。邮件 Settings DB snapshot 覆盖 env fallback。
 
 Invitation API 使用可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和 `IDENTITY_MAIL_V2_DATABASE_URL(_FILE)`；独立 Identity runtime 选择 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`，并复用既有 recovery Fernet key。Invitation DSN 缺失／显式失败分别按 capability 503／fail closed。API embedded MailV2 kick 可选 MAILV2 DSN；选择邀请 owner 但未选择 mail kick 时允许独立 mail-v2 服务消费，绝不 fallback 到 caller SQL。API mail wait 配置 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS` 默认60、必须 >0 且 ≤120。Runtime invitation link fallback 为独立 `IDENTITY_INVITATION_FRONTEND_BASE_URL` 默认 `http://localhost:5173`; Settings 的 system `frontend_base_url` 若设置则覆盖，Recovery Runtime 原 `http://localhost:3000` fallback 不变。
 
@@ -602,7 +601,7 @@ Audit 只允许 `user.deactivation_request`、`user.deactivation_cancel`、`user
 
 独立 publisher 使用 `aap-notifications-delivery/v1` 和仅有三个函数权限的 `notification_publish_client`：`identity_delivery_policy()`、`claim_identity_deliveries(jsonb)`、`finish_identity_delivery(jsonb)`。领取必须先提交 lease，再向 `notify:{user_id}` 发布；只有 Redis 接受后才能确认。过期或旧 lease 不能确认，worker 失联后可由下一次 claim 接管；same Notification ID 会跨 retry 保持，因此语义为至少一次、允许重复 broker 消息。领取量 1–100（默认 16）、lease 60 秒、进程并发 4、Redis I/O timeout 不超过 5 秒，不需要 lease renewal。只有 `delivered` 和 `retry` 两种安全 finish 状态；publisher 不持有 Identity、AUTH、JWT signing secret 或其他 SQL 能力。
 
-独立进程由 Notifications 包的 `aap-notifications-publisher` 或 `python -m aap_notifications.delivery_worker` 启动，配置类为 `aap_notifications.delivery_config.NotificationPublisherSettings`，仍读取 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 两组必需 secret。默认模式持续 poll，`--once` 只领取并处理一个 batch；它不是 HTTP server，也没有 HTTP health endpoint。`apps/notifications/Dockerfile` 定义独立运行工件，Identity 原导入路径和 `python -m aap_identity_runtime.notification_worker` 继续兼容，现有 Compose 命令不变。API/Celery 复用 Notifications executor、显式设置 `notification_publish_database_url` 并使用现有 task Redis 配置；default queue 每 10 秒的 relay 与独立 publisher 处理同一 leased outbox，不再并行做 ephemeral best-effort publish。Notifications owner、Compose secret 和运行限制见 [开发部署说明](/ops/deploy/development) 与 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+独立进程由 Notifications 包的 `yoao-notifications-publisher` 或 `python -m yoao_notifications.delivery_worker` 启动，配置类为 `yoao_notifications.delivery_config.NotificationPublisherSettings`，仍读取 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 两组必需 secret。默认模式持续 poll，`--once` 只领取并处理一个 batch；它不是 HTTP server，也没有 HTTP health endpoint。`apps/notifications/Dockerfile` 定义独立运行工件，Identity 原导入路径和 `python -m yoao_identity_runtime.notification_worker` 继续兼容，现有 Compose 命令不变。API/Celery 复用 Notifications executor、显式设置 `notification_publish_database_url` 并使用现有 task Redis 配置；default queue 每 10 秒的 relay 与独立 publisher 处理同一 leased outbox，不再并行做 ephemeral best-effort publish。Notifications owner、Compose secret 和运行限制见 [开发部署说明](/ops/deploy/development) 与 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
 API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 和 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`；选择器可留空用于调用方事务，明确选择后连接失败不回退。API/Celery 的可选 Notifications SQL binding 为 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)`，Redis 继续使用现有 task settings。可选 Compose 的 host selectors 是 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`。独立 publisher secret 只映射到它自己的两项 `NOTIFICATION_PUBLISH_*_FILE`；这些 owner 能力须在共享 PostgreSQL transaction owner 中组合。
 
@@ -632,7 +631,7 @@ API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_
 
 ## 独立账号邮件执行
 
-同一个安装包或镜像以 `python -m aap_identity_runtime.mail_worker` 启动邮件进程，默认健康端口 8171。它只有 `MAIL` 四函数连接、独立的 `MAIL_SETTINGS` 单函数连接及 Fernet key，不需要认证控制 token、AUTH 数据连接或 JWT signing secret。`/health` 检查进程，`/ready` 检查所需权限、策略和 key 格式；就绪不保证 SMTP 可送达。
+同一个安装包或镜像以 `python -m yoao_identity_runtime.mail_worker` 启动邮件进程，默认健康端口 8171。它只有 `MAIL` 四函数连接、独立的 `MAIL_SETTINGS` 单函数连接及 Fernet key，不需要认证控制 token、AUTH 数据连接或 JWT signing secret。`/health` 检查进程，`/ready` 检查所需权限、策略和 key 格式；就绪不保证 SMTP 可送达。
 
 执行器先提交有期限的领取租约，再读取密文并发信，网络等待期间续租。User → 挑战 → outbox 的行锁不跨 SMTP。领取、续租和完成在锁等待结束后按数据库当前时间检查；过期或旧租约不能确认投递。进程失联后，另一执行器可以接管过期租约。
 

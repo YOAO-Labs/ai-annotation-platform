@@ -129,25 +129,25 @@ iptables -I DOCKER-USER -i eth0 ! -s 10.0.0.0/8 -j DROP
 
 ## 5. 远程 SDK / CLI 安全访问
 
-SDK（`packages/python-sdk`）本质是 HTTP 客户端：所有请求拼在 `base_url + /api/v1`，认证注入 `Authorization: Bearer <api_key>`（`src/ai_annotation/_http.py`）。从**非平台所在机器**调用时，三件事必须做对：
+SDK（`packages/python-sdk`）本质是 HTTP 客户端：所有请求拼在 `base_url + /api/v1`，认证注入 `Authorization: Bearer <api_key>`（`src/yoao/_http.py`）。从**非平台所在机器**调用时，三件事必须做对：
 
 ### 5.1 base_url 走 HTTPS 域名，不走 IP:8000
 
 ```bash
 # ✅ 远程：走外层反代的 HTTPS
-export AAP_BASE_URL=https://app.example.com
-export AAP_API_KEY=ak_...
+export YOAO_BASE_URL=https://app.example.com
+export YOAO_API_KEY=ak_...
 
 # ❌ 绝不：明文直连后端端口，Key 裸奔公网
-export AAP_BASE_URL=http://1.2.3.4:8000
+export YOAO_BASE_URL=http://1.2.3.4:8000
 ```
 
 部署侧务必把 `app.example.com` 的 443 指向外层反代，反代再转到 web 容器的 8088，由 web 容器内 Nginx 把 `/api/` 和 `/ws/` 转给 `api:8000`（[生产部署 §3](/ops/deploy/docker-compose) 有 nginx 示例）。
 
 ### 5.2 API Key 管理
 
-- Key 在 web 端「我的 API Keys」或 `aap login` 后通过 `me/api-keys` 端点生成。
-- 落盘在调用方机器 `~/.config/ai-annotation/config.toml`，权限 `0600`（`src/ai_annotation/config.py`）。**不要提交进 git、不要共享该文件**。
+- Key 在 web 端「我的 API Keys」或 `yoao login` 后通过 `me/api-keys` 端点生成。
+- 落盘在调用方机器 `~/.config/yoao/config.toml`，权限 `0600`（`src/yoao/config.py`）。**不要提交进 git、不要共享该文件**。
 - 怀疑泄露时立即 `rotate` / `delete`（SDK 支持 `me/api-keys/{id}/rotate`）。
 
 ### 5.3 ⚠️ presigned URL 的对外可达性（远程最隐蔽的坑）
@@ -163,7 +163,7 @@ export AAP_BASE_URL=http://1.2.3.4:8000
 
 ### 5.4 只读站点 Agent 的出站 HTTPS 边界
 
-当数据目录位于中心无法主动入站访问的内网或远端机房时，可部署[只读站点 Agent](/ops/deploy/site-agents)（`aap-storage-agent`）：
+当数据目录位于中心无法主动入站访问的内网或远端机房时，可部署[只读站点 Agent](/ops/deploy/site-agents)（`yoao-storage-agent`）：
 
 - **零入站端口**：Agent 进程不监听任何本地或公网端口，仅向中心外层反代的 `443`（HTTPS origin）发起出站长轮询（`POST /api/v1/site-agents/commands/poll`）、分块上传与结果回执。数据服务器防火墙只需放行到中心 HTTPS 域名的出站 443。
 - **严格 TLS 与无重定向**：Agent 强制校验中心 TLS 证书（内部私有 CA 通过本地 `0600` 配置中的 `ca_file` 指定），拒绝 HTTP 明文、拒绝任何 3xx 重定向，且不读取环境变量代理，防止中间人诱导分块上传流向非受控端点。

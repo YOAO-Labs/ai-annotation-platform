@@ -36,8 +36,8 @@ last_reviewed: 2026-10-26
 4. **远端完成本地配对**：运维人员在远端服务器上先运行 `--check` 检查本地配置与只读挂载，再执行 `--pairing-file` 消费配对码换取正式身份凭据：
 
 ```sh
-aap-storage-agent --config /etc/aap-storage-agent/agent.json --check
-aap-storage-agent --config /etc/aap-storage-agent/agent.json --pairing-file /etc/aap-storage-agent/pairing.json
+yoao-storage-agent --config /etc/aap-storage-agent/agent.json --check
+yoao-storage-agent --config /etc/aap-storage-agent/agent.json --pairing-file /etc/aap-storage-agent/pairing.json
 ```
 
 配对成功后启动 Agent 服务，Agent 将主动长轮询中心并上报本地配置的受控根句柄（`root_handle`）、根修订与本地资源预算。

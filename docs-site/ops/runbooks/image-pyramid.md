@@ -48,7 +48,7 @@ docker compose -f docker-compose.yml -f docker-compose.assets-media.yml build as
 docker compose -f docker-compose.yml -f docker-compose.assets-media.yml up -d assets-media-control assets-images-worker
 docker compose -f docker-compose.yml -f docker-compose.assets-media.yml ps
 docker compose -f docker-compose.yml -f docker-compose.assets-media.yml logs --tail=100 assets-images-worker
-docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec assets-images-worker python -m aap_assets_images_runtime.worker --healthcheck
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec assets-images-worker python -m yoao_assets_images_runtime.worker --healthcheck
 docker compose -f docker-compose.yml -f docker-compose.assets-cleanup.yml up -d --build assets-cleanup
 ```
 
@@ -57,8 +57,8 @@ API 必须能经私有网络访问 `http://assets-media-control:8768`。overlay 
 宿主直接运行入口：
 
 ```bash
-uv run --project apps/assets-media --extra runtime --extra server python -m aap_assets_media_runtime
-uv run --project apps/assets-media --extra runtime python -m aap_assets_images_runtime.worker
+uv run --project apps/assets-media --extra runtime --extra server python -m yoao_assets_media_runtime
+uv run --project apps/assets-media --extra runtime python -m yoao_assets_images_runtime.worker
 ```
 
 API 配置 `ASSETS_MEDIA_URL` 后使用远程共享控制；远程配置/请求失败不回退本地。地址留空时，当前开发兼容路径仍可本地装配控制和轻量 Celery 唤醒；要验证独立边界，确认 API 走远程控制且作业由 `assets-images-worker` 执行。

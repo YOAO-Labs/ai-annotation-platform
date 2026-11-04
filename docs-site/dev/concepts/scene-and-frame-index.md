@@ -129,7 +129,7 @@ scene API 提供列表/单条读取及部分元数据 PATCH；创建由 importer
 
 ## `scene_inference` 算法
 
-`aap_assets_catalog.spatial_workflow.SpatialWorkflow.backfill_scenes` 接收公开 `BackfillScenesRequest`，复用 Source 的纯 Scene planner。API 通过 `services/assets_spatial.py` 选择独立运行时或同一原生合同；需要整体回滚的导入显式使用调用方 SQL 连接。
+`yoao_assets_catalog.spatial_workflow.SpatialWorkflow.backfill_scenes` 接收公开 `BackfillScenesRequest`，复用 Source 的纯 Scene planner。API 通过 `services/assets_spatial.py` 选择独立运行时或同一原生合同；需要整体回滚的导入显式使用调用方 SQL 连接。
 
 ### 三种模式
 
@@ -139,7 +139,7 @@ scene API 提供列表/单条读取及部分元数据 PATCH；创建由 importer
 
 ### `frame_index` 赋值（点云 / 多模态）
 
-1. 将素材转换为不可变 `PreparedDatasetItem`，由 `aap_assets_source.frame_layout.group_frames(items)` 取得 `{frame_stem: GroupedFrame}` 与相机标定事实；`aap_assets_source.scene_layout.plan_scenes` 纯函数负责场景和帧索引规划，不依赖 API、ORM 或 SQLAlchemy。
+1. 将素材转换为不可变 `PreparedDatasetItem`，由 `yoao_assets_source.frame_layout.group_frames(items)` 取得 `{frame_stem: GroupedFrame}` 与相机标定事实；`yoao_assets_source.scene_layout.plan_scenes` 纯函数负责场景和帧索引规划，不依赖 API、ORM 或 SQLAlchemy。
 2. `frame_stem` 自然排序（`"000001" < "000010"`）后，lidar 依次取 `0..N-1`。
 3. 同帧相机 item 共享 lidar 的 `frame_index`。
 4. `calib_items` 仅写 `scene_id`，`frame_index=NULL`。

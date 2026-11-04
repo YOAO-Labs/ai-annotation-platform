@@ -15,7 +15,7 @@ last_reviewed: 2026-10-27
 上传初始化、上传字节、确认完成是三个独立阶段。保存初始化返回的 task_id；任何阶段结果不确定时先核对原任务和存储状态，不要重新创建占位任务。初始化和完成要求项目负责人或超级管理员；平台项目管理员不能操作他人负责的项目。
 
 ```python
-from ai_annotation import Client, FileUploadInitRequest
+from yoao import Client, FileUploadInitRequest
 
 PROJECT_ID = "<project-uuid>"
 
@@ -32,11 +32,11 @@ with Client() as client:
 初始化创建 uploading 任务并返回约 15 分钟有效的 PUT URL。`upload_content` 流式发送本地文件，使用与初始化相同的 Content-Type，不携带平台 Authorization，不自动跟随重定向或重试。字节上传成功后才明确调用 upload_complete；它核验对象存在，将任务改为 pending，并为图片排队缩略图。完成回执不是缩略图处理成功，也不是通用 AsyncJob。
 
 ```bash
-aap files upload-init --project-id "$PROJECT_ID" --file-name frame.jpg --content-type image/jpeg --yes --json > upload.json
-aap files upload-content --init upload.json --file frame.jpg --content-type image/jpeg --yes --json
-aap files upload-complete "$TASK_ID" --yes --json
-aap files download "$TASK_ID" -o downloaded-frame.jpg
-aap files backfill-thumbnails "$PROJECT_ID" --yes --json
+yoao files upload-init --project-id "$PROJECT_ID" --file-name frame.jpg --content-type image/jpeg --yes --json > upload.json
+yoao files upload-content --init upload.json --file frame.jpg --content-type image/jpeg --yes --json
+yoao files upload-complete "$TASK_ID" --yes --json
+yoao files download "$TASK_ID" -o downloaded-frame.jpg
+yoao files backfill-thumbnails "$PROJECT_ID" --yes --json
 ```
 
 TASK_ID 取自 upload.json。该文件含短期签名凭据，只在本次上传中使用；URL 不是持久资源身份。
@@ -48,7 +48,7 @@ TASK_ID 取自 upload.json。该文件含短期签名凭据，只在本次上传
 ## 读取与更新场景
 
 ```python
-from ai_annotation import Client, SceneUpdate
+from yoao import Client, SceneUpdate
 
 DATASET_ID = "<dataset-uuid>"
 
@@ -65,10 +65,10 @@ list 返回未分页数组；trajectory 返回 `{scene_id, poses}`，位姿按 f
 场景更新沿用数据集的管理员写策略：只有 project_admin 或 super_admin 可改名称、来源格式和来源元数据。PATCH 只发送明确字段，当前服务器将 null 视为不修改；`source_metadata={}` 可清空元数据。没有 CAS revision，不应把旧 GET 响应整份回写。重复名称返回 409。
 
 ```bash
-aap scenes list --dataset-id "$DATASET_ID" --json
-aap scenes get "$SCENE_ID" --json
-aap scenes trajectory "$SCENE_ID" --json
-aap scenes update "$SCENE_ID" --body scene-patch.json --yes --json
+yoao scenes list --dataset-id "$DATASET_ID" --json
+yoao scenes get "$SCENE_ID" --json
+yoao scenes trajectory "$SCENE_ID" --json
+yoao scenes update "$SCENE_ID" --body scene-patch.json --yes --json
 ```
 
 CLI 更新需要至少一个非 null 字段，支持 `--body -`，确认后发送一次请求。项目文件签名／验证／排队前会执行授权；被拒绝的调用不会创建上传任务、签发 URL 或排队后台工作。

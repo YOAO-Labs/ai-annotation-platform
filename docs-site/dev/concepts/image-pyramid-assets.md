@@ -154,7 +154,7 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
 
 ## 资源与生命周期
 
-独立 `aap_assets_images_runtime.worker` 轮询原生作业，使用专用 SQL/S3 身份，初始并发为 1。本地开发的 `image-pyramid` Celery 队列仅作为同一执行器的唤醒适配。生成流程按以下顺序执行：
+独立 `yoao_assets_images_runtime.worker` 轮询原生作业，使用专用 SQL/S3 身份，初始并发为 1。本地开发的 `image-pyramid` Celery 队列仅作为同一执行器的唤醒适配。生成流程按以下顺序执行：
 
 ```text
 固定原件与显式委派，取得 DB lease 和独立输出 owner

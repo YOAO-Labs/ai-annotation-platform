@@ -45,7 +45,7 @@ API／普通 worker 的模型执行、后端控制、健康观察、Workspace �
 ### 使用私有 HTTP runtime
 
 ```sh
-uv run --project apps/inference --locked --extra runtime python -m aap_inference
+uv run --project apps/inference --locked --extra runtime python -m yoao_inference
 ```
 
 默认监听 `127.0.0.1:8768`。完整部署复用 `docker-compose.inference.yml`，将 `.env.example` 中 `INFERENCE_RUNTIME_*_FILE` 指向宿主 secret 文件；Compose 只读挂载到 owner 容器。`INFERENCE_GPU_REDIS_URL(_FILE)` 指向权威账本使用的 Redis。GPU 签名文件仅挂载给 Inference，不能挂载给 API／普通 worker／模型 backend。
@@ -118,7 +118,7 @@ Workspace 只传 registry UUID、不透明 `probe_subject`、timeout 和 `Capabi
 
 ### 离线视频恢复 operator
 
-`aap-video-restore` 使用 `--database-url-file`、`--inspect`／`--command-file`／`--status`，只执行专用 `video_restore_step(text,text)`。恢复绑定备份摘要、外部停机／凭据围栏、实际 controller incarnation 和固定 control IDs，原子轮换恢复后的执行权。未知／pending 按原命令查询与恢复，不自动回滚或重跑模型。
+`yoao-video-restore` 使用 `--database-url-file`、`--inspect`／`--command-file`／`--status`，只执行专用 `video_restore_step(text,text)`。恢复绑定备份摘要、外部停机／凭据围栏、实际 controller incarnation 和固定 control IDs，原子轮换恢复后的执行权。未知／pending 按原命令查询与恢复，不自动回滚或重跑模型。
 
 摘要不是外部进程停止、S3 身份撤销或对象存储恢复的证明。先满足[备份恢复前提](/ops/deploy/docker-compose#_5-0-恢复前提与执行权)，再按[协调恢复决策](/dev/adr/0160-coordinated-video-restore)操作。
 

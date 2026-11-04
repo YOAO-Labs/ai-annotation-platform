@@ -8,7 +8,7 @@ last_reviewed: 2026-10-17
 
 # Agent 接入与操作
 
-Agent 可以使用 Python SDK 或 `aap` CLI 完成发现、读取、预检和明确提交。机器入口沿用现有凭据与权限，不需要额外服务。全量 API 台账区分已覆盖、主动排除和尚未接入；接口存在不代表当前账号可调用，也不代表当前执行器在线。
+Agent 可以使用 Python SDK 或 `yoao` CLI 完成发现、读取、预检和明确提交。机器入口沿用现有凭据与权限，不需要额外服务。全量 API 台账区分已覆盖、主动排除和尚未接入；接口存在不代表当前账号可调用，也不代表当前执行器在线。
 
 项目分派的精确预览输入、无版本的孤儿清理、三步指引上传、绩效证据、数据回填限制与部分导入恢复见 [项目、批次与数据运维](./project-workflows)。同为 POST 的接口可能只是分析，也可能排队或同步返回部分结果，按操作描述判定下一步。
 
@@ -21,10 +21,10 @@ Agent 可以使用 Python SDK 或 `aap` CLI 完成发现、读取、预检和明
 ## 按需发现能力与请求
 
 ```bash
-aap capabilities --status covered --limit 20 --offset 0 --json
-aap capabilities --tag training-runs --json
-aap describe training_runs.create --json
-aap describe learning.runs.create --json
+yoao capabilities --status covered --limit 20 --offset 0 --json
+yoao capabilities --tag training-runs --json
+yoao describe training_runs.create --json
+yoao describe learning.runs.create --json
 ```
 
 能力列表有界分页，支持按 tag 和状态筛选；`describe` 展开一个具体操作。SDK 方法名为规范标识，对应 CLI 的点分路径可作为别名。返回内容包括 SDK/CLI 参数、关联 API、请求 schema 与额外约束，读取时同时核对限制、幂等和确认行为。
@@ -32,7 +32,7 @@ aap describe learning.runs.create --json
 Python 核心包也可离线读取：
 
 ```python
-from ai_annotation import list_capabilities, describe_operation
+from yoao import list_capabilities, describe_operation
 
 page = list_capabilities(status="covered", limit=20, offset=0)
 operation = describe_operation("training_runs.create")
@@ -62,8 +62,8 @@ print(operation)
 ## 机器输入与错误输出
 
 ```bash
-aap --error-format json learning runs preflight --project "$PROJECT_ID" --body run-draft.json --json
-aap --error-format json learning runs create --project "$PROJECT_ID" --body - --json < run-request.json
+yoao --error-format json learning runs preflight --project "$PROJECT_ID" --body run-draft.json --json
+yoao --error-format json learning runs create --project "$PROJECT_ID" --body - --json < run-request.json
 ```
 
 `--body -` 从 stdin 读取 UTF-8 JSON 对象，和文件使用相同校验。根选项 `--error-format json` 必须放在命令前；它让失败以结构化 JSON 写到 stderr，成功 stdout 和原有退出码约定不变。未选择该模式时仍输出文本错误。
@@ -85,6 +85,6 @@ Job 失败或等待超时的错误保留 `job_id`，用它继续读取现有任�
 ```python
 from importlib.resources import files
 
-guide = files("ai_annotation").joinpath("AGENT_GUIDE.md").read_text(encoding="utf-8")
+guide = files("yoao").joinpath("AGENT_GUIDE.md").read_text(encoding="utf-8")
 print(guide)
 ```

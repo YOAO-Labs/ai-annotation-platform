@@ -31,47 +31,47 @@ last_reviewed: 2026-10-25
 
 ## 代码入口
 
-| 位置                                                                              | 作用                                                         |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `apps/api/app/services/audit.py`                                                  | `AuditAction` 与兼容 `AuditService.log()`／`log_many()` 门面 |
-| `apps/audit/src/aap_audit/append_contract.py`、`append.schema.json`               | `aap-audit-append/v1` 追加命令与回执合同                     |
-| `apps/audit/src/aap_audit/postgres.py`、`sql/0315_audit_append.sql`               | 同事务 PostgreSQL Audit owner 适配器与追加函数               |
-| `apps/audit/src/aap_audit/query_contract.py`、`query.schema.json`                 | `aap-audit-query/v1` 全局查询命令与响应合同                  |
-| `apps/audit/src/aap_audit/query_postgres.py`、`sql/0317_audit_query.sql`          | 借用调用方事务的固定 Audit 查询函数                          |
-| `apps/audit/src/aap_audit/read_relation_postgres.py`                              | 公开事件关系及原生类型；领域范围由消费者组合                 |
-| `apps/api/app/middleware/audit.py`                                                | HTTP 写请求响应后的 `http.*` 元数据审计                      |
-| `apps/api/app/workers/audit.py`                                                   | 异步持久化 HTTP 审计；投递失败时中间件同步回退               |
-| `apps/api/app/db/models/audit_log.py`                                             | `AuditLog` 数据模型                                          |
-| `apps/api/app/api/v1/audit_logs.py`                                               | audit 查询与导出                                             |
-| `apps/api/app/services/audit_summary.py`                                          | 正常月报的本地 Python 归并                                   |
-| `apps/audit-summary`、`apps/api/experiments`                                      | 显式隔离实验，不参与正常月报执行                             |
-| `apps/api/app/services/notification.py`                                           | 通知 owner 调用、公开事实读取与 Redis PubSub                 |
-| `apps/api/app/services/notification_read_relations.py`                            | 公开通知关系与原 Session identity 兼容绑定                   |
-| `apps/notifications/src/aap_notifications/preferences.policy.json`                | 跨语言共享的可配置类型与默认 toast 策略                      |
-| `apps/notifications/src/aap_notifications/preferences_contract.py`                | 版本化 GET／PATCH／mute JSON 合同与响应验证                  |
-| `apps/notifications/src/aap_notifications/sql/0311_notifications_preferences.sql` | 同事务读取、静音与 JSONB merge owner 函数                    |
-| `apps/notifications/src/aap_notifications/append.py`                              | 持久化 append manager 与请求/返回行关联检查                  |
-| `apps/notifications/src/aap_notifications/append_contract.py`                     | 版本化通知 append JSON 合同与返回值关联验证                  |
-| `apps/notifications/src/aap_notifications/append_postgres.py`                     | 借用 API 请求 Session 的 append PostgreSQL 适配器            |
-| `apps/notifications/src/aap_notifications/sql/0314_notifications_append.sql`      | 返回服务端行快照的通知持久化 append 函数                     |
-| `apps/notifications/src/aap_notifications/preferences_postgres.py`                | 借用 API 请求 Session 的 PostgreSQL 适配器                   |
-| `apps/api/app/services/discussion_notifications.py`                               | 讨论事件收件人、原始目标身份与延迟发布记录                   |
-| `apps/api/app/services/async_job_notify.py`                                       | `async_jobs` 终态 → 通用 `job.*` 通知 helper                 |
-| `apps/api/app/services/async_job_terminal.py`                                     | 不含 ORM/传输的不可变 `JobTerminal` 事实                     |
-| `apps/api/app/application/job_terminal.py`                                        | 领域终态绑定与信号兜底工作流，同事务协调状态/通知            |
-| `apps/api/app/application/job_cancellation.py`                                    | 取消准入、领域命令与执行停止请求组合，提交由入口持有         |
-| `apps/notifications/src/aap_notifications/notification_delivery_contract.py`      | publisher 的领取、确认与策略协议                             |
-| `apps/notifications/src/aap_notifications/notification_delivery_postgres.py`      | publisher 的 PostgreSQL 执行器                               |
-| `apps/notifications/src/aap_notifications/delivery_worker.py`                     | `NotificationPublisher` 执行器与独立 CLI                     |
-| `apps/notifications/src/aap_notifications/delivery_config.py`                     | `NotificationPublisherSettings` 环境配置                     |
-| `apps/notifications/Dockerfile`                                                   | 锁定依赖、非 editable 安装的独立 publisher 工件定义          |
-| `apps/identity/src/aap_identity_runtime/notification_worker.py`                   | 既有 Identity publisher 命令的兼容入口                       |
-| `apps/api/app/services/job_execution_control.py`                                  | 不依赖 broker 的协作取消执行端口                             |
-| 各领域服务的 `reconcile_job_terminal`                                             | 只回填所属账本，保留各自终态语义                             |
-| `apps/api/app/workers/signals.py`                                                 | Celery 信号适配、连接与调用方提交/释放                       |
-| `apps/api/app/db/models/notification.py`                                          | `Notification` 模型                                          |
-| `apps/api/app/api/v1/notifications.py`                                            | 通知列表/已读及偏好的 HTTP 鉴权、校验、提交与提交后同步      |
-| `apps/api/app/api/v1/ws.py`                                                       | `/ws/notifications` 在线推送                                 |
+| 位置                                                                               | 作用                                                         |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `apps/api/app/services/audit.py`                                                   | `AuditAction` 与兼容 `AuditService.log()`／`log_many()` 门面 |
+| `apps/audit/src/yoao_audit/append_contract.py`、`append.schema.json`               | `aap-audit-append/v1` 追加命令与回执合同                     |
+| `apps/audit/src/yoao_audit/postgres.py`、`sql/0315_audit_append.sql`               | 同事务 PostgreSQL Audit owner 适配器与追加函数               |
+| `apps/audit/src/yoao_audit/query_contract.py`、`query.schema.json`                 | `aap-audit-query/v1` 全局查询命令与响应合同                  |
+| `apps/audit/src/yoao_audit/query_postgres.py`、`sql/0317_audit_query.sql`          | 借用调用方事务的固定 Audit 查询函数                          |
+| `apps/audit/src/yoao_audit/read_relation_postgres.py`                              | 公开事件关系及原生类型；领域范围由消费者组合                 |
+| `apps/api/app/middleware/audit.py`                                                 | HTTP 写请求响应后的 `http.*` 元数据审计                      |
+| `apps/api/app/workers/audit.py`                                                    | 异步持久化 HTTP 审计；投递失败时中间件同步回退               |
+| `apps/api/app/db/models/audit_log.py`                                              | `AuditLog` 数据模型                                          |
+| `apps/api/app/api/v1/audit_logs.py`                                                | audit 查询与导出                                             |
+| `apps/api/app/services/audit_summary.py`                                           | 正常月报的本地 Python 归并                                   |
+| `apps/audit-summary`、`apps/api/experiments`                                       | 显式隔离实验，不参与正常月报执行                             |
+| `apps/api/app/services/notification.py`                                            | 通知 owner 调用、公开事实读取与 Redis PubSub                 |
+| `apps/api/app/services/notification_read_relations.py`                             | 公开通知关系与原 Session identity 兼容绑定                   |
+| `apps/notifications/src/yoao_notifications/preferences.policy.json`                | 跨语言共享的可配置类型与默认 toast 策略                      |
+| `apps/notifications/src/yoao_notifications/preferences_contract.py`                | 版本化 GET／PATCH／mute JSON 合同与响应验证                  |
+| `apps/notifications/src/yoao_notifications/sql/0311_notifications_preferences.sql` | 同事务读取、静音与 JSONB merge owner 函数                    |
+| `apps/notifications/src/yoao_notifications/append.py`                              | 持久化 append manager 与请求/返回行关联检查                  |
+| `apps/notifications/src/yoao_notifications/append_contract.py`                     | 版本化通知 append JSON 合同与返回值关联验证                  |
+| `apps/notifications/src/yoao_notifications/append_postgres.py`                     | 借用 API 请求 Session 的 append PostgreSQL 适配器            |
+| `apps/notifications/src/yoao_notifications/sql/0314_notifications_append.sql`      | 返回服务端行快照的通知持久化 append 函数                     |
+| `apps/notifications/src/yoao_notifications/preferences_postgres.py`                | 借用 API 请求 Session 的 PostgreSQL 适配器                   |
+| `apps/api/app/services/discussion_notifications.py`                                | 讨论事件收件人、原始目标身份与延迟发布记录                   |
+| `apps/api/app/services/async_job_notify.py`                                        | `async_jobs` 终态 → 通用 `job.*` 通知 helper                 |
+| `apps/api/app/services/async_job_terminal.py`                                      | 不含 ORM/传输的不可变 `JobTerminal` 事实                     |
+| `apps/api/app/application/job_terminal.py`                                         | 领域终态绑定与信号兜底工作流，同事务协调状态/通知            |
+| `apps/api/app/application/job_cancellation.py`                                     | 取消准入、领域命令与执行停止请求组合，提交由入口持有         |
+| `apps/notifications/src/yoao_notifications/notification_delivery_contract.py`      | publisher 的领取、确认与策略协议                             |
+| `apps/notifications/src/yoao_notifications/notification_delivery_postgres.py`      | publisher 的 PostgreSQL 执行器                               |
+| `apps/notifications/src/yoao_notifications/delivery_worker.py`                     | `NotificationPublisher` 执行器与独立 CLI                     |
+| `apps/notifications/src/yoao_notifications/delivery_config.py`                     | `NotificationPublisherSettings` 环境配置                     |
+| `apps/notifications/Dockerfile`                                                    | 锁定依赖、非 editable 安装的独立 publisher 工件定义          |
+| `apps/identity/src/yoao_identity_runtime/notification_worker.py`                   | 既有 Identity publisher 命令的兼容入口                       |
+| `apps/api/app/services/job_execution_control.py`                                   | 不依赖 broker 的协作取消执行端口                             |
+| 各领域服务的 `reconcile_job_terminal`                                              | 只回填所属账本，保留各自终态语义                             |
+| `apps/api/app/workers/signals.py`                                                  | Celery 信号适配、连接与调用方提交/释放                       |
+| `apps/api/app/db/models/notification.py`                                           | `Notification` 模型                                          |
+| `apps/api/app/api/v1/notifications.py`                                             | 通知列表/已读及偏好的 HTTP 鉴权、校验、提交与提交后同步      |
+| `apps/api/app/api/v1/ws.py`                                                        | `/ws/notifications` 在线推送                                 |
 
 显式业务事件通过 `apps/audit` 的版本化追加函数写入，并保留调用方的
 PostgreSQL 事务；API 适配器在调用返回前恢复 `AuditLog` ORM identity。HTTP
@@ -260,7 +260,7 @@ Notifications 的纯投递策略先按需读取 Jobs 实际范围，再分别查
 
 ### 即时发布与独立运行
 
-普通发布编排由 `aap_notifications.publication.NotificationPublicationManager` 持有，API 继续控制业务事务和调用时点。空 `NOTIFICATION_PUBLICATION_URL` 使用内嵌 Redis transport；配置私网地址后，经 `aap-notifications-immediate-publication/v1` 调用现有独立 publisher 的可选 HTTP 接口，故障不回退本地 Redis。
+普通发布编排由 `yoao_notifications.publication.NotificationPublicationManager` 持有，API 继续控制业务事务和调用时点。空 `NOTIFICATION_PUBLICATION_URL` 使用内嵌 Redis transport；配置私网地址后，经 `aap-notifications-immediate-publication/v1` 调用现有独立 publisher 的可选 HTTP 接口，故障不回退本地 Redis。
 
 API 在原借用 Session 中读取通知、Jobs 范围和四组授权事实，将事件及该次受信快照交给 publisher；publisher 不重新查询未提交的业务行，并再次执行同一授权策略。服务 bearer 只授予这项发布能力，不能作为用户 JWT 或 Identity 控制凭据。消息频道由收件人 UUID 生成，调用方不能指定任意 Redis channel。
 
@@ -269,7 +269,7 @@ API 在原借用 Session 中读取通知、Jobs 范围和四组授权事实，�
 ### 已读状态命令
 
 `POST /api/v1/notifications/{id}/read` 与 `POST /api/v1/notifications/mark-all-read` 经
-`aap_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`。
+`yoao_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`。
 API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读行，并使用 API
 传入的单次 UTC `read_at` 时间戳。单条操作返回原有 boolean 结果；批量操作返回原有
 更新数量。Owner 回执继续验证更新 ID；API 在返回后复用当前锁定 SQLAlchemy 的批量 evaluate 缓存规则，保留脏值、过期字段、谓词次序和保存点回滚登记。旧 ORM 语句仅在本地编译用于缓存同步，不执行第二次 UPDATE／SELECT；事务仍由调用方提交。升级 SQLAlchemy 前须重验这层兼容绑定。
@@ -283,7 +283,7 @@ API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读
 ### 删除通知命令
 
 `DELETE /api/v1/notifications/{notification_id}` 与 `POST /api/v1/notifications/clear-read`
-经 `aap_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。API
+经 `yoao_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。API
 始终从当前认证主体取得 `user_id`；0318 安装该 capability。Owner 单条删除按 ID 和用户同时限定，清空只删除该用户
 `read_at` 非空的行，并返回原有 boolean／count。SQLAlchemy binding 借用同一 `AsyncSession`、
 遵循 `autoflush`／`no_autoflush`，不提交、不返回全量删除 ID。API 在 owner 命令后按原
@@ -335,7 +335,7 @@ ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及�
 
 ### 已知通知类型
 
-`apps/notifications/src/aap_notifications/preferences.policy.json` 是「**用户可在设置页配置**」的类型与默认 toast 合同。API 使用此名单做公开请求校验，0311 Notifications owner 在 PostgreSQL 内保留同一有序策略，并自行计算新行默认值；PATCH 不接受调用方传入默认值。Python contract 测试逐项比较 JSON 与冻结 SQL，Node peer 则直接调用同一 owner 函数。新增类型时更新该策略、后续线性 Alembic owner SQL 与前端设置页标签：
+`apps/notifications/src/yoao_notifications/preferences.policy.json` 是「**用户可在设置页配置**」的类型与默认 toast 合同。API 使用此名单做公开请求校验，0311 Notifications owner 在 PostgreSQL 内保留同一有序策略，并自行计算新行默认值；PATCH 不接受调用方传入默认值。Python contract 测试逐项比较 JSON 与冻结 SQL，Node peer 则直接调用同一 owner 函数。新增类型时更新该策略、后续线性 Alembic owner SQL 与前端设置页标签：
 
 `infra/docker/notification-preferences-grants.sql` 撤销指定 API LOGIN 与 `PUBLIC` 对偏好私表的直接权限；`notification-append-grants.sql` 安装偏好、追加、已读和删除四项固定能力。`notifications-read-grants.sql` 改授公开通知关系 SELECT；普通工作树和 LAN 授权源也关闭三张 Notifications 私表及列权限，publisher 仍使用专用固定函数。先部署匹配 API／worker 工件并排空旧私表消费者，再安装严格授权；回退也须同时匹配代码、关系和授权。
 
@@ -377,7 +377,7 @@ ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及�
 
 独立 `notification_publish_client` LOGIN 仅有 `identity_delivery_policy()`、`claim_identity_deliveries(jsonb)` 和 `finish_identity_delivery(jsonb)` 三项能力，不能查询或更新 Notification 表，也不持 Identity/AUTH/mail 凭据。领取 transaction 提交后才向 Redis `notify:{user_id}` 发消息；只有 Redis 接受以后才能确认 lease。锁等待后的时间由数据库检查，旧 worker lease 不能确认新领取。Redis 未确认或 publisher 崩溃时允许下一次 claim 重试；消息使用同一 Notification id，投递是 at-least-once 而非 exactly-once。
 
-独立命令 `aap-notifications-publisher` 或 `python -m aap_notifications.delivery_worker` 由 Notifications 包持有，使用原 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。`apps/notifications/Dockerfile` 定义独立、锁定、非 editable 的运行工件；Identity 原导入路径和 `python -m aap_identity_runtime.notification_worker` 保留兼容转发，现有 Identity Compose 仍使用该入口。主 API/Celery 的每 10 秒 relay 直接复用 Notifications executor；owner 内部故障在 API 外层仍翻译成既有 Identity 错误。两种执行路径共享 lease 和同一 durable outbox，不改变至少一次投递、取消或确认顺序。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+独立命令 `yoao-notifications-publisher` 或 `python -m yoao_notifications.delivery_worker` 由 Notifications 包持有，使用原 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。`apps/notifications/Dockerfile` 定义独立、锁定、非 editable 的运行工件；Identity 原导入路径和 `python -m yoao_identity_runtime.notification_worker` 保留兼容转发，现有 Identity Compose 仍使用该入口。主 API/Celery 的每 10 秒 relay 直接复用 Notifications executor；owner 内部故障在 API 外层仍翻译成既有 Identity 错误。两种执行路径共享 lease 和同一 durable outbox，不改变至少一次投递、取消或确认顺序。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
 新增可配置通知类型时要同步更新后端 `KNOWN_NOTIFICATION_TYPES` 与前端设置页标签；
 不可配置的运维类通知则刻意不进 `KNOWN`，避免被错误静音。
@@ -556,16 +556,16 @@ WS 握手时会校验 JWT，然后订阅：
 
 ## 常见修改落点
 
-| 你想改什么       | 先看哪里                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| 新增业务动作审计 | `services/audit.py` + 对应 route                                                                               |
-| 让某动作可通知   | `services/notification.py` + 对应 route                                                                        |
-| 通知偏好开关     | `api/v1/notifications.py` + `aap_notifications.preferences` + `aap_notifications_v1.preference_command(jsonb)` |
-| 标记通知已读     | `services/notification.py` + `aap_notifications.read_state` + `aap_notifications_v1.read_state_command(jsonb)` |
-| 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点                                                        |
-| 作业终态领域账本 | 各领域 `reconcile_job_terminal` + `application/job_terminal.py` 绑定                                           |
-| 审计查询 / 导出  | `api/v1/audit_logs.py`                                                                                         |
-| 批次审计聚合视图 | `api/v1/batches.py:list_batch_audit_logs`                                                                      |
+| 你想改什么       | 先看哪里                                                                                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- |
+| 新增业务动作审计 | `services/audit.py` + 对应 route                                                                                |
+| 让某动作可通知   | `services/notification.py` + 对应 route                                                                         |
+| 通知偏好开关     | `api/v1/notifications.py` + `yoao_notifications.preferences` + `aap_notifications_v1.preference_command(jsonb)` |
+| 标记通知已读     | `services/notification.py` + `yoao_notifications.read_state` + `aap_notifications_v1.read_state_command(jsonb)` |
+| 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点                                                         |
+| 作业终态领域账本 | 各领域 `reconcile_job_terminal` + `application/job_terminal.py` 绑定                                            |
+| 审计查询 / 导出  | `api/v1/audit_logs.py`                                                                                          |
+| 批次审计聚合视图 | `api/v1/batches.py:list_batch_audit_logs`                                                                       |
 
 ## 常见误解
 

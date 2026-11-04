@@ -169,7 +169,7 @@ DatasetSource (filesystem / s3 / sftp / agent)
   └─ 4. 原件验证读取 (original_sources / reference_snapshot + Location Gate 准入 + SHA-256 核验)
 ```
 
-1. **目录扫描（Scan）**：`DatasetSource` 绑定数据集与受控存储位置后，按 `Location → Source → Job → Run` 短锁领取 `DatasetScanRun`，在事务外通过 `aap_filesystem_read`（`openat2`）、严格外部 S3/SFTP 客户端或站点 Agent 分块枚举目录，写入 `DatasetScanEntry`。`stat` 观测不直接提升内容为 `verified`。
+1. **目录扫描（Scan）**：`DatasetSource` 绑定数据集与受控存储位置后，按 `Location → Source → Job → Run` 短锁领取 `DatasetScanRun`，在事务外通过 `yoao_filesystem_read`（`openat2`）、严格外部 S3/SFTP 客户端或站点 Agent 分块枚举目录，写入 `DatasetScanEntry`。`stat` 观测不直接提升内容为 `verified`。
 2. **批量预检与增量差异（Preflight）**：扫描完成后创建 `DatasetRegistrationRun`，在来源锁内以已接纳路径头（`DatasetSourceItem`）为基线，逐项完整读取字节并核验 SHA-256 与图片尺寸，生成新增、相同、内容变化、观测变化、未见和异常六类差异。
 3. **采纳与修订推进（Adoption）**：管理员确认仅新增（或周期计划命中 `pure_additions`）以及显式接纳同摘要重验、跨路径移动或新内容修订时，在同一事务内创建/更新 `DatasetItem`、`DatasetAsset`、`DatasetReference`（原地引用不复制对象存储副本）与不可变 `DatasetSourceRevision`，并为已关联项目补建任务。
 4. **验证读取与按需缓存（Verified Read）**：工作台或后台消费者读取原地引用样本时，先取得逻辑位置的维护 Gate 共享许可，核对当前任务/数据集权限与 API Key 证明；若位置与来源均开启 `on_demand` 且命中有效 `OriginalCacheEntry`，则从 `media-cache` 读取完整核验副本，否则回源捕获有界快照并复核完整 SHA-256。

@@ -11,10 +11,10 @@ last_reviewed: 2026-10-17
 Data Explorer 为脚本与 Agent 提供项目 schema、任务／对象／轨迹查询、保存视图，以及明确选择任务后的分配和导出。所有查询沿用当前账号的可见任务范围；项目 ID 不代表可以读取项目内全部任务。先读取 schema，再构造筛选和选择需要处理的资源。
 
 ```bash
-aap data-manager schema --project "$PROJECT_ID" --entity-scope tasks --json
-aap describe task_views.query --json
-aap describe data_manager.query_objects --json
-aap describe data_manager.assignment_apply --json
+yoao data-manager schema --project "$PROJECT_ID" --entity-scope tasks --json
+yoao describe task_views.query --json
+yoao describe data_manager.query_objects --json
+yoao describe data_manager.assignment_apply --json
 ```
 
 ## 按项目 schema 构造查询
@@ -22,7 +22,7 @@ aap describe data_manager.assignment_apply --json
 `schema` 返回当前粒度的字段、类型、操作符、选项、列、默认列和排序字段。动态属性键由项目工具与 attribute schema 决定，不是跨项目通用的固定词表。属性键可以含点号；不要截断键名或展平嵌套条件组。同一个 AND 中的对象条件具有同对象匹配语义，改写分组可能改变结果。
 
 ```python
-from ai_annotation import Client, ProjectTaskQueryRequest, DataManagerEntityQueryRequest
+from yoao import Client, ProjectTaskQueryRequest, DataManagerEntityQueryRequest
 
 PROJECT_ID = "<project-uuid>"
 
@@ -51,10 +51,10 @@ with Client() as client:
 `summary` 是完整匹配任务范围的聚合，与当前页无关；请求中的 dimensions 当前不提供选择性返回。`matches` 为单个可见任务返回命中摘要，annotation、prediction shape 和 tracker job 共用一个 offset/limit 窗口，不返回 raw geometry。
 
 ```bash
-aap data-manager summary --project "$PROJECT_ID" --body summary.json --json
-aap task-views query --project "$PROJECT_ID" --body task-query.json --json
-aap data-manager query-objects --project "$PROJECT_ID" --body object-query.json --json
-aap data-manager query-tracks --project "$PROJECT_ID" --body track-query.json --json
+yoao data-manager summary --project "$PROJECT_ID" --body summary.json --json
+yoao task-views query --project "$PROJECT_ID" --body task-query.json --json
+yoao data-manager query-objects --project "$PROJECT_ID" --body object-query.json --json
+yoao data-manager query-tracks --project "$PROJECT_ID" --body track-query.json --json
 ```
 
 这些 POST 是读取，不需要 `--yes`。对象详情返回 `{item: ...}`，定位接口直接返回 location。轨迹必须使用查询返回的 `track_ref`，不能用业务 `track_id` 替代；SDK 会编码路径参数。轨迹详情返回全部可见成员，当前没有成员分页，宜先用短列表确定需要展开的轨迹。
@@ -62,12 +62,12 @@ aap data-manager query-tracks --project "$PROJECT_ID" --body track-query.json --
 ## 保存和复用视图
 
 ```bash
-aap task-views list --project "$PROJECT_ID" --scope tasks --json
-aap task-views create --project "$PROJECT_ID" --body view.json --json
-aap task-views get "$VIEW_ID" --project "$PROJECT_ID" --json
-aap task-views tasks "$VIEW_ID" --project "$PROJECT_ID" --limit 20 --offset 0 --json
-aap task-views copy "$VIEW_ID" --project "$PROJECT_ID" --body copy.json --json
-aap task-views delete "$VIEW_ID" --project "$PROJECT_ID" --yes --json
+yoao task-views list --project "$PROJECT_ID" --scope tasks --json
+yoao task-views create --project "$PROJECT_ID" --body view.json --json
+yoao task-views get "$VIEW_ID" --project "$PROJECT_ID" --json
+yoao task-views tasks "$VIEW_ID" --project "$PROJECT_ID" --limit 20 --offset 0 --json
+yoao task-views copy "$VIEW_ID" --project "$PROJECT_ID" --body copy.json --json
+yoao task-views delete "$VIEW_ID" --project "$PROJECT_ID" --yes --json
 ```
 
 `ProjectTaskViewCreate` 保存 name、entity_scope、visibility、filter_json、sort_json 和 columns_json。私有视图属于当前账号；共享视图对有项目访问权的成员可读，写入要求项目管理权。复制默认沿用来源 visibility，普通成员复制共享视图时应明确提供 `{"visibility":"private"}`；copy 请求 body 必须存在，即使使用 `{}`。
@@ -79,7 +79,7 @@ aap task-views delete "$VIEW_ID" --project "$PROJECT_ID" --yes --json
 ## 预览并应用选中任务的分配
 
 ```python
-from ai_annotation import (
+from yoao import (
     Client, DataManagerTaskAssignmentRequest, DataManagerTaskAssignmentApplyRequest,
 )
 
@@ -105,14 +105,14 @@ with Client() as client:
 应用需同一选择、同一显式目标和返回的 preview_version。服务器在行锁下重新计算；状态、锁或分配变化可能产生 409，需重新预览并作出决定。SDK 不自动刷新预览或重试应用。完成／锁定／归档等不合格任务会按实际规则跳过或失败，HTTP 成功不代表全部任务已修改。
 
 ```bash
-aap data-manager assignment-preview --project "$PROJECT_ID" --body selection.json --json
-aap --error-format json data-manager assignment-apply --project "$PROJECT_ID" --body apply.json --yes --json
+yoao data-manager assignment-preview --project "$PROJECT_ID" --body selection.json --json
+yoao --error-format json data-manager assignment-apply --project "$PROJECT_ID" --body apply.json --yes --json
 ```
 
 ## 仅导出明确选中的任务
 
 ```python
-from ai_annotation import Client, DataManagerTaskExportRequest
+from yoao import Client, DataManagerTaskExportRequest
 
 PROJECT_ID = "<project-uuid>"
 TASK_ID = "<selected-task-uuid>"
@@ -130,8 +130,8 @@ with Client() as client:
 该接口不会回退到全项目导出。服务器要求导出能力并检查每个任务仍可见；选择最多 200 个任务，不能同时提供视频 scope。当前选中任务导出不支持 VOC、coco-multicamera、nuscenes、kitti、pointmask；失败后保持原选择和范围核对原因。
 
 ```bash
-aap data-manager export-tasks --project "$PROJECT_ID" --body export.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
-aap jobs get "$JOB_ID" --json
+yoao data-manager export-tasks --project "$PROJECT_ID" --body export.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
+yoao jobs get "$JOB_ID" --json
 ```
 
 可选 Idempotency-Key 在服务器 trim 后要求 1–128 字符，按操作、项目和账号限定。先保存完整请求与原键；同键的不同 canonical 请求返回 409，不生成替代键或自动重试 POST。HTTP 202 返回 Job ID 与实际状态，重放可能返回已有终态；CLI 不隐式等待或下载。Python 示例中的等待与下载是独立显式调用，下载沿用既有流式落盘、原子替换与凭据隔离保护。短期签名 URL 不是可持久保存的文件路径。

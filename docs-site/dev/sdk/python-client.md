@@ -8,7 +8,7 @@ last_reviewed: 2026-10-24
 
 # Python SDK 参考
 
-包名 `ai-annotation-sdk`,导入名 `ai_annotation`。同步 Client,底层 httpx + pydantic v2。
+包名 `yoao-sdk`,导入名 `yoao`。同步 Client,底层 httpx + pydantic v2。
 
 本页是调用平台公开 API 的 SDK，不是编写推理插件的作者 SDK。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立发布作者接口、推理运行时与 Mask 工具；管理员可用本 SDK 管理安装，但这不授予插件管理员凭据或直接访问平台数据库的权限。两者的包、兼容和职责边界见[模块部署](../concepts/module-deployment#api-sdk-and-plugin-sdk)。
 
@@ -16,31 +16,31 @@ last_reviewed: 2026-10-24
 
 账户、身份、用户管理和运维入口包括 `auth`、`account`、`avatars`、`api_keys`、`users`、`groups`、`invitations`、`health`、`ml_capabilities`、`system_settings`、`audit_logs`、`storage_connections`、`admin_operations`、`ml_diagnostics` 与 `project_ml`。这些命名空间的方法、公开类型与权限／恢复规则见 [账户、管理与运维](./account-and-operations)，精确参数和 schema 可用 `describe_operation("namespace.method")` 离线读取。
 
-> **兼容承诺范围**:公开 API 仅限本页所列(`Client` + 资源命名空间方法 + 顶层导出的模型、异常与能力发现函数)。内部传输层 `ai_annotation._http` 不在兼容承诺内,外部代码不要直接依赖。
+> **兼容承诺范围**:公开 API 仅限本页所列(`Client` + 资源命名空间方法 + 顶层导出的模型、异常与能力发现函数)。内部传输层 `yoao._http` 不在兼容承诺内,外部代码不要直接依赖。
 
 `comments`、`annotation_history`、`bug_reports`、`mask_formats`、`mask_qc`、`point_cloud_quality` 的类型请求、分页、签名附件、回执／摘要及失败恢复见 [讨论、缺陷报告与质量处理](./annotation-quality)。
 
 任务级读取、媒体、租约、点云与几何修改见 [任务工作流](./task-workflows)；六条 WebSocket 的离线发现、typed 事件、鉴权与有界 NDJSON 监听见 [公开事件流](./streams)。REST 已覆盖全部 558 项采用接口，十项执行器内部协议保持排除。
 
-## 版本与 AAP target
+## 版本与平台 target
 
-SDK、CLI 与 TUI 共用一个独立于 AAP 的 SemVer。运行时同时暴露 SDK 版本和该 release 完成测试与
-OpenAPI 对账的 AAP target：
+SDK、CLI 与 TUI 共用一个独立于平台的 SemVer。运行时同时暴露 SDK 版本和该 release 完成测试与
+OpenAPI 对账的平台 target：
 
 ```python
-from ai_annotation import __aap_target_version__, __version__
+from yoao import __platform_target_version__, __version__
 
 print(__version__)
-print(__aap_target_version__)
+print(__platform_target_version__)
 ```
 
-AAP target 是验证基线，不表示对所有更早或更晚平台版本的兼容范围。安装元数据版本与
+平台 target 是验证基线，不表示对所有更早或更晚平台版本的兼容范围。安装元数据版本与
 `__version__` 来自同一个静态来源。
 
 ## Client 构造
 
 ```python
-from ai_annotation import Client
+from yoao import Client
 
 client = Client(
     base_url="http://localhost:8000",   # 平台地址(不含 /api/v1 前缀)
@@ -52,10 +52,15 @@ client = Client(
 `base_url` / `api_key` 缺省时按以下优先级解析(任一项独立回落):
 
 1. 显式构造参数
-2. 环境变量 `AAP_BASE_URL` / `AAP_API_KEY`
-3. 配置文件 `~/.config/ai-annotation/config.toml`(由 `aap login` 写入)
+2. 环境变量 `YOAO_BASE_URL` / `YOAO_API_KEY`
+3. 配置文件 `~/.config/yoao/config.toml`(由 `yoao login` 写入)
 
-三处都拿不到 `base_url` 时构造抛 `AAPError`。`api_key` 允许为空(此时请求不带 Authorization 头,通常会得到 401)。
+旧客户端可显式运行 `yoao migrate-config`（支持 `--json`），将
+`~/.config/ai-annotation/config.toml` 复制到新路径；保留旧文件，目标已存在时拒绝覆盖，
+新文件权限为 `0600`，不输出凭据。旧 `AAP_BASE_URL`／`AAP_API_KEY` 不会自动读取，
+需自行改为新变量；迁移命令不替换已配置的环境变量。
+
+三处都拿不到 `base_url` 时构造抛 `SDKError`。`api_key` 允许为空(此时请求不带 Authorization 头,通常会得到 401)。
 
 `Client` 支持上下文管理器,也可手动 `client.close()`:
 
@@ -263,7 +268,7 @@ with Client() as client:
 | `download_voc` | `download_voc(project_id, dest_path, include_attributes=True)`                                                         | `Path`        |
 
 - `create`:发起异步导出(HTTP 202),返回 job_id；格式、属性与坐标等选项走 query，视频 `scope` 与点云 `lidar` 选项通过 `ExportRequestBody` 的 JSON body 发送。将它们误放入 query kwargs 会在发送前拒绝。导出格式清单见[导出格式参考](/user-guide/reference/export-formats)。
-- `download`:从 `job.result["download_url"]` 流式下载导出包;传 job_id 时会先 GET 一次 job。job 无 `result.download_url`(如尚未完成)时抛 `AAPError`。
+- `download`:从 `job.result["download_url"]` 流式下载导出包;传 job_id 时会先 GET 一次 job。job 无 `result.download_url`(如尚未完成)时抛 `SDKError`。
 - `download_voc`：服务器同步返回 ZIP，使用认证 POST 流式落盘并原子替换目标，不自动重试。异步 `create` 不能用于 VOC，混选 VOC 与其他目标同样拒绝。`client.batches.export(..., body=...)` 与 `client.batches.download_voc(project_id, batch_id, dest_path, include_attributes=True)` 提供对应批次入口。
 
 导出请求模型包括 `VideoExportFrameSelection`、`VideoExportSegmentSelection`、`VideoExportScopeRequest`、`LidarExportOptions` 和 `ExportRequestBody`。源帧范围为闭区间；片段和任务归属、相机资格与导出能力由服务端核对。完整示例见 [范围导出与 VOC](./cookbook#_9-范围导出与同步-voc)。
@@ -390,10 +395,10 @@ with Client() as client:
 
 ## 异常层级
 
-全部从 `ai_annotation` 顶层导入:
+全部从 `yoao` 顶层导入:
 
 ```text
-AAPError                      # 所有 SDK 异常的基类
+SDKError                      # 所有 SDK 异常的基类
 ├── APIStatusError            # HTTP 4xx/5xx 统一异常 (.status_code / .detail)
 │   ├── AuthenticationError   # 401
 │   ├── PermissionDeniedError # 403
@@ -409,7 +414,7 @@ AAPError                      # 所有 SDK 异常的基类
 HTTP 异常在响应包含相关上下文时还可读取 `.request_id` 与 `.retry_after` 信息；这些信息不代表写操作可以自动重试。Python 调用方仍负责保存幂等请求和区分服务器冲突、验证失败及网络结果不确定。
 
 ```python
-from ai_annotation import Client, NotFoundError, JobFailedError
+from yoao import Client, NotFoundError, JobFailedError
 
 with Client() as client:
     try:
@@ -441,7 +446,7 @@ with Client() as client:
 
 ## 在线学习命名空间
 
-项目级方法的前几个位置参数依次为 `project_id`、路径中的资源 ID、写请求对象或下载目标路径；查询参数使用具名参数。全局 `training` 方法不需要项目路径。完整参数及边界可通过 Python 签名或对应的 `aap learning <group> <command> --help` 查询。
+项目级方法的前几个位置参数依次为 `project_id`、路径中的资源 ID、写请求对象或下载目标路径；查询参数使用具名参数。全局 `training` 方法不需要项目路径。完整参数及边界可通过 Python 签名或对应的 `yoao learning <group> <command> --help` 查询。
 
 | 命名空间                    | 方法                                                                                                                                                                                                     |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -460,7 +465,7 @@ with Client() as client:
 
 ### 请求对象与冻结身份
 
-请求模型从 `ai_annotation` 顶层导入。训练数据使用 `TrainingDatasetSelection` / `TrainingDatasetCreate`；实验使用 `TrainingRunCreate`；配方使用 `TrainingRecipeWrite` / `TrainingConfigurationResolve`；增强预览使用 `TrainingPreviewCreate`。模型回流、部署、发布和候选决策分别使用 `TrainedModelCreateRequest`、`ModelDeploymentCreateRequest`、`ModelReleaseCreateRequest`、`ModelDecisionCreateRequest`；策略和评估分别使用 `LearningPolicySaveRequest`、`SampleEvaluationCreateRequest`。
+请求模型从 `yoao` 顶层导入。训练数据使用 `TrainingDatasetSelection` / `TrainingDatasetCreate`；实验使用 `TrainingRunCreate`；配方使用 `TrainingRecipeWrite` / `TrainingConfigurationResolve`；增强预览使用 `TrainingPreviewCreate`。模型回流、部署、发布和候选决策分别使用 `TrainedModelCreateRequest`、`ModelDeploymentCreateRequest`、`ModelReleaseCreateRequest`、`ModelDecisionCreateRequest`；策略和评估分别使用 `LearningPolicySaveRequest`、`SampleEvaluationCreateRequest`。
 
 参数搜索使用 `TrainingStudyCreate` 和 `StudyBudgets`，主动学习使用 `ActiveLearningSelection`、`ActiveLearningRoundCreate`、`ActiveLearningDecisionCreate`、`ActiveLearningFeedbackCreate`。数字预算、候选任务和人工决策均为明确输入，不会由客户端补算或自动采纳。
 

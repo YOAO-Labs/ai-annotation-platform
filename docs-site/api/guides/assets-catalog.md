@@ -74,7 +74,7 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 素材库侧沿用 `datasets:read`：活跃账号可以查看关联项目，不额外套用项目成员过滤；数据集缺失或没有关联都返回空列表。项目侧沿用当前项目可见性，不额外要求 `datasets:read`；缺失或不可见均为 404，停用账号为 401，无效账号角色、无效成员职责或不兼容的 viewer 职责为 403。可见项目没有关联时返回空列表。
 
-项目列表保留原 `ProjectOut` 行为：配置由 Workspace 提供，任务计数和 `batch_summary` 使用 Labeling 已保存的投影。类别、类别配置和属性 schema 由公开 `aap_workspace_contract` 函数派生。关联列表不增加负责人姓名/头像、成员数量、当前成员职责、模型实例或 AI 完成量查询；这些字段沿用原来的 null/0/空值。
+项目列表保留原 `ProjectOut` 行为：配置由 Workspace 提供，任务计数和 `batch_summary` 使用 Labeling 已保存的投影。类别、类别配置和属性 schema 由公开 `yoao_workspace_contract` 函数派生。关联列表不增加负责人姓名/头像、成员数量、当前成员职责、模型实例或 AI 完成量查询；这些字段沿用原来的 null/0/空值。
 
 项目关联的数据集每行仅含 `id,display_id,name,data_type,linked_at,items_count,tasks_in_project`。条目计数包含全部素材；任务计数只包括路径项目下通过 `Task.dataset_item_id` 直接引用素材的 Task，不按状态过滤，不回退 secondary 或旧 `primary_lidar` 链接。时间使用 UTC ISO 字符串和 `+00:00`，结果按关联时间倒序并以关联 UUID 消除同时间歧义。
 

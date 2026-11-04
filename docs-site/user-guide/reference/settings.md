@@ -92,7 +92,7 @@ last_reviewed: 2026-10-20
 key 的权限在路由层经 `require_scopes` 校验，缺少所需 scope 的请求返回 **403**；过期的 key 一律 **401**。含「完全访问」（`*`）的 key 绕过 scope 校验、等同全权。已挂强制的 scope：`annotations:read` / `annotations:write` / `datasets:read` / `predictions:read`（其余路由暂不限制）——**未覆盖端点仍遵从你的账号角色，只勾读 scope 不等于只读隔离**。详见 [API 鉴权指南](../../api/guides/auth#api-key)。
 :::
 
-拿到 key 后接入 SDK：`aap login --url <平台地址> --api-key ak_...`，详见 [SDK 快速上手](../../dev/sdk/quickstart)。
+拿到 key 后接入 SDK：`yoao login --url <平台地址> --api-key ak_...`，详见 [SDK 快速上手](../../dev/sdk/quickstart)。
 
 ## 我的反馈
 

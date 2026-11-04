@@ -8,7 +8,7 @@ last_reviewed: 2026-10-20
 
 # 账户、管理与运维
 
-SDK 收录稳定公开的账户与运维接口。调用前先用 `aap describe` 读取请求 schema 和操作约束；管理员权限、项目归属和资源版本继续由服务端核验。
+SDK 收录稳定公开的账户与运维接口。调用前先用 `yoao describe` 读取请求 schema 和操作约束；管理员权限、项目归属和资源版本继续由服务端核验。
 
 | Python 命名空间                                    | CLI                                                | 主要用途                                       |
 | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
@@ -23,17 +23,17 @@ SDK 收录稳定公开的账户与运维接口。调用前先用 `aap describe` 
 
 ## 身份与敏感信息
 
-`Client.me()` 和 `aap me` 继续读取当前身份。`client.auth.login/refresh/logout_all` 返回的 JWT 不会自动替换客户端凭据或写入配置；保存返回值，并明确创建下一段会话的 Client。`refresh` 和 `logout` 需要 JWT；API key 不能代替 JWT 完成这些会话操作。`logout_all` 撤销当前会话并返回新 JWT。
+`Client.me()` 和 `yoao me` 继续读取当前身份。`client.auth.login/refresh/logout_all` 返回的 JWT 不会自动替换客户端凭据或写入配置；保存返回值，并明确创建下一段会话的 Client。`refresh` 和 `logout` 需要 JWT；API key 不能代替 JWT 完成这些会话操作。`logout_all` 撤销当前会话并返回新 JWT。
 
 登录、注册、重置密码等 CLI 请求使用 JSON 文件或 `--body -` 读取 stdin；密码也可用相应隐藏提示输入。创建和轮换 API key、生成邀请或临时密码时，文本输出需要 `--show-secret`，或明确选择 `--json`。这些响应中的凭据只应交给需要它们的调用方，避免把成功 JSON 存入普通日志。模型 repr 隐藏密码与令牌；显式 JSON 序列化保留 API 所要求的凭据。
 
 邀请创建和 resend 都不发邮件；resend 会轮换或恢复 token，旧链接失效。`send-email` 才发送当前邀请。平台 `role` 与 `project_member_role` 分别表示账号角色和项目职责，不能互换。注册密码须为 8–128 字符，并包含大写、小写和数字。找回密码、验证码与验证邮件受服务端限流约束。
 
 ```bash
-aap describe auth.login --json
-aap auth registration-status --json
-aap account preferences get --json
-aap api-keys list --json
+yoao describe auth.login --json
+yoao auth registration-status --json
+yoao account preferences get --json
+yoao api-keys list --json
 ```
 
 ## 当前账户与偏好
@@ -64,7 +64,7 @@ offboarding 先 preview，再原样提交 `preview_version` 与明确的转移�
 `client.health` 请求 origin 根路径 `/health*`，不带 `/api/v1`。CLI 只需配置平台地址，无需 API key。组件故障返回 503 JSON；SDK 仍返回 typed report，CLI 输出报告并退出 1，不重复探测这个已明确的降级结果。公开报告不含内部异常详情；超级管理员通过 `admin_operations.system_health()` 获取受限诊断。
 
 ```python
-from ai_annotation import Client
+from yoao import Client
 
 with Client() as client:
     report = client.health.get()
@@ -80,7 +80,7 @@ with Client() as client:
 系统设置仅超级管理员可用。GET 返回 `version`、有效值和来源元数据；SMTP 密码只返回 `password_set`。PATCH 省略和 null 都表示不修改，`smtp_password=""` 明确清除；恢复部署默认使用 reset。update/reset 推荐携带原 `expected_version`，409 后核对最新配置。
 
 ```python
-from ai_annotation import ApiKeyUpdateRequest, Client, SystemSettingsUpdate
+from yoao import ApiKeyUpdateRequest, Client, SystemSettingsUpdate
 
 KEY_ID = "<key-uuid>"
 
@@ -98,9 +98,9 @@ API key 的 typed `patch` 区分省略与 null：`expires_in_days=None` 清除�
 审计列表允许项目管理员查看其当前负责项目的关联事件，过滤在计数和分页之前；超级管理员可查看全局。主对象归属优先于矛盾的上下文字段。归档、UTC 月汇总和导出仅超级管理员可用；游标翻页时 `total` 仍是完整筛选总数。`detail_key`／`detail_value` 必须成对提交，空字符串值有效。
 
 ```bash
-aap audit-logs list --query filters.json --json
-aap audit-logs monthly-summary 2026-10 --json
-aap audit-logs export --out audit.csv --yes --json
+yoao audit-logs list --query filters.json --json
+yoao audit-logs monthly-summary 2026-10 --json
+yoao audit-logs export --out audit.csv --yes --json
 ```
 
 导出是一次附件下载，会记录导出审计，最多 50,000 行，超限返回 413。JSON 文件含 `items`，CSV 含元数据头；在线保留期外查归档。归档分页当前会先加载完整月份，注意对象大小。下载失败保留已有目标文件。

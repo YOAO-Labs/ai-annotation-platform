@@ -11,10 +11,10 @@ last_reviewed: 2026-10-17
 这些入口让脚本与 Agent 发现待办、跟进反馈，并显式准备和提交推理。开始前先离线查看安装包里的参数与约束，再使用当前账号读取服务器状态：
 
 ```bash
-aap capabilities --tag notifications --status covered --json
-aap describe feedbacks.thread --json
-aap describe pipelines.apply --json
-aap describe pipelines.preannotate --json
+yoao capabilities --tag notifications --status covered --json
+yoao describe feedbacks.thread --json
+yoao describe pipelines.apply --json
+yoao describe pipelines.preannotate --json
 ```
 
 ## 读取通知并保留处理状态
@@ -24,10 +24,10 @@ aap describe pipelines.preannotate --json
 `unread_count()` 读取角标计数。业务处理完成后显式调用 `mark_read(notification_id)`；已读或不存在的通知可能返回 404。`mark_all_read()` 改变整个当前账号的未读状态，不等于逐项完成业务。`delete()` 删除一条，`clear_read()` 清理当前账号所有已读通知；这些操作不删除原始反馈或任务。
 
 ```bash
-aap notifications list --unread-only --limit 20 --offset 0 --json
-aap notifications unread-count --json
-aap notifications preferences --json
-aap notifications delete "$NOTIFICATION_ID" --yes --json
+yoao notifications list --unread-only --limit 20 --offset 0 --json
+yoao notifications unread-count --json
+yoao notifications preferences --json
+yoao notifications delete "$NOTIFICATION_ID" --yes --json
 ```
 
 偏好更新使用 `NotificationPreferenceUpdate`，只发送明确修改的频道。例如从 `preferences()` 返回的项目中取得合法 `type` 后，提交 `toast=False` 只改变弹窗选择，保留未提供的 `in_app`。显式 null 与未包含任何频道的更新会被拒绝；`email` 是读取字段，当前更新接口不接受它。通知类型是否仍有效由服务器决定。
@@ -35,7 +35,7 @@ aap notifications delete "$NOTIFICATION_ID" --yes --json
 ## 阅读完整反馈线程并明确处理
 
 ```python
-from ai_annotation import Client, AnnotationFeedbackPatch, AnnotationFeedbackReply
+from yoao import Client, AnnotationFeedbackPatch, AnnotationFeedbackReply
 
 ROOT_ID = "<root-feedback-uuid>"
 FEEDBACK_ID = "<feedback-uuid>"
@@ -57,10 +57,10 @@ with Client() as client:
 补丁区分省略和显式 null：当前服务器把 `title`、`severity`、`body` 等字段的 null 当作不修改，不能用 null 清空内容；`mentions: []` 才清空提及。正文编辑未显式给出 mentions 时，服务器会清理过时的提及偏移。质检员的状态修改权限与作者／负责人内容编辑权限不同，混入内容字段，即使是 null，也可能被拒绝。
 
 ```bash
-aap feedbacks thread "$ROOT_ID" --limit 50 --json
-aap --error-format json feedbacks reply "$FEEDBACK_ID" --body reply.json --json
-aap --error-format json feedbacks patch "$ROOT_ID" --body - --json < patch.json
-aap feedbacks delete "$FEEDBACK_ID" --yes --json
+yoao feedbacks thread "$ROOT_ID" --limit 50 --json
+yoao --error-format json feedbacks reply "$FEEDBACK_ID" --body reply.json --json
+yoao --error-format json feedbacks patch "$ROOT_ID" --body - --json < patch.json
+yoao feedbacks delete "$FEEDBACK_ID" --yes --json
 ```
 
 `delete` 为软删除，成功响应没有 JSON body；CLI 只在成功后输出删除确认。根项被删后线程可能不可读；删除回复不代表递归删除后代。`actions` 描述当前可见操作，提交时服务器仍重新检查账号、项目、任务、锚点新鲜度与操作资格。
@@ -80,9 +80,9 @@ aap feedbacks delete "$FEEDBACK_ID" --yes --json
 `apply(project_id, ProjectPipelineApplyRequest(...))` 把可见库模板复制为目标项目的私有编排；`set_default=True` 会切换项目默认编排。它不执行推理，也不生成异步 Job。服务器在复制时核对引用的 backend 是否已在目标项目启用。
 
 ```bash
-aap pipelines list --scope private --project "$PROJECT_ID" --json
-aap pipelines get "$PIPELINE_ID" --json
-aap pipelines apply --project "$PROJECT_ID" --body apply.json --yes --json
+yoao pipelines list --scope private --project "$PROJECT_ID" --json
+yoao pipelines get "$PIPELINE_ID" --json
+yoao pipelines apply --project "$PROJECT_ID" --body apply.json --yes --json
 ```
 
 保存时校验阶段结构，复制时校验目标项目 backend，执行时还校验模型能力与任务状态；这些是不同步骤。当前没有独立的 validate 或 dry-run API，保存成功不能代替执行资格检查。
@@ -90,7 +90,7 @@ aap pipelines apply --project "$PROJECT_ID" --body apply.json --yes --json
 ## 带明确范围和幂等身份提交预标注
 
 ```python
-from ai_annotation import Client, PipelineStage, PreannotateRequest
+from yoao import Client, PipelineStage, PreannotateRequest
 
 PROJECT_ID = "<project-uuid>"
 TASK_ID = "<eligible-task-uuid>"
@@ -116,8 +116,8 @@ with Client() as client:
 `bulk` 范围只处理服务器允许的待标注任务，批次须为 active 或尚未分配人员的 draft；任务、批次、项目、锁状态必须一致。`workbench` 范围要求一个明确的当前任务且不传 batch_id，并沿用当前题的编辑资格。不要在被拒绝后切换范围来绕过限制。显式任务列表最多 200 项。
 
 ```bash
-aap --error-format json pipelines preannotate --project "$PROJECT_ID" --body request.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
-aap jobs get "$JOB_ID" --json
+yoao --error-format json pipelines preannotate --project "$PROJECT_ID" --body request.json --idempotency-key "$IDEMPOTENCY_KEY" --yes --json
+yoao jobs get "$JOB_ID" --json
 ```
 
 发送前保存完整请求与幂等键。相同键和不同请求会冲突；结果不确定时核对原 Job 并沿用原键／原请求，不生成新键。SDK 不自动重试提交，CLI 不隐式等待；HTTP 成功或 acknowledgement 的 status 不代表推理已经完成。可用 `jobs.get` 读取当前状态，或调用带明确超时的 Python `jobs.wait`。

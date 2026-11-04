@@ -23,7 +23,7 @@ prefetch 每次 1–500 帧；retry 最多 500 帧，空列表重试匹配的失
 下载原子替换目标文件，失败保留原文件；签名 URL 使用不带平台认证的连接。只接受完整文件响应，不把 HTTP 206 或重定向正文保存为完整文件。需要浏览器 Range 播放时使用相应媒体客户端。
 
 ```python
-from ai_annotation import Client
+from yoao import Client
 
 TASK_ID = "<task-uuid>"
 
@@ -44,16 +44,16 @@ with Client() as client:
 追踪创建没有幂等键。网络中断后先查询该 task 的 active jobs 和 reviewable jobs，再决定是否创建；不要直接重发。轮询 tracker job 的领域状态：`queued/running` 是计算中，`pending_review/partially_reviewed` 是候选待决定，`accepted/discarded` 才是审阅结果。通用 AsyncJob 的 completed 只表示计算结束。
 
 ```bash
-aap task-videos segments "$TASK_ID" --json
-aap task-videos claim-segment "$TASK_ID" "$SEGMENT_ID" --json
-aap video-tracker tasks active "$TASK_ID" --json
-aap video-tracker tasks reviewable "$TASK_ID" --json
-aap video-tracker tasks track "$TASK_ID" --body track.json --json
-aap task-videos heartbeat-segment "$TASK_ID" "$SEGMENT_ID" --json
-aap video-tracker jobs get "$JOB_ID" --json
-aap video-tracker jobs preview "$JOB_ID" --json
-aap video-tracker jobs decide "$JOB_ID" --body decision.json --yes --json
-aap task-videos release-segment "$TASK_ID" "$SEGMENT_ID" --json
+yoao task-videos segments "$TASK_ID" --json
+yoao task-videos claim-segment "$TASK_ID" "$SEGMENT_ID" --json
+yoao video-tracker tasks active "$TASK_ID" --json
+yoao video-tracker tasks reviewable "$TASK_ID" --json
+yoao video-tracker tasks track "$TASK_ID" --body track.json --json
+yoao task-videos heartbeat-segment "$TASK_ID" "$SEGMENT_ID" --json
+yoao video-tracker jobs get "$JOB_ID" --json
+yoao video-tracker jobs preview "$JOB_ID" --json
+yoao video-tracker jobs decide "$JOB_ID" --body decision.json --yes --json
+yoao task-videos release-segment "$TASK_ID" "$SEGMENT_ID" --json
 ```
 
 这些是分步命令：先核对现有 jobs，再决定是否执行 track；保存返回的 Job ID，在租约有效期间观察并审阅，完成后再释放。`track.json` 的单源示例为下列形状；模型、帧窗口和 UUID 必须换成实际可用值：
@@ -74,9 +74,9 @@ aap task-videos release-segment "$TASK_ID" "$SEGMENT_ID" --json
 Mask 纠错先用当前 annotation version 保存人工关键帧，再提交携带源版本与 mask SHA 的定向 correction job。保存和关键帧操作发送 `If-Match: W/"version"`。bbox fallback 必须明确授权，不能在 mask 能力不满足时静默降级。内容寻址 mask 引用须来自现有 task 上传流程。
 
 ```bash
-aap video-review mask-upload "$TASK_ID" --body rle.json --yes --json
-aap video-review mask-save "$TASK_ID" "$ANNOTATION_ID" 12 --expected-version 7 --body keyframe.json --json
-aap video-tracker tasks correct "$TASK_ID" "$ANNOTATION_ID" --body correction.json --yes --json
+yoao video-review mask-upload "$TASK_ID" --body rle.json --yes --json
+yoao video-review mask-save "$TASK_ID" "$ANNOTATION_ID" 12 --expected-version 7 --body keyframe.json --json
+yoao video-tracker tasks correct "$TASK_ID" "$ANNOTATION_ID" --body correction.json --yes --json
 ```
 
 rle.json 包含 `encoding="coco_rle"`、`size=[height,width]` 和非负整数 counts，其和必须等于像素数；上传响应是 keyframe.json 的 mask 引用。保存后重新读取 annotation 的新版本，用它和该 mask SHA 构造 correction.json。上传、保存和提交追踪各自返回独立结果，不会隐式串联；版本数字仅作示例。
@@ -88,7 +88,7 @@ rle.json 包含 `encoding="coco_rle"`、`size=[height,width]` 和非负整数 co
 `client.project_templates` 提供 list/get/create/update/delete/duplicate，列表返回原始数组，没有分页或 CAS revision。list 可按 scope、重复 type_key 和名称 search 过滤。private 仅创建者可见，organization 依组织成员身份，public 对已认证用户可见，super_admin 可见全部；创建和复制要求管理员角色，public 创建仅限 super_admin。当前创建 organization 模板只要求 organization_id，不额外承诺组织成员资格校验。
 
 ```python
-from ai_annotation import Client, ProjectTemplateCreate
+from yoao import Client, ProjectTemplateCreate
 
 SOURCE_PROJECT_ID = "<source-project-uuid>"
 
@@ -103,11 +103,11 @@ with Client() as client:
 从源项目创建模板可省略名称与类型字段，服务端按可见源项目补齐。普通模板创建仍要求 name、type_label、type_key。模板／源项目作为默认配置，明确请求字段优先；只明确 data_type 或 type_key 时，另一项按明确的类型推导。未提供模板或源项目的普通项目创建保持既有默认行为。
 
 ```bash
-aap templates list --scope private --json
-aap templates create --body template.json --json
-aap projects create --name video-copy --template "$TEMPLATE_ID" --json
-aap projects create --name source-copy --source-project "$PROJECT_ID" --copy-annotation-guide --json
-aap templates delete "$TEMPLATE_ID" --yes --json
+yoao templates list --scope private --json
+yoao templates create --body template.json --json
+yoao projects create --name video-copy --template "$TEMPLATE_ID" --json
+yoao projects create --name source-copy --source-project "$PROJECT_ID" --copy-annotation-guide --json
+yoao templates delete "$TEMPLATE_ID" --yes --json
 ```
 
 template_id 与 source_project_id 互斥；copy_annotation_guide 只用于源项目，不能与模板一起传。模板继承 guide 文本但不复制 guide-assets。任务、标注、数据集、成员、批次、ID 和所有权不复制。duplicate 创建当前用户的 private 副本；PATCH 只发送明确字段，配置合并继续由服务器执行。创建／复制没有幂等键，不自动重试。
@@ -115,10 +115,10 @@ template_id 与 source_project_id 互斥；copy_annotation_guide 只用于源项
 ## 存储诊断与资产重试
 
 ```bash
-aap storage health --json
-aap storage buckets --json
-aap storage video-asset-failures --limit 20 --offset 0 --json
-aap storage retry-video-asset --body retry.json --yes --json
+yoao storage health --json
+yoao storage buckets --json
+yoao storage video-asset-failures --limit 20 --offset 0 --json
+yoao storage retry-video-asset --body retry.json --yes --json
 ```
 
 health 检查标注 bucket，buckets 汇总配置的 bucket；对象枚举可能耗时，应逐项检查 status/error，HTTP 成功不代表全部健康。视频失败列表与重试要求 project_admin 或 super_admin；项目管理员只管理自己拥有项目的关联资产以及无项目关联的素材，服务端在提交时再次检查。

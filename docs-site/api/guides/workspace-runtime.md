@@ -11,7 +11,7 @@ last_reviewed: 2026-10-26
 
 ## 所有权与事务
 
-可移植包 `aap-workspace` 使用封闭协议 `aap-workspace-membership/v1`，只承载 `add_member`、`preview_role_change`、`change_role` 和 `remove_member`。Portable manager 保留现有 Python policy，包括成员职责兼容、blocker 顺序与 preview token。Preview digest 沿用原 Python 快照算法 `sha256(json.dumps(snapshot, sort_keys=True, default=str).encode())`；字段、ASCII 转义、默认空格、`None` 与列表语义都属于兼容行为。
+可移植包 `yoao-workspace` 使用封闭协议 `aap-workspace-membership/v1`，只承载 `add_member`、`preview_role_change`、`change_role` 和 `remove_member`。Portable manager 保留现有 Python policy，包括成员职责兼容、blocker 顺序与 preview token。Preview digest 沿用原 Python 快照算法 `sha256(json.dumps(snapshot, sort_keys=True, default=str).encode())`；字段、ASCII 转义、默认空格、`None` 与列表语义都属于兼容行为。
 
 Labeling 只按项目返回成员职责变更所需的窄工作事实，并提供对应的 lock、handoff 与 release 能力；Workspace 不读取 Labeling 原表。历史 contributor evidence 保留原始 JSON：`NULL` 表示未知，空数组表示已知为空，不能相互替换；原 `assigned_user_ids` 列表也不能先去重再交给既有 policy。Reviewer blocker 仍按所有未完成的 effective-reviewer tasks 计算，不缩窄成只看当前 review phase 的任务。
 
@@ -174,7 +174,7 @@ API 与数据库不在该容器预算内。完整模块当前状态见[模块台
 
 ## 保存流水线结构
 
-项目配置保存的预标注阶段通过共享 `aap-inference-contract` 验证和规范化。公开 JSON Schema 位于 `apps/_shared/inference_contract/src/aap_inference_contract/preannotate.schema.json`；阶段序号可非零、父阶段必须更早、依赖深度最多三层，写入目标、ROI 和属性键冲突规则保持。规范化复用任务名称契约；后端存在性、权限和可用性继续由原有入口检查。Workspace 核心与镜像无需安装 Inference 提供方，旧 Python 导入路径保留兼容别名；422 详情、校验时机和调用方事务不变。
+项目配置保存的预标注阶段通过共享 `yoao-inference-contract` 验证和规范化。公开 JSON Schema 位于 `apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.schema.json`；阶段序号可非零、父阶段必须更早、依赖深度最多三层，写入目标、ROI 和属性键冲突规则保持。规范化复用任务名称契约；后端存在性、权限和可用性继续由原有入口检查。Workspace 核心与镜像无需安装 Inference 提供方，旧 Python 导入路径保留兼容别名；422 详情、校验时机和调用方事务不变。
 
 ## 同事务运维导入与质量配置
 

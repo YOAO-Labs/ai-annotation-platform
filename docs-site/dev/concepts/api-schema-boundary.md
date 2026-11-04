@@ -64,7 +64,7 @@ pnpm codegen
 
 ## Capability Registry Codegen
 
-ML 能力目录还有一条独立的受控词表链路：`apps/inference/src/aap_inference/capability_registry.py` 是 task / infra / modality / geometry / prompt 的单源真值，`GET /ml-capabilities/protocol` 和前端能力目录都消费它。
+ML 能力目录还有一条独立的受控词表链路：`apps/inference/src/yoao_inference/capability_registry.py` 是 task / infra / modality / geometry / prompt 的单源真值，`GET /ml-capabilities/protocol` 和前端能力目录都消费它。
 
 ```bash
 # 1. 后端受控词表或响应 schema 变化后，刷新 snapshot

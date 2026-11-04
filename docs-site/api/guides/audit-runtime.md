@@ -45,7 +45,7 @@ HTTP 元数据在响应生成后投递；broker 明确失败时同步回退，�
 
 ## 独立运行
 
-`aap-audit-maintenance` 提供一次性 `ensure-partitions`、`archive-partitions` 与
+`yoao-audit-maintenance` 提供一次性 `ensure-partitions`、`archive-partitions` 与
 `refresh-daily` 命令。默认分别补当前及未来三个月分区、归档十二个月保留期以外的
 月份，以及刷新已完成 UTC 日聚合。每次操作使用一个数据库连接和事务；启动时核验
 当前 LOGIN 只能执行固定维护能力，不持有私表、序列、DDL、owner 成员资格或其他模块

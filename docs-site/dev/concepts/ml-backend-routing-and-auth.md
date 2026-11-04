@@ -183,4 +183,4 @@ API 启动时只为当前配置的可信 provider 创建或复用私有文件；
 | 「加载模型并试用」不可用     | 某个前置条件尚未通过               | 按页面原因检查项目启用、认证、健康与训练结果资格   |
 | 认证保存返回并发冲突         | 实例在验证期间发生变化             | 刷新并核对最新配置，不覆盖其他管理员的修改         |
 
-实现入口为 `apps/api/app/services/managed_inference_auth.py`、`apps/api/app/services/ml_client.py` 和 `apps/api/app/services/ml_routing/`。Backend 入口认证由共享运行时 `aap_backend_runtime.backend_auth` 负责。协议字段见 [ML Backend 协议](../reference/ml-backend-protocol)，服务池决策与 GPU 仲裁分别见 [ADR-0050](../adr/archive/0050-ml-backend-service-pools-and-request-routing) 和 [GPU 仲裁验收](../../ops/runbooks/gpu-arbitration-acceptance)。
+实现入口为 `apps/api/app/services/managed_inference_auth.py`、`apps/api/app/services/ml_client.py` 和 `apps/api/app/services/ml_routing/`。Backend 入口认证由共享运行时 `yoao_backend_runtime.backend_auth` 负责。协议字段见 [ML Backend 协议](../reference/ml-backend-protocol)，服务池决策与 GPU 仲裁分别见 [ADR-0050](../adr/archive/0050-ml-backend-service-pools-and-request-routing) 和 [GPU 仲裁验收](../../ops/runbooks/gpu-arbitration-acceptance)。

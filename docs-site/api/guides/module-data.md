@@ -469,7 +469,7 @@ Item、Dataset 计数、Labeling append 回执、ZIP Scene/frame 变更、最终
 
 ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 detached Item，并带有权威 snapshot digest/count；`finish_dataset_ingest` 会在写 Scene 与 frame assignment 前重验快照、计划归属和完整结算状态。扫描不调用这两项布局/Scene 能力。媒体 delivery claim 在派发前保存租约，ack 需校验同一活动 lease token 与当前 delivery target；此 outbox 提供可重试的 at-least-once 派发，不承诺 exactly-once。
 
-当前 native JSON 合同见 `apps/api/alembic/sql/0419_dataset_ingest_authority.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/aap_assets_source/ingest_contract.schema.json`，部署时应用完整 Alembic 迁移链。这六项入库能力属于 Source LOGIN 当前的 37 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
+当前 native JSON 合同见 `apps/api/alembic/sql/0419_dataset_ingest_authority.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/yoao_assets_source/ingest_contract.schema.json`，部署时应用完整 Alembic 迁移链。这六项入库能力属于 Source LOGIN 当前的 37 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
 
 ## 存储连接器管理
 
@@ -582,7 +582,7 @@ Scope 固定 Job、actor、project 和完整排队参数的 SHA-256；租约额�
 
 模型只能返回恰好一个原 Task 的结果。完整 raw 先于来源复核保存，之后的写入等待和进程接管复用同一输出与 Prediction 身份。成功结算同时删除确切原失败行和 Meta，记录精确回执、计数与 Job 终态；永久模型／Mask 错误只计一次。来源、actor、dismiss 或 Job 失效使用放弃结算，清理对应占用及临时根。所有终结均须当前租约，重复或陈旧投递不能删除失败行、递增次数或结束后来的执行。
 
-`PREANNOTATION_RESULTS_DATABASE_URL` 或其 secret 文件同时控制读取、检查点和立即／定时 outbox 的函数专用连接。`aap-prediction-retries` CLI 只开放读取与两项派发能力；准入及业务结算不对 executor 登录开放。运行中视频跟踪另用 `register_tracker_running_mask_root` 在写入事务登记精确 Job/Task 的临时 Mask 根；GC 登录无此能力。持久窗口账本在 writer 完成前延续这些根，随后与待审或标注根原子交接。
+`PREANNOTATION_RESULTS_DATABASE_URL` 或其 secret 文件同时控制读取、检查点和立即／定时 outbox 的函数专用连接。`yoao-prediction-retries` CLI 只开放读取与两项派发能力；准入及业务结算不对 executor 登录开放。运行中视频跟踪另用 `register_tracker_running_mask_root` 在写入事务登记精确 Job/Task 的临时 Mask 根；GC 登录无此能力。持久窗口账本在 writer 完成前延续这些根，随后与待审或标注根原子交接。
 
 ## 视频执行窗口账本
 
@@ -784,10 +784,10 @@ schema 与 SQL 随 `apps/jobs` 分发，独立 Node 消费者位于 `apps/jobs/c
 
 ## Notifications 即时发布
 
-现有独立 `aap-notifications-publisher` 可同时提供私网 `POST /v1/notifications/publish`，
+现有独立 `yoao-notifications-publisher` 可同时提供私网 `POST /v1/notifications/publish`，
 协议标识为 `aap-notifications-immediate-publication/v1`。这不是公开用户 API；使用独立
 service bearer，在读取请求体前鉴权。冻结 JSON Schema 位于
-`apps/notifications/src/aap_notifications/publication.schema.json`。
+`apps/notifications/src/yoao_notifications/publication.schema.json`。
 
 请求恰好包含以下四项：
 

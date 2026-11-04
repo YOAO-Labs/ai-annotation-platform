@@ -8,13 +8,13 @@ last_reviewed: 2026-10-17
 
 # 公开事件流与有界监听
 
-SDK 的 `client.streams` 提供六条固定 WebSocket 频道。它们独立于 HTTP 覆盖数；核心安装可以离线发现频道，连接时才需要 `ai-annotation-sdk[streams]`。CLI 监听还需 `cli` extra，TUI 已包含 WebSocket 依赖。
+SDK 的 `client.streams` 提供六条固定 WebSocket 频道。它们独立于 HTTP 覆盖数；核心安装可以离线发现频道，连接时才需要 `yoao-sdk[streams]`。CLI 监听还需 `cli` extra，TUI 已包含 WebSocket 依赖。安装前准备经核验的候选 wheel 与完整依赖 wheelhouse：
 
 ```bash
-pip install 'ai-annotation-sdk[cli,streams]'
-aap streams list --json
-aap streams describe batch-events --json
-aap describe streams.batch_events --json
+python -m pip install --no-index --find-links /path/to/verified-wheelhouse 'yoao-sdk[cli,streams]'
+yoao streams list --json
+yoao streams describe batch-events --json
+yoao describe streams.batch_events --json
 ```
 
 | 方法                      | 路径                                  | 凭据与范围                   |
@@ -32,7 +32,7 @@ aap describe streams.batch_events --json
 
 ```python
 import asyncio
-from ai_annotation import Client
+from yoao import Client
 
 PROJECT_ID = "<project-uuid>"
 
@@ -54,8 +54,8 @@ asyncio.run(observe())
 ## CLI 的观察窗口
 
 ```bash
-aap streams batch-events "$PROJECT_ID" --max-events 20 --timeout 30
-aap --error-format json streams video-tracker "$JOB_ID" --max-events 10 --timeout 15
+yoao streams batch-events "$PROJECT_ID" --max-events 20 --timeout 30
+yoao --error-format json streams video-tracker "$JOB_ID" --max-events 10 --timeout 15
 ```
 
 监听总是每行输出一个 JSON 事件，不使用普通成功结果的 `--json`。默认最多 20 个事件或 30 秒；max-events 为 1–1000，timeout 为 0.1–3600 秒。达到任一边界退出 0，表示观察窗口结束，不表示目标任务完成，也不表示所有事件已收齐。关闭连接可能另外需要短暂清理时间。

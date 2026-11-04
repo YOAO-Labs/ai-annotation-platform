@@ -63,7 +63,7 @@ cd apps/api
 
 ## 受控文件系统原语与节点探测
 
-中心本地受控目录与跨网络站点 Agent 共用无外部依赖的标准库包 `apps/_shared/filesystem_read`（`aap_filesystem_read`）：
+中心本地受控目录与跨网络站点 Agent 共用无外部依赖的标准库包 `apps/_shared/filesystem_read`（`yoao_filesystem_read`）：
 
 - **显式 `RootSpec` 与 `openat2` 沙箱**：来源根通过不可变 `RootSpec(root_handle, absolute_root, relative_base="", binding_revision=1)` 传入。安全打开仅支持 Linux 5.6+（x86_64 / aarch64）的 `openat2`（`RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV`），不支持时返回 `safe_open_unsupported`，绝不回退普通 `open`。
 - **目录与文件锚点**：`capture_anchor`、`scan_directory`、`browse_directory`、`probe_directory` 与 `content_file` 在读取前后复核文件及来源目录的 `dev/inode` 与 boot identity；单目录扫描上限 5,000 项 / 2 秒。`stage_content` 在私有 `0600` unlinked 临时文件上完整读取并核对 SHA-256（单次上限 64 MiB / 10 秒），物理句柄关闭不确定时标记 `storage_operation_unsettled`。

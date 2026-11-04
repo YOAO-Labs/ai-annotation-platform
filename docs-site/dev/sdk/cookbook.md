@@ -8,7 +8,7 @@ last_reviewed: 2026-10-19
 
 # SDK Cookbook
 
-以下片段展示上传、标注、导出和在线学习流程。凭据均假定已通过 `aap login` 或环境变量 `AAP_BASE_URL` / `AAP_API_KEY` 配置(`Client()` 无参构造时自动回落),也可以显式传 `Client(base_url=..., api_key=...)`。
+以下片段展示上传、标注、导出和在线学习流程。凭据均假定已通过 `yoao login` 或环境变量 `YOAO_BASE_URL` / `YOAO_API_KEY` 配置(`Client()` 无参构造时自动回落),也可以显式传 `Client(base_url=..., api_key=...)`。
 
 ## 1. 上传数据并创建项目
 
@@ -17,7 +17,7 @@ last_reviewed: 2026-10-19
 ```python
 from pathlib import Path
 
-from ai_annotation import Client
+from yoao import Client
 
 IMAGE_DIR = Path("./imgs")
 
@@ -49,7 +49,7 @@ with Client() as client:
 ```python
 import sys
 
-from ai_annotation import Client
+from yoao import Client
 
 PROJECT_ID = "<project-id>"
 PREDS_FILE = "preds.json"
@@ -78,8 +78,8 @@ with Client() as client:
 `exports.create` 返回 job_id;`exports.wait` 每 2 秒轮询一次,每轮先调 `on_progress(job)`;job 失败抛 `JobFailedError`,超时抛 `JobTimeoutError`。
 
 ```python
-from ai_annotation import Client, JobFailedError, JobTimeoutError
-from ai_annotation.models import Job
+from yoao import Client, JobFailedError, JobTimeoutError
+from yoao.models import Job
 
 PROJECT_ID = "<project-id>"
 
@@ -109,7 +109,7 @@ with Client() as client:
 下面的 Python 和 CLI 使用同一组 project / dataset / user / task ID，依次完成创建批次 → 分配 → 提交 → 审核 → 导出 → 等待 job。
 
 ```python
-from ai_annotation import Client
+from yoao import Client
 
 PROJECT_ID = "<project-id>"
 DATASET_ID = "<dataset-id>"
@@ -138,18 +138,18 @@ with Client() as client:
 ```
 
 ```bash
-batch_id=$(aap batches create "$PROJECT_ID" --name round-1 \
+batch_id=$(yoao batches create "$PROJECT_ID" --name round-1 \
   --dataset-id "$DATASET_ID" --json | jq -r '.id')
-aap batches distribute "$PROJECT_ID" \
+yoao batches distribute "$PROJECT_ID" \
   --annotator-id "$ANNOTATOR_ID" --reviewer-id "$REVIEWER_ID" --json
 
-aap tasks submit "$TASK_ID" --json
-aap tasks review-claim "$TASK_ID" --json
-aap tasks review-approve "$TASK_ID" --json
+yoao tasks submit "$TASK_ID" --json
+yoao tasks review-claim "$TASK_ID" --json
+yoao tasks review-approve "$TASK_ID" --json
 
-job_id=$(aap batches export "$PROJECT_ID" "$batch_id" \
+job_id=$(yoao batches export "$PROJECT_ID" "$batch_id" \
   --target aap_json --json | jq -r '.job_id')
-aap jobs wait "$job_id" --json
+yoao jobs wait "$job_id" --json
 ```
 
 ## 5. 从 echo 示例改出一个 OCR backend
@@ -167,7 +167,7 @@ from pathlib import Path
 import time
 from uuid import uuid4
 
-from ai_annotation import (
+from yoao import (
     Client, TrainingConfiguration, TrainingDatasetCreate,
     TrainingDatasetSelection, TrainingRunCreate,
 )
@@ -258,7 +258,7 @@ with Client() as client:
 
 ```python
 from uuid import uuid4
-from ai_annotation import Client, TrainedModelCreateRequest, ModelDeploymentCreateRequest
+from yoao import Client, TrainedModelCreateRequest, ModelDeploymentCreateRequest
 
 PROJECT_ID = "<project-id>"
 RUN_ID = "<run-id>"
@@ -296,7 +296,7 @@ with Client() as client:
 
 ```python
 from pathlib import Path
-from ai_annotation import Client, TrainingStudyCreate
+from yoao import Client, TrainingStudyCreate
 
 PROJECT_ID = "<project-id>"
 path = Path("study-request.json")
@@ -318,12 +318,12 @@ Study 请求包含完整配置的 `base`、有限 `grid`、框架实际提供的
 CLI 使用相同请求对象的 JSON 字段：
 
 ```bash
-aap learning studies preview --project "$PROJECT_ID" --body study-request.json --json
-aap learning studies create --project "$PROJECT_ID" --body study-confirmed.json --yes --json
-aap learning active-learning preview --project "$PROJECT_ID" --body selection.json --json
-aap learning active-learning create --project "$PROJECT_ID" --body round-request.json --yes --json
-aap learning active-learning candidates "$ROUND_ID" --project "$PROJECT_ID" --json
-aap learning active-learning decide "$ROUND_ID" --project "$PROJECT_ID" --body decision.json --yes --json
+yoao learning studies preview --project "$PROJECT_ID" --body study-request.json --json
+yoao learning studies create --project "$PROJECT_ID" --body study-confirmed.json --yes --json
+yoao learning active-learning preview --project "$PROJECT_ID" --body selection.json --json
+yoao learning active-learning create --project "$PROJECT_ID" --body round-request.json --yes --json
+yoao learning active-learning candidates "$ROUND_ID" --project "$PROJECT_ID" --json
+yoao learning active-learning decide "$ROUND_ID" --project "$PROJECT_ID" --body decision.json --yes --json
 ```
 
 ## 9. 范围导出与同步 VOC
@@ -331,7 +331,7 @@ aap learning active-learning decide "$ROUND_ID" --project "$PROJECT_ID" --body d
 视频范围与点云选项属于 JSON 请求体。以下示例选定一个视频任务的闭区间源帧范围；服务器继续核对任务归属、边界与格式资格。异步导出返回 Job ID，等待后再下载。
 
 ```python
-from ai_annotation import (
+from yoao import (
     Client, ExportRequestBody, VideoExportScopeRequest, VideoExportFrameSelection,
 )
 
@@ -353,7 +353,7 @@ with Client() as client:
 VOC 为同步 ZIP，使用专用方法；以下 ID 应属于服务器支持 VOC 的图片项目与批次。
 
 ```python
-from ai_annotation import Client
+from yoao import Client
 
 PROJECT_ID = "<image-project-id>"
 BATCH_ID = "<image-batch-id>"
@@ -364,9 +364,9 @@ with Client() as client:
 ```
 
 ```bash
-aap export project "$VIDEO_PROJECT_ID" --target video_json --body export-scope.json --out ./video-range.zip --json
-aap export project "$IMAGE_PROJECT_ID" --target voc --out ./project-voc.zip --json
-aap batches download-voc "$IMAGE_PROJECT_ID" "$BATCH_ID" --out ./batch-voc.zip --json
+yoao export project "$VIDEO_PROJECT_ID" --target video_json --body export-scope.json --out ./video-range.zip --json
+yoao export project "$IMAGE_PROJECT_ID" --target voc --out ./project-voc.zip --json
+yoao batches download-voc "$IMAGE_PROJECT_ID" "$BATCH_ID" --out ./batch-voc.zip --json
 ```
 
 同步 VOC JSON 输出为 `{"out":"..."}`，没有 Job ID；不能混选 VOC 与其他格式或使用 `--no-wait`。下载采用带认证的 POST 流式请求，不自动重试；中断、HTTP 错误或落盘失败保留旧目标。CLI 请求文件同样支持 `--body -` 从 stdin 读取。

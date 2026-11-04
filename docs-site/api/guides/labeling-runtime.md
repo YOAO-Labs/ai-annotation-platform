@@ -38,7 +38,7 @@ Labeling 也没有共同快照。授权只执行原来的一轮当前权限读�
 全部留空时使用调用方事务。显式文件不可读或为空、连接失败、凭据失效及冲突配置均失败，
 不会切回本地读取。提供方内部解码失败继续走原有 HTTP 500；服务不可用返回 503。
 
-独立进程使用相同 DSN／control 配置，可通过 `python -m aap_labeling` 启动。
+独立进程使用相同 DSN／control 配置，可通过 `python -m yoao_labeling` 启动。
 其 `HOST`、`PORT`、`MAX_CONCURRENCY` 也使用 `LABELING_CLASS_QUERY_` 前缀，
 默认分别为 `0.0.0.0`、`8178`、`8`。它不需要 Identity Briefs、Workspace 连接、
 对象存储或 Celery。公开账号凭据只进入 API，不发送给这个私有统计进程。

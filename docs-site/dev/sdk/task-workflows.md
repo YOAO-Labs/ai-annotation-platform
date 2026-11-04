@@ -25,7 +25,7 @@ last_reviewed: 2026-10-17
 标注分页 limit 为 1–1000，cursor 原样用于同一范围的下一页；协作视频必须给出实际 video_segment_id。Mask 能力读取解释部署、项目、区域和任务状态门槛，不表示执行器此刻可用。
 
 ```python
-from ai_annotation import Client
+from yoao import Client
 
 TASK_ID = "<task-uuid>"
 with Client() as client:
@@ -42,9 +42,9 @@ with Client() as client:
 asset_urls 要求当前 generation，每次最多 128 项，返回限时地址。retry 是有冷却／限流的显式构建操作，HTTP 202 中的 Celery ID 不能当作 AsyncJob ID 交给 `jobs.wait`。读取当前 manifest 判断资源是否就绪，SDK 不自动等待、更新 URL 或重复构建。
 
 ```bash
-aap task-context mask-capabilities "$TASK_ID" --json
-aap image-pyramids manifest "$TASK_ID" --json
-aap cross-frame-jobs list "$TASK_ID" --json
+yoao task-context mask-capabilities "$TASK_ID" --json
+yoao image-pyramids manifest "$TASK_ID" --json
+yoao cross-frame-jobs list "$TASK_ID" --json
 ```
 
 跨帧创建要求源和目标任务可见、可编辑，最多 100 帧与 500 个唯一 box_3d 来源。相同活动请求有服务端 singleflight，没有调用方幂等键。list/retry 仅当前用户的作业；retry_failed 只处理可重试的终态失败帧。实际 AsyncJob 响应可以用 jobs 观察；超时先读取已有作业，不自动重新创建。
@@ -62,9 +62,9 @@ CLI 在变更租约前要求确认或 `--yes`。SDK 不启动后台续租线程�
 成员创建绑定源 box_3d、track revision 和 calibration revision/digest；更新／恢复还带 member version。创建请求没有源 annotation version 字段，不应自行添加。删除为软停用，成功后 member version 和 track revision 都会变化。恢复要重新校验关系、版本、标定和重复活动成员。
 
 ```bash
-aap point-cloud camera-members "$TASK_ID" --json
-aap describe point_cloud.update_camera_member --json
-aap describe point_cloud.update_calibration --json
+yoao point-cloud camera-members "$TASK_ID" --json
+yoao describe point_cloud.update_camera_member --json
+yoao describe point_cloud.update_calibration --json
 ```
 
 标定修改要求项目管理权限；同一 DatasetItem 被多个项目共用时仅超级管理员可改。矩阵按行排列：extrinsic 16 项、intrinsic 9 项、可选 rect 16 项，数值必须有限。提交原 expected revision/digest；409 后重新读取并重新决定，不自动刷新版本重发。
@@ -76,8 +76,8 @@ aap describe point_cloud.update_calibration --json
 优先用 preview_command → execute_command，保存原命令、snapshot_token 和调用方 idempotency_key；revert_command 使用原 operation_id 与自己的明确幂等键。修改前校验全部受影响任务可见且可编辑。
 
 ```bash
-aap scene-tracks timeline "$TASK_ID" --start-frame 0 --end-frame 99 --json
-aap describe scene_tracks.execute_command --json
+yoao scene-tracks timeline "$TASK_ID" --start-frame 0 --end-frame 99 --json
+yoao describe scene_tracks.execute_command --json
 ```
 
 兼容的 preview_track_operation／execute_track_operation 单独保留。其执行幂等键由服务端生成，调用方在响应不确定后不能安全重发原请求；不要把它当作新命令失败后的自动回退。

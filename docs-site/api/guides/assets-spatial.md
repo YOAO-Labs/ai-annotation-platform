@@ -25,7 +25,7 @@ Scene PATCH、场景回填和标定 PATCH 可附带 UUID `Idempotency-Key`。响
 
 协议为 `aap-assets-spatial/v1`。完整字段、错误码和二十二项原生签名位于：
 
-- `apps/assets-catalog/src/aap_assets_catalog/spatial_contract.schema.json`
+- `apps/assets-catalog/src/yoao_assets_catalog/spatial_contract.schema.json`
 - `apps/api/alembic/sql/0216_assets_spatial.schema.json`
 
 两份 schema 由同一 wire model 生成。内部命令只接受既有服务 Bearer 凭据；普通公开请求不能调用无 actor 的运维写入。消费者不传角色、权限布尔值、任意存储 origin 或 bucket。

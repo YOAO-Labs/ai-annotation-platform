@@ -17,7 +17,7 @@ Agent 的目标是让中心无法入站的数据服务器主动联系平台，�
 独立组件支持本地配置检查。配置／凭据为运行账户拥有的 `0600` 文件，状态目录为独立 `0700` 目录；中心地址必须是 HTTPS origin，可配置内部 CA。来源根与状态目录分开，容器部署时来源只读挂载。
 
 ```sh
-aap-storage-agent --config /etc/aap-storage-agent/agent.json --check
+yoao-storage-agent --config /etc/aap-storage-agent/agent.json --check
 ```
 
 检查输出只有协议版本、根 handle 和预算，不会配对中心，也不验证平台已能扫描或读取该目录。独立包源码、安装及配置格式见仓库 `apps/storage-agent/README.md`。当前无需改现有后端镜像或已有本地目录部署。
@@ -32,7 +32,7 @@ Agent 先完整读取、计算摘要并复核来源，再发送有界 stage；�
 
 ## 中心接入顺序
 
-中心需安装 API 锁定的两个本地共享包（`aap-filesystem-read`、`aap-site-agent-contract`），并应用增量数据库迁移 `0265`（`sites`、`agent_registrations`、`agent_credentials`）、`0266`（`site_agent_commands`）和 `0267`（`dataset_reference_replicas`）。升级后须按部署方式刷新 API 进程与 Celery Worker 以加载新依赖和路由：挂载源码或使用宿主机虚拟环境的开发部署只需重启进程，无需重建现有后端镜像；生产容器构建则随镜像包含这两个共享包。
+中心需安装 API 锁定的两个本地共享包（`yoao-filesystem-read`、`yoao-site-agent-contract`），并应用增量数据库迁移 `0265`（`sites`、`agent_registrations`、`agent_credentials`）、`0266`（`site_agent_commands`）和 `0267`（`dataset_reference_replicas`）。升级后须按部署方式刷新 API 进程与 Celery Worker 以加载新依赖和路由：挂载源码或使用宿主机虚拟环境的开发部署只需重启进程，无需重建现有后端镜像；生产容器构建则随镜像包含这两个共享包。
 
 1. 超级管理员通过 `POST /api/v1/site-agents/sites` 创建站点，正文为 `name` 及可选 `region`；随后向 `/sites/{site_id}/agents` 提交 `name` 和可选 `limits`，取得一次性配对代码。管理端使用当前 JWT 或具备 `datasets:write` 的 API Key。
 2. 按独立包 README 保存私有配对文件并运行 `--pairing-file`。代码十分钟有效、单次消费；中心仅保存代码和 token 的摘要。配对响应的身份凭据最长三十天有效，仅用于 Agent 接口。
@@ -64,7 +64,7 @@ Agent 的轮询、分块、结果接口使用独立 Bearer token 和协议版本
 
 1. 在中心暂停该 Agent 的新派发，保留现有进程收尾。停止其受监督进程后，使用旧程序、原配置执行 `aap-storage-agent --config /etc/aap-storage-agent/agent.json --drain`，处理耐久待确认结果；同一状态目录不能同时运行两个进程。
 2. 核对已领取命令的物理责任已关闭，中心业务结果已采纳或拒绝。本地 `--drain` 成功只代表完成这一轮提交，`received` 仍须等待最终确认；有未收尾结果时保留旧程序、日志与 stage，恢复连接后继续收尾，不能删除状态目录绕过。
-3. 在 Agent 的独立虚拟环境升级三个匹配的包：`aap-filesystem-read`、`aap-site-agent-contract`、`aap-storage-agent`；源码安装仍使用独立组件 README 的三个本地路径。中心按实际部署方式更新 API／Worker 进程并应用数据库迁移（`0265`–`0267`）；挂载源码的开发部署无需重建后端镜像，容器化部署按标准镜像升级流程更新。
+3. 在 Agent 的独立虚拟环境升级三个匹配的包：`yoao-filesystem-read`、`yoao-site-agent-contract`、`yoao-storage-agent`；源码安装仍使用独立组件 README 的三个本地路径。中心按实际部署方式更新 API／Worker 进程并应用数据库迁移（`0265`–`0267`）；挂载源码的开发部署无需重建后端镜像，容器化部署按标准镜像升级流程更新。
 4. 使用原配置执行 `--check`，随后以原身份和状态目录启动新程序。确认中心心跳、根 handle／修订和预算正确，再恢复新派发，执行位置探测并核验一张已登记原图。根路径或挂载改变应按绑定修订处理，不能通过删除日志冒充原根。
 
 ## 数据集离线展示

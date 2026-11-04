@@ -62,11 +62,12 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ### API SDK 与插件 SDK {#api-sdk-and-plugin-sdk}
 
-**统一必要契约和开发流程，不合并 SDK 包。** 两套 SDK 分别维护，生命周期证明的纯校验独立于模型运行时；插件 SDK 与必要便携契约已有固定公开制品。
+**统一必要契约和开发流程，不合并 SDK 包。** 两套 SDK 分别维护，生命周期证明的纯校验独立于模型运行时；新命名候选制品需要显式核验，不能假定已经发布。
 
 | 维度                | API SDK                                      | 插件 SDK                                          |
 | ------------------- | -------------------------------------------- | ------------------------------------------------- |
-| Python distribution | `ai-annotation-sdk`                          | `aap-inference-plugin-sdk`                        |
+| Python distribution | `yoao-sdk`                                   | `yoao-inference-plugin-sdk`                       |
+| Python import / CLI | `yoao` / `yoao`                              | `yoao_inference_plugin` / `yoao-plugin`           |
 | 使用者与方向        | 集成方、自动化脚本和管理员调用平台公开 API   | 模型作者实现供平台调用的推理服务                  |
 | 主要职责            | 项目、任务、作业等平台操作，以及插件安装治理 | 模型加载、执行、释放、HTTP 协议适配与插件开发工具 |
 | 源码归属            | 平台的 `packages/python-sdk`                 | 独立 Plugin-SDK 仓库的 `packages/inference/sdk`   |
@@ -76,31 +77,31 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 跨边界必需的 manifest、安装身份、资源绑定、生命周期证明 schema 与纯校验规则沿用平台维护的公共契约。消费者使用版本化契约包，或从同一权威 schema 生成对应类型；不复制另一套字段定义、权限规则或准入判断。两套 SDK 独立发布，分别声明各自兼容范围；组合使用须验证兼容组合，不要求版本号同步。
 
-生命周期证明 schema、内存周期计算和纯校验由平台的 `aap-lifecycle-contract` 提供，支持 Python 3.10 及以上且无第三方运行依赖。生产 API 和 API SDK 的 `plugins` extra 使用该契约，不安装 `aap-backend-runtime`；训练契约仍按实际用途保留，测试 extra 可使用运行时生成证据夹具。模型装载、文件摘要采集、证明生产和资源释放机制仍在插件运行时。公开契约 wheel 已在全新环境通过实际取回、独立摘要核验、安装、依赖检查与隔离导入，未加载 Torch、模型实现、ORM、Celery、平台 API 或插件运行时；这不产生模型或 GPU 资格。
+生命周期证明 schema、内存周期计算和纯校验由平台的 `yoao-lifecycle-contract` 提供，支持 Python 3.10 及以上且无第三方运行依赖。生产 API 和 API SDK 的 `plugins` extra 使用该契约，不安装 `yoao-backend-runtime`；训练契约仍按实际用途保留，测试 extra 可使用运行时生成证据夹具。模型装载、文件摘要采集、证明生产和资源释放机制仍在插件运行时；契约校验不产生模型或 GPU 资格。
 
 证明可通过可选的 `workload_evidence` 对象保留受控模型收据、运行时与 fixture 摘要、尺寸和逐轮输出等结构化证据；这些内容仍需通过递归敏感字段校验，不代替必做检查，也不改变部署身份、真实权重和实际池拓扑的严格绑定。不能将这类对象编码成 `runtime_versions` 字符串，或伪造额外模型池。
 
-安装管理类型直接消费 `aap_inference_contract.plugin`，API SDK 不再维护第二份插件模型定义；规范任务词表复用 `aap-task-contract`。核心、CLI 与管理员插件工具已分别在干净环境安装检查，不能把管理员工具的可选依赖扩散到普通 API 客户端。
+安装管理类型直接消费 `yoao_inference_contract.plugin`，API SDK 不再维护第二份插件模型定义；规范任务词表复用 `yoao-task-contract`。不能把管理员工具的可选依赖扩散到普通 API 客户端。
 
 具体插件确需调用平台公开 API 时，可自行显式依赖 API SDK，并使用获准操作和作用域的凭据。插件 SDK 不自动注入平台客户端、管理员凭据或内部签名私钥，也不提供访问平台私有模块、数据库或绕过领域 owner 的通道。
 
 开发流程复用现有入口，不新增统一安装包或命令包装层：
 
-- `aap-inference-plugin` 负责创建、开发、检查和构建推理插件；默认作者示例不安装官方模型、Torch 或权重，复杂服务仍可直接实现 HTTP 契约，见[推理插件接入](/dev/tutorials/ml-backend-starter)。
-- API SDK／`aap` 负责连接平台与管理安装、启停和退役，见[安装生命周期](/user-guide/superadmin/ml-backend-registry)。安装不等于项目启用或模型发布。
+- `yoao-plugin` 负责创建、开发、检查和构建推理插件；默认作者示例不安装官方模型、Torch 或权重，复杂服务仍可直接实现 HTTP 契约，见[推理插件接入](/dev/tutorials/ml-backend-starter)。
+- API SDK／`yoao` 负责连接平台与管理安装、启停和退役，见[安装生命周期](/user-guide/superadmin/ml-backend-registry)。安装不等于项目启用或模型发布。
 - 联调环境可同时安装两套工具；插件运行镜像不因此默认包含 API SDK。独立安装验收需分别证明 API 客户端不依赖插件运行时、插件开发不依赖平台源码或管理员凭据。
 
 ### 公开第一方制品与独立消费 {#plugin-candidate-artifacts}
 
-[Plugin-SDK 发布](https://github.com/YOAO-Labs/Plugin-SDK/releases)提供能力 SDK、推理运行时与 Mask 工具的 wheel、sdist、源码归档及 SHA256 清单；[官方插件发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases)提供具体插件、模型专属适配与插件自有预训练目录。便携契约由平台拥有，构建器只导出五个契约包，通过 [SDK 契约渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-906628f2619b)分发；历史混合发布保持不可变，但不再作为当前源码归属或模型目录权威。第一方源码许可不重新授权第三方依赖或权重。manifest 记录真实源码仓库、固定提交与文件摘要，匿名消费者不需要平台 checkout 或私有 Token。
+从可信来源取得经核验的候选 SDK、运行时、Mask 工具和契约 wheel；历史发布仅证明对应旧制品，不代表新发行名已经发布。获取接口接受显式 `--manifest PATH_OR_URL`、`--sha256 EXPECTED_MANIFEST_SHA256` 和 `--output DIRECTORY`，可重复使用 `--package DIST` 筛选；平台将核验后的作者运行时和 Mask wheel 暂存于 `.artifacts/python/plugin-sdk`。完整依赖 wheelhouse、第三方依赖许可、模型权重及 OCI 镜像均须另行提供和核验。
 
 完整候选构建器由独立插件仓库的 `scripts/build-libreyolo-candidate.py` 维护，从固定插件提交与契约制品生成完整 hash-locked wheelhouse。具体命令、资产准备与安装见 [YOAO-Plugins README](https://github.com/YOAO-Labs/YOAO-Plugins#readme)；通用接入见[推理插件接入](/dev/tutorials/ml-backend-starter)。公开发布不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们分别保留许可和分发门禁，不因第一方源码公开而自动获得授权。
 
 取回后先用可信独立记录中的 SHA256 核验，再解包或安装；随包 checksum 不能单独证明发布者身份。完整候选可用 `pip --no-index --require-hashes` 离线安装，不能把第一方 wheel 发布等同于完整离线分发或 OCI 资格。
 
-独立 SDK 已发布为 [python-sdk-0.1.0](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/python-sdk-0.1.0)：匿名干净构建复现三个 wheel 的 SHA256，公开制品安装的自定义 CPU 作者插件通过真实双区域／空图 HTTP 检查，修改作者实现后也按独立预期通过；不安装官方插件、Torch 或 API SDK。Python 3.10 的 runtime／Mask 消费单独通过依赖与实际行为检查。官方插件的 [能力目录发布](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-53717ebed762) 包含四个插件、LibreYOLO 专属 native 及四份插件自有目录，五个 wheel 的匿名干净构建一致。两个仓库的 CPU CI 通过；平台六个消费者只切换 SDK 制品 URL／摘要，不改变包版本集合。这些结构与作者路径证据不产生新的 GPU 或平台业务资格，固定提交和 manifest 摘要见拆仓计划 C2。
+历史独立 SDK 发布的 wheel 曾通过匿名干净构建和自定义 CPU 作者插件的双区域／空图 HTTP 检查；Python 3.10 的 runtime／Mask 消费也曾单独检查。官方插件的历史能力目录包含四个插件、LibreYOLO 专属 native 及各插件自有目录。此证据只适用于当时固定制品，不证明新命名候选已发布或通过验收，也不产生新的 GPU 或平台业务资格；固定提交和 manifest 摘要见拆仓计划 C2。
 
-同一 SDK 的实际镜像构建路径也已通过：固定基础镜像、完整 hash-locked wheelhouse 和禁网 pip 安装层，使用非 root、只读根文件系统及 Token、独立可写推理数据目录，运行默认作者算法并通过八项 HTTP 检查。容器无 GPU 设备、不安装官方模型或 Torch、不挂载平台源码；私有镜像未发布，不能继承旧 LibreYOLO 镜像的资格。
+历史 SDK 的镜像构建路径曾以固定基础镜像、完整 hash-locked wheelhouse 和禁网 pip 安装层运行默认作者算法，通过八项 HTTP 检查。容器使用非 root、只读根文件系统及独立可写推理数据目录，不安装官方模型或 Torch，不挂载平台源码；这不证明新命名候选镜像通过验收，也不能继承旧 LibreYOLO 镜像的资格。
 
 拆仓前的私有候选已完成同提交双次构建摘要一致、真实 loopback HTTP 取回以及缺失／损坏 wheel 和错误平台拒绝。主进程还构建并离线安装了 `init` 生成的作者项目，实际运行其 console script、`dev` 与 HTTP `check`；生成项目与固定镜像通过预先独立标定的双车／空图、类别／坐标／分数、认证、参数和本地路径拒绝检查。该镜像从固定干净 Python 基础镜像构建，pip 安装层禁网；以 UID/GID 10001、无 GPU 请求运行，仅挂载只读权重和 Token，不挂载平台源码。
 
@@ -1421,7 +1422,7 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 ## 跨 owner 的项目访问事实
 
 项目访问值、纯规则、Project Query wire、完整 Project／成员行解码及权限读取顺序位于
-`aap_workspace_contract`；Workspace 运行编排继续位于 `apps/workspace`。共享包仅依赖
+`yoao_workspace_contract`；Workspace 运行编排继续位于 `apps/workspace`。共享包仅依赖
 标准库和 Pydantic，独立安装也包含原字节的 query schema，不引入 Inference 与 Workspace
 运行时的相互依赖。
 
@@ -1449,7 +1450,7 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 ## Backend 健康协调的单一实现
 
-完整健康检查和服务池能力对账策略由 `aap_inference.health` 提供；项目／全局探活、
+完整健康检查和服务池能力对账策略由 `yoao_inference.health` 提供；项目／全局探活、
 能力漂移接受、周期 worker 和 GPU 冷启动刷新均经现有入口调用它。API 适配器继续借用
 原 Session，保留全行 JSON 物化、无锁 HTTP、数据库观察时间、配置／代次围栏、能力指纹
 和调用方提交顺序。健康数据读写现通过同事务的固定 Native 能力；API 保留 ORM 兼容绑定，不增加完整健康协调服务的部署 selector。
@@ -1495,7 +1496,7 @@ setup。API 支持借用连接、专用 DSN 和 HTTP，独立 Workspace 使用�
 三种模式保持原读取时点、后端故障 fail-open、内部故障503与旧物化错误的回滚阶段；
 原事务结束后拒绝重新打开快照。没有额外业务提交或外部 I/O 前的 registry 行锁。
 
-`aap-inference-contract` 单独发布值、wire schema 和客户端；专用 probe LOGIN 只有两个
+`yoao-inference-contract` 单独发布值、wire schema 和客户端；专用 probe LOGIN 只有两个
 固定能力，Workspace 不获得 key／registry 原表或凭据。此切片不收口 registry/pool 写入、
 health apply、路由/GPU、发布与部署等其余控制面，也不代表全模块语言替换。运行配置及
 限定验收见 [ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。
@@ -1539,7 +1540,7 @@ Recovery owner 把既有自助注册、密码恢复、验证邮件重发、重�
 
 邮件 worker 是从同一 Identity 工件运行的独立进程，使用 MAIL 领取／续租／确认能力和 MAIL_SETTINGS 的单一快照读取能力。它没有 AUTH、control bearer、Recovery DSN 或 JWT signing secret；只有 MAIL DSN、MAIL_SETTINGS DSN、Fernet key 和 SMTP fallback。每次 claim 先提交 lease，再访问 SMTP，因此邮件网络调用不持 SQL 锁。固定 Message-ID 与同一密文用于 retry/unknown 重排队；at-least-once 允许 SMTP 结果不确定时产生重复邮件。未配置 SMTP 属于确定拒绝：只退役当前密码重置挑战，邮箱验证挑战仍可用；临时拒绝、断连未知及 key 暂不可用会保留 outbox intent。轮换 Fernet key 时须保留旧 key，直至相关 pending 行送达或被人工处理。
 
-`docker-compose.identity.yml` 是可选本地运行单元：Admission 与 `identity-mail` 共用同一 Identity 镜像；Mail 进程运行 `python -m aap_identity_runtime.mail_worker`，健康检查指向 `127.0.0.1:8171/ready`，容器非 root 且只读。主机的 `IDENTITY_RUNTIME_*_FILE` 变量选择必需 secret 文件，运行容器内才映射为实际 `IDENTITY_*_FILE` 配置；不能把这组 Compose 包装变量当作 API 配置。邮件 fallback 用 `IDENTITY_MAIL_SMTP_*`，Settings 值优先，且与既有 API `SMTP_*` 邮件测试配置分开。细节见 [Identity recovery ADR](/dev/adr/0119-independent-identity-recovery-and-mail)。
+`docker-compose.identity.yml` 是可选本地运行单元：Admission 与 `identity-mail` 共用同一 Identity 镜像；Mail 进程运行 `python -m yoao_identity_runtime.mail_worker`，健康检查指向 `127.0.0.1:8171/ready`，容器非 root 且只读。主机的 `IDENTITY_RUNTIME_*_FILE` 变量选择必需 secret 文件，运行容器内才映射为实际 `IDENTITY_*_FILE` 配置；不能把这组 Compose 包装变量当作 API 配置。邮件 fallback 用 `IDENTITY_MAIL_SMTP_*`，Settings 值优先，且与既有 API `SMTP_*` 邮件测试配置分开。细节见 [Identity recovery ADR](/dev/adr/0119-independent-identity-recovery-and-mail)。
 
 API 配置 Recovery 专用 DSN 后，MAIL 和 MAIL_SETTINGS 两个 DSN 必须同时配置，否则拒绝 mail kick，不会转去轮询 API 数据库；不配置 Recovery DSN 时可复用 API caller transaction 与内嵌 mail session。若 API 显式选择远程 Identity owner，Mail worker 必须与该 owner 部署在一起，主 API 不读取远程 outbox。`infra/docker/lan-production-grants.sql` 为现有单体 `application_role` 增加了这组公开 Identity 函数授权源，但这份改动尚未应用到生产，单体 API 其他表权限也仍是过渡状态。
 
@@ -1581,7 +1582,7 @@ Workspace 的版本化 `delete_project` 命令在调用方外层事务中组合 
 
 完整实现与限制见[ADR-0094](/dev/adr/0094-transactional-project-deletion)。账号/成员生命周期、其他 Assets 操作及其他模块操作、完整模块运行工件和凭据仍是全目标的未完成工作；全目标门槛见下文。
 
-项目删除的值契约和回执绑定现由 `aap-workspace` 持有，API 保留兼容导入和原请求
+项目删除的值契约和回执绑定现由 `yoao-workspace` 持有，API 保留原请求
 事务；外层提交失败仍一起回滚全部清理、Audit 和回执。独立语言客户端使用同一个
 PostgreSQL 协调器，而非先行提交的 HTTP／专用连接命令。删除专用 LOGIN 仅有一项业务
 Native 能力；实际 Node 和公开 API 的定向检查通过，边界见
@@ -1721,7 +1722,7 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 ## Assets 与 Workspace 关联读取
 
-两个公开关联列表已迁移到独立目录工件。Dataset→Project 保留原素材库全局可读政策，Project→Dataset 仍按当前项目可见性授权；两者的 API key scope 差异保持。Workspace 通过纯 `aap-workspace-contract` 配置快照和版本化 SQL 投影提供数据，Labeling 提供持久计数及直接来源聚合，Assets 统一返回版本化关联结果。
+两个公开关联列表已迁移到独立目录工件。Dataset→Project 保留原素材库全局可读政策，Project→Dataset 仍按当前项目可见性授权；两者的 API key scope 差异保持。Workspace 通过纯 `yoao-workspace-contract` 配置快照和版本化 SQL 投影提供数据，Labeling 提供持久计数及直接来源聚合，Assets 统一返回版本化关联结果。
 
 所有数据与授权使用同一 PostgreSQL 语句快照；读取不持有阻止解绑或撤权的行锁。并发提交后的变化在下一条 READ COMMITTED 语句生效。旧 ProjectOut 默认值、类别/属性派生、项目侧直接来源计数和 UTC 时间字符串保持，完整合同见[目录协议](/api/guides/assets-catalog)及 [ADR-0098](/dev/adr/0098-association-read-projections)。这仍是目录子能力，不构成完整 Assets 或 Workspace 独立部署。
 
@@ -1783,7 +1784,7 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 ## 独立连接器导入执行
 
-`aap_assets_source_import` 消费已接受的导入操作，以七项 execute-only Assets 能力和专用来源发布 S3 身份运行，不依赖 API/Celery/Redis 包。API 的接受/取消适配器使用版本化命令；Jobs、Settings 和 Notifications 的跨 owner 数据只经各自能力传递。
+`yoao_assets_source_import` 消费已接受的导入操作，以七项 execute-only Assets 能力和专用来源发布 S3 身份运行，不依赖 API/Celery/Redis 包。API 的接受/取消适配器使用版本化命令；Jobs、Settings 和 Notifications 的跨 owner 数据只经各自能力传递。
 
 冻结清单、租约接替、条件源读取与不可变发布路径，使导入在进程中断后继续已提交进度。Item、Labeling append、计数、游标和派发 outbox 原子提交；显式取消与当前作业状态阻止迟到 I/O 重新建题。后续媒体/通知仍由现有执行方接手，outbox 只保证可恢复派发，不宣称计算完成或 broker 恰好一次。
 
@@ -1919,7 +1920,7 @@ API 的可选 DSN 是 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_U
 
 Native migration 0241 先安装 `0241_deactivation_notifications.sql`，再安装 `0241_identity_deactivation.sql`。一个固定 try-advisory fence 与 Legacy API 的角色、停用、删除、offboarding 和恢复路径共用，检查“其他启用且未预留注销申请的超级管理员”；所有会减少可用超级管理员的写入先取此 fence，再按序锁用户。已受理的自助申请跨管理员 suspend/reactivate 保持有效；最终 due 会逐个重查实际启用超级管理员，最后管理员候选进入 `blocked_last_super_admin`，请求和 ledger 保留不清除。
 
-自助 due 只做 inactive/offline 软删除并写固定 Audit／通知事件，不推进 JWT generation、不撤 API key、不交接任务／项目。批准后 Audit 只擦除现有 `actor_email`／`actor_role` 两列，`detail_json` 和旧通知 payload 保持；这不是完整 GDPR 删除。Identity 在原生事务调用 Notifications owner 创建申请／完成两种 event，`notification_delivery_outbox` 在同一事务持久化；独立 `aap_identity_runtime.notification_worker` 或同 executor 的 default queue relay 发布到 Redis，worker claim 提交前绝不做网络调用。发送语义 at-least-once，复用同一 notification ID，偏好仍在创建时应用。
+自助 due 只做 inactive/offline 软删除并写固定 Audit／通知事件，不推进 JWT generation、不撤 API key、不交接任务／项目。批准后 Audit 只擦除现有 `actor_email`／`actor_role` 两列，`detail_json` 和旧通知 payload 保持；这不是完整 GDPR 删除。Identity 在原生事务调用 Notifications owner 创建申请／完成两种 event，`notification_delivery_outbox` 在同一事务持久化；独立 `yoao_identity_runtime.notification_worker` 或同 executor 的 default queue relay 发布到 Redis，worker claim 提交前绝不做网络调用。发送语义 at-least-once，复用同一 notification ID，偏好仍在创建时应用。
 
 三个专用 LOGIN 分别是 `identity_deactivation_client`（两个 self 函数）、`identity_deactivation_operator`（policy 与 due 函数）和 `notification_publish_client`（policy、claim、finish）。API/runtime 的可选 DSN、Compose secret files 与权限见仓库根 `DEV.md` 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。本地验收覆盖三个精确受限账号、最终超管竞态、已受理申请跨停用／恢复、冻结 due 页、真实 Redis 与发布进程中断后的接管，以及备份恢复后的收据和租约保留。AUTH-only API 已验证专用 DSN 和远程容器两种绑定；两类 Celery task 入口各跨新事件循环执行，采用 eager 模式，不作为 broker／prefork 的新增资格。独立安装包通过 323 项测试，68 个不同数据库及进程用例通过；Node 只验证协议消费，不是另一语言 provider。完整 Identity、生产准备、另一语言 provider 与 Go 实验均不因该切片变更完成状态。
 

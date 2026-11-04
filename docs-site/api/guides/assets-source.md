@@ -26,7 +26,7 @@ last_reviewed: 2026-10-21
 
 409 的响应体保留具体原因：`detail.code=source_in_use` 表示仍有保留引用，`detail.reason` 可表示 `source_busy` 或 `operation_conflict`。前者须由对应项目或功能处理；忙锁可稍后重试，幂等键冲突须核对原请求。取消 tracker、终止轨迹或软删除相机标注会保留历史记录，仍有引用时继续拒绝来源删除。部分历史引用没有单独的解除入口，不能将取消执行或项目解绑视为保留原任务与标注的通用解除方式。
 
-普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
+普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/yoao_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
 
 ## 指南素材边界
 
@@ -39,7 +39,7 @@ last_reviewed: 2026-10-21
 
 六个公开连接器端点保留原路径、权限、状态码和响应模型。它们调用 Assets Source 的内部 `POST /v1/connections/{list,read,create,update,delete,test}` 工作流。本地模式复用同一 Python 工作流并在调用方数据库事务中执行；配置 `ASSETS_SOURCE_URL` 与 `ASSETS_SOURCE_TOKEN` 后，API 调用独立 Source，远程错误会直接返回，不自动切到本地。`GET /storage-connections` 仍返回全部可见连接器，网关逐页读取并校验完整快照与游标，不把内部分页暴露给公开响应。
 
-内部协议为 `aap-assets-connections/v1`，完整请求、结果和原生参数合同见 `apps/assets-source/src/aap_assets_source/connections_contract.schema.json`。本地与远程连接器请求/响应都受 1/16 MiB 单次预算约束；完整列表由多个有界私有页面组成。
+内部协议为 `aap-assets-connections/v1`，完整请求、结果和原生参数合同见 `apps/assets-source/src/yoao_assets_source/connections_contract.schema.json`。本地与远程连接器请求/响应都受 1/16 MiB 单次预算约束；完整列表由多个有界私有页面组成。
 
 创建、更新、删除和测试接受可选 UUID `Idempotency-Key`。省略时 API 生成新 UUID，成功响应回传实际使用的键，创建的连接器 ID 等于该键。结果不确定时，调用方应保存并复用首次请求的键；同键同请求可取回原结果，改变请求会冲突。SDK/CLI 不会自动重试这些操作。测试连通失败只返回安全异常类型，不回传 SDK 异常文本、目标 URL 或凭据。
 
@@ -89,7 +89,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 `POST /api/v1/datasets/{dataset_id}/import-from-connection` 仍返回 202 与 `job_id`，并保留 `datasets:write`、全局管理员角色、连接器可见性和出网白名单检查。可传 UUID `Idempotency-Key`，成功时回显；相同键与请求找回原作业，改变请求复用旧键返回 409。当前账户与权限在重放时仍需有效。
 
-`aap-dataset-import/v1` 将接受、租约、冻结清单、逐文件完成和终态分开；每次调用在完整回复验证后提交。`python -m aap_assets_source_import` 使用独立数据库身份轮询已接受作业，不导入 API、ORM、Celery 或 Redis。七项执行能力只允许处理已接受的导入；接受和取消能力由 API 使用，不授予执行器。
+`aap-dataset-import/v1` 将接受、租约、冻结清单、逐文件完成和终态分开；每次调用在完整回复验证后提交。`python -m yoao_assets_source_import` 使用独立数据库身份轮询已接受作业，不导入 API、ORM、Celery 或 Redis。七项执行能力只允许处理已接受的导入；接受和取消能力由 API 使用，不授予执行器。
 
 每个作业固定预算与连接器配置/加密凭据快照。已接受作业继续使用这份快照；删除连接器不会删除快照或撤销已受理的执行授权。执行时再次读取有效白名单，显式空数据库覆盖保持拒绝。已接受执行不因原发起者被停用而丢弃；显式取消、Jobs 终态、父数据集和当前租约仍逐项围栏。
 

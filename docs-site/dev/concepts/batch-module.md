@@ -271,7 +271,7 @@ scene / frame_index 的语义见 [scene 与 frame_index](scene-and-frame-index)�
 - 删除该批次 task 的 `TaskLock`
 - 删除 `AsyncJob(kind="batch_predict")` 中 `payload.batch_id` 命中的历史任务
 - 调 `clean_task_predictions(task_ids)` 清掉 AI 预标产物
-- 返回 `{tasks_reset, prediction_jobs, predictions, failed_predictions, ai_annotations_deactivated}`
+- 返回 `{tasks_reset, prediction_jobs, predictions, failed_predictions, yoaos_deactivated}`
 
 ### `clean_task_predictions`
 
